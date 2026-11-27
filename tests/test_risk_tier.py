@@ -1457,57 +1457,59 @@ class mock_sleep(contextlib.ContextDecorator):
 
 
 class RateLimitedPrModeTests(unittest.TestCase):
-    """#49215's "risk evidence" went red on `gh api pulls/49215/files` exiting 1 with "API rate limit exceeded for
-    installation": no verdict on the pull request, yet a red a lander had to override. Now it ends green and
-    ungraded with the reason, and RISK_TIER_RATE_LIMIT_FAILS=1 turns it red again."""
+    """A structured quota refusal remains red and emits the consumer's fixed marker."""
 
     def run_pr(self, env=None):
         saved = risk.gh_items
 
         def limited(endpoint):
             raise risk.RateLimited(1, ["gh", "api", endpoint], output="",
-                                   stderr="gh: API rate limit exceeded for installation ID 1.")
+                                   stderr="", endpoint=endpoint, status=403, reset=1_800_000_000)
         risk.gh_items = limited
         self.addCleanup(lambda: setattr(risk, "gh_items", saved))
-        old = os.environ.pop(risk.RATE_LIMIT_FAILS_ENV, None)
-        self.addCleanup(lambda: os.environ.__setitem__(risk.RATE_LIMIT_FAILS_ENV, old) if old is not None
-                        else os.environ.pop(risk.RATE_LIMIT_FAILS_ENV, None))
-        os.environ.update(env or {})
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         out, summary = Path(tmp.name) / "out", Path(tmp.name) / "summary"
-        with contextlib.redirect_stdout(io.StringIO()):
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
             code = risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
                               "--summary", str(summary)])
-        return code, out.read_text(), summary.read_text()
+        return code, out.read_text(), summary.read_text(), captured.getvalue()
 
-    def test_a_rate_limit_ends_ungraded_green_with_the_reason(self):
-        code, out, summary = self.run_pr()
-        self.assertEqual(code, 0)
-        for line in ("tier=ungraded", "label=", "ready=true", "takes_back=false"):
+    def test_a_rate_limit_ends_red_with_the_fixed_marker(self):
+        code, out, summary, log = self.run_pr()
+        self.assertEqual(code, 1)
+        for line in ("tier=ungraded", "label=", "ready=false"):
             self.assertIn(line + "\n", out)
-        self.assertIn("API rate limit exceeded", summary)
+        self.assertNotIn("takes_back=", out)
+        marker = next(line for line in log.splitlines() if line.startswith("risk-evidence.rate-limited "))
+        self.assertEqual(json.loads(marker.split(" ", 1)[1]),
+                         {"endpoint": "repos/o/r/pulls/7/files?per_page=100", "graded": False,
+                          "reset": 1_800_000_000, "status": 403})
+        self.assertIn("HTTP 403", summary)
         self.assertIn("not a verdict", summary)
 
-    def test_the_off_switch_turns_a_rate_limit_red_again(self):
-        with self.assertRaises(risk.RateLimited):
-            self.run_pr({risk.RATE_LIMIT_FAILS_ENV: "1"})
+    def test_ungraded_preserves_a_takeback_found_before_a_later_api_refusal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+            error = risk.RateLimited(1, ["gh", "api", "x"], endpoint="repos/o/r/pulls/7/reviews",
+                                     status=429, reset=1_800_000_000)
+            error.takeback_numbers = [57000]
+            args = risk.argparse.Namespace(summary=str(summary), github_output=str(out))
+            self.assertEqual(risk.ungraded(args, error), 1)
+            self.assertIn("Takes back #57000:", summary.read_text())
 
 
 class GhFailureTests(unittest.TestCase):
-    """A gh call that fails names its reason on the job's log, and a rate limit stops the retries.
+    """Only HTTP 403/429 plus quota headers are classified; all other failures retry normally."""
 
-    #50881's "risk evidence" job was red with nothing in the log but "CalledProcessError ... returned non-zero
-    exit status 1": gh's stderr went into capture_output and was dropped, so neither a person nor
-    base_red_excuse.py could tell a drained API budget from a graded pull request."""
-
-    def run_gh(self, returncode, stderr, attempts=3):
+    def run_gh(self, stdout, returncode=1, stderr="", attempts=3):
         calls, slept = [], []
         saved_run, saved_sleep = subprocess.run, time.sleep
 
         def fake_run(args, **kwargs):
             calls.append(args)
-            return subprocess.CompletedProcess(args, returncode, stdout="", stderr=stderr)
+            return subprocess.CompletedProcess(args, returncode, stdout=stdout, stderr=stderr)
 
         risk.subprocess.run, risk.time.sleep = fake_run, lambda s: slept.append(s)
         self.addCleanup(lambda: (setattr(risk.subprocess, "run", saved_run),
@@ -1518,44 +1520,43 @@ class GhFailureTests(unittest.TestCase):
                 risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files"], attempts=attempts)
         return calls, slept, err.getvalue()
 
-    def test_a_rate_limit_far_from_its_reset_stops_at_once_and_says_it_is_not_a_verdict(self):
+    def test_a_structured_quota_far_from_reset_stops_without_retry(self):
         risk._rate_waited = 0.0
-        saved = risk.rate_limit_reset_in
-        risk.rate_limit_reset_in = lambda why: 1800.0
-        self.addCleanup(lambda: setattr(risk, "rate_limit_reset_in", saved))
-        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        response = "HTTP/2.0 403 Forbidden\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: 1800000000\r\n\r\n{}"
+        calls, slept, err = self.run_gh(response)
         self.assertEqual(len(calls), 1, "no retry inside this job outlasts an hourly reset")
+        self.assertIn("-i", calls[0])
         self.assertEqual(slept, [])
-        self.assertIn("API rate limit exceeded", err)
-        self.assertIn("not a verdict", err)
+        self.assertIn("structured refusal", err)
 
-    def test_a_rate_limit_that_resets_soon_waits_once_then_raises_rate_limited(self):
+    def test_a_structured_quota_that_resets_soon_waits_once_then_raises_rate_limited(self):
         risk._rate_waited = 0.0
-        saved = risk.rate_limit_reset_in
-        risk.rate_limit_reset_in = lambda why: 50.0
-        self.addCleanup(lambda: setattr(risk, "rate_limit_reset_in", saved))
-        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        response = "HTTP/2.0 403 Forbidden\nX-RateLimit-Remaining: 0\nRetry-After: 50\n\n{}"
+        calls, slept, err = self.run_gh(response)
         self.assertEqual(len(calls), 2, "one wait for the budget, then no more")
-        self.assertEqual(slept, [51.0])
+        self.assertEqual(slept, [50.0 + 1])
         self.assertIn("waiting 50s", err)
         # The wait is bounded across the whole job (50 s spent of 90): another 50 s wait would pass it, so the next
         # limit raises at once.
-        calls, slept, _ = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        calls, slept, _ = self.run_gh(response)
         self.assertEqual((len(calls), slept), (1, []))
 
-    def test_a_rate_limit_raises_rate_limited_and_another_failure_does_not(self):
+    def test_a_quota_raises_rate_limited_but_nonquota_403_does_not(self):
         risk._rate_waited = risk.RATE_LIMIT_WAIT_SECONDS
         saved_run = subprocess.run
         self.addCleanup(lambda: setattr(risk.subprocess, "run", saved_run))
-        for stderr, kind in (("gh: API rate limit exceeded", risk.RateLimited), ("gh: Not Found (HTTP 404)", None)):
-            risk.subprocess.run = lambda args, **kw: subprocess.CompletedProcess(args, 1, stdout="", stderr=stderr)
+        for stdout, kind in (("HTTP/2 429 Too Many Requests\nretry-after: 10\n\n{}", risk.RateLimited),
+                             ("HTTP/2 403 Forbidden\nx-ratelimit-remaining: 1\n\n{}", None),
+                             ("", None)):
+            risk.subprocess.run = lambda args, stdout=stdout, **kw: subprocess.CompletedProcess(args, 1, stdout=stdout,
+                                                                                                  stderr="gh: API rate limit exceeded")
             with contextlib.redirect_stderr(io.StringIO()), mock_sleep():
                 with self.assertRaises(subprocess.CalledProcessError) as caught:
                     risk.gh_run(["gh", "api", "x"])
-            self.assertEqual(isinstance(caught.exception, risk.RateLimited), kind is not None, stderr)
+            self.assertEqual(isinstance(caught.exception, risk.RateLimited), kind is not None, stdout)
 
     def test_another_failure_retries_and_still_prints_gh_s_words(self):
-        calls, slept, err = self.run_gh(1, "gh: Not Found (HTTP 404)")
+        calls, slept, err = self.run_gh("", stderr="gh: Not Found (HTTP 404)")
         self.assertEqual(len(calls), 3)
         self.assertEqual(slept, [2, 4])
         self.assertIn("Not Found (HTTP 404)", err)
@@ -1563,12 +1564,29 @@ class GhFailureTests(unittest.TestCase):
 
     def test_a_successful_call_prints_nothing(self):
         saved = subprocess.run
-        risk.subprocess.run = lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+        risk.subprocess.run = lambda args, **kwargs: subprocess.CompletedProcess(
+            args, 0, stdout="HTTP/2 200 OK\ncontent-type: application/json\n\n[]", stderr="")
         self.addCleanup(lambda: setattr(risk.subprocess, "run", saved))
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             self.assertEqual(risk.gh_run(["gh", "api", "x"]), "[]")
         self.assertEqual(err.getvalue(), "")
+
+    def test_a_nonquota_error_with_rate_limit_words_in_stderr_is_not_quota(self):
+        response = "HTTP/2 500 Internal Server Error\n\n{}"
+        calls, slept, _ = self.run_gh(response, stderr="API rate limit exceeded in a provider error")
+        self.assertEqual((len(calls), slept), (3, [2, 4]))
+
+    def test_an_http_looking_body_cannot_spoof_a_quota_status(self):
+        response = "HTTP/2 500 Internal Server Error\n\nHTTP/2 429 Too Many Requests\nretry-after: 10\n\n{}"
+        calls, slept, _ = self.run_gh(response)
+        self.assertEqual((len(calls), slept), (3, [2, 4]))
+
+    def test_nonfinite_reset_is_not_used_as_a_wait(self):
+        response = "HTTP/2 403 Forbidden\nx-ratelimit-remaining: 0\nx-ratelimit-reset: NaN\n\n{}"
+        risk._rate_waited = 0.0
+        calls, slept, _ = self.run_gh(response)
+        self.assertEqual((len(calls), slept), (1, []))
 
 
 if __name__ == "__main__":
