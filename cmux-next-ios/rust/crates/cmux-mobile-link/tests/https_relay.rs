@@ -1155,6 +1155,8 @@ async fn the_offer_before_the_gather_with_an_older_mac_still_rides_the_relay() {
         relay_first_dial_with_a_slow_gather(false, false, Duration::from_millis(400), Duration::ZERO).await;
     eprintln!("older Mac: link up {up:?}, wg-init at {init:?}");
     assert!(init < Duration::from_millis(150), "wg-init went at {init:?}");
+}
+
 /// Plain UDP for the test below, its own switch.
 static UDP_LOST_LATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 fn udp_lost_late(_: &std::net::SocketAddr) -> bool {
