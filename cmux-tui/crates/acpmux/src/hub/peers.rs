@@ -84,6 +84,7 @@ fn remote_row_event(peer: &str, summary: impl Into<PeerRow>, kind: &str) -> Opti
         }),
         remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
         update_line: Default::default(),
+        event_params: Default::default(),
         row: Default::default(),
         list_seq: 0,
         peer_batch: false,
@@ -186,6 +187,7 @@ impl Hub {
             self.peer_notices.clone(),
             leased,
         );
+        peer.coalesce_lists();
         if let Some(transport) = &self.wireguard
             && let Some(configured) = &pc.wireguard
             && let Some(address) = transport.route_for(name, configured)
@@ -929,6 +931,13 @@ impl Hub {
             match notice {
                 // Whether a name missing from its rows is final, and messages waiting for the
                 // peer go now (`hub/no_session.rs`).
+                PeerNotice::WaitingList(number) => {
+                    if let Some(p) = self.peer(&peer).filter(|p| p.generation == generation)
+                        && let Some(rows) = p.take_waiting_list(number)
+                    {
+                        self.apply_peer_notice(&peer, generation, PeerNotice::Sessions(rows));
+                    }
+                }
                 PeerNotice::Listed => self.peer_listed(&peer, generation),
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
@@ -1165,6 +1174,7 @@ impl Hub {
                                     .unwrap_or_else(|| PeerRow::new(&json!({"sessionId": mux_id}))),
                             }),
                             update_line: Default::default(),
+                            event_params: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
                             peer_batch: false,
@@ -1264,6 +1274,7 @@ impl Hub {
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary: announced }),
                         update_line: Default::default(),
+                        event_params: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                         peer_batch: false,
@@ -1312,6 +1323,7 @@ impl Hub {
                             summary: PeerRow::new(&Value::Null),
                         }),
                         update_line: Default::default(),
+                        event_params: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                         peer_batch: false,
@@ -1343,6 +1355,7 @@ impl Hub {
                                 summary: PeerRow::new(&Value::Null),
                             }),
                             update_line: Default::default(),
+                            event_params: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
                             peer_batch: false,
@@ -1515,6 +1528,7 @@ impl Hub {
                         record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                         update_line: Default::default(),
+                        event_params: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                         peer_batch: false,

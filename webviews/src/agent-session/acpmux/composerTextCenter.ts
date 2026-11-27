@@ -33,15 +33,25 @@ export function followTextCenter(field: HTMLElement): (() => void) | undefined {
   const view = doc.defaultView;
   if (!box || !view || typeof ResizeObserver !== "function") return undefined;
   let last = "";
-  const measure = () => {
+  // The font and line height the drop was last measured for. The drop depends on those alone, and the field
+  // resizes on nearly every key (its line box grows with the draft), so a resize that keeps them keeps the drop:
+  // re-probing each time built a canvas and a probe line in the key's frame and forced a layout there (0.27 ms a
+  // key in composer-typing.bench.ts's L0 profile), and the probe's append and removal in the box made
+  // followActionsWidth (composerScrollLane.ts) read its actions' box in the same frame. A web font arriving
+  // changes the metrics without changing either, so it measures again whatever they read (`fresh`).
+  let measuredFor = "";
+  const measure = (fresh = false) => {
     if (!field.isConnected) return;
     // The words' own element: the editor inside the field when there is one.
     const text = field.querySelector<HTMLElement>("[contenteditable]") ?? field;
     const style = view.getComputedStyle(text);
     const lineHeight = Number.parseFloat(style.lineHeight);
-    const context = doc.createElement("canvas").getContext("2d");
-    if (!Number.isFinite(lineHeight) || !context) return;
+    if (!Number.isFinite(lineHeight)) return;
     const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const key = `${font}/${style.lineHeight}`;
+    if (!fresh && key === measuredFor && box.style.getPropertyValue(PROPERTY) === last) return;
+    const context = doc.createElement("canvas").getContext("2d");
+    if (!context) return;
     context.font = font;
     const capHeight = context.measureText("H").actualBoundingBoxAscent;
     if (!(capHeight > 0)) return;
@@ -58,23 +68,26 @@ export function followTextCenter(field: HTMLElement): (() => void) | undefined {
     const drop = capCenterDrop({ lineHeight, baseline, capHeight });
     if (!Number.isFinite(drop)) return;
     const value = `${drop.toFixed(3)}px`;
+    measuredFor = key;
     if (value === last && box.style.getPropertyValue(PROPERTY) === value) return;
     last = value;
     box.style.setProperty(PROPERTY, value);
   };
   // A density or text size change resizes the field (its line height is its height); a web font
   // arriving changes the metrics without one.
-  const observer = new ResizeObserver(measure);
+  const resized = () => measure();
+  const remeasure = () => measure(true);
+  const observer = new ResizeObserver(resized);
   observer.observe(field);
   const fonts = doc.fonts;
-  fonts?.addEventListener?.("loadingdone", measure);
-  void fonts?.ready?.then(measure);
-  view.addEventListener("cmux-ui-scale-change", measure);
+  fonts?.addEventListener?.("loadingdone", remeasure);
+  void fonts?.ready?.then(remeasure);
+  view.addEventListener("cmux-ui-scale-change", remeasure);
   measure();
   return () => {
     observer.disconnect();
-    fonts?.removeEventListener?.("loadingdone", measure);
-    view.removeEventListener("cmux-ui-scale-change", measure);
+    fonts?.removeEventListener?.("loadingdone", remeasure);
+    view.removeEventListener("cmux-ui-scale-change", remeasure);
     box.style.removeProperty(PROPERTY);
   };
 }
