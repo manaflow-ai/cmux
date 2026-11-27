@@ -310,8 +310,15 @@ pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
         Value::String(typed) => typed.graphemes(true).count() as u64,
         _ => 0,
     };
-    if typed > 0 {
-        line(messages.typed, &[("count", typed.to_string())]);
+    // A run cut off before its text was all typed (time ran out, the person typed, focus left) says how
+    // much of it went in; an older page sends no `type_asked`.
+    match (page["type_asked"].as_u64(), page["type_stopped"].as_str()) {
+        (Some(asked), Some(why)) if asked > typed => line(
+            messages.typed_cut,
+            &[("count", typed.to_string()), ("asked", asked.to_string()), ("why", why.to_owned())],
+        ),
+        _ if typed > 0 => line(messages.typed, &[("count", typed.to_string())]),
+        _ => {}
     }
     match report["engine_counters"].as_object() {
         Some(counters) => {

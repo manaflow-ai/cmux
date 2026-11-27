@@ -393,6 +393,64 @@ test("a person's key during the run stops the typing and marks the run person_ac
   expect(drive.state().person_active).toBe(true);
 });
 
+test("a run that ends before its text is typed says it was cut off, and how much of it went in", async () => {
+  const { ChatDrive } = await import("../src/agent-session/acpmux/chatDrive");
+  await render("Ask anything");
+  const doc = dom.window.document as unknown as { execCommand(command: string, ui: boolean, text: string): boolean };
+  doc.execCommand = () => true;
+  for (const [text, frames, typed, stopped] of [
+    ["abcdef", 2, 2, "time_up"],
+    ["ab", 4, 2, undefined],
+  ] as const) {
+    const page = fakeEnv();
+    const drive = new ChatDrive();
+    expect(await drive.begin({ seconds: 1, type: { text, allow_draft: false } }, idleHost(), page.env)).toMatchObject({
+      ok: true,
+    });
+    page.frames(frames);
+    const report = (await drive.end()) as Record<string, any>;
+    expect(report.typed).toBe(typed);
+    expect(report.type_asked).toBe(text.length);
+    expect(report.type_stopped).toBe(stopped);
+  }
+});
+
+test("typing over a draft starts at its end, never over the person's selection", async () => {
+  const { ChatDrive } = await import("../src/agent-session/acpmux/chatDrive");
+  const { COMPOSER_EDITOR } = await import("../src/agent-session/acpmux/composerSelectors");
+  await render("Ask anything");
+  const document = dom.window.document;
+  const editor = document.querySelector(COMPOSER_EDITOR)!;
+  editor.appendChild(document.createTextNode("hello"));
+  // The person's selection over the draft, which an insert there would replace.
+  const selected = document.createRange();
+  selected.selectNodeContents(editor);
+  document.getSelection()!.removeAllRanges();
+  document.getSelection()!.addRange(selected);
+  const atInsert: { collapsed: boolean; atEnd: boolean }[] = [];
+  const doc = document as unknown as { execCommand(command: string, ui: boolean, text: string): boolean };
+  doc.execCommand = () => {
+    const selection = document.getSelection()!;
+    const end = document.createRange();
+    end.selectNodeContents(editor);
+    end.collapse(false);
+    const range = selection.getRangeAt(0);
+    atInsert.push({
+      collapsed: selection.isCollapsed,
+      atEnd: range.compareBoundaryPoints(dom.window.Range.END_TO_END, end) === 0,
+    });
+    return true;
+  };
+  const page = fakeEnv();
+  const drive = new ChatDrive();
+  expect(
+    await drive.begin({ seconds: 1, type: { text: "x", allow_draft: true } }, idleHost("hello"), page.env),
+  ).toMatchObject({ ok: true });
+  page.frames(2);
+  await drive.end();
+  expect(atInsert).toEqual([{ collapsed: true, atEnd: true }]);
+});
+
 test("a person's key the run ends on, before a frame acts on it, still stops the typing as the person's", async () => {
   const { ChatDrive } = await import("../src/agent-session/acpmux/chatDrive");
   const { COMPOSER_EDITOR } = await import("../src/agent-session/acpmux/composerSelectors");
