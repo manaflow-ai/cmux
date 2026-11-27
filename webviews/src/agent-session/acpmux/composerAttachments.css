@@ -187,6 +187,20 @@
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
 }
+/* Every attachment thumbnail cut by its tile keeps the picture's start: a wide screenshot of text
+   shows its first words and its own margin, never a slice from its middle cut on both sides, and its
+   cut end fades as text ends in an ellipsis (composer/thumbCrop.ts sets data-crop; Leo, 2026-11-27:
+   "did we fix this yet", on tiles reading "or a script: lane-deploy" and "ing"). Composer, sent
+   prompt, inline chip, instant preview and queue (composerStates.css) alike. */
+:is(.acpmux-attachment-image img, .acpmux-attachment-instant, .acpmux-queued-image img) {
+  object-position: left top;
+}
+:is(.acpmux-attachment-image img, .acpmux-attachment-instant, .acpmux-queued-image img)[data-crop="x"] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 14px), rgb(0 0 0 / 0.3));
+}
+:is(.acpmux-attachment-image img, .acpmux-attachment-instant, .acpmux-queued-image img)[data-crop="y"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 10px), rgb(0 0 0 / 0.3));
+}
 /* An attached video (composer/VideoAttachmentTile.tsx): its poster in the image's tile, a small glass
    play glyph in its middle and its length on a dark scrim in a corner, as a reply's video thumbnail
    (chips/chips.css .cv-media__duration). A click plays it. */
@@ -341,7 +355,7 @@
 }
 /* Over the loading glass's own `background` shorthand (below), which would reset its size. */
 .acpmux-attachment.acpmux-attachment-pending[data-instant] {
-  background-position: center;
+  background-position: left top;
   background-size: cover;
   background-repeat: no-repeat;
 }

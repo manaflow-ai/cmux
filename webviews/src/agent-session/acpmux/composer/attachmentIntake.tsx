@@ -38,6 +38,7 @@ import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { markCrop } from "./thumbCrop";
 import { revealControls } from "../../../ui/revealCover";
 import "../../../ui/motion/motion.css";
 import { AttachmentPreviewBoundary } from "./AttachmentPreviewBoundary";
@@ -281,7 +282,14 @@ export function InstantPreview({ src }: { src: string }) {
   const [broken, setBroken] = useState(false);
   if (broken) return null;
   return (
-    <img className="acpmux-attachment-instant" src={src} alt="" draggable={false} onError={() => setBroken(true)} />
+    <img
+      className="acpmux-attachment-instant"
+      src={src}
+      alt=""
+      draggable={false}
+      onLoad={(event) => markCrop(event.currentTarget)}
+      onError={() => setBroken(true)}
+    />
   );
 }
 
@@ -558,7 +566,10 @@ function AttachmentChipPreview({
           const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
           // An image that decodes to no pixels draws nothing: it failed too.
           if (!width || !height) setBroken(true);
-          else if (!displayedThumb) setSize({ width, height });
+          else {
+            markCrop(event.currentTarget);
+            if (!displayedThumb) setSize({ width, height });
+          }
         }}
       />
     );

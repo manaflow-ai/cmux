@@ -423,4 +423,5 @@
   height: 24px;
   border-radius: 6px;
   object-fit: cover;
+  object-position: left top;
 }
