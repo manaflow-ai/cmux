@@ -37,6 +37,13 @@ fn sample() -> Bound {
         agent_home: "/Users/a".into(),
         acpmux_home: "/Users/a/.acpmux".into(),
         session_tmp: "/private/tmp/acpmux-501".into(),
+        cmux_config: "/Users/a/.config/cmux-next/cmux-next.json".into(),
+        cmux_legacy_config: "/Users/a/.config/cmux/cmux-next.json".into(),
+        cmux_agent_config: "/Users/a/.config/cmux-next/cmux-next.json".into(),
+        cmux_agent_legacy_config: "/Users/a/.config/cmux/cmux-next.json".into(),
+        cmux_config_real: "/Users/a/.config/cmux-next/cmux-next.json".into(),
+        gh_config_dir: "/Users/a/.config/gh".into(),
+        xdg_gh_config_dir: "/Users/a/.config/gh".into(),
         folders: vec!["/Users/a/code/lib".into(), "/Users/a/code/app.git".into()],
         api_port: None,
     }
@@ -57,6 +64,13 @@ fn the_profile_gets_every_folder_and_its_params() {
         "AGENT_HOME=/Users/a",
         "ACPMUX_HOME=/Users/a/.acpmux",
         "SESSION_TMP=/private/tmp/acpmux-501",
+        "CMUX_CONFIG=/Users/a/.config/cmux-next/cmux-next.json",
+        "CMUX_LEGACY_CONFIG=/Users/a/.config/cmux/cmux-next.json",
+        "CMUX_AGENT_CONFIG=/Users/a/.config/cmux-next/cmux-next.json",
+        "CMUX_AGENT_LEGACY_CONFIG=/Users/a/.config/cmux/cmux-next.json",
+        "CMUX_CONFIG_REAL=/Users/a/.config/cmux-next/cmux-next.json",
+        "GH_CONFIG_DIR=/Users/a/.config/gh",
+        "XDG_GH_CONFIG_DIR=/Users/a/.config/gh",
         "DIR0=/Users/a/code/lib",
         "DIR1=/Users/a/code/app.git",
     ] {
@@ -73,6 +87,8 @@ fn the_profile_denies_credentials_writes_and_other_ports() {
         "(deny file-write* (subpath \"/\"))",
         "(subpath (string-append (param \"HOME\") \"/.ssh\"))",
         "(subpath (string-append (param \"HOME\") \"/.aws\"))",
+        "(subpath (string-append (param \"HOME\") \"/.config/gh\"))",
+        "(deny file-link)",
         "(deny network-outbound)",
         "(remote ip \"*:443\")",
     ] {
@@ -81,6 +97,12 @@ fn the_profile_denies_credentials_writes_and_other_ports() {
     // Credential reads are denied after the write allowlist, so no allowed folder re-opens them.
     let deny = PROFILE.find("(deny file-read* file-write*").unwrap();
     assert!(deny > PROFILE.find(";; @FOLDERS@").unwrap());
+    let settings_deny =
+        PROFILE.find("(literal (string-append \"\" (param \"CMUX_CONFIG\")))").unwrap();
+    assert!(settings_deny > PROFILE.find(";; cmux's settings trees").unwrap());
+    for param in ["CMUX_AGENT_CONFIG", "CMUX_AGENT_LEGACY_CONFIG"] {
+        assert!(PROFILE.contains(&format!("(param \"{param}\")")));
+    }
 }
 
 #[test]
@@ -130,21 +152,41 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
     let (cwd, home) = (t.path().join("cwd"), t.path().join("home"));
     std::fs::create_dir_all(cwd.join(".claude")).unwrap();
     std::fs::create_dir_all(home.join(".claude")).unwrap();
-    assert!(!claude_sandbox_on(&[], &cwd, &home));
+    let mut env = BTreeMap::new();
+    env.insert("HOME".into(), home.display().to_string());
+    assert!(!claude_sandbox_on(&[], &cwd, &env));
     let on = r#"{"sandbox":{"enabled":true}}"#;
-    assert!(claude_sandbox_on(&s(&["--settings", on]), &cwd, &home));
-    assert!(claude_sandbox_on(&[format!("--settings={on}")], &cwd, &home));
-    // The remote chain's own `--settings` turns it off: no skip.
+    assert!(claude_sandbox_on(&s(&["--settings", on]), &cwd, &env));
+    assert!(claude_sandbox_on(&[format!("--settings={on}")], &cwd, &env));
     assert!(!claude_sandbox_on(
         &s(&["--settings", r#"{"sandbox":{"enabled":false}}"#]),
         &cwd,
-        &home
+        &env
+    ));
+    // Claude applies the last --settings value, so an earlier true cannot disable our wrapper.
+    assert!(!claude_sandbox_on(
+        &s(&["--settings", on, "--settings", r#"{"sandbox":{"enabled":false}}"#]),
+        &cwd,
+        &env
+    ));
+    assert!(claude_sandbox_on(
+        &s(&["--settings", r#"{"sandbox":{"enabled":false}}"#, "--settings", on]),
+        &cwd,
+        &env
     ));
     std::fs::write(cwd.join(".claude/settings.local.json"), on).unwrap();
-    assert!(claude_sandbox_on(&[], &cwd, &home));
+    assert!(claude_sandbox_on(&[], &cwd, &env));
     std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();
     std::fs::write(home.join(".claude/settings.json"), on).unwrap();
-    assert!(claude_sandbox_on(&[], &cwd, &home));
+    assert!(claude_sandbox_on(&[], &cwd, &env));
+
+    // CLAUDE_CONFIG_DIR replaces the default ~/.claude home and must be inspected too.
+    let configured = t.path().join("configured-claude");
+    std::fs::create_dir_all(&configured).unwrap();
+    std::fs::write(configured.join("settings.json"), on).unwrap();
+    env.insert("CLAUDE_CONFIG_DIR".into(), configured.display().to_string());
+    std::fs::remove_file(home.join(".claude/settings.json")).unwrap();
+    assert!(claude_sandbox_on(&[], &cwd, &env));
 }
 
 #[test]

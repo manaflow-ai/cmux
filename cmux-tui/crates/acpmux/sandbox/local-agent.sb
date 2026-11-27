@@ -4,8 +4,8 @@
 ;; Bash tool included) inherits it and cannot leave it.
 ;;
 ;; It is looser than a remote chain's (`remote-chain.sb`): a local chat is the
-;; person's own and keeps today's flows (git, builds, dev servers, the
-;; Keychain login, editing its own CLAUDE.md and skills). What it stops is the
+;; person's own and keeps today's flows (git, builds, dev servers, editing its
+;; own CLAUDE.md and skills). What it stops is the
 ;; prompt-injection path: reading a credential and sending it out, and
 ;; writing outside the chat's folders and the toolchains' own state.
 ;;
@@ -42,11 +42,6 @@
   (subpath (string-append (param "AGENT_HOME") "/.cache"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Caches"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Logs"))
-  ;; Claude Code saves a refreshed login in the Keychain
-  (subpath (string-append (param "HOME") "/Library/Keychains"))
-  ;; cmux's own settings and state (the customization flow edits them)
-  (subpath (string-append (param "AGENT_HOME") "/.config/cmux"))
-  (subpath (string-append (param "AGENT_HOME") "/.config/cmux-next"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/cmux"))
   ;; toolchains: package caches and build outputs
   (subpath (string-append (param "AGENT_HOME") "/.cargo"))
@@ -66,12 +61,27 @@
 ;; @FOLDERS@
   )
 
+;; The sandbox policy itself is read by the daemon before each new chat. Keep
+;; cmux's settings trees immutable from inside the sandbox, including the
+;; legacy path used by the one-time macOS migration and an explicit override.
+(deny file-write*
+  (subpath (string-append (param "HOME") "/.config/cmux-next"))
+  (subpath (string-append (param "HOME") "/.config/cmux"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/cmux-next"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/cmux"))
+  (literal (string-append "" (param "CMUX_CONFIG")))
+  (literal (string-append "" (param "CMUX_CONFIG_REAL")))
+  (literal (string-append "" (param "CMUX_LEGACY_CONFIG")))
+  (literal (string-append "" (param "CMUX_AGENT_CONFIG")))
+  (literal (string-append "" (param "CMUX_AGENT_LEGACY_CONFIG"))))
+
+;; A hard link would let a write in a writable folder land on a file outside it.
+(deny file-link)
+
 ;; Credentials a local agent never reads, though their tools keep working:
 ;; private keys (ssh still finds known_hosts, its config and the agent's
 ;; keys through SSH_AUTH_SOCK), cloud and registry tokens, browser cookies
-;; and profiles. The Keychain stays: Claude Code keeps its login there and
-;; the Security framework reads and writes the keychain files in-process;
-;; their items are encrypted and each has its own access prompt.
+;; and profiles and system or user Keychains.
 (deny file-read* file-write*
   (subpath (string-append (param "HOME") "/.ssh"))
   (subpath (string-append (param "AGENT_HOME") "/.ssh"))
@@ -82,6 +92,9 @@
   (subpath (string-append (param "HOME") "/.gnupg"))
   (subpath (string-append (param "AGENT_HOME") "/.gnupg"))
   (subpath (string-append (param "HOME") "/.kube"))
+  (subpath (string-append (param "HOME") "/.config/gh"))
+  (subpath (param "GH_CONFIG_DIR"))
+  (subpath (param "XDG_GH_CONFIG_DIR"))
   (subpath (string-append (param "HOME") "/.config/gcloud"))
   (subpath (string-append (param "HOME") "/.azure"))
   (literal (string-append (param "HOME") "/.netrc"))
@@ -90,12 +103,36 @@
   (literal (string-append (param "HOME") "/.pypirc"))
   (literal (string-append (param "HOME") "/.docker/config.json"))
   (literal (string-append (param "HOME") "/.codex/auth.json"))
+  (subpath (string-append (param "HOME") "/Library/Keychains"))
+  (subpath "/Library/Keychains")
   (subpath (string-append (param "HOME") "/Library/Cookies"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Google/Chrome"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Firefox"))
   (subpath (string-append (param "HOME") "/Library/Application Support/BraveSoftware"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Arc"))
-  (subpath (string-append (param "HOME") "/Library/Safari")))
+  (subpath (string-append (param "HOME") "/Library/Safari"))
+  (subpath (string-append (param "AGENT_HOME") "/.ssh"))
+  (subpath (string-append (param "AGENT_HOME") "/.secrets"))
+  (subpath (string-append (param "AGENT_HOME") "/.aws"))
+  (subpath (string-append (param "AGENT_HOME") "/.gnupg"))
+  (subpath (string-append (param "AGENT_HOME") "/.kube"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/gh"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/gcloud"))
+  (subpath (string-append (param "AGENT_HOME") "/.azure"))
+  (literal (string-append (param "AGENT_HOME") "/.netrc"))
+  (literal (string-append (param "AGENT_HOME") "/.git-credentials"))
+  (literal (string-append (param "AGENT_HOME") "/.npmrc"))
+  (literal (string-append (param "AGENT_HOME") "/.pypirc"))
+  (literal (string-append (param "AGENT_HOME") "/.docker/config.json"))
+  (literal (string-append (param "AGENT_HOME") "/.codex/auth.json"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Keychains"))
+  (subpath "/Library/Keychains")
+  (subpath (string-append (param "AGENT_HOME") "/Library/Cookies"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/Google/Chrome"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/Firefox"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/BraveSoftware"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/Arc"))
+  (subpath (string-append (param "AGENT_HOME") "/Library/Safari")))
 ;; ssh's own non-secret files stay readable: without known_hosts and its
 ;; config, git over ssh stops even with keys in the agent.
 (allow file-read*
@@ -103,7 +140,9 @@
   (literal (string-append (param "HOME") "/.ssh/config"))
   (literal (string-append (param "HOME") "/.ssh/known_hosts"))
   (regex (string-append "^" (param "HOME_RE") "/\\.ssh/[^/]+\\.pub$"))
-  (literal (string-append (param "HOME") "/.aws/config")))
+  (regex (string-append "^" (param "AGENT_HOME_RE") "/\\.ssh/[^/]+\\.pub$"))
+  (literal (string-append (param "HOME") "/.aws/config"))
+  (literal (string-append (param "AGENT_HOME") "/.aws/config")))
 
 ;; No process outside the sandbox: no launchd jobs, no app launches.
 (deny job-creation)
