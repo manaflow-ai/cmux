@@ -36,6 +36,8 @@ text = WORKFLOW.read_text()
 schedule = re.findall(r'^    - cron: "([^"]+)"$', text, re.MULTILINE)
 check(schedule == ["2-59/5 * * * *"],
       f"the dev dispatcher must run every five minutes, got {schedule}")
+check("cancel-in-progress: true" in text,
+      "a newer tick must cancel an older dispatcher before it spends the API budget")
 # The dispatcher failed on its first read whenever the shared GITHUB_TOKEN
 # budget was spent (2026-10-26 15:47Z, 16:03Z): reads and the publisher dispatch
 # take the manaflow-glaeda-route App's budget, the DEV build dispatch stays on
@@ -113,8 +115,10 @@ check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
       "the publisher must resolve the exact dispatched source run")
 check(re.search(r"select\(\.conclusion == \"success\"\) \| \.name' \|\| true", publish_text) is None,
       "a failed source-job read must fail the publisher run, not succeed with nothing published")
-check("finishedRuns.slice(0, 10)" not in text,
-      "the dispatcher must not hide an older app behind ten failed source runs")
+check("finishedRuns.slice(0, 3)" in text,
+      "the dispatcher must bound its historical app backstop to three source runs")
+check("for (const run of finishedRuns)" not in text,
+      "the dispatcher must not scan every historical source run")
 # verify is the admission gate since the signer moved to Linux (Apple's codesign runs only
 # there): a red verify fails the run on purpose, so the dispatcher hands the source run over
 # again instead of counting a build that never published as handled.
@@ -382,6 +386,13 @@ check(published(calls) == ["12"], f"an older publish run must not stop a newer h
 calls = run([dev_run(7, "7" * 40, "failure"), dev_run(6, "6" * 40, "failure")],
             {7: app_job("failure"), 6: app_job("skipped")})
 check(published(calls) == [], f"runs without an app must not be published, got {published(calls)}")
+
+# A burst of failed source runs must not turn the dispatcher into an unbounded
+# jobs-API scan. Three is the deliberate backstop limit.
+burst = [dev_run(run_id, str(run_id) * 40, "failure") for run_id in (15, 14, 13, 12, 11)]
+calls = run(burst, {run_id: app_job("failure") for run_id in (15, 14, 13, 12, 11)})
+check(len([call for call in calls if call[0] == "jobs"]) == 3,
+      f"the historical app backstop must inspect only three source runs, got {calls}")
 
 if failures:
     print("FAIL: cmux NEXT DEV daily dispatcher\n  " + "\n  ".join(failures))

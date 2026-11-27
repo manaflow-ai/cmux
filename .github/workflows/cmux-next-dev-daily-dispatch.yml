@@ -4,7 +4,7 @@ name: cmux NEXT DEV daily dispatcher
 # the next merge. This schedule snapshots the current branch tip and asks the
 # source workflow for one Release cmux NEXT DEV artifact every five minutes.
 # The source run builds only that SHA (cmux-next.yml checks github.sha) and
-# never cancels another run. GitHub's cron fired every 15-25 minutes on
+# never cancels a source build. GitHub's cron fired every 15-25 minutes on
 # 2026-10-25 (a merge reached the tip feed 48 minutes later), so every
 # feat-cmux-next push also starts this dispatcher (cmux-next.yml job
 # kick-cmux-next-dev-dispatch); the 5-minute spacing below keeps that from
@@ -18,7 +18,9 @@ permissions: {}
 
 concurrency:
   group: cmux-next-dev-daily-dispatch
-  cancel-in-progress: false
+  # Push kicks and scheduled ticks can arrive together. Keep only the newest
+  # dispatcher so canceled invocations cannot drain the API budget in parallel.
+  cancel-in-progress: true
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -177,9 +179,11 @@ jobs:
               (run.name === `cmux NEXT DEV daily · ${run.head_sha}` ||
                run.display_title === `cmux NEXT DEV daily · ${run.head_sha}`));
             let finishedDev;
-            // Inspect the complete page. A burst of source runs without an
-            // app must not hide an older successful app from the handoff.
-            for (const run of finishedRuns) {
+            // The source workflow hands successful app compiles directly to
+            // the publisher. Keep this dispatcher as a bounded backstop for
+            // a handoff that was missed, while avoiding one jobs request for
+            // every historical run in a burst.
+            for (const run of finishedRuns.slice(0, 3)) {
               const { data: jobs } = await call((client) => client.rest.actions.listJobsForWorkflowRun({
                 owner,
                 repo,
