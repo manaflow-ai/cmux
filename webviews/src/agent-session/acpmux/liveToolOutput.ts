@@ -401,7 +401,7 @@ export function redrawWhy(
   return "row";
 }
 
-function sameSettled(before: unknown, after: unknown): boolean {
+export function sameSettled(before: unknown, after: unknown): boolean {
   if (!before || !after || typeof before !== "object" || typeof after !== "object") return false;
   const left = before as { lastSeq?: unknown; forkSeqs?: unknown };
   const right = after as { lastSeq?: unknown; forkSeqs?: unknown };
