@@ -12,7 +12,16 @@ import os
 #endif
 import SwiftUI
 
+/// The process's entry: takes the `main` launch mark (dyld and static initializers end here),
+/// then runs the app, so launch splits into before main, main to `App.init`, and after.
 @main
+enum CmuxMobileAppMain {
+    @MainActor static func main() {
+        LaunchMarks.shared.mark("main")
+        CmuxMobileApp.main()
+    }
+}
+
 struct CmuxMobileApp: App {
     /// Push registration and notification taps (CmuxMobileShell).
     @UIApplicationDelegateAdaptor(CmuxMobileAppDelegate.self) private var appDelegate
@@ -26,7 +35,13 @@ struct CmuxMobileApp: App {
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
         LaunchMarks.shared.mark("app_init")
+        // Main-thread hangs: sampled stacks, hang files in Library/hangs, MetricKit (HangWatch).
+        HangWatch.start()
+        LaunchMarks.shared.mark("init_hang_watch")
         #if DEBUG
+        // Offline duress (`CmuxMobileDuress` = a `cmux-duress gen` folder; unset: nothing runs). First,
+        // so the list rig reads the folder's workspace count (cmux-next-ios/design/duress-sim.md).
+        MobileDuress.startIfRequested()
         // `CMUX_MOBILE_LAUNCH_MARKS=1`: resume-after-switch marks for ResumeFromSwitchUITests.
         ResumeMarks.startIfRequested()
         #endif
@@ -34,10 +49,13 @@ struct CmuxMobileApp: App {
         // settings here: they are deleted once, before anything reads either, so this app
         // starts signed out instead of half-reading a classic session.
         ClassicLeftovers.cleanUpIfDue()
+        LaunchMarks.shared.mark("init_classic_leftovers")
         // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        LaunchMarks.shared.mark("init_legacy_storage")
         // Agent Chats restores the last page from the phone's read-first store before refreshing.
         PhoneReadFirst.installAgentChats()
+        LaunchMarks.shared.mark("init_read_first")
         #if !CMUX_MOBILE_PRODUCTION
         // Messages' own + menu and tapback art (ConversationSystemArt). Every shipping
         // build (Production, TestFlight/cmux INTERNAL, AppStore) carries no
@@ -74,6 +92,7 @@ struct CmuxMobileApp: App {
             devBuild: devBuild
         )
         _auth = State(initialValue: auth)
+        LaunchMarks.shared.mark("init_auth")
         // A notification reply on a cold background launch signs in with it (no scene runs then).
         PushReplies.shared.auth = auth
         #if DEBUG
@@ -96,6 +115,7 @@ struct CmuxMobileApp: App {
         // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
         TerminalFeedFixture.shared.startIfRequested()
         #endif
+        LaunchMarks.shared.mark("app_init_done")
     }
 
     var body: some Scene {
@@ -104,6 +124,8 @@ struct CmuxMobileApp: App {
             #if DEBUG
             if BrowserEventsDemoRoot.isRequested {
                 BrowserEventsDemoRoot()
+            } else if BrowserPlacementDemoRoot.isRequested {
+                BrowserPlacementDemoRoot()
             } else if RecoveryGalleryRoot.isRequested {
                 RecoveryGalleryRoot()
             } else if ShellScreenSharingDemo.isRequested {

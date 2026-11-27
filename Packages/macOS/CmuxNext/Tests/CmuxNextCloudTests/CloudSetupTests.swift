@@ -101,6 +101,17 @@ struct CloudSetupTests {
         #expect(CloudSetup.isConnectionID("chatgpt-plan:1") && !CloudSetup.isConnectionID("a b") && !CloudSetup.isConnectionID(""))
     }
 
+    /// hq#19758: a refusal carries the team gateway read it counted (the team and the CLI's error code), and a read is this
+    /// refusal's own: an earlier read's code never rides on a later refusal.
+    @Test func aRefusalCarriesItsOwnGatewayRead() async {
+        let rule = setup(Connections(.init(personal: [], organization: [])))
+        rule.gateway = { [unowned rule] in rule.gatewayRead = CloudSetup.GatewayRead(team: "team_x", errorCode: "timed_out"); return nil }
+        #expect(await rule.refusal(harness: "claude", model: nil)?.gateway == CloudSetup.GatewayRead(team: "team_x", errorCode: "timed_out"))
+        rule.gateway = { nil }
+        rule.gatewayRead = CloudSetup.GatewayRead(team: "team_old", errorCode: "auth.no_token")
+        #expect(await rule.refusal(harness: "claude", model: nil)?.gateway == nil)
+    }
+
     /// hq#15762: a team in inference gateway mode with its gateway online serves a person with no connection of their own
     /// (production 2026-11-20 19:54Z: "No Cloud connection serves claude" with the gateway up). It is read only when
     /// nothing else serves, and a connection or the team's key still wins.
@@ -121,6 +132,14 @@ struct CloudSetupTests {
         #expect(card?.family == "claude" && card?.model == "m")
         #expect(unrouted.unroutedGateway == ["claude"])
         #expect(await unrouted.decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
+        // The mark holds for gatewayUnroutedHold, not the app run: past it the gateway is asked again and the start goes on
+        // (start-matrix-production run 45857917362: one unrouted machine refused the 15 claude rows after it).
+        let marked = Date()
+        unrouted.now = { marked.addingTimeInterval(CloudSetup.gatewayUnroutedHold - 1) }
+        #expect(await unrouted.decide(harness: "claude", model: nil) == .setup(family: "claude", model: nil))
+        unrouted.now = { marked.addingTimeInterval(CloudSetup.gatewayUnroutedHold + 1) }
+        #expect(unrouted.unroutedGateway.isEmpty)
+        #expect(await unrouted.decide(harness: "claude", model: nil) == .start)
         // Off, offline (empty) or unread (nil): the card again.
         for value in [Set<String>(), nil] {
             served = value

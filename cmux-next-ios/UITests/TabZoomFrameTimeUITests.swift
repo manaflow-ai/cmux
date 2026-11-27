@@ -138,9 +138,10 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         XCTAssertTrue(tabs.waitForExistence(timeout: 15), "the tabs button\n\(app.debugDescription)")
         let screen = app.windows.firstMatch.frame
         func done() -> XCUIElement? {
-            app.buttons.matching(NSPredicate(format: "label == 'Done'")).allElementsBoundByIndex.first { e in
-                e.exists && e.isHittable && e.frame.minY > screen.height * 0.8
-            }
+            let all = app.buttons.matching(NSPredicate(format: "label == 'Done'")).allElementsBoundByIndex
+                .filter { $0.exists && $0.isHittable }
+            // The grid's bottom bar Done first; any hittable Done if the grid's bar moved.
+            return all.first { $0.frame.minY > screen.height * 0.8 } ?? all.first
         }
         // A quiet moment after launch, so the first zoom is not measured against launch work.
         RunLoop.current.run(until: Date().addingTimeInterval(environment.isEmpty ? 1.5 : 4))
@@ -206,8 +207,9 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         return rows
     }
 
-    /// The composer focused and the keyboard up: the toolbar sits at the top,
-    /// so the keyboard never covers the tabs button and it stays tappable.
+    /// The composer focused and the keyboard up: the bar sits at the top (#52370), so the
+    /// keyboard never covers the tabs button. One tap on it still zooms to the grid, the
+    /// keyboard goes down with the page, and Done comes back to the terminal.
     @MainActor
     func testTabsButtonWithKeyboardUp() throws {
         let app = XCUIApplication()
@@ -226,7 +228,14 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         shown.name = "keyboard-up"
         shown.lifetime = .keepAlways
         add(shown)
-        XCTAssertTrue(tabs.exists && tabs.isHittable, "the tabs button above the keyboard\n\(app.debugDescription)")
+        XCTAssertTrue(tabs.exists && tabs.isHittable, "the top bar's tabs button stays clear of the keyboard\n\(app.debugDescription)")
+        tabs.tap()
+        let done = app.buttons.matching(NSPredicate(format: "label == 'Done'")).firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "one tap on Tabs reaches the grid with the keyboard up\n\(app.debugDescription)")
+        let grid = XCTAttachment(screenshot: app.screenshot())
+        grid.name = "keyboard-up-grid"
+        grid.lifetime = .keepAlways
+        add(grid)
     }
 
     /// The app's `Documents/tabs-zoom-frames.jsonl`, found in the booted simulator's data containers.

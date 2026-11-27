@@ -1,6 +1,7 @@
 //! Part of the TUI `App`; see `tui/mod.rs`.
 
 use super::*;
+use crate::start_wait::{START_DEADLINE, StartEnd};
 
 impl App {
     // ------------------------------------------------------------ overlays
@@ -197,9 +198,13 @@ impl App {
             params.set_path(&["_meta", "acpmux", "effort"], json!(effort));
         }
         self.status = format!("starting {}…", d.harness);
+        let draft = d.id;
+        let harness = d.harness.clone();
         tokio::spawn(async move {
-            match client.request(method::SESSION_NEW, params).await {
-                Ok(v) => {
+            let start = client.request(method::SESSION_NEW, params);
+            let lost = || client.is_closed();
+            match crate::start_wait::bounded(&harness, START_DEADLINE, start, lost).await {
+                StartEnd::Started(v) => {
                     if let Some(id) = session_route_id(&v) {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                         let id = id.to_owned();
@@ -209,12 +214,32 @@ impl App {
                         });
                     }
                 }
-                Err(e) => {
-                    let _ = tx.send(AppMsg::Error(e.to_string()));
-                    let _ = tx.send(AppMsg::DraftFailed);
+                StartEnd::Lost => {
+                    let _ = tx.send(AppMsg::StartLost { draft, text, images });
+                }
+                StartEnd::Failed(why) | StartEnd::TimedOut(why) => {
+                    let _ = tx.send(AppMsg::Error(why));
+                    let _ = tx.send(AppMsg::DraftFailed { draft, images });
                 }
             }
         });
+    }
+
+    /// The draft start that lost its connection (`start_after_reconnect`), again, if that
+    /// draft is still the one shown and not already starting. A draft left meanwhile keeps its
+    /// message in its composer for Enter.
+    pub(crate) fn start_lost_draft_again(&mut self) {
+        let Some((draft, text, images)) = self.start_after_reconnect.take() else { return };
+        match self.draft() {
+            Some(d) if d.id == draft && !d.creating => self.create_from_draft(text, images),
+            _ => {
+                if let Some(d) = self.drafts.iter_mut().find(|d| d.id == draft)
+                    && d.images.is_empty()
+                {
+                    d.images = images;
+                }
+            }
+        }
     }
 
     pub(super) fn open_new_session(&mut self) {
@@ -268,9 +293,11 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         self.status = "starting harness…".into();
+        let harness = agent.clone();
         tokio::spawn(async move {
-            match client.request(method::SESSION_NEW, params).await {
-                Ok(v) => {
+            let start = client.request(method::SESSION_NEW, params);
+            match crate::start_wait::bounded(&harness, START_DEADLINE, start, || false).await {
+                StartEnd::Started(v) => {
                     if let Some(id) = session_route_id(&v) {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                         if !first.is_empty() {
@@ -283,9 +310,11 @@ impl App {
                     }
                     let _ = tx.send(AppMsg::Info("session created".into()));
                 }
-                Err(e) => {
-                    let _ = tx.send(AppMsg::Error(e.to_string()));
+                StartEnd::Failed(why) | StartEnd::TimedOut(why) => {
+                    let _ = tx.send(AppMsg::Error(why));
                 }
+                // The form's start is not held: `lost` is never true here.
+                StartEnd::Lost => {}
             }
         });
         self.overlay = Overlay::None;
@@ -327,8 +356,11 @@ impl App {
             .flatten()
             .filter_map(|h| {
                 let id = h.get("harness")?.as_str()?.to_owned();
+                // The agent's name beside its id ("claude-sr · Claude Code"), as the GUI names it.
                 let label = if id.split('/').next_back() == Some("deepseek") {
                     format!("{id} · DeepSeek Harness")
+                } else if let Some(name) = crate::agent_names::known(&id) {
+                    format!("{id} · {name}")
                 } else {
                     id.clone()
                 };
@@ -511,19 +543,8 @@ impl App {
         }
         let Some(id) = self.selected_id() else { return };
         let detail = self.details.get(&id).cloned().unwrap_or(Value::Null);
-        let choices: Vec<(String, String)> = detail
-            .pointer("/modes/availableModes")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .map(|m| {
-                        let v = m.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
-                        let n = m.get("name").and_then(Value::as_str).unwrap_or(&v).to_owned();
-                        (v, n)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        // Modes that only copy another option (Pi's thinking levels) are no modes (`modes.rs`).
+        let choices = crate::modes::real_modes(&detail);
         if choices.is_empty() {
             self.report_error("this agent has no modes".into());
             return;
@@ -788,12 +809,8 @@ impl App {
                     self.status = format!("draft: {group} · {value}");
                 } else if let Some(id) = live {
                     if same_harness {
-                        self.request_then(
-                            method::SESSION_SET_MODEL,
-                            json!({"sessionId": id.clone(), "modelId": value.clone()}),
-                            Some(format!("model {value}")),
-                            Reread::Detail(id.clone()),
-                        );
+                        // The chat's level holds across the switch (`picks_hold.rs`).
+                        self.set_model_keeping_level(&id, &value);
                     } else {
                         // Another harness: start a new session tab with it.
                         self.open_draft();

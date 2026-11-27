@@ -7,7 +7,7 @@ const MIN: u64 = 60_000;
 /// A ready local chat idle `idle_min` minutes, in the shape a `session-idle-facts-v1` daemon lists.
 fn idle(id: &str, idle_min: u64) -> Value {
     json!({"sessionId": id, "name": id, "status": "ready", "updatedAt": NOW - idle_min * MIN,
-           "queued": 0, "pendingPermissions": 0, "turn": null, "peer": null})
+           "queued": 0, "pendingPermissions": 0, "turn": null, "peer": null, "bgTasksRunning": 0})
 }
 
 fn running(id: &str) -> Value {
@@ -251,18 +251,70 @@ fn a_session_asleep_past_awake_secs_stays_until_it_wakes() {
 
 #[test]
 fn a_peer_info_becomes_a_row_with_work_below_read() {
-    let info = json!({"sessionId": "p1", "status": "ready", "peer": "gcp-agent-lane-13",
+    let quiet_info = json!({"sessionId": "p1", "status": "ready", "peer": "gcp-agent-lane-13",
         "queued": 0, "pendingPermissions": 0, "turn": null, "updatedAt": NOW - 20 * MIN,
-        "backgroundsWork": true, "commandsRunning": 0});
-    let row = peer_row(&info);
+        "backgroundsWork": true, "commandsRunning": 0, "subagentsRunning": 0,
+        "subagentsWorkingSince": null, "bgTasksRunning": 0});
+    let row = peer_row(&quiet_info);
     assert!(row.get("peer").is_none());
-    assert_eq!(row["workingBelow"], json!(true));
-    assert_eq!(held(&row, false, NOW, 0), Some("work runs below it"));
-    let quiet = peer_row(&json!({"sessionId": "p2", "status": "ready", "queued": 0,
-        "pendingPermissions": 0, "updatedAt": NOW - 20 * MIN, "backgroundsWork": false,
-        "commandsRunning": 0}));
-    assert_eq!(held(&quiet, false, NOW, 0), None);
+    // backgroundsWork says Claude Code can background a turn (Ctrl-B), not that work runs: a
+    // quiet Claude session on a peer may move.
+    assert_eq!(row["workingBelow"], json!(false));
+    assert_eq!(held(&row, false, NOW, 0), None);
+    for (key, v) in [
+        ("commandsRunning", json!(1)),
+        ("subagentsRunning", json!(2)),
+        ("subagentsWorkingSince", json!(NOW - MIN)),
+    ] {
+        let mut info = quiet_info.clone();
+        info[key] = v;
+        let row = peer_row(&info);
+        assert_eq!(row["workingBelow"], json!(true), "{key}");
+        assert_eq!(held(&row, false, NOW, 0), Some("work runs below it"), "{key}");
+    }
     let unknown = peer_row(&json!({"sessionId": "p3", "status": "ready", "queued": 0,
-        "pendingPermissions": 0, "updatedAt": NOW - 20 * MIN}));
+        "pendingPermissions": 0, "updatedAt": NOW - 20 * MIN, "backgroundsWork": true,
+        "bgTasksRunning": 0}));
+    assert!(unknown.get("workingBelow").is_none(), "backgroundsWork alone says nothing");
     assert!(held(&unknown, false, NOW, 0).is_some(), "no facts: unknown, never moved");
+}
+
+#[test]
+fn a_running_background_task_holds_the_session() {
+    // A bg task (bg_start, run_wait, a backgrounded shell: a pr-wait, a sleep, a build) stays
+    // on this host when the session moves, and its wake with it: the session stays.
+    let mut rows: Vec<Value> = (0..6).map(|i| running(&format!("r{i}"))).collect();
+    let mut waits = idle("waits", 60);
+    waits["bgTasksRunning"] = json!(1);
+    let free = idle("free", 60);
+    rows.extend([waits, free]);
+    let p = plan(&rows, true, Some(6), vec![target("b", 10.0)], &on(), NOW);
+    let moved: Vec<&str> = p.moves.iter().map(|m| m.session_id.as_str()).collect();
+    assert_eq!(moved, ["free"]);
+    assert!(p.held.iter().any(|(id, why)| id == "waits" && why.contains("background task runs")));
+}
+
+#[test]
+fn an_old_peer_without_bg_facts_keeps_its_sessions_held_and_a_new_one_moves() {
+    // Old daemon (before session-bg-facts-v1): its row has no bgTasksRunning. The pass cannot
+    // tell a session with a wait running from one without, so it holds every one.
+    let old_info = json!({"sessionId": "o1", "status": "ready", "queued": 0,
+        "pendingPermissions": 0, "turn": null, "updatedAt": NOW - 20 * MIN,
+        "backgroundsWork": true, "commandsRunning": 0, "subagentsRunning": 0,
+        "subagentsWorkingSince": null});
+    let old = peer_row(&old_info);
+    assert_eq!(
+        held(&old, true, NOW, 0),
+        Some("its background tasks are unknown (its daemon predates session-bg-facts-v1)")
+    );
+    let mut rows: Vec<Value> = (0..6).map(|i| running(&format!("r{i}"))).collect();
+    let mut stale = idle("stale", 60);
+    stale.as_object_mut().unwrap().remove("bgTasksRunning");
+    rows.push(stale);
+    let p = plan(&rows, true, Some(6), vec![target("b", 10.0)], &on(), NOW);
+    assert!(p.moves.is_empty(), "{:?}", p.moves);
+    // New daemon: the same session says it runs none, and moves.
+    let mut new_info = old_info.clone();
+    new_info["bgTasksRunning"] = json!(0);
+    assert_eq!(held(&peer_row(&new_info), true, NOW, 0), None);
 }
