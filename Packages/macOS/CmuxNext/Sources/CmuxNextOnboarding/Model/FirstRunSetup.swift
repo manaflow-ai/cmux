@@ -166,7 +166,7 @@ public final class FirstRunSetup {
     /// earlier launch still shows) the dialog asks, since VoiceOver cannot press the card's WebKit buttons
     /// (manaflow-ai/cmux#37809).
     public func classicMigration<Preview, T>(seam: (@MainActor (Preview) async -> ClassicImportAnswer)?,
-                                    offer: @escaping @MainActor (Preview) -> ClassicOffer,
+                                    offer: @escaping @MainActor (Preview) -> ClassicOffer?,
                                     dialog: @escaping @MainActor (Preview) async -> ClassicImportAnswer,
                                     screenReader: @escaping @MainActor () -> Bool = FirstRunSetup.voiceOverOn,
                                     imported: (T) -> Bool = { _ in true },
@@ -176,7 +176,7 @@ public final class FirstRunSetup {
         if shows { awaitsClassic = true }
         do {
             let result = try await run { [weak self] plan in
-                if !screenReader(), let answer = await self?.askClassic(offer(plan)) { return answer }
+                if !screenReader(), let offer = offer(plan), let answer = await self?.askClassic(offer) { return answer }
                 return await dialog(plan)
             }
             if classicAnswer == .accepted { classicImported = imported(result) }
