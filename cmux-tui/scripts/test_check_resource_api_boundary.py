@@ -294,6 +294,23 @@ impl ResourceOperation {{
 
 
 class PublicBoundaryScanTests(unittest.TestCase):
+    def test_rust_test_modules_are_not_public_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            for root in ("bindings/rust/src", "crates/cmux-tui/src/cli/customize"):
+                for name in ("tests.rs", "surface_test.rs", "surfaces_tests.rs"):
+                    write(tui / root / name, 'const HELP: &str = "cmux attach-surface";\n')
+                # Similar production filenames still expose public vocabulary.
+                for name in ("surfaces.rs", "tests_support.rs"):
+                    write(tui / root / name, 'const HELP: &str = "cmux attach-surface";\n')
+
+            diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(scanned, 4)
+            self.assertEqual(len(diagnostics), 4)
+            self.assertEqual({item.path.name for item in diagnostics}, {"surfaces.rs", "tests_support.rs"})
+            self.assertTrue(all(item.code == "boundary.surface" for item in diagnostics))
+
     def test_raw_internal_and_manifest_generated_occurrences_are_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
