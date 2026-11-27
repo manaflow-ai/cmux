@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -373,8 +374,23 @@ def registered_manual() -> set[str]:
     return {
         entry["path"]
         for entry in registry.load_tree(ROOT)
-        if entry.get("lane") == "manual" and str(entry.get("reason") or "").strip() and isinstance(entry.get("path"), str)
+        if entry.get("lane") == "manual" and isinstance(entry.get("path"), str)
+        and str(entry.get("reason") or "").strip()
+        and str(entry["reason"]).strip() != registry.derived_reason(entry["path"]).strip()
     }
+
+
+def test_generated_manual_reasons_are_not_exemptions() -> None:
+    path = "tests/test_example.py"
+    for lane, reason, expected in (
+        ("manual", registry.derived_reason(path), set()),
+        ("manual", "  " + registry.derived_reason(path) + "\n", set()),
+        ("manual", " ", set()),
+        ("manual", "Requires an interactive signed-in app; run python3 " + path, {path}),
+        ("linux-guard", "Requires an interactive app", set()),
+    ):
+        with patch.object(registry, "load_tree", return_value=[dict(path=path, lane=lane, reason=reason)]):
+            assert registered_manual() == expected, (lane, reason)
 
 
 def test_every_workflow_guard_is_run_by_a_workflow() -> None:
@@ -400,6 +416,7 @@ def test_allowlist_does_not_outlive_its_entries() -> None:
 
 
 if __name__ == "__main__":
+    test_generated_manual_reasons_are_not_exemptions()
     test_every_workflow_guard_is_run_by_a_workflow()
     test_allowlist_does_not_outlive_its_entries()
     print("all workflow guards are wired")

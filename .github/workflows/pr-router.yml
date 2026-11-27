@@ -83,7 +83,7 @@ jobs:
           # A same-repo pull request's runner reads the git mirror, which serves whole blobs in about 10 s; a blob
           # filter skips the mirror and the sparse checkout then fetches each blob from GitHub (57 to 81 s a head,
           # note-559). A fork, or any other event, keeps blob:none.
-          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
+          filter: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && 'blob:none' || '' }}
           sparse-checkout: |
             scripts/ci/pr_router.py
             scripts/ci/pr_router.json

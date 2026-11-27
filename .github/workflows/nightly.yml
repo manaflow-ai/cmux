@@ -1985,16 +1985,9 @@ jobs:
       browser_data_proven: ${{ steps.browser-data-proof.outcome == 'success' && 'true' || '' }}
     # Why: docs/ci/nightly-workflow-notes.md#note-38
     if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.one_job != 'true'"
-    # nightly-next: pick-nightly-build-runner's dedicated builder, else an idle owned
-    # label, else the moving Blacksmith label; never one label with no fallback. Main's
-    # ci-cache-writer environment never follows NEXT onto that worker.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-27-builder-cache-context.md
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && (needs.pick-nightly-build-runner.outputs.trusted && fromJSON(needs.pick-nightly-build-runner.outputs.trusted) || needs.pick-nightly-build-runner.outputs.owned)) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    # nightly-next: env artifacts holds CMUX_STORE_SIGNING_KEY (store packages, "Build the web bundles").
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || github.ref == 'refs/heads/nightly-next' && 'artifacts' || '' }}
-    # The cloud cache is scoped per branch and also drops main's own
-    # entry (runs 35179030871 and 35182663752 restored nothing and were
-    # cancelled at 45 minutes mid-compile), so the budget must fit a cold
-    # build, not only a warm one.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 270 || 150 }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
