@@ -116,7 +116,7 @@ public struct ResizeStepTimes {
         let inPass = live.passDepth > 0
         if inPass { live.nestedInPass += 1 }
         keep(kind, name, ms)
-        if ResizeStepLog.isStreaming {
+        if ResizeStepLog.isStreaming, ResizeStepLog.keeps(name) {
             ResizeStepLog.write(kind, name, ms, detail: detail() + (inPass ? " in_pass=1" : ""))
         }
     }
@@ -125,7 +125,9 @@ public struct ResizeStepTimes {
     /// the step it belongs to (a fence's page reports in a later turn); the open one by default.
     public static func note(_ phase: @autoclosure () -> String, ms: Double, step: UInt64? = nil, detail: @autoclosure () -> String = "") {
         guard ResizeStepLog.isStreaming else { return }
-        ResizeStepLog.write(ResizeStepLog.step?.kind ?? .window, phase(), ms, step: step, detail: detail())
+        let name = phase()
+        guard ResizeStepLog.keeps(name) else { return }
+        ResizeStepLog.write(ResizeStepLog.step?.kind ?? .window, name, ms, step: step, detail: detail())
     }
 
     /// The open step's number, while one is open and the log streams (for a fact reported later, ``note(_:ms:step:detail:)``).
