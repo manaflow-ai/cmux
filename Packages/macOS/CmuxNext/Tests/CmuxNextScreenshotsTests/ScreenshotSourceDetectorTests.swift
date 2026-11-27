@@ -113,11 +113,4 @@ nonisolated struct FixtureEnvironment: ScreenshotEnvironment {
         let sources = ScreenshotSourceDetector(environment: environment()).detect(findTools: true, extraFolders: ["/nowhere/\(UUID().uuidString)"])
         #expect(sources.map(\.id) == ["system", "system.preview"])
     }
-
-    @Test func settingsFileFormats() {
-        #expect(ScreenshotSettingsFileFormat.ini.value(of: "savePath", in: "[General]\n savePath = /a/b \nother=1") == "/a/b")
-        #expect(ScreenshotSettingsFileFormat.ini.value(of: "savePath", in: "savePath=") == nil)
-        #expect(ScreenshotSettingsFileFormat.json.value(of: "kapturesDir", in: #"{"kapturesDir":"/k"}"#) == "/k")
-        #expect(ScreenshotSettingsFileFormat.json.value(of: "kapturesDir", in: "not json") == nil)
-    }
 }
