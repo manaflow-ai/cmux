@@ -112,7 +112,11 @@ jobs:
             echo "result=success" >> "$GITHUB_OUTPUT"
           elif [ -s "$MATRIX_OUT/failure.tsv" ]; then
             echo "result=failure" >> "$GITHUB_OUTPUT"
-            IFS='|' read -r job file line message < "$MATRIX_OUT/failure.tsv"
+            # web-bundle-matrix.sh writes job TAB file TAB line TAB message. cut, not `IFS=$'\t' read`: read
+            # folds a run of tabs into one, so an empty FILE would shift LINE and the message into it.
+            f="$MATRIX_OUT/failure.tsv"
+            job="$(head -n 1 "$f" | cut -f1)"; file="$(head -n 1 "$f" | cut -f2)"
+            line="$(head -n 1 "$f" | cut -f3)"; message="$(head -n 1 "$f" | cut -f4-)"
             {
               echo "job=$job"; echo "file=$file"; echo "line=$line"
               echo "message=${message//$'\n'/ }"
