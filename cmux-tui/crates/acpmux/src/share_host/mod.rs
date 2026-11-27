@@ -16,10 +16,14 @@
 //!   speaks, so the app signs and opens with this same device.
 //!
 //! A machine that is not joined, or whose join record was copied from another box, runs none of
-//! it: no socket, no process.
+//! it: no socket, no process. The daemon reads the join again every [`JOIN_CHECK_EVERY`] (two
+//! small file reads), and at once when `share-host status` finds a join the last check did not
+//! ([`state::status_now`], [`recheck`]): a machine joined while the daemon runs (`acpmux machine
+//! join` with no daemon restart) starts its share host then, with no restart (Leo: "if you have
+//! indeed connected a machine, you should be able to just screen share onto it freely").
 //!
 //! On a joined Linux machine the host is cmux-rd's (`cmux-rd linux-host`), which the daemon sets
-//! up at its start ([`linux`]); `share-host status` says how that went.
+//! up ([`linux`]); `share-host status` says how that went.
 
 pub(crate) mod cli;
 
@@ -74,6 +78,41 @@ pub(crate) fn dir(home: &Path) -> PathBuf {
 #[cfg(unix)]
 pub(crate) fn device_hub_origin(platform_origin: &str) -> Option<String> {
     cmux_hub_host::deployment::device_hub_of(platform_origin).map(str::to_owned)
+}
+
+/// How often a share host that is not running reads the join again.
+#[cfg(unix)]
+pub(crate) const JOIN_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The states of a share host that does not run because of the join: a new join may start it.
+#[cfg(unix)]
+pub(crate) const JOIN_STATES: [&str; 4] = ["not_joined", "cloned", "revoked", "no_device_hub"];
+
+/// Wakes the daemon's join check now, rather than at its next tick.
+#[cfg(unix)]
+static RECHECK: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Asks the join check to run now (one stored wake; repeated asks before it runs are one).
+#[cfg(unix)]
+pub(crate) fn recheck() {
+    RECHECK.notify_one();
+}
+
+/// Waits for the next join check: `every`, or sooner on a [`recheck`].
+#[cfg(unix)]
+pub(crate) async fn next_check(every: std::time::Duration) {
+    tokio::select! {
+        () = tokio::time::sleep(every) => {}
+        () = RECHECK.notified() => {}
+    }
+}
+
+/// Whether a status that says the share host does not run because of the join (`state`, one of
+/// [`JOIN_STATES`], not `running`) is out of date: the machine is joined now (`joined_now`, asked
+/// only then).
+#[cfg(unix)]
+pub(crate) fn joined_since(state: &str, running: bool, joined_now: impl FnOnce() -> bool) -> bool {
+    !running && JOIN_STATES.contains(&state) && joined_now()
 }
 
 /// This machine's join as the share host reads it.
@@ -214,7 +253,9 @@ fn computer_name() -> String {
 /// Starts the share host with the daemon, as tasks of `scope` (the hub's), so it ends with the
 /// daemon: the app's device channel and the hub link on its own thread (the hub client is
 /// blocking). Session processes are left running when the daemon stops: the next daemon adopts
-/// them, and with no daemon the hub ends them after its offline grace.
+/// them, and with no daemon the hub ends them after its offline grace. On a machine not joined
+/// yet, a task reads the join every [`JOIN_CHECK_EVERY`] (or on a [`recheck`]) and starts the
+/// host once it is joined; it ends with the daemon.
 #[cfg(unix)]
 #[cfg_attr(
     not(target_os = "macos"),
@@ -225,14 +266,38 @@ fn computer_name() -> String {
 )]
 pub(crate) fn start(scope: &cmux_scope::Scope) {
     let home = crate::config::home();
-    let hub = match machine_hub(&home, true) {
-        Ok(hub) => hub,
-        Err(why) => {
-            tracing::info!("{LOG}: not running: {why}");
-            state::not_running(why);
-            return;
-        }
+    let why = match machine_hub(&home, true) {
+        Ok(hub) => return serve(scope, home, hub),
+        Err(why) => why,
     };
+    tracing::info!("{LOG}: not running: {why}");
+    state::not_running(why.clone());
+    // Its own scope inside the hub's, held by the waiting task until the daemon stops: the host
+    // it starts is joined and cancelled with the daemon as one started here would be.
+    let host = scope.child("share-host");
+    scope.spawn_until_cancelled("share-host-join-wait", async move {
+        let mut said = why;
+        let hub = loop {
+            next_check(JOIN_CHECK_EVERY).await;
+            match machine_hub(&home, true) {
+                Ok(hub) => break hub,
+                Err(why) if why != said => {
+                    tracing::info!("{LOG}: not running: {why}");
+                    state::not_running(why.clone());
+                    said = why;
+                }
+                Err(_) => {}
+            }
+        };
+        tracing::info!("{LOG}: this machine is joined now; the share host starts");
+        serve(&host, home, hub);
+        host.cancelled().await;
+    });
+}
+
+/// [`start`]'s host for `hub`, as tasks of `scope`.
+#[cfg(unix)]
+fn serve(scope: &cmux_scope::Scope, home: PathBuf, hub: cmux_hub_host::hub::Hub) {
     let shared = state::Shared::install(home.clone(), hub);
     scope.spawn_until_cancelled(
         "share-host-device-channel",

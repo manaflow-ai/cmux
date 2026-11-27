@@ -67,7 +67,7 @@ phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopte
 session), the Mac from its own token store file, written before its launch. The refresh token is
 never printed, and is in no argv and no artifact.
 """
-import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, stat, statistics, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, signal, socket, stat, statistics, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -108,6 +108,13 @@ def has_upload_probe():
     return os.path.exists(os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/UploadProbe.swift"))
 
 
+def run_attachment_leg(paired, attach, connect_runs, leg):
+    """Run an optional attachment leg and return its result for the final verdict."""
+    if paired and attach and not connect_runs:
+        return bool(leg())
+    return True
+
+
 def sparse_file(path, size):
     """`size` bytes that take no disk, with marked 4 KiB pages at the start, middle and end so a
     lost, shifted or zeroed chunk changes the hash."""
@@ -118,14 +125,49 @@ def sparse_file(path, size):
             f.write(bytes([mark]) * 4096)
 
 
-def mac_workspace(app, sock, home):
-    """A terminal workspace on the Mac, made by its bundled CLI (`cmux workspace create`, as
-    relaunch_restore_check does): "created <id8>, terminal <id8>", or why not."""
+def has_attach_leg():
+    """Whether this ref's app has the DEBUG demo step `live-attach` (DemoDriver.swift)."""
+    path = os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/DemoDriver.swift")
+    return os.path.exists(path) and '"live-attach"' in open(path).read()
+
+
+ATTACH_BYTES = 8 << 30  # sparse: takes no disk on the host; far more than the link moves before the cancel
+ATTACH_NAME = "cmux-attach-e2e.mov"
+ATTACH_LINE = re.compile(r"demo step: live-attach (\S+) ?(.*)")
+
+
+def mac_workspace(app, sock, home, session=None, rpc=None):
+    """A terminal workspace on the Mac: "created <id8>, terminal <id8> (how)", or why not.
+
+    First the app's own control socket, `action.run newTab` (New Workspace, with its terminal): the app's daemon
+    makes it, wherever its owner listens. The
+    CLI (`cmux workspace create`) guessed that socket and missed it: the app runs its owner with a per-build
+    CMUX_TUI_STATE_DIR and CMUX_TUI_RUNTIME_SCOPE (DaemonLauncher), so neither TEMP/cmux-tui-UID/SESSION.sock
+    nor /tmp's was there, and `daemon ensure` then started a second daemon the phone never saw (run
+    45624760704 attempt 2: ids came back, the phone found no terminal). The CLI stays as the fallback."""
+    def workspaces():
+        topo = (rpc("snapshot.get").get("topology") or {}) if rpc else {}
+        return [w for w in topo.get("workspaces") or [] if isinstance(w, dict)]
+
+    if rpc:
+        before = {w.get("id") for w in workspaces()}
+        # `newTab` is the catalog's New Workspace (cmd-N, cmux-action-catalog workspace.rs) and starts its
+        # terminal; `newSurface` only adds a tab to the current workspace, which on a fresh app is its home, and
+        # the phone files a `kind` "home" workspace under homeWorkspaces, never its Workspaces list (DaemonTree),
+        # so the demos found no terminal (run 45646323695). Only a new, non-home workspace counts.
+        asked = rpc("action.run", {"action": "newTab", "args": {"name": "pair-e2e"}}, timeout=60)
+        fresh = wait_for(lambda: next((w for w in workspaces()
+                                       if w.get("id") not in before and w.get("kind") != "home"), None), 30, every=1)
+        if fresh:
+            return f"created {str(fresh.get('id'))[:8]} ({len(workspaces())} in the app's topology; app newTab)"
+        why = redact(json.dumps(asked))[-200:]
+    else:
+        why = "no app socket"
+
     cli = os.path.join(app, "Contents/Resources/bin/cmux")
     env = {"HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_PATH": sock, "CMUX_QUIET": "1"}
     # The app starts its terminal daemon with TMPDIR set to the user's Darwin temp folder
-    # (DaemonLauncher.userTemporaryDirectory), so its socket is TEMP/cmux-tui-UID/SESSION.sock. Without the same
-    # TMPDIR the CLI looked under /tmp and found "no cmux session is running" (run 45551555308).
+    # (DaemonLauncher.userTemporaryDirectory); without the same TMPDIR the CLI looked under /tmp (run 45551555308).
     try:
         temp = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True,
                               stdin=subprocess.DEVNULL, timeout=10).stdout.strip()
@@ -134,17 +176,62 @@ def mac_workspace(app, sock, home):
     if temp:
         env["TMPDIR"] = temp
     try:
-        done = subprocess.run([cli, "--json", "--app-socket", sock, "workspace", "create", "--name", "pair-e2e"],
+        # The app names its home daemon session itself (snapshot.get topology.sessions, `session_name`).
+        named = ["--session", session] if session else []
+        done = subprocess.run([cli, "--json", "--app-socket", sock, *named, "workspace", "create", "--name", "pair-e2e"],
                               env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
         lines = [line for line in done.stdout.splitlines() if line.strip()]
         made = json.loads(lines[-1]) if lines else {}
     except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-        return f"NOT created ({type(error).__name__})"
-    made = made.get("result", made) if isinstance(made, dict) else {}
+        return f"NOT created (app newTab: {why}; CLI {type(error).__name__})"
+    # Daemon verbs answer {"value": {...}}, agents verbs {"result": {...}} (relaunch_restore_check.unwrap).
+    if isinstance(made, dict):
+        made = next((made[k] for k in ("value", "result") if isinstance(made.get(k), dict)), made)
     ws, term = (made.get("workspace_id"), made.get("terminal_id")) if isinstance(made, dict) else (None, None)
     if not ws:
-        return f"NOT created (exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
-    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'}"
+        return f"NOT created (app newTab: {why}; CLI exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
+    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'} (CLI; app newTab: {why})"
+
+
+def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
+    """A picked 8 GiB video in the paired Mac's first terminal composer (DEBUG demo `live-attach`)
+    shows progress on its tile while it uploads to the real Mac's hostd, then is removed mid-send
+    and text is sent at once. Screens at each step; passes on the app's own step lines. Link speed
+    is whatever the host gives (loopback-class): the leg does not shape it."""
+    data = subprocess.run(simctl + ["get_app_container", udid, bundle_id, "data"],
+                          check=True, capture_output=True, text=True).stdout.strip()
+    source = os.path.join(data, "tmp", ATTACH_NAME)
+    os.makedirs(os.path.dirname(source), exist_ok=True)
+    sparse_file(source, ATTACH_BYTES)
+    since = time.monotonic()
+    try:
+        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+        subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-attach",
+                                 "-CmuxMobileAttachE2EFile", source], env=phone_env, check=True, capture_output=True)
+        seen = {}
+        for step, shot in (("tile", "attach-1-tile"), ("progress", "attach-2-progress"), ("progress-later", "attach-3-progress-later"),
+                           ("cancelled-and-sent", "attach-4-cancelled-typed"), ("shown", "attach-5-terminal")):
+            hit = phone_log.wait_at(re.compile(r"demo step: live-attach (%s|no \S+)\b ?(.*)" % re.escape(step)), 300, since=since)
+            if not hit:
+                note(f"- attach: FAIL, no `live-attach {step}` line in 300 s")
+                return False
+            if hit[1].group(1).startswith("no"):
+                note(f"- attach: FAIL, {hit[1].group(0)}")
+                phone_shot("attach-fail")
+                return False
+            seen[step] = hit[1].group(2)
+            note(f"- attach {step}: {seen[step]} -> {phone_shot(shot)}")
+            since = hit[0]
+        sent = seen["cancelled-and-sent"]
+        ok = "attachments=0" in sent and "uploading=false" in sent and "composerFree=true" in sent and "text=sent" in sent
+        note(f"- attach: {'PASSED' if ok else 'FAIL'}: progress on the tile before the cancel ({seen['progress']!r}), "
+             f"removed mid-send, composer free at once: {sent}")
+        return ok
+    finally:
+        try:
+            os.unlink(source)
+        except OSError:
+            pass
 
 
 def sha256(path):
@@ -374,7 +461,11 @@ def main():
     ap.add_argument("--upload-relay-only", action="store_true")
     ap.add_argument("--upload-block-udp", action="store_true")
     ap.add_argument("--upload-wait", type=int, default=300)
+    # The reconnect leg (flows.json reconnect-after-drop, cmux-next-ios-sim.sh's reconnect-drops=10,60): the Mac's
+    # link drops for each of these seconds; the phone must reattach by itself.
+    ap.add_argument("--reconnect-drops", default="")
     a = ap.parse_args()
+    drops = [int(x) for x in a.reconnect_drops.split(",") if x.strip()]
 
     def note(line):
         print(line, flush=True)
@@ -409,6 +500,7 @@ def run_pair(a, note, share):
     account = dev_credential()
     email = account["email"]
     probe = has_upload_probe()
+    attach, attach_ok = has_attach_leg(), True
     # The upload leg's Mac folder: a Chat Folder (agents.chats.roots), which hostd shares
     # (CMUX_MOBILE_FILE_ROOTS), so an upload with it as `cwd` lands in its .cmux/attachments.
     upload_root = os.path.join(os.path.realpath(a.work), "pair-rig", "upload-root")
@@ -522,6 +614,7 @@ def run_pair(a, note, share):
              f"{connect_timeline_aways()} s away, {connect_timeline_away_runs(connect_runs)} runs each "
              f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
+    reconnect_ok = not drops
     keychain = RigKeychain(a.mac_app)
     quit_for_share = False
     try:
@@ -551,6 +644,12 @@ def run_pair(a, note, share):
                                     pwd.getpwuid(os.getuid()).pw_dir)
             write_mac_session(store, account["refresh_token"])
             note("- account: the step's agent session (cmux-ci run --sign-in agent), on the Mac and the phone")
+
+        # The share leg captures this Mac with the app closed: its helper's capture needs Screen
+        # Recording, which a fresh VM grants nobody (run at f81fb607: "Screen Recording not granted
+        # on Mac-..."). In this throwaway SIP-off VM, tcc-grant.sh writes the grant the person's one
+        # click gives on a real Mac; with SIP on it refuses and changes nothing.
+        note(f"- Screen Recording for the app and its helpers: {grant_capture(a.mac_app)}")
 
         def start_mac(launch_env, suffix=""):
             nonlocal app
@@ -656,7 +755,12 @@ def run_pair(a, note, share):
             nonce = phone_launch()
         # A new tag's Mac opens with no workspace, so the phone's live-terminal and live-attach
         # demos found "no terminal" (run 45538405955): one terminal workspace for them to open.
-        note(f"- Mac terminal workspace: {mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir)}")
+        sessions = (rpc("snapshot.get").get("topology") or {}).get("sessions") or []
+        home_session = next((s.get("session_name") for s in sessions
+                             if isinstance(s, dict) and s.get("home") is True), None)
+        note(f"- Mac terminal workspace: "
+             f"{mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir, home_session, rpc)}"
+             f" (home session {home_session or 'not reported'})")
 
         ids, connected, pair_line = set(), False, None
         if pairs:
@@ -699,12 +803,27 @@ def run_pair(a, note, share):
                 theme_ok = False
                 note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
         if paired and probe and not connect_runs:
-            # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME): the
-            # probe waits for a link to that name.
+            # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
+            # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
             uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME,
                                         size=a.upload_bytes, random_bytes=a.upload_random, wait=a.upload_wait,
                                         relay_only=a.upload_relay_only, block_udp=a.upload_block_udp)
             note(f"- upload: {line}")
+        # Connect-timeline runs measure only connection recovery. Keep the expensive 8 GiB
+        # attachment leg out of those runs; ordinary pair-e2e runs still exercise it.
+        attach_ok = run_attachment_leg(
+            paired,
+            attach,
+            connect_runs,
+            lambda: attach_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, a.work, note),
+        )
+        if drops and paired and not connect_runs:
+            try:
+                reconnect_ok = reconnect_after_drop(app, drops, simctl, a.udid, a.out, status, phone_log,
+                                                    phone_shot, note)
+            except Exception as error:  # noqa: BLE001  the leg fails; the restart leg still runs
+                reconnect_ok = False
+                note(f"- reconnect after drop: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
         if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
             app, restart_ok = discovery_restart(app, exe, share_launch, a.out, support, status, ids, phone_log, streams,
                                                 phone_shot, note)
@@ -810,11 +929,30 @@ def run_pair(a, note, share):
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok and share.passed else 1
+    return 0 if (paired and uploaded and attach_ok and theme_ok and cloud_ok and ask_ok and restart_ok and reconnect_ok
+                 and share.passed) else 1
 
 
 LIVE_DATA_LINE = re.compile(r"live data on ")
 STACK_LINE = re.compile(r"Stack project ")
+
+
+def grant_capture(app):
+    """Grants the app's executables (its main one, Contents/Resources/bin) screen capture with
+    scripts/measure/cu-driver-eval/tcc-grant.sh; one line saying what happened."""
+    exes = sorted(p for p in glob.glob(os.path.join(app, "Contents/MacOS/*")) +
+                  glob.glob(os.path.join(app, "Contents/Resources/bin/*"))
+                  if os.path.isfile(p) and os.access(p, os.X_OK))
+    if not exes:
+        return "no executables found"
+    tool = os.path.join(ROOT, "scripts/measure/cu-driver-eval/tcc-grant.sh")
+    try:
+        done = subprocess.run(["bash", tool, *exes], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"not granted ({type(error).__name__})"
+    granted = sum(1 for line in done.stdout.splitlines() if line.startswith("tcc-grant.sh: granted"))
+    tail = redact(done.stderr.strip().splitlines()[-1])[:200] if done.stderr.strip() else ""
+    return f"{granted} of {len(exes)} granted (exit {done.returncode}){'; ' + tail if tail else ''}"
 
 
 def build_space_for_tag(tag):
@@ -1250,6 +1388,73 @@ def discovery_restart(app, exe, env, out, support, status, ids, phone_log, strea
          f"{'set aside as mac-identity.superseded' if aside else 'NOT set aside'}; phone {phone_shot('phone-after-restart')}"
          f" -> {'PASS' if ok else 'FAIL'}")
     return restarted.proc, ok
+
+
+RECONNECT_BOUND = 30  # seconds after the link comes back that the phone may take to reattach
+
+
+def app_tree(pid):
+    """PID and its children (the Mac app and its cmux-mobile-host, which holds the phone's link)."""
+    rows = subprocess.run(["/bin/ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True).stdout.split("\n")
+    kids = [int(r.split()[0]) for r in rows if len(r.split()) == 2 and r.split()[1] == str(pid)]
+    return [pid] + kids
+
+
+def reconnect_after_drop(app, drops, simctl, udid, out, status, phone_log, phone_shot, note):
+    """cmux#56894's redial, on a phone: for each of DROPS seconds the paired Mac app and its children (hostd)
+    are frozen (SIGSTOP: every socket stays open and silent, as a dead Wi-Fi or a stalled relay looks to the
+    phone), then resumed. Nothing touches the phone. It passes when, within RECONNECT_BOUND s of the resume,
+    the Mac lists the phone connected again and, if the phone began a new dial during the drop, that dial
+    reached a fresh mark (CONNECT_FRESH). simctl records the phone's screen for the whole leg."""
+    video = os.path.join(out, "reconnect-after-drop.mp4")
+    rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec=h264", "--force", video],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(2)  # recordVideo's first frame
+    ok_all = True
+    try:
+        for seconds in drops:
+            before = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 30, every=1)
+            pids = app_tree(app.pid)
+            t_drop = time.monotonic()
+            for pid in pids:
+                os.kill(pid, signal.SIGSTOP)  # this script's own Mac app and its children only
+            try:
+                time.sleep(seconds)
+            finally:
+                for pid in pids:
+                    try:
+                        os.kill(pid, signal.SIGCONT)
+                    except ProcessLookupError:
+                        pass
+            t_back = time.monotonic()
+
+            def reattached():
+                if status().get("connectedPhones", 0) < 1:
+                    return False
+                fresh = [m.group(1) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                         if at >= t_drop and (m := TIMING.search(line.rstrip())) and m.group(2) in CONNECT_FRESH]
+                started = {m.group(1) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                           if at >= t_drop and (m := TIMING.search(line.rstrip())) and m.group(2) == "dial_start"}
+                return not started or bool(started & set(fresh))
+
+            back = wait_for(reattached, RECONNECT_BOUND, every=0.5)
+            took = time.monotonic() - t_back
+            dials = sorted({m.group(1) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                            if at >= t_drop and (m := TIMING.search(line.rstrip())) and m.group(2) == "dial_start"})
+            ok = bool(back)
+            ok_all = ok_all and ok
+            note(f"- reconnect after a {seconds} s drop (Mac app + hostd SIGSTOP, pids {len(pids)}): connected before "
+                 f"{'yes' if before else 'NO'}; phone redials during/after: {', '.join(dials) or 'none (the link held)'}; "
+                 f"{'reattached %.1f s after the link came back' % took if ok else 'NOT reattached in %d s' % RECONNECT_BOUND}"
+                 f", no tap; phone {phone_shot(f'phone-after-drop-{seconds}s')} -> {'PASS' if ok else 'FAIL'}")
+    finally:
+        rec.send_signal(signal.SIGINT)  # recordVideo writes the file's index on SIGINT
+        try:
+            rec.wait(30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+    note(f"- reconnect recording: {os.path.basename(video) if os.path.exists(video) else 'none (recordVideo failed)'}")
+    return ok_all
 
 
 def random_file(path, size):

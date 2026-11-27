@@ -23,6 +23,7 @@ pub mod adopt_live;
 pub mod adopt_replay;
 pub mod adopt_tools;
 pub mod agent;
+pub mod agent_card;
 pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
@@ -172,6 +173,7 @@ pub mod harness_limits;
 pub(crate) mod harness_secret_ref;
 pub(crate) mod heap_future;
 pub mod heap_profile;
+pub mod heavy_precheck;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;
@@ -291,6 +293,7 @@ pub mod place_mode;
 pub mod place_pin;
 pub mod placement;
 // `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod care_machine;
 pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]

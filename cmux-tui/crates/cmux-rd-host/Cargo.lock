@@ -687,6 +687,7 @@ dependencies = [
  "cmux-build-space",
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",

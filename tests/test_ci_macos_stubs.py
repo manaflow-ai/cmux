@@ -252,5 +252,19 @@ class SourceExternTests(unittest.TestCase):
         self.assertEqual(missing, [])
 
 
+class MergeStubs(unittest.TestCase):
+    def test_merge_adds_the_newer_symbols_and_stubs(self) -> None:
+        with tempfile.TemporaryDirectory() as old_dir, tempfile.TemporaryDirectory() as new_dir:
+            old, new = Path(old_dir), Path(new_dir)
+            lib = {"current": "61901.120.67", "compat": "1.0.0"}
+            (old / "Security.tbd").write_text(stubs.render(SEC, {**lib, "symbols": {"_SecA"}}))
+            (new / "Security.tbd").write_text(stubs.render(SEC, {**lib, "symbols": {"_SecA", "_kSecGuestAttributePid"}}))
+            (new / "IOKit.tbd").write_text(stubs.render("/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit", {**lib, "symbols": {"_IOA"}}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(stubs.cmd_merge(old, new), 0)
+            self.assertEqual(stubs.read_stub(old / "Security.tbd")[1], {"_SecA", "_kSecGuestAttributePid"})
+            self.assertEqual(stubs.read_stub(old / "IOKit.tbd")[1], {"_IOA"})
+
+
 if __name__ == "__main__":
     unittest.main()
