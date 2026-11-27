@@ -58,6 +58,7 @@ import {
   chatFeel,
   chatFeelWrites,
 } from "./walk";
+import { SHELF_SETUPS, keepSetup, revertSetup, shelfValues, trySetup, type SetupId, type Shelf } from "./setupShelf";
 import { Faces } from "./walkLook";
 
 /** The looks of the screen (the gallery's variant switch): `preview` ships. */
@@ -246,6 +247,77 @@ function LookScreen({ opened, current }: { opened: WalkValues; current: WalkValu
         />
       </div>
     </>
+  );
+}
+
+/** `experiments.setupShelf` (off by default): the four setups, each with Try, then Keep or Revert.
+ * The shelf's trials live on the page (setupShelf.ts); each click is one walk op, one publish. */
+function SetupShelf({ choices }: { choices: MakeItYoursState }) {
+  const { strings } = useOnboarding();
+  const walk = useWalk();
+  const [shelf, setShelf] = useState<Shelf>({});
+  const current = shelfValues(choices);
+  const run = (next: { shelf: Shelf; writes: WalkWrite[] }) => {
+    setShelf(next.shelf);
+    walk(next.writes);
+  };
+  return (
+    <fieldset className="onb-make-group onb-setups" aria-describedby="onb-setups-detail">
+      <legend className="onb-make-label">{strings.t("onboarding.makeItYours.setups.label")}</legend>
+      <p className="onb-make-option-detail onb-setups-detail" id="onb-setups-detail">
+        {strings.t("onboarding.makeItYours.setups.detail")}
+      </p>
+      <ul className="onb-setups-list">
+        {SHELF_SETUPS.map((setup) => {
+          const entry = shelf[setup.id];
+          const id: SetupId = setup.id;
+          const name = strings.t(setup.nameKey);
+          return (
+            <li key={id} className="onb-setups-row" data-setup={id} data-status={entry?.status}>
+              <span className="onb-make-option-text">
+                <span className="onb-make-option-title">{name}</span>
+                <span className="onb-make-option-detail">{strings.t(setup.lineKey)}</span>
+              </span>
+              <span className="onb-setups-actions">
+                {entry == null && (
+                  <Button
+                    size="sm"
+                    aria-label={`${strings.t("onboarding.makeItYours.setups.try")} ${name}`}
+                    onClick={() => run(trySetup(shelf, id, current))}
+                  >
+                    {strings.t("onboarding.makeItYours.setups.try")}
+                  </Button>
+                )}
+                {entry?.status === "trying" && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`${strings.t("onboarding.makeItYours.setups.revert")} ${name}`}
+                      onClick={() => run(revertSetup(shelf, id, current))}
+                    >
+                      {strings.t("onboarding.makeItYours.setups.revert")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      aria-label={`${strings.t("onboarding.makeItYours.setups.keep")} ${name}`}
+                      onClick={() => setShelf(keepSetup(shelf, id))}
+                    >
+                      {strings.t("onboarding.makeItYours.setups.keep")}
+                    </Button>
+                  </>
+                )}
+                {entry?.status === "kept" && (
+                  <span className="onb-make-option-detail" role="status">
+                    {strings.t("onboarding.makeItYours.setups.kept")}
+                  </span>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </fieldset>
   );
 }
 
@@ -636,6 +708,9 @@ export function MakeItYoursStep({
     </Group>
   );
 
+  // The setups shelf leads today's one screen and the walk's How you work (experiments.setupShelf).
+  const shelf = askWork && choices.setupShelf === true ? <SetupShelf choices={choices} /> : null;
+
   // The walk shows the preview on Tune, where the picks it draws are made; screen 2 has no stage.
   if (look === "preview" && askTune) {
     return (
@@ -645,6 +720,7 @@ export function MakeItYoursStep({
           <figcaption className="onb-make-caption">{chosenLabel}</figcaption>
         </figure>
         <div className="onb-make-choices">
+          {shelf}
           {askWork && work}
           {askWork && runIn}
           {density}
@@ -655,6 +731,7 @@ export function MakeItYoursStep({
   }
   return (
     <div className="onb-make" data-look={look} data-screen={walkScreen}>
+      {shelf}
       {askWork && work}
       {askWork && runIn}
       {walkScreen === "work" && <ChatFeelRow opened={opened ?? current} current={current} />}
