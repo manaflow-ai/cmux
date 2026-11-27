@@ -1011,7 +1011,12 @@ pub enum Command {
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
-    RouteDeath { facts: PathBuf },
+    RouteDeath {
+        session: Option<String>,
+        facts: Option<PathBuf>,
+        #[arg(long)]
+        show_facts: bool,
+    },
     #[command(hide = true)]
     PauseAgent { session: String },
     #[command(hide = true)]
@@ -1252,6 +1257,9 @@ pub enum Command {
     /// `daemon felt`: the felt-latency histograms (the net graph).
     #[command(hide = true)]
     DaemonFelt,
+    /// `daemon watchdog-hold`: hold the daemon's systemd watchdog for a pause.
+    #[command(hide = true)]
+    DaemonWatchdogHold,
     /// `daemon placement`: one tailnet placement update.
     #[command(hide = true)]
     DaemonPlacement { message: String },
@@ -1492,6 +1500,12 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// Hold the running daemon's systemd watchdog until this machine resumes (or 15 minutes pass
+    /// with no resume seen), so a pause of any length cannot trip it. The platform runs it on the
+    /// guest just before it pauses the VM. Prints `{"held":true,"until_resume":true}`, or
+    /// `held:false` when no systemd watchdog is armed; fails on a daemon from before it.
+    #[command(hide = true)]
+    WatchdogHold,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
     /// pid file of a daemon whose lock nobody holds and whose pid is gone. A running daemon is
     /// never stopped from outside: one whose executable is gone stops itself once unused for 5
@@ -1681,7 +1695,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Undelete { session } => Command::Undelete { session },
             SessionCmd::Deleted => Command::Deleted,
             SessionCmd::Restart { session } => Command::RestartAgent { session },
-            SessionCmd::Route { facts } => Command::RouteDeath { facts },
+            SessionCmd::Route { session, facts, show_facts } => {
+                Command::RouteDeath { session, facts, show_facts }
+            }
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
@@ -1837,6 +1853,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Felt => Command::DaemonFelt,
+            DaemonCmd::WatchdogHold => Command::DaemonWatchdogHold,
             DaemonCmd::Placement { message } => Command::DaemonPlacement { message },
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
