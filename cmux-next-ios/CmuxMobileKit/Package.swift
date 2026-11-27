@@ -76,7 +76,10 @@ let package = Package(
         // extensions link it without the app's modules (verify/rich-push.md).
         .target(name: "CmuxMobileNotifications"),
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
-        .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore")], resources: [.process("Resources")]),
+        // CmuxMobileLinkFFI: New Task's terminal line, image type and agent pick rules (TaskComposer) are Rust's task_composer.
+        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves.
+        // CmuxMobileLinkFFI (iOS only): Mac reachability and Retry steps (MacReachability) are Rust's mac_reachability.
+        .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
             name: "CmuxMobileLinkFFI",

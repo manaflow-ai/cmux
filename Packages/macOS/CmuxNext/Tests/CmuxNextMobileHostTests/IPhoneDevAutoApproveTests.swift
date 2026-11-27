@@ -5,7 +5,8 @@ import Foundation
 import Testing
 
 /// The dev auto-approve (DEBUG tagged dev builds): the same tag's iPhone app of the signed-in user
-/// pairs without the "Allow … to connect?" prompt; everything else still gets the prompt.
+/// pairs without the "Allow … to connect?" prompt; everything else still gets the prompt. The rule's
+/// cases are cmux-mobile-host-core's parity tests (tests/parity.rs); these check the Swift callers.
 @Suite struct IPhoneDevAutoApproveTests {
     static let user = "user-1"
 
@@ -34,44 +35,6 @@ import Testing
         #expect(Self.approves(Self.request(bundleID: "dev.cmux.mobile.Pair-Fast-V1")))
     }
 
-    @Test func anotherAccountIsAsked() {
-        #expect(!Self.approves(Self.request(), account: "user-2"))
-        #expect(!Self.approves(Self.request(), paired: "user-2"))
-        #expect(!Self.approves(Self.request(), account: nil))
-        #expect(!Self.approves(Self.request(), paired: "", account: ""))
-    }
-
-    @Test func anotherTagOrAppIsAsked() {
-        for bundleID: String? in ["dev.cmux.mobile.other-tag", "dev.cmux.mobile.pair-fast-v10", "dev.cmux.mobile.pair-fast",
-                                  "dev.cmux.mobile", "dev.cmux.mobile.", "com.cmux.app", "dev.cmux.app.beta",
-                                  "com.cmux.app.pair-fast-v1", "", nil] {
-            #expect(!Self.approves(Self.request(bundleID: bundleID)), "\(bundleID ?? "nil")")
-        }
-    }
-
-    @Test func aMachineIsAsked() {
-        #expect(!Self.approves(Self.request(kind: "mac")))
-        #expect(!Self.approves(Self.request(kind: "linux")))
-    }
-
-    @Test func nightlyRcStagingAndReleaseBuildsNeverAutoApprove() {
-        for bundleID in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.nightly.cmux-next",
-                         "com.cmuxterm.app.rc", "com.cmuxterm.app.staging.pair-fast-v1", "com.cmuxterm.app.next",
-                         "com.cmux.app"] {
-            #expect(Self.auto(bundleID: bundleID) == nil, "\(bundleID)")
-        }
-        // An untagged DEV build has no tag to match.
-        #expect(Self.auto(bundleID: "com.cmuxterm.app.debug", tag: nil) == nil)
-        // A Release (non-DEBUG) binary compiles none of it, even with a dev bundle id.
-        #expect(Self.auto(debugBuild: false) == nil)
-        #expect(!Self.approves(Self.request(), auto: nil))
-    }
-
-    @Test func approveFirstKeepsThePrompt() {
-        #expect(Self.auto(environment: [IPhoneDevAutoApprove.approveFirstKey: "1"]) == nil)
-        #expect(Self.auto(environment: [IPhoneDevAutoApprove.approveFirstKey: "0"]) != nil)
-    }
-
     @Test func theTagComesFromTheBundleNotTheProcessEnvironment() {
         // `fromLaunch` reads `CMUX_TAG` from the bundle's LSEnvironment only: an inherited one names nothing.
         let auto = IPhoneDevAutoApprove.fromLaunch(bundle: Bundle(for: BundleMarker.self), environment: ["CMUX_TAG": "pair-fast-v1"])
@@ -94,19 +57,6 @@ import Testing
         #expect(IPhoneDevAutoApprove.devTag(of: BuildIdentity(bundleID: "com.cmuxterm.app.debug.pair.fast.v1",
                                                               bundledTag: "pair-fast-v1")) == "pair-fast-v1")
         #expect(IPhoneDevAutoApprove.devTag(of: BuildIdentity(bundleID: "com.cmuxterm.app.nightly", bundledTag: nil)) == nil)
-    }
-
-    /// A request that waits quietly (another build's dev phone) is never one the dev auto-approve of
-    /// the Mac it waits on takes: that Mac is another tag's build, or no dev build at all.
-    @Test func aQuietRequestNeverAutoApproves() {
-        let phone = Self.request()  // dev.cmux.mobile.pair-fast-v1
-        let otherTag = Self.auto(bundleID: "com.cmuxterm.app.debug.cu.all", tag: "cu-all")
-        #expect(IPhoneDevAutoApprove.asksQuietly(phone, macDevTag: otherTag?.tag))
-        #expect(!Self.approves(phone, auto: otherTag))
-        #expect(IPhoneDevAutoApprove.asksQuietly(phone, macDevTag: nil))
-        #expect(!Self.approves(phone, auto: nil))
-        // Every request the dev auto-approve takes is one that would not wait quietly.
-        #expect(Self.approves(phone) && !IPhoneDevAutoApprove.asksQuietly(phone, macDevTag: Self.auto()?.tag))
     }
 
     @Test func hostdForwardsThePhonesBundleID() throws {

@@ -12,6 +12,8 @@ import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
 import { parseDbFault, withDbFault } from "./db/fault.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
+import type { PausedReplicaObject } from "./replica/durable-object.ts";
+import { durableObjectReplicaLayer } from "./replica/store.ts";
 import { durableObjectLimitsLayer } from "./limits/service.ts";
 import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer, withCiTeamQuotas } from "./policy.ts";
 import { parseHttpsProxyOrigins } from "./network-origin.ts";
@@ -34,6 +36,8 @@ import { cronPlan } from "./cron-plan.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
+/** The per-VM paused-read replica (RFD 0144 piece 2); wrangler binds it as PAUSED_REPLICAS. */
+export { PausedReplicaObject } from "./replica/durable-object.ts";
 
 export interface Env {
   /** Approved service boot images; provider snapshot ids stay server-side. Default: none. */
@@ -47,6 +51,7 @@ export interface Env {
   readonly STACK_PROJECT_ID: string;
   readonly STACK_SECRET_SERVER_KEY: string;
   readonly TENANT_LIMITS: DurableObjectNamespace<TenantLimitsObject>;
+  readonly PAUSED_REPLICAS: DurableObjectNamespace<PausedReplicaObject>;
   /** local, preview, staging or production; anything else counts as production. */
   readonly ENVIRONMENT?: string;
   /** Production tenants (Stack team ids) treated as dev/test: comma or space separated. */
@@ -112,6 +117,7 @@ const liveServices = (env: Env) => {
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),
+    durableObjectReplicaLayer(env.PAUSED_REPLICAS),
     upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
     // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
     Layer.provideMerge(
@@ -214,7 +220,7 @@ const runOrphanSweep = async (env: Env) => {
 
 const makeServed = (env: Env): Served => {
   try {
-    if (!env.HYPERDRIVE || !env.TENANT_LIMITS || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
+    if (!env.HYPERDRIVE || !env.TENANT_LIMITS || !env.PAUSED_REPLICAS || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
       return unconfigured;
     }
     const secret = env.STACK_WEBHOOK_SECRET?.trim();

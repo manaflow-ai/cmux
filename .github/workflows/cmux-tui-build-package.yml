@@ -139,6 +139,13 @@ on:
         required: false
         default: "mac"
         type: string
+      # A commit of the base branch whose scripts/ci/macos-stubs lay over this tree's (a PR head built on
+      # older stubs links what the base added since). Empty: this tree's own stubs.
+      macos_stubs_ref:
+        description: "Base-branch commit whose framework stubs are merged into this tree's before the Linux cross link"
+        required: false
+        default: ""
+        type: string
     # The R2 cargo cache's write credentials. A called workflow sees only the secrets its caller passes, so with
     # none declared the save steps read empty values and saved nothing (run 45200352920, 2026-11-23). Optional:
     # cmux-tui-artifacts.yml passes them on feat-cmux-next only, every other caller and ref only reads. A secret
@@ -188,9 +195,9 @@ jobs:
           PACKAGE_PYPI: ${{ inputs.package_pypi }}
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
           DARWIN_BUILDER: ${{ inputs.darwin_builder }}
-          MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
+          MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15) }}
           LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64)) }}
+          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_arm64) }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
           LTO: ${{ inputs.lto }}
           ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
@@ -712,6 +719,9 @@ jobs:
             echo "registry-prefix=cmux-tui-cargo-registry-v1-"
             echo "registry-key=cmux-tui-cargo-registry-v1-$inputs"
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
+            # The workspace delta on top of that entry, one per commit (scripts/ci/cargo-target-delta.sh).
+            echo "ws-prefix=cmux-tui-cargo-ws-v1-$LEG-$workspace-$inputs-"
+            echo "ws-key=cmux-tui-cargo-ws-v1-$LEG-$workspace-$inputs-$GITHUB_SHA"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore the cargo build from R2
@@ -741,6 +751,78 @@ jobs:
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
+
+      # libghostty-vt's zig build reran in full on every leg: the ghostty-vt-sys build script runs again
+      # whenever a fresh checkout makes ghostty-next's sources newer than the restored target, and zig's own
+      # cache (ghostty-next/.zig-cache) left with the old checkout. 165-189 s in both acpmux groups of the
+      # x86_64 thin leg, ahead of acpmux on the critical path (job 139694138575, run 45755061586,
+      # 2026-11-26). Zig's local cache is content-addressed, so a stale entry can only miss, never ship:
+      # keyed on the ghostty-next commit, restored by prefix, saved like the cargo build. Both cargo
+      # groups share it (zig locks its cache entries).
+      - name: Key the Zig local cache in R2
+        id: r2-zig-local-key
+        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        continue-on-error: true
+        env:
+          LEG: ${{ matrix.target }}-${{ inputs.lto }}
+          ZIG_LOCAL: ${{ runner.temp }}/zig-local-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          ghostty="$(git -C ghostty-next rev-parse HEAD)"
+          zig_version="$(zig version)"
+          workspace="$(printf '%s' "$GITHUB_WORKSPACE" | sha256sum | cut -c1-8)"
+          prefix="ghostty-vt-zig-local-v1-$LEG-$workspace-$zig_version-"
+          {
+            echo "prefix=$prefix"
+            echo "key=$prefix$ghostty"
+            echo "path=$ZIG_LOCAL"
+          } >> "$GITHUB_OUTPUT"
+          mkdir -p "$ZIG_LOCAL"
+          echo "ZIG_LOCAL_CACHE_DIR=$ZIG_LOCAL" >> "$GITHUB_ENV"
+
+      - name: Restore the Zig local cache from R2
+        id: r2-zig-local
+        if: ${{ steps.r2-zig-local-key.outputs.key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ steps.r2-zig-local-key.outputs.path }}
+          key: ${{ steps.r2-zig-local-key.outputs.key }}
+          restore-keys: ${{ steps.r2-zig-local-key.outputs.prefix }}
+
+      # The entry above holds dependencies only, and a pool runner has no sticky disk, so every pool leg
+      # compiled the whole workspace: 1462 s of cargo on the darwin leg, the nightly tree's critical
+      # path. The newest commit's workspace delta goes on top; sources whose bytes are unchanged get
+      # its build's mtimes back, so only what this commit changed rebuilds.
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
+      - name: Restore the workspace delta from R2
+        id: r2-cargo-ws
+        if: ${{ steps.r2-cargo-key.outputs.ws-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cargo-delta
+          key: ${{ steps.r2-cargo-key.outputs.ws-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.ws-prefix }}
+
+      - name: Apply the workspace delta
+        id: r2-cargo-ws-apply
+        if: ${{ steps.r2-cargo-key.outputs.ws-key != '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/ci/cargo-target-delta.sh apply cmux-tui/target "$RUNNER_TEMP/cargo-delta" \
+            "$RUNNER_TEMP/cargo-delta.stamp" "${{ matrix.target }}" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Warm start for the Cloud machine channel's legs (lto=thin): the previous build's whole
       # target dir and cargo registry on a Blacksmith sticky disk, one per target, and
@@ -855,12 +937,27 @@ jobs:
           if [[ "$BUILD_CMUX_RD" == true ]]; then
             rd=("?cmux-rd ?cmux-rd-notices.md" "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-7 crates/cmux-rd-host/scripts/build-channel.sh $t || echo '::warning title=no cmux-rd::the cmux-rd build failed (its cargo group log above); this leg stages no cmux-rd'")
           fi
+          # lto=thin (the machine channel): acpmux-standalone builds in group 1, with cmux-tui, so the
+          # acpmux crate compiles once. In its own group it compiled twice at once on the same cores,
+          # 491.5 s in group 1 and 515.8 s in group 5, and the leg waited on both (job 139694138575,
+          # run 45755061586, x86_64, 2026-11-26). One cargo unifies features: cmux-tui's resolution is
+          # unchanged (cargo tree -e features, alone vs both: 0 packages differ), and acpmux-standalone
+          # gets cmux-tui's additive dependency features, the same acpmux build that cmux-tui's own
+          # `acpmux` multicall name runs. The fat legs (the shipped bytes) keep their own group 5.
+          lead_bins="cmux-tui cmux-tui-hook cmux-tui-host"
+          lead="$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host"
+          acpmux_group=("acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone $acpmux_features")
+          if [[ "$LTO" == thin ]]; then
+            lead_bins+=" acpmux-standalone"
+            lead+=" -p acpmux-standalone --bin acpmux-standalone $(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t" acpmux-standalone)"
+            acpmux_group=()
+          fi
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
-            "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
+            "$lead_bins" "$lead" \
             "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
             "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \
             "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \
-            "acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone $acpmux_features" \
+            ${acpmux_group[@]+"${acpmux_group[@]}"} \
             "cmux-agent-screen-detection" "$(zb 6) --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \
             ${rd[@]+"${rd[@]}"}
           # acpmux-standalone is the acpmux program with its build id stamped in the binary
@@ -999,12 +1096,22 @@ jobs:
           WARM_DISK: ${{ steps.pool-warm-darwin.outputs.disk || '/home/runner/cmux-tui-fat-warm' }}
           # An exact R2 hit (its key holds the toolchain stamp) seeds a new pool tree as built.
           MACHINE_CHANNEL_WARM_SEED_EXACT: ${{ steps.r2-cargo-target.outputs.cache-hit == 'true' }}
+          MACOS_STUBS_REF: ${{ inputs.macos_stubs_ref }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
+          # DARWIN_STUBS_FROM_BASE: a retry of a link that failed on a symbol the base branch's stubs
+          # already hold. Merge them over this tree's (the build's output is unchanged: stubs only name symbols).
+          if [[ -n "${MACOS_STUBS_REF:-}" ]]; then
+            newer="$(mktemp -d)"
+            gh api "repos/$GITHUB_REPOSITORY/contents/scripts/ci/macos-stubs?ref=$MACOS_STUBS_REF" --jq '.[] | select(.type=="file") | .name' |
+              while read -r f; do gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/macos-stubs/$f?ref=$MACOS_STUBS_REF" > "$newer/$f"; done
+            python3 scripts/ci/macos_stubs.py merge scripts/ci/macos-stubs "$newer"
+          fi
           # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only);
           # "Record the warm target", after "Stage binary", prunes and records it. Without a
           # mounted disk (or a pool runner's own directory) restore does nothing.
@@ -1089,6 +1196,13 @@ jobs:
           if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
             holder_binary="dist/cmux-tui-holder-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-holder" "$holder_binary"
+          fi
+          # Optional until the prereader crate lands. Never stage a stale cached
+          # binary from a source tree without it; a present crate must build it.
+          rm -f "dist/cmux-tui-launch-preread-${{ matrix.target }}"
+          if [[ "$STAGE_TARGET" == *-apple-darwin && -f cmux-tui/crates/cmux-launch-preread/Cargo.toml ]]; then
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-launch-preread" \
+              "dist/cmux-tui-launch-preread-${{ matrix.target }}"
           fi
           # The bundled agent screen detector rides the same way as
           # cmux-tui-agent-screen-detection-<target> and installs as
@@ -1254,6 +1368,35 @@ jobs:
           path: dist/cmux-agent-screen-detection-*${{ matrix.ext }}
           if-no-files-found: error
 
+      # What this leg built on top of the dependency entry, packed before the strip below removes it;
+      # every run prints its size, feat-cmux-next pushes save it. Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
+      - name: Pack the workspace delta
+        id: r2-cargo-ws-pack
+        if: ${{ success() && steps.r2-cargo-ws-apply.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          scripts/ci/cargo-target-delta.sh pack cmux-tui/target "$RUNNER_TEMP/cargo-delta.stamp" \
+            "$RUNNER_TEMP/cargo-delta-out" "${{ matrix.target }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "cargo delta: pack took $((SECONDS - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the workspace delta to R2
+        if: ${{ success() && steps.r2-cargo-ws-pack.outcome == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cargo-delta-out
+          key: ${{ steps.r2-cargo-key.outputs.ws-key }}
+
       # A feat-cmux-next build off Blacksmith whose inputs R2 lacks saves them: dependencies only, as
       # rust-cache keeps (scripts/ci/cargo_target_strip.py). Last in the job, after the staging and the
       # uploads have read target/. Why: docs/ci/cmux-next-workflow-notes.md#note-210c
@@ -1288,6 +1431,21 @@ jobs:
           path: cmux-tui/target
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
 
+      - name: Save the Zig local cache to R2
+        if: ${{ success() && github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' && steps.r2-zig-local-key.outputs.key != '' && steps.r2-zig-local.outputs.cache-hit != 'true' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ steps.r2-zig-local-key.outputs.path }}
+          key: ${{ steps.r2-zig-local-key.outputs.key }}
+
       - name: Save the cargo registry to R2
         if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
@@ -1302,6 +1460,19 @@ jobs:
           backend: r2
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+
+      # Last in the job: a pool host short of disk drops the darwin leg's pool tree only after every
+      # step that reads cmux-tui/target through its link (the workspace delta's pack, the strip, the
+      # R2 dependency save). Dropped in "Record the warm target", the darwin leg saved neither
+      # (job 140189679068). scripts/ci/machine-channel-warm-target.sh release.
+      - name: Release the pool warm target
+        if: ${{ always() && steps.pool-warm-darwin.outputs.disk != '' }}
+        continue-on-error: true
+        env:
+          WARM_TARGET: ${{ matrix.build_target }}
+          POOL_DISK: ${{ steps.pool-warm-darwin.outputs.disk }}
+        shell: bash
+        run: scripts/ci/machine-channel-warm-target.sh release "$POOL_DISK" "$WARM_TARGET"
 
   # The Windows daemon is built on Linux (scripts/ci/windows-gnu-cross-build.sh): the
   # same reviewed MinGW-Builds runtime (package-notices.json windows_gnu, sha256-checked),
