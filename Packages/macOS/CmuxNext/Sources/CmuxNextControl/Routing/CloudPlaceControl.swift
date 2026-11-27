@@ -5,7 +5,8 @@ import Foundation
 /// `state`, `step`, `elapsedMs` and `steps`, each finished step's ms; the app's ``CloudPlaceFlows/moveView(of:)``), `move`
 /// null with none kept. A move action's success carries no answer, so this is how the move journey probe
 /// (cmuxterm-hq cloud_journeys_probe.py) splits a move's time into its steps (`move_stages_ms`). A read of this app's own state.
-public enum CloudPlaceControl {
+public struct CloudPlaceControl {
+    public init() {}
     public static let name = "cloud.place.get"
 
     public static func method(_ view: @escaping @MainActor @Sendable (_ session: String) -> Any?) -> ControlMethod {
