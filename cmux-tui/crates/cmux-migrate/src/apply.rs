@@ -730,3 +730,7 @@ pub fn undo(
 #[cfg(test)]
 #[path = "apply_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "apply_carry_tests.rs"]
+mod carry_tests;
