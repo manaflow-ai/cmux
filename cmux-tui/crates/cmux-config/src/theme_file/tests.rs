@@ -1069,6 +1069,60 @@ fn a_theme_file_sets_the_tab_shape() {
     assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
 }
 
+/// `appearance.toolbarButtonStyle` (standard, plain, grouped, glass) is a look a theme file sets; any other value is
+/// refused by the schema's choices, as `cmux settings set` refuses it. Absent, the file changes nothing (standard).
+#[test]
+fn a_theme_file_sets_the_toolbar_button_style() {
+    for style in ["standard", "plain", "grouped", "glass"] {
+        let file = overlay(&format!(r#"{{ "appearance.toolbarButtonStyle": "{style}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{style}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.toolbarButtonStyle"), Some(&json!(style)));
+    }
+    let shiny = overlay(r#"{ "appearance.toolbarButtonStyle": "shiny" }"#);
+    assert!(shiny.keys().is_empty());
+    let refused = shiny
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.toolbarButtonStyle")
+        .expect("shiny refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}
+
+/// The sidebar's width and buttons are looks a theme file sets: `appearance.metrics.sidebarWidth` within its range,
+/// and the sidebar's button toggles.
+#[test]
+fn a_theme_file_sets_the_sidebar_width_and_buttons() {
+    let file = overlay(
+        r#"{ "appearance.metrics.sidebarWidth": 300, "sidebar.showSearchButton": false, "sidebar.showProfileControl": false, "sidebar.showNewWorkspaceChooser": false, "sidebar.controlsOnHover": true }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.metrics.sidebarWidth"), Some(&json!(300)));
+    assert_eq!(at(&root, "sidebar.showSearchButton"), Some(&json!(false)));
+    assert_eq!(at(&root, "sidebar.controlsOnHover"), Some(&json!(true)));
+}
+
+/// `appearance.homeCardStyle` (standard, flat, raised, glass) is a look a theme file sets for Home's and the New Tab
+/// page's cards; any other value is refused by the schema's choices, as `cmux settings set` refuses it.
+#[test]
+fn a_theme_file_sets_the_home_card_style() {
+    for style in ["standard", "flat", "raised", "glass"] {
+        let file = overlay(&format!(r#"{{ "appearance.homeCardStyle": "{style}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{style}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.homeCardStyle"), Some(&json!(style)));
+    }
+    let wobbly = overlay(r#"{ "appearance.homeCardStyle": "wobbly" }"#);
+    assert!(wobbly.keys().is_empty());
+    let refused = wobbly
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.homeCardStyle")
+        .expect("wobbly refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}
+
 #[test]
 fn a_theme_file_motion_block_is_read_clamped_and_checked_against_the_tokens() {
     let file = overlay(

@@ -346,6 +346,30 @@ import Testing
         await waitUntil { settings.snapshot.accent == accent }
     }
 
+    @Test func explicitFollowTerminalSurvivesReloadOverAThemeFilesAppTheme() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "appearance.appTheme": "Rose Pine" }"#, theme: "tokyo")
+        let settings = try Self.controller(home, config: #"{ "appearance": { "theme": "Nord", "themeFile": "tokyo" } }"#)
+        await settings.reload()
+        let terminal = try #require(SettingsSchema.descriptor(for: ["appearance", "theme"]))
+        let app = try #require(SettingsSchema.descriptor(for: ["appearance", "appTheme"]))
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+        #expect(settings.preview([(terminal, "Dracula"), (app, "followTerminal")]))
+        #expect(settings.applied.chromeTheme == nil)
+        settings.endPreview()
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+        try await settings.setSetting(terminal, to: "Dracula", by: .currentRun())
+        try await settings.setSetting(app, to: "followTerminal", by: .currentRun())
+        await settings.reload()
+        #expect(settings.applied.appTheme == "Dracula")
+        #expect(settings.applied.chromeTheme == nil)
+        // Reset deliberately returns to the theme file; a whole-app pick must not reset.
+        try await settings.setSetting(app, to: nil, by: .currentRun())
+        await settings.reload()
+        #expect(settings.applied.chromeTheme == "Rose Pine")
+    }
+
     @Test func theNamedFileAppliesOverCmuxNextJSONAndListsTheFolder() async throws {
         let home = try Home()
         defer { withExtendedLifetime(home) {} }
