@@ -114,10 +114,12 @@ extension ChatController {
         // cmux: my "Not Delivered" message: Try Again and Delete (Messages' pair); else lane 16's
         // Cancel Upload, only while the send can be cancelled.
         if intents?.canRetrySend(ref.messageId) == true {
+            // retry-prompt-ok: re-sends the person's message to the model (a paid turn)
             menu.addItem(MenuAction(title: CmuxStrings.tryAgain, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retrySend(ref.messageId) })
             menu.addItem(MenuAction(title: CmuxStrings.deleteFailed, symbol: "trash") { [weak self] in self?.intents?.deleteFailedSend(ref.messageId) })
             menu.addItem(.separator())
         } else if intents?.canRetryChiefTurn(ref.messageId) == true {
+            // retry-prompt-ok: asks the model for the reply again (a paid turn)
             menu.addItem(MenuAction(title: CmuxStrings.retryReply, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retryChiefTurn(ref.messageId) })
             menu.addItem(.separator())
         } else if intents?.canCancelSend(ref.messageId) == true {
