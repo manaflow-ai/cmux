@@ -895,6 +895,8 @@ impl Hub {
             "host_adopted",
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
+        // Its loop's timers outlived the daemon that heard them (`agent_timer.rs`).
+        super::agent_timer::note_adopted_goal(session);
         // An agent that cannot keep the chat's policy (a build without its gate, a policy narrowed
         // while no daemon reached it) does not run on (`policy_mode.rs`).
         if self.refuse_unheld(session).await {
