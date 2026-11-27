@@ -1277,7 +1277,8 @@ public final class DaemonTerminalSession: TerminalSession {
     static let maxScrollFramesInFlight = 2
 
     /// Sends painted redraws to the Mac (`phone-frames` `paint`); the coordinator sets it.
-    public var paintSink: (@MainActor ([TerminalPaintTally.Sample], String?) async -> Void)?
+    /// It returns hostd's join of the report when the DEBUG overlay asked for it.
+    public var paintSink: (@MainActor ([TerminalPaintTally.Sample], String?) async -> TerminalPaintSummary?)?
     private var paintInFlight = false
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
@@ -1286,8 +1287,14 @@ public final class DaemonTerminalSession: TerminalSession {
         paintInFlight = true
         let program = programName
         Task { [weak self] in
-            await sink(samples, program)
+            let summary = await sink(samples, program)
             self?.paintInFlight = false
+            // The DEBUG overlay on this session's screen shows it.
+            if let self, let summary {
+                NotificationCenter.default.post(
+                    name: TerminalPaintSummary.didArrive, object: self, userInfo: ["summary": summary]
+                )
+            }
         }
     }
 

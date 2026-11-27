@@ -130,6 +130,10 @@ on:
       FREESTYLE_API_KEY: { required: false }
       CMUX_UITEST_STACK_EMAIL: { required: false }
       CMUX_UITEST_STACK_PASSWORD: { required: false }
+      # The private R2 copy of a kept image (Upload the image to R2); a caller passes them or inherits.
+      CF_R2_ACCESS_KEY_ID: { required: false }
+      CF_R2_SECRET_ACCESS_KEY: { required: false }
+      CF_R2_ACCOUNT_ID: { required: false }
     outputs:
       candidate:
         description: The kept image's record (channel-dev.json, one line of JSON); empty unless every gate passed
@@ -258,7 +262,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -770,7 +774,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -850,7 +854,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 

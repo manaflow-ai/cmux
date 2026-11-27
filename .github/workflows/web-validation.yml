@@ -93,7 +93,7 @@ jobs:
     outputs:
       required: ${{ steps.route.outputs.required }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -121,7 +121,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -157,7 +157,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -217,7 +217,7 @@ jobs:
       DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
       DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -249,7 +249,7 @@ jobs:
           echo "PR and merge-group web validation is owned by the required ci-status check."
           echo "This workflow only publishes the separate required web-validation status."
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         with:
           persist-credentials: false
