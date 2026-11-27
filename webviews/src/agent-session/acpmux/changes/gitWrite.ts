@@ -243,12 +243,6 @@ export function failureText(op: GitWriteOp, failure: WriteFailure): string {
   return translate(key ?? (op === "commit" ? "git.commit.failed" : "git.push.failed"));
 }
 
-/// Every machine reason the spec lists for either op, for tests that keep the texts complete.
-export const KNOWN_REASONS = {
-  commit: [...Object.keys(COMMIT_REASONS), ...Object.keys(SHARED_REASONS), "git_failed"],
-  push: [...Object.keys(PUSH_REASONS), ...Object.keys(SHARED_REASONS), "git_failed"],
-};
-
 /// Whether Push can run: on a branch, with a commit, and either something ahead or no upstream yet.
 export function canPush(status: WriteStatus | undefined): boolean {
   return !!status && !status.detached && !!status.branch && !!status.head && (!status.upstream || status.ahead > 0);

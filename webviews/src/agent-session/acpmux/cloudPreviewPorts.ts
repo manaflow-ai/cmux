@@ -60,11 +60,6 @@ function parseEvent(value: unknown): PortEvent | undefined {
   };
 }
 
-export function readCloudPreviewPort(value: unknown): CloudPreviewPort | undefined {
-  const event = parseEvent(value);
-  return event ? { port: event.port, ...(event.process ? { process: event.process } : {}) } : undefined;
-}
-
 function contextKey(value: CloudPreviewContext | undefined): string {
   if (!value) return "";
   return [value.machineID ?? "", value.sessionId ?? "", value.turnId ?? ""].join("\u0000");
