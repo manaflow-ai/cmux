@@ -46,7 +46,8 @@ declare global {
         not rows that mounted since. */
     benchKeptRenders: { mark(): void; since(): number };
     /** Pages: the held build's notes load. Card: the `index`th change's detail changes. */
-    benchChangeOne(index: number): Promise<void>;
+    // One shape in every bench and harness: they merge into one Window, and differing shapes become overloads.
+    benchChangeOne: (index: number) => void | Promise<void>;
   }
 }
 

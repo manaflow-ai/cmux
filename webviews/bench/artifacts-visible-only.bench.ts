@@ -22,7 +22,8 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     benchCommitRenders: { mark(): void; since(): number };
-    benchChangeOne(index?: number): void | Promise<void>;
+    // One shape in every bench and harness: they merge into one Window, and differing shapes become overloads.
+    benchChangeOne: (index: number) => void | Promise<void>;
   }
 }
 
@@ -94,7 +95,7 @@ try {
       return { lines: diff.querySelectorAll(".artifacts-line").length, nodes: diff.querySelectorAll("*").length };
     });
 
-    const change = await rendersOf(page, () => page.evaluate(() => window.benchChangeOne()));
+    const change = await rendersOf(page, () => page.evaluate(() => window.benchChangeOne(0)));
 
     const steps: number[] = [];
     for (let index = 0; index < 10; index++) {

@@ -21,7 +21,8 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Changes the `index`th member's title and has the page read the list again. */
-    benchChangeOne(index: number): void | Promise<void>;
+    // One shape in every bench and harness: they merge into one Window, and differing shapes become overloads.
+    benchChangeOne: (index: number) => void | Promise<void>;
   }
 }
 

@@ -21,7 +21,8 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    benchChangeOne(index?: number): void | Promise<void>;
+    // One shape in every bench and harness: they merge into one Window, and differing shapes become overloads.
+    benchChangeOne: (index: number) => void | Promise<void>;
     benchExpandOne(): Promise<void>;
   }
 }
@@ -91,7 +92,7 @@ try {
     });
 
     const select = await rendersOf(page, () => page.locator('[role="treeitem"]').nth(2).click());
-    const change = await rendersOf(page, () => page.evaluate(() => window.benchChangeOne()));
+    const change = await rendersOf(page, () => page.evaluate(() => window.benchChangeOne(0)));
     const expand = await rendersOf(page, () => page.evaluate(() => window.benchExpandOne()));
 
     const steps: number[] = [];

@@ -20,7 +20,8 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Renames one file of the first open folder and has the page list its folders again. */
-    benchChangeOne(index?: number): void | Promise<void>;
+    // One shape in every bench and harness: they merge into one Window, and differing shapes become overloads.
+    benchChangeOne: (index: number) => void | Promise<void>;
     /** Opens the closed folder at the top. */
     benchExpandOne(): Promise<void>;
   }
