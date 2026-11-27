@@ -17,6 +17,8 @@ import { currentLanguage, type Translate } from "../i18n";
 import { replyMenuTime } from "./relativeTime";
 import { selectionText } from "./chipCopy";
 import { onVisualViewport } from "../../../ui/visualViewportBox";
+import { composerSettingsSnapshot } from "../composerSettings";
+import { markPopupWithin } from "../../../ui/popupWithin";
 import {
   sendPromptAgainMenu,
   sendPromptAgainTarget,
@@ -44,7 +46,18 @@ export type MessageMenuTarget = {
   sendPromptAgain?: SendPromptAgainMenu;
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
+  /// A prompt I sent with attachments: where `agentPane.attachmentView` draws them now, for the
+  /// menu's Attachments Inline / Attachments at Top pair (Leo, 2026-11-27: "it should be toggleable
+  /// one or the other"). The same setting as Settings' Attachment View and the composer's right-click.
+  attachmentView?: "inline" | "strip";
 };
+
+/// Whether a sent prompt carries any attachment: an image, a recorded non-text part, a file.
+export function promptHasAttachments(row: AcpmuxRow): boolean {
+  return Boolean(
+    row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"),
+  );
+}
 
 /// What the page reports on `contextmenu`: the message under the pointer, and the selected
 /// transcript text when the pointer is inside it (Quote in Reply, Search the Web...).
@@ -243,6 +256,8 @@ export function messageMenuTarget(
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
   if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
+  if (row.kind === "user" && promptHasAttachments(row))
+    target.attachmentView = composerSettingsSnapshot().attachmentView === "inline" ? "inline" : "strip";
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;
   return target;
@@ -357,11 +372,23 @@ const webkitHandler = () =>
     ?.messageHandlers?.[MESSAGE_MENU_HANDLER];
 /// Where reports go: the handler `installMessageMenuReporter` was given.
 let menuHandler: () => Handler | undefined = () => undefined;
-let openPopup: { id: string; anchor: Element } | undefined;
+/// The open menu's opener: lit (`data-popup-open`), its row marked (ui/popupWithin.ts) until the host reports the close.
+let openPopup: { id: string; anchor: Element; unmark: () => void } | undefined;
 
 function clearMessagePopup() {
   openPopup?.anchor.removeAttribute("data-popup-open");
+  openPopup?.unmark();
   openPopup = undefined;
+}
+
+/// A ref for a message menu's opener (More, Fork): when the opener unmounts while its menu is open, its
+/// row lets go of the open menu's mark at once, as the `:has([data-popup-open])` it replaces did. A
+/// stable function, so React calls it only at mount and unmount.
+export function releaseMessagePopupOnUnmount(anchor: Element | null) {
+  if (!anchor) return;
+  return () => {
+    if (openPopup?.anchor === anchor) clearMessagePopup();
+  };
 }
 
 /// Whether a host shows this page's message menu (its More button would do nothing without one).
@@ -380,8 +407,8 @@ export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   clearMessagePopup();
   const popupId = anchor ? crypto.randomUUID() : undefined;
   if (anchor && popupId) {
-    openPopup = { id: popupId, anchor };
     anchor.setAttribute("data-popup-open", "");
+    openPopup = { id: popupId, anchor, unmark: markPopupWithin(anchor) };
   }
   try {
     handler.postMessage({
@@ -409,8 +436,8 @@ export function openMessageMenu(rowId: string, anchor: Element): boolean {
   );
   clearMessagePopup();
   const popupId = crypto.randomUUID();
-  openPopup = { id: popupId, anchor };
   anchor.setAttribute("data-popup-open", "");
+  openPopup = { id: popupId, anchor, unmark: markPopupWithin(anchor) };
   try {
     handler.postMessage({ ...message, popUp: { left, top, right, bottom }, popupId } satisfies MessageMenuReport);
   } catch {

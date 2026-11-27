@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the pane pictures schedule, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync and live wallpapers"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the staged-update pre-warm record, the app health model, the launch images, the pane pictures schedule, the chat markdown parser, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync, live wallpapers and the background ready copy's decisions"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -14,7 +14,7 @@ description = "The one Rust static library the cmux macOS app links: the C ABIs 
 # dependency change in a crate they share needs one lock edit, not one per FFI
 # crate (#40883, #40898).
 [workspace]
-members = ["../cmux-launch-record", "../cmux-launch-shell", "../cmux-layout-cache","../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
+members = ["../cmux-background-ready", "../cmux-launch-record", "../cmux-launch-shell", "../cmux-layout-cache","../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
 
 [lib]
 crate-type = ["staticlib"]
@@ -47,12 +47,18 @@ cmux-daemon-conn-core = { path = "../cmux-daemon-conn-core" }
 cmux-cookie-sync = { path = "../cmux-cookie-sync" }
 # How the app starts and keeps its daemon (src/ffi.rs: JSON ops, the watch, stderr lines).
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
+# The staged-update pre-warm record (src/ffi.rs: the marker line and the launch verdict as JSON ops).
+cmux-update-prewarm-core = { path = "../cmux-update-prewarm-core" }
 # The app health model (cmux-health-core src/ffi.rs: JSON ops, the repair ladder, the snapshot).
 cmux-health-core = { path = "../cmux-health-core" }
 # Each window's last frame for the launch's first frame (cmux-launch-image src/ffi.rs: naming, caps, pruning, when to capture).
 cmux-launch-image = { path = "../cmux-launch-image" }
 # When a pane's live thumbnail is captured again (cmux-pane-pictures src/ffi.rs: the schedule; the app captures).
 cmux-pane-pictures = { path = "../cmux-pane-pictures" }
+# The agent chat transcript's markdown parser (cmux-chat-markdown src/ffi.rs: the parsed document as bytes; the app renders).
+cmux-chat-markdown = { path = "../cmux-chat-markdown" }
+# The remote chat wire: the page's acpmux JSON-RPC in, daemon calls and page frames out as JSON effects (src/ffi.rs).
+cmux-acpmux-remote-wire = { path = "../cmux-acpmux-remote-wire" }
 # The Screenshots pane rules (cmux-screenshots src/ffi.rs: what a source lists, the listing, sources, the gate; the app reads disks and draws).
 cmux-screenshots = { path = "../cmux-screenshots" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
@@ -63,6 +69,8 @@ cmux-motion = { path = "../cmux-motion", default-features = false }
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
 cmux-launch-record = { path = "../cmux-launch-record" }
+# The idle pass over leftover Chromium code-sign clones (src/sign_clone_sweep.rs).
+cmux-sign-clone-sweep = { path = "../cmux-sign-clone-sweep" }
 # Live wallpapers (src/wallpaper.rs, include/cmux_wallpaper_ffi.h): the program check
 # and its Metal translation (naga), the scheduler, the Frame packer.
 cmux-wallpaper = { path = "../cmux-wallpaper" }
@@ -75,8 +83,14 @@ cmux-process = { path = "../cmux-process" }
 # The files lister client and the system calendar ops' JSON (src/files_lister.rs, src/system_calendar.rs).
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# A staged update's Info.plist and its frameworks' pages (src/updater/staged_prewarm.rs).
+plist = "1"
+libc = "0.2"
 # Text caps count grapheme clusters, as Swift does (src/system_calendar.rs).
 unicode-segmentation = "1"
+# The background ready copy's decisions (app.backgroundReady): the quit, the hidden plan, the login item, the
+# launch, the update exit and the Chromium warm-up (include/cmux_background_ready.h).
+cmux-background-ready = { path = "../cmux-background-ready" }
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites
@@ -93,3 +107,12 @@ debug = false
 strip = "debuginfo"
 # Machine code from rustc's own LTO: scripts/cmux-next/build-app-ffi.sh.
 lto = "fat"
+
+# Proc-macro and build-script dylibs keep their symbols: Rust before 1.98 strips a
+# Mach-O without padding its LINKEDIT string pool to 8 bytes (rust-lang/rust#157750),
+# and macOS 27 dyld refuses such an image built against the Xcode 27 SDK, so rustc
+# reports `E0463 can't find crate` for the macro (cmux#17311; the app FFI release
+# after the fleet's move to Xcode 27.2, #60808). Only build-time code: what ships
+# is unchanged.
+[profile.release.build-override]
+strip = false

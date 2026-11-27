@@ -187,6 +187,20 @@ pub fn hid_idle_seconds(nanos: i64) -> Option<f64> {
     (nanos >= 0).then(|| nanos as f64 / 1e9)
 }
 
+/// Seconds since the owner's last keyboard or pointer input on this machine, read now
+/// (macOS `HIDIdleTime`). None where it cannot be read (not macOS, or IOKit refused): a caller
+/// that gates on the owner being away treats None as not away.
+pub fn owner_idle_seconds() -> Option<f64> {
+    #[cfg(target_os = "macos")]
+    {
+        platform::hid_idle()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 #[cfg(test)]
 #[path = "probe_tests.rs"]
 mod tests;
@@ -311,7 +325,7 @@ mod platform {
 
     /// Seconds since the last keyboard or pointer input: `HIDIdleTime` (nanoseconds) of
     /// the IORegistry's `IOHIDSystem`.
-    fn hid_idle() -> Option<f64> {
+    pub(super) fn hid_idle() -> Option<f64> {
         const UTF8: u32 = 0x0800_0100;
         const SINT64: i32 = 4;
         // SAFETY: IOKit and CoreFoundation calls with NUL-terminated names and valid out

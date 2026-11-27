@@ -51,10 +51,10 @@ t0="$(date +%s)"
 # for the larger of the VM's floor and it, keeping the VM's floor, reserve and holds. An older hook has no room phase:
 # it gets the need as its floor and reserve for this one call (its holds then release at the need, not the floor).
 if grep -q CMUX_DISK_NEED_BYTES "$hook" 2>/dev/null; then
-  CMUX_DISK_NEED_BYTES="$need" CMUX_DISK_FLOOR_LOCK_WAIT="$wait_s" timeout -k 5 "$wait_s" "$hook" room
+  CMUX_DISK_NEED_BYTES="$need" CMUX_DISK_FLOOR_LOCK_WAIT="$wait_s" bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" --kill-after=5 "$wait_s" "$hook" room
 else
   CMUX_DISK_FLOOR_CHILD=1 CMUX_DISK_FLOOR_BYTES="$need" CMUX_DISK_RESERVE_BYTES="$need" CMUX_DISK_JOB_BYTES="$need" \
-    CMUX_DISK_FLOOR_LOCK_WAIT="$wait_s" timeout -k 5 "$wait_s" "$hook" room
+    CMUX_DISK_FLOOR_LOCK_WAIT="$wait_s" bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" --kill-after=5 "$wait_s" "$hook" room
 fi
 after="$(avail)"
 case "$after" in ''|*[!0-9]*) after=0;; esac

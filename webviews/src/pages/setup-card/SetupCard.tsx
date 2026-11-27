@@ -1,3 +1,4 @@
+import { SignInBackend } from "../../ui/SignInButton";
 // "Set Up cmux" on Home (goal next-first-run-setup): what this Mac still lacks for a first run,
 // drawn in Home's chat column above Chief's composer, with no window of its own. Three looks the
 // gallery compares (`rows` ships): only the progress and the next row's action (`next`), every row
@@ -14,10 +15,10 @@ import {
   nextStep,
   setupProgress,
   setupSteps,
-  setupTitle,
   type SetupAction,
   type SetupState,
   type SetupStep,
+  setupTitle,
 } from "./setupModel";
 import "./cards.css";
 
@@ -67,6 +68,12 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__next-text">
               <span className="hm-setup__row-title">{next.title}</span>
               <span className="hm-setup__row-detail">{next.detail}</span>
+              {next.note &&
+                (next.id === "account" ? (
+                  <SignInBackend line={next.note} />
+                ) : (
+                  <span className="hm-setup__row-detail">{next.note}</span>
+                ))}
             </span>
             <Trailing step={next} onAction={onAction} wide />
           </div>
@@ -91,6 +98,12 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__row-text">
               <span className="hm-setup__row-title">{step.title}</span>
               <span className="hm-setup__row-detail">{step.detail}</span>
+              {step.note &&
+                (step.id === "account" ? (
+                  <SignInBackend line={step.note} />
+                ) : (
+                  <span className="hm-setup__row-detail">{step.note}</span>
+                ))}
               {step.id === "look" && state.look && (
                 <TextSizePicker
                   className="hm-setup__look"
