@@ -7606,10 +7606,23 @@ def risk_evidence_quota_only(repo: str, job: dict, log: str, github, run_reads: 
     markers: list[dict] = []
     marker_lines: list[int] = []
     all_lines: list[str] = []
+    runner_lines: set[int] = set()
+    in_run_group = False
+    runner_boilerplate = re.compile(
+        r"^(?:"
+        r"(?:python3?|/usr/bin/env python3) scripts/ci/risk_tier\.py pr(?: .*)?|"
+        r"shell: /[^ ]+/bash -e \{0\}|env:|[A-Z_][A-Z0-9_]*: \*\*\*"
+        r")$")
     for raw, index in view.lines():
         for text in lines_of(raw):
             line_number = len(all_lines)
             all_lines.append(text)
+            if text.startswith("##[group]Run "):
+                in_run_group = True
+            elif in_run_group and runner_boilerplate.fullmatch(text):
+                runner_lines.add(line_number)
+            elif text == "##[endgroup]":
+                in_run_group = False
             match = RISK_EVIDENCE_MARKER.fullmatch(text)
             if match is None:
                 continue
@@ -7638,8 +7651,8 @@ def risk_evidence_quota_only(repo: str, job: dict, log: str, github, run_reads: 
         r"##\[group\]Run .*scripts/ci/risk_tier\.py pr|##\[endgroup\]|"
         r"##\[error\]Process completed with exit code 1\.?|Cleaning up orphan processes"
         r")$")
-    if any(line and RISK_EVIDENCE_MARKER.fullmatch(line) is None and allowed.fullmatch(line) is None
-           for line in all_lines):
+    if any(line_number not in runner_lines and line and RISK_EVIDENCE_MARKER.fullmatch(line) is None
+           and allowed.fullmatch(line) is None for line_number, line in enumerate(all_lines)):
         return None
     if test_reds.failed_in(view_text(view)):
         return None

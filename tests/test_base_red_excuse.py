@@ -8505,6 +8505,16 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
                                        "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
         self.assertIsNone(self.case(self.MARKER, "##[warning]an unrelated warning"))
 
+    def test_real_runner_group_boilerplate_is_ignored(self):
+        self.assertIsNotNone(self.case(
+            "python3 scripts/ci/risk_tier.py pr 7",
+            "shell: /usr/bin/bash -e {0}",
+            "env:",
+            "  GH_TOKEN: ***",
+            self.MARKER,
+            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
+            "##[endgroup]"))
+
 
 class RetargetedGitHub(FakeGitHub):
     """cmux#44908 at e19e1487: opened into feat-cmux-next, retargeted to main at 01:05Z. Its 'defaults guard' job 1
