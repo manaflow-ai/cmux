@@ -1,4 +1,4 @@
-//! This build's identity (`crate::build_identity::identity()` and
+//! This build's identity (cmux-build-identity's `BUILD_IDENTITY` and
 //! `BUILD_TIME`), installed by the binary at start.
 //!
 //! cmux-build-identity's build script reruns on every source edit, and Cargo
@@ -38,14 +38,15 @@ pub fn time() -> u64 {
 
 #[cfg(any(test, feature = "hotpatch", feature = "windows-thin-exe"))]
 fn compiled_in() -> (&'static str, u64) {
-    (crate::build_identity::identity(), crate::build_identity::time())
+    (cmux_build_identity::BUILD_IDENTITY, cmux_build_identity::BUILD_TIME)
 }
 
 /// A binary that links the library calls [`install`] before anything reads
-/// the identity; reading it first is that binary's bug. Daemon skew checks
-/// and SSH re-bootstrap compare this value, so a guessed one would restart
-/// or reinstall forever: stop instead.
+/// the identity (src/bin/cmux-tui.rs does, as main's first statement). One
+/// that forgot reports this marker rather than a guessed commit: it never
+/// equals a real identity, so skew checks see a different build instead of
+/// trusting a wrong one, and `cmux --version` names the mistake.
 #[cfg(not(any(test, feature = "hotpatch", feature = "windows-thin-exe")))]
 fn compiled_in() -> (&'static str, u64) {
-    panic!("cmux-tui: the binary did not install the build identity (build_identity::install)")
+    ("uninstalled-build-identity", 0)
 }
