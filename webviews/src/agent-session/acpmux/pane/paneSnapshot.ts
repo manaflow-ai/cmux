@@ -171,7 +171,6 @@ import {
   heldStartStop,
   sendsHeldForHost,
   untilHostAnswers,
-  paneSends,
   pageClientLink,
 } from "../sendWhenReady";
 import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";

@@ -1330,6 +1330,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::BrokerForward { owners, socket }) => {
             crate::cli::host_broker_forward::run(owners, socket).await
         }
+        // Its own socket to the daemon, one per pipe (`host_pipe.rs`).
+        #[cfg(all(unix, feature = "hub-carrier"))]
+        Command::Host(PeerCmd::Pipe { machine, port }) => {
+            crate::cli::host_pipe::run(machine, port).await
+        }
+        #[cfg(not(all(unix, feature = "hub-carrier")))]
+        Command::Host(PeerCmd::Pipe { .. }) => {
+            Err(anyhow!("machine pipe needs unix sockets and the hub carrier"))
+        }
         #[cfg(not(unix))]
         Command::Host(PeerCmd::BrokerForward { .. }) => {
             Err(anyhow!("machine broker-forward needs unix sockets"))
@@ -1860,7 +1869,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Deps { .. }
                 | PeerCmd::Hypervisor { .. }
                 | PeerCmd::Key { .. }
-                | PeerCmd::BrokerForward { .. } => {
+                | PeerCmd::BrokerForward { .. }
+                | PeerCmd::Pipe { .. } => {
                     return Err(anyhow!(
                         "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));
