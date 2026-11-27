@@ -288,6 +288,30 @@ test("a live compaction stops running when its turn ends or the next turn starts
   expect(states()?.map((compaction) => compaction?.state)).toEqual(["failed", "failed"]);
 });
 
+test("a late compaction result stays between the steer that settled it and the next steer", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "/compact" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "user_message", { text: "first steer", steer: true }],
+    ["mux", "turn_started", {}],
+    ["mux", "user_message", { text: "second steer", steer: true }],
+  ];
+  const late: Step = ["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })];
+  const order = (rows: AcpmuxRow[]) =>
+    rows
+      .filter((row) => row.kind === "user" || row.kind === "compaction")
+      .map((row) => row.text ?? row.compaction?.state);
+  const daemon = fakeDaemon(record(steps));
+  const live = await connect(daemon);
+  expect(order(live.rows())).toEqual(["/compact", "first steer", "failed", "second steer"]);
+  daemon.push(record([late], steps.length + 1));
+  const completed = ["/compact", "first steer", "completed", "second steer"];
+  expect(order(live.rows())).toEqual(completed);
+  const reloaded = await connect(fakeDaemon(record([...steps, late])));
+  expect(order(reloaded.rows())).toEqual(completed);
+});
+
 test("a compaction that ends after a forced Stop ended its turn stays one row", async () => {
   const steps: Step[] = [
     ["mux", "user_message", { text: "/compact" }],
