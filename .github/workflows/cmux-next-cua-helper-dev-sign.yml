@@ -22,7 +22,7 @@ name: cmux NEXT helper (dev) signing
 #         Blacksmith macOS, trusted like GitHub-hosted for release signing:
 #         the owned signing runners admit only nightly.yml's own signing jobs.
 # publish the cef-publish environment, the one that holds the cmux-cef-write
-#         token (release has none), and waits for one of its reviewers:
+#         token (release has none), admitting main only (branch policy):
 #         main's upload-r2-object.py publishes the signed helper write-once.
 # pin-pr  opens the pin bump against feat-cmux-next as the glaeda-route App,
 #         so its CI runs. Without the App the pin stays in the run summary
@@ -51,8 +51,8 @@ on:
 
 permissions: {}
 
-# No workflow-level concurrency group. The publish job waits for a person in
-# cef-publish, and a run waiting there never times out (timeout-minutes counts
+# No workflow-level concurrency group. The publish job waited for a person in
+# cef-publish while it required a reviewer, and a run waiting there never times out (timeout-minutes counts
 # from the job's start). Under one workflow group, run 42677635673 sat at that
 # approval from 2026-11-09 and held the group: every later dispatch waited, and
 # each newer one cancelled the pending one (43374466637). So only the macOS
@@ -62,11 +62,15 @@ permissions: {}
 # approval holds no group, and the sdk job names any run still waiting.
 # scripts/ci/check_workflow_concurrency.py refuses the old shape.
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   sdk:
     name: Resolve the commit and fetch the SDK
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # 10 minutes of work plus up to an hour waiting out the API budget.
     timeout-minutes: 70
     permissions:
@@ -82,7 +86,7 @@ jobs:
       # (2026-11-16) died on its first gh read with "API rate limit exceeded for
       # installation". The wrapper waits for the reset instead, bounded by an hour.
       - name: Checkout the gh rate-limit wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .gh-budget-tooling
@@ -93,7 +97,8 @@ jobs:
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
-      # Says so when an older run still waits for a cef-publish reviewer. This
+      # Says so when an older run still waits for a cef-publish reviewer (none
+      # waits once the environment has only its main branch policy). This
       # run does not wait behind it (no shared group), but its own publish
       # needs the same approval, and an approval left for hours is how the
       # 2026-11-09 run held every dispatch until 11-13. Best effort: a failed
@@ -122,7 +127,7 @@ jobs:
       # Only main code runs in this job, which holds the R2 key: the
       # feat-cmux-next commit is read through the API, and its SDK pin as JSON.
       - name: Checkout main's R2 helper
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -242,7 +247,7 @@ jobs:
     # rescue (owned_pool_rescue.py SIDE_WORKFLOW_PATHS) moves a stuck or refused job to
     # Blacksmith macOS, the last resort a re-run takes directly. RUNNER_POOLS.macos_26 is a
     # Blacksmith label, so reading it first queued run 43645667029 on Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'workflow_dispatch' && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -252,7 +257,7 @@ jobs:
       asset: ${{ steps.build.outputs.asset }}
     steps:
       - name: Checkout feat-cmux-next
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.sdk.outputs.sha }}
           fetch-depth: 1
@@ -327,7 +332,7 @@ jobs:
       # Every script this job runs comes from main: the keychain tool and the
       # signer.
       - name: Checkout main's signing tools
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -421,16 +426,16 @@ jobs:
   publish:
     name: Publish the helper
     needs: sign
-    # Waits for a cef-publish reviewer, so it holds no concurrency group: a
+    # Holds no concurrency group, since an environment wait never times out: a
     # wait nobody answers must never queue another dispatch.
     environment: cef-publish
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - name: Checkout main's R2 upload
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -491,7 +496,7 @@ jobs:
     concurrency:
       group: cmux-next-cua-helper-dev-sign-pin-pr-${{ inputs.helper || 'computer-use' }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # 10 minutes of work plus up to an hour waiting out the API budget.
     timeout-minutes: 70
     permissions:
@@ -501,7 +506,7 @@ jobs:
       # (2026-11-16) died on its first gh read with "API rate limit exceeded for
       # installation". The wrapper waits for the reset instead, bounded by an hour.
       - name: Checkout the gh rate-limit wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .gh-budget-tooling
@@ -527,9 +532,9 @@ jobs:
           permission-pull-requests: write
 
       - name: Checkout feat-cmux-next
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: scripts/cmux-next

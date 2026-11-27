@@ -39,6 +39,8 @@ permissions:
   contents: read
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # Fork pull requests do not receive repository variables; the public read
   # URL is not a secret, so default it rather than run every fork build cold.
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
@@ -49,7 +51,13 @@ env:
 concurrency:
   # Adding dev-build gets its own group, so a later label event cannot replace
   # the pending run that asks for the dogfood build.
-  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}
+  # A dispatch (main's full suite, ci-main-full-suite.yml) gets a group of its
+  # own too. GitHub keeps one pending run per group and cancels it when a newer
+  # one queues, even with cancel-in-progress off, so two gates that each missed
+  # the other's still-pending run cancelled main's full suite before it started
+  # a job: 45844217549, 45845203890 and 45845498645 on 2026-11-26, and no full
+  # run finished from 11:15Z on.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
   # A label-only rerun can escalate the same head to full-ci. Let the current
   # compile finish and publish its app-host product so the queued run can reuse
   # it instead of throwing away a long compile and starting from zero.
@@ -57,7 +65,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
@@ -151,6 +159,10 @@ jobs:
       # JSON tiers of root runner names warm for this run (merge base first,
       # then this pull request), for ci-macos.yml's admission-placement.
       macos_pr_admission_warm: ${{ steps.macos-pool.outputs.admission_warm }}
+      # scripts/ci/mac-grants.json on, a same-repository pull request: the controller's per-run grant,
+      # JSON labels (`["cmux-mac","xcode-<version>"]`) every Mac job reads first, and
+      # every pool output above is empty (simple_pool_picker.grant_outputs()). Otherwise "".
+      macos_pr_grant: ${{ steps.macos-pool.outputs.grant }}
     permissions:
       actions: read
       # The delta step reads the ci-status check run of the last green head.
@@ -165,7 +177,7 @@ jobs:
         run: echo "repos=$CI_OWNED_HEAD_REPOS" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
 
@@ -724,6 +736,23 @@ jobs:
         if: ${{ steps.suite.outputs.full_suite == 'true' }}
         run: echo "full-suite coverage selected"
 
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
+        id: route-token-bot
+        if: ((github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
       - name: Mint the owned-pool routing token
         id: route-token
         # The org's manaflow-glaeda-route App, read-only on runners, so the
@@ -735,39 +764,59 @@ jobs:
         # yet, the App not installed, or the App without that organization
         # permission) leaves the token empty, and the choice falls back to the
         # janitor snapshot and CI_OWNED_POOL_SLOTS.
-        if: (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: ((github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
+        id: route-token-repo-bot
+        if: (steps.route-token.outcome == 'failure') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
-          permission-organization-self-hosted-runners: read
 
       - name: Mint the routing token without the org permission
         id: route-token-repo
         # The mint is all or nothing: an App not yet granted the organization
         # self-hosted runners permission gets no token above. This one asks
         # for the repository permission alone, as before.
-        if: steps.route-token.outcome == 'failure'
+        if: (steps.route-token.outcome == 'failure') && steps.route-token-repo-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
 
       # The glaeda-route App installation's budget around the reads below (a free
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ (steps.route-token.outputs.token || steps.route-token-repo.outputs.token) != '' }}
+        if: ${{ ((steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
           PROBE: ${{ github.workflow }}/changes-route/before
         run: >-
           gh api rate_limit --jq
@@ -789,7 +838,7 @@ jobs:
           MACOS_RUNNER_PR: ${{ vars.MACOS_RUNNER_PR }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
           # Empty unless the step above minted it: idle owned runners, live.
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
           CI_PR_POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           # The Blacksmith macOS switch: not `on`, an owned pick names no Blacksmith retry_runner.
           CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
@@ -822,11 +871,11 @@ jobs:
         run: python3 scripts/ci/simple_pool_picker.py
 
       - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && (steps.route-token.outputs.token || steps.route-token-repo.outputs.token) != '' }}
+        if: ${{ !cancelled() && ((steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
           PROBE: ${{ github.workflow }}/changes-route/after
         run: >-
           gh api rate_limit --jq
@@ -1061,15 +1110,36 @@ jobs:
       # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
       # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
       # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
-      - name: Mint the glaeda read token
-        id: admitted-read-token
-        if: ${{ (steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
+        id: admitted-read-token-bot
+        if: ((steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
+      - name: Mint the glaeda read token
+        id: admitted-read-token
+        if: ((steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && steps.admitted-read-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-actions: read
           permission-pull-requests: read
           skip-token-revoke: true
@@ -1078,11 +1148,11 @@ jobs:
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ (steps.admitted-read-token.outputs.token) != '' }}
+        if: ${{ ((steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token }}
+          GH_TOKEN: ${{ (steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token) }}
           PROBE: ${{ github.workflow }}/changes-admitted/before
         run: >-
           gh api rate_limit --jq
@@ -1093,7 +1163,7 @@ jobs:
         continue-on-error: true
         if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
         env:
-          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ (steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token) || github.token }}
           BRANCH: ${{ github.head_ref }}
           FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
@@ -1102,11 +1172,11 @@ jobs:
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
       - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && (steps.admitted-read-token.outputs.token) != '' }}
+        if: ${{ !cancelled() && ((steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token)) != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ steps.admitted-read-token.outputs.token }}
+          GH_TOKEN: ${{ (steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token) }}
           PROBE: ${{ github.workflow }}/changes-admitted/after
         run: >-
           gh api rate_limit --jq
@@ -1135,13 +1205,15 @@ jobs:
     # Keep the authoritative fast guard in this DAG. It starts beside routing
     # and static checks, so macOS admission can depend on its real result
     # without a second runner polling another workflow.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # On the shared cmux-linux pool its 187 steps take 4.5 to 5 min (main, 2026-11-21: 4:30, 4:33, 5:00); 5 min
+    # cancelled it mid-run (cmux job 136948316380). 10 min leaves room without hiding a real hang for long.
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -1186,14 +1258,14 @@ jobs:
     name: Reverse test impact (report only)
     needs: [changes]
     if: ${{ github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.reverse_test_impact == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The merge commit and its first parent, the trusted base.
           fetch-depth: 2
@@ -1257,13 +1329,13 @@ jobs:
     # No package installs, submodules or app build: reject malformed inputs
     # before starting macOS and the other Linux stages. Guards and web run
     # beside it, because the macOS gate waits for them.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # HEAD^1 is the diff base lint-feature-flags uses to fail an expired
@@ -1303,11 +1375,11 @@ jobs:
     permissions:
       contents: read
     # Check the pinned framework before using a Mac, and on provenance changes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -1344,6 +1416,7 @@ jobs:
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' remote-daemon ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
+      pr_grant: ${{ needs.changes.outputs.macos_pr_grant }}
       native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
   web:
@@ -1360,7 +1433,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || github.event_name == 'workflow_dispatch' && vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && needs.changes.outputs.macos_pr_grant != '' && fromJSON(needs.changes.outputs.macos_pr_grant) || github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || github.event_name == 'workflow_dispatch' && vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
     # processes, so a mini saturated by a compile beside it stretches it:
     # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
@@ -1369,7 +1442,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout wrapper and test inputs
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # The lane reads only these: about 750 files instead of the whole
@@ -1445,7 +1518,7 @@ jobs:
       - guards
       - web
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions: {}
     steps:
@@ -1512,9 +1585,11 @@ jobs:
       owned_head_repos: ${{ needs.changes.outputs.owned_head_repos }}
       pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' swift-package ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
       pr_gui_runner: ${{ needs.changes.outputs.macos_pr_gui_runner }}
+      pr_grant: ${{ needs.changes.outputs.macos_pr_grant }}
     # ci-macos.yml's admission-placement and late-placement read the runners with it.
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
 
   linux-preflight:
     name: linux-preflight
@@ -1532,7 +1607,7 @@ jobs:
     # router explicitly says macOS is irrelevant, skip the runner allocation.
     # Missing/invalid route output fails open by running the preflight.
     if: ${{ !cancelled() && needs.changes.outputs.macos != 'false' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed Linux results
@@ -1642,7 +1717,7 @@ jobs:
     needs:
       - changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     steps:
       - name: Require the suite that judges this diff
         run: |
@@ -1694,7 +1769,7 @@ jobs:
     # repaired. Re-enable with the repository variable CI_UI_TESTS_ENABLED=1;
     # selectors still keep dispatches limited to UI-touching diffs.
     if: ${{ vars.CI_UI_TESTS_ENABLED == '1' && !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # A compile wait of up to 50 minutes, then the tests.
     timeout-minutes: 150
     permissions:
@@ -1710,7 +1785,7 @@ jobs:
           exit 1
 
       - name: Checkout the request script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci/ui_tests_dispatch.py
@@ -1767,7 +1842,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the exact pull-request head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
@@ -1833,7 +1908,7 @@ jobs:
     # A cancelled run already has its terminal outcome; the required status
     # remains cancelled and does not need a post-cancel rollup.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # These verdict steps read `needs` and decide. Their siblings are bounded
     # at 5 to 20 minutes; this job was inheriting the six-hour default, as the
     # required check every pull request waits on.
@@ -1846,7 +1921,7 @@ jobs:
       # it, and fails when a selected job never ran (scripts/ci/gate_verdict.py;
       # tests/test_ci_gate_absent_signal.py walks the needs graph).
       - name: Check out the gate verdict
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -2008,7 +2083,7 @@ jobs:
       - macos-admission-gate
       - macos
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:
@@ -2016,7 +2091,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout the readout script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci/ci_timing_readout.py

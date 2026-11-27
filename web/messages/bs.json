@@ -380,6 +380,7 @@
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
     "subtitle": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
+    "nextCallout": "Novo: isprobajte <link>cmux NEXT</link>, pregled sljedeće verzije cmux-a.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",
@@ -5775,5 +5776,13 @@
     "unavailableTitle": "Nismo mogli potvrditi vašu prijavu",
     "unavailableBody": "Naš servis za prijavu je zauzet. Sačekajte nekoliko sekundi, pa ponovo otvorite pozivnicu. Ne morate se ponovo prijaviti.",
     "retry": "Pokušaj ponovo"
+  },
+  "analyticsConsent": {
+    "label": "Analitika",
+    "message": "Smijemo li koristiti analitiku da vidimo kako se stranica koristi? Ništa se ne prikuplja i ne postavlja se analitički kolačić osim ako to dozvolite.",
+    "privacy": "Politika privatnosti",
+    "accept": "Dozvoli",
+    "decline": "Ne, hvala",
+    "settings": "Postavke analitike"
   }
 }

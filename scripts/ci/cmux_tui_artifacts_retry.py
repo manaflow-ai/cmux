@@ -8,14 +8,21 @@ cmux-tui-artifacts-retry workflow calls this after the run completes.
 "Re-run failed jobs" also reruns the jobs that depend on them, so the publish
 jobs are evaluated again.
 
-Only tree-publishing runs (feat-cmux-next's workflow, with its tree preflight
-job) are retried; main's own cmux-tui artifacts runs share the workflow name
+Only tree-publishing runs (feat-cmux-next's and nightly-next's pushes, with
+the tree preflight job) are retried; main's own cmux-tui artifacts runs share the workflow name
 and are left alone.
 
 An immutable R2 conflict (annotation title immutable-r2-conflict, written by
 scripts/ci/upload-r2-object.py) is never retried: a rebuild is not
 byte-identical, so a retry cannot succeed. The run stays red and this script
 names the job.
+
+A failure that repeats is not retried either: when every job that failed on
+this attempt also failed at the same step on the attempt before, the failure
+is deterministic and a third attempt repeats it (CI 10x, 2026-11-21: retries
+of a cmux-tui artifacts job that failed again cost 21 runner-hours a day over
+11-13..21, 16 of them on attempts 3 and later). One retry of a new failure
+still runs, so a transient registry or R2 error is still covered.
 
 usage: cmux_tui_artifacts_retry.py --repo OWNER/NAME --run-id ID [--dry-run]
 Needs GH_TOKEN with actions: write and checks: read.
@@ -32,6 +39,7 @@ import urllib.request
 MAX_ATTEMPTS = 3
 CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
+RETRIED_BRANCHES = ("feat-cmux-next", "nightly-next")
 TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui", "publish pull request tree-addressed cmux-tui")
 
 
@@ -64,10 +72,24 @@ def queue_orphaned(jobs: list[dict]) -> list[dict]:
     return cancelled
 
 
-def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newest: dict | None = None) -> Decision:
+def failure_fingerprint(jobs: list[dict]) -> frozenset[tuple[str, str]]:
+    """{(job name, its first failed step)} of the jobs that failed or timed out."""
+    out = set()
+    for job in jobs:
+        if job.get("conclusion") not in ("failure", "timed_out"):
+            continue
+        step = next((st.get("name") or "" for st in job.get("steps") or []
+                     if st.get("conclusion") in ("failure", "timed_out")), "")
+        out.add((job.get("name") or "", step))
+    return frozenset(out)
+
+
+def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newest: dict | None = None,
+           previous: list[dict] | None = None) -> Decision:
     """Pure policy: what to do with one workflow run.
 
     NEWEST is the newest feat-cmux-next push run of the same workflow (None when it could not be read).
+    PREVIOUS is the jobs of the run's attempt before this one (None on attempt 1 or when it could not be read).
     """
     branch = run.get("head_branch") or ""
     # A cancelled feat-cmux-next tree run whose cancelled jobs never got a runner lost its queue, not its
@@ -94,9 +116,13 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newe
                         + ", ".join(job["name"] for job in orphaned))
     if run.get("status") != "completed" or run.get("conclusion") != "failure":
         return Decision("skip", f"run is {run.get('status')}/{run.get('conclusion')}, not a completed failure")
-    # The pushes nightly-next promotes from; a red lane branch or PR is usually a real failure.
-    if run.get("event") != "push" or not (branch == "feat-cmux-next" or branch.startswith("cmux-tui-pin-")):
-        return Decision("skip", f"{run.get('event')} on {branch or '?'}: only feat-cmux-next and cmux-tui-pin-* pushes are retried")
+    # The pushes nightly-next promotes from, and nightly-next itself: its run signs the Linux release file
+    # the linux-nightly channel follows (2026-11-27 run 45981368445 at 7682aa45 failed on an aarch64 runner
+    # shutdown, was never retried, and the channel stayed a NIGHTLY behind). A red lane branch or PR is
+    # usually a real failure.
+    if run.get("event") != "push" or not (branch in RETRIED_BRANCHES or branch.startswith("cmux-tui-pin-")):
+        return Decision("skip", f"{run.get('event')} on {branch or '?'}: only "
+                        + ", ".join(RETRIED_BRANCHES) + " and cmux-tui-pin-* pushes are retried")
     # main's cmux-tui artifacts workflow has the same name but publishes no tree;
     # only feat-cmux-next's tree-publishing runs (they have this job) are retried.
     if not any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs):
@@ -130,6 +156,11 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]], newe
             "immutable R2 conflict in " + ", ".join(conflicts)
             + ": a rebuild is not byte-identical, so a retry cannot fix it",
         )
+    now = failure_fingerprint(jobs)
+    if previous and now and now <= failure_fingerprint(previous):
+        return Decision("skip", f"attempts {attempt - 1} and {attempt} failed the same way ("
+                        + ", ".join(f"{name}: {step}" if step else name for name, step in sorted(now))
+                        + "): deterministic, a retry repeats it")
     return Decision("rerun-failed-jobs", "failed: " + ", ".join(job["name"] for job in failed))
 
 
@@ -174,7 +205,15 @@ def main(argv: list[str]) -> int:
             newest = ((listed or {}).get("workflow_runs") or [None])[0]
         except (OSError, ValueError, KeyError) as error:
             print(f"::warning::could not read the newest feat-cmux-next push run ({error}); deciding without it")
-    decision = decide(run, jobs, annotations, newest)
+    previous = None
+    attempt = int(run.get("run_attempt") or 1)
+    if run.get("conclusion") == "failure" and attempt > 1:
+        try:
+            listed = _api("GET", f"{base}/actions/runs/{args.run_id}/attempts/{attempt - 1}/jobs?per_page=100", token)
+            previous = (listed or {}).get("jobs")
+        except (OSError, ValueError, KeyError) as error:
+            print(f"::warning::could not read attempt {attempt - 1}'s jobs ({error}); deciding without them")
+    decision = decide(run, jobs, annotations, newest, previous)
     print(f"run {args.run_id} attempt {run.get('run_attempt')}: {decision.action} ({decision.reason})")
     if decision.action == "refuse":
         print(f"::error title=cmux-tui publish not retried::run {args.run_id}: {decision.reason}")

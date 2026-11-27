@@ -96,6 +96,15 @@ while [ \$# -gt 0 ]; do
   esac
   shift
 done
+# The published Sigstore bundle (cmux-tui-attestations/) is logged to its own
+# file, so the ordering checks below read only the manifest and slices. It is
+# served only when a case put it in \$SERVE; otherwise it answers like a 404.
+if [[ "\$url" == */cmux-tui-attestations/* ]]; then
+  printf 'bundle %s\n' "\$url" >> "$EVENTS.bundle"
+  [[ -f "$SERVE/\$(basename "\$url")" ]] || exit 22
+  cp "$SERVE/\$(basename "\$url")" "\$out"
+  exit 0
+fi
 printf 'curl %s\n' "\$url" >> "$EVENTS"
 if [[ -n "\${FAKE_CURL_ARGS_LOG:-}" ]]; then printf '%s\n' "\$args" >> "\$FAKE_CURL_ARGS_LOG"; fi
 if [[ "\${FAKE_CURL_FAIL_MANIFEST:-0}" == 1 && "\$url" == */manifest.json ]]; then
@@ -128,6 +137,9 @@ SH
 cat > "$FAKEBIN/gh" <<SH
 #!/bin/bash
 printf 'gh %s\n' "\$*" >> "$EVENTS"
+# A verify against a downloaded bundle (--bundle) is offline: it never meets the
+# API quota. FAKE_GH_BUNDLE_EXIT is its verdict.
+if [[ " \$* " == *" --bundle "* ]]; then exit "\${FAKE_GH_BUNDLE_EXIT:-0}"; fi
 # FAKE_GH_RATE_LIMITED_FILE holds how many more calls answer like an exhausted
 # GitHub API installation quota (nightly run 37526635018) before gh recovers.
 if [ -n "\${FAKE_GH_RATE_LIMITED_FILE:-}" ]; then
@@ -137,6 +149,9 @@ if [ -n "\${FAKE_GH_RATE_LIMITED_FILE:-}" ]; then
     echo "Error: HTTP 403: API rate limit exceeded for installation." >&2
     exit 1
   fi
+fi
+if [[ "\${FAKE_GH_EXIT:-0}" == 0 && " \$* " == *" --format json "* ]]; then
+  printf '%s\n' '[{"attestation":{"bundle":{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json","fake":true}}}]'
 fi
 exit "\${FAKE_GH_EXIT:-0}"
 SH
@@ -164,8 +179,10 @@ install_remote() { # <app> [installer options]
   local app="$1"; shift
   mkdir -p "$app/Contents"
   : > "$EVENTS"
+  : > "$EVENTS.bundle"
   REMOTE_INSTALL_SEQ=$((REMOTE_INSTALL_SEQ + 1))
   PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" \
+    CMUX_TUI_ATTESTATION_CACHE="${ATTEST_CACHE:-$TEST_DIR/attest-cache-$REMOTE_INSTALL_SEQ}" \
     CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_BUDGET" /bin/bash \
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$app" \
     --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" "$@"
@@ -178,9 +195,12 @@ ATTESTED_APP="$TEST_DIR/Attested.app"
 install_remote "$ATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
   --require-capability wireguard-hub > "$TEST_DIR/attested.log" 2>&1
 cmp "$CLIENT" "$ATTESTED_APP/Contents/Resources/bin/cmux-tui"
-grep -q "^gh attestation verify .*manifest.* --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+grep -q "^gh attestation verify .*manifest.* --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT --format json\$" "$EVENTS"
 # The manifest is verified before any slice it names is fetched.
 [ "$(sed -n '1p' "$EVENTS")" = "curl https://files.example.test/cmux-tui/$COMMIT/manifest.json" ]
+# With no bundle cached or published, one short fetch of the published bundle
+# misses, then the API lookup verifies.
+[ "$(cat "$EVENTS.bundle")" = "bundle https://files.example.test/cmux-tui-attestations/sha256-$(slice_sha "$SERVE/manifest.json").sigstore.json" ]
 [ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" = "gh attestation verify" ]
 [ "$(sed -n '3p' "$EVENTS")" = "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-aarch64-apple-darwin" ]
 echo "PASS: attested manifest is verified before slices are downloaded"
@@ -273,6 +293,38 @@ cmp "$CLIENT" "$RATE_LIMITED_APP/Contents/Resources/bin/cmux-tui"
 [ "$(grep -c '^gh attestation verify' "$EVENTS")" = 3 ]
 echo "PASS: a rate-limited attestation lookup is retried, then verified"
 
+# A spent installation quota (run 45583224796, every retry 403'd) no longer holds
+# the install: the attestation bundles are read without the token and verified
+# offline with --bundle. A bundle that does not verify admits nothing.
+manifest_digest="$(slice_sha "$SERVE/manifest.json")"
+printf '{"attestations":[{"bundle":{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}}]}' \
+  > "$SERVE/sha256:$manifest_digest"
+echo 99 > "$TEST_DIR/rate-limited-left"
+FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-left" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  install_remote "$TEST_DIR/AnonymousBundle.app" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
+  > "$TEST_DIR/anonymous-bundle.log" 2>&1 || {
+    echo "FAIL: a drained API quota failed the install although the bundle reads without a token" >&2
+    cat "$TEST_DIR/anonymous-bundle.log" >&2
+    exit 1
+  }
+cmp "$CLIENT" "$TEST_DIR/AnonymousBundle.app/Contents/Resources/bin/cmux-tui"
+grep -q "^curl https://api.github.com/repos/manaflow-ai/cmux/attestations/sha256:$manifest_digest\$" "$EVENTS"
+grep -q "^gh attestation verify .*manifest.* --bundle .*anon-0.sigstore.json --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+[ "$(grep -c '^gh attestation verify' "$EVENTS")" = 2 ]
+echo 99 > "$TEST_DIR/rate-limited-left"
+FAKE_GH_BUNDLE_EXIT=1 FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/rate-limited-left" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES=1 install_remote "$TEST_DIR/AnonymousRejected.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/anonymous-rejected.log" 2>&1 && {
+    echo "FAIL: installed from a token-less bundle that did not verify" >&2
+    exit 1
+  }
+if grep -q 'apple-darwin' "$EVENTS"; then
+  echo "FAIL: downloaded a slice after a token-less bundle did not verify" >&2
+  exit 1
+fi
+rm -f "$SERVE/sha256:$manifest_digest"
+echo "PASS: a drained API quota verifies the bundle read without the token; a bad bundle admits nothing"
+
 # A real verification failure is final on the first answer.
 FAKE_GH_EXIT=1 CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 install_remote "$TEST_DIR/Rejected.app" \
   --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/rejected.log" 2>&1 && {
@@ -281,6 +333,82 @@ FAKE_GH_EXIT=1 CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 install_remote "$TEST_DIR/R
   }
 [ "$(grep -c '^gh attestation verify' "$EVENTS")" = 1 ]
 echo "PASS: a rejected attestation is not retried"
+
+# The publisher uploads the manifest's Sigstore bundle under its digest
+# (cmux-tui-artifacts.yml, "Publish the manifest's Sigstore bundle"). With it the
+# attestation is verified offline, so a spent API quota holds nothing: classic
+# nightly runs 45539773839-45569593374 (2026-11-25) each slept 15 minutes in
+# "Bundle the cmux-tui client" on the nightly-only Macs, then failed on the quota.
+MANIFEST_DIGEST="$(slice_sha "$SERVE/manifest.json")"
+BUNDLE_NAME="sha256-$MANIFEST_DIGEST.sigstore.json"
+printf '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n' > "$SERVE/$BUNDLE_NAME"
+echo 1000 > "$TEST_DIR/bundle-rate-limited"
+FAKE_GH_RATE_LIMITED_FILE="$TEST_DIR/bundle-rate-limited" CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS=0 \
+  CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES=0 install_remote "$TEST_DIR/Bundled.app" \
+  --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bundled.log" 2>&1 || {
+    echo "FAIL: a published bundle did not let the install through a spent API quota" >&2
+    cat "$TEST_DIR/bundled.log" >&2; exit 1; }
+cmp "$CLIENT" "$TEST_DIR/Bundled.app/Contents/Resources/bin/cmux-tui"
+grep -q "^bundle https://files.example.test/cmux-tui-attestations/$BUNDLE_NAME\$" "$EVENTS.bundle"
+[ "$(grep -c '^gh ' "$EVENTS")" = 1 ] || { echo "FAIL: the bundled install also asked the API" >&2; cat "$EVENTS" >&2; exit 1; }
+grep -q "^gh attestation verify .*manifest.* --bundle .* --repo manaflow-ai/cmux --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+# Verified before any slice is fetched.
+[ "$(grep -n '^gh attestation verify' "$EVENTS" | cut -d: -f1)" -lt "$(grep -n 'cmux-tui-aarch64-apple-darwin$' "$EVENTS" | head -1 | cut -d: -f1)" ]
+echo "PASS: a published Sigstore bundle verifies the manifest offline, through a spent API quota"
+
+# A bundle that does not verify admits nothing by itself: the API lookup decides.
+FAKE_GH_BUNDLE_EXIT=1 install_remote "$TEST_DIR/BadBundle.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bad-bundle.log" 2>&1
+cmp "$CLIENT" "$TEST_DIR/BadBundle.app/Contents/Resources/bin/cmux-tui"
+[ "$(grep -c '^gh attestation verify .* --bundle ' "$EVENTS")" = 1 ]
+[ "$(grep '^gh attestation verify' "$EVENTS" | grep -vc -- ' --bundle ')" = 1 ]
+grep -q 'did not verify; asking the GitHub attestations API' "$TEST_DIR/bad-bundle.log"
+if FAKE_GH_BUNDLE_EXIT=1 FAKE_GH_EXIT=1 install_remote "$TEST_DIR/BadBoth.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bad-both.log" 2>&1; then
+  echo "FAIL: installed with a rejected bundle and a rejected API attestation" >&2; exit 1
+fi
+[ ! -e "$TEST_DIR/BadBoth.app/Contents/Resources/bin/cmux-tui" ]
+grep -q 'no valid build-provenance attestation' "$TEST_DIR/bad-both.log"
+rm -f "$SERVE/$BUNDLE_NAME"
+echo "PASS: a bundle that does not verify falls back to the API lookup and never admits on its own"
+
+# A published bundle that verified lands in the host attestation cache, and the
+# next install of that manifest reads the cache: no fetch and no API lookup.
+OFFLINE_CACHE="$TEST_DIR/attest-cache-offline"
+printf '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n' > "$SERVE/$BUNDLE_NAME"
+ATTEST_CACHE="$OFFLINE_CACHE" install_remote "$TEST_DIR/Published.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/published.log" 2>&1
+rm -f "$SERVE/$BUNDLE_NAME"
+[ "$(grep -c '^gh ' "$EVENTS")" = 1 ]
+[ -s "$OFFLINE_CACHE/$MANIFEST_DIGEST.sigstore.json" ]
+ATTEST_CACHE="$OFFLINE_CACHE" install_remote "$TEST_DIR/Cached.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/cached.log" 2>&1
+cmp "$CLIENT" "$TEST_DIR/Cached.app/Contents/Resources/bin/cmux-tui"
+grep -q 'verified offline from cached bundle' "$TEST_DIR/cached.log"
+[ "$(grep -c '^gh ' "$EVENTS")" = 1 ]
+grep -q "^gh attestation verify .* --bundle $OFFLINE_CACHE/" "$EVENTS"
+[ ! -s "$EVENTS.bundle" ] || { echo "FAIL: a cached bundle still fetched the published one" >&2; exit 1; }
+echo "PASS: a published bundle is cached, so the next install reads no network and no API"
+
+# A cached bundle gh rejects is no verdict: it falls through to the API lookup.
+FAKE_GH_BUNDLE_EXIT=1 ATTEST_CACHE="$OFFLINE_CACHE" install_remote "$TEST_DIR/BadCache.app" \
+  --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" > "$TEST_DIR/bad-cache.log" 2>&1
+cmp "$CLIENT" "$TEST_DIR/BadCache.app/Contents/Resources/bin/cmux-tui"
+grep -q -- "--source-digest $COMMIT --format json\$" "$EVENTS"
+echo "PASS: a rejected cached bundle falls back to the API lookup"
+
+# The bundle a successful API lookup returns is cached for the next install.
+API_CACHE="$TEST_DIR/attest-cache-api"
+ATTEST_CACHE="$API_CACHE" install_remote "$TEST_DIR/ApiFirst.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/api-first.log" 2>&1
+grep -q -- '--format json$' "$EVENTS"
+ATTEST_CACHE="$API_CACHE" install_remote "$TEST_DIR/ApiSecond.app" --expected-commit "$COMMIT" \
+  --attest-signer-workflow "$SIGNER" > "$TEST_DIR/api-second.log" 2>&1
+grep -q 'verified offline from cached bundle' "$TEST_DIR/api-second.log"
+if grep -q -- '--format json$' "$EVENTS"; then
+  echo "FAIL: the bundle an API lookup verified was not reused" >&2; exit 1
+fi
+echo "PASS: an API lookup's bundle is cached, so the next install reads no API"
 
 if install_remote "$TEST_DIR/Malformed.app" --attest-signer-workflow "cmux-tui-artifacts.yml" \
     > "$TEST_DIR/malformed.log" 2>&1; then
@@ -296,7 +424,7 @@ echo "PASS: a malformed signer workflow is rejected before any download"
 DEFAULT_APP="$TEST_DIR/Default.app"
 install_remote "$DEFAULT_APP" --expected-commit "$COMMIT" > "$TEST_DIR/default.log" 2>&1
 cmp "$CLIENT" "$DEFAULT_APP/Contents/Resources/bin/cmux-tui"
-grep -q "^gh attestation verify .* --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+grep -q "^gh attestation verify .* --signer-workflow $SIGNER --source-digest $COMMIT --format json\$" "$EVENTS"
 if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/DefaultDenied.app" --expected-commit "$COMMIT" > "$TEST_DIR/default-denied.log" 2>&1; then
   echo "FAIL: a remote install without flags skipped attestation" >&2
   exit 1
@@ -343,7 +471,7 @@ for arch in arm64 x86_64; do
   install_remote "$native_app" --arch "$arch" --expected-commit "$COMMIT" \
     --require-capability wireguard-hub > "$TEST_DIR/native-$arch.log" 2>&1
   cmp "$SERVE/cmux-tui-$slice-apple-darwin" "$native_app/Contents/Resources/bin/cmux-tui"
-  grep -q "^gh attestation verify .* --source-digest $COMMIT\$" "$EVENTS"
+  grep -q "^gh attestation verify .* --source-digest $COMMIT --format json\$" "$EVENTS"
   grep -q "curl .*cmux-tui-$slice-apple-darwin\$" "$EVENTS"
   [[ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" == "gh attestation verify" ]]
   [[ "$(sed -n '3p' "$EVENTS")" == "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-$slice-apple-darwin" ]]

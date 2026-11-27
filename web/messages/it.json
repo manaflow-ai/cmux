@@ -380,6 +380,7 @@
     "typingCodingAgents": "agenti di codice",
     "typingMultitasking": "multitasking",
     "subtitle": "Terminale macOS nativo open source e gratuito basato su Ghostty. Tab verticali, anelli di notifica quando gli agenti hanno bisogno di attenzione, pannelli divisi e una <cliLink>CLI</cliLink> per la programmabilità.",
+    "nextCallout": "Novità: prova <link>cmux NEXT</link>, un'anteprima del prossimo cmux.",
     "features": "Funzionalità",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -5775,5 +5776,13 @@
     "unavailableTitle": "Impossibile confermare l'accesso",
     "unavailableBody": "Il nostro servizio di accesso è occupato. Attendi qualche secondo, poi riapri l'invito. Non devi accedere di nuovo.",
     "retry": "Riprova"
+  },
+  "analyticsConsent": {
+    "label": "Analisi",
+    "message": "Possiamo usare analisi per capire come viene usato il sito? Non viene raccolto nulla e non viene impostato alcun cookie di analisi se non lo consenti.",
+    "privacy": "Informativa sulla privacy",
+    "accept": "Consenti",
+    "decline": "No, grazie",
+    "settings": "Impostazioni di analisi"
   }
 }

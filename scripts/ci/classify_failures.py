@@ -59,7 +59,9 @@ failures; system and cache `error:` noise dropped), and each gets an owner:
 The comment's first line is the verdict in those words. A pull request that
 merged before its CI finished still gets the comment (fix forward on main).
 A green run whose macOS jobs never ran, on a pull request that changes the
-app, says so instead of "passes". The comment records the head it speaks for:
+app, says so instead of "passes". A green CI run says "passes" only when every other
+check run and commit status on the head is green too (head_checks): #50275's comment said
+"CI passes on 800f012d13" while cmux-next/compile was red on that head six times. The comment records the head it speaks for:
 when CI starts on a newer head (workflow_run `requested`) or an older head's
 run completes, a comment about another head is rewritten to "pending".
 """
@@ -544,6 +546,49 @@ def macos_blocked(jobs: Iterable[Mapping], base: str = "") -> str:
                      if found.get(name) != "success")
 
 
+# Check run conclusions and commit status states that are red; anything else completed is green.
+RED_CHECKS = frozenset({"failure", "timed_out", "startup_failure", "action_required", "cancelled", "stale"})
+RED_STATUSES = frozenset({"failure", "error"})
+# This workflow's own job: it is running while it reads the head's checks.
+OWN_CHECKS = frozenset({"Attribute"})
+MAX_CHECK_PAGES = 5
+
+
+def head_checks(gh: GitHub, sha: str) -> dict[str, list[str]]:
+    """The head's other checks that are not green: {"red": names, "running": names}. CI (ci.yml) is one
+    workflow of many; a green ci.yml run said nothing about cmux-next/compile, the macOS app build or
+    any other check on the same head (#50275: "CI passes on 800f012d13" over six red compiles).
+    Check runs (the latest per name) and commit statuses (the latest per context) both count."""
+    red: set[str] = set()
+    running: set[str] = set()
+    seen: set[str] = set()
+    for page in range(1, MAX_CHECK_PAGES + 1):
+        body = gh.get(f"repos/{gh.repo}/commits/{sha}/check-runs?filter=latest&per_page=100&page={page}") or {}
+        runs = list(body.get("check_runs") or [])  # type: ignore[union-attr]
+        for check in runs:
+            name = str(check.get("name") or "")
+            if not name or name in OWN_CHECKS or name in seen:
+                continue
+            seen.add(name)
+            if check.get("status") != "completed":
+                running.add(name)
+            elif check.get("conclusion") in RED_CHECKS:
+                red.add(name)
+        if len(runs) < 100:
+            break
+    combined = gh.get(f"repos/{gh.repo}/commits/{sha}/status?per_page=100") or {}
+    for status in combined.get("statuses") or []:  # type: ignore[union-attr]
+        context = str(status.get("context") or "")
+        if not context or context in seen:
+            continue
+        seen.add(context)
+        if status.get("state") in RED_STATUSES:
+            red.add(context)
+        elif status.get("state") == "pending":
+            running.add(context)
+    return {"red": sorted(red), "running": sorted(running)}
+
+
 def classify_run(gh: GitHub, run: Mapping) -> dict:
     attempt = int(run.get("run_attempt") or 1)
     jobs = run_jobs(gh, int(run["id"]), attempt)
@@ -887,12 +932,30 @@ def listed(items: list[Mapping], why: bool = True) -> str:
     return ", ".join(texts) + (f" and {rest} more" if rest > 0 else "")
 
 
+def names(items: list[str], limit: int = 5) -> str:
+    shown = ", ".join(code(item, 80) for item in items[:limit])
+    return shown + (f" and {len(items) - limit} more" if len(items) > limit else "")
+
+
+def success_state(report: Mapping) -> str:
+    """A green CI run's state: passes only when the macOS jobs ran and every other check is green."""
+    others = report.get("other_checks") or {}
+    if others.get("red"):
+        return "failed"
+    return "unverified" if report.get("macos_skipped") or others.get("running") else "passes"
+
+
 def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
     """The comment's first line: whose failure it is, in plain words."""
     sha = (report.get("head_sha") or "")[:10]
     if report.get("conclusion") == "success":
         if report.get("macos_skipped"):
             return f"**Not verified:** {MACOS_SKIPPED} on `{sha}`; ci-status is green without them."
+        others = report.get("other_checks") or {}
+        if others.get("red"):
+            return f"**Other checks red:** CI (ci.yml) is green on `{sha}`, but {names(others['red'])} failed."
+        if others.get("running"):
+            return f"**Not verified:** CI (ci.yml) is green on `{sha}`; {names(others['running'])} still running."
         return f"**Passes:** CI passes on `{sha}`."
     jobs = report["jobs"]
     failures = [f for job in jobs if job["verdict"] != MACHINE for f in job.get("failures") or []]
@@ -984,11 +1047,17 @@ def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
     sha = (report.get("head_sha") or "")[:10]
     run = f"[run {report['run_id']} attempt {report['attempt']}]({report.get('run_url')})"
     jobs = report["jobs"]
-    state = ("unverified" if report.get("macos_skipped") else "passes") if report.get("conclusion") == "success" \
+    state = success_state(report) if report.get("conclusion") == "success" \
         else "stopped" if report.get("conclusion") == "cancelled" else "failed"
     out = [MARKER, head_marker(str(report.get("head_sha") or ""), state), verdict_line(report, reran, rerun), ""]
     if report.get("conclusion") == "success":
-        out.append(f"CI passes on `{sha}` ({run}).")
+        others = report.get("other_checks") or {}
+        out.append(f"CI (ci.yml) is green on `{sha}` ({run})." if others.get("red") or others.get("running")
+                   else f"CI passes on `{sha}` ({run}).")
+        if others.get("red"):
+            out.append(f"Red on the same head: {names(others['red'], 20)}. Fix or re-run those before merging.")
+        if others.get("running"):
+            out.append(f"Still running on the same head: {names(others['running'], 20)}.")
         if report.get("macos_skipped"):
             out.append(f"{MACOS_SKIPPED}: {report.get('macos_blocked')} (the `macos` job needs both to succeed). "
                        "Re-run CI once they pass, before merging.")
@@ -1171,6 +1240,13 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
             print(f"::warning::could not record failures in issue {SEEN_ISSUE}: {code(error)}", flush=True)
     if report.get("macos_blocked"):
         report["macos_skipped"] = touches_app(files or safe_pr_files(gh, pr))
+    if report.get("conclusion") == "success":
+        try:
+            report["other_checks"] = head_checks(gh, str(report.get("head_sha") or ""))
+        except RuntimeError as error:
+            # Unread is not green: say so rather than "passes".
+            print(f"::warning::the head's other checks unreadable: {code(error)}", file=sys.stderr)
+            report["other_checks"] = {"red": [], "running": ["(the head's other checks could not be read)"]}
     rerun, line = False, ""
     if report.get("conclusion") != "success":
         rerun, line = rerun_decision(report, lambda: gh.run(int(report["run_id"])))
@@ -1195,7 +1271,8 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     # A green run says so only where a failure was reported before; a green run whose macOS jobs
     # never ran says that even where nothing was reported, since it looks green. A machine-only
     # failure that is being re-run asks nothing of the author, so it posts no new comment either.
-    quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") or rerun
+    quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") \
+        and not (report.get("other_checks") or {}).get("red") or rerun
     if current is not None or not quiet:
         upsert_comment(writer, gh.repo, pr, MARKER, body, existing, section="attribution")
     return {"pr": pr, "rerun": rerun, "line": line}

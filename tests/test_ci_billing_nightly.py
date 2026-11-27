@@ -94,9 +94,9 @@ class Workflow(unittest.TestCase):
                 # Each later step runs only when the configuration is present.
                 steps = block.split("      - name: ")[1:]
                 for step in steps:
-                    if step.startswith(("Checkout", "Check configuration")):
+                    if step.startswith(("Checkout", "Mint spare tokens", "Check configuration")):
                         continue
-                    self.assertIn("if: steps.config.outputs.ready == 'true'", step, step.splitlines()[0])
+                    self.assertRegex(step, r"if: (\$\{\{ \()?steps\.config\.outputs\.ready == 'true'", step.splitlines()[0])
 
     def test_delivery_covers_both_environments_of_the_app_store_app(self) -> None:
         block = self.jobs["apple-delivery"]
@@ -117,6 +117,15 @@ class Workflow(unittest.TestCase):
             with self.subTest(job=job):
                 runs_on = re.search(r"^    runs-on: (.*)$", self.jobs[job], re.MULTILINE).group(1)
                 self.assertNotIn("vars.", runs_on)
+
+    def test_github_calls_have_spare_tokens(self) -> None:
+        # Run 45794727111: the config step's environment read died on the job token's rate limit.
+        for job in SECRET_JOBS:
+            with self.subTest(job=job):
+                block = self.jobs[job]
+                self.assertIn("uses: ./.github/actions/spare-issue-tokens", block)
+                self.assertLess(block.index("id: spare"), block.index("python3 scripts/ci/billing_nightly.py"))
+                self.assertIn("GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}", block)
 
     def test_storekit_dispatches_feat_cmux_next(self) -> None:
         block = self.jobs["storekit"]
@@ -172,6 +181,56 @@ class Script(unittest.TestCase):
         code, output, _, _ = self.run_config({"HAS_A": "true"}, broken)
         self.assertEqual((code, output), (1, "ready=false\n"))
 
+    def test_gh_retries_a_transient_failure(self) -> None:
+        import subprocess
+        calls = []
+        def run(argv, **_kw):
+            calls.append(argv)
+            if len(calls) == 1:
+                raise subprocess.CalledProcessError(1, argv, output="", stderr="HTTP 502: Bad Gateway")
+            return subprocess.CompletedProcess(argv, 0, stdout=" ok \n", stderr="")
+        with mock.patch.object(nightly.subprocess, "run", side_effect=run), mock.patch.object(nightly.time, "sleep"):
+            self.assertEqual(nightly._gh("api", "x"), "ok")
+        self.assertEqual(len(calls), 2)
+
+    def test_gh_sends_a_rate_limited_call_on_a_spare_token(self) -> None:
+        import subprocess
+        tokens = []
+        def run(argv, **kwargs):
+            token = (kwargs.get("env") or {}).get("GH_TOKEN", "job")
+            tokens.append(token)
+            if token in ("job", "spare-1"):
+                raise subprocess.CalledProcessError(1, argv, output="", stderr="HTTP 403: API rate limit exceeded for installation")
+            return subprocess.CompletedProcess(argv, 0, stdout="{}\n", stderr="")
+        with mock.patch.dict(os.environ, {"GH_SPARE_TOKENS": "spare-1 spare-2"}), \
+                mock.patch.object(nightly.subprocess, "run", side_effect=run), \
+                mock.patch.object(nightly.time, "sleep") as sleep, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(nightly._gh("api", "x"), "{}")
+        self.assertEqual(tokens, ["job", "spare-1", "spare-2"])
+        sleep.assert_not_called()
+
+    def test_gh_keeps_spares_for_rate_limits(self) -> None:
+        import subprocess
+        tokens = []
+        def run(argv, **kwargs):
+            tokens.append((kwargs.get("env") or {}).get("GH_TOKEN", "job"))
+            raise subprocess.CalledProcessError(1, argv, output="", stderr="HTTP 404: Not Found")
+        with mock.patch.dict(os.environ, {"GH_SPARE_TOKENS": "spare-1"}), \
+                mock.patch.object(nightly.subprocess, "run", side_effect=run), \
+                mock.patch.object(nightly.time, "sleep"), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(subprocess.CalledProcessError):
+                nightly._gh("api", "x", tries=1)
+        self.assertEqual(tokens, ["job"])
+
+    def test_gh_failure_names_gh_stderr(self) -> None:
+        import subprocess
+        def run(argv, **_kw):
+            raise subprocess.CalledProcessError(1, argv, output="", stderr="HTTP 403: API rate limit exceeded")
+        with mock.patch.object(nightly.subprocess, "run", side_effect=run), mock.patch.object(nightly.time, "sleep"):
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                nightly._gh("api", "x")
+        self.assertIn("rate limit exceeded", str(caught.exception))
+
     def test_red_jobs(self) -> None:
         needs = {"suite": {"result": "success"}, "apple-api": {"result": "failure"},
                  "storekit": {"result": "skipped"}, "apple-delivery": {"result": "cancelled"}}
@@ -185,8 +244,10 @@ class Script(unittest.TestCase):
 
     def run_alert(self, needs: dict, open_issue: str, slack: bool = True, notify=None):
         calls: list[tuple[str, ...]] = []
-        def gh(*args: str) -> str:
+        def gh(*args: str, tries: int = 3) -> str:
             calls.append(args)
+            if args[0] == "issue" and args[1] != "list":
+                self.assertEqual(tries, 1, f"a write is never retried: {args[:2]}")
             return open_issue if args[:2] == ("issue", "list") else ""
         posted: list[str] = []
         with mock.patch.dict(os.environ, {"NEEDS": json.dumps(needs), "RUN_URL": "https://run"}), \

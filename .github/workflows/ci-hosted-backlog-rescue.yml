@@ -1,6 +1,7 @@
 name: CI hosted backlog rescue
 
-# Pull request runs bound to GitHub-hosted Ubuntu that never got a runner, at any age up to GitHub's 24 h queue limit.
+# Pull request runs bound to GitHub-hosted Ubuntu that never got a runner, at any age up to GitHub's 24 h queue limit,
+# and ones bound to Blacksmith Ubuntu whose re-run takes the owned LINUX_RUNNER (Blacksmith is overflow only).
 # GitHub never re-routes a queued job, so the jobs queued while LINUX_RUNNER and the x64 pools pointed at hosted
 # Ubuntu (2026-11-17 21:34Z to 2026-11-18 02:34Z, cmux#45710) stayed there for hours after the routes came back.
 # The minute pass (ci-owned-pool-rescue.yml) only covers declared light jobs under 90 minutes old; this pass covers
@@ -41,10 +42,14 @@ concurrency:
   group: ci-hosted-backlog-rescue
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   backlog:
     if: github.repository == 'manaflow-ai/cmux' && vars.CI_HOSTED_LIGHT_RESCUE_DISABLED != '1'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: Actions write stays on a fresh one-job VM; the owned fleet first (off the pool it drains), never a persistent owned machine, never the hosted queue it drains
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }} # ephemeral-required: Actions write stays on a fresh one-job VM; the owned fleet first (off the pool it drains), never a persistent owned machine, never the hosted queue it drains
     timeout-minutes: 10
     permissions:
       actions: write
@@ -52,10 +57,10 @@ jobs:
       pull-requests: read
     steps:
       - name: Check out trusted rescue code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The reviewed implementation on the default branch, never a dispatching branch's.
-          ref: main
+          ref: refs/heads/main
           persist-credentials: false
 
       # The declared light workflows the minute pass owns (feat-cmux-next's runners.json), so the two passes never
@@ -63,9 +68,9 @@ jobs:
       - name: Check out the declared light-job routes
         continue-on-error: true
         timeout-minutes: 2
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           path: .rescue-workflows
           sparse-checkout: .github
           persist-credentials: false
@@ -83,9 +88,22 @@ jobs:
           permission-contents: read
           permission-pull-requests: read
 
+      # The cmux-bot installation's hour before the pass (GET /rate_limit is free), as an `app-spend-pool:` line
+      # HQ's spend publisher sums, and the floor: below it the pass is skipped, every queued run stays as it is and
+      # the next pass looks again. The App ran dry by mid-hour every hour on 2026-11-18, and this pass then fell back
+      # to the repository's shared GITHUB_TOKEN pool the NEXT nightly needs (scripts/ci/app_spend_mark.py).
+      - name: Read the cmux-bot budget before the pass
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-hosted-backlog-rescue/backlog --floor pass
+
       # Reads and writes go out as cmux-bot (its own installation pool); the repository's shared GITHUB_TOKEN pool,
       # which the NEXT nightly needs, answers reads only while cmux-bot is low or refused.
       - name: Cancel and re-run the hosted backlog
+        if: steps.app-spend.outputs.low != 'true'
         timeout-minutes: 6
         env:
           HOSTED_LIGHT_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
@@ -95,7 +113,22 @@ jobs:
           BACKLOG_ACTIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.actions || '' }}
           BACKLOG_RUN_IDS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_ids || '' }}
           BACKLOG_RECOVER_SINCE: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_since || '' }}
+          # A job queued on Blacksmith Ubuntu is moved only when its re-run takes this owned label: its runs-on in
+          # its base branch's workflow reads LINUX_RUNNER first, and LINUX_RUNNER names neither Blacksmith nor hosted.
+          BACKLOG_LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
         run: >-
           python3 scripts/ci/hosted_light_rescue.py
           --backlog
           --policy .rescue-workflows/.github
+          --route-workflows main=.github/workflows
+          --route-workflows feat-cmux-next=.rescue-workflows/.github/workflows
+
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since every job
+      # holding a cmux-bot token spends the same pool).
+      - name: Read the cmux-bot budget after the pass
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-hosted-backlog-rescue/backlog

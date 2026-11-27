@@ -36,6 +36,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -152,17 +153,65 @@ def judge(config: dict, commits: list[str], files_of: Callable[[str], list[str]]
 
 # --- GitHub and Vercel readers -------------------------------------------------------------------------------------
 
+# How long one request may wait for a rate limit to reset, and how many times it retries, before it refuses as
+# unreadable. The refused deploy is cancelled only while Vercel still builds it, so the wait stays short. Every wait
+# is at least RATE_LIMIT_MIN_WAIT_S, so a "retry-after: 0" answer cannot spin.
+RATE_LIMIT_WAIT_S = 120.0
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_MIN_WAIT_S = 1.0
+
+
+def _http_error_detail(exc: urllib.error.HTTPError) -> tuple[str, float | None]:
+    """What GitHub said with an HTTP error (its message and rate-limit headers), and how long its rate limit asks
+    to wait (None when it is not a rate limit). From 2026-11-24 every push run failed on "HTTP Error 403:
+    Forbidden" alone, with Actions: read granted, and the log could not show why."""
+    headers = exc.headers or {}
+    try:
+        body = exc.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        body = ""
+    try:
+        message = str(json.loads(body).get("message") or "")
+    except (ValueError, AttributeError):
+        message = body.strip()[:300]
+    remaining, reset, retry_after = (headers.get("x-ratelimit-remaining"), headers.get("x-ratelimit-reset"),
+                                     headers.get("retry-after"))
+    detail = f"{exc}: {message or 'no message'}"
+    if remaining is not None:
+        detail += f" (x-ratelimit-remaining {remaining}, resource {headers.get('x-ratelimit-resource') or '?'})"
+    wait = None
+    if exc.code in (403, 429):
+        if retry_after and retry_after.strip().isdecimal() and retry_after.strip().isascii():
+            wait = max(RATE_LIMIT_MIN_WAIT_S, float(retry_after))
+        elif remaining == "0" and reset and reset.strip().isdecimal() and reset.strip().isascii():
+            wait = max(0.0, float(reset) - time.time()) + RATE_LIMIT_MIN_WAIT_S
+        elif "rate limit" in message.lower():
+            wait = 60.0
+    return detail, wait
+
+
 def _request(url: str, token: str | None, method: str = "GET", accept: str = "application/vnd.github+json",
-             timeout: float = 30) -> object:
+             timeout: float = 30, sleep: Callable[[float], None] = time.sleep) -> object:
     headers = {"Accept": accept, "User-Agent": "classic-deploy-guard"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    request = urllib.request.Request(url, method=method, headers=headers, data=b"" if method == "PATCH" else None)
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read() or b"null")
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        raise Unreadable(f"{method} {url.split('?')[0]}: {exc}") from exc
+    waited, retries = 0.0, 0
+    while True:
+        request = urllib.request.Request(url, method=method, headers=headers,
+                                         data=b"" if method == "PATCH" else None)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read() or b"null")
+        except urllib.error.HTTPError as exc:
+            detail, wait = _http_error_detail(exc)
+            if wait is not None and retries < RATE_LIMIT_RETRIES and waited + wait <= RATE_LIMIT_WAIT_S:
+                print(f"::notice::{method} {url.split('?')[0]}: rate limited ({detail}); retrying in {wait:.0f} s")
+                sleep(wait)
+                waited, retries = waited + wait, retries + 1
+                continue
+            raise Unreadable(f"{method} {url.split('?')[0]}: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            raise Unreadable(f"{method} {url.split('?')[0]}: {exc}") from exc
 
 
 class GitHub:
@@ -242,6 +291,50 @@ class GitHub:
         return pulls
 
 
+class GitFiles:
+    """A commit's changed paths from git, so the guard spends no REST call on them (REST stays the fallback).
+
+    2026-11-21 06:23Z (run 44875353541): the range since the last green run was 204 commits, and each one's file
+    list was one REST call on the repository's shared workflow-token hour; 108 came back 403, each an unreadable
+    commit and so a refusal of every cmux.com deploy. A commit's changed paths never change, and its id pins its
+    tree, so one blobless fetch of the range answers them all. `--no-renames` lists a rename as its old and new
+    path, as GitHub's `previous_filename` did. A commit git cannot read (a failed fetch, a parent past the fetched
+    depth) is read from REST as before."""
+
+    def __init__(self, cwd: Path, rest: "GitHub"):
+        self.cwd, self.rest = Path(cwd), rest
+        self.from_git = self.from_rest = 0
+
+    def _git(self, *args: str, timeout: float = 120) -> str:
+        env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+        return subprocess.run(["git", *args], cwd=self.cwd, env=env, check=True, capture_output=True, text=True,
+                              timeout=timeout).stdout
+
+    def prefetch(self, after: str, count: int) -> None:
+        """Fetch AFTER's last COUNT+1 commits without blobs: every commit of a COUNT-commit range that AFTER
+        contains, and its parents, is within COUNT+1 of AFTER (each path from AFTER to it stays in the range)."""
+        try:
+            # Only CI's own shallow checkout is deepened: a depth fetch would turn a full clone shallow (a full clone
+            # already holds the range, and anything it lacks is read from REST).
+            if self._git("rev-parse", "--is-shallow-repository").strip() != "true":
+                return
+            self._git("fetch", "--quiet", "--no-tags", "--filter=blob:none", f"--depth={count + 1}", "origin", after,
+                      timeout=600)
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"::notice::git fetch of the range failed ({str(exc)[:200]}); file lists come from REST")
+
+    def files(self, sha: str) -> list[str]:
+        try:
+            parents = self._git("rev-list", "--parents", "-n", "1", sha).split()[1:]
+            base = ["--root", sha] if not parents else [parents[0], sha]  # a merge: against its first parent
+            out = self._git("diff-tree", "-r", "--no-renames", "--name-only", "--no-commit-id", *base)
+        except (OSError, subprocess.SubprocessError):
+            self.from_rest += 1
+            return self.rest.files(sha)
+        self.from_git += 1
+        return [line for line in out.splitlines() if line]
+
+
 def cancel_deploy(config: dict, sha: str, token: str, team: str, wait_s: float, step_s: float = 15,
                   request: Callable[..., object] | None = None, sleep: Callable[[float], None] = time.sleep,
                   clock: Callable[[], float] = time.monotonic) -> tuple[int, list[str]]:
@@ -319,7 +412,11 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"::error::Refused: the commits of {base[:12]}..{args.after[:12]} could not be read ({exc})")
             return 1
-        refusals, notices = judge(config, commits, github.files, github.pulls, args.branch)
+        reader = GitFiles(Path.cwd(), github)
+        reader.prefetch(args.after, len(commits))
+        refusals, notices = judge(config, commits, reader.files, github.pulls, args.branch)
+        print(f"::notice::Changed files of {len(commits)} commits: {reader.from_git} from git, {reader.from_rest} "
+              "from REST")
         for line in notices:
             print(f"::notice::{line}")
         for line in refusals:

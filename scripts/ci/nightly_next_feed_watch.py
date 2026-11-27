@@ -542,7 +542,7 @@ def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool
         title = run.get("display_title", "")
         if "17 */6" in title:
             return False
-        if "47 8" in title:
+        if "2,17,32,47 * * * *" in title or "5 8 * * *" in title or "17 * * * *" in title or "47 8" in title:
             return True
         # Legacy unnamed schedules fail closed during rollout: never dispatch
         # a competing classic publication while its purpose is ambiguous.
@@ -596,7 +596,9 @@ def holds_push_group(run: dict) -> bool:
 
 
 # The one-job nightly-next build (feat-cmux-next's nightly.yml, vars.NIGHTLY_NEXT_ONE_JOB). It holds the push
-# slot itself (its job group nightly-next-one-push), so the run's tail after the feed holds nothing.
+# slot itself (its job group, one per signer Mac since 2026-11-21: nightly-next-one-push-<host>, design
+# manaflow-ai/cmuxterm-hq#17011), so the run's tail after the feed holds nothing. The jobs API names no group, so
+# run_holds_group and the starvation guard (started) match the job by this name, which covers every host's group.
 ONE_JOB = "nightly-next-one"
 
 

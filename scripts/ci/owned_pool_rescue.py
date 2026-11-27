@@ -302,7 +302,9 @@ attempt takes Blacksmith. That runner is reserved for the build
 (reserved_runner()): a wait for it is never stuck, queued or in its setup,
 because it ends when that runner finishes what it holds, and a Blacksmith
 re-run of a nightly waited an hour or more (runs 39318999424, 39320477722,
-39329116254, 2026-10-19). Only a refusal is acted on. Another job pinned to
+39329116254, 2026-10-19). Only a refusal is acted on. The sweeper finds each
+unfinished nightly itself (GitHub.nightly_runs()); no rescue job runs per
+nightly, which held a Blacksmith runner through the whole build. Another job pinned to
 that runner (main's prepare-nightly-variant legs) waits RESERVED_FOLLOWER_SECONDS
 at most, then moves like a stuck job. A nightly job with no
 runner label of its own gets the configured budget (CI_OWNED_POOL_RESCUE_SECONDS)
@@ -522,51 +524,55 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/agent-brands.yml",  # feat-cmux-next only
     ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
-    ".github/workflows/billing.yml",
+    ".github/workflows/billing.yml",  # feat-cmux-next: ios-billing still takes the billing pool picker
     ".github/workflows/billing-nightly.yml",  # calls billing.yml (ios-billing); feat-cmux-next has its own
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
-    ".github/workflows/cloud-task-local-tests.yml",
     ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
-    # Main's Cua Driver SDK, dev helper and remote browser host publishers: their unsigned build
-    # takes the side label on attempt 1 of the dispatch (run 43645667029 sat on a Blacksmith queue).
-    ".github/workflows/cmux-next-cua-driver-sdk-publish.yml",
-    ".github/workflows/cmux-next-cua-helper-dev-sign.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-media.yml",  # feat-cmux-next only
+    # feat-cmux-next only; its ci-web.yml call's react-apps-base-check reads vars.CI_LINUX_GATE_OWNED_RUNNER.
+    ".github/workflows/cmux-next-post-merge.yml",
     ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
-    ".github/workflows/cmux-next-remote-browser-host-publish.yml",
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only
     # feat-cmux-next only; its ci-web.yml call's small jobs read the Linux pool (vars.RUNNER_POOLS).
     ".github/workflows/cmux-next-web.yml",
+    # feat-cmux-next only; its web suite calls ci-web.yml, whose react-apps-base-check job reads
+    # vars.CI_LINUX_GATE_OWNED_RUNNER, as cmux-next-web.yml's call does.
+    ".github/workflows/cmux-next-post-merge.yml",
     # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
     ".github/workflows/cmux-next.yml",
-    # feat-cmux-next only; its portable placement (portable_job_placement.py) puts the guard group,
-    # tooling tests and release-notary guards on the side label only while a side runner is idle.
+    # feat-cmux-next only.
     ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-next-guards.yml",
     ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
-    ".github/workflows/iroh-v2.yml",
     # The post-publication canary's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-canary.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
     ".github/workflows/nightly-next-launch-smoke.yml",
+    # feat-cmux-next only; calls pr-pipeline.yml, whose ios job takes the ios-runner pool picker's output.
+    ".github/workflows/pr-router.yml",
+    # feat-cmux-next only; its build job takes the pool picker job route's output (cmux#55612).
+    ".github/workflows/ios-sim-linux-build.yml",
     ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
-    ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
     # Its full-text job takes the side label on attempt 1 (on both branches).
     ".github/workflows/test-feed-reply-providers.yml",
+    # feat-cmux-next's manual Cloud chat proof: both proof jobs take the owned gui pool on attempt 1 while
+    # CI_PR_POOL_OWNED is 1, and a re-run takes pick-proof-runner's Blacksmith label or the macos_26 pool
+    # (feat-cmux-next twin: cmux#58158).
+    ".github/workflows/cloud-chat-proof.yml",
 })
 # Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
 # re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
@@ -603,6 +609,10 @@ TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
 # their re-runs. owned_pool_sources.py must find no owned workflow outside these and
 # WATCHED_WORKFLOW_PATHS (tests/test_ci_owned_pool_sources.py).
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/cloud-composer-journey.yml":
+        "never takes an owned pool: pick-runner runs e2e_runner_pool.py with --owned 0 and keeps only a Blacksmith "
+        "macOS 26 label, because the journey job holds a Stack account pair; a re-run takes the declared macos_26 "
+        "pool, and the scheduled dispatcher on main starts the next run",
     ".github/workflows/stable-next.yml":
         "feat-cmux-next only (main keeps its tick); the nightly cmux NEXT Stable run. Its owned jobs take the gui pool or "
         "the gateway on attempt 1 and Blacksmith on a re-run; main's tick cancels a run still queued after 90 minutes and "
@@ -633,9 +643,53 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next's checks-mac job (setup=kernel-free, cmux#46651) names a literal glaeda-side-light label on "
         "every attempt, so a re-run would not move it; a run no mini starts stays queued until the cmux-ci "
         "client's fallback moves it to the build fleet",
+    ".github/workflows/docs-only-fallback.yml":
+        "feat-cmux-next only; on a pull request of over 300 changed files or a full-ci/dev-build label it calls ci.yml "
+        "and the guard workflows inside its own run, whose owned route comes from ci.yml's portable placement; a "
+        "person re-runs the pull request's checks, and the next push supersedes the run",
+    ".github/workflows/measure-swift-typecheck.yml":
+        "feat-cmux-next only; type-checks scripts/measure/*.swift on a Mac when a pull request touches them, on the "
+        "light side lane only on attempt 1 while vars.CI_PR_POOL_OWNED is 1; a re-run takes the paid macOS pool",
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
+    ".github/workflows/cmux-next-head-compile.yml":
+        "feat-cmux-next only; its compile job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a push-time compile data point; the next feat-cmux-next push compiles "
+        "again",
+    ".github/workflows/cmux-next-ios-energy-nightly.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; an energy bench that must run on an owned device host; the next push "
+        "measures again",
+    ".github/workflows/cmux-next-ios-keyboard-motion.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a keyboard motion bench that must run on an owned device host; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-iphone-clips.yml":
+        "feat-cmux-next only; its record job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; records iPhone clips on an owned device host; the next push records again",
+    ".github/workflows/cmux-next-perf-bench.yml":
+        "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a dispatched perf bench whose numbers mean owned hardware; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-stress-bench.yml":
+        "feat-cmux-next only; its measure job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a dispatched stress bench whose numbers mean owned hardware; a person "
+        "re-runs it",
+    ".github/workflows/cmux-next-tab-switch.yml":
+        "feat-cmux-next only; its frames job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a tab-switch frame bench whose numbers mean owned hardware; the next push "
+        "measures again",
+    ".github/workflows/fleet-compile-check.yml":
+        "feat-cmux-next only; its compile-check job names the literal glaeda-gateway-xcode-26.6 label on every "
+        "attempt, so a re-run would not move it; a dispatched fleet compile check; its cmux-ci caller "
+        "re-dispatches it",
+    ".github/workflows/ios-base-bisect.yml":
+        "feat-cmux-next only; its bisect job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a bisect that nothing required waits on; the next base red starts another",
+    ".github/workflows/screen-stream-eval.yml":
+        "feat-cmux-next only; its eval job names the literal glaeda-gateway-xcode-26.6 label on every attempt, so "
+        "a re-run would not move it; a dispatched screen stream eval; a person re-runs it",
 }
 # Every workflow this rescue acts on (target_from_event()); owned_pool_sources.py
 # must find no owned workflow outside it and UNRESCUED_WORKFLOW_PATHS.
@@ -751,6 +805,12 @@ OPEN_HEAD_FAILOVER = "open-head failover"
 # took glaeda-side-std-xcode-26.6, which was not dark (11 runners busy) but held 55 jobs, the oldest for 21 hours;
 # attempt 2 was the last placement, so nothing placed them again once Blacksmith moved.
 OWNED_REPLACE_SECONDS = 20 * 60
+# A pull request whose body has a `Leo-ask: ask-...` line, or that carries this label, is one of Leo's asks: its Mac job is placed again after the shortest
+# PRIORITY_REPLACE_SECONDS (10 min, half of OWNED_REPLACE_SECONDS), not after OWNED_REPLACE_SECONDS. The placement
+# re-run still picks the route (an owned label with room, else overflow), so nothing here names a provider, and
+# a job that waits on a label with room again goes back to the minis on the next placement.
+PRIORITY_LABEL = "leo-ask"
+PRIORITY_REPLACE_SECONDS = 10 * 60
 # The light move (light_wait()): a cmux-next pull request run's Mac job that has waited this long on the std side
 # label, while the fleet gates show a light side runner listening and nothing queued there, has its run placed
 # again, when the head shows the job fits a light mini (it reads the placement's light_jobs on the attempt the
@@ -2179,24 +2239,43 @@ class GitHub:
                     break
         return found
 
-    def nightly_reruns(self, count: int) -> list[tuple[int, int]]:
-        """(run id, attempt) of unfinished nightly-next re-runs, every attempt from 2 on. Only a re-run whose build
-        picker chose an owned Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a full one
-        the picker placed there) is found here, for its signing jobs' stalls (signing_stall(), which watch() still
-        acts on through SIGN_RESCUE_LAST_ATTEMPT only). An owned pick's marker on a later attempt is no help either:
-        the marker listing adopts a run id once (`seen`). So every attempt is listed: while every Blacksmith label
-        stalls, the picker queues each attempt's build on a busy or offline owned pool, and the rescue's timed hold
-        re-runs the picker (rerun_failed_or_repick()), attempt after attempt; attempt 4 and later were never
-        watched, so such a build could wait unwatched with no limit (review P1 on #26614). Main's nightly is
-        rescued on attempt 1 only (its workflow_run watch): a full re-run there builds the app again."""
+    def nightly_runs(self, count: int, *, main: bool = True) -> list[tuple[int, int]]:
+        """(run id, attempt) of the unfinished nightly runs the sweeper watches: attempt 1 of main's push or schedule
+        run, and every attempt of nightly-next's.
+
+        Attempt 1 of either branch is where build-nightly-app waits for its reserved trusted runner (nightly_target()).
+        Until 2026-11-22 each such run woke a ci-owned-pool-rescue.yml job of its own on `requested`, which held a
+        Blacksmith runner for the whole build, up to its 150-minute watch limit, just to look every few minutes at a
+        wait that is never moved: 16 of the workflow's 31 runner-hours from 22:00Z to 00:50Z on 2026-11-21 (15
+        watches, controller timing feed). The sweeper runs anyway, so a thread of its own costs no runner.
+
+        nightly-next's re-runs are listed at every attempt from 2 on: only a re-run whose build picker chose an owned
+        Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a full one the picker placed there)
+        is found here, for its signing jobs' stalls (signing_stall(), which watch() still acts on through
+        SIGN_RESCUE_LAST_ATTEMPT only). An owned pick's marker on a later attempt is no help either: the marker
+        listing adopts a run id once (`seen`). So every attempt is listed: while every Blacksmith label stalls, the
+        picker queues each attempt's build on a busy or offline owned pool, and the rescue's timed hold re-runs the
+        picker (rerun_failed_or_repick()), attempt after attempt; attempt 4 and later were never watched, so such a
+        build could wait unwatched with no limit (review P1 on #26614). Main's nightly is rescued on attempt 1 only:
+        a full re-run there builds the app again.
+
+        `main` is the gate the workflow's `requested` clause read (NIGHTLY_MAIN_WATCHED): main's attempt 1 asks for
+        the trusted mini only while vars.CI_SEED_TRUSTED_POOL and vars.CI_NIGHTLY_TRUSTED_RUNNER name one.
+        nightly-next's attempt 1 was watched on every push, as it is here."""
         name = NIGHTLY_WORKFLOW_PATH.rsplit("/", 1)[-1]
         found: list[tuple[int, int]] = []
-        for status in ("queued", "in_progress"):
-            data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&branch=nightly-next"
-                                       f"&per_page={count}")
-            found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
-                      if isinstance(run, Mapping) and run.get("id") and run.get("head_branch") == "nightly-next"
-                      and int(run.get("run_attempt") or 0) > 1]
+        for branch in ("nightly-next", MAIN_BRANCH) if main else ("nightly-next",):
+            for status in ("queued", "in_progress"):
+                data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&branch={branch}"
+                                           f"&per_page={count}")
+                for run in (data or {}).get("workflow_runs") or []:
+                    if not isinstance(run, Mapping) or not run.get("id") or run.get("head_branch") != branch:
+                        continue
+                    attempt = int(run.get("run_attempt") or 0)
+                    if attempt > 1 if branch == "nightly-next" and run.get("event") != "push" else (
+                            attempt >= 1 if branch == "nightly-next" else
+                            attempt == 1 and run.get("event") in NIGHTLY_EVENTS):
+                        found.append((int(run["id"]), attempt))
         return found
 
     def failed_runs(self, count: int, oldest: dt.datetime, since: dt.datetime | None = None,
@@ -2692,6 +2771,8 @@ class Target:
     # `side_label`), or "" (Blacksmith macOS on, or not known): open_head_failover() never re-places a long wait
     # onto the label it waits on.
     rerun_side: str = ""
+    # The pull request carries PRIORITY_LABEL (priority_pull()): its long owned wait is PRIORITY_REPLACE_SECONDS.
+    priority: bool = False
 
     @property
     def picker_job(self) -> str:
@@ -2870,8 +2951,12 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
           log: Callable[[str], None], deadline: dt.datetime | None = None,
           floor_seconds: int | None = None, seen: dict[Any, dt.datetime] | None = None,
           sign_seen: dict[Any, dt.datetime] | None = None,
-          sign_text: list[str | None] | None = None) -> tuple[str, str]:
+          sign_text: list[str | None] | None = None,
+          first_look: float = FIRST_LOOK_SECONDS) -> tuple[str, str]:
     """Watch until a stop, a rescue or `deadline`. Returns (outcome, reason).
+
+    `first_look` is the wait before the first look: 0 for a run that already finished (a `completed` event,
+    main()), whose jobs are all there to read at once.
 
     `sign_seen` and `sign_text` (when each signing job was first seen queued, and the run's workflow file once
     read) carry over from an earlier watch of the same attempt (follow()), so a stall keeps counting.
@@ -2886,7 +2971,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     """
     if deadline is None:
         deadline = now() + dt.timedelta(seconds=target.watch_limit)
-    sleep(FIRST_LOOK_SECONDS)
+    if first_look > 0:
+        sleep(first_look)
     looks = 0
     on_persistent = False
     picker_marker: bool | None = None
@@ -2931,7 +3017,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             elif target.late_owned_jobs and target.attempt > SIGN_RESCUE_LAST_ATTEMPT and nightly_build_off_owned(
                     jobs, target.attempt_started_at):
                 # Nothing left to rescue on this attempt: its signing stalls are not rescued past
-                # SIGN_RESCUE_LAST_ATTEMPT, and no job of it can take an owned pool (nightly_reruns() lists every
+                # SIGN_RESCUE_LAST_ATTEMPT, and no job of it can take an owned pool (nightly_runs() lists every
                 # attempt).
                 return "stop", f"no job of attempt {target.attempt} can take a persistent pool"
             elif run_finished(jobs) and not (target.signs_late and read(
@@ -2985,6 +3071,14 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         interval = POLL_SECONDS if on_persistent or picker_marker is None else IDLE_POLL_SECONDS
         if on_persistent:
             run = read(lambda: api.run(target.run_id), sleep, log) if run_finished(jobs) else {}
+            if int(run.get("run_attempt") or 0) > target.attempt:
+                # Every job of this attempt ended and a newer attempt exists: whoever started it re-placed the run,
+                # and rescue() would answer "someone else already re-ran the run" whenever this watch ended. The
+                # run's status is the newer attempt's, so waiting for it to finish waited out the watch limit
+                # (IDLE_POLL_SECONDS looks): run 44961464126 held a Blacksmith runner 60 minutes on 2026-11-21 for
+                # 44957702876's attempt 1, and such watches were two thirds of this workflow's runner time.
+                return "stop", (f"attempt {target.attempt} finished and someone else already re-ran the run "
+                                f"(attempt {run.get('run_attempt')})")
             finished = run.get("status") == "completed"
             # A job no runner acquired looks like one a cancelled run left queued (unacquired()).
             stranded = finished and run.get("conclusion") not in (None, "cancelled")
@@ -4390,6 +4484,24 @@ def places_again(target: "Target") -> bool:
     return target.attempt <= REFUSAL_RESCUE_ATTEMPT or target.dispatched
 
 
+LEO_ASK_LINE = re.compile(r"^\s*Leo-ask:\s*ask-[0-9a-f]{10}", re.I | re.M)
+
+
+def priority_pull(pull: Mapping[str, Any] | None) -> bool:
+    """Whether a pull request (the API's object) is one of Leo's asks: its body has the `Leo-ask: ask-...` line the
+    asks-reconciler's brief puts there (asks-board's own rule for a PR that does an ask), or it carries
+    PRIORITY_LABEL. The line is written for every ask PR, so nothing has to apply the label."""
+    pull = pull or {}
+    return (bool(LEO_ASK_LINE.search(str(pull.get("body") or "")))
+            or any(isinstance(label, Mapping) and str(label.get("name") or "") == PRIORITY_LABEL
+                   for label in pull.get("labels") or []))
+
+
+def owned_replace_seconds(target: "Target") -> int:
+    """How long a cmux-next Mac job waits on an owned label before it is placed again: Leo's asks go first."""
+    return PRIORITY_REPLACE_SECONDS if target.priority else OWNED_REPLACE_SECONDS
+
+
 def long_owned_wait(target: "Target", job: Mapping[str, Any], label: str, now: dt.datetime,
                     first_seen: dt.datetime | None = None) -> bool:
     """Whether a cmux-next pull request run's Mac job has waited OWNED_REPLACE_SECONDS on an owned (glaeda-) label,
@@ -4397,7 +4509,7 @@ def long_owned_wait(target: "Target", job: Mapping[str, Any], label: str, now: d
     dark: a saturated one whose queue the job is not getting through is as stuck for the job."""
     return (target.path == CMUX_NEXT_WORKFLOW_PATH and bool(target.pr_number)
             and places_again(target) and label.startswith("glaeda-")
-            and queued_seconds(job, now, first_seen) >= OWNED_REPLACE_SECONDS)
+            and queued_seconds(job, now, first_seen) >= owned_replace_seconds(target))
 
 
 def light_room(snapshot: Mapping[str, Any], label: str, now: dt.datetime) -> int:
@@ -4586,6 +4698,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     planned = False
     seen: dict[Any, dt.datetime] = dict(first_seen or {})
     light_to: dict[Any, str] = {}
+    looked_priority = False
     for look in (1, 2):
         try:
             snapshot = reader(now())
@@ -4610,6 +4723,13 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
                 seen.setdefault(job_key(job), at)
         dead = [(job, label) for job, label in waiting if started_nothing(pools, label)
                 or label_quiet(snapshot, label, wait_start(job, seen.get(job_key(job))))]
+        if not dead and waiting and target.pr_number and not target.priority and not looked_priority \
+                and any(queued_seconds(job, at, seen.get(job_key(job))) >= PRIORITY_REPLACE_SECONDS
+                        for job, _ in waiting):
+            # One read of the pull request, only once a job has waited long enough to matter: Leo's asks go first.
+            looked_priority = True
+            if priority_pull(read(lambda: api.pull(target.pr_number), sleep, log)):
+                target = dataclasses.replace(target, priority=True)
         # A cmux-next job that has waited OWNED_REPLACE_SECONDS on an owned label, busy or not, is placed again,
         # but only by a placement re-run (checked below, once the plan is read).
         long_wait = [] if dead else [(job, label) for job, label in waiting
@@ -4686,7 +4806,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
                     else "has started nothing since it queued" if dead is not long_wait
                     else (f"has not started it in {int(waited // 60)} min while `{light_to[job_key(job)]}` has "
                           "a runner listening (light move)") if job_key(job) in light_to
-                    else f"has not started it in {OWNED_REPLACE_SECONDS // 60} min")
+                    else f"has not started it in {owned_replace_seconds(target) // 60} min")
             stuck = f"{job.get('name') or job.get('id')} has waited {int(waited // 60)} min on `{label}`, which {idle}"
             if settled:
                 return Failover(f"no job of attempt {target.attempt} is running ({len(jobs) - 1} of {len(jobs)} "
@@ -5561,7 +5681,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue,
                          stall_destination=stall_destinations_from_env(env), side_label=rerun_side_label(env),
                          owned_route=owned_route_from_env(env),
-                         stall_pull=stall_pull_only(env.get("STALL_BLACKSMITH_MACOS")))
+                         stall_pull=stall_pull_only(env.get("STALL_BLACKSMITH_MACOS")),
+                         nightly_main=env.get("NIGHTLY_MAIN_WATCHED") == "true")
         return finish("swept: " + (", ".join(f"{count} {outcome}" for outcome, count in sorted(outcomes.items()))
                                    or "no run needed a watch"))
     run_id = (env.get("WATCH_RUN_ID") or "").strip()
@@ -5608,7 +5729,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     try:
         return finish(follow(client, target, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
                              now=clock, sleep=sleep, log=log, side_seconds=side_seconds,
-                             side_label=rerun_side_label(env)))
+                             side_label=rerun_side_label(env),
+                             # A `completed` event's run already finished: every job is there to read at once,
+                             # so its watch looks without the 45 s wait (most such watches end at that look).
+                             first_look=0 if not run_id and event.get("action") == "completed"
+                             else FIRST_LOOK_SECONDS))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it. One that ran out of API budget is an infra
         # skip, green with a warning: nothing about the run was wrong, and the next sweeper looks again.
@@ -5864,8 +5989,10 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
            now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
            rescue_sleep: Callable[[float], None] | None = None, latest: dt.datetime | None = None,
            light_retry: bool = False, side_seconds: int | None = None, side_label: str = "",
-           kept: WatchKept | None = None) -> str:
+           kept: WatchKept | None = None, first_look: float = FIRST_LOOK_SECONDS) -> str:
     """Watch one run and rescue it when it needs it. Returns the outcome; raises READ_ERRORS or Aborted.
+
+    `first_look` is the first watch's wait before its first look (watch()); later watches keep FIRST_LOOK_SECONDS.
 
     `kept` (WatchKept) carries an earlier watch's start and job sightings into a watch the sweeper took up again
     after that one ended on a read error or a rate limit before any write: each job's budget keeps counting from
@@ -5923,7 +6050,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     sign_text: list[str | None] = []
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
                             log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
-                            sign_seen=sign_seen, sign_text=sign_text)
+                            sign_seen=sign_seen, sign_text=sign_text, first_look=first_look)
 
     def settle(outcome: str, reason: str) -> tuple[str, str, str, str]:
         """The stall hold and the signing-stall rescue on a look's outcome, watching on as they need:
@@ -6221,6 +6348,11 @@ PULL_DISPATCH_RESCUE_CLAUSE = (
     "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
     "inputs.no_reuse == true))"
 )
+# cmux#45176 (feat-cmux-next, 2026-11-17) cut PULL_DISPATCH_RESCUE_CLAUSE from every fallback: a re-run reaches
+# Blacksmith only through the placement's retry label. A head's placement reads such a dispatch as its pull request's
+# run under `pr-rescue` once its macos-placement step sets this variable (next_macos_cascade.PULL_DISPATCH). Without
+# it this gate refused every head after 2026-11-17, even past OWNED_WAIT_BOUND_SECONDS.
+PULL_DISPATCH_PLACEMENT = "CMUX_NEXT_PULL_DISPATCH:"
 
 
 def stall_pull_only(switch: str | None) -> bool:
@@ -6234,8 +6366,8 @@ def stall_pull_only(switch: str | None) -> bool:
 def stall_moves_dispatch(client: GitHub, run: Mapping[str, Any], log: Callable[[str], None]) -> bool:
     """Whether the stall move under `pr-rescue` (stall_pull_only()) may move a cmux-next.yml run that is not a
     pull_request run: a dispatch gating one pull request (same_tree_pull_dispatch()) whose head's cmux-next.yml
-    carries PULL_DISPATCH_RESCUE_CLAUSE, so the bot's re-run leaves the side lane. One read of the workflow at the
-    run's head; a failed read leaves the run to the next scan."""
+    carries PULL_DISPATCH_RESCUE_CLAUSE or PULL_DISPATCH_PLACEMENT, so the bot's re-run leaves the side lane. One
+    read of the workflow at the run's head; a failed read leaves the run to the next scan."""
     if not same_tree_pull_dispatch(run):
         return False
     head = str(run.get("head_sha") or "")
@@ -6245,7 +6377,7 @@ def stall_moves_dispatch(client: GitHub, run: Mapping[str, Any], log: Callable[[
         log(f"[run {run.get('id')}] {STALL_MOVE}: could not read {CMUX_NEXT_WORKFLOW_PATH} at {head[:12]} ({error}); "
             "next scan")
         return False
-    if PULL_DISPATCH_RESCUE_CLAUSE not in (text or ""):
+    if PULL_DISPATCH_RESCUE_CLAUSE not in (text or "") and PULL_DISPATCH_PLACEMENT not in (text or ""):
         log(f"[run {run.get('id')}] {STALL_MOVE} leaves it: its head {head[:12]}'s {CMUX_NEXT_WORKFLOW_PATH} sends a "
             "bot's re-run of this dispatch to the side lane under pr-rescue")
         return False
@@ -7172,7 +7304,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
           light_rescue: Callable[[], None] | None = None,
           stall_destination: tuple[str, ...] | None = (STALL_DESTINATION,),
           side_label: str = "", owned_route: OwnedRoute | None = None,
-          stall_pull: bool = False) -> dict[str, int]:
+          stall_pull: bool = False, nightly_main: bool = True) -> dict[str, int]:
     """Watch every marked run until `sweep_seconds` pass, or main's code changes (code_changed()).
     Returns outcome counts."""
     # The sweeper's own listings raise on a rate limit as before (a failed read is tried next
@@ -7386,13 +7518,14 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         except READ_ERRORS as error:
             log(f"could not list re-runs ({error}); next tick")
             reruns = []
-        if ticks % SIDE_FAILURE_TICKS == 0 and hasattr(client, "nightly_reruns"):
-            # nightly-next's re-runs on Blacksmith (no marker), every SIDE_FAILURE_TICKS ticks: a signing stall
-            # takes SIGN_STALL_SECONDS to call, so a few minutes' delay costs nothing.
+        if ticks % SIDE_FAILURE_TICKS == 0 and hasattr(client, "nightly_runs"):
+            # The unfinished nightlies (no marker; nightly_runs()), every SIDE_FAILURE_TICKS ticks: a signing stall
+            # takes SIGN_STALL_SECONDS to call, a reserved runner's wait is never moved, and a refusal is re-run once
+            # the run ends, so a few minutes' delay costs nothing.
             try:
-                reruns = [*reruns, *client.nightly_reruns(SWEEP_LISTING)]
+                reruns = [*reruns, *client.nightly_runs(SWEEP_LISTING, main=nightly_main)]
             except READ_ERRORS as error:
-                log(f"could not list nightly-next re-runs ({error}); a later tick")
+                log(f"could not list the unfinished nightlies ({error}); a later tick")
         for run_id, attempt in reruns:
             if (run_id, attempt) not in rerun_seen:
                 adopt(run_id, False, refusals_known=refusals_listed)

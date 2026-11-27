@@ -475,9 +475,12 @@ class WorkflowGuardTests(unittest.TestCase):
         for name, block in self.jobs.items():
             if name != REPORT_JOB:
                 self.assertNotIn(f"needs.{REPORT_JOB}", block, name)
-        # The same Linux runner, with the same fork fallback, as `changes`.
-        self.assertEqual(self.job_line("runs-on"), jobs_line(self.jobs["changes"], "runs-on"))
-        self.assertIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'", self.job_line("runs-on"))
+        # A Linux job on the persistent pool, with the same fork fallbacks as `changes`: a fork
+        # pull request takes GitHub-hosted Ubuntu, never the pool.
+        fork = ("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
+                " && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || ")
+        self.assertIn(fork, jobs_line(self.jobs["changes"], "runs-on"))
+        self.assertEqual(self.job_line("runs-on"), "    runs-on: ${{ " + fork + "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
 
     def test_the_report_job_writes_no_outputs(self) -> None:
         self.assertFalse(any(line.startswith("    outputs:") for line in self.job.splitlines()))

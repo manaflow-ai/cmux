@@ -1,6 +1,11 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
+#if canImport(Darwin)
 /// Reads the existing watcher's kernel identity; never guesses from a stale PID file.
 struct AgentRestoreLeaseOwner {
     private let maximumDuration: TimeInterval = 1
@@ -82,3 +87,52 @@ struct AgentRestoreLeaseOwner {
         return Int32(arguments[2])
     }
 }
+#else
+/// Reads the existing watcher's kernel identity; never guesses from a stale PID file.
+///
+/// Linux reads the same facts from `/proc` (see `LinuxProcFS`): stat for
+/// parentage, owner, zombie state and start time, `fd/3` for the lease inode,
+/// `exe` and `cmdline` for the watcher's identity and argv.
+struct AgentRestoreLeaseOwner {
+    private let maximumDuration: TimeInterval = 1
+
+    func liveProcessID(descriptor: Int32) -> Int32? {
+        var file = stat()
+        guard fstat(descriptor, &file) == 0 else { return nil }
+        let deadline = ProcessInfo.processInfo.systemUptime + maximumDuration
+        for pid in LinuxProcFS.userProcessIDs() {
+            guard ProcessInfo.processInfo.systemUptime < deadline else { return nil }
+            guard let watcher = process(pid), watcher.parentProcessID > 1,
+                  holdsLease(pid: pid, file: file),
+                  watchedProcessID(pid: pid) == watcher.parentProcessID,
+                  let agent = process(watcher.parentProcessID),
+                  let currentWatcher = process(pid), currentWatcher.startTicks == watcher.startTicks,
+                  currentWatcher.parentProcessID == watcher.parentProcessID,
+                  holdsLease(pid: pid, file: file),
+                  let currentAgent = process(watcher.parentProcessID),
+                  currentAgent.startTicks == agent.startTicks else { continue }
+            return watcher.parentProcessID
+        }
+        return nil
+    }
+
+    private func process(_ pid: Int32) -> LinuxProcessSnapshot? {
+        guard pid > 1, let info = LinuxProcFS.snapshot(pid),
+              info.userID == getuid(), !info.isZombie else { return nil }
+        return info
+    }
+
+    private func holdsLease(pid: Int32, file: stat) -> Bool {
+        guard let held = LinuxProcFS.descriptorFile(pid, AgentRestoreLaunchLease.watcherLeaseDescriptor) else { return false }
+        return held.device == UInt64(file.st_dev) && held.inode == UInt64(file.st_ino)
+    }
+
+    private func watchedProcessID(pid: Int32) -> Int32? {
+        guard let path = LinuxProcFS.executablePath(pid),
+              URL(fileURLWithPath: path).lastPathComponent == "cmux",
+              let arguments = LinuxProcFS.arguments(pid), arguments.count == 3,
+              arguments[1] == "__restore-lease-watch" else { return nil }
+        return Int32(arguments[2])
+    }
+}
+#endif

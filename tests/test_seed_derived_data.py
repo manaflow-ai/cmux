@@ -737,7 +737,7 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|\.?[A-Za-z_][A-Za-z0-9_.-]*)")
 
 
 def evaluate(expression, context):
@@ -775,7 +775,12 @@ def evaluate(expression, context):
 
     def primary():
         value = atom()
-        while peek() == "[":
+        while peek() == "[" or (peek() or "").startswith("."):
+            if peek().startswith("."):
+                # A property read after a call or parentheses: fromJSON(vars.RUNNER_POOLS || '{}').macos_15.
+                for name in take()[1:].split("."):
+                    value = value.get(name) if isinstance(value, dict) else None
+                continue
             take()
             index = either()
             if take() != "]":

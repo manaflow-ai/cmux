@@ -1002,7 +1002,8 @@ def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallba
         assert "blacksmith-2vcpu-ubuntu-2404" in runner, name
         assert runner != "ubuntu-24.04", name
     probe = yaml.safe_load((ROOT / ".github/workflows/nightly-tag-permission-probe.yml").read_text())
-    assert "blacksmith-2vcpu-ubuntu-2404" in str(probe["jobs"]["probe"]["runs-on"])
+    # The probe holds a write token, so it runs on the secret JIT label.
+    assert "cmux-gcp-secret-jit-x64" in str(probe["jobs"]["probe"]["runs-on"])
     for workflow in ("nightly-next-tick.yml", "nightly-next-feed-watch.yml"):
         document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
         for name, job in document["jobs"].items():
@@ -1317,15 +1318,60 @@ def test_g5_a_marker_read_failure_never_takes_the_tree_at_install_exception() ->
         out = run(case)
         assert out["decision"]["action"] == "refuse", (marker, out["decision"])
         assert out["decision"]["reason"].startswith("tree marker read failed"), (marker, out["decision"])
-        assert out["calls"]["workflowReads"] == [], (marker, out["calls"])
+        # G6 reads the file once for its size; G5 never consults it for the exception.
+        assert out["calls"]["workflowReads"] == [SHA], (marker, out["calls"])
 
 
-def test_g5_a_published_tree_reads_no_workflow() -> None:
+def test_g5_a_published_tree_reads_the_workflow_only_for_g6() -> None:
     case = scenario(workflows={SHA: TREE_AT_INSTALL})
     del case["requireApproval"]
     out = run(case)
     assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["calls"]["workflowReads"] == [], out["calls"]
+    assert out["calls"]["workflowReads"] == [SHA], out["calls"]
+
+
+def test_g5_and_g6_share_one_workflow_read() -> None:
+    case = scenario(treeMarkers={SHA: {"status": 404}}, workflows={SHA: TREE_AT_INSTALL})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["workflowReads"] == [SHA], out["calls"]
+
+
+# G6: 2026-11-26, 711b39cb7 and a94af7249 had a 512,450-byte nightly.yml;
+# GitHub started no nightly for either and nightly-next published nothing for
+# five hours after this guard promoted them.
+def test_g6_a_nightly_yml_over_githubs_limit_refuses() -> None:
+    case = scenario(workflows={SHA: "#" * 512_449 + "\n"})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    reason = out["decision"]["reason"]
+    assert "512450 bytes" in reason and "512000-byte workflow limit" in reason, reason
+    assert out["calls"]["markerReads"] == [], out["calls"]
+
+
+def test_g6_counts_utf8_bytes_not_characters() -> None:
+    # 256,001 two-byte characters: 256,001 characters, 512,002 bytes.
+    case = scenario(workflows={SHA: "\u00e9" * 256_001})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "512002 bytes" in out["decision"]["reason"], out["decision"]
+
+
+def test_g6_a_nightly_yml_at_the_limit_promotes() -> None:
+    case = scenario(workflows={SHA: "#" * 511_999 + "\n"})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+
+
+def test_g6_an_unreadable_nightly_yml_does_not_block_a_published_tree() -> None:
+    case = scenario(workflows={SHA: "throw"})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
 
 
 def test_g5_workflow_reader_reads_the_raw_file_at_the_sha() -> None:

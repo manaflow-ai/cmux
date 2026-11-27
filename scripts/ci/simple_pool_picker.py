@@ -789,7 +789,12 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
                 owned_jobs.append(lane)
     values.update(runner=choice.label, xcode_app=choice.xcode_app,
                   retry_runner=choice.retry_label if choice.owned and choice.retry_label else choice.label,
-                  shard_runner=choice.label,
+                  # ci-macos.yml's shards read pr_shard_runner before pr_gui_runner, so on a pool with a gui
+                  # label this stays empty: there the shards take the gui label, one runner per mini, and wait
+                  # in GitHub's queue for a mini whose gui token is free. On the pool label (60 slots, up to 11
+                  # runners a mini) main's run 45238525234 put shards 3, 6 and 7 on one mini together: shard 3
+                  # waited out take-gui's 1800 s behind shard 7, and none of its tests ran.
+                  shard_runner="" if gui else choice.label,
                   persistent="true" if choice.owned else "false", jobs=str(jobs),
                   placed=str(jobs if choice.owned else 0),
                   owned_jobs=f" {' '.join(owned_jobs)} " if owned_jobs else "",
@@ -804,6 +809,30 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
     return values
 
 
+def grant_outputs(env: Mapping[str, str], jobs: int) -> dict[str, str] | None:
+    """The outputs when this run's Mac jobs take the controller-granted cmux-mac label (mac_grants.py), else None.
+
+    With scripts/ci/mac-grants.json on, a same-repository pull request picks no pool: `grant` is the
+    runs-on every Mac job of the run reads first (`["cmux-mac","xcode-<version>"]`), and
+    every pool output is empty, so no marker claims owned machines, admission-placement and late-placement
+    place nothing, and no runner list is read. `xcode_app` keeps the lane's pin, which names the Xcode the
+    grant asks for. Off, or any other run: None, and the pick and its outputs are what they were.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import mac_grants  # noqa: PLC0415
+
+    xcode_app = env.get("CMUX_CI_XCODE_APP_PR") or ""
+    repo_env = {**env, "GITHUB_REPOSITORY": env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""}
+    grant = mac_grants.grant_labels(repo_env, [xcode_app])
+    if not grant:
+        return None
+    values = {key: "" for key in ("runner", "retry_runner", "shard_runner", "owned_jobs", "root_runner",
+                                  "side_runner", "light_side_runner", "light_side_jobs", "gui_runner",
+                                  "admission_runner", "admission_route", "admission_warm")}
+    values.update(xcode_app=xcode_app, persistent="false", jobs=str(jobs), placed="0", grant=grant)
+    return values
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser()
@@ -813,6 +842,16 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     repository = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
     head = env.get("HEAD_REPO") or repository
     trusted_fork = (env.get("CI_PR_POOL_FORK_ALLOWED") or "").strip() == "1"
+    grant = grant_outputs(env, jobs)
+    if grant is not None:
+        if env.get("GITHUB_OUTPUT"):
+            with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+                for key, value in grant.items():
+                    handle.write(f"{key}={value}\n")
+        for key, value in grant.items():
+            print(f"{key}={value}")
+        print(f"Granted {grant['grant']}: scripts/ci/mac-grants.json is on", file=sys.stderr)
+        return 0
     choice = pick(observe(token=env.get("ROUTE_TOKEN") or env.get("GH_TOKEN") or "", repository=repository,
                        jobs=jobs, env=env, fork=head != repository and not trusted_fork,
                        wait_owned=wait_on_owned(env, head=head, repository=repository)))

@@ -13939,7 +13939,10 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
-        let invocation = try RemoteTmuxInvocation.parse(commandArgs)
+        let invocation = try RemoteTmuxInvocation.parse(
+            commandArgs,
+            localizationBundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        )
         if case .list = invocation.action {
             try runRemoteTmuxList(invocation: invocation, client: client, jsonOutput: jsonOutput)
             return
@@ -13966,6 +13969,7 @@ struct CMUXCLI {
         if let transportPort { params["transport_port"] = transportPort }
         if let transportHelperPath { params["transport_helper_path"] = transportHelperPath }
         if let broker { params["transport_broker"] = broker }
+        if let socketName = invocation.socketName { params["socket_name"] = socketName }
         params["activate"] = focus ?? Self.defaultFocusForUserOpen()
         if case let .attach(session) = invocation.action {
             params["session"] = session
@@ -14048,6 +14052,7 @@ struct CMUXCLI {
         if let transportPort = invocation.transportPort { params["transport_port"] = transportPort }
         if let helperPath = invocation.transportHelperPath { params["transport_helper_path"] = helperPath }
         if let broker = invocation.broker { params["transport_broker"] = broker }
+        if let socketName = invocation.socketName { params["socket_name"] = socketName }
 
         if !jsonOutput {
             print(localizedFormat(
@@ -14590,7 +14595,16 @@ struct CMUXCLI {
             cliDebugLog(
                 "cli.ssh.remote.configure.error workspace=\(String(workspaceId.prefix(8))) error=\(String(describing: error))"
             )
-            if didCreateWorkspace {
+            // Roll back only when the app answered with an error. A dropped
+            // connection or a missing reply says nothing about whether the
+            // request ran, and the new terminal may already be connecting, so
+            // the workspace stays open and keeps its launcher (#21405).
+            if didCreateWorkspace,
+               (error as? CLIError)?.isStructuredProtocolResponse != true {
+                launchScripts.handOff()
+                let note = "Note: workspace \(workspaceId) stays open; cmux did not answer its setup request\n"
+                cliWriteStderr(Data(note.utf8))
+            } else if didCreateWorkspace {
                 do {
                     _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
                 } catch {
@@ -22379,7 +22393,15 @@ struct CMUXCLI {
                 localized: "cli.help.ssh-tmux.helperPath",
                 defaultValue: "--transport-helper-path <path>  Absolute path to etterminal on the remote host (direct ET only). Omit to use ET's PATH lookup; a broker supplies its own helper path."
             )
-            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(Self.openFocusFlagsHelp)"
+            let socketNameHelp = String(
+                localized: "cli.help.ssh-tmux.socketName",
+                defaultValue: """
+                --socket-name <name>  Mirror the tmux server started with tmux -L <name> instead of the default server. Each socket name is its own connection, so two windows can mirror two servers on one host. Names are 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-' or be '.' or '..'.
+                  cmux ssh-tmux dev@my-host --socket-name alpha
+                """,
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+            )
+            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(socketNameHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
         case "local-zellij":
@@ -31590,7 +31612,9 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     isSubagent: suppressVisibleMutations,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
-                    detail: isClearSessionStart ? "clear-session-start" : nil,
+                    detail: isClearSessionStart
+                        ? "clear-session-start"
+                        : (isClaudeCompactSessionStart(parsedInput) ? AgentJournalEventDraft.compactSessionStartDetail : nil),
                     attention: Self.semanticAttentionContext(parsedInput.rawObject),
                     occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
                     store: sessionStore,
@@ -32979,6 +33003,13 @@ struct CMUXCLI {
             )
             return false
         }
+    }
+
+    private func isClaudeCompactSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let source = parsedInput.object?["source"] as? String else {
+            return false
+        }
+        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "compact"
     }
 
     private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {

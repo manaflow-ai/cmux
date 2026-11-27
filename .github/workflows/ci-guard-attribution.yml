@@ -30,6 +30,9 @@ on:
     types: [completed]
 
 env:
+  # Temporary REST budget attribution until 2026-11-22 00:00 UTC: one gh-call line per GitHub API call
+  # (scripts/ci/api_call_log/env.sh). GitHub runs this file from main, and it had no attribution.
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml .github/workflows/ci-fast-guards.yml .github/workflows/ci-repo-variables.yml
 
 permissions: {}
@@ -52,7 +55,7 @@ jobs:
     # Analysis only reads trusted main history and the Actions/PR APIs, but it
     # mints App tokens to read on their budget, so it runs on a literal
     # Blacksmith label no variable can move (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 20
     permissions:
       actions: read
@@ -83,15 +86,50 @@ jobs:
       # Reads draw on the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
       # budget every workflow shares (it ran out on 2026-10-21); a refused read falls back to
       # GH_TOKEN (guard_attribution.GitHub). The guard steps it runs never see either token.
-      - name: Mint the glaeda-route token
-        id: glaeda-token
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
         if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
+        id: glaeda-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.app-token-spread/.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
@@ -104,7 +142,7 @@ jobs:
         # A red fast guard on main is bisected: main's history, without blobs
         # until a commit is checked out, for the commits between two runs.
         if: ${{ github.event.workflow_run.event != 'pull_request' && contains(fromJSON('[".github/workflows/ci-fast-guards.yml", ".github/workflows/ci.yml"]'), github.event.workflow_run.path) && github.event.workflow_run.conclusion != 'success' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           filter: blob:none
@@ -113,11 +151,22 @@ jobs:
       - name: Checkout main
         # Everything else only reads a log and ci-guards.yml.
         if: ${{ !(github.event.workflow_run.event != 'pull_request' && contains(fromJSON('[".github/workflows/ci-fast-guards.yml", ".github/workflows/ci.yml"]'), github.event.workflow_run.path) && github.event.workflow_run.conclusion != 'success') }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 1
           filter: blob:none
           persist-credentials: false
+
+      # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
+      # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's default floor, 2,500): below it
+      # this job's calls go out on the token a failed mint leaves (scripts/ci/app_spend_mark.py).
+      - name: Read the cmux-bot budget before this job
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-guard-attribution/analyze --floor pass
 
       - name: Record main's head
         id: head
@@ -147,8 +196,8 @@ jobs:
       - name: Analyze
         id: analyze
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
         run: python3 scripts/ci/guard_attribution.py analyze --out "$RUNNER_TEMP/guard-report.json"
 
       - name: Log the glaeda-route App budget after
@@ -169,12 +218,22 @@ jobs:
           path: ${{ runner.temp }}/guard-report.json
           retention-days: 14
 
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since
+      # every job holding a cmux-bot token spends the same pool).
+      - name: Read the cmux-bot budget after this job
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-guard-attribution/analyze
+
   report:
     # The headline is the job name, so the webhook feed carries the culprit.
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted report writer; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted report writer
     timeout-minutes: 10
     permissions:
       contents: read
@@ -198,15 +257,48 @@ jobs:
 
       # Reads (the PR's comments, the tracking issues) on the App's budget; the comment and
       # issue writes stay on GH_TOKEN, since pr_status finds the status comment by its author.
-      - name: Mint the glaeda-route token
-        id: glaeda-token
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
         if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
+        id: glaeda-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-issues: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.app-token-spread/.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-issues: read
@@ -214,12 +306,23 @@ jobs:
           skip-token-revoke: true
 
       - name: Checkout main's analyzed head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.analyze.outputs.head }}
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: scripts/ci
+
+      # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
+      # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's default floor, 2,500): below it
+      # this job's calls go out on the token a failed mint leaves (scripts/ci/app_spend_mark.py).
+      - name: Read the cmux-bot budget before this job
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-guard-attribution/report --floor pass
 
       - name: Download the report
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -294,8 +397,8 @@ jobs:
 
       - name: Comment, and open, update or close the tracking issue
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
           FIX_PR: ${{ steps.fix-pr.outputs.url }}
         run: |
           set -euo pipefail
@@ -315,3 +418,13 @@ jobs:
         run: >-
           gh api rate_limit --jq
           '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since
+      # every job holding a cmux-bot token spends the same pool).
+      - name: Read the cmux-bot budget after this job
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-guard-attribution/report
