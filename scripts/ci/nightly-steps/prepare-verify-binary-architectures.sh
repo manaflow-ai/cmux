@@ -43,9 +43,15 @@ if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
     fi
   done
   # And the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md), named per channel.
+  # A helper that failed to build is a stale part (app-bundle-chief-and-mobile-host.sh noted it), not a hold,
+  # unless vars.NIGHTLY_COMPONENT_GATES is block.
   helpers=("$APP/Contents/Library/"*" Helper.app/Contents/MacOS/cmux-screen-sharing")
-  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/<app> Helper.app" >&2; exit 1; }
-  for binary in "${helpers[@]}"; do
+  if [ ! -e "${helpers[0]}" ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]; then
+    echo "::warning title=Nightly stale part::cmux-screen-sharing: this nightly carries no Screen Sharing helper"
+    helpers=()
+  fi
+  [ "${#helpers[@]}" -eq 0 ] || [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/<app> Helper.app" >&2; exit 1; }
+  for binary in ${helpers[@]+"${helpers[@]}"}; do
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"
     if [ "$NIGHTLY_VARIANT" = "universal" ]; then
