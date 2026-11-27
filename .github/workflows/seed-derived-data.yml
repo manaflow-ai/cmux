@@ -185,7 +185,7 @@ jobs:
       # The macOS 15 pool compiles with its own Xcode, as a pull request run
       # pr_runner_pool.py overflows there does; every other pool, the lane's.
       CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains((endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15), 'Xcode_27') && '27' || '26' }}
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_SEED_ROOT: ${{ matrix.root }}
     steps:
@@ -307,6 +307,18 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
+
+      # The app's build phase clones the pinned cmux-cua source when this
+      # Mac's cache lacks it, with no token and only at the end of a 20-30
+      # minute build. On 11-26 two glaeda-std seeds lost their whole build to
+      # a dropped clone there (runs 45907750099, 45897427815: "RPC failed;
+      # curl 18"). Fetch it here with the run's token, as ci-macos.yml compile
+      # admission does (#57957), so a network failure costs seconds, not the
+      # build; a warm cache makes no network call.
+      - name: Fetch the pinned cmux-cua source
+        env:
+          CMUX_CUA_GIT_TOKEN: ${{ github.token }}
+        run: ./scripts/build-cmux-cua.sh --source-only
 
       # The same contract compile admission computes: product inputs, Xcode,
       # SDK, host major, tool versions and the canonical build location. It
