@@ -143,6 +143,7 @@ struct ChildPreview {
     started_at: Option<u64>,
     /// `started_at` came from a spawn the tree read, not from a progress's `elapsedMs`: a spawn
     /// read later (a log's) replaces an estimate, never a spawn's own time.
+    #[serde(default)]
     started_exact: bool,
     /// The current message's whole text, for the `result` its `completed` end carries (the chat's
     /// "Subagent finished" card shows the whole reply; `text` is the tray's capped one-liner). Leo,
@@ -907,6 +908,9 @@ impl SubagentTree {
     /// The time of the update being read: the clock `set_clock` gave it (a live update's arrival,
     /// a logged one's stamp), else the wall clock.
     fn now_ms(&self) -> u64 {
+        if let Some(at) = self.logged_at {
+            return at;
+        }
         match self.expiry_clock() {
             0 => crate::store::now_ms(),
             at => at,
@@ -2062,6 +2066,47 @@ mod codex_tests {
                    "tokens": 1}),
         );
         assert!(bare[0].get("startedAt").is_none(), "{bare:?}");
+    }
+
+    #[test]
+    fn a_logged_spawn_keeps_its_recorded_started_at() {
+        let mut tree = SubagentTree::default();
+        tree.set_clock(90_000);
+        let mut spawn = json!({"sessionId": "s1", "update": {
+            "sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_a"
+        }});
+        tree.annotate_at(&mut spawn, false, 500);
+        assert_eq!(spawn["_meta"]["acpmux"]["subagents"][0]["startedAt"], json!(500));
+        let mut tree: SubagentTree =
+            serde_json::from_value(serde_json::to_value(tree).unwrap()).unwrap();
+        let progress = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a",
+                   "elapsedMs": 1_000}),
+        );
+        assert_eq!(progress[0]["startedAt"], json!(500));
+    }
+
+    #[test]
+    fn a_checkpoint_without_started_at_still_loads() {
+        let mut tree = SubagentTree::default();
+        tree.set_clock(500);
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/toolu_a"}),
+        );
+        let mut checkpoint = serde_json::to_value(tree).unwrap();
+        let preview = checkpoint["previews"]["s1/toolu_a"].as_object_mut().unwrap();
+        preview.remove("started_at");
+        preview.remove("started_exact");
+        let mut restored: SubagentTree = serde_json::from_value(checkpoint).unwrap();
+        restored.set_clock(2_000);
+        let progress = subagents(
+            &mut restored,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/toolu_a",
+                   "elapsedMs": 1_500}),
+        );
+        assert_eq!(progress[0]["startedAt"], json!(500));
     }
 
     /// A tree rebuilt from the log gives the live one the spawn time it read, over an estimate.
