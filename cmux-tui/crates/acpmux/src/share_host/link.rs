@@ -20,6 +20,10 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 const PING_EVERY: Duration = Duration::from_secs(30);
+/// How long a ping may go unanswered (the hub's auto-response answers it at once) before the
+/// socket counts as dead and is reconnected. Well under the hub's 75 s silence bound, so a host
+/// ticket pushed meanwhile reaches the new socket rather than one that no longer delivers.
+const PONG_WAIT: Duration = Duration::from_secs(10);
 /// The first and the longest wait before signing in again after the hub refused.
 const SIGN_IN_FIRST: Duration = Duration::from_secs(30);
 const SIGN_IN_MOST: Duration = Duration::from_secs(30 * 60);
@@ -219,23 +223,42 @@ fn hold_socket(shared: &Arc<Shared>, stop: &CancellationToken) -> Res<()> {
         link.detail = None;
     });
     tracing::info!("{LOG}: online as \"{}\" ({})", printable(&hub.device.name), hub.device.id);
+    // An app that asked for the identity before the daemon signed in (or before a new device)
+    // runs another one; this tells it to take the daemon's.
+    shared.announce_online();
     refresh_devices(shared);
     // Within the hub's offline grace: the shares a daemon left running that ended meanwhile.
     check_adopted(shared);
     let mut sent_status = helper::status(&shared.home);
     let mut last_ping = Instant::now();
+    // The last ping and whether anything arrived after it: a socket that dropped without a FIN
+    // (a NAT or Wi-Fi change) still takes writes, so only a missing pong says it is gone.
+    let mut ping_at: Option<Instant> = None;
+    let mut heard_after_ping = true;
     loop {
         if stop.is_cancelled() {
             ws.close();
             return Ok(());
         }
+        let since_ping = ping_at.map(|at| at.elapsed());
+        if pong_overdue(since_ping, heard_after_ping) {
+            ws.close();
+            let secs = since_ping.unwrap_or_default().as_secs();
+            return Err(format!("no pong from the hub for {secs} s").into());
+        }
         if last_ping.elapsed() >= PING_EVERY {
             // Exactly these bytes: the hub's auto-response matches them.
             ws.send_text(r#"{"type":"ping"}"#)?;
             last_ping = Instant::now();
+            ping_at = Some(last_ping);
+            heard_after_ping = false;
             sent_status = send_screen_share(shared, sent_status.as_ref()).or(sent_status);
         }
-        match ws.recv(Duration::from_secs(1))? {
+        let message = ws.recv(Duration::from_secs(1))?;
+        if message.is_some() {
+            heard_after_ping = true;
+        }
+        match message {
             None => {}
             Some(Message::Closed(code, reason)) => {
                 let removed = |message: &str| HubError {
@@ -252,6 +275,12 @@ fn hold_socket(shared: &Arc<Shared>, stop: &CancellationToken) -> Res<()> {
             Some(Message::Text(text)) => handle_push(shared, &text, Consent::read),
         }
     }
+}
+
+/// Whether the hub missed its pong: a ping went out `since_ping` ago and nothing arrived after it
+/// within [`PONG_WAIT`].
+pub(crate) fn pong_overdue(since_ping: Option<Duration>, heard_after_ping: bool) -> bool {
+    !heard_after_ping && since_ping.is_some_and(|since| since > PONG_WAIT)
 }
 
 /// `GET /v1/devices`: the platform of each device, to route tickets.
@@ -278,7 +307,8 @@ pub(crate) fn handle_push(shared: &Arc<Shared>, text: &str, consent: impl FnOnce
                     tracing::info!("{LOG}: {why}; ended");
                     // The app's sheet asks the person for what is missing (acpmux's record).
                     let _ = crate::cli::cloud_join::record_consent_refusal(surface);
-                    end_later(shared.hub(), &session_id, "failed");
+                    // Says why, so the viewer reads it rather than a failed stream (the app's host does too).
+                    end_later(shared.hub(), &session_id, "consent_required");
                 }
                 Decided::End(reason, why) => {
                     tracing::info!("{LOG}: {why}; ended");
@@ -296,7 +326,82 @@ pub(crate) fn handle_push(shared: &Arc<Shared>, text: &str, consent: impl FnOnce
             refresh_devices(shared);
             shared.relay(text);
         }
+        // Not relayed to the app: the approval is this daemon's to admit.
+        super::approval::PUSH => receive_approval(shared, push.clone()),
+        super::approval::CONTROL_PUSH => receive_control_approval(shared, push.clone()),
         _ => shared.relay(text),
+    }
+}
+
+/// A control approval the hub carried here (`approval.rs`): the owner's tap on their own
+/// device grants this Mac's "control for my other signed-in machines", so nobody has to be at
+/// the Mac to answer its one ask. Off unless the person turned on
+/// `devices.allowControlFromMyDevices` on this Mac; off, every one is refused. Admitted or refused, audited either way, off the socket
+/// thread. The grant is written by the same consent writer the Mac's own Allow click uses, for
+/// the account the approval was admitted for, and only while this Mac is joined as that account.
+fn receive_control_approval(shared: &Arc<Shared>, push: Value) {
+    use super::approval;
+    let shared = shared.clone();
+    let spawned = std::thread::Builder::new().name("share-host-control".into()).spawn(move || {
+        let hub = shared.hub();
+        let dir = super::dir(&shared.home);
+        let decision = shared.with_seen_approvals(|seen| {
+            approval::receive_control(
+                &*hub,
+                &push,
+                approval::now_secs(),
+                seen,
+                approval::control_allowed(),
+                |entry| approval::append_audit(&dir, entry),
+                crate::cli::cloud_join::grant_signed_in_machines_for,
+            )
+        });
+        match decision {
+            Ok(()) => {
+                tracing::info!("{LOG}: the owner's device allowed control from their machines")
+            }
+            Err(refused) => tracing::info!(
+                "{LOG}: control approval refused: {} {}",
+                refused.code,
+                refused.message
+            ),
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!("{LOG}: the control approval was not read: {e}");
+    }
+}
+
+/// A share approval the hub carried here (`approval.rs`): admitted (and sharing turned on) or
+/// refused, audited either way, off the socket thread (it reads the hub's device list and may
+/// turn sharing on). Approvals are decided one at a time, so a nonce is taken once.
+fn receive_approval(shared: &Arc<Shared>, push: Value) {
+    use super::approval;
+    let shared = shared.clone();
+    let spawned = std::thread::Builder::new().name("share-host-approval".into()).spawn(move || {
+        let hub = shared.hub();
+        let dir = super::dir(&shared.home);
+        let decision = shared.with_seen_approvals(|seen| {
+            approval::receive(&*hub, &push, approval::now_secs(), seen, |entry| {
+                approval::append_audit(&dir, entry);
+            })
+        });
+        match decision {
+            Ok(()) => {
+                shared.update_link(|link| link.sharing = Some(true));
+                tracing::info!("{LOG}: the owner's device turned sharing on");
+            }
+            Err(refused) => {
+                tracing::info!(
+                    "{LOG}: share approval refused: {} {}",
+                    refused.code,
+                    refused.message
+                );
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!("{LOG}: the share approval was not read: {e}");
     }
 }
 
@@ -330,7 +435,9 @@ fn decide(shared: &Shared, push: &Value, consent: impl FnOnce() -> Consent) -> D
         refresh_devices(shared);
         platform = shared.platform_of(&ticket.peer_id);
     }
-    let consent = consent();
+    // The person's own device, as the hub authenticated it, needs no consent on this Mac (the
+    // default consent is the Labs switch off: everything is allowed); others read it now.
+    let consent = if route::own_account(push) { Consent::default() } else { consent() };
     match route::route(&ticket, platform.as_deref(), shared.app_attached(), consent) {
         Route::Daemon { view_only } => Decided::Serve(view_only),
         Route::App => Decided::App,
@@ -340,7 +447,7 @@ fn decide(shared: &Shared, push: &Value, consent: impl FnOnce() -> Consent) -> D
         ),
         Route::End(reason) => Decided::End(
             reason,
-            format!("no app is attached to serve {}", printable(&ticket.peer_name)),
+            format!("{} is not served: {reason}", printable(&ticket.peer_name)),
         ),
     }
 }

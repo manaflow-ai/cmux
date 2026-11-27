@@ -12,7 +12,7 @@
       "rows": [
         {
           "key": "tabs.newTabTemplate",
-          "note": "Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the legacy composer case, which loads as Minimal.",
+          "note": "Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the retired composer, cards, default, threads and console cases, which load as Minimal. Those four pages are templates a person builds now (Leo 2026-11-18: \"The templates should be like the customixastikms api you can build them i don't think they should ship as is\"): skills/cmux-customization/templates/newtab-*, picked with tabs.newTabApp.",
           "title": {
             "key": "settings.tabs.newTabTemplate",
             "text": "New Tab Template"
@@ -33,34 +33,6 @@
               "title": {
                 "key": "settings.choice.newTabTemplateMinimal",
                 "text": "Minimal"
-              }
-            },
-            {
-              "value": "cards",
-              "title": {
-                "key": "settings.choice.newTabTemplateCards",
-                "text": "Cards"
-              }
-            },
-            {
-              "value": "default",
-              "title": {
-                "key": "settings.choice.newTabTemplateDefault",
-                "text": "Default"
-              }
-            },
-            {
-              "value": "threads",
-              "title": {
-                "key": "settings.choice.newTabTemplateThreads",
-                "text": "Threads"
-              }
-            },
-            {
-              "value": "console",
-              "title": {
-                "key": "settings.choice.newTabTemplateConsole",
-                "text": "Console"
               }
             },
             {
@@ -88,9 +60,6 @@
             "greeting",
             "terminal",
             "classic",
-            "threads",
-            "console",
-            "cards",
             "search",
             "ask"
           ]
@@ -124,18 +93,18 @@
         },
         {
           "key": "tabs.newTabApp",
-          "note": "A whole New Tab page drawn by an extension (cmux.newtab/1), by app id. Unset (the default) draws cmux's own page; a missing, hidden, disabled or failing app draws it too. Read by the web page only.",
+          "note": "An extension's view over the New Tab composer (cmux.newtab/1), by app id; it never replaces the page or the composer. Unset (the default) draws no view; a missing, hidden, disabled, failing or slow app leaves the slot empty. The Apps page's Use as New Tab sets it. Read by the web page only.",
           "title": {
             "key": "settings.tabs.newTabApp",
             "text": "New Tab App"
           },
           "help": {
             "key": "settings.tabs.newTabApp.help",
-            "text": "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own."
+            "text": "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page."
           },
           "summary": {
             "key": "settings.tabs.newTabApp.summary",
-            "text": "An extension's New Tab page"
+            "text": "An extension over the New Tab composer"
           },
           "kind": "text",
           "swift_owner": "NewTabAppSetting",
@@ -152,6 +121,226 @@
             "start page",
             "custom page",
             "cmux.newtab"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.show",
+          "name": "show",
+          "note": "The New Tab clock (webviews newtab/NewTabClock.tsx): a large stylized time over the composer, as the iOS 26 Lock Screen draws it, in the font, weight and color below (Leo 2026-11-16: an aesthetic time thing like the iOS home screen customizer). It never replaces or covers the composer. Off by default until Leo picks the default. Read by the web page only.",
+          "title": {
+            "key": "settings.tabs.newTabClock.show",
+            "text": "Clock on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabClock.show.help",
+            "text": "A large clock over the New Tab composer."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "default": false,
+          "keywords": [
+            "new tab",
+            "clock",
+            "time",
+            "date",
+            "lock screen",
+            "widget"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.font",
+          "name": "font",
+          "note": "The New Tab clock's typeface: the system's own families (screen.css .nt-clock[data-font]).",
+          "title": {
+            "key": "settings.tabs.newTabClock.font",
+            "text": "Clock Font"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "NewTabClockFont"
+          },
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "rounded",
+              "title": {
+                "key": "settings.choice.newTabClockFontRounded",
+                "text": "Rounded"
+              }
+            },
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.newTabClockFontSystem",
+                "text": "System"
+              }
+            },
+            {
+              "value": "serif",
+              "title": {
+                "key": "settings.choice.newTabClockFontSerif",
+                "text": "Serif"
+              }
+            },
+            {
+              "value": "mono",
+              "title": {
+                "key": "settings.choice.newTabClockFontMono",
+                "text": "Monospaced"
+              }
+            },
+            {
+              "value": "condensed",
+              "title": {
+                "key": "settings.choice.newTabClockFontCondensed",
+                "text": "Condensed"
+              }
+            }
+          ],
+          "default": "rounded",
+          "keywords": [
+            "new tab",
+            "clock",
+            "font",
+            "typeface"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.weight",
+          "name": "weight",
+          "note": "The New Tab clock's weight.",
+          "title": {
+            "key": "settings.tabs.newTabClock.weight",
+            "text": "Clock Weight"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "NewTabClockWeight"
+          },
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "thin",
+              "title": {
+                "key": "settings.choice.newTabClockWeightThin",
+                "text": "Thin"
+              }
+            },
+            {
+              "value": "regular",
+              "title": {
+                "key": "settings.choice.newTabClockWeightRegular",
+                "text": "Regular"
+              }
+            },
+            {
+              "value": "bold",
+              "title": {
+                "key": "settings.choice.newTabClockWeightBold",
+                "text": "Bold"
+              }
+            },
+            {
+              "value": "heavy",
+              "title": {
+                "key": "settings.choice.newTabClockWeightHeavy",
+                "text": "Heavy"
+              }
+            }
+          ],
+          "default": "bold",
+          "keywords": [
+            "new tab",
+            "clock",
+            "weight",
+            "bold",
+            "thin"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.color",
+          "name": "color",
+          "note": "The New Tab clock's color, from the theme: its text, its accent, its muted text, or glass (the text at a translucent tint with a soft rim of light).",
+          "title": {
+            "key": "settings.tabs.newTabClock.color",
+            "text": "Clock Color"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "NewTabClockColor"
+          },
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "text",
+              "title": {
+                "key": "settings.choice.newTabClockColorText",
+                "text": "Theme Text"
+              }
+            },
+            {
+              "value": "accent",
+              "title": {
+                "key": "settings.choice.newTabClockColorAccent",
+                "text": "Accent"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.newTabClockColorMuted",
+                "text": "Muted"
+              }
+            },
+            {
+              "value": "glass",
+              "title": {
+                "key": "settings.choice.newTabClockColorGlass",
+                "text": "Glass"
+              }
+            }
+          ],
+          "default": "text",
+          "keywords": [
+            "new tab",
+            "clock",
+            "color",
+            "colour",
+            "accent",
+            "glass"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.date",
+          "name": "date",
+          "note": "The date line over the New Tab clock's time (\"Monday, November 16\").",
+          "title": {
+            "key": "settings.tabs.newTabClock.date",
+            "text": "Date over Clock"
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "NewTabClockSetting",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "new tab",
+            "clock",
+            "date",
+            "day"
           ]
         },
         {
@@ -525,7 +714,7 @@
             "pin",
             "more"
           ],
-          "page_hidden": "action ids; toggled from the tab bar's More menu (Show in Tab Bar)"
+          "page_hidden": "action ids; toggled from the command palette (Pin or Unpin Tab Bar Button…)"
         },
         {
           "key": "appearance.metrics.tabFontSize",
@@ -652,6 +841,58 @@
             "crowded",
             "width",
             "many"
+          ]
+        },
+        {
+          "key": "tabs.shellIconTheme",
+          "note": "The icon a shell tab (a terminal running its shell, no agent, no icon of its own) draws in its leading slot (Leo 2026-10-21: \"AND WHERE THE F*** ARE THE ICONS FOR THE F***ING MACHINES\"). default: the >_ kind glyph. machine: the icon of the machine the shell runs on, this Mac's included, so no tab sticks out: its icon in the home session registry (set-session-icon), else its device's SF Symbol, else a Cloud machine's cloud. Off by default: the leading slot stays the kind glyph until the person picks Machines.",
+          "title": {
+            "key": "settings.tabs.shellIconTheme",
+            "text": "Shell Tab Icons"
+          },
+          "help": {
+            "key": "settings.tabs.shellIconTheme.help",
+            "text": "Machines shows each shell tab with the icon of the machine it runs on."
+          },
+          "kind": "choice",
+          "swift_owner": "TabShellIconThemeSetting",
+          "swift_enum": {
+            "name": "TabShellIconTheme",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "default",
+              "title": {
+                "key": "settings.choice.default",
+                "text": "Default"
+              },
+              "note": "The >_ kind glyph."
+            },
+            {
+              "value": "machine",
+              "title": {
+                "key": "settings.choice.tabShellIconThemeMachine",
+                "text": "Machines"
+              },
+              "note": "The machine's icon."
+            }
+          ],
+          "default": "default",
+          "keywords": [
+            "tab",
+            "tabs",
+            "icon",
+            "icons",
+            "shell",
+            "terminal",
+            "machine",
+            "machines",
+            "theme",
+            "ssh",
+            "cloud",
+            "remote"
           ]
         },
         {

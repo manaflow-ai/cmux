@@ -40,7 +40,9 @@ def tour(folder: Path) -> dict:
     text = ('clear; D="${CMUX_CUSTOMIZE_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/cmux/customize}"; '
             f'mkdir -p "$D" && echo {b64(custom / "main.js")} | base64 -d > "$D/main.js" '
             f'&& echo {b64(custom / "cmux-app.json")} | base64 -d > "$D/cmux-app.json" '
-            f"&& echo saved {name}\r")
+            + "".join(f'&& mkdir -p "$D/../themes" && echo {b64(t)} | base64 -d > "$D/../themes/{t.name}" '
+                      for t in sorted((folder / "themes").glob("*.json")))
+            + f"&& echo saved {name}\r")
     steps = [
         {"title": "Launch", "wait": 2, "shot": False},
         {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Tour"], "shot": False},
@@ -54,7 +56,12 @@ def tour(folder: Path) -> dict:
     if "tabs.newTabApp" in settings:
         steps.append({"title": f"{name}: a New Tab is the setup's own page", "cmux": ["action", "run", "newTab.default"],
                       "wait": 3, "optional": "a New Tab opens a terminal when tabs.newTabTemplate picks one"})
-    return {"title": f"Customization showcase: {name}", "customize": True, "steps": steps}
+    out = {"title": f"Customization showcase: {name}", "customize": True, "steps": steps}
+    if (folder / "themes").is_dir():
+        # A tour settings file puts the app's config folder at the workdir, the customize folder's
+        # parent, so the theme written beside it is the one appearance.themeFile finds.
+        out["settings"] = {}
+    return out
 
 
 def expected() -> dict[Path, str]:

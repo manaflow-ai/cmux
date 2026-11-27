@@ -4,10 +4,14 @@
 //! it logged without losing or repeating one.
 #![cfg(unix)]
 
+#[path = "agent_host/adopt_unlogged_tail.rs"]
+mod adopt_unlogged_tail;
 #[path = "agent_host/answer_after_reattach.rs"]
 mod answer_after_reattach;
 #[path = "agent_host/carried_hold.rs"]
 mod carried_hold;
+#[path = "agent_host/claude_record.rs"]
+mod claude_record;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "agent_host/managed_suggestions.rs"]
@@ -338,6 +342,66 @@ async fn a_wrong_token_gets_no_hello() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A host with no agent holder answers a custody ask with no (`spec: None`), so the daemon
+/// reads an answer: before, it closed the connection unanswered, and every claude and codex
+/// start logged `agent holder: no custody of the harness: failed to fill whole buffer`
+/// (cmuxterm-hq docs/findings/2026-11-22-acpmux-holder-custody-noise.md). A forged token is
+/// told no as well, and the host serves on after both.
+#[tokio::test]
+async fn a_host_with_no_holder_answers_a_custody_ask_with_no() {
+    let dir = scratch("nohold");
+    let record = link::spawn(&launcher(), &spec(&dir, "s-nohold")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    assert_eq!(record.holder, Some(false), "a host asked for no holder says it keeps none");
+    assert!(!record.may_hold());
+    let ask = record.clone();
+    let answer =
+        tokio::task::spawn_blocking(move || agent_host::custody::take(&ask)).await.unwrap();
+    assert!(matches!(answer, Ok(None)), "an answer of no custody, not an end of file: {answer:?}");
+    let mut forged = record.clone();
+    forged.owner_token = "00".repeat(32);
+    let answer =
+        tokio::task::spawn_blocking(move || agent_host::custody::take(&forged)).await.unwrap();
+    assert!(matches!(answer, Ok(None)), "a forged token is told no: {answer:?}");
+    let (owner, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Only a harness that speaks ACP itself keeps a holder: a bridged (Codex) or translated
+/// (Claude) spec gets none, its record says so, and its daemon does not ask for custody
+/// (`HostRecord::may_hold`, which `take_custody` reads). A host of an older build, which says
+/// nothing, is asked as before.
+#[test]
+fn custody_is_not_asked_of_a_bridged_or_translated_host() {
+    let dir = scratch("bridged");
+    let mut native = spec(&dir, "s-native");
+    native.holder = Some(agent_host::HolderSpec::default());
+    assert!(native.keeps_holder());
+    let mut bridged = native.clone();
+    bridged.codex_bridge = true;
+    assert!(!bridged.keeps_holder(), "a bridged harness gets no holder");
+
+    let base: HostRecord = serde_json::from_value(json!({
+        "record_version": 1, "session_id": "s", "incarnation": "i", "host_pid": 1,
+        "start_nonce": "00", "harness_pid": null, "owner_token": "t", "protocol_min": 1,
+        "protocol_max": 1, "host_build": "b", "socket": "/nonexistent.sock",
+    }))
+    .unwrap();
+    assert_eq!(base.holder, None);
+    assert!(base.may_hold(), "an older build's host is asked as before");
+    let bridged_record = HostRecord { holder: Some(bridged.keeps_holder()), ..base.clone() };
+    assert!(!bridged_record.may_hold(), "a bridged host is not asked");
+    let translated = HostRecord { claude_translator: true, ..base.clone() };
+    assert!(!translated.may_hold(), "a translated host is not asked, whatever its build");
+    let holding = HostRecord { holder: Some(true), ..base };
+    assert!(holding.may_hold());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A harness whose child calls setsid keeps the output pipe open after the
 /// harness exits. The host still reports the exit after a bounded drain
 /// instead of waiting for that pipe forever (and living forever).
@@ -598,6 +662,9 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         protocol_max: acpmux::agent_host::PROTOCOL_MAX,
         host_build: "test".into(),
         socket,
+        claude_translator: false,
+        host_level: 0,
+        holder: None,
     };
     let wrong = record("wrong-socket", outside_socket.clone());
     let wrong_path = hosts.join("wrong-socket.json");

@@ -33,6 +33,15 @@ set -euo pipefail
 repo="$1"
 echo "${TOKEN-unset}" >> "$FAKE_TOKENS"
 [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 ]] && echo again >> "$FAKE_AGAIN"
+if [[ "${CMUX_BASE_AUTOFIX_AGAIN:-}" == 1 && -n "${FAKE_SLOW:-}" ]]; then sleep "$FAKE_SLOW"; fi
+if [[ -n "${FAKE_DAEMON_FIX:-}" ]]; then
+  if [[ "${FAKE_OTHER_REPAIR:-}" == yes ]]; then
+    mkdir -p "$repo/cmux-tui/bindings/rust/src/generated"
+    echo bindings-for-tip > "$repo/cmux-tui/bindings/rust/src/generated/api.rs"
+    echo 'fixed: refreshed bindings'
+  fi
+  exec bash "$FAKE_DAEMON_FIX" --no-fmt --sdk "$repo"
+fi
 graph="Packages/macOS/CmuxNext/ci-target-graph.json"
 cap_source="Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
 cap="plans/cmux-next/daemon-capabilities.json"
@@ -131,16 +140,41 @@ run > "$tmp/out" 2>&1 || fail "the capability export was not made again on the m
 grep -qvx unset "$tmp/tokens" && fail "a repair ran with the push token in its environment"
 
 # 4. The inputs move under every repair: it stops after CMUX_BASE_AUTOFIX_ROUNDS rounds, lands no
-#    graph that is wrong for the tip it lands on, fails, and leaves it to the next run.
+#    graph that is wrong for the tip it lands on, and passes with a warning: the run the newest of
+#    those pushes started repairs it, so a busy base is no red.
 setup
 first_repair
 lane_commit "lane edits the manifest" "$manifest" "manifest v2"
-if run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1; then
-  fail "a repair whose inputs never held still passed: $(cat "$tmp/out")"
-fi
+run FAKE_MOVE=always CMUX_BASE_AUTOFIX_ROUNDS=3 > "$tmp/out" 2>&1 \
+  || fail "a base that kept moving failed the run: $(cat "$tmp/out")"
 [[ "$(wc -l < "$tmp/again" | tr -d ' ')" == 2 ]] || fail "the repair was made again $(wc -l < "$tmp/again" | tr -d ' ') times, not 2 (3 rounds)"
 [[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
-grep -q "::error::.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
+grep -q "::warning.*next run" "$tmp/out" || fail "the run does not say the next run repairs it: $(cat "$tmp/out")"
+
+# 4b. Too little of the job's time is left for a round on the moved tip: no round starts, the graph
+#     made for an older manifest stays off the branch, and the run passes with a warning (the move
+#     started a run that repairs it). Before, the round ran into the job's 65-minute cancel and the
+#     run went red (45994733335, 2026-11-27).
+setup
+first_repair
+lane_commit "lane edits the manifest" "$manifest" "manifest v2"
+run CMUX_BASE_AUTOFIX_AGAIN_DEADLINE="$(( $(date +%s) + 60 ))" > "$tmp/out" 2>&1 \
+  || fail "a round with no time left failed the run: $(cat "$tmp/out")"
+[[ ! -s "$tmp/again" ]] || fail "a round started with too little time left"
+[[ "$(remote_show "$graph")" == "graph old" ]] || fail "a graph made for an older manifest landed: $(remote_show "$graph")"
+grep -q "::warning.*time left" "$tmp/out" || fail "the run does not say it left the round to the next run: $(cat "$tmp/out")"
+
+# 4c. The round's repair is still running at the deadline: it is stopped, nothing lands for the
+#     tip, and the run passes with a warning.
+setup
+first_repair
+lane_commit "lane edits the manifest" "$manifest" "manifest v2"
+started="$(date +%s)"
+run FAKE_SLOW=60 CMUX_BASE_AUTOFIX_AGAIN_MIN_S=1 CMUX_BASE_AUTOFIX_AGAIN_DEADLINE="$(( started + 3 ))" > "$tmp/out" 2>&1 \
+  || fail "a round cut off at the deadline failed the run: $(cat "$tmp/out")"
+(( $(date +%s) - started < 40 )) || fail "the round ran past its deadline"
+[[ "$(remote_show "$graph")" == "graph old" ]] || fail "a cut-off round landed a graph: $(remote_show "$graph")"
+grep -q "::warning.*still running at this job's deadline" "$tmp/out" || fail "the run does not say the round was cut off: $(cat "$tmp/out")"
 
 # 5. Someone else already put the tip's own graph on the branch: the push holds this run's copy
 #    (a newer commit wrote it), the repair on the tip changes nothing, and the run passes.
@@ -259,4 +293,153 @@ unverified="$(repair_args EXPORTS_VERIFIED=false SETTINGS_VERIFIED=)"
 [[ " $unverified " == *" --unverified-exports "* && " $unverified " == *" --unverified-settings-exports "* ]] \
   || fail "unverified exports are not marked: $unverified"
 
+# cargo clippy --fix (CLIPPY): autofix-clippy.sh --affected on the changed paths, before base-autofix.sh
+# (whose cargo fmt then sees its edits), in the first round and again on a moved tip; never without
+# CLIPPY=true or the changed paths. A failed clippy run is reported and the other repairs still run.
+cat > "$tmp/fake-clippy.sh" <<'FAKE'
+#!/usr/bin/env bash
+{ printf 'args: %s\n' "$*"; sed 's/^/stdin: /'; [[ -s "$FAKE_ARGS" ]] && echo "after autofix"; } > "$FAKE_CLIPPY"
+echo "fixed: cargo clippy --fix cmux-tui/crates/x/src/lib.rs"
+exit "${FAKE_CLIPPY_EXIT:-0}"
+FAKE
+chmod +x "$tmp/fake-clippy.sh"
+printf 'cmux-tui/crates/x/src/lib.rs\nREADME.md\n' > "$tmp/changed.txt"
+clippy_run() { # [env...]
+  rm -f "$tmp/clippy" "$tmp/args"; : > "$tmp/args"
+  repair_args CMUX_BASE_AUTOFIX_CLIPPY="$tmp/fake-clippy.sh" FAKE_CLIPPY="$tmp/clippy" "$@" > /dev/null
+}
+clippy_run CLIPPY=true CLIPPY_CHANGED="$tmp/changed.txt"
+grep -qx "args: --affected $tmp/repo" "$tmp/clippy" || fail "clippy did not run with --affected on the repo: $(cat "$tmp/clippy")"
+grep -qx 'stdin: cmux-tui/crates/x/src/lib.rs' "$tmp/clippy" || fail "clippy did not read the changed paths: $(cat "$tmp/clippy")"
+grep -qx 'after autofix' "$tmp/clippy" && fail "clippy ran after base-autofix.sh, whose cargo fmt would miss its edits"
+[[ -s "$tmp/args" ]] || fail "base-autofix.sh did not run after clippy"
+clippy_run CLIPPY=true CLIPPY_CHANGED="$tmp/changed.txt" CMUX_BASE_AUTOFIX_AGAIN=1
+[[ -s "$tmp/clippy" ]] || fail "a round on a moved tip did not make the clippy repair again"
+clippy_run CLIPPY=false CLIPPY_CHANGED="$tmp/changed.txt"
+[[ -e "$tmp/clippy" ]] && fail "clippy ran with CLIPPY=false"
+clippy_run CLIPPY=true
+[[ -e "$tmp/clippy" ]] && fail "clippy ran with no changed paths"
+out="$(env GRAPH=false FMT=true CLIPPY=true CLIPPY_CHANGED="$tmp/changed.txt" FAKE_CLIPPY_EXIT=1 FAKE_CLIPPY="$tmp/clippy" \
+  CMUX_BASE_AUTOFIX_CLIPPY="$tmp/fake-clippy.sh" CMUX_BASE_AUTOFIX_SCRIPT="$tmp/fake-autofix.sh" FAKE_ARGS="$tmp/args" \
+  bash "$repair_script" "$tmp/repo")" || fail "a failed clippy run failed the repair: $out"
+[[ "$out" == *"left: cargo clippy --fix failed"* ]] || fail "a failed clippy run is not reported: $out"
+[[ "$out" == *"fixed: cargo clippy --fix cmux-tui/crates/x/src/lib.rs"* ]] || fail "clippy's fixed lines are not printed: $out"
+[[ "$(grep -c 'CLIPPY_CHANGED: ${{ runner.temp }}/changed.txt' "$workflow")" == 2 ]] \
+  || fail "the Repair and Push the repairs steps do not both hand clippy the changed paths"
+grep -qF 'printf '"'"'%s\n'"'"' "$changed" > "$RUNNER_TEMP/changed.txt"' "$workflow" \
+  || fail "the autofix job's Changed areas step does not save the changed paths"
+
+# 9. Swift the repair rewrote (the namespace lint's rewrites) never goes straight onto the branch: this
+#    job cannot compile the app, and 8f33d7030473 pushed a rewrite that broke its Release compile on
+#    every later push. The rest of the repair lands; the Swift goes to a proposal branch, on the
+#    commit the repair was made at, for a pull request whose CI compiles it.
+setup
+(cd "$tmp/bot" && echo "graph for manifest v1" > "$graph" && echo "setting rewritten" > "$setting" \
+  && git commit -q -am "chore(next): base autofix at ${base:0:12}" -m "- regenerated $graph" -m "- namespace rewrite in $setting")
+run > "$tmp/out" 2>&1 || fail "a repair with a Swift rewrite did not land the rest: $(cat "$tmp/out")"
+[[ "$(remote_show "$graph")" == "graph for manifest v1" ]] || fail "the graph beside a Swift rewrite did not land: $(remote_show "$graph")"
+[[ "$(remote_show "$setting")" == "setting v1" ]] || fail "a Swift rewrite was pushed onto the branch unchecked: $(remote_show "$setting")"
+git -C "$tmp/remote.git" log -1 --format=%B feat | grep -qF "$setting" && fail "the landed repair still names the Swift rewrite it left out"
+proposal="$(git -C "$tmp/remote.git" rev-parse --verify -q refs/heads/base-autofix-sources)" \
+  || fail "the Swift rewrite went to no proposal branch: $(cat "$tmp/out")"
+[[ "$(git -C "$tmp/remote.git" show "$proposal:$setting")" == "setting rewritten" ]] || fail "the proposal does not hold the rewrite"
+[[ "$(git -C "$tmp/remote.git" rev-parse "$proposal^")" == "$base" ]] || fail "the proposal is not on the commit the repair was made at"
+[[ "$(git -C "$tmp/remote.git" diff --name-only "$proposal^" "$proposal")" == "$setting" ]] || fail "the proposal carries more than the Swift rewrite"
+grep -q "pull request" "$tmp/out" || fail "the run does not say the rewrite waits for a pull request: $(cat "$tmp/out")"
+# A repair that is only a Swift rewrite pushes nothing onto the branch, and passes.
+setup
+(cd "$tmp/bot" && echo "setting rewritten" > "$setting" && git commit -q -am "chore(next): base autofix at ${base:0:12}")
+run > "$tmp/out" 2>&1 || fail "a repair that is only a Swift rewrite failed: $(cat "$tmp/out")"
+[[ "$(remote_tip)" == "$base" ]] || fail "a repair that is only a Swift rewrite moved the branch"
+[[ "$(git -C "$tmp/remote.git" show "base-autofix-sources:$setting")" == "setting rewritten" ]] || fail "the only-Swift repair went to no proposal"
+# The next run makes the same rewrite again: the proposal branch (and its pull request's CI) stays.
+proposal="$(git -C "$tmp/remote.git" rev-parse base-autofix-sources)"
+(cd "$tmp/bot" && echo "setting rewritten" > "$setting" && git commit -q -am "chore(next): base autofix at ${base:0:12}" -m "made again")
+run > "$tmp/out" 2>&1 || fail "the same Swift rewrite again failed: $(cat "$tmp/out")"
+[[ "$(git -C "$tmp/remote.git" rev-parse base-autofix-sources)" == "$proposal" ]] || fail "the same Swift rewrite moved the proposal branch"
+# A Swift rewrite whose proposal push is refused reached neither branch: the rest lands, and the run fails, so
+# base-autofix-since.sh keeps the change in the next run's range (run 45587592604 ended green and #56006's
+# bindings stayed stale).
+setup
+cat > "$tmp/remote.git/hooks/pre-receive" <<'HOOK'
+#!/usr/bin/env bash
+while read -r _ _ ref; do
+  [[ "$ref" == refs/heads/base-autofix-sources ]] && { echo "refusing $ref" >&2; exit 1; }
+done
+exit 0
+HOOK
+chmod +x "$tmp/remote.git/hooks/pre-receive"
+(cd "$tmp/bot" && echo "graph for manifest v1" > "$graph" && echo "setting rewritten" > "$setting" \
+  && git commit -q -am "chore(next): base autofix at ${base:0:12}" -m "- regenerated $graph" -m "- namespace rewrite in $setting")
+if run > "$tmp/out" 2>&1; then fail "a refused proposal push ended green: $(cat "$tmp/out")"; fi
+[[ "$(remote_show "$graph")" == "graph for manifest v1" ]] || fail "the graph beside a refused proposal did not land: $(cat "$tmp/out")"
+[[ "$(remote_show "$setting")" == "setting v1" ]] || fail "a refused Swift rewrite was pushed onto the branch"
+grep -qF "$setting" "$tmp/out" || fail "the failed run does not name the rewrite it left out: $(cat "$tmp/out")"
+# The uniffi bindings (scripts/ios-ffi-bindings.sh) are generator output, no rewrite: they land on the branch.
+setup
+ffi=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+(cd "$tmp/bot" && mkdir -p "$(dirname "$ffi")" && echo "bindings for the crate" > "$ffi" && git add -A \
+  && git commit -q -m "chore(next): base autofix at ${base:0:12}" -m "- regenerated $ffi")
+run > "$tmp/out" 2>&1 || fail "a repair of the FFI bindings failed: $(cat "$tmp/out")"
+[[ "$(remote_show "$ffi")" == "bindings for the crate" ]] || fail "the FFI bindings did not land on the branch: $(cat "$tmp/out")"
+git -C "$tmp/remote.git" rev-parse --verify -q refs/heads/base-autofix-sources >/dev/null && fail "the FFI bindings went to a proposal"
+
+# A held daemon repair must use the newer tip's baseline, and refusal is not a clean no-op.
+surface=cmux-tui/spec/api-compat.surface.json
+mkdir -p "$tmp/abi-bin"
+cat > "$tmp/abi-bin/cargo" <<'CARGO'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == 'run --locked -p cmux-api-compat --bin api-compat-check -- --write' ]]
+cat spec/api-compat.surface.json >> "$ABI_BASELINES"
+case "${ABI_RESULT:-write}" in
+  clean) exit 0 ;;
+  refuse)
+    echo invalid-partial-write > spec/api-compat.surface.json
+    echo 'api-compat-check: breaking protocol change without a compat rule' >&2
+    exit 1 ;;
+  *) printf 'surface for %s\n' "$(cat spec/sdk-schema.json)" > spec/api-compat.surface.json ;;
+esac
+CARGO
+chmod +x "$tmp/abi-bin/cargo"
+setup_daemon() {
+  setup
+  lane_commit "daemon schema and baseline" cmux-tui/spec/sdk-schema.json v1 "$surface" baseline-v1 \
+    cmux-tui/spec/api-compat.json rules-v1 cmux-tui/spec/api-compat-fixtures.json fixtures-v1 \
+    cmux-tui/crates/cmux-api-compat/Cargo.toml '[package]'
+  (cd "$tmp/bot" && git fetch -q origin feat && git reset -q --hard FETCH_HEAD)
+  base="$(git -C "$tmp/bot" rev-parse HEAD)"
+  (cd "$tmp/bot" && echo stale-candidate > "$surface" && git commit -q -am 'chore(next): base autofix')
+  : > "$tmp/abi-baselines"
+}
+run_daemon() {
+  run PATH="$tmp/abi-bin:$PATH" ABI_BASELINES="$tmp/abi-baselines" \
+    FAKE_DAEMON_FIX="$here/../base-autofix.sh" "$@"
+}
+for input in cmux-tui/spec/sdk-schema.json cmux-tui/spec/api-compat.json \
+  cmux-tui/spec/api-compat-fixtures.json cmux-tui/crates/cmux-api-compat/src/coverage.rs "$surface"; do
+  setup_daemon
+  lane_commit "newer daemon input" "$input" v2
+  expected=baseline-v1
+  [[ "$input" == "$surface" ]] && expected=v2
+  run_daemon > "$tmp/out" 2>&1 || fail "daemon input move was not repaired: $(cat "$tmp/out")"
+  [[ "$(cat "$tmp/abi-baselines")" == "$expected" ]] || fail "writer did not compare the newer tip baseline for $input"
+  [[ "$(remote_show "$surface")" != stale-candidate ]] || fail "older daemon candidate landed"
+done
+setup_daemon
+lane_commit "another lane refreshed the baseline" "$surface" current-baseline
+moved="$(remote_tip)"
+run_daemon ABI_RESULT=clean > "$tmp/out" 2>&1 || fail "current daemon baseline must be a clean no-op"
+[[ "$(remote_tip)" == "$moved" ]] || fail "current baseline unexpectedly produced a commit"
+for other_repair in no yes; do
+  setup_daemon
+  lane_commit "breaking daemon schema" cmux-tui/spec/sdk-schema.json incompatible "$surface" newer-baseline
+  if run_daemon ABI_RESULT=refuse FAKE_OTHER_REPAIR="$other_repair" > "$tmp/out" 2>&1; then fail "refused daemon refresh passed: $(cat "$tmp/out")"; fi
+  [[ "$(remote_show "$surface")" == newer-baseline ]] || fail "refusal lost the newer baseline"
+  if grep -q 'needs none of it again' "$tmp/out"; then fail "refused ABI repair was reported as clean"; fi
+  grep -q 'left: cmux-tui/spec/api-compat.surface.json' "$tmp/out" || fail "refused surface not reported"
+  if [[ "$other_repair" == yes ]]; then
+    [[ "$(remote_show cmux-tui/bindings/rust/src/generated/api.rs)" == bindings-for-tip ]] || fail "refusal stopped an independent repair"
+  fi
+done
 echo "PASS: base autofix makes a held repair again on the moved tip and lands it, a bounded number of times, without the push token"

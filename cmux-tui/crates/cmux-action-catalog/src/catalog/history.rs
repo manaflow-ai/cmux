@@ -54,6 +54,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "focusHistoryBackSession",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.backSession", "Go Back One Session"),
+        keywords: &["history", "previous", "session", "chat", "agent", "back", "last", "toggle"],
+        category: "window",
+        symbol: "bubble.left.and.text.bubble.right",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
+        cli_name: "history back-session",
+        main_menu: Some("window"),
+        focuses: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "recentlyFocused",
         group: GROUP,
         title: t("HistoryActions", "action.history.locations", "Location History…"),
@@ -157,6 +171,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::SESSION_3.optional()],
         cli_name: "history resume",
         main_menu: Some("window"),
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -196,6 +211,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::ID_3, args::NEW_TAB.optional()],
         cli_name: "history open",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -221,9 +237,12 @@ pub static ACTIONS: &[Action] = &[
         category: "window",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        // Not destructive: the person picked the one site to forget, and that pick is the
+        // confirmation (removing history entries asks nothing in Chrome either). Clear History
+        // and Clear Recently Closed, which remove everything, still ask. `--confirm` is still
+        // taken and changes nothing.
         arguments: &[args::SITE_HOST, args::CONFIRM.optional()],
         cli_name: "history remove-site",
-        is_destructive: true,
         request: Some(Request {
             lane: RequestLane::Session,
             operation: "history.site.remove",
@@ -257,9 +276,9 @@ pub static ACTIONS: &[Action] = &[
         category: "window",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        // Not destructive: one picked item, as Remove Site from History.
         arguments: &[args::CLOSED_ITEM, args::CONFIRM.optional()],
         cli_name: "closed delete",
-        is_destructive: true,
         request: Some(Request {
             lane: RequestLane::Session,
             operation: "closed.delete",

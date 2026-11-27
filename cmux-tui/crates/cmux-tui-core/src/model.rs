@@ -628,7 +628,7 @@ impl Screen {
         self.viewport_splits = snapshot.viewport_splits;
         self.viewport_base_width = snapshot.viewport_base_width;
         self.layout_columns = snapshot.layout_columns;
-        self.set_floating_panes(snapshot.floating);
+        self.restore_floating_panes(snapshot.floating);
         // The pane that has the focus now is the front pane, also in a list from before it got the focus.
         self.raise_floating_pane(self.active_pane);
     }
@@ -657,6 +657,47 @@ impl Workspace {
     }
 }
 
+/// A count of the workspaces named `workspace-N` by `N`: the highest one is the last key.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WorkspaceNameNumbers(BTreeMap<usize, usize>);
+
+impl WorkspaceNameNumbers {
+    /// The `N` of a name `workspace-N`.
+    pub(crate) fn number(name: &str) -> Option<usize> {
+        name.strip_prefix("workspace-")?.parse::<usize>().ok()
+    }
+
+    /// The numbers of `workspaces` (a walk of the list: a restore or an index rebuild).
+    pub(crate) fn of(workspaces: &[Workspace]) -> Self {
+        let mut numbers = Self::default();
+        for workspace in workspaces {
+            numbers.add(&workspace.name);
+        }
+        numbers
+    }
+
+    pub(crate) fn add(&mut self, name: &str) {
+        if let Some(number) = Self::number(name) {
+            *self.0.entry(number).or_default() += 1;
+        }
+    }
+
+    pub(crate) fn remove(&mut self, name: &str) {
+        let Some(number) = Self::number(name) else { return };
+        if let std::collections::btree_map::Entry::Occupied(mut entry) = self.0.entry(number) {
+            *entry.get_mut() -= 1;
+            if *entry.get() == 0 {
+                entry.remove();
+            }
+        }
+    }
+
+    /// The highest `N`, or 0 when no workspace is named `workspace-N`.
+    pub(crate) fn highest(&self) -> usize {
+        self.0.last_key_value().map_or(0, |(number, _)| *number)
+    }
+}
+
 /// The full mutable session state, exposed to [`crate::Mux::with_state`]
 /// closures.
 #[derive(Clone)]
@@ -664,6 +705,9 @@ pub struct State {
     pub workspaces: Vec<Workspace>,
     pub(crate) workspace_index_by_id: HashMap<WorkspaceId, usize>,
     pub(crate) workspace_id_by_key: HashMap<String, WorkspaceId>,
+    /// The `N` of each workspace named `workspace-N`, so the next default name reads the
+    /// highest one without a walk of the list (`Mux::default_workspace_name`).
+    pub(crate) workspace_name_numbers: WorkspaceNameNumbers,
     /// Monotonic version of the ordered workspace registry. Pane, screen, and
     /// tab-only mutations do not advance this counter.
     pub workspace_revision: u64,
@@ -732,7 +776,17 @@ impl State {
         self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
         self.resource_indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
         self.resource_indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
+        self.workspace_name_numbers.add(&workspace.name);
         self.workspaces.push(workspace);
+    }
+
+    /// Rename the workspace at `index` (the rename's only writer of a live workspace's name,
+    /// so [`Self::workspace_name_numbers`] follows it).
+    pub(crate) fn set_workspace_name(&mut self, index: usize, name: String) {
+        let Some(workspace) = self.workspaces.get_mut(index) else { return };
+        self.workspace_name_numbers.remove(&workspace.name);
+        self.workspace_name_numbers.add(&name);
+        workspace.name = name;
     }
 
     pub(crate) fn remove_workspace(&mut self, index: usize) -> Workspace {
@@ -746,12 +800,19 @@ impl State {
     pub(crate) fn move_workspace(&mut self, old_index: usize, new_index: usize) {
         let workspace = self.workspaces.remove(old_index);
         self.workspaces.insert(new_index, workspace);
-        self.rebuild_workspace_indexes();
+        // Only the workspaces between the two positions changed place; the keys did not change.
+        let (low, high) = (old_index.min(new_index), old_index.max(new_index));
+        for (index, workspace) in
+            self.workspaces.iter().enumerate().take(high.saturating_add(1)).skip(low)
+        {
+            self.workspace_index_by_id.insert(workspace.id, index);
+        }
     }
 
     pub(crate) fn rebuild_workspace_indexes(&mut self) {
         self.workspace_index_by_id.clear();
         self.workspace_id_by_key.clear();
+        self.workspace_name_numbers = WorkspaceNameNumbers::of(&self.workspaces);
         for (index, workspace) in self.workspaces.iter().enumerate() {
             self.workspace_index_by_id.insert(workspace.id, index);
             self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);

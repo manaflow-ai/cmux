@@ -92,12 +92,11 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
     # newest head builds and signs (Leo, 2026-11-05: "why do multiple merges even build the f***ing
     # nightlies anyway?"); the loop's own retry (nightly_next_loop_retry) joins it, and every other
     # nightly-next run stays run-scoped, among them the tail a loop run dispatches after its GitHub release
-    # (nightly_next_post_publish), so nothing replaces that tail and it never holds the push group. A push run's
-    # sign stage (nightly_next_sign_stage) takes the sign group, which works like the push group.
+    # (nightly_next_post_publish), so nothing replaces that tail and it never holds the push group.
     assert re.match(r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "
                     r"\(\(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch' && "
-                    r"inputs\.nightly_next_loop_retry != ''\) && \(vars\.NIGHTLY_NEXT_ONE_JOB != 'on' [^)]*\) && 'push' \|\| github\.event_name == 'workflow_dispatch' && "
-                    r"inputs\.nightly_next_sign_stage != '' && 'sign' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
+                    r"inputs\.nightly_next_loop_retry != ''\) && \(vars\.NIGHTLY_NEXT_ONE_JOB != 'on' [^)]*\) && 'push' \|\| "
+                    r"format\('run-\{0\}', github\.run_id\)\) \|\|",
                     top), top
     assert "nightly_next_post_publish" not in top, top
     assert document["concurrency"]["cancel-in-progress"] is False
@@ -267,7 +266,7 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert 'cron: "2-59/5 * * * *"' in dev or 'cron: "7,22,37,52 * * * *"' in dev
     assert "cancel-in-progress: false" in dev
     cmux_next = (WORKFLOWS / "cmux-next.yml").read_text(encoding="utf-8")
-    assert "group: ${{ format('cmux-next-release-compile-{0}', github.run_id) }}" in cmux_next
+    assert "format('cmux-next-release-compile-{0}', github.run_id) }}" in cmux_next
     assert "needs.push-head-preflight.outputs.current == 'true'" in cmux_next
 
 

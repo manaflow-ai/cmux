@@ -29,10 +29,57 @@ nonisolated enum AcpmuxPersonKey {
         var key: String
         /// The daemon instance it belongs to, once known.
         var pid: Int32?
+        /// The instance a reader that is not a pane re-enrolled already (``claimReenroll(for:pid:)``).
+        var reenrolled: Int32?
+        /// The instance that took this key (``EnrollOutcome/delivered``): a pane proves under it
+        /// without asking for another enroll (``deliveredKey(for:)``).
+        var delivered: Int32?
     }
 
-    /// Keys by daemon socket path.
-    private static let keys = Mutex<[String: Entry]>([:])
+    /// Keys by daemon socket path, and who hears of each key a daemon takes
+    /// (``whenDelivered(socketPath:_:)``): one lock, so a watcher and a delivery never miss each other.
+    private struct Store {
+        var entries: [String: Entry] = [:]
+        var watchers: [UUID: (socketPath: String, notify: @Sendable (String) -> Void)] = [:]
+
+        subscript(socketPath: String) -> Entry? {
+            get { entries[socketPath] }
+            set { entries[socketPath] = newValue }
+        }
+    }
+
+    private static let keys = Mutex(Store())
+
+    /// This launch's key for the daemon on `socketPath`, made now when the app holds none yet (a
+    /// pane that connected before the host's lookup keyed that daemon). The host's enroll then
+    /// sends this same key (``enrollKey(for:pid:)`` adopts an entry with no pid), so the pane's
+    /// proof and the enroll name one key in either order; acpmux holds the proof until the key
+    /// lands (`hub/person.rs` `proves_when_keyed`).
+    static func paneKey(for socketPath: String) -> String {
+        enrollKey(for: socketPath, pid: nil)
+    }
+
+    /// The key a daemon on `socketPath` took from this launch, nil when none did yet.
+    static func deliveredKey(for socketPath: String) -> String? {
+        keys.withLock { keys in keys[socketPath].flatMap { $0.delivered == nil ? nil : $0.key } }
+    }
+
+    /// Calls `notify` with each key a daemon on `socketPath` takes from now on, until
+    /// ``stopWatching(_:)``: a pane whose pending proof names an earlier key proves the new one.
+    static func whenDelivered(socketPath: String, _ notify: @escaping @Sendable (String) -> Void) -> UUID {
+        let id = UUID()
+        keys.withLock { $0.watchers[id] = (socketPath, notify) }
+        return id
+    }
+
+    static func stopWatching(_ id: UUID) {
+        _ = keys.withLock { $0.watchers.removeValue(forKey: id) }
+    }
+
+    private static func announceDelivery(socketPath: String, key: String) {
+        let watchers = keys.withLock { $0.watchers.values.filter { $0.socketPath == socketPath }.map(\.notify) }
+        for notify in watchers { notify(key) }
+    }
 
     /// 32 random bytes as lowercase hex. On Apple platforms `SystemRandomNumberGenerator` is the
     /// kernel's cryptographic generator (`arc4random_buf`).
@@ -60,6 +107,28 @@ nonisolated enum AcpmuxPersonKey {
             let key = newKey()
             keys[socketPath] = Entry(key: key, pid: pid)
             return key
+        }
+    }
+
+    /// True once per daemon instance (`pid`) on `socketPath`: a reader that is not a pane (the consent
+    /// line) re-enrolls a daemon that did not take its proof, but not again on every read while that
+    /// daemon keeps refusing (a DEV one holding another launch's key).
+    static func claimReenroll(for socketPath: String, pid: Int32) -> Bool {
+        keys.withLock { keys in
+            var entry = keys[socketPath] ?? Entry(key: newKey(), pid: pid)
+            guard entry.reenrolled != pid else { return false }
+            entry.reenrolled = pid
+            keys[socketPath] = entry
+            return true
+        }
+    }
+
+    /// Gives back ``claimReenroll(for:pid:)``'s claim on `pid` when its enroll never reached the
+    /// daemon (cancelled, or a refusal that may pass), so a later read tries once more.
+    static func releaseReenroll(for socketPath: String, pid: Int32) {
+        keys.withLock { keys in
+            guard keys[socketPath]?.reenrolled == pid else { return }
+            keys[socketPath]?.reenrolled = nil
         }
     }
 
@@ -125,6 +194,24 @@ nonisolated enum AcpmuxPersonKey {
     /// refusal is tried again a few times (``enrollRetryDelays``).
     static func enroll(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool = true,
                        retryDelays: [Duration] = enrollRetryDelays) async -> Bool {
+        await enrollOutcome(status, environment: environment, mayHandOff: mayHandOff, retryDelays: retryDelays) == .handedOff
+    }
+
+    /// What one ``enroll(_:environment:mayHandOff:retryDelays:)`` came to.
+    enum EnrollOutcome: Equatable {
+        /// The daemon took the key.
+        case delivered
+        /// It stopped the daemon; the caller starts a new one.
+        case handedOff
+        /// The daemon refused for good (another binary, user or launch's key; an older daemon).
+        case refused
+        /// The key never reached the daemon and may on a later try: cancelled, or a refusal that may pass.
+        case unsent
+    }
+
+    /// ``enroll(_:environment:mayHandOff:retryDelays:)`` that says whether the key reached the daemon.
+    static func enrollOutcome(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool = true,
+                              retryDelays: [Duration] = enrollRetryDelays) async -> EnrollOutcome {
         let key = enrollKey(for: environment.socketPath, pid: status.pid)
         var delays = retryDelays[...]
         // One attempt, then one more per delay: every pass returns or uses up a delay.
@@ -134,31 +221,34 @@ nonisolated enum AcpmuxPersonKey {
                 _ = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/person_enroll",
                                                     params: ["key": key], executable: environment.executable,
                                                     deadline: .seconds(5))
-                return false
+                if let pid = status.pid { keys.withLock { $0[environment.socketPath]?.delivered = pid } }
+                announceDelivery(socketPath: environment.socketPath, key: key)
+                return .delivered
             } catch let refusal as AcpmuxServerPeer.Refusal {
                 if let pid = status.pid, AcpmuxVersionHandoff.replaced(pid: pid) {
                     logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); acpmux \(pid) runs a replaced bundle")
                     return await handOff(status, environment: environment, mayHandOff: mayHandOff,
-                                         why: "runs a bundle an update replaced, which cannot take this launch's person key")
+                                         why: "runs a bundle an update replaced, which cannot take this launch's person key",
+                                         replaced: true) ? .handedOff : .refused
                 }
                 // Another install's or another user's daemon refuses for good: no retry there.
                 guard Self.mayPass(refusal), let delay = delays.popFirst(), !Task.isCancelled else {
                     logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); this pane's prompts are not proven the person's")
-                    return false
+                    return Self.mayPass(refusal) ? .unsent : .refused
                 }
                 logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); trying again")
                 // wakeup-allow: a bounded enroll retry (three waits at most, only after a refusal)
                 try? await Task.sleep(for: delay)
             } catch let error as AcpmuxRPCError where error.name == enrollUnavailable {
                 return await handOff(status, environment: environment, mayHandOff: mayHandOff,
-                                     why: "has another launch's person key")
+                                     why: "has another launch's person key") ? .handedOff : .refused
             } catch {
                 // An older daemon without the method has no person rule to satisfy.
                 logger.info("acpmux person_enroll: \(String(describing: error), privacy: .public)")
-                return false
+                return error is CancellationError || Task.isCancelled ? .unsent : .refused
             }
         }
-        return false
+        return .unsent
     }
 
     /// Whether a peer refusal may pass on a later try: the daemon did not answer, closed, was
@@ -172,8 +262,10 @@ nonisolated enum AcpmuxPersonKey {
 
     /// Stops the daemon `status` describes so the caller starts one that takes this launch's key:
     /// only with `mayHandOff`, only one with agent hosts (its agents keep running), once per pid.
+    /// `replaced`: its executable was replaced by an update; it is asked to swap to the installed
+    /// build itself first (``AcpmuxVersionHandoff/swapReplaced(_:pid:reason:)``), make-before-break.
     private static func handOff(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool,
-                                why: String) async -> Bool {
+                                why: String, replaced: Bool = false) async -> Bool {
         guard mayHandOff else {
             logger.error("acpmux \(status.pid ?? -1) \(why, privacy: .public); a reconnect does not hand it off")
             return false
@@ -185,6 +277,9 @@ nonisolated enum AcpmuxPersonKey {
         }
         guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }
         logger.info("acpmux \(pid) \(why, privacy: .public); handing it off")
+        if replaced, await AcpmuxVersionHandoff.swapReplaced(environment, pid: pid, reason: "person key: acpmux \(why)") {
+            return true
+        }
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home,
                                                   reason: "person key: acpmux \(why)",

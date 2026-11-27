@@ -2,6 +2,7 @@
 //! render attach streams.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Surface {
     /// Attach to a PTY surface: a VT replay plus a live byte stream.
@@ -71,6 +72,8 @@ impl Surface {
         let (replay, history_rows_omitted, history_rows_skipped) =
             window_replay_locked(&mut term, window)?;
         let (cols, rows) = (term.cols(), term.rows());
+        // Under the terminal lock, like the replay: the next output's offset.
+        let (_, stream_offset) = pty.snapshot_position.load();
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
         if exited || pty.dead.load(Ordering::Acquire) {
@@ -78,11 +81,18 @@ impl Surface {
         } else {
             let mut taps = pty.taps.lock().unwrap();
             if taps.is_empty() {
-                *pty.last_attach_colors.lock().unwrap() =
-                    Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
+                let live = TerminalColors::from_pty_output(&term, defaults);
+                let mut last = pty.last_attach_colors.lock().recover_poison();
+                // A color change while nobody was attached: a viewer that
+                // resumes by offset must not skip it.
+                if last.as_deref() != Some(&live) {
+                    pty.snapshot_position.ring.bump_epoch();
+                }
+                *last = Some(Box::new(live));
             }
             taps.push(tap);
         }
+        let stamp = pty.snapshot_position.ring.stamp();
         Ok(AttachStream {
             cols,
             rows,
@@ -93,9 +103,70 @@ impl Surface {
             pending_sequence: replay.pending_sequence.into(),
             history_rows_omitted,
             history_rows_skipped,
+            stream_offset,
             stream,
             lifecycle,
+            stamp,
         })
+    }
+
+    /// `terminal-resume-v1`: the bytes after `offset` of the stream whose
+    /// `generation` the viewer holds, and a live tap behind them, when that
+    /// range is still held and nothing but bytes changed since; `None`: attach
+    /// as today. `size` is the grid the viewer holds; another grid is a resize
+    /// its replay must carry. `max_bytes` (`terminal-resume-bounded-v1`): more
+    /// missed bytes than this attach as today too.
+    pub(crate) fn attach_resume_stream(
+        &self,
+        lifecycle: AttachLifecycle,
+        generation: &str,
+        offset: u64,
+        max_bytes: Option<u64>,
+        size: Option<(u16, u16)>,
+    ) -> Option<ResumeAttach> {
+        let held = resume_ring::StreamStamp::parse_generation(generation)?;
+        let pty = self.as_pty()?;
+        let term = pty.term.lock().recover_poison();
+        if pty.dead.load(Ordering::Acquire) {
+            return None;
+        }
+        if size.is_some_and(|size| size != (term.cols(), term.rows())) {
+            return None;
+        }
+        let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let live_colors = TerminalColors::from_pty_output(&term, defaults);
+        let mut taps = pty.taps.lock().recover_poison();
+        // With no viewer attached nothing announced a color change since the
+        // last one sent: compare it here.
+        taps.retain(|tap| !tap.lifecycle.is_canceled());
+        if taps.is_empty()
+            && pty.last_attach_colors.lock().recover_poison().as_deref() != Some(&live_colors)
+        {
+            return None;
+        }
+        let (missing, stamp) =
+            pty.snapshot_position.ring.missing_within(held, offset, max_bytes)?;
+        let (tap, stream) =
+            AttachTap::pair(lifecycle.clone(), ATTACH_STREAM_CAPACITY, ATTACH_STREAM_MAX_BYTES);
+        taps.push(tap);
+        // The live tap starts after the missed bytes (a resume attach keeps JSON `output`).
+        let stream_offset = offset + missing.len() as u64;
+        let attach = AttachStream {
+            cols: term.cols(),
+            rows: term.rows(),
+            replay: Arc::from([]),
+            kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::disabled(),
+            colors: live_colors,
+            pending_sequence: Arc::from([]),
+            history_rows_omitted: None,
+            history_rows_skipped: None,
+            stream_offset,
+            stream,
+            lifecycle,
+            stamp,
+        };
+        Some(ResumeAttach { missing, attach })
     }
 
     /// Attach to the shared protocol-v7 render stream without consuming

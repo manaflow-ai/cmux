@@ -13,7 +13,7 @@ extension UpdaterService {
         var feedIdentity = identity
         if let testFeedURL { feedIdentity.infoFeedURL = testFeedURL }
         guard let offered = try? await prober.offered(feedIdentity, allowedChannels: allowed) else { return .none }
-        let kept = await Task.detached { [keptVersions] in keptVersions.list() }.value
+        let kept = await Task.detached { [keptVersions] in keptVersions.list(teams: false) }.value
         let folder = changelogNotes.map { Self.channelFolder(notesBase: $0.notesBase) }
         var promoted: Set<String> = []
         if ring == .nightly {

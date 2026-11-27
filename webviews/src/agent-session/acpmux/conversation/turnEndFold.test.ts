@@ -2,7 +2,7 @@
 // does the end-of-turn fold play.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { endsTurn, hasLiveLine, turnEndLook } from "./turnEndFold";
+import { endsTurn, hasLiveLine, turnEndLook, drawsCopy } from "./turnEndFold";
 import { LIVE_THINKING } from "./turns";
 
 const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({ id, version: 1, at: 1, kind });
@@ -33,15 +33,6 @@ test("an update ends the turn only when it takes the line away", () => {
   expect(endsTurn([row("u", "user"), row("p", "user"), row(LIVE_THINKING, "thinking")], [row("u", "user")])).toBe(
     false,
   );
-});
-
-test("switching the running status line does not end its turn", () => {
-  const running = [row("u", "user"), row("working-u", "working"), row(LIVE_THINKING, "thinking")];
-  const status = [row("u", "user"), row("activityLine-u", "activityLine")];
-  expect(hasLiveLine(status)).toBe(true);
-  expect(endsTurn(running, status)).toBe(false);
-  expect(endsTurn(status, running)).toBe(false);
-  expect(endsTurn(status, [row("u", "user"), row("worked-u", "worked"), row("answer")])).toBe(true);
 });
 
 test("a user line another agent or the inbox drew is not the turn's prompt", () => {
@@ -133,7 +124,8 @@ test("folded work stays between the header and final answer while they move", as
     thread.append(node);
     return node;
   };
-  draw("working-u", "working", 0, 34);
+  // The turn's header, running: one row with the ended one, its chevron's slot held unseen.
+  draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
   draw("work", "activity", 34, 60);
   draw("answer", "assistant", 94, 50);
   draw(LIVE_THINKING, "thinking", 144, 22);
@@ -207,10 +199,10 @@ test("the fold's curve search picks the least lean that fits, and the straight l
   const { turnEndFoldTiming } = await import("./turnEndFold");
   const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
   const timing = (px: number) => turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
-  expect(timing(100)).toEqual({ ms: 180, easing: "cubic-bezier(0.236, 0.708, 0.46, 0.854)" });
-  expect(timing(274)).toEqual({ ms: 180, easing: "cubic-bezier(0.328, 0.354, 0.655, 0.677)" });
-  expect(timing(800)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
-  expect(timing(2000)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(100)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.236, 0.708, 0.46, 0.854)" });
+  expect(timing(274)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.328, 0.354, 0.655, 0.677)" });
+  expect(timing(800)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(2000)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
 });
 
 test("the fold's curve search for a 2000 px move stays under half a millisecond", async () => {
@@ -264,4 +256,176 @@ test("a copy of a row that went draws only outside the rows that come over it", 
   // bottom at rest (turnEndFold.ts `covers`): the copy keeps every line on every frame.
   const above = { from: 20, to: 0, height: 120, padTop: 0, padBottom: 8, clip: 40 };
   expect(coverClip({ ...copy, to: 120 }, [above], 0)).toBeUndefined();
+});
+
+test("a wipe's edge runs over the changed rows only, never pausing on the rows between", async () => {
+  // cmux#50299: run from the top of the changed rows to their bottom, the edge crossed the unchanged
+  // rows between them, and the view stood still for frames between two motions (78 seeds of 500).
+  const { wipeSpans, wipeEdge, wipeReach } = await import("./turnEndFold");
+  const spans = wipeSpans(
+    [
+      { top: 300, height: 40 },
+      { top: 100, height: 50 },
+      { top: 154, height: 20 },
+    ],
+    0,
+    320,
+  );
+  // Rows a few px apart are one stretch; the one past the view's bottom is clamped to it.
+  expect(spans).toEqual([
+    { from: 100, to: 174 },
+    { from: 300, to: 320 },
+  ]);
+  // Equal steps of the edge's run move it by equal lengths of changed rows: it jumps the gap.
+  expect(wipeEdge(spans, 0)).toBe(100);
+  expect(wipeEdge(spans, 74 / 94)).toBeCloseTo(174);
+  expect(wipeEdge(spans, 80 / 94)).toBeCloseTo(306);
+  expect(wipeEdge(spans, 1)).toBe(320);
+  // Run up, it starts at the bottom.
+  expect(wipeEdge(spans, 0, true)).toBe(320);
+  for (const along of [0, 0.2, 0.5, 0.79, 0.9, 1]) {
+    expect(wipeReach(spans, wipeEdge(spans, along))).toBeCloseTo(along);
+    expect(wipeReach(spans, wipeEdge(spans, along, true), true)).toBeCloseTo(along);
+  }
+  // Nothing changed in the view: one pixel's span, never an empty run.
+  expect(wipeSpans([{ top: 400, height: 30 }], 0, 320)).toEqual([{ from: 320, to: 321 }]);
+});
+
+/// A thread of absolutely placed rows in a DOM with layout read from their styles, and the keyframes
+/// each element was last given.
+async function foldDom() {
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM("<!doctype html><main></main>", { pretendToBeVisual: true });
+  const thread = dom.window.document.querySelector<HTMLElement>("main")!;
+  const proto = dom.window.HTMLElement.prototype;
+  Object.defineProperty(proto, "offsetTop", {
+    get() {
+      return Number.parseFloat(this.style.top) || 0;
+    },
+  });
+  Object.defineProperty(proto, "offsetHeight", {
+    get() {
+      return Number.parseFloat(this.style.height) || 0;
+    },
+  });
+  proto.getBoundingClientRect = function () {
+    return {
+      top: this.offsetTop,
+      bottom: this.offsetTop + this.offsetHeight,
+      height: this.offsetHeight,
+      left: 0,
+      right: 100,
+      width: 100,
+      x: 0,
+      y: this.offsetTop,
+      toJSON() {},
+    };
+  };
+  const frames = new Map<HTMLElement, Keyframe[][]>();
+  proto.animate = function (keyframes) {
+    frames.set(this, [...(frames.get(this) ?? []), keyframes as Keyframe[]]);
+    return { cancel() {}, finish() {} } as Animation;
+  };
+  const draw = (id: string, kind: string, top: number, height: number) => {
+    const node = dom.window.document.createElement("article");
+    node.className = `acpmux-row acpmux-${kind}`;
+    node.dataset.rowId = id;
+    node.style.top = `${top}px`;
+    node.style.height = `${height}px`;
+    thread.append(node);
+    return node;
+  };
+  return { dom, thread, frames, draw };
+}
+
+test("a turn that ends on a tool call keeps its work's copy in sight while the fold runs", async () => {
+  // #49624 F1: the ended turn's footer comes in where its live line was. Read as the next turn's
+  // first row, it took the copies of the work with it on the fold's first frame, and the view stood
+  // blank for 108 ms (the fold matrix's `ends-on-tool` cell). A turn ending on its calls must never
+  // show a blank view.
+  const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import("./turnEndFold");
+  const { dom, thread, frames, draw } = await foldDom();
+  // The running header (turns.ts `turnHeaderId`: one row, two phases), its chevron held unseen.
+  draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
+  draw("work", "activity", 34, 60);
+  draw(LIVE_THINKING, "thinking", 94, 22);
+  const capture = captureTurnEnd(
+    thread,
+    thread,
+    [row("worked-u", "worked"), row("summary-turn-1", "turnSummary")],
+    "chat",
+  )!;
+  const work = capture.rows.find((entry) => entry.id === "work")!.copy!;
+  thread.replaceChildren();
+  draw("worked-u", "worked", 0, 34);
+  draw("summary-turn-1", "turnSummary", 34, 32);
+  const fold = playTurnEnd(thread, capture, "chat")!;
+  try {
+    // The work's copy is drawn, and it fades over the fold's clock: it is not dropped at once.
+    expect(thread.contains(work)).toBe(true);
+    const fades = frames.get(work)?.find((keyframes) => keyframes.some((frame) => frame.opacity !== undefined));
+    expect(fades?.[0]!.opacity).toBe(1);
+    expect(fades?.at(-1)!.opacity).toBe(0);
+  } finally {
+    settleTurnEnd(thread, fold);
+    dom.window.close();
+  }
+  // The next turn's own rows coming in there do take that place: the copies under them go.
+  const next = await foldDom();
+  // The running header (turns.ts `turnHeaderId`: one row, two phases), its chevron held unseen.
+  next.draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
+  next.draw("work", "activity", 34, 60);
+  next.draw(LIVE_THINKING, "thinking", 94, 22);
+  const before = captureTurnEnd(next.thread, next.thread, [row("worked-u", "worked"), row("u2", "user")], "chat")!;
+  const gone = before.rows.find((entry) => entry.id === "work")!.copy!;
+  next.thread.replaceChildren();
+  next.draw("worked-u", "worked", 0, 34);
+  next.draw("u2", "user", 34, 40);
+  const played = playTurnEnd(next.thread, before, "chat")!;
+  try {
+    expect(next.thread.contains(gone)).toBe(false);
+  } finally {
+    settleTurnEnd(next.thread, played);
+    next.dom.window.close();
+  }
+});
+
+test("a reply the swap grew opens to its full height on the fold's clock", async () => {
+  // cmux#50299: the reply's last lines show in the render that ends the turn. Grown at once, they
+  // drew a frame of motion of their own before the fold's; clipped to the height it drew, the reply
+  // opens with the fold, one motion.
+  const { captureTurnEnd, playTurnEnd, settleTurnEnd } = await import("./turnEndFold");
+  const { dom, thread, frames, draw } = await foldDom();
+  // The running header (turns.ts `turnHeaderId`: one row, two phases), its chevron held unseen.
+  draw("worked-u", "worked", 0, 34).innerHTML = '<svg class="cv-worked__chevron is-reserved"></svg>';
+  draw("work", "activity", 34, 60);
+  draw("answer", "assistant", 94, 46);
+  draw(LIVE_THINKING, "thinking", 140, 22);
+  const capture = captureTurnEnd(
+    thread,
+    thread,
+    [row("worked-u", "worked"), row("answer"), row("summary-turn-1", "turnSummary")],
+    "chat",
+  )!;
+  thread.replaceChildren();
+  draw("worked-u", "worked", 0, 34);
+  const answer = draw("answer", "assistant", 34, 92);
+  // The footer takes the live line's place, so the line's copy goes: nothing under the reply clips it.
+  draw("summary-turn-1", "turnSummary", 126, 32);
+  const fold = playTurnEnd(thread, capture, "chat")!;
+  try {
+    const clip = frames.get(answer)?.find((keyframes) => keyframes[0]!.clipPath !== undefined);
+    expect(clip?.[0]!.clipPath).toBe("inset(-4096px -4096px 46px -4096px)");
+    expect(clip?.at(-1)!.clipPath).toBe("inset(-4096px -4096px 0px -4096px)");
+  } finally {
+    settleTurnEnd(thread, fold);
+    dom.window.close();
+  }
+});
+
+test("drawsCopy: rows are a copy until acpmux's attach answers", () => {
+  expect(drawsCopy({ connection: "connecting" })).toBe(true);
+  expect(drawsCopy({ connection: "connected", drewKeptTail: true })).toBe(true);
+  expect(drawsCopy({ connection: "connected", drewKeptTail: true, chatAttached: true })).toBe(false);
+  expect(drawsCopy({ connection: "connected" })).toBe(false);
 });

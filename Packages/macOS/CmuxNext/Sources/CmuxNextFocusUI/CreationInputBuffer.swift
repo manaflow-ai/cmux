@@ -79,6 +79,7 @@ public final class CreationInputBuffer {
     /// (its keys reach the daemon by terminal id, which queues them, cx-wb5.78).
     /// `tab`: the provisional tab the creation shows, so a close of it can cancel the hold (`cancel(tab:)`).
     /// `machine`: the machine the creation's terminal is on (its keys reach it there when its view is gone). `newTerminal`: a New Terminal Tab, which owns the keys typed for it (``NewTerminalKeys``); `standInSends`: its stand-in's view sends keys by the terminal's id before the daemon made it.
+    /// `typesIntoTab`: false for a tab that is no terminal (a new browser tab): a close of `tab` still cancels it, but no key is bound to it as a terminal's (its keys run again into what has the keyboard, its omnibar).
     /// `newWorkspace`: the creation makes a new workspace with its terminal; the keys typed for it wait until the window
     /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
     /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
@@ -88,7 +89,7 @@ public final class CreationInputBuffer {
     /// `pressTerminal`, `personMoves`: a new workspace's: the terminal that had the keyboard at the press, and the count of
     /// the person's focus choices then (``FocusState/personMoveSeq``, ``pressLanes``).
     public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false,
-                     newTerminal: Bool = false, standInSends: Bool = true, pressTerminal: HeldLane? = nil, personMoves: UInt64 = 0, at start: ContinuousClock.Instant = .now) -> Ticket {
+                     newTerminal: Bool = false, standInSends: Bool = true, typesIntoTab: Bool = true, pressTerminal: HeldLane? = nil, personMoves: UInt64 = 0, at start: ContinuousClock.Instant = .now) -> Ticket {
         nextID += 1
         (newestCreation, newestOpenedAt) = (nextID, start)
         if newWorkspace, let pressTerminal { pressLanes[nextID] = (pressTerminal, personMoves) }
@@ -98,7 +99,7 @@ public final class CreationInputBuffer {
         if newWorkspace { workspaceTickets.insert(nextID) }
         if newTerminal { newTerminals.tickets.insert(nextID); laneMachines[nextID] = machine; if !standInSends { newTerminals.silentStandIns.insert(nextID) } }
         if let earlyTab { earlyTabs[nextID] = earlyTab }
-        if let tab { tabs[nextID] = tab; laneTabs[nextID] = tab; laneMachines[nextID] = machine }
+        if let tab { tabs[nextID] = tab; if typesIntoTab { (laneTabs[nextID], laneMachines[nextID]) = (tab, machine) } }
         if let tab { madeTabs.insert(tab) }
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
     }
@@ -271,6 +272,12 @@ public final class CreationInputBuffer {
     /// failed: a focused terminal still to show takes the keys typed now in its own lane, as with no hold (REOPEN-F4, review
     /// of #32148). A failed one alone is not enough: until the person acts, their claim keeps the keys.
     public var personLeftEveryCreation: Bool { !movedOnFrom.isEmpty && movedOnFrom.union(failedWorkspaces).count == nextID }
+
+    /// A key typed now makes this hold wait for the focused content still to show, in its own lane (``awaitContent(_:machine:)``):
+    /// the hold waits for no creation (a selection's hold, `holdUntilShown`: at launch it opens before the restored terminal's
+    /// surface, and its keys, with no lane, ran into no view at its bound, hq#22681), it already waits for content (a second
+    /// one gets its own lane), or the person left every creation (``personLeftEveryCreation``).
+    public var mayAwaitFocusedContent: Bool { !holdsCreation || awaitedTab != nil || personLeftEveryCreation }
 
     /// Whether a key typed now with the focus on `focusedTab` goes on to the view at once: the person moved on from every
     /// creation of this hold (new workspaces only), the key is for no creation's or surface's terminal, and no key that

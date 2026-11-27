@@ -23,7 +23,6 @@ const SHEETS: Record<string, string> = {
   "acpmux-pdf-viewer": "agent-session/acpmux/composer/attachmentIntake.tsx",
   "acpmux-paste-view": "agent-session/acpmux/composer/ContentChip.tsx",
   "activity-viewer-dialog": "agent-activity/viewer.tsx",
-  "machines-dialog": "pages/machines/MachinesSection.tsx",
   "cloud-environment-sheet": "pages/cloud/EnvironmentSheet.tsx",
   "cloud-create-sheet": "pages/cloud/CreateSheet.tsx",
   "lg-form": "pages/home-channels/FormDialog.tsx",
@@ -53,7 +52,10 @@ const subjectIs = (selector: string, cls: string) =>
 test("the sheet role is one rule: veil, radius, depth and the Reduce Transparency fill", () => {
   const sheet = rules(read("ui/popupSurface.css")).find((rule) => rule.selectors.includes(".ui-dialog.ui-glass"));
   expect(sheet).toBeDefined();
-  expect(sheet!.body).toContain("--glass-tint: var(--surface-sheet-veil)");
+  expect(sheet!.body).toContain("--glass-tint: var(--transient-surface-veil)");
+  expect(sheet!.body).toContain(
+    "--glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
+  );
   // The corner is the button corner plus --ui-dialog-padding (the padding that a dialog must pad with).
   // It is concentric with the buttons only of a dialog that pads with that token.
   expect(sheet!.body).toContain("--ui-dialog-padding: var(--ds-space-5)");
@@ -80,7 +82,6 @@ test("every decision and form dialog draws on the sheet glass that floats over t
 const HOST_ENTRIES = [
   "agent-session/acpmux/dev.tsx",
   "agent-activity/main.tsx",
-  "pages/machines/main.tsx",
   "pages/cloud/main.tsx",
   "pages/home-channels/main.tsx",
 ];

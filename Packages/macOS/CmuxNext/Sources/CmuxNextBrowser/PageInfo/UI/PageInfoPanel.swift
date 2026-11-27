@@ -25,14 +25,15 @@ final class PageInfoPanel: NativePopupPanel {
 /// around it (``PopupHostView``).
 final class PageInfoCardView: NSView {
     private let body: OverlayBackingView
-    /// The card's material: glass, or opaque under Reduce Transparency.
+    /// The card's material: the menu glass every cmux menu and popover is (no rim), or opaque
+    /// under Reduce Transparency.
     let glass: OverlaySurfaceView
     private var content: NSView?
 
     override init(frame: NSRect) {
         let body = OverlayBackingView()
         self.body = body
-        glass = Glass.makeOverlayPanel(content: body, cornerRadius: PageInfoStyle.cornerRadius)
+        glass = Glass.makeMenuPanel(content: body, cornerRadius: PageInfoStyle.cornerRadius)
         super.init(frame: frame)
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.autoresizingMask = [.width, .height]

@@ -76,9 +76,18 @@ test("a background turn still running draws no footer yet", () => {
 });
 
 test("a quiet background turn folds to its line, with no footer", () => {
+  globalThis.cmuxExperiments = { "background-turn-look": "line" };
   const view = turnView(transcript({ quiet: true }), new Set(), { now: 60_000, agentFamily: "claude" });
   expect(view.filter((entry) => entry.kind === "turnSummary")).toHaveLength(1);
   expect(view.some((entry) => entry.id.startsWith("backgroundEnd"))).toBe(false);
+  delete globalThis.cmuxExperiments;
+});
+
+test("inline, a quiet background turn's calls end on its row, which copies them and not its hidden reply", () => {
+  const view = turnView(transcript({ quiet: true }), new Set(), { now: 60_000, agentFamily: "claude" });
+  expect(view.at(-1)).toMatchObject({ id: "backgroundEnd-bg", kind: "turnSummary", seq: 40 });
+  expect(view.at(-1)!.text).toBeUndefined();
+  expect(view.at(-1)!.turnCopy?.length).toBe(1);
 });
 
 test("a background turn a summary already ends gets no second footer", () => {

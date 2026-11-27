@@ -11,14 +11,16 @@ import { IncomingMessageLine, IncomingNotice } from "../conversation/IncomingMes
 import { TurnActionsContext } from "../conversation/turnActions";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { UserBubble } from "../conversation/UserBubble";
+import { TranscriptDisclosureProvider } from "../conversation/transcriptDisclosure";
 import { ChiefPromptBubble } from "../conversation/ChiefPromptBubble";
 import { ChevronRight } from "../conversation/icons";
 import { CopyButton } from "../conversation/CopyButton";
-import { AssistantPresentation } from "../conversation/PresentationContext";
+import { Slot } from "../../../slots/Slot";
+import { receiveTransitionSlot } from "../../../slots/receiveTransition";
 import { InboxNoticeCard } from "../conversation/InboxNoticeCard";
 import { type InboxMessage } from "../conversation/inboxNotice";
 import { PendingSteer } from "../conversation/PendingSteer";
-import { DeliveryFailure } from "../conversation/PromptDelivery";
+import { DeliveryFailure, resendsItself } from "../conversation/PromptDelivery";
 import { SentFromLine } from "../conversation/SentFromLine";
 import { ReceivedResult } from "../offer/SuggestedTasks";
 import { callNative } from "../callNative";
@@ -26,13 +28,17 @@ import { type RowProps } from "./rowProps";
 import { editQueued, openOfferChat, openSenderChat, replyToMessage, sendSteerNow } from "./rowActions";
 
 /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
-/// Keeps one footer mounted through waiting, accepted delivery and the authoritative read event.
+/// Keeps one footer mounted through waiting, accepted delivery and the authoritative read event. A
+/// prompt on its way or going again by itself takes the same row (PendingSteer.tsx): one pending look.
 const steerControls = (row: AcpmuxRow) =>
-  row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()));
+  row.steer === "waiting" ||
+  (row.steer === "landed" && Boolean(row.text?.trim())) ||
+  row.delivery?.state === "sending" ||
+  resendsItself(row.delivery);
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 export const MessageRow = memo(
-  function MessageRow({ row, replyActions, githubRepository }: RowProps) {
+  function MessageRow({ row, replyActions, githubRepository, sessionId }: RowProps) {
     const t = useT();
     const readOnly = useTranscriptReadOnly();
     if (isVisiblyEmptyMessage(row)) return null;
@@ -112,8 +118,10 @@ export const MessageRow = memo(
               )
             }
             githubRepository={githubRepository}
+            // Where it was sent from opens with the message, so the shut line stays one row
+            // (rowMetric.ts; Leo, 2026-11-17: "these are too big").
+            provenance={row.sentFrom && <SentFromLine from={row.sentFrom} />}
           />
-          {row.sentFrom && <SentFromLine from={row.sentFrom} />}
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
@@ -168,19 +176,23 @@ export const MessageRow = memo(
             // An unread steer shows only queue controls; accepted or read prompts show normal hover actions.
             <>
               {row.author && <AuthorChip author={row.author} />}
-              <UserBubble
-                row={row}
-                text={row.text ?? ""}
-                pending={
-                  !readOnly && steerControls(row)
-                    ? (actions, queued) => (
-                        <PendingSteer row={row} send={editQueued} queued={queued}>
-                          {actions}
-                        </PendingSteer>
-                      )
-                    : undefined
-                }
-              />
+              {/* Its folds (PromptText.tsx `prompt:`) are this chat's, as model.ts estimates them: row
+                  ids repeat across chats. */}
+              <TranscriptDisclosureProvider sessionId={sessionId}>
+                <UserBubble
+                  row={row}
+                  text={row.text ?? ""}
+                  pending={
+                    !readOnly && steerControls(row)
+                      ? (actions, queued) => (
+                          <PendingSteer row={row} send={editQueued} queued={queued}>
+                            {actions}
+                          </PendingSteer>
+                        )
+                      : undefined
+                  }
+                />
+              </TranscriptDisclosureProvider>
             </>
           )}
           <DeliveryFailure row={row} />
@@ -212,16 +224,23 @@ export const MessageRow = memo(
         messageAt={row.at}
         artifactIdentity={row.id}
         artifactRevision={row.version}
+        // The reply's prose face, a font pack's when it sets one (chatDisplay.ts PROSE_FAMILY_KEY).
+        className="cv-reply"
         // No claim marks (#39244's green or red underline on "tests pass"): Codex draws a reply as
         // written (Lucas, 2026-11-11: "we want to remove this red line thing").
       />
     );
     // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
     // it (model.ts hasReplyActions).
-    if (!replyActions) return <AssistantPresentation>{reply}</AssistantPresentation>;
+    // The reply's box is the theme slot `chat.receiveTransition` (slots/receiveTransition): its default
+    // is the AssistantPresentation this row drew before.
+    const arrived = (
+      <Slot slot={receiveTransitionSlot} props={{ children: reply, streaming: row.streaming === true }} />
+    );
+    if (!replyActions) return arrived;
     return (
       <>
-        <AssistantPresentation>{reply}</AssistantPresentation>
+        {arrived}
         <ReplyActions row={row} />
       </>
     );

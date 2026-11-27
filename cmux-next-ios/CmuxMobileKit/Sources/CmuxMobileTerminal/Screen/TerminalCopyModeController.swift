@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import UIKit
 
 /// Copy Mode on the phone (the Mac's Toggle Copy Mode): the page menu's Select Text… or
@@ -104,7 +105,7 @@ final class TerminalCopyModeController {
         redraw()
         reveal(mode.cursor.row)
         activeChanged(true)
-        UISelectionFeedbackGenerator().selectionChanged()
+        CmuxMobileTheme.standard.haptics.selectionChanged()
     }
 
     func toggle(terminalHadFocus: Bool) {
@@ -134,7 +135,7 @@ final class TerminalCopyModeController {
         case .copy(let from, let to):
             if let raw = text(from, to) {
                 UIPasteboard.general.string = TerminalTextSelection.cleaned(raw)
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                CmuxMobileTheme.standard.haptics.notify(.success)
             }
             exit()
         case .exit:

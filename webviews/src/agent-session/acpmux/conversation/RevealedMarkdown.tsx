@@ -1,12 +1,13 @@
-// A reply as it streams: the text flows in over display frames (StreamReveal) instead of in
-// bursts, one per acpmux delta. The same element shows the reply before and after the stream
-// ends, so nothing remounts when it settles.
+// A reply as it streams: each chunk's text shows in the commit that brings it, once per display
+// frame, and its newest words fade in (useStreamReveal). The same element shows the reply before and
+// after the stream ends, so nothing remounts when it settles.
 
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
 import { useStreamReveal } from "./revealedMarkdownModel";
+import { useStreamingStyle } from "./streamingStyle";
 import type { ClaimCheck } from "../model";
-/// An assistant reply, revealed over frames while it streams. A reply that fails to draw falls
+/// An assistant reply, its newest words fading in while it streams. A reply that fails to draw falls
 /// back to its plain text (MessageBoundary), never taking the pane with it.
 export function RevealedMarkdown({
   text,
@@ -16,9 +17,12 @@ export function RevealedMarkdown({
   artifactIdentity,
   artifactRevision,
   claims,
+  className,
 }: {
   text: string;
   claims?: readonly ClaimCheck[];
+  /** Classes beside `cv-md` (a reply's `cv-reply`, conversation.css). */
+  className?: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
@@ -38,6 +42,7 @@ export function RevealedMarkdown({
         artifactIdentity={artifactIdentity}
         artifactRevision={artifactRevision}
         claims={claims}
+        className={className}
       />
     </MessageBoundary>
   );
@@ -51,16 +56,19 @@ function Revealed({
   artifactIdentity,
   artifactRevision,
   claims,
+  className,
 }: {
   text: string;
   claims?: readonly ClaimCheck[];
+  /** Classes beside `cv-md` (a reply's `cv-reply`, conversation.css). */
+  className?: string;
   streaming: boolean;
   githubRepository?: string;
   messageAt?: number;
   artifactIdentity?: string;
   artifactRevision?: number;
 }) {
-  const { visible, fresh, now } = useStreamReveal(text, streaming);
+  const { visible, fresh, now } = useStreamReveal(text, streaming, useStreamingStyle());
   // Marks draw on the whole reply only: a phrase still revealing would move under its mark.
   const whole = !streaming && visible.length === text.length;
   // Until all of it shows, the reply draws as streaming: the frame after the stream ends still
@@ -75,6 +83,7 @@ function Revealed({
       artifactIdentity={artifactIdentity}
       artifactRevision={artifactRevision}
       claims={whole ? claims : undefined}
+      className={className}
     >
       {visible}
     </Markdown>

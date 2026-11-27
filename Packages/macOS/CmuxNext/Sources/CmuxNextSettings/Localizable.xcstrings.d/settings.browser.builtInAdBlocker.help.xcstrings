@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.builtInAdBlocker.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يحظر الإعلانات وأدوات التتبع في علامات تبويب Chromium. يسري بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Blokira oglase i praćenje u Chromium karticama. Primjenjuje se nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Blokerer annoncer og sporing i Chromium-faner. Træder i kraft, når cmux genstarter."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Blockiert Werbung und Tracker in Chromium-Tabs. Wirkt nach einem Neustart von cmux."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bloquea anuncios y rastreadores en las pestañas de Chromium. Se aplica al reiniciar cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bloque les publicités et les traqueurs dans les onglets Chromium. Prend effet au redémarrage de cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Blocca annunci e tracker nelle schede Chromium. Ha effetto dopo il riavvio di cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chromium タブの広告とトラッカーをブロックします。cmux の再起動後に反映されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រារាំងការផ្សាយពាណិជ្ជកម្ម និងកម្មវិធីតាមដាន ក្នុងផ្ទាំង Chromium។ មានប្រសិទ្ធភាពបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chromium 탭의 광고와 추적기를 차단합니다. cmux를 다시 시작하면 적용됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Blokkerer annonser og sporere i Chromium-faner. Trer i kraft når cmux startes på nytt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Blokuje reklamy i elementy śledzące w kartach Chromium. Działa po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bloqueia anúncios e rastreadores nas abas do Chromium. Entra em vigor após reiniciar o cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Блокирует рекламу и трекеры во вкладках Chromium. Вступает в силу после перезапуска cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บล็อกโฆษณาและตัวติดตามในแท็บ Chromium มีผลหลังจากรีสตาร์ต cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chromium sekmelerindeki reklamları ve izleyicileri engeller. cmux yeniden başlatıldıktan sonra geçerli olur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Блокує рекламу й трекери у вкладках Chromium. Набуває чинності після перезапуску cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chặn quảng cáo và trình theo dõi trong các thẻ Chromium. Có hiệu lực sau khi cmux khởi động lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拦截 Chromium 标签页中的广告和跟踪器。重启 cmux 后生效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "封鎖 Chromium 分頁中的廣告和追蹤器。重新啟動 cmux 後生效。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

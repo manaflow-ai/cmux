@@ -58,6 +58,12 @@ class StarvedDetectionTests(unittest.TestCase):
         self.assertEqual(found[0]["queued"], 2)
         self.assertEqual(found[0]["job_url"], queued["html_url"])
 
+    def test_scheduler_waiting_states_are_starved_when_no_runner_is_assigned(self) -> None:
+        for status in ("waiting", "pending", "requested"):
+            with self.subTest(status=status):
+                found = starved(job(status=status, created=30))
+                self.assertEqual([entry["label"] for entry in found], [SIDE])
+
     def test_a_recent_start_on_the_label_means_it_is_served(self) -> None:
         self.assertEqual(starved(job(created=60), job(status="completed", created=20, started=4, runner="mini-3")), [])
         self.assertEqual(starved(job(created=60), job(status="in_progress", created=90, started=80, runner="mini-3")),
@@ -223,7 +229,15 @@ class MainTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_sweeps_are_serialized_and_never_cancelled_mid_reconcile(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        self.assertEqual(workflow["concurrency"], {"group": "ci-queue-janitor", "cancel-in-progress": False})
+        # Every sweep that can cancel (cron, CI requested, a dispatch that is not a dry run) shares the one
+        # `ci-queue-janitor` group; only a dry-run dispatch, which cancels nothing, waits in a group of its own so
+        # the next sweep does not replace it (#46114). The expression is pinned exactly: any other spelling of the
+        # group is a change to this rule and must update this test with it.
+        self.assertEqual(workflow["concurrency"], {
+            "group": "ci-queue-janitor${{ github.event_name == 'workflow_dispatch' && inputs.dry_run"
+                     " && format('-dry-run-{0}', github.run_id) || '' }}",
+            "cancel-in-progress": False,
+        })
 
     def test_the_alert_step_uses_the_bot_token_and_adds_no_permission(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))

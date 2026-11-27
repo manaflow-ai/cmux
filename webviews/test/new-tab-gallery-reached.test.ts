@@ -37,10 +37,13 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
 
   for (const [entry, variant] of [
     ["agent-pane.new-tab", "empty"],
-    ["agent-pane.new-tab", "chats-loading"],
     ["agent-pane.new-tab", "attachment-menu"],
     ["agent-pane.new-tab", "style-switch"],
     ["agent-pane.new-tab", "suggestions-create"],
+    // A dark one-colour favicon in the label colour; with a file attached, only Ask rows (both plays wait
+    // for that state and throw at the cap).
+    ["agent-pane.new-tab", "suggestions-dark-favicon"],
+    ["agent-pane.new-tab", "suggestions-attached"],
   ] as const) {
     test(`${entry}#${variant} reaches its mounted interaction`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;
@@ -69,39 +72,31 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
           ).cmuxGalleryPlayReport,
           attach: document.querySelector('.acpmux-newtab-plus [data-value="add.files"]') !== null,
           multi: document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input")?.multiple ?? false,
-          chatsLoading: document.querySelector(".nt-cards[aria-busy=true]") !== null,
-          chatPlaceholders: document.querySelectorAll(".nt-cards[aria-busy=true] .nt-card").length,
-          chatsEmpty: document.querySelector(".nt-chats-empty")?.textContent ?? "",
-          threads: document.querySelector(".nt-style input[value=threads]:checked") !== null,
+          // Minimal draws no chat list, empty or loading.
+          chatList: document.querySelector(".nt-cards, .nt-chats-empty") !== null,
+          savedMinimal: (
+            (window as unknown as { cmuxGalleryLog?: Array<{ method: string; params?: { template?: string } }> })
+              .cmuxGalleryLog ?? []
+          ).some((call) => call.method === "newTab.setTemplate" && call.params?.template === "minimal"),
         }));
         expect(receipt.ready).toBe("1");
         expect(receipt.report?.error).toBeUndefined();
         const steps = receipt.report?.steps ?? [];
         // State fixtures wait for their content; only interaction plays record input steps.
-        if (variant !== "empty" && variant !== "chats-loading" && variant !== "suggestions-create")
-          expect(steps.length).toBeGreaterThan(0);
+        if (variant !== "empty" && variant !== "suggestions-create") expect(steps.length).toBeGreaterThan(0);
         for (const step of steps) {
           expect(step.popupProblems ?? []).toEqual([]);
           expect(step.anchorMoves ?? []).toEqual([]);
         }
         // Graded as every play test is (support/galleryPlay.ts): a thrown play, a moved anchor and a
         // unexpected layout shift fail it; the runner's frame timing does not (cx-mfkky).
-        if (variant !== "empty" && variant !== "chats-loading")
-          expect(playFailures(JSON.stringify(receipt.report))).toEqual([]);
+        if (variant !== "empty") expect(playFailures(JSON.stringify(receipt.report))).toEqual([]);
         if (variant === "attachment-menu") {
           expect(receipt.attach).toBe(true);
           expect(receipt.multi).toBe(true);
         }
-        if (variant === "empty") {
-          expect(receipt.chatsLoading).toBe(false);
-          expect(receipt.chatsEmpty).toBe("No chats yet");
-        }
-        if (variant === "chats-loading") {
-          expect(receipt.chatsLoading).toBe(true);
-          expect(receipt.chatPlaceholders).toBe(3);
-          expect(receipt.chatsEmpty).toBe("");
-        }
-        if (variant === "style-switch") expect(receipt.threads).toBe(true);
+        if (variant === "empty") expect(receipt.chatList).toBe(false);
+        if (variant === "style-switch") expect(receipt.savedMinimal).toBe(true);
       } finally {
         await page.close();
       }
@@ -155,6 +150,62 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
           expect(mark.centerY).toBeCloseTo(0, 1);
           expect(mark.ink / outlineInk).toBeGreaterThan(0.75);
           expect(mark.ink / outlineInk).toBeLessThan(1.25);
+        }
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a favicon draws centered in the icon's box at a logo's size, in the suggestions and the lists", async () => {
+    const page = await browser!.newPage();
+    try {
+      const css = readFileSync(path.join(webviews, "src/agent-session/acpmux/newtab/screen.css"), "utf8");
+      const icon = `data:image/svg+xml,${encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="red"/></svg>',
+      )}`;
+      const pair = [
+        renderToStaticMarkup(createElement(RowGlyph, { kind: "tab", icon })),
+        renderToStaticMarkup(createElement(RowGlyph, { kind: "browser" })),
+      ].join("");
+      await page.setContent(
+        `<style>${css}</style><div class="nt-popover">${pair}</div><nav class="nt-open-tabs">${pair}</nav>`,
+      );
+      await page
+        .locator("img.nt-row-favicon")
+        .first()
+        .evaluate((img) => (img as HTMLImageElement).decode());
+      for (const size of [16, 24, 32]) {
+        await page.evaluate((size) => {
+          for (const list of document.querySelectorAll<HTMLElement>(".nt-popover, .nt-open-tabs"))
+            list.style.setProperty("--acpmux-composer-glyph", `${size}px`);
+        }, size);
+        for (const [list, ink] of [
+          [".nt-popover", (size * 14) / 16],
+          [".nt-open-tabs", size],
+        ] as const) {
+          const glyphs = await page.locator(`${list} .nt-row-glyph`).evaluateAll((elements) =>
+            elements.map((element) => {
+              const box = element.getBoundingClientRect();
+              const drawn = element.firstElementChild!.getBoundingClientRect();
+              return {
+                box: box.width,
+                width: drawn.width,
+                height: drawn.height,
+                centerX: (drawn.left + drawn.right - box.left - box.right) / 2,
+                centerY: (drawn.top + drawn.bottom - box.top - box.bottom) / 2,
+              };
+            }),
+          );
+          expect(glyphs).toHaveLength(2);
+          const [favicon, outline] = glyphs as [(typeof glyphs)[0], (typeof glyphs)[0]];
+          // The outline icon fills the ink size; a favicon, a filled logo, 12 of its 14 as an agent mark does.
+          expect(favicon.box).toBeCloseTo(outline.box, 2);
+          expect(outline.width).toBeCloseTo(ink, 1);
+          expect(favicon.width).toBeCloseTo((ink * 12) / 14, 1);
+          expect(favicon.height).toBeCloseTo((ink * 12) / 14, 1);
+          expect(favicon.centerX).toBeCloseTo(0, 1);
+          expect(favicon.centerY).toBeCloseTo(0, 1);
         }
       }
     } finally {

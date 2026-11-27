@@ -1,6 +1,14 @@
 import { CLOUD_SETUP_REQUIRED, readCloudSetupNeed, type CloudSetupNeed } from "./cloudSetup";
 import type { CloudStartAnswer } from "./cloudRun";
+import type { CloudStartPick } from "./newtab/draftFolder";
 import { cloudPlanTeamRefusal, type CloudPlanTeamRefusal } from "./cloudPlanTeams";
+import {
+  cloudPlansNamed,
+  cloudSizeLocked,
+  cloudSizeLockedMessage,
+  type CloudPlanId,
+  type CloudSizeLocked,
+} from "./cloudPlans";
 import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { sliceWhole } from "../../ui/wholeChars";
@@ -27,9 +35,18 @@ export type CloudStartProgress = {
   key: string;
   /// The person's message.
   task: string;
+  /// Messages sent with Return while the start ran ("just go", cloudStartJustGo): they show under the
+  /// message and go with the started chat's first prompt (the host joins them, `chat.cloudStartQueue`).
+  queued?: string[];
   state: "starting" | "failed";
+  /// The agent and model the start runs (`harness` id, `model` id): the composer's model chip names them while the
+  /// start shows, so it never reads the picker's default (Opus) for a start that went as GPT-6.1 Sol (cmux#45774).
+  pick?: CloudStartPick;
   /// The folder's name (its last path part).
   folder?: string;
+  /// The folder the start copies, whole (trailing slashes dropped): the composer's folder chip names it while the
+  /// start shows, so it never reads No folder for a start that went with one (cmux#46023).
+  cwd?: string;
   step?: CloudStartStep;
   /// The machine's name, and its size as the host words it ("4 CPU, 16 GB").
   machine?: string;
@@ -45,6 +62,9 @@ export type CloudStartProgress = {
   /// A plan refusal in a team (`cloud_plan_required` with the host's teams): the card says "This team
   /// has no Cloud plan", names the team and offers the person's own (cloudPlanTeams.ts).
   planTeam?: CloudPlanTeamRefusal;
+  /// The plans a `cloud_plan_required` refusal named for the pricing card (cloudPlans.ts `cloudPlansNamed`); none
+  /// named: the card offers cmux NEXT's own.
+  plans?: CloudPlanId[];
   /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
   signingIn?: true;
   /// No connection serves the picker's model (`cloud_setup_required`): the chat shows Set up Cloud
@@ -59,9 +79,15 @@ export type CloudStartProgress = {
   repository?: string;
   /// The environment whose setup status is being reported by cmux-platform.
   environmentId?: string;
+  /// The environment selected for this start. Kept separately from `environmentId` because a failed
+  /// plan may not have returned the resolved id yet; Retry must still name the same target.
+  environment?: string;
   /// Client-side timing for the machine and harness phases. Milliseconds since epoch.
   machineStartedAt?: number;
   machineFinishedAt?: number;
+  /// The machine step waits out a pause or a resume in flight (the host's `waking`, decided by Rust's
+  /// `cloud_move_settle`, ask-259986a6c4): the card says "Waking machine".
+  waking?: boolean;
   harnessStartedAt?: number;
   harnessFinishedAt?: number;
   /// The git-seed status, forwarded from `git.seed.status`.
@@ -88,6 +114,9 @@ export type CloudStartProgress = {
   /// A folder too big to copy that is not a git repository (`cloud_folder_too_big`, the host's check before
   /// any machine): the card says why and offers the repositories inside it, another folder or none.
   tooBig?: CloudFolderTooBig;
+  /// The folder needs a larger machine than the plan includes (`cloud_size_locked`): the card names the size and
+  /// offers the plan that includes it (none: the largest plan already), This Mac and Retry.
+  sizeLocked?: CloudSizeLocked;
 };
 
 /// The host's `cloud_folder_too_big` details (CloudMoveCLI.StartChatPreflightRefusal `details`).
@@ -205,6 +234,9 @@ export type CloudStartupOperation = {
   fallback?: string;
   /// The cmux GitHub App's install page, when the machine could not read a private repository.
   installUrl?: string;
+  /// A very large folder's first pass: how many files stayed on this Mac (`left_on_mac`), so the card
+  /// does not read a partial copy as complete. Absent when nothing was left.
+  leftOnMac?: number;
   progress?: {
     receivedBytes?: number;
     objects?: number;
@@ -237,18 +269,30 @@ export function cloudStartBegun(
   home?: boolean,
   signingIn?: boolean,
   cloudSetup?: CloudSetupNeed,
+  pick?: CloudStartPick,
+  environment?: string,
 ): CloudStartProgress {
-  const folder = cwd?.replace(/\/+$/, "").split("/").pop();
+  const whole = cwd?.replace(/\/+$/, "");
+  const folder = whole?.split("/").pop();
   return {
     key,
     task,
     state: "starting",
-    ...(folder ? { folder } : {}),
+    ...(folder ? { folder, cwd: whole } : {}),
     ...(agent ? { agent } : {}),
     ...(home ? { home: true } : {}),
     ...(signingIn ? { signingIn: true } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
+    ...(environment ? { environment } : {}),
+    ...(pick ? { pick } : {}),
   };
+}
+
+/// A Cloud send the page held back because the account has no Cloud plan (`cloudMachine.list` `plan.state` `none`):
+/// nothing went to the host, and the card shows the plans in the start's place (CloudStartView), as for the
+/// platform's own `cloud_plan_required`.
+export function cloudStartPlanHeld(key: string, task: string, cwd: string | undefined): CloudStartProgress {
+  return { ...cloudStartBegun(key, task, cwd), state: "failed", code: "cloud_plan_required", refusedHere: true };
 }
 
 /// Start `key`'s sign-in came back signed in and the start goes on: the card leaves its waiting for
@@ -282,11 +326,29 @@ export function cloudStartPushed(
   push: unknown,
   now: number = Date.now(),
 ): CloudStartProgress | undefined {
-  const next = pushedFields(current, push);
-  if (!current || !next || next === current) return next;
+  const pushed = pushedFields(current, push);
+  if (!current || !pushed || pushed === current) return pushed;
+  const next = stepTimes(current, pushed, now);
   // Only a push that moved the start counts as word from the host (watchCloudStartStall).
   const moved = current.advancedAt === undefined || cloudStartMark(next) !== cloudStartMark(current);
   return { ...next, advancedAt: moved ? now : current.advancedAt };
+}
+
+/// The client-side times of `next`'s steps, from when this page saw each begin, where the host sent none:
+/// the machine from its `machine` step, its end (and so the copy's start) at the next step, the agent's
+/// start at `opening`. The host's own times win. A running copy's later lines keep its start time, so its
+/// step line's clock never resets to zero mid-copy (Austin, 2026-11-24: "show the seconds").
+function stepTimes(current: CloudStartProgress, next: CloudStartProgress, now: number): CloudStartProgress {
+  const stamped = { ...next };
+  if (next.step !== current.step) {
+    if (next.step === "machine") stamped.machineStartedAt ??= now;
+    if (next.step === "folder" || next.step === "opening") stamped.machineFinishedAt ??= now;
+    if (next.step === "opening") stamped.harnessStartedAt ??= now;
+  }
+  const kept = current.clone?.startedAt;
+  if (stamped.clone && stamped.clone.startedAt === undefined && kept !== undefined)
+    stamped.clone = { ...stamped.clone, startedAt: kept };
+  return stamped;
 }
 
 /// What of a start shows that it moves: its step, each step's state and phase, and the clone's counts.
@@ -338,6 +400,8 @@ function pushedFields(current: CloudStartProgress | undefined, push: unknown): C
   const directMachineFinished = number(fields.machineFinishedAt ?? fields.machine_finished_at);
   const directHarnessStarted = number(fields.harnessStartedAt ?? fields.harness_started_at);
   const directHarnessFinished = number(fields.harnessFinishedAt ?? fields.harness_finished_at);
+  if (fields.waking === true) next.waking = true;
+  if (fields.waking === false) delete next.waking;
   if (directMachineStarted !== undefined) next.machineStartedAt = directMachineStarted;
   if (directMachineFinished !== undefined) next.machineFinishedAt = directMachineFinished;
   if (directHarnessStarted !== undefined) next.harnessStartedAt = directHarnessStarted;
@@ -358,10 +422,16 @@ function pushedFields(current: CloudStartProgress | undefined, push: unknown): C
     if (machineTiming) Object.assign(next, prefixedTiming("machine", machineTiming));
     if (harnessTiming) Object.assign(next, prefixedTiming("harness", harnessTiming));
   }
-  const clone = operation(fields.clone ?? fields.gitSeed ?? fields.seed ?? fields["git.seed"]);
+  const cloneFields = fields.clone ?? fields.gitSeed ?? fields.seed ?? fields["git.seed"];
+  const clone = operation(cloneFields);
   // The copy's final answer does not repeat why a seed copied: its live lines said so, and it stays.
   const ended = clone?.state === "done" || clone?.state === "failed";
-  if (clone) next.clone = ended ? { ...pick(next.clone, ["fallback", "installUrl"]), ...clone } : clone;
+  if (clone) next.clone = ended ? { ...pick(next.clone, ["fallback", "installUrl", "leftOnMac"]), ...clone } : clone;
+  else {
+    // A plain copy's end reports no seed state, only the files its first pass left here: the copy is over.
+    const leftOnMac = filesLeftOnMac(asRecord(cloneFields));
+    if (leftOnMac !== undefined) next.clone = { ...(next.clone ?? { state: "done" }), leftOnMac };
+  }
   const setup = setupStatus(fields.setup ?? fields.environment);
   if (setup) next.setup = setup;
   // The host's question: `null` takes it away (answered, or the wait ended); a malformed one changes nothing.
@@ -420,6 +490,12 @@ function pick<T extends object, K extends keyof T>(value: T | undefined, keys: r
   return picked;
 }
 
+/** A first pass's count of files left on this Mac (`left_on_mac`): a positive whole number, else undefined. */
+function filesLeftOnMac(record: Record<string, unknown> | undefined): number | undefined {
+  const left = number(record?.leftOnMac ?? record?.left_on_mac);
+  return left !== undefined && Number.isSafeInteger(left) && left > 0 ? left : undefined;
+}
+
 function operation(value: unknown): CloudStartupOperation | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
@@ -458,6 +534,7 @@ function operation(value: unknown): CloudStartupOperation | undefined {
     : undefined;
   const fallback = line(record.fallback, 80);
   const installUrl = httpsUrl(record.installUrl ?? record.install_url);
+  const leftOnMac = filesLeftOnMac(record);
   return {
     state,
     ...(startedAt !== undefined && { startedAt }),
@@ -466,6 +543,7 @@ function operation(value: unknown): CloudStartupOperation | undefined {
     ...(phase && { phase }),
     ...(fallback && { fallback }),
     ...(installUrl && { installUrl }),
+    ...(leftOnMac !== undefined && { leftOnMac }),
     ...(progress && Object.keys(progress).length > 0 && { progress }),
   };
 }
@@ -531,9 +609,23 @@ export function cloudStartEnded(
     const { signingIn: _s, ask: _a, retryable: _r, ...rest } = current;
     return { ...rest, state: "failed", code: spend, message: translate(SPEND_WORDS[spend]) };
   }
+  // The folder needs a larger machine than the plan includes (the platform's size check before any machine): the
+  // size in plain words and the plan that includes it; Retry stays, for after an upgrade.
+  const locked = answer.code === "cloud_size_locked" ? cloudSizeLocked(answer.details) : undefined;
+  if (locked) {
+    const { signingIn: _s, ask: _a, planTeam: _p, plans: _pl, stalled: _st, ...rest } = current;
+    return {
+      ...rest,
+      state: "failed",
+      code: answer.code,
+      message: cloudSizeLockedMessage(locked),
+      sizeLocked: locked,
+      retryable: true,
+    };
+  }
   // A folder too big to copy (the host's check before any machine): no step ran, no Retry, the folder's way on instead.
   if (answer.code === "cloud_folder_too_big") {
-    const { signingIn: _s, ask: _a, retryable: _r, planTeam: _p, stalled: _st, ...rest } = current;
+    const { signingIn: _s, ask: _a, retryable: _r, planTeam: _p, plans: _pl, stalled: _st, ...rest } = current;
     const tooBig = cloudFolderTooBig(answer.details);
     return {
       ...rest,
@@ -552,11 +644,14 @@ export function cloudStartEnded(
     signingIn: _signingIn,
     ask: _ask,
     planTeam: _planTeam,
+    plans: _plans,
     stalled: _stalled,
     cloudSetup: _cloudSetup,
+    sizeLocked: _sizeLocked,
     ...ended
   } = current;
   const planTeam = answer.code === "cloud_plan_required" ? cloudPlanTeamRefusal(answer.details) : undefined;
+  const plans = answer.code === "cloud_plan_required" ? cloudPlansNamed(answer.details) : undefined;
   const cloudSetup = answer.code === CLOUD_SETUP_REQUIRED ? readCloudSetupNeed(answer.details) : undefined;
   return {
     ...ended,
@@ -566,6 +661,7 @@ export function cloudStartEnded(
     ...(refusedHere ? { refusedHere } : {}),
     ...(answer.retryable ? { retryable: true } : {}),
     ...(planTeam ? { planTeam } : {}),
+    ...(plans ? { plans } : {}),
     ...(cloudSetup ? { cloudSetup } : {}),
   };
 }
@@ -613,6 +709,7 @@ const OWN_RECOVERY = new Set([
   "cloud_spend_cap",
   "cloud_member_budget",
   "cloud_folder_too_big",
+  "cloud_size_locked",
 ]);
 const FOLDER_REFUSALS = new Set([
   "cloud_folder_missing",

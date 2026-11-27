@@ -7,7 +7,8 @@
 
 /// A transcript row in view in a painted frame: its id (`data-row-id`) and its top edge, in CSS
 /// pixels from the viewport's top.
-export type FrameRow = { id: string; top: number };
+/// `text`: the row's words, when the reader took them.
+export type FrameRow = { id: string; top: number; text?: string };
 
 /// What one painted frame showed, read from the layer on top: the chat's drawn copy while it shows
 /// (chatSnapshot/paint.ts), else the live page.
@@ -22,7 +23,50 @@ export type FrameRecord = {
   composer: { top: number; height: number } | null;
   /// The transcript scroller's offset, or null when there was none.
   scrollTop: number | null;
+  /// The prompt rail as the frame painted it, or null when none showed (undefined: not read).
+  rail?: FrameRail | null;
 };
+
+/// The prompt rail in a painted frame (ThreadMinimap.tsx `.acpmux-minimap__rail`): its box, how many
+/// prompts it lays out (`aria-setsize`), its list's offset, the drawn ticks lit as on screen, and how
+/// many of its CSS animations and transitions ran. Leo, after a restart to update: "and then the scroll
+/// rail re-rendered".
+export type FrameRail = { top: number; height: number; rows: number; listTop: number; lit: string; animating: number };
+
+/// Why the rail in `next` is not the rail `shown` painted (the last frame that had one), or undefined.
+/// A rail that first appears is no change; one that moves, grows, re-counts its prompts, scrolls its
+/// list, relights its band, goes, or animates at all after its first frame is: with no input the rail
+/// a restored chat draws in its first frame is its last (no entrance, no glide, no re-measure).
+export function railChange(
+  shown: FrameRail | null | undefined,
+  next: FrameRail | null | undefined,
+): string | undefined {
+  if (!shown) return undefined;
+  if (!next) return "rail went";
+  if (moved(shown.top, next.top)) return `rail top ${shown.top.toFixed(1)} -> ${next.top.toFixed(1)}`;
+  if (moved(shown.height, next.height)) return `rail height ${shown.height.toFixed(1)} -> ${next.height.toFixed(1)}`;
+  if (shown.rows !== next.rows) return `rail rows ${shown.rows} -> ${next.rows}`;
+  if (moved(shown.listTop, next.listTop))
+    return `rail list scrolled ${shown.listTop.toFixed(0)} -> ${next.listTop.toFixed(0)}`;
+  if (shown.lit !== next.lit) return `rail band ${shown.lit || "-"} -> ${next.lit || "-"}`;
+  if (next.animating > 0) return `rail animating ${next.animating}`;
+  return undefined;
+}
+
+/// The frames, by index, whose rail changed from the one painted before (``railChange``), and why.
+export function railChanges(frames: FrameRecord[]): { index: number; why: string }[] {
+  const changes: { index: number; why: string }[] = [];
+  let shown: FrameRail | null | undefined;
+  for (let at = 0; at < frames.length; at += 1) {
+    const rail = frames[at]!.rail;
+    // A frame the reader could not see (the live root held clear under no copy) says nothing of the rail.
+    if (rail === undefined) continue;
+    const why = railChange(shown, rail);
+    if (why) changes.push({ index: at, why });
+    if (rail) shown = rail;
+  }
+  return changes;
+}
 
 /// A box moved when an edge went further than this, so sub-pixel rounding between the copy and the
 /// live page is no shift.
@@ -34,8 +78,8 @@ export type FrameMetrics = {
   firstContentMs: number | null;
   /// Frames after the first one with content that showed no row in view.
   blankAfterContent: number;
-  /// Frames in which the composer or the bottom-most row in view moved, or that row was replaced
-  /// (``shiftBetween``).
+  /// Frames in which the composer or a row in view moved, or the bottom-most row in view was
+  /// replaced (``shiftBetween``).
   shiftFrames: number;
   /// When the first frame of the final state painted: from it on, every frame shows the same rows
   /// at the same places (within ``MOVE_TOLERANCE_PX``) and the composer at the same box. Null when
@@ -44,6 +88,9 @@ export type FrameMetrics = {
   /// The frames counted above, by index, for a trace: why each one counted.
   blankAt: number[];
   shiftAt: { index: number; why: string }[];
+  /// Frames whose prompt rail changed from the one painted before (``railChanges``).
+  railFrames: number;
+  railAt: { index: number; why: string }[];
 };
 
 const moved = (a: number, b: number) => Math.abs(a - b) > MOVE_TOLERANCE_PX;
@@ -78,6 +125,14 @@ export function shiftBetween(
     const same = next.rows.find((row) => row.id === held.id);
     if (!same) return `bottom row ${held.id} replaced by ${bottomRow(next.rows)!.id}`;
     if (moved(held.top, same.top)) return `bottom row ${held.id} top ${held.top.toFixed(1)} -> ${same.top.toFixed(1)}`;
+    // Any other row in view in both that moved: rows settling above a bottom row that held still are
+    // a shift the eye sees too (a code block or table drawn at another height than the copy's).
+    const before = new Map(shown.rows.map((row) => [row.id, row.top]));
+    for (const row of next.rows) {
+      const top = before.get(row.id);
+      if (top !== undefined && moved(top, row.top))
+        return `row ${row.id} top ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
+    }
     // A new row under the one held (the transcript grew at its end) replaces it as the bottom.
     const lowest = bottomRow(next.rows)!;
     if (lowest.id !== held.id) return `bottom row ${held.id} replaced by ${lowest.id}`;
@@ -112,6 +167,7 @@ export function classifyFrames(frames: FrameRecord[]): FrameMetrics {
     const why = shiftBetween(previous, frames[at]!, shown ?? previous);
     if (why) shiftAt.push({ index: at, why });
   }
+  const railAt = railChanges(frames);
   let settled = frames.length - 1;
   while (settled > 0 && sameState(frames[settled - 1]!, frames[frames.length - 1]!)) settled -= 1;
   return {
@@ -122,5 +178,7 @@ export function classifyFrames(frames: FrameRecord[]): FrameMetrics {
     finalFirstPaintMs: settled >= 0 ? frames[settled]!.t : null,
     blankAt,
     shiftAt,
+    railFrames: railAt.length,
+    railAt,
   };
 }

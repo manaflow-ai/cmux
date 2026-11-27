@@ -18,6 +18,7 @@ export const COMPOSER_READY_EVENT = "acpmux-composer-ready";
 /// pane's activation that a click raises (the window's `focus`, the host's `focusContent` from
 /// `becomeFirstResponder`) reaches the page just before or just after the press, so an activation
 /// claim waits `ACTIVATION_SETTLE_MS` and is dropped when a press lands within `PRESS_WINDOW_MS`.
+// motion-allow: an activation race window, not a motion
 export const ACTIVATION_SETTLE_MS = 120;
 export const PRESS_WINDOW_MS = 400;
 
@@ -36,14 +37,14 @@ export function shouldBlurComposerOnPress(target: Node | null, active: Element |
 }
 
 /// The composer's own rows: the box, the location strip above it, and the quiet row (mode, model,
-/// context ring) and look radios under it. Those sit outside the box since Claude Code's split
+/// context ring). The quiet row sits outside the box since Claude Code's split
 /// (#22285), and a press on one of their chips must leave the prompt focused, so the chip's menu
 /// hands the keyboard back to the prompt after a pick. Picker menus are portalled by MenuPopup, so
 /// the + popup carries its own composer class instead of the old picker-layer wrapper; the `/` and
 /// `@` lists remain in `.acpmux-composer-list-layer` (backdropLayer.tsx). A press on their rows is
 /// the composer's too, or the blur closes the menu before the row takes the press.
 const COMPOSER_CHROME =
-  ".acpmux-composer-box, .acpmux-composer-strip, .acpmux-composer-foot, .acpmux-composer-under, .acpmux-menu.acpmux-composer-plus, .acpmux-composer-list-layer";
+  ".acpmux-composer-box, .acpmux-composer-strip, .acpmux-composer-foot, .acpmux-menu.acpmux-composer-plus, .acpmux-composer-list-layer";
 
 function blurActiveComposer(): void {
   const active = document.activeElement;

@@ -6,6 +6,7 @@ import os
 /// A personal one (`_acpmux/connections` on this Mac, served straight to the machine) or the
 /// organization's shared key serving the picker's family starts the chat with no prompt; none shows
 /// the chat's Set up Cloud card, which starts the chat by itself once one appears (``waitUntilServed(family:)``).
+/// With none of those, a team in inference gateway mode whose gateway is online (``gateway``) serves the chat too.
 ///
 /// What it reads and how it connects are seams the App fills (``read``, ``run``): the Settings >
 /// Models ops own the connections; this holds only the rule and the wait. Every change to the
@@ -68,7 +69,7 @@ public final class CloudSetup {
         /// Whether a connection serves `family`; nil when this Mac's connections were not read.
         public func serves(_ family: String) -> Bool? {
             switch choice(family: family, model: nil, account: nil) {
-            case .connection, .organization: true
+            case .connection, .organization, .gateway: true
             case .setup: false
             case .fallback: nil
             }
@@ -82,6 +83,9 @@ public final class CloudSetup {
         case connection(id: String, family: String)
         /// The organization's shared key for `family`, which the platform edge serves; nothing to send.
         case organization(family: String)
+        /// The inference gateway of the team the machine is made in, in gateway mode and online, serves `family` (``gateway``): the machine's
+        /// agent reaches it through the edge, so nothing is sent (hq#15762).
+        case gateway(family: String)
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`, and nothing starts.
         case setup(family: String, model: String?)
         /// Nothing to choose (an agent Cloud does not serve, or connections that could not be read):
@@ -92,6 +96,17 @@ public final class CloudSetup {
         public var connectionID: String? {
             if case .connection(let id, _) = self { return id }
             return nil
+        }
+
+        /// Whether the chat's model calls go somewhere other than this Mac's own gateway (``PersonalGateway``): the
+        /// agent launch carries this Mac's connection credential, or the platform edge serves the organization's key.
+        /// A start then has no gateway to wait for before its first turn. The production probe's starts on such a
+        /// route waited out the gateway's whole 10 s deadline in about one in five runs (2026-11-21).
+        public var servedWithoutMacGateway: Bool {
+            switch self {
+            case .connection, .organization: true
+            case .gateway, .setup, .fallback: false
+            }
         }
     }
 
@@ -137,6 +152,56 @@ public final class CloudSetup {
 
     /// Reads what serves Cloud now; nil leaves every start as it was.
     public var read: (@MainActor () async -> Snapshot)?
+    /// The families the inference gateway of the team the start's machines are made in (the install's own) serves now (`cmux inference gateway status`'s `serves`), nil
+    /// when unread. Read only when nothing else serves the chat, so a start that has a connection pays nothing for it.
+    public var gateway: (@MainActor () async -> Set<String>?)?
+    /// The last read behind ``gateway``: the team it asked and the CLI's error code when it could not be read. A refusal
+    /// carries it (``Refusal/gateway``), so a refused start says which team's gateway it read and why it counted none (hq#19758).
+    public var gatewayRead: GatewayRead?
+
+    /// One `cmux inference gateway status --team` read (``CloudMoveCLI/inferenceGatewayStatus(team:held:)``).
+    public struct GatewayRead: Equatable, Sendable {
+        /// The CLI ran past its bound (the read's 10 s).
+        public static let timedOut = "timed_out"
+        /// No install token, so no team to read.
+        public static let noInstallToken = "no_install_token"
+        public var team: String?
+        /// The agents it serves now; nil when unread.
+        public var serves: Set<String>?
+        /// Why it is unread: the CLI's `error.code` (`auth.no_token`, `api.unreachable`, ...), ``timedOut`` or ``noInstallToken``.
+        public var errorCode: String?
+
+        public init(team: String?, serves: Set<String>? = nil, errorCode: String? = nil) {
+            (self.team, self.serves, self.errorCode) = (team, serves, errorCode)
+        }
+
+        /// The gate's reads, each team once: the install team with the install token the app holds, so the CLI mints none
+        /// (hq#19758), then the person's own team through the CLI's own mint (#51322), a read the caller started beside the
+        /// token's bind wait (cmux#55519) and this cancels when it names the install team. `install` is the read a refusal
+        /// carries (``noInstallToken`` with no token); each unread answer logs why.
+        public static func serves(cli: CloudMoveCLI, install: (team: String, token: String)?, personal: (team: String, read: Task<GatewayRead, Never>)?, apiOrigin: URL) async -> (serves: Set<String>?, install: GatewayRead) {
+            let log = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud") // the app's cloud log, where the gate's other lines go
+            var installRead = GatewayRead(team: nil, errorCode: noInstallToken), reads: [(String, GatewayRead)] = []
+            if let install {
+                installRead = await cli.inferenceGatewayStatus(team: install.team, held: (install.token, apiOrigin))
+                reads.append((install.team, installRead))
+            }
+            if let personal {
+                if personal.team == install?.team { personal.read.cancel() } else { reads.append((personal.team, await personal.read.value)) }
+            }
+            var serves: Set<String>?
+            for (team, read) in reads {
+                if let answer = read.serves {
+                    log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(answer.sorted().joined(separator: ","), privacy: .public)]")
+                    serves = (serves ?? []).union(answer)
+                } else {
+                    log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.errorCode ?? "-", privacy: .public)")
+                }
+            }
+            if reads.isEmpty { log.error("cloud start gate: gateway unread: no team to ask") }
+            return (serves, installRead)
+        }
+    }
     /// Runs one of the card's ways in (Settings > Models' `cmux.settings.models.run` actions
     /// `connectChatGPT`, `claudeSetupToken`; `addKey` and `openSettings` open Settings > Models).
     public var run: (@MainActor (Action) async -> Void)?
@@ -177,13 +242,108 @@ public final class CloudSetup {
     /// sends it with the agent launch; ``Choice/setup(family:model:)`` shows the card instead.
     public func choose(harness: String?, model: String?, account: String?) async -> Choice {
         guard let family = Self.family(of: harness), let read else { return .fallback }
-        return await read().choice(family: family, model: model, account: account)
+        let choice = await routed(read()).choice(family: family, model: model, account: account)
+        guard case .setup = choice, await gatewayServes(family) else { return choice }
+        return .gateway(family: family)
+    }
+
+    /// Whether the gateway of the team the machine is made in serves `family` now (``gateway``); false when it is unread, or when a start on it
+    /// found no model route within ``gatewayUnroutedHold`` (``unrouted(harness:model:account:)``).
+    private func gatewayServes(_ family: String) async -> Bool {
+        guard !unroutedGateway.contains(family) else { return false }
+        gatewayRead = nil // this read's own, never an earlier one's
+        return await gateway?()?.contains(family) == true
+    }
+
+    /// The families whose team gateway a start found unrouted within the last ``gatewayUnroutedHold``: until then Set up
+    /// Cloud waits for a connection of the person's own instead of starting again on the same gateway. Unlike
+    /// ``unroutedOrganization`` (the shared key has no route at all) a gateway that gave one machine no route is asked again
+    /// after the hold: held for the whole app run, one machine that came up without a model route refused every later
+    /// claude start in about 300 ms (start-matrix-production run 45857917362: 15 rows "No Cloud connection serves claude"
+    /// after the big-folder row, while the gateway still served).
+    public var unroutedGateway: Set<String> { Set(unroutedGatewayAt.filter { now().timeIntervalSince($0.value) < Self.gatewayUnroutedHold }.keys) }
+    /// When a start last found each family's gateway unrouted.
+    private var unroutedGatewayAt: [String: Date] = [:]
+    /// How long a gateway that gave a machine no model route is skipped: long enough that the Set up Cloud card does not
+    /// start again on it at once, short enough that the next start minutes later asks it again.
+    public nonisolated static let gatewayUnroutedHold: TimeInterval = 120
+    /// The clock ``unroutedGateway`` reads (tests move it).
+    public var now: @Sendable () -> Date = { Date() }
+
+    /// The families whose organization shared key a start found unrouted (``organizationUnrouted(_:)``).
+    public private(set) var unroutedOrganization: Set<String> = []
+
+    /// A start on the organization's shared key for `family` reached a machine with no model route: the key is served
+    /// only through the Cloud service's edge, which gives machines none now (cmux-platform#1489). For the rest of this
+    /// run a start no longer chooses that key, so Set up Cloud waits for a connection of the person's own
+    /// (``waitUntilServed(family:)``) instead of starting again on the same key (cmux#45773).
+    public func organizationUnrouted(_ family: String) {
+        unroutedOrganization.insert(family)
+        connectionsChanged()
+    }
+
+    /// A start on `harness`, `model` and `account` reached a machine whose agent reaches no model and carried no connection
+    /// (`CloudMachineRoute.NeedsConnection`): when it ran on the organization's shared key or the team's gateway, that one is
+    /// unrouted (``organizationUnrouted(_:)``, ``unroutedGateway``), and the answer is the Set up Cloud card's family and model where the next choice
+    /// is that card. Nil for anything else (connections unread, an agent Cloud does not serve): the card could never pass.
+    public func unrouted(harness: String?, model: String?, account: String?) async -> (family: String, model: String?)? {
+        let family: String
+        switch await choose(harness: harness, model: model, account: account) {
+        case .organization(let chosen): family = chosen; organizationUnrouted(chosen)
+        case .gateway(let chosen): family = chosen; unroutedGatewayAt[chosen] = now(); connectionsChanged()
+        default: return nil
+        }
+        guard case .setup(_, let model) = await choose(harness: harness, model: model, account: account) else { return nil }
+        return (family, model)
+    }
+
+    /// `snapshot` without the organization families a start found unrouted.
+    private func routed(_ snapshot: Snapshot) -> Snapshot {
+        var snapshot = snapshot
+        snapshot.organization?.subtract(unroutedOrganization)
+        return snapshot
     }
 
     /// The decision for a start on `harness` and `model` (``choose(harness:model:account:)``).
     public func decide(harness: String?, model: String?) async -> Decision {
-        if case .setup(let family, let model) = await choose(harness: harness, model: model, account: nil) { return .setup(family: family, model: model) }
-        return .start
+        guard let refused = await refusal(harness: harness, model: model) else { return .start }
+        return .setup(family: refused.family, model: refused.model)
+    }
+
+    /// A start Set up Cloud holds back (``decide(harness:model:)``), with what its refusal names.
+    public struct Refusal: Equatable, Sendable {
+        public var family: String
+        public var model: String?
+        /// This Mac has a signed-in login of `family` that serves only this Mac (`serves_cloud: false`: the Claude
+        /// Code or Codex CLI's own login), so the refusal says why that one does not count.
+        public var localLogin: Bool
+        /// The team gateway read the refusal counted (``gatewayRead``); nil when none was read.
+        public var gateway: GatewayRead?
+        /// The Settings > Cloud row that sets `family` up (``Action/settingsRow``).
+        public var settingsRow: String { (family == "codex" ? Action.connectChatGPT : Action.setUpClaude).settingsRow ?? "" }
+    }
+
+    /// ``decide(harness:model:)``'s setup answer, from the same one read; nil when the start goes on (something serves it,
+    /// or nothing could be read).
+    public func refusal(harness: String?, model: String?) async -> Refusal? {
+        guard let family = Self.family(of: harness), let read else { return nil }
+        let snapshot = routed(await read())
+        guard case .setup(_, let model) = snapshot.choice(family: family, model: model, account: nil), !(await gatewayServes(family)) else { return nil }
+        let local = snapshot.personal?.contains { $0.enabled && $0.signedIn && !$0.servesCloud && $0.families.contains(family) } == true
+        return Refusal(family: family, model: model, localLogin: local, gateway: gatewayRead)
+    }
+
+    /// Which families a Cloud chat can run now, for the composer's model picker with Cloud picked (`cloud.setupState`):
+    /// true when a start would go on (``refusal(harness:model:)`` is nil), false when it would show Set up Cloud. Nil when
+    /// nothing can be read, so the picker holds nothing back.
+    public func serving() async -> [String: Bool]? {
+        guard let read else { return nil }
+        let snapshot = routed(await read()) // one read for both families
+        var families: [String: Bool] = [:]
+        for family in Self.families {
+            if case .setup = snapshot.choice(family: family, model: nil, account: nil) { families[family] = await gatewayServes(family) } else { families[family] = true }
+        }
+        return families
     }
 
     /// The connections changed: every wait checks again.
@@ -200,7 +360,8 @@ public final class CloudSetup {
         guard let read else { return true } // nothing to read: every start goes as before
         guard !Task.isCancelled else { return false }
         let seen = changes
-        if await read().serves(family) != false { return true }
+        if await routed(read()).serves(family) != false { return true }
+        if await gatewayServes(family) { return true }
         if changes == seen { await nextChange() } // else it changed while it read: read again now
         return await waitUntilServed(family: family)
     }

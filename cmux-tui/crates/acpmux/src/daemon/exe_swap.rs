@@ -16,6 +16,10 @@
 //!    daemon it runs (launchd `kickstart -k`, systemd `restart`), else a `daemon run --take-over`
 //!    of the installed path, which asks this daemon to hand the home over (agents kept) and
 //!    serves it next. If that start ends before it asks, this daemon keeps serving.
+//!
+//! A swap that kept this daemon tries again by itself ([`RETRY_AFTER`]), and a client may ask for
+//! it now (`_acpmux/shutdown` with `swapIfReplaced`, [`request_swap`]): the app does that instead
+//! of stopping a daemon whose bundle an update replaced.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -35,20 +39,90 @@ pub(crate) const READY_WITHIN: Duration = Duration::from_secs(10);
 // timeout: a take-over start that never asks is a failed handover; the old daemon serves on.
 const HANDOVER_WITHIN: Duration = Duration::from_secs(15);
 
+/// After a swap that kept the old daemon (a new build that did not answer, a take-over start that
+/// never asked in time under load), the watch tries again after each of these waits, as long as
+/// the installed path still is not the file this daemon runs. Before, a failed swap waited for the
+/// next change of the path, so the replaced daemon served on until the app stopped it: the app
+/// cannot hand a daemon whose bundle an update replaced this launch's person key (it cannot check
+/// that peer), and its stop left every chat without a daemon until a new one started (Leo's
+/// NIGHTLY, 2026-11-22 23:44Z: the swap failed at :25, the app stopped the daemon at :35, 4.6 s
+/// dark).
+// timeout: not a deadline; the waits between swap attempts, each a `--version` and a take-over start.
+pub(crate) const RETRY_AFTER: [Duration; 5] = [
+    Duration::from_secs(5),
+    Duration::from_secs(15),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+    Duration::from_secs(120),
+];
+
+/// The installed path and its identity when the watch started, for [`replaced`] and a client's
+/// swap request ([`request_swap`]).
+static WATCHED: std::sync::OnceLock<(PathBuf, super::home_watch::Owned)> =
+    std::sync::OnceLock::new();
+/// A client asked for the swap now (`_acpmux/shutdown` with `swapIfReplaced`).
+static SWAP_NOW: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Why the installed executable is no longer the file this daemon runs, when a runnable build
+/// is there now; `None` when it is the same file, the watch is off, or no build runs there yet.
+pub(crate) fn replaced() -> Option<String> {
+    let (installed, owned) = WATCHED.get()?;
+    let why = owned.lost()?;
+    runnable(installed).then_some(why)
+}
+
+/// A client's swap request: when an update replaced this daemon's executable and a build runs at
+/// the installed path, the watch swaps to it now, make-before-break, instead of the client's stop
+/// (the old daemon serves until the new build asks for the home; if it never does, it serves
+/// on). Returns why, or `None` (no update to swap to): then the client's stop goes on.
+pub(crate) fn request_swap() -> Option<String> {
+    let why = replaced()?;
+    SWAP_NOW.notify_one();
+    Some(why)
+}
+
+/// What woke the watch.
+enum Wake {
+    /// The kernel watch saw the path or a folder above it change.
+    Changed,
+    /// A client asked for the swap ([`request_swap`]).
+    Asked,
+    /// The wait after a failed swap ended ([`RETRY_AFTER`]).
+    Retry,
+}
+
 /// Watch the installed executable; swap once an update replaced it. The path, its identity and
 /// the kernel watch are taken here, when this is called (before the daemon says ready: an update
 /// right after ready is then a change, never the baseline); the future it returns never resolves.
 pub(super) fn watch(args: Vec<String>) -> impl std::future::Future<Output = ()> + Send + 'static {
     let start = start();
+    if let Some((installed, owned, _, _)) = &start {
+        let _ = WATCHED.set((installed.clone(), owned.clone()));
+    }
     async move {
         let Some((installed, owned, _watcher, mut rx)) = start else {
             return std::future::pending().await;
         };
+        let mut watching = true;
+        // The next wait after a failed swap, by attempt; none after the last.
+        let mut failed = 0usize;
         loop {
-            if rx.recv().await.is_none() {
-                return std::future::pending().await;
-            }
-            let Some(why) = owned.lost() else { continue };
+            let retry = failed.checked_sub(1).and_then(|i| RETRY_AFTER.get(i)).copied();
+            let wake = tokio::select! {
+                got = rx.recv(), if watching => match got {
+                    Some(()) => Wake::Changed,
+                    None => {
+                        watching = false;
+                        continue;
+                    }
+                },
+                () = SWAP_NOW.notified() => Wake::Asked,
+                () = tokio::time::sleep(retry.unwrap_or(Duration::MAX)), if retry.is_some() => Wake::Retry,
+            };
+            let Some(why) = owned.lost() else {
+                failed = 0;
+                continue;
+            };
             // The move, the new copy and its mode are separate steps of the update, and the last
             // (a chmod) changes no identity the watch sees: look again until a file runs.
             let mut waited = Duration::ZERO;
@@ -60,7 +134,23 @@ pub(super) fn watch(args: Vec<String>) -> impl std::future::Future<Output = ()> 
                 tracing::info!("update: {why}; waiting for a build at {}", installed.display());
                 continue;
             }
-            tracing::warn!("update: {why}; swapping to the build at {}", installed.display());
+            match wake {
+                Wake::Changed => {
+                    tracing::warn!(
+                        "update: {why}; swapping to the build at {}",
+                        installed.display()
+                    )
+                }
+                Wake::Asked => tracing::warn!(
+                    "update: {why}; a client asked for the swap; swapping to the build at {}",
+                    installed.display()
+                ),
+                Wake::Retry => tracing::warn!(
+                    "update: {why}; trying the swap again (attempt {}) to the build at {}",
+                    failed + 1,
+                    installed.display()
+                ),
+            }
             let mut steps = ExeSwap { installed: installed.clone(), args: args.clone() };
             match tokio::task::spawn_blocking(move || {
                 cmux_supervise_core::make_before_break(&mut steps, READY_WITHIN)
@@ -69,11 +159,19 @@ pub(super) fn watch(args: Vec<String>) -> impl std::future::Future<Output = ()> 
             {
                 Ok(Swapped::New) => return std::future::pending().await,
                 Ok(Swapped::KeptOld(why)) => {
+                    failed += 1;
+                    let next = RETRY_AFTER.get(failed - 1).map_or_else(
+                        || "at the next change or a client's ask".to_owned(),
+                        |d| format!("in {}s", d.as_secs()),
+                    );
                     tracing::warn!(
-                        "update: the new build did not take over; this daemon serves on: {why}"
+                        "update: the new build did not take over; this daemon serves on, trying again {next}: {why}"
                     );
                 }
-                Err(e) => tracing::warn!("update: the swap task: {e}"),
+                Err(e) => {
+                    failed += 1;
+                    tracing::warn!("update: the swap task: {e}");
+                }
             }
         }
     }
@@ -155,23 +253,29 @@ impl Swap for ExeSwap {
         if let Some(restart) = service_restart()
             && let Some((program, args)) = restart.split_first()
         {
+            let command = restart.join(" ");
             let status = cmux_process::Command::new(program)
                 .args(args)
                 .stdin(cmux_process::Stdio::null())
                 .status()
-                .map_err(|e| format!("{}: {e}", restart.join(" ")))?;
-            return if status.success() {
-                Ok(())
-            } else {
-                Err(format!("{} exited {status}", restart.join(" ")))
-            };
+                .map_err(|e| format!("{command}: {e}"))?;
+            restart_outcome(&command, status)?;
+            tracing::info!("update: handed over to the new build through {command}");
+            return Ok(());
         }
+        let (stdout, stderr) = successor_output(&crate::config::home().join("daemon.log"));
         // Its own session, so this daemon's stop does not end it.
-        let mut child = cmux_process::Command::new(&self.installed)
+        let mut successor = cmux_process::Command::new(&self.installed);
+        // A daemon started from a chat's shell by an older build kept that chat's marks; the
+        // successor drops them (`STARTER_SESSION_MARKS`).
+        for k in super::STARTER_SESSION_MARKS {
+            successor.env_remove(k);
+        }
+        let mut child = successor
             .args(handover_args(&self.args))
             .stdin(cmux_process::Stdio::null())
-            .stdout(cmux_process::Stdio::null())
-            .stderr(cmux_process::Stdio::null())
+            .stdout(stdout)
+            .stderr(stderr)
             .new_session()
             .spawn()
             .map_err(|e| format!("{}: {e}", self.installed.display()))?;
@@ -199,6 +303,20 @@ impl Swap for ExeSwap {
     }
 }
 
+/// Where the take-over daemon writes: this home's daemon log, as a daemon a command starts does
+/// (`spawn_detached`). It wrote nowhere before, so after the first update a daemon's log stopped
+/// for good, and a disconnect after it left no line. A log that cannot be opened leaves it none.
+fn successor_output(log: &Path) -> (cmux_process::Stdio, cmux_process::Stdio) {
+    let opened = super::open_daemon_log(log).and_then(|out| Ok((out.try_clone()?, out)));
+    match opened {
+        Ok((out, err)) => (out.into(), err.into()),
+        Err(e) => {
+            tracing::warn!("update: the take-over daemon writes no log: {e:#}");
+            (cmux_process::Stdio::null(), cmux_process::Stdio::null())
+        }
+    }
+}
+
 /// This daemon's arguments (after its executable: `daemon run ...`, or `acp daemon run ...` as
 /// `cmux-tui`) for its successor, with `--take-over` right after `run`. Its fds are not the
 /// successor's, so `--ready-fd` and `--person-key-fd` stay out (the app that holds the person key
@@ -219,6 +337,27 @@ pub(super) fn handover_args(args: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+/// What the end of the service manager's restart command says about the handover. Exit 0: the
+/// restart was queued. Killed by SIGTERM: the stop was issued already. The command runs as this
+/// daemon's child, so it is in the job it restarts (systemd's unit cgroup, launchd's job), and the
+/// manager's stop of that job (`restart --no-block`, `kickstart -k`) sends SIGTERM to it too, in
+/// the moment between queueing the restart and exiting. Before this, every hourly update logged
+/// "the new build did not take over ... exited signal: 15 (SIGTERM)" while the new build served
+/// 0.9 s later (cmuxterm-hq #19255, findings 2026-11-22 section 2).
+///
+/// Signal 15 alone decides it, not this daemon's own stop flag (`supervision::stopping`): the
+/// daemon's SIGTERM is read on the async runtime after its sender is looked up, so the flag can
+/// trail the reap of this child, and waiting for it would only add a race. Any other signal or
+/// exit code is a failed handover, and this daemon serves on.
+fn restart_outcome(command: &str, status: std::process::ExitStatus) -> Result<(), String> {
+    use std::os::unix::process::ExitStatusExt as _;
+    if status.success() || status.signal() == Some(libc::SIGTERM) {
+        Ok(())
+    } else {
+        Err(format!("{command} exited {status}"))
+    }
 }
 
 /// The service manager's own restart command for the job that runs this daemon, if one does.
@@ -253,27 +392,5 @@ fn service_restart() -> Option<Vec<String>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_successor_gets_this_daemons_flags_but_not_its_fds() {
-        let args: Vec<String> = [
-            "acp",
-            "daemon",
-            "run",
-            "--ready-fd",
-            "3",
-            "--memory",
-            "--person-key-fd=4",
-            "--take-over",
-            "--dev",
-        ]
-        .map(String::from)
-        .to_vec();
-        assert_eq!(
-            handover_args(&args),
-            ["acp", "daemon", "run", "--take-over", "--memory", "--dev"]
-        );
-    }
-}
+#[path = "exe_swap_tests.rs"]
+mod tests;

@@ -113,7 +113,8 @@ import Testing
 }
 
 /// Lucas 2026-11-15: one gap above the tabs, between the tabs and the omnibar, and between the omnibar and the page,
-/// at every density, in a lower pane's strip and in the window's top row.
+/// at every density, in a lower pane's strip and in the window's top row. Default's omnibar row is Chrome's 6 pt above
+/// and below the bar (Lucas 2026-11-20).
 @MainActor @Suite(.serialized, .closesItsWindows) struct BrowserChromeOneGapTests {
     @Test(arguments: [DensityPreset.ultraCompact, .compact, .cozy, .comfortable, .spacious], [false, true])
     func oneGapAboveBetweenAndUnderTheRows(preset: DensityPreset, topRow: Bool) throws {
@@ -136,11 +137,15 @@ import Testing
         let stripHeight = PaneChromeMetrics.current.resolvedStripHeight(scale: window.backingScaleFactor)
         let strip = TabStripView(model: TabStripModel(tabs: (0..<2).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") },
                                                       selectedID: TabID("t1")))
-        strip.frame = NSRect(x: 0, y: size.height - stripHeight, width: size.width, height: stripHeight)
+        // In the window's top row the main pane's card, and so its strip, starts under the window's lit rim
+        // (`WindowTitlebar.topRowStripCardTop`, the concentric default), as the app lays it out.
+        let cardTop = topRow ? WindowTitlebar.topRowStripCardTop(in: window) : 0
+        strip.frame = NSRect(x: 0, y: size.height - cardTop - stripHeight, width: size.width, height: stripHeight)
         root.addSubview(strip)
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
         let chrome = BrowserChromeView(tab: tab)
-        chrome.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height - stripHeight)
+        chrome.meetsTabStrip = true // the strip sits right above the toolbar, as the pane says
+        chrome.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height - cardTop - stripHeight)
         root.addSubview(chrome)
         root.layoutSubtreeIfNeeded()
         strip.layoutSubtreeIfNeeded()
@@ -149,12 +154,26 @@ import Testing
         let pill = strip.convert(try #require(strip.firstTabPillFrame), to: nil)
         let bar = chrome.addressBar.convert(chrome.addressBar.bounds, to: nil)
         let page = chrome.contentContainer.convert(chrome.contentContainer.bounds, to: nil)
-        // Above the tab: from the strip's top in a lower pane, from the window's top in the top row.
-        let top = topRow ? size.height : strip.convert(strip.bounds, to: nil).maxY
+        // Above the tab: from the strip's top in a lower pane, from under the window's lit rim in the top row (Lucas 2026-11-17).
+        let top = topRow ? size.height - WindowTitlebar.topRowRim(in: window) : strip.convert(strip.bounds, to: nil).maxY
         let above = top - pill.maxY, between = pill.minY - bar.maxY, under = bar.minY - page.maxY
         let at = "\(preset.rawValue) top row \(topRow)"
-        #expect(abs(between - under) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")
-        #expect(abs(above - between) <= 0.5, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar")
+        // Compact's tabs sit 1 pt further from the bar than its strip padding (`tabToOmnibarGap`, Lucas 2026-11-20).
+        let tokens = preset.tokens.tokens
+        let extra = CGFloat(tokens["tabToOmnibarGap"].map { max(0, $0 - (tokens["browserRowGap"] ?? $0)) } ?? 0)
+        // One pixel: a 1x screen snaps Compact's 2.5 and 3.5 pt gaps to whole points.
+        let pixel = max(0.5, 1 / window.backingScaleFactor)
+        #expect(abs(between - extra - under) <= pixel, "\(at): \(between) pt from the tab to the omnibar, \(under) pt from the omnibar to the page")
+        // Default is Chrome's: 5 pt above the tab, 6 pt from it to the omnibar and from the omnibar to the page; Comfortable
+        // and Spacious are that times 1.1 and 1.2 on the half-point grid (Lucas 2026-11-20), Spacious a half point more
+        // for its half-point bar (Lucas 2026-11-21).
+        let chromeGaps: [DensityPreset: (above: CGFloat, between: CGFloat)] = [.cozy: (5, 6), .comfortable: (5.5, 6.5), .spacious: (6.5, 7.5)]
+        if let want = chromeGaps[preset] {
+            #expect(abs(above - want.above) <= 0.5, "\(at): \(above) pt above the tab, want \(want.above)")
+            #expect(abs(between - want.between) <= 0.5, "\(at): \(between) pt from the tab to the omnibar, want \(want.between)")
+        } else {
+            #expect(abs(above + extra - between) <= pixel, "\(at): \(above) pt above the tab, \(between) pt from the tab to the omnibar")
+        }
     }
 }
 

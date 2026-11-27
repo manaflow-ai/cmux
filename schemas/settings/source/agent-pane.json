@@ -70,6 +70,30 @@
           }
         },
         {
+          "key": "agentPane.links.openCitationsInEditor",
+          "name": "openCitationsInEditor",
+          "title": {
+            "key": "settings.agentPane.openCitationsInEditor",
+            "text": "Open File Citations in Text Editor"
+          },
+          "help": {
+            "key": "settings.agentPane.openCitationsInEditor.help",
+            "text": "Open local chat links that name a line in your chosen text editor."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "chat",
+            "file",
+            "line",
+            "editor"
+          ],
+          "swift_owner": {
+            "type": "AgentPaneReplySetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "agentPane.images.remote",
           "name": "remoteImages",
           "note": "A web image in a reply loads after a click (click), never (never) or at once (always); every load goes through the host's fetch rules.",

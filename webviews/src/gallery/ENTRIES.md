@@ -279,6 +279,59 @@ cmux-ci test --setup playwright --artifact /tmp/perf -- bash -c '
   bun app-perf.ts --gallery-dir ../../dist-gallery --out "$FAST_CHECKS_OUT" --cpu 4'
 ```
 
+## The golden screen: every look side by side
+
+`looks.golden` (`src/gallery/golden/golden.gallery.ts`) is one chat that holds every part a look
+changes: a prompt bubble, a reply with headings, a list, inline code, a code block and a link, tool
+rows done, failed and running, the edited-files card, a permission prompt with its diff, and the
+composer with its chips and a draft. In the mock app the window around it adds the sidebar's two
+projects (a selected, a waiting, a working, an unread and a failed chat, ages where the look shows
+them) and a strip of four tabs. Each variant is one look of `src/gallery/golden/looks.json`; the
+stage's `colorScheme` picks the look's light or dark theme file.
+
+A look there is what a setup carries: per scheme a theme file (a repo path, or its keys inline),
+`settings` (`agentPane.*` go to the chat's `display` push, `sidebar.*` to the mock window), a
+composer look, and an `agent-pane/theme.css`; or `setup`, a setup folder (`examples/looks/NAME`). The
+dev server resolves it (`dev-server/goldenLooks.ts`, `virtual:cmux-gallery/looks`); a look whose files
+this checkout lacks is skipped. A variant of any agent-pane entry can carry a `look` the same way.
+
+`bun run golden:looks` captures each look in light and dark in the mock app's window and writes
+`sheet.png` with every look side by side. A look PR posts it from its base and its head:
+
+```sh
+cmux-ci test --setup playwright --artifact /tmp/golden -- bash -c 'cd webviews && bun install --frozen-lockfile &&
+  bun run golden:looks --out "$FAST_CHECKS_OUT/golden"'
+bun run golden:looks --looks cmux,codex --setup ~/src/my-look   # an outside look beside the built-in ones
+bun run golden:looks --native DIR   # adds the native sidebar and tab bar (AAGoldenLookGalleryTests' PNGs) per look
+bun run golden:looks --settings appearance,chat   # adds the golden Settings page per look (below)
+bun run golden:looks --every        # every look the checkout carries, as the contrast test draws them
+bun run golden:looks --setup ~/src/my-look --preview   # also writes ~/src/my-look/preview/golden-{light,dark}.png, the stills the Settings looks gallery shows
+```
+
+The golden Settings page (`looks.golden.settings.appearance` and `looks.golden.settings.chat`,
+`src/gallery/golden/settings.ts`) is the real Settings page under each look, from the same looks: the
+scheme's theme file themes the page and answers as the named theme's colors, and the look's settings,
+composer look and theme file keys are the values the rows show (`lookSettingsValues` in
+`src/gallery/golden/look.ts`). Appearance holds a look's own rows; Chat is a long section with the
+chat's display rows. `--settings` captures each section whole beside the golden screen, in the sheet.
+
+With `--settings`, each look also gets a window scene (`<look>-window-<section>-<scheme>.png`,
+`--settings-window 1920x1200`): the mock app with the golden chat and that Settings section side by
+side, both under the look. The pane contents are the real web components; the sidebar, tab strips
+and traffic lights are the mock app's web stand-in for native chrome, marked `data-stand-in` in the
+DOM and captioned so in the sheet. What only native draws is left out rather than faked: the
+expanded sidebar density, `sidebar.sectionLook`, and the tab bar's margin and title-area tones.
+
+`looks.golden-menus` (`src/gallery/golden/GoldenMenus.gallery.tsx`) is the golden screen's menus and
+popover, which portal outside the chat: an open menu with a section label, shortcuts, an open submenu,
+a disabled and a red destructive row, beside the plan usage popover, a variant per look.
+
+The golden screen is the sample every look's contrast is checked on (`test/browser/golden-look-contrast-{0,1,2,3}.test.ts` (one suite, `test/support/goldenLookContrastSuite.ts`)):
+both entries under every look the checkout carries, found rather than listed (`discoverLooks`: each
+shipped theme file, each setup folder and theme file under `examples/`, past the registry), in each
+scheme it draws. Every text under 4.5:1 (3:1 large text and icons) fails with its look, element, text,
+colors and ratio, past the default chat's known pairs (`test/support/contrastKnown.ts`).
+
 ## Seeing it
 
 - Static: from `webviews`, `bun run gallery:build` writes `dist/gallery`.

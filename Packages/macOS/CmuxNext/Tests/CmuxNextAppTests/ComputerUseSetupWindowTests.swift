@@ -92,10 +92,10 @@ struct ComputerUseSetupWindowTests {
         defer { model.stop() }
         await settle(model) { true }
         model.helperDropped()
-        #expect(source.recheckCount == 0, "no panel, no read")
+        #expect(source.recheckAfterGrantCount == 0, "no panel, no read")
         model.allow(.screenRecording)
         model.helperDropped()
-        #expect(source.recheckCount == 1)
+        #expect(source.recheckAfterGrantCount == 1, "a drop reads again, restarting the helper if it stopped answering")
     }
 
     @Test func returnAllowsTheNextRowThenDoneCloses() async {
@@ -175,7 +175,7 @@ struct ComputerUseSetupWindowTests {
 
     @Test func continueOnAComputerUseCardOpensTheWindowNotTheList() {
         let setup = ComputerUseSetup(inputs: { .init(disabledByPolicy: false, enabled: true, helper: .off) },
-                                     configuration: { nil }, resolveHelper: { _ in nil })
+                                     resolveHelper: { _ in nil })
         let log = Log()
         let opener = SystemPermissionOpener(setup: setup, showComputerUse: { log.count += 1 }, openURL: { log.urls.append($0) })
         opener.open(.computerUse, target: nil)
@@ -305,6 +305,8 @@ struct ComputerUseSetupWindowTests {
         let text = panel.line.attributedStringValue.string
         #expect(text.contains("cmux Computer Use"))
         #expect(text.contains(OnboardingStrings.computerUseName(.screenRecording)))
+        #expect(text.hasSuffix("\n" + OnboardingStrings.computerUseTurnOn), "the follow-up line says to turn the helper on")
+        #expect(panel.line.maximumNumberOfLines == 0, "the drag line and its follow-up are never cut")
         #expect(panel.frame.width == HelperDragPanel.width)
     }
 

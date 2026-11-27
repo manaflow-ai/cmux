@@ -5,7 +5,7 @@ declare const Bun: {
 };
 import { spawn } from "node:child_process";
 import { runChild } from "./helpers/run-child";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -52,7 +52,10 @@ import {
   devboxSourceManifest,
   devboxTeamKindDefaultCommand,
   devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeTeamCloneCheckCommand,
   devboxWorkUserCmuxConfigDirCommand,
+  devboxClaudeSettingsDefaultsCommand,
+  devboxClaudeSettingsDefaultsCheckCommand,
   normalizedBakeScript,
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
@@ -790,7 +793,7 @@ test "$daemon_pid" = fixture
     expect(dockerfile).toContain("cmux ALL=(ALL) NOPASSWD:ALL");
     expect(freestyleScript).toContain("pkg-config locales");
     expect(freestyleScript).toContain("locale-gen C.UTF-8");
-    const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/images/workUser.ts"), "utf8");
+    const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/workUser.ts"), "utf8");
     expect(workUser).toContain("91-cmux-work-user");
     expect(workUser).toContain("NOPASSWD:ALL");
     // An in-place upgrade installs the service too, through its install script.
@@ -1208,7 +1211,7 @@ test "$daemon_pid" = fixture
     expect(bake).toContain(
       'await step("settle-before-snapshot", `${devboxSettleBeforeSnapshotCommand()} && ${devboxClaudeTeamOnboardingCheckCommand()}`);',
     );
-    expect(readScript("verify-devbox-image.ts")).toContain("  devboxClaudeTeamOnboardingCheckCommand(),");
+    expect(readScript("verify-devbox-image.ts")).toContain("  devboxClaudeTeamCloneCheckCommand(),");
   });
 
   test("the Claude team seed check passes on the seed and fails on the config a Claude start rewrote", async () => {
@@ -1253,6 +1256,54 @@ test "$daemon_pid" = fixture
         }),
         { mode: 0o600 },
       );
+      expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the clone's Claude team check takes the warm pool's start after resume and refuses ids from the bake", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-claude-team-clone-"));
+    try {
+      const homes = [path.join(root, "root"), path.join(root, "work")];
+      const configs = homes.map((home) => path.join(home, ".config/cmux/claude-team/.claude.json"));
+      const stamp = path.join(root, "image-stamp");
+      writeFileSync(stamp, "cmux-devbox test\n");
+      const bakedAt = new Date("2026-11-27T06:48:35Z");
+      utimesSync(stamp, bakedAt, bakedAt);
+      const seeded = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), ...configs], {
+        env: { ...process.env, ANTHROPIC_API_KEY: "cmux-vm-edge-placeholder" },
+      });
+      expect(seeded.status).toBe(0);
+      const check = devboxClaudeTeamCloneCheckCommand(homes, stamp);
+      expect((await runChild("/bin/sh", ["-c", check])).stdout).toContain("claude-team-onboarding-ok");
+      // The work user's file as rebake 45947789684's verify read it: the warm
+      // pool's Claude started 8 s after resume and dropped `theme`.
+      const started = (firstStartTime: string) =>
+        writeFileSync(
+          configs[1],
+          JSON.stringify({
+            customApiKeyResponses: { approved: ["-vm-edge-placeholder"], rejected: [] },
+            hasCompletedOnboarding: true,
+            projects: { "/": { hasTrustDialogAccepted: true } },
+            firstStartTime,
+            machineID: "m",
+            userID: "u",
+          }),
+          { mode: 0o600 },
+        );
+      started("2026-11-27T06:57:31.874Z");
+      const resumed = await runChild("/bin/sh", ["-c", check]);
+      expect(resumed.stdout).toContain("claude-team-onboarding-ok");
+      expect(resumed.status).toBe(0);
+      // Ids from a start before the stamp came from the bake: every clone shares them.
+      started("2026-11-27T06:40:00.000Z");
+      expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
+      // Ids with no start time, or a lost trust entry, fail too.
+      writeFileSync(configs[1], JSON.stringify({ hasCompletedOnboarding: true, theme: "dark", projects: { "/": { hasTrustDialogAccepted: true } }, customApiKeyResponses: { approved: ["-vm-edge-placeholder"] }, userID: "u" }), { mode: 0o600 });
+      expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
+      started("2026-11-27T06:57:31.874Z");
+      chmodSync(configs[1], 0o644);
       expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1744,9 +1795,107 @@ test "$daemon_pid" = fixture
   });
 
   test("claude transcript retention is pinned everywhere", () => {
-    expect(dockerfile).toContain('{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }');
-    expect(readScript("build-devbox-freestyle.ts")).toContain('{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }');
+    const managed = '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }';
+    expect(dockerfile).toContain(managed);
+    expect(readScript("build-devbox-freestyle.ts")).toContain(managed);
   });
+
+  // Leo, 2026-11-18, "can you make this accept", "they shouldnt hold em". Accept is a default in the person's
+  // user settings, never a managed setting: managed settings outrank the person's, and their "refuse" must win.
+  test("messages from other sessions are a user-settings default, never a managed one", () => {
+    for (const source of [dockerfile, readScript("build-devbox-freestyle.ts"), readScript("cmux-vm-image/bake.ts")]) {
+      expect(source).not.toMatch(/managed-settings[^\n]*crossSessionInbound/);
+      expect(source).not.toContain("managed-settings.d");
+    }
+    expect(dockerfile).toContain("claude-onboarding.py --settings-default /root/.claude/settings.json");
+    expect(dockerfile).toContain("sudo -n -u cmux python3 -I /etc/cmux/claude-onboarding.py --settings-default /home/cmux/.claude/settings.json");
+    expect(readScript("build-devbox-freestyle.ts")).toContain('step("claude-settings-defaults", devboxClaudeSettingsDefaultsCommand())');
+    expect(readScript("cmux-vm-image/bake.ts")).toContain('L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand())');
+    expect(readScript("verify-devbox-image.ts")).toContain("devboxClaudeSettingsDefaultsCheckCommand()");
+    expect(devboxClaudeSettingsDefaultsCommand()).toContain(`sudo -n -u ${DEVBOX_WORK_USER} python3 -I /etc/cmux/claude-onboarding.py --settings-default ${DEVBOX_WORK_HOME}/.claude/settings.json`);
+  });
+
+  test("claude-onboarding.py --settings-default adds only the keys a person's settings.json does not set", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "claude-settings-defaults-"));
+    try {
+      const refused = path.join(root, "refused/settings.json");
+      mkdirSync(path.dirname(refused));
+      writeFileSync(refused, '{"crossSessionInbound":"refuse","theme":"dark"}');
+      const held = path.join(root, "held/settings.json");
+      mkdirSync(path.dirname(held));
+      writeFileSync(held, '{"crossSessionInbound":"hold"}');
+      const hooks = path.join(root, "hooks/settings.json");
+      mkdirSync(path.dirname(hooks));
+      writeFileSync(hooks, '{"hooks":{"Stop":[]}}', { mode: 0o644 });
+      const fresh = path.join(root, "fresh/.claude/settings.json");
+      const result = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), "--settings-default", refused, held, hooks, fresh], { timeout: 10_000 });
+      expect(result.status).toBe(0);
+      expect(readFileSync(refused, "utf8")).toBe('{"crossSessionInbound":"refuse","theme":"dark"}');
+      expect(readFileSync(held, "utf8")).toBe('{"crossSessionInbound":"hold"}');
+      expect(JSON.parse(readFileSync(hooks, "utf8"))).toEqual({ hooks: { Stop: [] }, crossSessionInbound: "accept" });
+      expect(statSync(hooks).mode & 0o777).toBe(0o644);
+      expect(JSON.parse(readFileSync(fresh, "utf8"))).toEqual({ crossSessionInbound: "accept" });
+      expect(statSync(fresh).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const [label, existing] of [["accept", "accept"], ["hold", "hold"], ["refuse", "refuse"]] as const) {
+    test(`Claude settings verifier accepts an existing ${label} choice`, async () => {
+      const root = mkdtempSync(path.join(tmpdir(), `claude-settings-verify-${label}-`));
+      try {
+        const file = path.join(root, "settings.json");
+        writeFileSync(file, JSON.stringify({ crossSessionInbound: existing }));
+        const seeded = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), "--settings-default", file], { timeout: 10_000 });
+        expect(seeded.status).toBe(0);
+        const result = await runChild("/bin/sh", ["-c", devboxClaudeSettingsDefaultsCheckCommand([file], null)]);
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("claude-settings-defaults-ok");
+        expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ crossSessionInbound: existing });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test("Claude settings verifier requires accept when the key was unset", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "claude-settings-verify-unset-"));
+    try {
+      const file = path.join(root, "settings.json");
+      writeFileSync(file, "{}\n");
+      const unseeded = await runChild("/bin/sh", ["-c", devboxClaudeSettingsDefaultsCheckCommand([file], null)]);
+      expect(unseeded.status).not.toBe(0);
+      const seeded = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), "--settings-default", file], { timeout: 10_000 });
+      expect(seeded.status).toBe(0);
+      expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ crossSessionInbound: "accept" });
+      const result = await runChild("/bin/sh", ["-c", devboxClaudeSettingsDefaultsCheckCommand([file], null)]);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("claude-settings-defaults-ok");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const managedFile of ["managed-settings.json", "managed-settings.d/50-cross-session.json"]) {
+    test(`Claude settings verifier rejects a managed override in ${managedFile}`, async () => {
+      const root = mkdtempSync(path.join(tmpdir(), "claude-settings-managed-"));
+      try {
+        const file = path.join(root, "settings.json");
+        writeFileSync(file, '{"crossSessionInbound":"refuse"}');
+        const managedRoot = path.join(root, "managed");
+        const managed = path.join(managedRoot, managedFile);
+        mkdirSync(path.dirname(managed), { recursive: true });
+        const command = devboxClaudeSettingsDefaultsCheckCommand([file], null).replaceAll("/etc/claude-code", managedRoot);
+        writeFileSync(managed, "{}");
+        expect((await runChild("/bin/sh", ["-c", command])).status).toBe(0);
+        writeFileSync(managed, '{"crossSessionInbound":"accept"}');
+        expect((await runChild("/bin/sh", ["-c", command])).status).not.toBe(0);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
 
   test("never installs docker (deliberate image-scope choice)", () => {
     // This began as a hard limit: the old sandbox providers could not run

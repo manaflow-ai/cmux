@@ -32,14 +32,13 @@
 //!   when the viewer does not know them yet and names styles from a table the connection builds,
 //!   so the link carries less than the PTY it replaces for every agent CLI (v1's JSON per frame
 //!   cost more than the PTY for Claude Code).
-//! - A connection that declared both and [`TERMINAL_SHELL_LINES_CAPABILITY`] gets a plain
-//!   shell's terminal (its own program a shell: `cmux_agent_cli_render::adapter`) as the same
-//!   lean frames: its lines and cursor. A full-screen program the shell runs (the alternate
-//!   screen or mouse tracking) goes as `output` PTY bytes from the byte that starts it, after
-//!   a last frame of what came before, so the viewer's terminal tracks its modes; when it ends
-//!   the frames go on from the screen the viewer then shows, with no keyframe. A terminal that
-//!   is already full-screen when it attaches starts with `vt-state`. Any other program (a
-//!   terminal whose own program is not a shell or an agent CLI) keeps the byte stream.
+//! - A connection that declared both and [`TERMINAL_SHELL_LINES_CAPABILITY`] gets every other
+//!   terminal (a shell or any program: `cmux_agent_cli_render::adapter`) as the same lean
+//!   frames: its lines and cursor. A full-screen program (the alternate screen or mouse
+//!   tracking) goes as `output` PTY bytes from the byte that starts it, after a last frame of
+//!   what came before, so the viewer's terminal tracks its modes; when it ends the frames go on
+//!   from the screen the viewer then shows, with no keyframe. A terminal that is already
+//!   full-screen when it attaches starts with `vt-state`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -48,7 +47,9 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use cmux_agent_cli_render::adapter::{Adapter, FullScreenScan};
 use cmux_agent_cli_render::lean::LeanEncoder;
-use cmux_agent_cli_render::stream::{Frame, FramePacer, HybridStream};
+use cmux_agent_cli_render::stream::{
+    FRAME_INTERVAL, FRAME_SETTLE, Frame, FramePacer, HybridStream,
+};
 use cmux_agent_cli_render::vt;
 use cmux_agent_cli_render::{Cell, Color, Grid, Style, UNDERLINE};
 use serde_json::{Value, json};
@@ -62,9 +63,23 @@ pub const AGENT_CLI_HYBRID_CAPABILITY: &str = "agent-cli-hybrid-v1";
 /// With [`AGENT_CLI_HYBRID_CAPABILITY`]: frames go as lean `agent-cli-lean` events.
 pub const AGENT_CLI_HYBRID_LEAN_CAPABILITY: &str = "agent-cli-hybrid-v2";
 
-/// With both: a plain shell's terminal goes as lean frames too, PTY bytes only while it runs a
-/// full-screen program.
+/// With both: every other terminal (a shell or any program) goes as lean frames too, PTY bytes
+/// only while a full-screen program runs.
 pub const TERMINAL_SHELL_LINES_CAPABILITY: &str = "terminal-shell-lines-v1";
+
+/// With the three above: a full-screen program (a pager, `top`, vim) goes on as lean frames
+/// too, as an agent CLI on the alternate screen does, instead of its PTY bytes. A program that
+/// repaints its whole screen for each change (a line appended, a wheel step) then costs the
+/// link the cells that changed, not the screen: a pager streaming 20 lines a second under a
+/// one-finger pan sent about 111 KB a second down as PTY bytes. Its viewer follows the
+/// alternate screen and the input modes (mouse tracking among them) as `output` bytes, a
+/// switch of screens followed by a keyframe, and its frames are paced at one display frame
+/// ([`DISPLAY_FRAME`]) so a pan stays as smooth as the PTY bytes drew it. Opt-in: a
+/// connection that does not declare it gets the shell lines' PTY bytes, as before.
+pub const TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY: &str = "terminal-full-screen-frames-v1";
+
+/// The frame pace of a [`TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY`] viewer: one frame at 60 Hz.
+const DISPLAY_FRAME: Duration = Duration::from_micros(16_667);
 
 /// How long a stream whose viewer left can still be resumed.
 pub(super) const PARKED_FOR: Duration = Duration::from_secs(600);
@@ -131,15 +146,11 @@ fn parked() -> &'static Mutex<HashMap<String, Parked>> {
 }
 
 /// The stream a viewer gets for `surface`'s terminal: an agent CLI's adapter while one runs,
-/// the shell's when its own program is a shell, else the PTY.
+/// else its lines. No lookup of the terminal's program on the attach's path.
 pub(super) fn adapter(mux: &Mux, surface: &crate::Surface) -> Adapter {
     let agent =
         surface.terminal_public_id().and_then(|terminal| mux.running_agent_adapter(terminal));
-    if Adapter::of(agent.as_deref(), None) == Adapter::Agent {
-        return Adapter::Agent;
-    }
-    let program = surface.process_id().and_then(crate::platform::process_executable);
-    Adapter::of(None, program.as_deref())
+    Adapter::of(agent.as_deref())
 }
 
 /// Whether the terminal shows a full-screen program: the alternate screen or mouse tracking.
@@ -194,6 +205,9 @@ pub(super) struct HybridViewer {
     /// An agent CLI's viewer: the modes its terminal was told, as `output` bytes (the alternate
     /// screen and [`AGENT_INPUT_MODES`]); each write that changes them tells it the change.
     told: Option<ScreenModes>,
+    /// The pacer's interval: [`FRAME_INTERVAL`], or [`DISPLAY_FRAME`] for a viewer that asked
+    /// for full-screen frames.
+    pace: Duration,
 }
 
 /// What a viewer declared: the lean frames (`agent-cli-hybrid-v2`), the shell adapter for
@@ -203,6 +217,8 @@ pub(super) struct Wants {
     pub(super) lean: bool,
     pub(super) shell: bool,
     pub(super) lines: bool,
+    /// [`TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY`]: frames at [`DISPLAY_FRAME`].
+    pub(super) display_frames: bool,
 }
 
 impl HybridViewer {
@@ -218,7 +234,8 @@ impl HybridViewer {
         resume: Option<(String, u64)>,
         wants: Wants,
     ) -> anyhow::Result<(HybridViewer, Option<Value>)> {
-        let Wants { lean, shell, lines } = wants;
+        let Wants { lean, shell, lines, display_frames } = wants;
+        let pace = if display_frames { DISPLAY_FRAME } else { FRAME_INTERVAL };
         let term = shadow(cols, rows, replay)?;
         let render = ghostty_vt::RenderState::new()?;
         // An agent CLI's viewer follows the modes of its screen, which frames do not carry.
@@ -248,12 +265,13 @@ impl HybridViewer {
             term,
             render,
             stream,
-            pacer: FramePacer::default(),
+            pacer: FramePacer::new(pace, FRAME_SETTLE),
             started: Instant::now(),
             lean: lean.then(LeanEncoder::new),
             shell: shell.then_some(Shell { pty: false }),
             scan: (lines || shell).then(FullScreenScan::new),
             told: None,
+            pace,
         };
         if let Some(shell) = viewer.shell.as_mut()
             && full_screen(&viewer.term)
@@ -379,7 +397,7 @@ impl HybridViewer {
             let at_ms =
                 u64::try_from(now.duration_since(self.started).as_millis()).unwrap_or(u64::MAX);
             self.stream.update(&real, at_ms);
-            self.pacer = FramePacer::default();
+            self.pacer = FramePacer::new(self.pace, FRAME_SETTLE);
             let frame = self.stream.keyframe(at_ms);
             out.push(HybridOut::Event(self.event(&frame, cursor)));
         }
@@ -393,7 +411,7 @@ impl HybridViewer {
         }
         let (cols, rows) = self.stream.size();
         self.stream.resize(cols, rows);
-        self.pacer = FramePacer::default();
+        self.pacer = FramePacer::new(self.pace, FRAME_SETTLE);
     }
 
     /// A shell's full-screen program ended: frames go on from the screen the viewer shows (it
@@ -472,7 +490,7 @@ impl HybridViewer {
     pub(super) fn resized(&mut self, cols: u16, rows: u16, replay: &[u8]) -> anyhow::Result<Value> {
         self.term = shadow(cols, rows, replay)?;
         self.stream.resize(cols, rows);
-        self.pacer = FramePacer::default();
+        self.pacer = FramePacer::new(self.pace, FRAME_SETTLE);
         let (real, cursor) = self.screen()?;
         let at_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
         self.stream.update(&real, at_ms);
@@ -596,19 +614,48 @@ fn color(spec: ghostty_vt::ColorSpec) -> Color {
 
 /// A frame's screen as the hybrid stream's cells: authored colors (the viewer's theme
 /// resolves them, as it does the PTY's), the v7 attributes and underline.
+/// The hybrid stream's underline bits for `cell`: [`UNDERLINE`] and which line.
+fn underline(cell: &ghostty_vt::Cell) -> u16 {
+    use cmux_agent_cli_render::{
+        UNDERLINE_CURLY, UNDERLINE_DASHED, UNDERLINE_DOTTED, UNDERLINE_DOUBLE,
+    };
+    use ghostty_vt::UnderlineStyle;
+    if !cell.underline {
+        return 0;
+    }
+    UNDERLINE
+        | match cell.underline_style {
+            None | Some(UnderlineStyle::Single) => 0,
+            Some(UnderlineStyle::Double) => UNDERLINE_DOUBLE,
+            Some(UnderlineStyle::Curly) => UNDERLINE_CURLY,
+            Some(UnderlineStyle::Dotted) => UNDERLINE_DOTTED,
+            Some(UnderlineStyle::Dashed) => UNDERLINE_DASHED,
+        }
+}
+
 fn grid(frame: &ghostty_vt::RenderFrame) -> Grid {
     let (cols, rows) = frame.size;
     let mut grid = Grid::blank(cols, rows);
     for (slot, row) in grid.cells.iter_mut().zip(frame.styled_rows()) {
+        // The right half of a wide glyph takes the glyph's style: the viewer draws it with
+        // that style (the glyph covers it), and a half of another style would start a span of
+        // its own whose blank, written over the glyph's right half, erases the glyph.
+        let mut wide: Option<Style> = None;
         *slot = row
             .iter()
-            .map(|cell| Cell {
-                text: cell.text.clone(),
-                style: Style {
-                    fg: color(cell.fg),
-                    bg: color(cell.bg),
-                    attrs: cell.attrs() | if cell.underline { UNDERLINE } else { 0 },
-                },
+            .map(|cell| {
+                let style = match wide.take() {
+                    Some(style) if cell.text.is_empty() => style,
+                    _ => Style {
+                        fg: color(cell.fg),
+                        bg: color(cell.bg),
+                        attrs: cell.attrs() | underline(cell),
+                    },
+                };
+                if cell.width == ghostty_vt::CellWidth::Wide {
+                    wide = Some(style);
+                }
+                Cell { text: cell.text.clone(), style }
             })
             .collect();
         slot.resize(usize::from(cols), Cell::default());

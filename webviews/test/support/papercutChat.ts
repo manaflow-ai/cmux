@@ -21,19 +21,21 @@ type Step = PapercutStep;
 
 /// `extra` steps follow the chat's last turn (inside the running turn when `running`); `lead` steps
 /// come first, before the first turn; `session` adds to or replaces the chat's summary fields (a
-/// queue, say).
+/// queue, say). `answer` writes turn n's reply (it should start `Answer n:`, which the lanes wait for).
 export function papercutEvents({
   turns,
   running,
   extra = [],
   lead = [],
   session: fields = {},
+  answer = (n) => `Answer ${n}: the checks on the merged head are green.`,
 }: {
   turns: number;
   running: boolean;
   extra?: Step[];
   lead?: Step[];
   session?: Record<string, unknown>;
+  answer?: (n: number) => string;
 }) {
   const steps: Step[] = [];
   let clock = START;
@@ -47,7 +49,7 @@ export function papercutEvents({
       "agent_message_chunk",
       update({
         sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: `Answer ${n}: the checks on the merged head are green.` },
+        content: { type: "text", text: answer(n) },
       }),
       clock,
     ]);
@@ -136,6 +138,9 @@ export async function papercutPane(
     /// does (`hub/paging.rs`), instead of the `attachPage` size: a scroll-up bench reads the page sizes
     /// the pane asks for (direct.ts OLDER_PAGE_RECORDS, OLDER_PAGE_BYTES).
     askedPageSize?: boolean;
+    /// Answer `_acpmux/events` reads forward from `afterSeq` (a reconnect's hole read) with the
+    /// records after it. Unset, they are answered empty.
+    forwardReads?: boolean;
   },
 ) {
   const { createServer } = await import("vite");
@@ -174,6 +179,14 @@ export async function papercutPane(
       }
       case "_acpmux/events": {
         const before = typeof params?.beforeSeq === "number" ? params.beforeSeq : undefined;
+        // A read forward from `afterSeq` (a reconnect bridging what it holds to the attach's page):
+        // oldest first, at most `limit`, as acpmux answers it. Only with `forwardReads`, so the lanes
+        // written against the empty answer keep it.
+        if (options.forwardReads && before === undefined && typeof params?.afterSeq === "number") {
+          const newer = events.filter((event) => event.seq > params.afterSeq);
+          const limit = Number(params?.limit) || 5_000;
+          return { events: newer.slice(0, limit), hasMore: newer.length > limit, lastSeq: events.length };
+        }
         if (!options.attachPage || before === undefined) return { events: [], hasMore: false, lastSeq: events.length };
         // The prompt index (`hub/paging.rs` `prompt_index`): every prompt before `beforeSeq`, in one
         // reply. Answered as a page instead, the rail and the room above the rows read a long chat
@@ -210,6 +223,8 @@ export async function papercutPane(
   };
   /// Every `session/prompt` the page sent, with its params (`_meta.acpmux.promptId`).
   const prompts: Record<string, any>[] = [];
+  /// While `ms` is over 0, every reply is sent that many ms late (`slowReplies.ms = 8000`).
+  const slowReplies = { ms: 0 };
   let socket: { send(data: string): void; close(): void } | undefined;
   /// An acpmux record, appended to the log (a later attach replays it) and sent to the attached page.
   const record = (kind: string, msg: Record<string, unknown>, dir = "mux") => {
@@ -217,6 +232,12 @@ export async function papercutPane(
     events.push(event);
     (session as { lastSeq: number }).lastSeq = event.seq;
     socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+  };
+  /// `count` records appended to the log and sent to no page (they land while the pages are away).
+  const recordAway = (count: number, kind: string, msg: Record<string, unknown>, dir = "mux") => {
+    for (let n = 0; n < count; n++)
+      events.push({ sessionId: PAPERCUT_CHAT, seq: events.length + 1, at: Date.now(), dir, kind, msg });
+    (session as { lastSeq: number }).lastSeq = events.length;
   };
   /// The connection drops (acpmux restarted): the page connects again and reads the log again.
   const drop = () => {
@@ -228,6 +249,20 @@ export async function papercutPane(
   const count = (method: string) => methods.filter((sent) => sent === method).length;
   const sent = (method: string, after: number) =>
     count(method) > after ? Promise.resolve() : new Promise<void>((done) => void waiters.push({ method, after, done }));
+  /// Requests whose replies the stand-in holds, as a busy acpmux does: `stall(methods)` holds each
+  /// later request of those methods unanswered, and `stall([])` answers every held one, in order.
+  const stalled = { methods: new Set<string>(), held: [] as (() => void)[] };
+  const stall = (methods: string[]) => {
+    stalled.methods = new Set(methods);
+    if (methods.length) return;
+    for (const reply of stalled.held.splice(0)) {
+      try {
+        reply();
+      } catch {
+        // The page's socket closed meanwhile: its reconnect asks again.
+      }
+    }
+  };
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -256,7 +291,13 @@ export async function papercutPane(
         if (message.id !== undefined) {
           const reply = () =>
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
-          if (message.method === "_acpmux/events" && options.historyDelayMs) {
+          const slow = slowReplies.ms;
+          if (stalled.methods.has(message.method)) stalled.held.push(reply);
+          else if (slow > 0) {
+            // A slow acpmux (5–12 s replies, Leo 2026-11-18): every answer lands that late.
+            // fixed-wait: the daemon's latency is the condition under test.
+            setTimeout(reply, slow);
+          } else if (message.method === "_acpmux/events" && options.historyDelayMs) {
             history.inFlight += 1;
             history.maxInFlight = Math.max(history.maxInFlight, history.inFlight);
             setTimeout(() => {
@@ -334,9 +375,15 @@ export async function papercutPane(
     await page.goto(
       `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${PAPERCUT_CHAT}`,
     );
-    await (
-      options.ready ? page.locator(options.ready).first() : page.getByText(`Answer ${options.turns}:`, { exact: false })
-    ).waitFor({ timeout: 120_000 });
+    // The chat is up once its last seeded answer is in the DOM. Attached, not visible: a chat that
+    // grew past one window below it shelves that row (content-visibility: hidden, #58987
+    // conversation/shelvedRows.ts), which Playwright reads as hidden though the chat drew.
+    if (options.ready) await page.locator(options.ready).first().waitFor({ timeout: 120_000 });
+    else
+      await page
+        .getByText(`Answer ${options.turns}:`, { exact: false })
+        .first()
+        .waitFor({ state: "attached", timeout: 120_000 });
     // Rows place by their drawn heights a frame after they mount: wait until no animation runs and
     // the transcript has held its scroll position over three painted frames.
     await page.evaluate(async () => {
@@ -369,7 +416,7 @@ export async function papercutPane(
   /// The chat's page address, for a page this helper does not open (support/frames120.ts's 120 Hz one).
   const address = () =>
     `http://127.0.0.1:${pagePort}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
-  return { open, close, methods, prompts, record, drop, sent, address, history };
+  return { open, close, methods, prompts, record, recordAway, drop, sent, address, history, stall, slowReplies };
 }
 
 /// Settings > Agent Chat > Session Info: Push always (or back to the default), as the host's `display`

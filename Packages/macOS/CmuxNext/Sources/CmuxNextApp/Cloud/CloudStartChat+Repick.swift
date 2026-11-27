@@ -43,7 +43,7 @@ extension CloudStartChat {
         // The machine it is on already: nothing moves.
         guard target != started.machineID else { return AgentPaneReply.success(["machine": services.machines.session(target)?.machine.title ?? ""]) }
         let toastID = "cloud-start-" + tab.id
-        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working)
+        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working, working: true)
         do {
             // Only under the account the send began in (+Machine).
             try Self.checkAccount(started.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
@@ -68,7 +68,7 @@ extension CloudStartChat {
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch {
-            let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
+            let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message ?? (error as? CloudMachineRoute.NeedsConnection)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat repick failed: \(message, privacy: .public)")
             CloudMove.toast(services, toastID, message, duration: .seconds(12))

@@ -1,5 +1,9 @@
 public import Foundation
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 
 /// Lists and extracts a pack with the system `tar` (bsdtar: it reads xz and
 /// refuses absolute paths and `..` by itself; the installer checks again).

@@ -10,6 +10,7 @@ import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { activityText } from "../src/agent-session/acpmux/conversation/chatFind";
 import { webSources } from "../src/agent-session/acpmux/conversation/webSourceList";
 import { teardownDom } from "./support/domTeardown";
+import { factsCardText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -75,6 +76,12 @@ test("a read-only transcript's source is a plain link to the reader's browser", 
 
 test("the owner's transcript opens a source in a cmux tab, not a new window", async () => {
   expect((await openSources(false)).getAttribute("target")).toBeNull();
+});
+
+// A source shows its page's title; its whole address shows on its hover card (Chief, 2026-11-21).
+test("a source's whole address shows on its hover card", async () => {
+  const page = await openSources(false);
+  expect(await factsCardText(page)).toBe("https://github.com/pingdotgg/t3code");
 });
 
 test("Find reads a search's result without the links line", () => {

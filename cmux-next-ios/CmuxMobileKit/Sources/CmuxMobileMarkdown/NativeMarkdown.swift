@@ -481,6 +481,14 @@ public final class NativeMarkdownView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The drawn text a hold can select in place: paragraphs, quotes, code and table cells
+    /// (each label in the view that holds it, so a selection in a code card scrolls with it).
+    public var selectableLabels: [UILabel] {
+        labels.filter { !$0.isHidden }
+            + codes.filter { !$0.isHidden }.map(\.codeLabel)
+            + tables.filter { !$0.isHidden }.flatMap(\.cellLabels)
+    }
+
     /// The link at `point` (in this view), if a label's text has one there.
     public func link(at point: CGPoint) -> URL? {
         for label in labels where !label.isHidden && label.frame.contains(point) {
@@ -596,10 +604,12 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
     private let scroll = UIScrollView()
     private let code = UILabel()
     private let fade = CAGradientLayer()
+    /// The code's label (in the scroll area), for in-place selection.
+    var codeLabel: UILabel { code }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .cmuxMobileCodeBackground
+        backgroundColor = CmuxMobileContentSurface.fill(.card)
         layer.cornerRadius = 16
         layer.cornerCurve = .continuous
         clipsToBounds = true
@@ -634,6 +644,12 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
 
     private func updateFade() {
         let more = scroll.contentOffset.x + scroll.bounds.width < scroll.contentSize.width - 1
+        // The mask is a bare layer, whose frame changes animate implicitly (0.25 s): it trailed the
+        // scroll, so the code the finger brought in stayed masked until the mask caught up. It
+        // moves with the content in the same frame (ChatCodeCardView does the same).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         if more {
             fade.frame = scroll.bounds
             let width = max(scroll.bounds.width, 1)
@@ -645,10 +661,13 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
     }
 }
 
-/// A markdown table (markdown.css `table`) in a horizontal scroll area.
+/// A markdown table (markdown.css `table`) in a horizontal scroll area: centered when narrower
+/// than the column, scrolling sideways in its own box when wider (Leo 2026-11-22).
 final class NativeTableView: UIScrollView {
     private var labels: [UILabel] = []
     private var rules: [UIView] = []
+    /// The shown cells' labels, for in-place selection.
+    var cellLabels: [UILabel] { labels.filter { !$0.isHidden } }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -662,7 +681,9 @@ final class NativeTableView: UIScrollView {
     func apply(_ block: NativeMarkdownLayout.TableBlock) {
         frame = block.frame
         contentSize = block.contentSize
+        contentInset = .zero
         contentOffset = .zero
+        centerIfNarrow()
         while labels.count < block.cells.count {
             let label = UILabel()
             label.numberOfLines = 1
@@ -685,6 +706,20 @@ final class NativeTableView: UIScrollView {
             rule.isHidden = index >= block.rules.count
             if index < block.rules.count { rule.frame = block.rules[index] }
         }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        centerIfNarrow()
+    }
+
+    /// A table narrower than the view: an even inset on its leading side centers it (and it does
+    /// not scroll); a wider one keeps no inset and scrolls from its leading edge.
+    private func centerIfNarrow() {
+        let slack = max(0, ((bounds.width - contentSize.width) / 2).rounded(.down))
+        guard contentInset.left != slack else { return }
+        contentInset = UIEdgeInsets(top: 0, left: slack, bottom: 0, right: 0)
+        contentOffset = CGPoint(x: -slack, y: 0)
     }
 }
 

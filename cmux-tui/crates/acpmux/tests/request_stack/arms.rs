@@ -54,6 +54,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_GITHUB_APP_LEASE,
             Any(json!({}), "a connection that is not the person is refused"),
         ),
+        (method::MUX_GITHUB_REST, Any(json!({}), "a connection that is not the person is refused")),
         (
             method::MUX_GITHUB_ACTION,
             Any(
@@ -99,10 +100,39 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Run(json!({"key": "0000000000000000000000000000000000000000000000000000000000000000"})),
         ),
         (
-            method::MUX_COMPUTER_USE_ENROLL,
+            method::MUX_COMPUTER_USE_CALL,
             Any(
-                json!({"socket": "$CWD/cua.sock", "agentToken": "t"}),
-                "an unsigned build refuses (invalid params) before it reads the socket",
+                json!({"machine": "nowhere", "name": "status", "session": "$S", "call_id": "c1"}),
+                "the hub has no peer of that name (unknown_machine)",
+            ),
+        ),
+        (method::MUX_COMPUTER_USE_MACHINES, Run(json!({}))),
+        (
+            method::MUX_WHO_ELSE,
+            Any(
+                json!({"sessionId": "$S"}),
+                "an arm from before this row; any answer is right here",
+            ),
+        ),
+        (
+            method::MUX_COMPUTER_USE_STATE,
+            Any(
+                json!({}),
+                "the local socket is refused: only a peer asks for this machine's state",
+            ),
+        ),
+        (
+            method::MUX_MACHINE_FILES_CALL,
+            Any(
+                json!({"machine": "nowhere", "action": "fs.read", "params": {"path": "/tmp/x"}}),
+                "the hub's book lists no signed-in machine of that name (unknown_machine)",
+            ),
+        ),
+        (
+            method::MUX_KEYS_MINT,
+            Any(
+                json!({"machine": "nowhere", "kind": "cloudflare-r2", "bucket": "bucket", "access": "ro"}),
+                "the hub has no peer of that name (unknown_machine)",
             ),
         ),
         (method::SESSION_NEW, Run(json!({"cwd": "$CWD", "mcpServers": []}))),
@@ -135,6 +165,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Skip("starts the embedded tailnet node (network, a real account)"),
         ),
         (
+            method::MUX_TAILNET_JOIN,
+            Any(
+                json!({"key": "tskey-auth-x"}),
+                "the person check refuses this connection before any tailnet work",
+            ),
+        ),
+        (
             method::MUX_TAILNET_LOGIN,
             Skip("signs the embedded tailnet in (network, a real account)"),
         ),
@@ -143,8 +180,15 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_TAILNET_LOGOUT,
             Any(json!({}), "the person check refuses this connection before any tailnet work"),
         ),
+        (
+            method::MUX_TAILNET_PLACEMENT,
+            Run(
+                json!({"kind": "set", "v": 1, "workspace": "w", "placement": {"ssh": "127.0.0.1:1"}}),
+            ),
+        ),
         (method::MUX_STATUS, Run(json!({}))),
         (method::MUX_SESSIONS, Run(json!({"usage": true}))),
+        (method::MUX_USAGE, Run(json!({}))),
         (
             method::MUX_WEB_MODES,
             Run(json!({"sessionId": "$S", "configId": "model", "value": "m1"})),
@@ -161,6 +205,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/host_health", Run(json!({}))),
         ("_acpmux/peer_status", Run(json!({}))),
         ("_acpmux/vm_host", Run(json!({}))),
+        ("_acpmux/autocloud_enroll", Run(json!({}))),
         ("_acpmux/host_notice", Run(json!({"text": "test notice"}))),
         ("_acpmux/peer_snapshot", Run(json!({"sessionId": "nopeer/x1"}))),
         ("_acpmux/place", Run(json!({}))),
@@ -221,6 +266,44 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_COMPOSERS, Run(json!({"sessionId": "$S"}))),
         (method::MUX_BOOKMARK_GET, Run(json!({"sessionId": "$S"}))),
         (method::MUX_BOOKMARK_SET, Run(json!({"sessionId": "$S", "seq": 1, "bookmarked": false}))),
+        (method::MUX_PROMPTS_LIST, Run(json!({}))),
+        (
+            method::MUX_PROMPTS_SAVE,
+            Any(
+                json!({"name": "stack", "text": "on a small stack"}),
+                "the person check refuses this connection",
+            ),
+        ),
+        (
+            method::MUX_PROMPTS_DELETE,
+            Any(json!({"name": "stack"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_LIST,
+            Any(json!({"chat": "stack"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_PUSH,
+            Any(
+                json!({"chat": "stack", "text": "aside"}),
+                "the person check refuses this connection",
+            ),
+        ),
+        (
+            method::MUX_STASH_GET,
+            Any(json!({"chat": "stack", "id": "x"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_DROP,
+            Any(json!({"chat": "stack", "id": "x"}), "the person check refuses this connection"),
+        ),
+        (
+            method::MUX_STASH_MOVE,
+            Any(
+                json!({"chat": "stack", "to": "other"}),
+                "the person check refuses this connection",
+            ),
+        ),
         (method::MUX_ASK, Run(json!({"sessionId": "$S", "text": "what did you say?"}))),
         (
             method::MUX_BTW,
@@ -235,6 +318,17 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         // `archived: false` brings a log back: an in-memory store has no archive file, so the
         // chat `$S` stays as it is for the rows after this one.
         (method::MUX_COLD_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
+        // This hub runs no holder loop, so the switch answers `auto.unavailable` (the arm's own
+        // answer); `$S` has no kept changes, so `show` lists none.
+        (method::MUX_AUTO_SESSION_SET, Run(json!({"sessionId": "$S", "auto": false}))),
+        // No holder loop here either: the move answers `auto.unavailable`.
+        (method::MUX_AUTO_SESSION_MOVE, Run(json!({"sessionId": "$S", "to": "cloud"}))),
+        // `$S` has Auto off, so it is local already and nothing is asked of a holder loop.
+        (method::MUX_CHAT_MOVE, Run(json!({"sessionId": "$S", "on": "local"}))),
+        (method::MUX_AUTO_SESSION_LEFTOVER, Run(json!({"sessionId": "$S", "action": "show"}))),
+        (method::MUX_AUTO_SESSION_WAKE, Run(json!({}))),
+        // No holder loop: the chat's own log is its transcript (`projection: null`).
+        (method::MUX_AUTO_SESSION_TRANSCRIPT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
         (
             method::MUX_HARNESS_ENABLE,
@@ -353,6 +447,15 @@ pub fn table() -> Vec<(&'static str, Ask)> {
                 json!({"sessionId": "$S", "id": "0000000000000000000000000000000000000000000000000000000000000000"}),
             ),
         ),
+        (method::MUX_TURN_SHOTS, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
+        (method::MUX_TURN_FRAMES, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
+        (
+            method::MUX_CUSTOMIZE_RUN,
+            Any(
+                json!({"run": {"customize": "try", "target": "--help"}}),
+                "target must be pr:N, branch:B, sha:S, dir:PATH or a profile name (invalid params)",
+            ),
+        ),
         (method::MUX_QUEUE_TEXT, Run(json!({"sessionId": "$S", "promptId": "p1"}))),
         (
             method::MUX_MAIL_SEND,
@@ -388,11 +491,19 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
         ),
         (
+            method::MUX_TEAM_LISTEN,
+            Any(json!({"op": "ls"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
             method::MUX_REGISTER,
             Any(
                 json!({"name": "lso-register"}),
                 "taken only from the unix socket, by the peer's pid (invalid params)",
             ),
+        ),
+        (
+            method::MUX_INBOX_RELAY,
+            Any(json!({}), "taken only from a process a Claude Code session runs (invalid params)"),
         ),
         (method::MUX_RENAME, Run(json!({"sessionId": "$S", "newName": "renamed-s"}))),
         (
@@ -553,5 +664,9 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::SESSION_CLOSE, Run(json!({"sessionId": "$T"}))),
         (method::SESSION_DELETE, Run(json!({"sessionId": "$T"}))),
         (method::MUX_KILL, Run(json!({"sessionId": "$T"}))),
+        // Pauses its own new chat, which the next `$T` row replaces.
+        (method::MUX_PAUSE, Run(json!({"sessionId": "$T"}))),
+        // `$S` runs: nothing to wake.
+        (method::MUX_WAKE, Run(json!({"sessionId": "$S"}))),
     ]
 }

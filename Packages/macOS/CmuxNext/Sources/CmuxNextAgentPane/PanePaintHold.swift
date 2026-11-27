@@ -12,10 +12,29 @@ public protocol PaneFirstPaintGated: AnyObject {
     var neverPainted: Bool { get }
     /// Runs `body` once the content has painted (now if it has).
     func whenFirstPainted(_ body: @escaping () -> Void)
+    /// A hold's short limit passed before it painted: it shows the picture it keeps of itself (a chat's or New Tab page's
+    /// last frame) under it until it paints, and says true. False: it has none (a brand-new chat), and the hold keeps
+    /// what it showed for it, as long as before (``PanePaintHold/limit``), rather than show a clear or empty frame.
+    func standInUntilPainted() -> Bool
 }
 
 extension PaneFirstPaintGated {
     public var neverPainted: Bool { awaitsFirstPaint }
+    public func standInUntilPainted() -> Bool { false }
+}
+
+/// Content that draws in a window of its own over its view (a Chromium page). A hold's alpha does not hide such a
+/// window, so the hold has it hidden, and a hidden Chromium page draws no frame: one that waits to draw again at a new
+/// size (a chat or New Tab page moved to another pane) never answered, and its pane showed the tab before it until
+/// the hold's limit, 500 ms (Leo 2026-11-22: "panes moving back and forth between splits ... slow ... jitters").
+/// It draws out of sight for the hold instead, and comes back in the transaction that ends the hold.
+@MainActor
+public protocol PanePaintHoldUnseen: AnyObject {
+    /// A hold made this content unseen until it painted. True when it now draws out of sight; the hold then calls
+    /// ``endDrawingUnseen()`` when it ends. False: it stays as it is (nothing of its own to draw, or held already).
+    func drawUnseenForPaintHold() -> Bool
+    /// The hold ended: back in place, in the caller's transaction.
+    func endDrawingUnseen()
 }
 
 /// The outgoing view a container (a pane, or the window's content area
@@ -23,9 +42,30 @@ extension PaneFirstPaintGated {
 /// invisible, has not painted.
 @MainActor
 public final class PanePaintHold {
-    /// The longest the outgoing view stays: a page that never reports its
+    /// The longest a pane's outgoing tab stays: a page that never reports its
     /// first frame shows as it is after this.
     public static let limit: Duration = .milliseconds(500)
+
+    /// `count` frames of a display that draws `framesPerSecond` (33 ms for two at 60 Hz, 17 ms at 120 Hz).
+    public static func frames(_ count: Int, at framesPerSecond: Int) -> Duration {
+        .nanoseconds(Int64(count) * 1_000_000_000 / Int64(max(1, framesPerSecond)))
+    }
+
+    /// How often `view`'s screen draws: its window's screen, else the main one, else 60 Hz.
+    public static func framesPerSecond(of view: NSView) -> Int {
+        let rate = view.window?.screen?.maximumFramesPerSecond ?? NSScreen.main?.maximumFramesPerSecond ?? 60
+        return rate > 0 ? rate : 60
+    }
+
+    private let owner: String
+    /// How many frames of the host's screen a hold lasts at most; nil: ``limit``.
+    private let frames: Int?
+    /// Times the limit; a test sets its own before the first hold.
+    public var clock: any Clock<Duration> = ContinuousClock() {
+        didSet { deadline = DemandTimer(owner: owner, clock: clock) }
+    }
+    /// How often the screen showing a host draws; a test sets its own.
+    public var displayFramesPerSecond: @MainActor (NSView) -> Int = { PanePaintHold.framesPerSecond(of: $0) }
 
     private weak var outgoing: NSView?
     private weak var incoming: NSView?
@@ -33,11 +73,20 @@ public final class PanePaintHold {
     private var holding = false
     private var release: ((NSView) -> Void)?
     private var ended: (() -> Void)?
-    private let deadline: DemandTimer
+    private var deadline: DemandTimer
     /// Where the outgoing view shows in the container (``begin(outgoing:incoming:in:keepingPlaceIn:release:ended:)``).
     private var place: KeptPlace?
     /// Work that waits for the kept view to stop showing (``afterHold(of:_:)``); it outlives a hand-off to the next hold.
     private var afterEnd: [() -> Void] = []
+    /// Brings back the incoming view that draws out of sight for this hold (``PanePaintHoldUnseen``).
+    private var unseen: (() -> Void)?
+
+    /// The incoming view that drew out of sight is back in place.
+    private func showUnseen() {
+        let back = unseen
+        unseen = nil
+        back?()
+    }
 
     private struct KeptPlace {
         weak var view: NSView?
@@ -49,8 +98,18 @@ public final class PanePaintHold {
         let autoresizingMask: NSView.AutoresizingMask
     }
 
-    public init(owner: String) {
+    /// `frames`: a hold ends after that many frames of its host's screen (two for the window's workspace swap: 33 ms at
+    /// 60 Hz, 17 ms at 120 Hz) when every page still waiting in the incoming view then shows its picture
+    /// (``PaneFirstPaintGated/standInUntilPainted()``); one without a picture keeps it to ``limit``. Nil: ``limit``.
+    public init(owner: String, frames: Int? = nil) {
+        self.owner = owner
+        self.frames = frames
         deadline = DemandTimer(owner: owner)
+    }
+
+    /// The short limit of a hold in `host` (``limit`` without `frames`).
+    private func firstLimit(in host: NSView) -> Duration {
+        frames.map { min(Self.limit, Self.frames($0, at: displayFramesPerSecond(host))) } ?? Self.limit
     }
 
     /// Whether `view` replacing `hosted` waits for its first frame. Content
@@ -80,15 +139,55 @@ public final class PanePaintHold {
             host.addSubview(incoming, positioned: .above, relativeTo: outgoing)
         }
         incoming.alphaValue = 0
+        showUnseen() // a hold that this one replaces
+        // The incoming view itself, which its container judged to wait for its frame (``holds(_:replacing:)``): a page
+        // inside a larger view that a hold keeps unseen (a workspace) stays hidden in place, as before.
+        if let content = incoming as? any PanePaintHoldUnseen, content.drawUnseenForPaintHold() {
+            unseen = { [weak content] in content?.endDrawingUnseen() }
+        }
         PageWebView.syncChromiumVisibility(in: incoming)
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
-        // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
-            self?.end(token)
+        // A later hold replaces this deadline; the token keeps it to its own hold. A hand-off to the next swap starts the
+        // next one's own limit: a run of swaps faster than the limit keeps one view on screen and never shows the views it
+        // passes over (ending holds mid-burst showed each one and started a new hold on it, cmux#44329).
+        let first = firstLimit(in: host)
+        deadline.schedule(after: first) { @MainActor [weak self] in
+            self?.firstLimitPassed(token, rest: Self.limit - first)
         }
+    }
+
+    /// The short limit passed before `incoming` painted: the pages still waiting in it stand in with their pictures
+    /// (``standsIn(_:)``) and it shows now, in one frame. When one has no picture, it shows when it paints or after `rest`.
+    private func firstLimitPassed(_ token: UInt64, rest: Duration) {
+        guard holding, self.token == token, let incoming else { return }
+        guard Self.standsIn(incoming) || rest <= .zero else {
+            return deadline.schedule(after: rest) { @MainActor [weak self] in self?.end(token) }
+        }
+        end(token)
+    }
+
+    /// Whether every page still waiting in `view` shows a picture of itself now (asking each that never painted,
+    /// ``PaneFirstPaintGated/standInUntilPainted()``); `view` itself when it holds no such page (a pane's incoming tab).
+    /// A chat that drew before and waits to draw at a new size has no picture at that size (Leo 2026-10-20: "we
+    /// shouldn't be having these wild-ass layout shifts"): false.
+    static func standsIn(_ view: NSView) -> Bool {
+        var pages: [any PaneFirstPaintGated] = [], resized = false
+        let clips = !view.bounds.isEmpty
+        func visit(_ parent: NSView) {
+            for child in parent.subviews where !child.isHidden && child.alphaValue > 0 {
+                guard let page = child as? any PaneFirstPaintGated else { visit(child); continue }
+                guard page.awaitsFirstPaint, !clips || child.convert(child.bounds, to: view).intersects(view.bounds) else { continue }
+                if page.neverPainted { pages.append(page) } else { resized = true }
+            }
+        }
+        visit(view)
+        guard !resized else { return false }
+        guard !pages.isEmpty else { return (view as? any PaneFirstPaintGated)?.standInUntilPainted() ?? false }
+        // Every page is asked, so each one with a picture shows it even when another has none.
+        return pages.map { $0.standInUntilPainted() }.allSatisfy { $0 }
     }
 
     /// The view this hold keeps on screen, while it holds.
@@ -112,6 +211,7 @@ public final class PanePaintHold {
         deadline.cancel()
         release = nil
         ended = nil
+        showUnseen()
         if let incoming {
             remove(incoming)
             // Page views are reused: one shown later must not stay invisible.
@@ -136,6 +236,8 @@ public final class PanePaintHold {
         CATransaction.setDisableActions(true)
         releasePlace()
         if let outgoing { release?(outgoing) }
+        // Shown first: a page back from out of sight never lies in place under a clear view (hidden to Chromium).
+        showUnseen()
         incoming?.alphaValue = 1
         if let incoming { PageWebView.syncChromiumVisibility(in: incoming) }
         if let outgoing { PageWebView.syncChromiumVisibility(in: outgoing) }
@@ -238,43 +340,6 @@ public struct DrawnPages {
     }
 }
 
-/// The pages in `root`'s shown part that have drawn no frame yet: a new or cold workspace's New Tab page or chat.
-/// Shown as they are, they are clear (a New Tab page hides its cover) or their loading cover, not the workspace's
-/// content. A page its pane already keeps unseen (its own hold, alpha 0) is not counted: the pane shows what it kept.
-@MainActor
-public struct UnpaintedPages {
-    public let pages: [any PaneFirstPaintGated]
-
-    public init(in root: NSView) {
-        var found: [any PaneFirstPaintGated] = []
-        // A view not laid out yet (a workspace built in this turn) has no viewport to clip by.
-        let clips = !root.bounds.isEmpty
-        func visit(_ view: NSView) {
-            for child in view.subviews where !child.isHidden && child.alphaValue > 0 {
-                guard let page = child as? any PaneFirstPaintGated else {
-                    visit(child)
-                    continue
-                }
-                if page.neverPainted, !clips || child.convert(child.bounds, to: root).intersects(root.bounds) { found.append(page) }
-            }
-        }
-        visit(root)
-        pages = found
-    }
-
-    /// Runs `body` once every page painted its first frame (now with none).
-    public func whenPainted(_ body: @escaping () -> Void) {
-        var left = pages.count
-        guard left > 0 else { return body() }
-        for page in pages {
-            page.whenFirstPainted {
-                left -= 1
-                if left == 0 { body() }
-            }
-        }
-    }
-}
-
 extension NSView {
     /// Neither it nor an ancestor is fully transparent. A view a hold keeps unseen (``PanePaintHold``, on it or on
     /// its whole workspace) shows in one frame when the hold ends, so nothing it starts then is seen half done.
@@ -286,44 +351,10 @@ extension NSView {
 extension AgentPaneView {
     /// Its page drew no frame yet (``PaneFirstPaintGated/neverPainted``); a redraw at a new size is not this.
     public var neverPainted: Bool { !model.hasPainted }
-}
-
-/// What a workspace's first frame waits for when the window shows it in place of another: its shown pages that never
-/// painted (``UnpaintedPages``), and, `resized` (shown again at another size than it was parked at), its chats drawn at
-/// the new size (``DrawnPages``). A tab switch in a pane waits for the same pages (``PanePaintHold``).
-@MainActor
-public struct WorkspaceFirstFrame {
-    private let root: NSView
-
-    public init(of root: NSView) {
-        self.root = root
-    }
-
-    /// Whether the window keeps the outgoing workspace until ``whenReady(_:)`` answers. `prerendered`: the view was laid
-    /// out and drawn off screen in the window before it was asked for (Cmd-N's reserved view, its settled design); it
-    /// shows at once, in the key's frame.
-    public func awaits(resized: Bool, prerendered: Bool = false) -> Bool {
-        guard !prerendered else { return false }
-        return !UnpaintedPages(in: root).pages.isEmpty || resized && !DrawnPages(in: root).pages.isEmpty
-    }
-
-    /// Runs `body` once every unpainted page painted and every drawn one drew at the size it shows at.
-    ///
-    /// Lays `root` out now only for chats that drew before: they note their new size as they lay out. Pages that never
-    /// painted paint after the window's own layout pass (`WindowRootView.show` sized the workspace, which marks it), so
-    /// a workspace replaced before that pass (the next of fifty quick Cmd-Ns hands its hold off) is never laid out, and
-    /// a burst of presses costs what one does (cmux#44329). It is not marked again here: a hidden view keeps the mark,
-    /// and every later pass of the window walked each hidden workspace so marked.
-    public func whenReady(_ body: @escaping () -> Void) {
-        var left = 2
-        let one = {
-            left -= 1
-            if left == 0 { body() }
-        }
-        let drawn = DrawnPages(in: root)
-        UnpaintedPages(in: root).whenPainted(one)
-        drawn.whenRedrawn(one)
-        if !drawn.pages.isEmpty { root.layoutSubtreeIfNeeded() }
+    /// A hold's short limit passed before it painted: its pane draws its picture under it (``drawsLastPage``), true when
+    /// one shows. False for a chat with none (a brand-new one): the hold keeps what it showed for it.
+    public func standInUntilPainted() -> Bool {
+        model.hasPainted || drawsLastPage?() == true
     }
 }
 

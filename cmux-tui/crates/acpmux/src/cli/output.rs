@@ -36,15 +36,86 @@ pub(crate) async fn before_deadline<T>(
     }
 }
 
+/// When a prompt path that saw its daemon go away now stops dialing the next one.
+pub(crate) fn update_reconnect_deadline() -> tokio::time::Instant {
+    tokio::time::Instant::now() + UPDATE_RECONNECT_BUDGET
+}
+
 pub(crate) async fn reconnect_after_update() -> Result<Arc<Client>> {
     reconnect_after_update_with_budget(UPDATE_RECONNECT_BUDGET).await
 }
 
 pub(crate) async fn reconnect_after_update_with_budget(budget: Duration) -> Result<Arc<Client>> {
     let budget = budget.min(UPDATE_RECONNECT_BUDGET);
-    tokio::time::timeout(budget, crate::daemon::connect(true))
+    let deadline = tokio::time::Instant::now() + budget;
+    until_daemon_answers(deadline, || crate::daemon::connect(true))
         .await
-        .map_err(|_| anyhow!("daemon did not come back within {budget:?}"))?
+        .map_err(|e| anyhow!("daemon did not come back within {budget:?}: {e:#}"))
+}
+
+/// Dial `socket` again until a daemon there answers initialize, or `deadline`: the next daemon
+/// of an update or restart. A dial that finds no listener yet, or the old daemon still draining
+/// (it answers `daemon.restarting`), is tried again, not the sender's failure.
+pub(crate) async fn redial(
+    socket: &std::path::Path,
+    deadline: tokio::time::Instant,
+) -> Result<Arc<Client>> {
+    until_daemon_answers(deadline, || Client::connect(socket)).await
+}
+
+/// The first daemon `dial` reaches by `deadline`, dialing again on any failure with a pause of
+/// 50 ms doubling to 1 s (an update's gap is a few seconds: RFD 0082).
+pub(crate) async fn until_daemon_answers<F, Fut>(
+    deadline: tokio::time::Instant,
+    dial: F,
+) -> Result<Arc<Client>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<Arc<Client>>>,
+{
+    let mut pause = Duration::from_millis(50);
+    loop {
+        let error = match tokio::time::timeout_at(deadline, dial()).await {
+            Ok(Ok(client)) => return Ok(client),
+            Ok(Err(e)) => e,
+            Err(_) => anyhow!("no daemon answered by the deadline"),
+        };
+        if tokio::time::Instant::now() + pause >= deadline {
+            return Err(error);
+        }
+        tokio::time::sleep(pause).await;
+        pause = (pause * 2).min(Duration::from_secs(1));
+    }
+}
+
+/// Run `attempt` on `client`, and again on a redialed client while the daemon goes away under it
+/// ([`daemon_closed_error`]) until `deadline`. Each later attempt is told it is a resend, so it
+/// sends the same prompt id with `resend: true`: the outbox runs an id once
+/// (`hub::outbox::Outbox::add`), so a message the old daemon took before it closed is not
+/// delivered twice. Returns the client that answered, for the caller's next request.
+pub(crate) async fn through_restart<T, F, Fut>(
+    client: &Arc<Client>,
+    deadline: tokio::time::Instant,
+    mut attempt: F,
+) -> Result<(Arc<Client>, T)>
+where
+    F: FnMut(Arc<Client>, bool) -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let mut client = client.clone();
+    let mut resend = false;
+    loop {
+        match attempt(client.clone(), resend).await {
+            Ok(value) => return Ok((client, value)),
+            Err(e) if daemon_closed_error(&e) && tokio::time::Instant::now() < deadline => {
+                client = redial(client.socket(), deadline).await.map_err(|again| {
+                    e.context(format!("reconnecting after daemon restart: {again:#}"))
+                })?;
+                resend = true;
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 async fn reconnect_prompt(
@@ -190,6 +261,12 @@ pub(crate) struct PromptId {
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
     pub wake_or_fail: bool,
+    /// `--gather`: the message waits for the receiver's cold batch (`_meta.acpmux.gather`,
+    /// `hub/cold_wake.rs`).
+    pub gather: bool,
+    /// `--within`: the sender's own delivery deadline in ms (`_meta.acpmux.within`,
+    /// `prompt_class::due_at`), which can only tighten the class's.
+    pub within: Option<u64>,
 }
 
 impl PromptId {
@@ -212,6 +289,8 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
+                within: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -230,6 +309,8 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
+                within: None,
             },
         }
     }
@@ -288,6 +369,12 @@ impl PromptId {
         }
         if self.wake_or_fail {
             mux.set(WAKE_OR_FAIL_META, json!(true));
+        }
+        if self.gather {
+            mux.set(crate::hub::cold_wake::GATHER_META, json!(true));
+        }
+        if let Some(within) = self.within {
+            mux.set(crate::prompt_class::WITHIN_META, json!(within));
         }
         if let Some(token) = &self.sender_token {
             mux.set(crate::sender_token::META_KEY, token.to_value());
@@ -389,6 +476,17 @@ async fn queue_prompt_once(
     }
 }
 
+/// A held message's deadline (`hub/inbox.rs` "Deadlines") as `send` and `send --status` print
+/// it: "due in 14m" (the receiver is woken for it by then), or "due 3m ago" past it.
+pub(crate) fn due_words(due_ms: u64, now_ms: u64) -> String {
+    let mins = |ms: u64| ms.div_ceil(60_000);
+    if due_ms > now_ms {
+        format!("due in {}m", mins(due_ms - now_ms))
+    } else {
+        format!("due {}m ago", mins(now_ms - due_ms))
+    }
+}
+
 /// What `acpmux send --no-wait` prints for its acceptance.
 /// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
 pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
@@ -401,6 +499,11 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
         "queued"
     };
     let mut lines = vec![first.to_owned()];
+    if first == HELD_LINE
+        && let Some(due) = accepted.get("dueAt").and_then(Value::as_u64)
+    {
+        lines.push(due_words(due, crate::store::now_ms()));
+    }
     if supersede {
         // An older daemon (or a peer running one) ignores the key and says nothing.
         lines.push(match accepted.get("replaced").and_then(Value::as_u64) {
@@ -408,6 +511,26 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
             None => "replaced ? queued (the daemon did not report it; it may predate --supersede)"
                 .to_owned(),
         });
+    }
+    lines
+}
+
+/// [`sent_lines`] naming the target by the name it was given (`displayName` in its acceptance,
+/// from a daemon that has it), its typed `key` beside it: "steered to Mango · HOST/NAME". A target
+/// without a given name reads as before.
+pub(crate) fn sent_lines_to(accepted: &Value, supersede: bool, key: &str) -> Vec<String> {
+    let mut lines = sent_lines(accepted, supersede);
+    let given = accepted
+        .get("displayName")
+        .and_then(Value::as_str)
+        .filter(|n| crate::session_handle::valid(n));
+    if let (Some(given), Some(first)) = (given, lines.first_mut()) {
+        let to = crate::prompt_provenance::display_label(Some(given), key);
+        *first = match first.split_once(':') {
+            // The held line explains itself after its colon: the name goes before it.
+            Some((head, rest)) => format!("{head} (to {to}):{rest}"),
+            None => format!("{first} to {to}"),
+        };
     }
     lines
 }
@@ -931,12 +1054,6 @@ pub(crate) fn print_item(item: &Item) {
         Item::Tool { title, kind, status, .. } => {
             println!("\x1b[2m[{kind} {status}] {title}\x1b[0m")
         }
-        Item::Plan { entries } => {
-            println!("\x1b[35mplan:\x1b[0m");
-            for (s, c) in entries {
-                println!("  [{s}] {c}");
-            }
-        }
         Item::Permission { title, decided, .. } => match decided {
             Some(d) => println!("\x1b[33mpermission {title}: {d}\x1b[0m"),
             None => println!("\x1b[33mpermission needed: {title}\x1b[0m"),
@@ -1268,7 +1385,7 @@ pub(crate) async fn turn_reply(
     Ok(reply_of_turn(&events, turn))
 }
 
-fn page_events(page: &Value) -> (Vec<Value>, bool) {
+pub(crate) fn page_events(page: &Value) -> (Vec<Value>, bool) {
     let events = page.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
     (events, page.get("hasMore").and_then(Value::as_bool).unwrap_or(false))
 }
@@ -1297,35 +1414,6 @@ async fn paged_events(client: &Arc<Client>, query: Value, first: &str) -> Result
         }
         more = has_more;
         events.splice(0..0, older);
-    }
-    Ok(events)
-}
-
-/// Up to `limit` events of a chat after seq `after`, oldest first, a page of at most 100000 at a
-/// time.
-pub(crate) async fn events_after(
-    client: &Arc<Client>,
-    id: &str,
-    mut after: u64,
-    limit: usize,
-) -> Result<Vec<Value>> {
-    let mut events = Vec::new();
-    while events.len() < limit {
-        let v = client
-            .request(
-                method::MUX_EVENTS,
-                json!({"sessionId": id, "afterSeq": after, "limit": (limit - events.len()).min(100_000)}),
-            )
-            .await?;
-        let (page, more) = page_events(&v);
-        let Some(last) = page.last().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
-            break;
-        };
-        after = last;
-        events.extend(page);
-        if !more {
-            break;
-        }
     }
     Ok(events)
 }
@@ -1461,6 +1549,27 @@ mod prompt_tests {
         assert!(lines[1].starts_with("replaced ? queued"), "{lines:?}");
     }
 
+    /// Leo: "the send/recieve messages are still only the older names". `acpmux send` says the
+    /// target's given name, the typed key beside it; a target without one prints as before.
+    #[test]
+    fn a_send_names_the_target_by_its_given_name() {
+        let steered = json!({"steer": true, "displayName": "Mango"});
+        assert_eq!(
+            sent_lines_to(&steered, false, "studio-mac/coord-old"),
+            ["steered to Mango · studio-mac/coord-old"]
+        );
+        assert_eq!(sent_lines_to(&steered, false, "Mango"), ["steered to Mango"]);
+        let held = json!({"heldInInbox": true, "displayName": "Mango"});
+        let line = &sent_lines_to(&held, false, "coord-old")[0];
+        assert!(
+            line.starts_with("held in its inbox (to Mango · coord-old): the receiver"),
+            "{line}"
+        );
+        assert_eq!(sent_lines_to(&json!({"queued": true}), false, "coord-old"), ["queued"]);
+        let invalid = json!({"queued": true, "displayName": "no spaces allowed"});
+        assert_eq!(sent_lines_to(&invalid, false, "coord-old"), ["queued"]);
+    }
+
     #[test]
     fn a_supersede_key_goes_in_the_prompts_meta() {
         let mut p = PromptId::new(None);
@@ -1566,7 +1675,13 @@ mod prompt_tests {
         }
         assert_eq!(last_replies(&client, &id, 1).await.unwrap(), vec!["the reply".to_owned()]);
         // `session tail --since`: every event after the cursor, through the newest.
-        let after = events_after(&client, &id, 0, 100000).await.unwrap();
+        let mut after = Vec::new();
+        crate::cli::session_tail::stream_after(&client, &id, 0, None, |page| {
+            after.extend(page);
+            Ok(crate::cli::session_tail::Flow::Go)
+        })
+        .await
+        .unwrap();
         assert_eq!(after.last().unwrap()["seq"], session.meta().last_seq);
         assert!(after.len() > 13, "{} events", after.len());
         drop(dir);
