@@ -3545,6 +3545,8 @@ jobs:
           bash scripts/ci/tests/cargo-target-delta.test.sh
           # The delta with rustc's incremental state is over a single PUT's 5 GiB (seed run 45982767555).
           bash scripts/ci/tests/r2-cache-multipart.test.sh
+          # A restore killed by its step timeout left half a cargo target in place (machine channel run 46003645716).
+          bash scripts/ci/tests/r2-cache-restore.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
