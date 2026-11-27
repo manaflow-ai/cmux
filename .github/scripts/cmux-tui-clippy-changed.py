@@ -64,7 +64,7 @@ from collections import deque
 import importlib.util
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
@@ -125,10 +125,10 @@ def stale_lock_error(title: str, lock: str) -> str:
             f"root and commit the Cargo.lock files it changed; rerunning the job does not help")
 
 
-def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[str]]:
+def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[str], set[str]]:
     """The members' directories (repository-relative) with their package names, each
-    member's dependents (the members naming it as a path dependency of any kind), and
-    the members with a library target."""
+    member's dependents (the members naming it as a path dependency of any kind), the
+    members with a library target, and the members with a build script."""
     meta = json.loads(subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
         cwd=repo / ROOT, check=True, stdout=subprocess.PIPE, text=True,
@@ -147,7 +147,35 @@ def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[s
                 dependents[target].add(package["name"])
     libs = {package["name"] for package in packages
             if any(LIB_KINDS & set(target.get("kind", [])) for target in package.get("targets", []))}
-    return names, dependents, libs
+    scripts = {package["name"] for package in packages
+               if any("custom-build" in target.get("kind", []) for target in package.get("targets", []))}
+    return names, dependents, libs, scripts
+
+
+def same_at_base(paths: list[str] | None, workspace: dict[str, str], dependents: dict[str, set[str]],
+                 scripts: set[str], boundaries: set[str]) -> frozenset[str]:
+    """The ratchet's crate names (`crates/<name>` -> name, `bindings/<x>` -> bindings-x) whose clippy output at
+    the base is this HEAD's own: no file of theirs changed (any file, not only Rust: an include! reads others),
+    none of their workspace dependencies did, they have no build script (it may read files anywhere), and no
+    workspace-wide Rust input changed (manifest, lock, toolchain, clippy or cargo config). Empty when any
+    changed path cannot be placed in a current member (vendor/, an excluded or deleted package)."""
+    if paths is None or any(path in WHOLE_WORKSPACE for path in paths):
+        return frozenset()
+    reached = set(scripts)
+    for path in paths:
+        owner = next((str(parent) for parent in PurePosixPath(path).parents if str(parent) in boundaries), None)
+        if owner is None or owner not in workspace or path.startswith(fmt_changed.VENDOR) or (
+                owner == ROOT and path.startswith((f"{ROOT}/crates/", f"{ROOT}/bindings/"))):
+            return frozenset()
+        reached.add(workspace[owner])
+    reached = with_dependents(reached - scripts, dependents) | reached
+    same = set()
+    for directory, name in workspace.items():
+        parts = PurePosixPath(directory).parts
+        if name in reached or len(parts) != 3 or parts[0] != ROOT or parts[1] not in ("crates", "bindings"):
+            continue
+        same.add(parts[2] if parts[1] == "crates" else f"bindings-{parts[2]}")
+    return frozenset(same)
 
 
 def with_dependents(changed: set[str], dependents: dict[str, set[str]]) -> set[str]:
@@ -171,14 +199,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="the pull request head: a red the PR autofix repairs passes as autofixed")
     parser.add_argument("--compare-base", action="store_true",
                         help="with --panic-ratchet: lint the base too; a count the base reaches is the base's red")
-    parser.add_argument("--ratchet-lints", action="store_true",
-                        help="lint with the panic ratchet's flags too, so the --panic-ratchet run after it finds each "
-                             "production target already checked; their hits are counted, left to the ratchet")
     args = parser.parse_args(argv)
     repo = (args.repo or Path(fmt_changed.git(Path.cwd(), "rev-parse", "--show-toplevel").strip())).resolve()
     known = fmt_changed.packages(repo)
     try:
-        workspace, dependents, libs = workspace_of(repo)
+        workspace, dependents, libs, scripts = workspace_of(repo)
     except subprocess.CalledProcessError:
         print("::error title=cmux-tui clippy::`cargo metadata --no-deps` failed in cmux-tui (its error is above); "
               "fix the manifest it names")
@@ -186,16 +211,8 @@ def main(argv: list[str] | None = None) -> int:
     base = args.base.strip()
     paths = fmt_changed.changed(repo, base)
     compare = base if args.compare_base and paths is not None else ""
-    # The panic ratchet's lint flags, when this run carries them (--ratchet-lints). Cargo keys each checked unit on
-    # its clippy flags, so the ratchet's own `--lib --bins` run with the same flags (the next step, same target)
-    # finds every unit this `--all-targets` run checked fresh and replays its diagnostics instead of checking the
-    # changed packages a second time: on 2026-11-27 that second check was 307 s of hq run 45940434974's 14.5 min
-    # clippy-changed step and 354 s of a warm pool step's 12 (goal ci-min-per-pr-14). The flags only add warnings,
-    # which --cap-lints keeps warnings and this check never fails on, so its verdict is the same; the ratchet still
-    # judges every production hit from its own JSON.
-    extra = ratchet_flags(repo) if args.ratchet_lints and not args.panic_ratchet else []
-    quiet = frozenset(flag for flag in extra if flag.startswith("clippy::"))
-    lint_args = ["--all-targets", "--message-format=json", "--", *extra, *CAP_LINTS] if extra else LINT_ARGS
+    same = same_at_base(paths, workspace, dependents, scripts, fmt_changed.manifest_dirs(repo, base)) \
+        if compare and args.panic_ratchet else frozenset()
     ratchet_inputs_changed = False
     if args.panic_ratchet and base and set(base) != {"0"}:
         try:
@@ -205,8 +222,9 @@ def main(argv: list[str] | None = None) -> int:
             ratchet_inputs_changed = True
     if paths is None or ratchet_inputs_changed or any(path in WHOLE_WORKSPACE for path in paths):
         if args.panic_ratchet:
-            return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet, compare)
-        command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *lint_args]
+            return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet, compare,
+                                 same)
+        command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *LINT_ARGS]
         scope = "the whole cmux-tui workspace"
     else:
         touched = fmt_changed.touched(paths, known, fmt_changed.manifest_dirs(repo, base))
@@ -222,16 +240,15 @@ def main(argv: list[str] | None = None) -> int:
         packages = [arg for name in selected for arg in ("-p", name)]
         if args.panic_ratchet:
             return panic_ratchet(repo, packages, any(name in libs for name in selected), ", ".join(selected),
-                                 args.panic_ratchet, compare)
-        command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *lint_args]
+                                 args.panic_ratchet, compare, same)
+        command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *LINT_ARGS]
         scope = ", ".join(selected)
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
     text: list[str] = []
-    result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text, quiet)
+    result = run_clippy(warnings_soft(command, repo), repo / ROOT, repo, text)
     report_lints(result.lints, scope)
-    report_ratchet_hits(result.ratchet_hits, scope)
     if result.rc and not result.lock and args.autofixed_ok and paths is not None and autofixed(
             repo, command, paths, workspace, args.autofixed_ok):
         return 0
@@ -251,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
             nonlocal red_files
             print(" ".join(argv), flush=True)
             out: list[str] = []
-            run = run_clippy(warnings_soft(argv, repo), repo / ROOT, repo, out, quiet)
+            run = run_clippy(warnings_soft(argv, repo), repo / ROOT, repo, out)
             report_lints(run.lints, scope)
             red_files = run.red_files
             lints_only = run.rc and not run.lock and not run.compile_errors and run.lint_errors
@@ -344,33 +361,17 @@ class ClippyRun(NamedTuple):
     lints: list[dict]  # each lint diagnostic once: code, level, file, line, column, message
     compile_errors: int  # error diagnostics that are not lints (an E code or none), summaries aside
     lint_errors: int  # error diagnostics that are lints (a level --cap-lints did not reach)
-    ratchet_hits: int = 0  # warnings of the panic ratchet's lints (--ratchet-lints), neither rendered nor listed
 
 
-def ratchet_flags(repo: Path) -> list[str]:
-    """The panic ratchet's clippy lint flags (`-W clippy::unwrap_used ...`), from the ratchet itself."""
-    return subprocess.run([sys.executable, str(repo / RATCHET), "--flags"], check=True,
-                          stdout=subprocess.PIPE, text=True).stdout.split()
-
-
-def report_ratchet_hits(count: int, scope: str) -> None:
-    if count:
-        print(f"cmux-tui-clippy-changed: {count} panic ratchet lint warning(s) in {scope} (all targets) left to the "
-              f"panic ratchet step, which judges its production hits against the baseline")
-
-
-def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None = None,
-               quiet: frozenset[str] = frozenset()) -> ClippyRun:
+def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None = None) -> ClippyRun:
     """Run clippy (`--message-format=json`) with each diagnostic's rendered text and cargo's own lines
     passed to stderr as they come, and sort what it said into lints and compile errors. TEXT, when given,
-    collects every raw line (ci-oops fault isolation reads cargo's `could not compile` lines from it).
-    A warning whose lint is in QUIET (the panic ratchet's, which ride along only so its step reuses this build)
-    is counted, not rendered or listed: tests' arithmetic and unwraps would bury the lints this check reports."""
+    collects every raw line (ci-oops fault isolation reads cargo's `could not compile` lines from it)."""
     files: list[str] = []
     lints: list[dict] = []
     seen: set[tuple] = set()
     lock = None
-    compile_errors = lint_errors = ratchet_hits = 0
+    compile_errors = lint_errors = 0
     process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, errors="replace")
     assert process.stdout is not None
@@ -395,13 +396,10 @@ def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None
         if item.get("reason") != "compiler-message":
             continue
         message = item.get("message") or {}
-        level = message.get("level") or ""
-        code = (message.get("code") or {}).get("code") or ""
-        if code in quiet and level == "warning":
-            ratchet_hits += 1
-            continue
         if rendered := message.get("rendered"):
             sys.stderr.write(rendered if rendered.endswith("\n") else rendered + "\n")
+        level = message.get("level") or ""
+        code = (message.get("code") or {}).get("code") or ""
         span = next((s for s in message.get("spans") or [] if s.get("is_primary")), None)
         is_lint = bool(code) and not COMPILE_ERROR_CODE.match(code)
         if level.startswith("error"):
@@ -420,7 +418,7 @@ def run_clippy(command: list[str], cwd: Path, repo: Path, text: list[str] | None
                 seen.add(key)
                 lints.append(lint)
     sys.stderr.flush()
-    return ClippyRun(process.wait(), files, lock, lints, compile_errors, lint_errors, ratchet_hits)
+    return ClippyRun(process.wait(), files, lock, lints, compile_errors, lint_errors)
 
 
 def escape_data(text: str) -> str:
@@ -493,7 +491,8 @@ def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
             Path(verdict).write_text("base red\n", encoding="utf-8")
 
 
-def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "") -> int:
+def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "",
+                  same: frozenset[str] = frozenset()) -> int:
     """Lint the production targets of `packages` with the ratchet's flags into `out`, then let
     the ratchet judge them. Cargo refuses `--lib` when no selected package has a library.
     With `compare` (a base commit) a HEAD the baseline already passes is green as it stands:
@@ -502,7 +501,12 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
     counts the base does not reach. On a green PR that skips one lint of the changed packages
     (80 s of the job's 6 min on #37445, run 42334950081).
     An optional member the clippy step before it left out (ci-oops, CMUX_OOPS_DROPPED_CARGO_MEMBER) is left out here
-    too: it does not compile, and the ratchet keeps its baseline row."""
+    too: it does not compile, and the ratchet keeps its baseline row.
+    SAME (same_at_base) names the crates this change reaches none of the inputs of: their base run would be this
+    one, so before linting the base the ratchet judges with their HEAD counts as the base's. Green there, every
+    count over the baseline is in one of them, where a base run says the same, and the base is not linted:
+    2026-11-27, every sampled green ratchet linted the base (2m18 of 5m50 on pool step 136ec56c, 2m28 of 5m07 on
+    hq run 45940434974), each for crates over the baseline on the base that the change never touched."""
     if (oops := load_isolate(repo)) and (gone := oops.dropped_from_env("cargo-member")):
         print(f"cmux-tui-clippy-changed: leaving out {', '.join(gone)} (ci-oops: it does not compile on this pull "
               "request; the clippy step filed its follow-up)", flush=True)
@@ -511,7 +515,8 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
             print("cmux-tui-clippy-changed: no package left for the panic ratchet", flush=True)
             return 0
     ratchet = repo / RATCHET
-    flags = ratchet_flags(repo)
+    flags = subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
+                           stdout=subprocess.PIPE, text=True).stdout.split()
     targets = ["--lib", "--bins"] if has_lib else ["--bins"]
     command = ["cargo", "clippy", "--locked", *packages, *targets, "--message-format=json", "--", *flags, *CAP_LINTS]
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -539,6 +544,14 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
             print(strict.stdout, end="", flush=True)
             print(f"cmux-tui-clippy-changed: HEAD passes the baseline, so the base {compare} is not linted", flush=True)
             return 0
+        if same:
+            trial = subprocess.run([*judge, "--same-at-base", ",".join(sorted(same))], stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, text=True)
+            if trial.returncode == 0:
+                print(trial.stdout, end="", flush=True)
+                print(f"cmux-tui-clippy-changed: HEAD is over the baseline only in crates this change does not reach "
+                      f"(their base counts are HEAD's), so the base {compare} is not linted", flush=True)
+                return 0
         base_out = out.with_name(out.name + ".base")
         head = fmt_changed.git(repo, "rev-parse", "HEAD").strip()
         print(f"cmux-tui-clippy-changed: HEAD is over the baseline; panic ratchet on {scope} at the base {compare}",

@@ -61,10 +61,6 @@ summary_json() {
 }
 case "${CLIPPY_JSON:-}" in
   warn) lint_json warning; lint_json warning; echo '{"reason":"build-finished","success":true}'; exit 0 ;;
-  ratchet)
-    lint_json warning
-    printf '{"reason":"compiler-message","message":{"level":"warning","code":{"code":"clippy::unwrap_used"},"message":"used `unwrap()` on an `Option` value","rendered":"warning: used `unwrap()` on an `Option` value\\\\n  --> crates/a/tests/journey.rs:2:5\\\\n","spans":[{"is_primary":true,"file_name":"crates/a/tests/journey.rs","line_start":2,"column_start":5}]}}\n'
-    echo '{"reason":"build-finished","success":true}'; exit 0 ;;
   build-script) lint_json error; echo "error: failed to run custom build command for pkg-a v0.1.0" >&2; exit 101 ;;
   deny) lint_json error; summary_json; echo "error: could not compile pkg-a (lib) due to 1 previous error" >&2; echo '{"reason":"build-finished","success":false}'; exit 101 ;;
   compile)
@@ -90,6 +86,8 @@ if sys.argv[1:] == ["--flags"]:
     sys.exit(0)
 with open(os.environ["RATCHET_LOG"], "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\\n")
+if "--same-at-base" in sys.argv and "RATCHET_SAME_RC" in os.environ:
+    sys.exit(int(os.environ["RATCHET_SAME_RC"]))
 sys.exit(int(os.environ.get("RATCHET_RC", "0")))
 """
 LINT = ["--all-targets", "--message-format=json", "--", "--cap-lints", "warn"]
@@ -268,33 +266,6 @@ class ClippyChangedTests(unittest.TestCase):
         text = summary.read_text()
         self.assertIn("1 lint(s), not blocking", text)
         self.assertIn("`cmux-tui/crates/a/src/lib.rs:3` clippy::needless_return", text)
-
-    def test_ratchet_lints_ride_along_so_the_ratchet_step_reuses_the_build(self) -> None:
-        # goal ci-min-per-pr-14: the ratchet's `--lib --bins` run with these flags finds its units checked.
-        self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t2() {}\n")
-        result = self.run_check("--base", self.base, "--ratchet-lints")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d",
-                                         "--all-targets", *PANIC]])
-        self.assertEqual(self.ratchet_calls(), [], "the clippy step only borrows the flags; the ratchet step judges")
-
-    def test_a_ratchet_lint_warning_is_counted_not_annotated(self) -> None:
-        self.change("cmux-tui/crates/a/src/lib.rs")
-        summary = self.tmp / "summary.md"
-        result = self.run_check("--base", self.base, "--ratchet-lints",
-                                env_extra={"CLIPPY_JSON": "ratchet", "GITHUB_STEP_SUMMARY": str(summary)})
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        warnings = [line for line in result.stdout.splitlines() if line.startswith("::warning file=")]
-        self.assertEqual(len(warnings), 1, warnings)
-        self.assertIn("needless_return", warnings[0])
-        self.assertNotIn("unwrap()", result.stderr + summary.read_text())
-        self.assertIn("1 panic ratchet lint warning(s)", result.stdout)
-
-    def test_a_ratchet_lint_is_reported_as_any_lint_without_ratchet_lints(self) -> None:
-        self.change("cmux-tui/crates/a/src/lib.rs")
-        result = self.run_check("--base", self.base, env_extra={"CLIPPY_JSON": "ratchet"})
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("title=clippy clippy%3A%3Aunwrap_used", result.stdout)
 
     def test_a_lint_cargo_stopped_on_still_passes(self) -> None:
         # A level --cap-lints did not reach (an error-level lint): cargo exits non-zero, but only lints were in the way.
@@ -556,7 +527,48 @@ class ClippyChangedTests(unittest.TestCase):
         base_out = out.with_name(out.name + ".base")
         self.assertIn('"build-finished"', base_out.read_text())
         strict = self.judged(out)
-        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--base-clippy-json", str(base_out)]])
+        # pkg-b is the one member the change reaches nothing of: the ratchet tries it as the base's first.
+        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--same-at-base", "b"],
+                                                [*strict, "--base-clippy-json", str(base_out)]])
+
+    def test_compare_base_skips_the_base_lint_when_head_is_over_only_where_the_change_reaches_nothing(self) -> None:
+        # goal ci-min-per-pr-14: every sampled green ratchet linted the base for crates the base was already over in.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        head = self.git("rev-parse", "HEAD").strip()
+        heads = self.tmp / "heads.log"
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1", "RATCHET_SAME_RC": "0"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(heads.read_text().split(), [head], "the base is never checked out")
+        self.assertFalse(out.with_name(out.name + ".base").exists())
+        strict = self.judged(out)
+        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--same-at-base", "b"]])
+        self.assertIn("is not linted", result.stdout)
+
+    def same_tried(self, *changes: str) -> list[list[str]]:
+        for path in changes:
+            self.write(path, "changed\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "change")
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                       env_extra={"RATCHET_RC": "1", "RATCHET_SAME_RC": "0"})
+        return [call[call.index("--same-at-base") + 1].split(",") for call in self.ratchet_calls()
+                if "--same-at-base" in call]
+
+    def test_any_changed_file_of_a_crate_reaches_it(self) -> None:
+        # An include_str! or a build input is not a .rs file, yet changes what the crate compiles.
+        self.assertEqual(self.same_tried("cmux-tui/crates/a/src/lib.rs", "cmux-tui/crates/b/data.json"), [])
+        self.assertEqual(len(self.calls()), 2, "the base is linted")
+
+    def test_a_member_with_a_build_script_is_never_taken_from_head(self) -> None:
+        self.kinds["pkg-b"] = ["lib", "custom-build"]
+        self.assertEqual(self.same_tried("cmux-tui/crates/c/src/lib.rs"), [["a"]])
+
+    def test_a_vendored_or_workspace_wide_change_lints_the_base(self) -> None:
+        self.assertEqual(self.same_tried("cmux-tui/crates/a/src/lib.rs", "cmux-tui/vendor/up/src/lib.rs"), [])
+        self.assertEqual(self.same_tried("cmux-tui/Cargo.lock"), [])
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")
@@ -610,7 +622,7 @@ class RatchetAgainstBaseTests(unittest.TestCase):
             "unwrap_used": 0, "indexing_slicing": 693, "arithmetic_side_effects": 10}}, "lints": lints}))
 
     def judge(self, head: str, base: str | None = None,
-              cargo_log: Path | None = None) -> subprocess.CompletedProcess[str]:
+              cargo_log: Path | None = None, same: str = "") -> subprocess.CompletedProcess[str]:
         (self.tmp / "head.jsonl").write_text(head)
         args = ["--repo", str(self.tmp), "--clippy-json", str(self.tmp / "head.jsonl")]
         if cargo_log is not None:
@@ -618,6 +630,8 @@ class RatchetAgainstBaseTests(unittest.TestCase):
         if base is not None:
             (self.tmp / "base.jsonl").write_text(base)
             args += ["--base-clippy-json", str(self.tmp / "base.jsonl")]
+        if same:
+            args += ["--same-at-base", same]
         return subprocess.run([sys.executable, str(self.tmp / "scripts/cmux-next/rust_panic_ratchet.py"), *args],
                               capture_output=True, text=True, cwd=self.tmp)
 
@@ -626,6 +640,15 @@ class RatchetAgainstBaseTests(unittest.TestCase):
         result = self.judge(clippy_jsonl(699), clippy_jsonl(693))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("acpmux: clippy::indexing_slicing 699 > baseline 693", result.stderr)
+
+    def test_same_at_base_takes_the_crates_own_counts_as_the_bases(self) -> None:
+        # The wrapper names crates whose inputs the change does not reach: their base run would be this one.
+        same = self.judge(clippy_jsonl(700), same="acpmux")
+        self.assertEqual(same.returncode, 0, same.stderr)
+        self.assertIn("the base's red, not this change's", same.stderr)
+        other = self.judge(clippy_jsonl(700), same="cmux-other")
+        self.assertEqual(other.returncode, 1, other.stderr)
+        self.assertIn("acpmux: clippy::indexing_slicing 700 > baseline 693", other.stderr)
 
     def test_a_base_already_over_its_row_is_the_bases_red(self) -> None:
         result = self.judge(clippy_jsonl(700), clippy_jsonl(700))
