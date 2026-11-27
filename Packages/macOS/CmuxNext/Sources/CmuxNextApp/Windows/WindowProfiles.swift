@@ -35,9 +35,9 @@ enum WindowProfiles {
         return members.filter { shows($0, profile: profile, machines: machines, membership: membership) }
     }
 
-    /// `visible` without the workspaces whose close is under way (`ClosingWorkspaces`), unless none would be left.
-    static func shown(_ members: [String], profile: ProfileID, machines: MachineRegistry) -> [String] {
-        ClosingWorkspaces.shared.survivors(visible(members, profile: profile, machines: machines))
+    /// `visible` without the workspaces whose close is under way (`ClosingWorkspaces`), unless none would be left. `pinning`: a member the window selected while Spaces is off, shown while its pin to `profile` is in flight (`WindowManager.pin`): a delta before the pin (a banner click's read ack) once put the window on its neighbor for good (notify-banner-click burst-click, relaunch-click).
+    static func shown(_ members: [String], profile: ProfileID, machines: MachineRegistry, pinning: String? = nil) -> [String] {
+        ClosingWorkspaces.shared.survivors(RoomMembership.shown(visible(members, profile: profile, machines: machines), pinning: pinning, members: members))
     }
 
     /// The room a workspace is in for "select it and switch the window":
