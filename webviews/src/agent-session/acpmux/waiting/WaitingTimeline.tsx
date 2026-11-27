@@ -6,6 +6,8 @@
 // chats or 500 status changes. Nothing here animates.
 import { type CSSProperties, useState } from "react";
 
+import { Button } from "../../../ui/Button";
+import { Tooltip } from "../../../ui/Tooltip";
 import { currentLanguage, useT } from "../i18n";
 import { type ReadWaitingDay, useWaitingDay } from "./useWaitingDay";
 import { type AcpmuxSessionEntry, sessionTitle } from "../sessionList";
@@ -166,33 +168,29 @@ function Lane({
     });
   return (
     <div className="acpmux-waiting-row" style={{ "--waiting-index": index } as CSSProperties}>
-      <span className="acpmux-waiting-title" title={title}>
-        {title}
-      </span>
+      <Tooltip label={title}>
+        <span className="acpmux-waiting-title">{title}</span>
+      </Tooltip>
       <span className="acpmux-waiting-track">
         {ticks.map((tick) => (
           <i key={tick.at} className="acpmux-waiting-tick" style={{ "--waiting-left": tick.left } as CSSProperties} />
         ))}
         {laid.map((rect) =>
           rect.state === "blocked" ? (
-            <button
-              key={`b${rect.start}`}
-              type="button"
-              className="acpmux-waiting-span"
-              data-state="blocked"
-              style={place(rect)}
-              title={label(rect)}
-              aria-label={`${title}: ${label(rect)}`}
-              onClick={() => onJump(lane.sessionId, rect.turnId)}
-            />
+            <Tooltip key={`b${rect.start}`} label={label(rect)}>
+              <Button
+                bare
+                className="acpmux-waiting-span"
+                data-state="blocked"
+                style={place(rect)}
+                aria-label={`${title}: ${label(rect)}`}
+                onClick={() => onJump(lane.sessionId, rect.turnId)}
+              />
+            </Tooltip>
           ) : (
-            <span
-              key={`w${rect.start}`}
-              className="acpmux-waiting-span"
-              data-state="working"
-              style={place(rect)}
-              title={label(rect)}
-            />
+            <Tooltip key={`w${rect.start}`} label={label(rect)}>
+              <span className="acpmux-waiting-span" data-state="working" style={place(rect)} />
+            </Tooltip>
           ),
         )}
         <i className="acpmux-waiting-now" />

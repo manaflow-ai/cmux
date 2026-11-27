@@ -2,7 +2,7 @@
 import { Effect, Either, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
 import { logTimedEvent, timedPhase, type TimedPhases } from "../lib/timing.ts";
-import type { CreateAdmissionClient } from "../limits/create-admission.ts";
+import { PROVIDER_CREATE_BUDGET_MS, type CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
@@ -106,6 +106,9 @@ const admitSend = (admission: CreateAdmissionClient | undefined, holder: string,
     }),
   );
 };
+
+/** How long a create's provider call may run, its background polls included; its queue slot's lease derives from it. */
+const CREATE_BUDGET_MS = PROVIDER_CREATE_BUDGET_MS;
 
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
   const http = makeUpstreamHttp(config);
@@ -261,7 +264,11 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       // nothing and the same key's retry starts clean, like a failed image read above.
       const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases);
       const token = yield* journal.beginSend().pipe(Effect.onError(() => release));
-      return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000 }).pipe(
+      // Staging, 2026-11-27 05:51-06:01Z: in a burst of creates the provider held POST /v5/vms past the 120 s cut, 13
+      // creates failed at createMs 120000 with no VM yet under the slug to recover, and the caller's retries ran a
+      // journey's create past its 300 s bound. As a background request it answers 202 after 60 s and the stored
+      // answer (the VM) is polled, so a slow create is still one create with its answer.
+      return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000, backgroundUntil: Date.now() + CREATE_BUDGET_MS }).pipe(
         Effect.tap(keep),
         Effect.tap((body) => Effect.sync(() => { if (phases !== undefined) Object.assign(phases, providerTimings(body)); })),
         Effect.flatMap(decode), Effect.flatMap(checkedSent),

@@ -70,6 +70,8 @@ import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
 import { liveThought, thoughtOnly } from "../liveThought";
+import { changeHidden } from "../drawnRows";
+import { callOnly, liveCallLine, setLiveLine } from "../liveCallLine";
 import { liveSummary, usageOnly } from "../liveSummary";
 import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
@@ -169,8 +171,8 @@ import {
   heldStartStop,
   sendsHeldForHost,
   untilHostAnswers,
-  paneSends,
   pageClientLink,
+  paneSends,
 } from "../sendWhenReady";
 import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
@@ -920,6 +922,39 @@ export function paneSnapshotEffect({
     },
   });
   let cancelled = false;
+  /// The pane draws `next` (every bypass's store starts over from it). A redraw of the whole pane
+  /// is a transition a key can go before, unless it answers what the person just did or opens
+  /// another chat (paneSnapshotLane.ts), or the live line ran ahead of a pass that drew the pane's
+  /// older rows (`urgent`, liveCallLine.ts `flush`).
+  const redrawPane = (next: AcpmuxSnapshot, urgent: boolean) => {
+    streamingRow.clear();
+    liveSummary.clear();
+    toolOutputEpoch.current = liveToolOutput.redraw();
+    thoughtEpoch.current = liveThought.redraw();
+    liveCallLine.redraw(next);
+    const drewBefore = drawnSnapshot.current;
+    drawnSnapshot.current = next;
+    const draw = () =>
+      setSnapshot((previous) => {
+        if (
+          next.canHandoff &&
+          !next.handoff?.ready &&
+          next.sessionId === previous.sessionId &&
+          previous.handoff?.record
+        )
+          return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
+        return next;
+      });
+    if (!urgent) return drawPaneSnapshot(drewBefore, next, pendingPaneDraw, draw);
+    pendingPaneDraw.drew(next, true);
+    draw();
+  };
+  // A pass drew the running turn from the pane's older rows while its line ran ahead on hidden
+  // calls (liveCallLine.ts): the client's newest snapshot, at once.
+  const unregisterLineFlush = liveCallLine.onFlush(() => {
+    const next = receivedSnapshot.current;
+    if (!cancelled && next) redrawPane(next, true);
+  });
   // The New Tab page closes (AgentPaneView.discardUnsentChat, cx-e2aa): a chat a chip pick started
   // behind it, never sent, is discarded.
   const discardUnsent = () => harnessSwitch.cancelDeferred();
@@ -1340,9 +1375,14 @@ export function paneSnapshotEffect({
           const drawn = drawnSnapshot.current;
           const received = receivedSnapshot.current;
           receivedSnapshot.current = next;
+          // The replay bench's per-kind table: records whose one changed row is hidden under the
+          // running turn's closed fold, and those that still redraw the pane (drawnRows.ts).
+          const hiddenChange = acpmuxPerf.enabled && received !== undefined && changeHidden(received, next);
+          if (hiddenChange) acpmuxPerf.render("record:row-hidden");
           const at = drawn ? streamedOnly(drawn, next) : -1;
           if (drawn && at >= 0) {
             streamingRow.set(next.rows[at]!, drawn.rows[at]!);
+            liveCallLine.follow(received, next);
             return;
           }
           // Only a running command's output grew: the row that draws it reads it
@@ -1354,6 +1394,7 @@ export function paneSnapshotEffect({
               : undefined;
           if (call) {
             liveToolOutput.set(call.id, call.output, call.before);
+            liveCallLine.follow(received, next);
             return;
           }
           // Only a thought grew: the row that draws it reads it (liveThought.ts).
@@ -1363,34 +1404,28 @@ export function paneSnapshotEffect({
               : undefined;
           if (thought) {
             liveThought.set(thought.id, thought.before, thought.after);
+            liveCallLine.follow(received, next);
+            return;
+          }
+          // Only a quiet call under the running turn's closed fold started or ended: the live line
+          // reads it (liveCallLine.ts); the pane, the transcript and the composer keep what they drew.
+          const line =
+            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+              ? callOnly(received, next)
+              : undefined;
+          if (line) {
+            setLiveLine(line.line);
             return;
           }
           // Only the usage numbers moved (the context count, usage, time breakdown): the parts that
           // draw them read them (liveSummary.ts); the pane, transcript and header keep what they drew.
           if (drawn && !pendingPaneDraw.pending && usageOnly(drawn, next)) {
             liveSummary.set(drawn.summary!, next.summary!);
+            liveCallLine.follow(received, next);
             return;
           }
-          streamingRow.clear();
-          liveSummary.clear();
-          toolOutputEpoch.current = liveToolOutput.redraw();
-          thoughtEpoch.current = liveThought.redraw();
-          // A redraw of the whole pane is a transition a key can go before, unless it answers what
-          // the person just did or opens another chat (paneSnapshotLane.ts).
-          const drewBefore = drawnSnapshot.current;
-          drawnSnapshot.current = next;
-          drawPaneSnapshot(drewBefore, next, pendingPaneDraw, () =>
-            setSnapshot((previous) => {
-              if (
-                next.canHandoff &&
-                !next.handoff?.ready &&
-                next.sessionId === previous.sessionId &&
-                previous.handoff?.record
-              )
-                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
-              return next;
-            }),
-          );
+          if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
+          redrawPane(next, false);
         },
         () => {
           // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
@@ -2405,6 +2440,9 @@ export function paneSnapshotEffect({
         // Composer drafts belong to the daemon session so every host can restore them.
         "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
         "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
+        "chat.readDraftAttachments": ({ sessionId }) => client.readDraftAttachments(String(sessionId)),
+        "chat.writeDraftAttachments": ({ sessionId, attachments }) =>
+          client.writeDraftAttachments(String(sessionId), Array.isArray(attachments) ? attachments : []),
         "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
         "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
         "file.search": ({ path, query, limit }) =>
@@ -3159,6 +3197,7 @@ export function paneSnapshotEffect({
   void connectHost();
   return () => {
     cancelled = true;
+    unregisterLineFlush();
     unregisterViewBridge?.();
     for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
     for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
