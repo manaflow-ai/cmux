@@ -15,6 +15,7 @@ import { Button } from "../../../ui/Button";
 import { useAfterDelay } from "../afterDelay";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { Tooltip } from "../../../ui/Tooltip";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { useFoldMotion } from "./foldMotion";
 import {
@@ -314,7 +315,6 @@ export function StorageSection({
         key={item.path}
         className="acpmux-session-info-task acpmux-session-info-storage__row"
         data-failed={error !== undefined ? "" : undefined}
-        title={item.branch ? `${item.path} (${item.branch})` : item.path}
       >
         <label className="acpmux-session-info-task__open acpmux-session-info-storage__pick">
           <input
@@ -328,12 +328,12 @@ export function StorageSection({
           />
           <span className="acpmux-session-info-task__command">{item.name}</span>
           {detail && <span className="acpmux-session-info-storage__detail">{detail}</span>}
-          <span
-            className="acpmux-session-info-task__time"
-            title={item.bytes === undefined ? t("sessionInfo.storage.notMeasured") : undefined}
+          <Tooltip /* tooltip-allow: an unmeasured size draws a dash, which says nothing on its own */
+            label={t("sessionInfo.storage.notMeasured")}
+            disabled={item.bytes !== undefined}
           >
-            {storageBytes(item.bytes, language)}
-          </span>
+            <span className="acpmux-session-info-task__time">{storageBytes(item.bytes, language)}</span>
+          </Tooltip>
         </label>
       </li>
     );
@@ -357,18 +357,18 @@ export function StorageSection({
     </>
   );
   const selectAll = view.stale.length > 0 && (
-    <button type="button" className="acpmux-session-info-link" disabled={view.freeing} onClick={actions.onToggleAll}>
+    <Button bare className="acpmux-session-info-link" disabled={view.freeing} onClick={actions.onToggleAll}>
       {t(all ? "sessionInfo.storage.selectNone" : "sessionInfo.storage.selectAll")}
-    </button>
+    </Button>
   );
 
   // The one line where a state speaks: it holds its height whatever it says, so nothing under it moves.
   const status = view.notice ? (
     <p className="acpmux-session-info-note acpmux-session-info-storage__status" data-notice={view.notice}>
       {t(view.notice === "busy" ? "sessionInfo.storage.busy" : "sessionInfo.storage.failed")}{" "}
-      <button type="button" className="acpmux-session-info-link" onClick={actions.onRefresh}>
+      <Button bare className="acpmux-session-info-link" onClick={actions.onRefresh}>
         {t("sessionInfo.storage.tryAgain")}
-      </button>
+      </Button>
     </p>
   ) : view.empty ? (
     <p className="acpmux-session-info-note acpmux-session-info-storage__status" aria-live="polite">
@@ -390,16 +390,17 @@ export function StorageSection({
                 {t("sessionInfo.storage.measuring")}
               </span>
             ) : (
-              <button
-                type="button"
-                className="acpmux-session-info-icon-button"
-                aria-label={t("sessionInfo.storage.refresh")}
-                title={t("sessionInfo.storage.refresh")}
-                disabled={busy}
-                onClick={actions.onRefresh}
-              >
-                <Icon name="action.reload" size={12} />
-              </button>
+              <Tooltip label={t("sessionInfo.storage.refresh")}>
+                <Button
+                  bare
+                  className="acpmux-session-info-icon-button"
+                  aria-label={t("sessionInfo.storage.refresh")}
+                  disabled={busy}
+                  onClick={actions.onRefresh}
+                >
+                  <Icon name="action.reload" size={12} />
+                </Button>
+              </Tooltip>
             )}
           </span>
         </div>
@@ -426,9 +427,12 @@ export function StorageSection({
         </ul>
       )}
       {view.errors.length > 0 && (
-        <p className="acpmux-session-info-note acpmux-session-info-storage__errors" title={view.errors.join("\n")}>
-          {view.errors[0]}
-        </p>
+        <Tooltip /* tooltip-allow: the line shows the first error; this lists every one */
+          label={view.errors.join("\n")}
+          disabled={view.errors.length < 2}
+        >
+          <p className="acpmux-session-info-note acpmux-session-info-storage__errors">{view.errors[0]}</p>
+        </Tooltip>
       )}
       {(view.stale.length > 0 || view.freed !== undefined) && (
         <div className="acpmux-session-info-storage__foot">
@@ -469,11 +473,9 @@ export function StorageSection({
                 <WindowedRows
                   items={view.kept}
                   render={(item) => (
-                    <li key={item.path} className="acpmux-session-info-task" title={item.path}>
+                    <li key={item.path} className="acpmux-session-info-task">
                       <span className="acpmux-session-info-task__command">{item.name}</span>
-                      <span className="acpmux-session-info-storage__detail" title={item.reason}>
-                        {item.reason}
-                      </span>
+                      <span className="acpmux-session-info-storage__detail">{item.reason}</span>
                     </li>
                   )}
                 />
