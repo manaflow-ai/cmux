@@ -16,7 +16,7 @@ jobs:
       - run: echo 'route succeeded'
   optional-gate:
     needs: route
-    if: ${{ false }}
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: cmux-linux
     timeout-minutes: 2
     steps:
@@ -46,7 +46,7 @@ jobs:
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
               out.write('```json\n' + json.dumps(results, indent=2, sort_keys=True) + '\n```\n')
           assert results['optional-gate']['result'] == 'skipped'
-          assert results['control']['outputs']['implicit'] == 'success'
-          assert results['control']['outputs']['explicit'] == 'success'
-          assert results['pipeline']['outputs']['explicit'] == 'success'
+          for caller in ('control', 'pipeline'):
+              for job in ('normalized', 'normalized_explicit', 'unconditional'):
+                  assert results[caller]['outputs'][job] == 'success', (caller, job)
           PY

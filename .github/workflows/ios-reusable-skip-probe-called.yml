@@ -3,38 +3,82 @@ on:
   workflow_call:
     outputs:
       implicit:
-        value: ${{ jobs.implicit-root.result }}
+        value: ${{ jobs.implicit-root.outputs.ran }}
       explicit:
-        value: ${{ jobs.explicit-root.result }}
+        value: ${{ jobs.explicit-root.outputs.ran }}
       implicit_child:
-        value: ${{ jobs.implicit-child.result }}
+        value: ${{ jobs.implicit-child.outputs.ran }}
       explicit_child:
-        value: ${{ jobs.explicit-child.result }}
+        value: ${{ jobs.explicit-child.outputs.ran }}
+      normalized:
+        value: ${{ jobs.normalized-root.outputs.ran }}
+      normalized_explicit:
+        value: ${{ jobs.normalized-explicit-root.outputs.ran }}
+      unconditional:
+        value: ${{ jobs.unconditional-root.outputs.ran }}
 permissions: {}
 jobs:
   implicit-root:
     if: ${{ vars.CI_IOS_FAST_VERDICT != '0' }}
     runs-on: cmux-linux
     timeout-minutes: 2
+    outputs:
+      ran: ${{ steps.proof.outputs.ran }}
     steps:
-      - run: echo 'implicit root ran'
+      - id: proof
+        run: echo "ran=success" >> "$GITHUB_OUTPUT"
   explicit-root:
     if: ${{ !cancelled() && vars.CI_IOS_FAST_VERDICT != '0' }}
     runs-on: cmux-linux
     timeout-minutes: 2
+    outputs:
+      ran: ${{ steps.proof.outputs.ran }}
     steps:
-      - run: echo 'explicit root ran'
+      - id: proof
+        run: echo "ran=success" >> "$GITHUB_OUTPUT"
   implicit-child:
     needs: explicit-root
     if: ${{ needs.explicit-root.result == 'success' }}
     runs-on: cmux-linux
     timeout-minutes: 2
+    outputs:
+      ran: ${{ steps.proof.outputs.ran }}
     steps:
-      - run: echo 'implicit child ran'
+      - id: proof
+        run: echo "ran=success" >> "$GITHUB_OUTPUT"
   explicit-child:
     needs: explicit-root
     if: ${{ !cancelled() && needs.explicit-root.result == 'success' }}
     runs-on: cmux-linux
     timeout-minutes: 2
+    outputs:
+      ran: ${{ steps.proof.outputs.ran }}
     steps:
-      - run: echo 'explicit child ran'
+      - id: proof
+        run: echo "ran=success" >> "$GITHUB_OUTPUT"
+  normalized-root:
+    if: ${{ format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
+    runs-on: cmux-linux
+    timeout-minutes: 2
+    outputs:
+      ran: ${{ steps.proof.outputs.ran }}
+    steps:
+      - id: proof
+        run: echo "ran=success" >> "$GITHUB_OUTPUT"
+  normalized-explicit-root:
+    if: ${{ !cancelled() && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
+    runs-on: cmux-linux
+    timeout-minutes: 2
+    outputs:
+      ran: ${{ steps.proof.outputs.ran }}
+    steps:
+      - id: proof
+        run: echo "ran=success" >> "$GITHUB_OUTPUT"
+  unconditional-root:
+    runs-on: cmux-linux
+    timeout-minutes: 2
+    outputs:
+      ran: ${{ steps.proof.outputs.ran }}
+    steps:
+      - id: proof
+        run: echo "ran=success" >> "$GITHUB_OUTPUT"
