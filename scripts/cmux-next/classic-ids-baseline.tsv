@@ -469,6 +469,7 @@ cmux-tui/crates/cmux-computer-use/src/platform/macos/roles.rs	com.cmuxterm.app"	
 scripts/cmux-next/terminal-scroll-integrity-live.py	/tmp/cmux-debug-{args.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitchTarget.swift	com.cmuxterm.app"	1	keep	the channel switcher names the stable Classic bundle id as a switch target; no read or write under it
 cmux-tui/crates/cmux-agent-pane-policy/src/build_identity.rs	.local/state/cmux"	1	keep	read-only fallback that reaches a NEXT app from before the socket move (SOCKET_STATE_DIR_BEFORE); never written
+cmux-tui/crates/cmux-cloud-config/src/config.rs	com.cmuxterm.app"	1	keep	names the release bundle id as one of the team-signed builds that share the sign-in keychain group (#46910); no read or write under it
 cmux-tui/crates/cmux-cloud-config/src/handoff.rs	com.cmuxterm.app"	2	keep	names Classic's bundle id to recognize it as a cmux app for handoff; no read or write under it
 cmux-tui/crates/cmux-sign-clone-sweep/src/lib.rs	com.cmuxterm.app"	1	keep	bundle-id family matcher for Chromium code-sign clone roots under /private/var/folders (Leo #45151: sweep every cmux app's leftover clones); a clone is removed only when its Info.plist names the same family id; no read or write under a Classic state root
 scripts/cmux-next/cloud-journey.ts	join(bin, "cmux")	1	keep	harness: links the CLI as `cmux` in a temp PATH folder

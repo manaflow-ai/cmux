@@ -2,7 +2,6 @@ public import AppKit
 public import CmuxNextDesignTokens
 public import CmuxNextWakeups
 import Observation
-public import SwiftUI
 
 /// Retries a load the person would only ever answer "yes" to (re-fetch, reconnect, reload a view, re-poll) on its
 /// own, instead of a "Try again" button. Leo, 2026-11-22: "i dont know what kind of decision a "try again" would be
@@ -11,7 +10,7 @@ public import SwiftUI
 ///
 /// The owner calls ``failed()`` when an attempt fails and ``succeeded()`` when one works. After a failure the next
 /// attempt runs after a capped, jittered ``Backoff``, but only while the view is in sight (``setInSight(_:)``, which
-/// ``View/autoRetry(_:)`` drives from appear/disappear and the window's occlusion). Out of sight nothing is armed; back
+/// ``AutoRetrySightView`` drives from appear/disappear and the window's occlusion). Out of sight nothing is armed; back
 /// in sight, a failing load runs one attempt at once. Nothing shows at first: ``showsNotice`` turns true only once the
 /// failures have lasted ``NoticeTiming/connectionQuiet``, and then the view draws at most one quiet line, no button.
 ///
@@ -112,59 +111,32 @@ public final class AutoRetry {
     }
 }
 
-extension View {
-    /// Drives `retry`'s sight from this view: appear and disappear, and its window's occlusion and minimizing.
-    public func autoRetry(_ retry: AutoRetry) -> some View {
-        modifier(AutoRetrySight(retry: retry))
+/// Reports whether its window is in sight: ordered in, not minimized, not fully covered. An AppKit host adds one to the
+/// view whose load an ``AutoRetry`` retries and forwards `changed` to ``AutoRetry/setInSight(_:)``.
+public final class AutoRetrySightView: NSView {
+    public var changed: @MainActor (Bool) -> Void
+    private weak var followed: NSWindow?
+
+    public init(changed: @escaping @MainActor (Bool) -> Void) {
+        self.changed = changed
+        super.init(frame: .zero)
     }
-}
 
-private struct AutoRetrySight: ViewModifier {
-    let retry: AutoRetry
-    @State private var appeared = false
-    @State private var windowVisible = true
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
 
-    func body(content: Content) -> some View {
-        content
-            .background(AutoRetryWindowSight { windowVisible = $0 })
-            .onAppear { appeared = true; retry.setInSight(windowVisible) }
-            .onDisappear { appeared = false; retry.setInSight(false) }
-            .onChange(of: windowVisible) { _, visible in retry.setInSight(appeared && visible) }
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let followed { FrameScheduler.unfollowSight(of: followed, owner: self) }
+        followed = window
+        guard let window else { return }
+        // The app's one occlusion observer tells this view (minimizing changes occlusion too).
+        FrameScheduler.followSight(of: window, owner: self) { [weak self] in self?.report() }
+        report()
     }
-}
 
-/// Reports whether the hosting window is in sight: ordered in, not minimized, not fully covered.
-private struct AutoRetryWindowSight: NSViewRepresentable {
-    let changed: @MainActor (Bool) -> Void
-
-    func makeNSView(context: Context) -> SightView { SightView(changed: changed) }
-    func updateNSView(_ view: SightView, context: Context) { view.changed = changed }
-
-    final class SightView: NSView {
-        var changed: @MainActor (Bool) -> Void
-        private weak var followed: NSWindow?
-
-        init(changed: @escaping @MainActor (Bool) -> Void) {
-            self.changed = changed
-            super.init(frame: .zero)
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) { nil }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let followed { FrameScheduler.unfollowSight(of: followed, owner: self) }
-            followed = window
-            guard let window else { return }
-            // The app's one occlusion observer tells this view (minimizing changes occlusion too).
-            FrameScheduler.followSight(of: window, owner: self) { [weak self] in self?.report() }
-            report()
-        }
-
-        private func report() {
-            guard let window else { return }
-            changed(!FrameScheduler.windowIsOutOfSight(window))
-        }
+    private func report() {
+        guard let window else { return }
+        changed(!FrameScheduler.windowIsOutOfSight(window))
     }
 }

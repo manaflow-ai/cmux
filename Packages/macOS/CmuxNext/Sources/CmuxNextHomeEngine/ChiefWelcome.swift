@@ -87,15 +87,15 @@ public nonisolated struct ChiefWelcome: Sendable {
     /// Without typing, all messages land in one import, at once (`welcome.playSteps`).
     /// - Parameters:
     ///   - now: The messages' clock (each is dated when it lands).
-    ///   - wait: Waits out a pause (the host's one-shot deadline; tests record it).
+    ///   - pause: Waits out a pause (the host's one-shot deadline; tests record it).
     /// - Throws: The owner's import error; the dots are gone and the later messages are not sent.
-    public func play(now: @Sendable () -> Date = { Date() }, wait: @Sendable (Duration) async -> Void) async throws {
+    public func play(now: @Sendable () -> Date = { Date() }, pause: @Sendable (Duration) async -> Void) async throws {
         let plan: PlayReply = welcomeRule("welcome.playSteps", PlayInput(texts: Texts(about: text), showsTyping: showsTyping),
                                           fallback: PlayReply(beats: [], steps: []))
         let beats = plan.beats.map(\.beat)
         for step in plan.steps {
             switch step {
-            case .wait(let ms): await wait(.milliseconds(ms))
+            case .pause(let ms): await pause(.milliseconds(ms))
             case .typing(let on): await owner.showChiefTyping(on)
             case .importBeats(let indexes):
                 do {
@@ -160,14 +160,14 @@ private nonisolated struct PlayReply: Decodable {
     var steps: [Step]
 
     nonisolated enum Step: Decodable {
-        case wait(Int64)
+        case pause(Int64)
         case typing(Bool)
         case importBeats([Int])
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: Keys.self)
             switch try container.decode(String.self, forKey: .kind) {
-            case "wait": self = .wait(try container.decode(Int64.self, forKey: .ms))
+            case "wait": self = .pause(try container.decode(Int64.self, forKey: .ms))
             case "typing": self = .typing(try container.decode(Bool.self, forKey: .on))
             case "import": self = .importBeats(try container.decode([Int].self, forKey: .beats))
             case let kind: throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "unknown step \(kind)")
