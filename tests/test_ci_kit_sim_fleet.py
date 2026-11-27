@@ -125,9 +125,11 @@ class Wait(unittest.TestCase):
     def test_a_queued_job_is_waited_on_until_the_bound(self):
         self.fake.answers("artifacts", "")
         self.fake.answers("jobs", "queued")
-        done, out = self.fake.run("wait", BOUND="1", POLL="1")
+        # bash's SECONDS is whole seconds and can tick just after the start, so a bound of 1 s could end after one
+        # read (a flake, 1 run in 3). A bound of 3 s is at least 2 real seconds: a second read always comes first.
+        done, out = self.fake.run("wait", BOUND="3", POLL="1")
         self.assertEqual(out, {"hit": "false"})
-        self.assertIn("none within 1 s", done.stdout)
+        self.assertIn("none within 3 s", done.stdout)
         self.assertGreaterEqual(int((self.fake.dir / "jobs.n").read_text()), 2)
 
     def test_one_failed_read_is_retried(self):
