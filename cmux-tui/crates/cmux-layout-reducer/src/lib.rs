@@ -54,8 +54,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-pub mod pane_close;
 pub mod layout_model;
+pub mod pane_close;
 mod rows;
 pub mod screen_layout;
 pub mod sidebar_archive_marks;
