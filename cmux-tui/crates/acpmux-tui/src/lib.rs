@@ -54,6 +54,8 @@ fn entry(
     Box::pin(run(client, session))
 }
 pub use state::*;
+#[cfg(test)]
+mod bounds_tests;
 mod collapse;
 pub mod dialog;
 pub mod editor;
