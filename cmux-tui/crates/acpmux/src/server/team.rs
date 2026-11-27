@@ -185,10 +185,15 @@ pub(super) async fn submit(
         let (queue_hub, mesh) = (hub.clone(), mesh.clone());
         // Durable admission already succeeded. A slow hub or an older offline backlog must
         // not hold this RPC indefinitely; the replay task survives the bounded fast path.
-        let replay = hub.scope.spawn_until_cancelled("team-send-admission", async move {
+        let mut replay = hub.scope.spawn_until_cancelled("team-send-admission", async move {
             queue_hub.flush_team_send_queue(mesh).await
         });
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), replay).await;
+        if tokio::time::timeout(std::time::Duration::from_secs(1), &mut replay).await.is_err() {
+            // Dropping a Tokio join handle detaches its task. Abort and join a stalled send so
+            // its hub reference and queue lock are released before this RPC returns.
+            replay.abort();
+            let _ = replay.await;
+        }
     }
     let receipt = hub
         .team_send_queue
