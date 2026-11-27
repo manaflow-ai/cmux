@@ -1,37 +1,10 @@
 #!/usr/bin/env python3
-"""Every nightly.yml job runs only on our own Mac minis.
+"""Nightly jobs route by platform need without sharing credentials with PR code.
 
-Lawrence, 2026-10-30: nightlies run ONLY on our own Mac minis. Not Blacksmith
-(tests/test_nightly_never_blacksmith.py), and not GitHub-hosted Ubuntu or macOS or the fleet's
-GCP Linux VMs either. Run 41751864551 still put decide and sentry-dsyms-nightly on ubuntu-24.04
-and the release-signer pool (signer-build, signer-app, signer-dmg-image, signer-dmg, and the
-legacy-identity copies) on Linux.
-
-1. Each job's runs-on, evaluated for manaflow-ai over sampled attempts, refs, events and picker
-   outputs, names a glaeda label (or a variable that holds one). Lawrence, 2026-11-04: "Never move a
-   nightly job to Blacksmith, a GitHub-hosted runner or another mini". HOSTED_TAIL_JOBS are the only
-   exceptions, each with its reason, and this list may only shrink. CMUX_LINUX_JOBS, the secret-free Linux
-   controls, take our own persistent Linux pool (cmux-linux) instead. Each HOSTED_TAIL_JOBS job holds a release secret
-   (so never the nightly mini's shared light runners) and runs only in the tail (run_tail: on nightly-next
-   the dispatched run outside the push group), so a JIT VM's start never holds the push group or the
-   feed. On every attempt each takes the owned one-job JIT label cmux-gcp-nightly-jit-x64 (an ephemeral
-   GCP VM), never GitHub-hosted Ubuntu: hosted runners start nothing in manaflow-ai (Leo, 2026-11-21:
-   "the ci must flow"), and hosted ubuntu-24.04 had 307 jobs queued, the oldest for 39 min, on 2026-11-08. On the
-   trusted signing runner each would hold the whole Mac (glaeda's exclusive class) for a long or
-   wait-bound stretch while the next run builds and signs there. Every job in the push run, and every
-   short secret job, takes the trusted signing runner instead. HOSTED_LOOP_JOBS is Leo's override for one
-   loop-run job, the GitHub release upload (2026-11-08: "no. if this is still a good idea, we can still do it."):
-   it holds the release App key, so it runs on an ephemeral one-job JIT VM, as publish-release-notes does with the
-   same key, rather than holding the whole signing Mac; it never takes a mini or the whole-Mac claim.
-2. The Linux release-signer pool is gone: the jobs, the sign_pool input and the
-   CI_NIGHTLY_NEXT_SIGN_POOL switch. The Mac signers sign every nightly.
-3. The fleet-Linux early admission is gone from decide: no step starts or reads it.
-4. The secret-holding jobs glaeda already admits as exclusive hold the whole mini as the Mac
-   signing jobs do: the claim gate first, the claim before any secret, a clean workdir, and an
-   always() step that wipes this job's credentials and files.
-5. The notarization recovery takes an owned pick of its own (signing_runner.py owned, held to its
-   attempt), not the side lane.
-6. ensure-gh.sh and reel-install-ffmpeg.sh work on a Mac (Homebrew), with no apt-get or sudo.
+Leo, 2026-11-25: free Macs from work that does not need macOS. Read-only,
+secret-free controls use cmux-linux. Credentialed controls and upload-only
+publishers use the owned one-job JIT Linux pool. Native builds and signing
+stay on owned Macs. Existing environment, claim and cleanup gates stay intact.
 """
 
 from __future__ import annotations
@@ -51,7 +24,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
-from test_nightly_trusted_routing import evaluate  # noqa: E402
+from test_nightly_trusted_routing import (evaluate, EPHEMERAL_CONTROL_JOBS, EPHEMERAL_PUBLISHER_JOBS,
+                                         CMUX_LINUX_JOBS, holds_credential)  # noqa: E402
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import JOBS, ROOT  # noqa: E402
 import workflow_jobs  # noqa: E402
@@ -115,10 +89,6 @@ HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 HOSTED_DISPATCH_RUNS_ON = f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{JIT_LABEL}' }}}}"
 # A fork takes GitHub-hosted Ubuntu.
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
-CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf", "published-build",
-                   "check-nightly-webviews", "early-nightly-webviews")
 # RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
                        "published-build")
@@ -126,9 +96,8 @@ NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubunt
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
 # 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
-NIGHTLY_NEXT_ONLY_OWNED = {
-    "republish-nightly-deltas": "classic and RC release uploads wait out the rate limit (360 min timeout)",
-}
+NIGHTLY_NEXT_ONLY_OWNED = {}
+
 TRACK_HOSTED = f"github.ref != 'refs/heads/nightly-next' && '{JIT_LABEL}' ||"
 # Leo, 2026-11-10: "It's fine to sign on GitHub hosted tonight" (the only signer had no power). An operator switch:
 # vars.CI_NIGHTLY_MINI_PUBLISHER set to exactly ubuntu-24.04 (the value is unchanged) now sends the three Linux
@@ -137,11 +106,7 @@ TRACK_HOSTED = f"github.ref != 'refs/heads/nightly-next' && '{JIT_LABEL}' ||"
 # switch (vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26') is gone: hosted macOS starts nothing either. These tests check
 # the owned route behind the switch.
 _PUBLISHER_SWITCH = f"vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && '{JIT_LABEL}' || "
-HOSTED_SIGNING_SWITCHES = {
-    "publish-nightly": _PUBLISHER_SWITCH,
-    "keep-published-dsyms": _PUBLISHER_SWITCH,
-    "republish-nightly-deltas": _PUBLISHER_SWITCH,
-}
+HOSTED_SIGNING_SWITCHES = {}
 
 
 def manaflow_route(name: str) -> str:
@@ -208,9 +173,14 @@ class EveryJobOnOurMinis(unittest.TestCase):
                         or not workflow_jobs.secret_names(job) <= HOSTED_DISPATCH_SECRETS):
                     failures[name] = "a post-feed dispatch takes the one-job JIT VM and holds only the dispatch keys"
                 continue
+            if name in EPHEMERAL_CONTROL_JOBS + EPHEMERAL_PUBLISHER_JOBS:
+                expected = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + f"'{JIT_LABEL}' }}}}"
+                if workflow_jobs.runs_on_cells(job) != [expected] or not holds_credential(job):
+                    failures[name] = "a credentialed portable job takes an isolated one-job Linux VM"
+                continue
             if name in CMUX_LINUX_JOBS:
                 expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON
-                if workflow_jobs.runs_on_cells(job) != [expected] or workflow_jobs.secret_names(job):
+                if workflow_jobs.runs_on_cells(job) != [expected] or holds_credential(job):
                     failures[name] = "a cmux-linux control takes only cmux-linux and holds no secret"
                 continue
             # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
@@ -261,7 +231,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
         off = {name for name in JOBS if not JOBS[name].get("uses")
                and ((routes := manaflow_routes(name)) is None or any(OFF_THE_MINIS.search(route) for route in routes))}
         self.assertEqual(off, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_PREFLIGHT_JOBS)
-                         | set(HOSTED_DISPATCH_JOBS),
+                         | set(EPHEMERAL_CONTROL_JOBS) | set(EPHEMERAL_PUBLISHER_JOBS) | set(HOSTED_DISPATCH_JOBS),
                          "a nightly job may not leave our minis")
         for name in sorted(off):
             with self.subTest(job=name, ephemeral="jit-only"):
@@ -353,30 +323,13 @@ class NoFleetLinuxAdmission(unittest.TestCase):
         self.assertNotIn("cmux-fleet-linux", WORKFLOW_TEXT)
 
 
-class PublishersHoldTheWholeMini(unittest.TestCase):
-    def test_route_is_the_owned_pool_held_to_its_attempt(self) -> None:
-        # promote-nightly-next runs alone (a main dispatch, no build) and keeps its earlier route: the signer
-        # refuses a dispatch (test_nightly_signing_on_cmux15.test_promote_keeps_its_earlier_route). The nightly-only
-        # minis' admission (glaeda-nightly-only-admit) refuses every signing-class job, so no publisher may land there.
-        for name in PROMOTE_ROUTE:
-            self.assertEqual(manaflow_route(name),
-                             "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
-                             "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
-                             "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                             "'glaeda-nightly-std-xcode-26.6' }}")
+class PublishersUseIsolatedLinux(unittest.TestCase):
+    def test_publishers_use_ephemeral_linux_on_every_attempt(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
-                route = manaflow_route(name)
-                if name not in PROMOTE_ROUTE:
-                    self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
-                                  "needs.pick-nightly-sign-runner.outputs.sign_owned_pool", route)
-                    self.assertIn(f"vars.CI_NIGHTLY_MINI != '' && '{SIGNER}'", route)
-                self.assertNotRegex(route, NOT_OURS)
-                self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", route)
-                self.assertNotIn("glaeda-nightly-only-m4pro", route)
-                if name not in PROMOTE_ROUTE:
-                    self.assertTrue(route.rstrip(" }").endswith(
-                        "'glaeda-trusted-next-signing'"))
+                self.assertEqual(workflow_jobs.single_runs_on(JOBS[name]),
+                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                 f"'{JIT_LABEL}' }}}}")
 
     def test_claim_gate_first_then_claim_and_clean_workdir_before_any_secret(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:

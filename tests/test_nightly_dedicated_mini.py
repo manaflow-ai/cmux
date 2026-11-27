@@ -19,11 +19,16 @@ LABEL = "glaeda-nightly-only-m4pro"
 VARIABLE = "vars.CI_NIGHTLY_ONLY_RUNNER"
 BUILDER = "glaeda-nightly-only-m4pro-builder"
 BUILDER_VARIABLE = "vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER"
-EARLY = ("build-nightly-inputs", "build-nightly-ghostty-cli-helper")
-# The early controls decide no longer places: the two that read the routing App key stay on the
-# reservation pool, the two that hold no key take cmux-linux.
+EARLY = ("build-nightly-ghostty-cli-helper",)
+# build-nightly-inputs builds web bundles and notices, nothing that needs macOS: cmux-linux on every attempt
+# (Leo: "freeing up the Mac's from doing things that don't need Mac's").
+LINUX_EARLY = ("build-nightly-inputs",)
+# The early controls decide no longer places: the two that read the routing App key take the one-job Linux VM,
+# the two that hold no key take our Linux labels (the reserved Linux label on attempt 1, else cmux-linux).
+JIT_LABEL = "cmux-gcp-nightly-jit-x64"
 RESERVED_CONTROLS = ("find-nightly-next-recovery", "pick-nightly-build-runner")
 LINUX_CONTROLS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper")
+LINUX_LABELS = ("cmux-linux", "cmux-gcp-nightly-x64")
 VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
@@ -60,13 +65,18 @@ class DedicatedMini(unittest.TestCase):
         for job in EARLY:
             with self.subTest(job=job):
                 self.assertEqual(selected(job, context()), LABEL)
+        for job in LINUX_EARLY:
+            for changes in ({}, {VARIABLE: ""}, {"github.run_attempt": 2}):
+                with self.subTest(job=job, changes=changes):
+                    self.assertEqual(selected(job, context(**changes)), "cmux-linux")
 
-    def test_decide_bootstraps_on_the_reservation(self):
-        # No earlier job places decide; nightlies run only on our own minis, so it takes the reservation pool.
-        self.assertEqual(selected("decide", context()), LABEL)
-        self.assertEqual(selected("decide", context(**{VARIABLE: ""})), LABEL)
+    def test_decide_bootstraps_on_the_one_job_linux_vm(self):
+        # No earlier job places decide; it reads keys and builds nothing, so it takes the one-job Linux VM.
+        self.assertEqual(selected("decide", context()), JIT_LABEL)
+        self.assertEqual(selected("decide", context(**{VARIABLE: ""})), JIT_LABEL)
         pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
-        self.assertEqual(selected("decide", context(**{"github.run_attempt": 2, "vars.RUNNER_POOLS": pools})), LABEL)
+        self.assertEqual(selected("decide", context(**{"github.run_attempt": 2, "vars.RUNNER_POOLS": pools})),
+                         JIT_LABEL)
 
     def test_early_controls_take_their_one_route_on_every_attempt(self):
         pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
@@ -76,7 +86,7 @@ class DedicatedMini(unittest.TestCase):
                                ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, True)):
             for job in RESERVED_CONTROLS:
                 with self.subTest(job=job, changes=changes):
-                    self.assertEqual(selected(job, context(**changes)), LABEL)
+                    self.assertEqual(selected(job, context(**changes)), JIT_LABEL)
             for job in LINUX_CONTROLS:
                 with self.subTest(job=job, changes=changes):
                     gcp = first and job == "resolve-nightly-cmux-tui-client"

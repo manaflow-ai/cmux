@@ -61,8 +61,10 @@ else:
     if "nightly_next_unsigned_run" in body:
         failures.append("retry-nightly-next must build the head again, never resume this run's unsigned app")
     runs_on = workflow_jobs.single_runs_on(retry)
-    if "blacksmith" in runs_on.lower() or "ubuntu-24.04' ||" in runs_on.replace("'ubuntu-24.04' || vars", ""):
-        failures.append("retry-nightly-next stays on the nightly mini")
+    # Two gh calls and a dispatch: the owned one-job JIT VM on every attempt (its write token stays off the shared
+    # cmux-linux pool), a fork's hosted Ubuntu, never Blacksmith.
+    if runs_on != "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}":
+        failures.append("retry-nightly-next takes the one-job JIT VM on every attempt")
 
 # A loop run's group ends at the GitHub release: the deltas, notes and comments are dispatched.
 dispatch = JOBS.get("dispatch-published-in")

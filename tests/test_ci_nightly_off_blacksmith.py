@@ -37,11 +37,14 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
                       "pick-nightly-build-runner", "prepare-nightly-variant-primary",
                       "prepare-nightly-variant",
                       "find-nightly-next-recovery")
-# Of those, the ones on our persistent Linux pool. The other two read the routing App key, so they stay on the
-# nightly-only minis.
+# Of those, the ones on our persistent Linux pool. The other two read the routing App key, so they take the owned
+# one-job JIT VM (JIT_RUNS_ON) on every attempt, not a nightly mini (Leo, 2026-11-25: "freeing up the Mac's from
+# doing things that don't need Mac's asap").
 CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "published-build")
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
+JIT_LABEL = "cmux-gcp-nightly-jit-x64"
+JIT_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '" + JIT_LABEL + "' }}"
 # RFD 0021 route by need: the essential ones take the nightly's reserved label on attempt 1 (no PR job can ask
 # for it, tests/test_ci_nightly_labels_reserved.py) and cmux-linux on a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
@@ -107,9 +110,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         from test_nightly_trusted_routing import evaluate, parse_expression
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
         # The resolver takes cmux-linux; the recovery finder reads the routing App key, so it takes the
-        # nightly-only minis. Never hosted Ubuntu or Blacksmith, except a fork's hosted Ubuntu.
+        # owned one-job JIT VM. Never hosted Ubuntu or Blacksmith, except a fork's hosted Ubuntu.
         for name, want in (("resolve-nightly-cmux-tui-client", "cmux-linux"),
-                           ("find-nightly-next-recovery", "glaeda-nightly-only-m4pro")):
+                           ("find-nightly-next-recovery", JIT_LABEL)):
             expression = parse_expression(runs_on_text(jobs[name], name).removeprefix("${{").removesuffix("}}"))
             for attempt in (1, 2, 3):
                 context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": attempt,
@@ -293,8 +296,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 if name in CMUX_LINUX_JOBS:
                     self.assertEqual(runs_on, NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON)
                 else:
-                    expected_tail = "|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
-                    self.assertTrue(runs_on.endswith(expected_tail), runs_on)
+                    self.assertEqual(runs_on, JIT_RUNS_ON)
                 self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)
                 self.assertNotIn("LINUX_RUNNER", runs_on)
@@ -307,7 +309,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                     self.assertIsInstance(label, str, f"{name} can take an unread label {label!r}")
                     # The nightly's reserved label (RFD 0021) is our own GCP pool, never Blacksmith.
                     pinned = {"cmux-gcp-nightly-x64"} if name in NIGHTLY_PINNED_JOBS else set()
-                    self.assertTrue(label in {"ubuntu-24.04", "cmux-linux"} | owned | one_mini | pinned,
+                    self.assertTrue(label in {"ubuntu-24.04", "cmux-linux", JIT_LABEL} | owned | one_mini | pinned,
                                     f"{name} can take {label!r}")
                 held = workflow_jobs.secret_names(jobs[name])
                 self.assertNotIn(workflow_jobs.ALL_SECRETS, held)

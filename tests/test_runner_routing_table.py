@@ -70,6 +70,46 @@ MAC_JOB = """
 
 
 class RoutingTableTests(unittest.TestCase):
+    def test_portable_nightly_jobs_never_take_mac_capacity(self):
+        # Regression: CI_NIGHTLY_MINI sent Python, web, Go cross-builds and
+        # GitHub API control jobs back onto signing Macs.
+        portable = (
+            'promote-nightly-next',
+            'promote-nightly-next-acked',
+            'publish-nightly',
+            'keep-published-dsyms',
+            'republish-nightly-deltas',
+            'runner-preflight',
+            'decide',
+            'await-release-surface-ack',
+            'build-nightly-inputs',
+            'pick-nightly-build-runner',
+            'build-nightly-remote-daemon',
+            'attest-nightly-remote-daemon',
+            'check-nightly-webviews',
+            'early-nightly-webviews',
+            'pick-nightly-sign-runner',
+            'find-nightly-next-recovery',
+            'republish-nightly-next',
+            'route-visual-gate-nightly',
+            'visual-gate-nightly-verdict',
+            'report-visual-gate-nightly',
+            'report-nightly-fix-forward',
+            'pick-nightly-next-signer',
+            'wake-nightly-next-tick',
+            'dispatch-published-in',
+            'published-in',
+            'retry-nightly-next',
+            'fixit-handoff',
+            'report-nightly-failure',
+            'close-nightly-failure-issue',
+        )
+        routes = {job.key: on_macos for job, on_macos in table.iter_jobs()}
+        for name in portable:
+            with self.subTest(job=name):
+                self.assertIn("nightly.yml#" + name, routes)
+                self.assertFalse(routes["nightly.yml#" + name])
+
     def test_nightly_reservation_requires_exact_scope_and_label(self):
         term = ("github.repository == 'manaflow-ai/cmux' && "
                 "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && "

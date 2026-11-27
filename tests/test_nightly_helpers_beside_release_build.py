@@ -95,10 +95,12 @@ class WorkflowStructureTests(unittest.TestCase):
         resolved = workflow_jobs.resolve(job)
         self.assertIsNone(resolved.environment)
         self.assertEqual(job["permissions"], {"contents": "read"})
-        # Our nightly-only Macs, never Blacksmith (nightlies run only on our runners).
+        # Our Linux pool, never Blacksmith (nightlies run only on our runners): it builds web bundles and
+        # notices, nothing that needs macOS.
         self.assertIsNotNone(resolved.runs_on_cells, f"{INPUTS_JOB}: runs-on has a matrix value nothing resolves")
         runs_on = "\n".join(resolved.runs_on_cells)
-        self.assertIn("'glaeda-nightly-only-m4pro'", runs_on)
+        self.assertIn("'cmux-linux'", runs_on)
+        self.assertNotIn("glaeda-", runs_on)
         self.assertNotIn("RUNNER_POOLS", runs_on)
         self.assertNotIn("macos-", runs_on)
         self.assertEqual(workflow_jobs.secret_names(job), set())

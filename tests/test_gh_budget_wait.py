@@ -594,7 +594,10 @@ class WorkflowTests(unittest.TestCase):
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
                 # ensure-gh.sh puts the gh this wrapper wraps on PATH, so it must come first; its one
                 # pinned release download sends the job token (GH_PIN_TOKEN, #58418: Macs 403 anonymous).
-                ensure_gh = steps[i].get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh"
+                ensure_gh = steps[i].get("run") in (
+                    "bash scripts/ci/nightly-steps/ensure-gh.sh",
+                    "bash .publish-tooling/scripts/ci/nightly-steps/ensure-gh.sh",
+                )
                 self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token or ensure_gh,
                                 (name, steps[i].get("name")))
 
@@ -672,15 +675,14 @@ class WorkflowTests(unittest.TestCase):
 
     def test_the_attestation_signs_offline_and_never_waits_for_the_budget(self) -> None:
         job = self.jobs["attest-nightly-remote-daemon"]
-        # The all-nightly reservation, then our nightly-only pool, never Blacksmith (nightlies run only on our runners; run 41717500642
-        # attested on cmux7s-mac-mini-glaeda-nightly-only-3).
+        # The owned one-job JIT VM on every attempt (it compiles nothing; its OIDC token stays off the shared
+        # persistent cmux-linux pool), never Blacksmith (nightlies run only on our runners).
         cells = workflow_jobs.runs_on_cells(job)
         self.assertIsNotNone(cells, "attest-nightly-remote-daemon: runs-on has a matrix value nothing resolves")
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertNotIn("macos", runs_on)
-        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", runs_on)
-        self.assertTrue(runs_on.endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}")
         self.assertNotIn("blacksmith", runs_on)
         self.assertNotIn("RUNNER_POOLS", runs_on)
         # decide for its pipeline output, and build-nightly-app, which retains the assets in a sign run;
