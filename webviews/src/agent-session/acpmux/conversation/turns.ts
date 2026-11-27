@@ -2942,8 +2942,9 @@ function foldTailTurns(
   if (rows.length === 0) return [];
   const out: AcpmuxRow[] = [];
   let from = 0;
+  const arms = tailArms(agentFamily);
   const flush = (to: number) => {
-    out.push(...foldTailTurn(rows.slice(from, to), expanded, endedBackground, clockOffset, agentFamily));
+    out.push(...cachedFoldTailTurn(rows.slice(from, to), expanded, endedBackground, clockOffset, agentFamily, arms));
     from = to;
   };
   // The background turn the stretch from `from` belongs to, once a row names it.
@@ -2963,6 +2964,116 @@ function foldTailTurns(
   // Only ended turns reach here (a running one's rows follow the last summary), so the rest folds too.
   if (from < rows.length) flush(rows.length);
   return out;
+}
+
+/// What a folded tail stretch was shaped from, beyond its rows: the globals shapeTurn reads (as `shapedTurns`
+/// keys them), the fold keys it asked `expanded` about with their answers, and whether each turn the agent ran
+/// on its own that its rows name had ended.
+type TailArms = TurnArms & { endActions: string; inOrder: boolean };
+const tailArms = (agentFamily: string | undefined): TailArms => ({
+  ...turnArms(agentFamily),
+  endActions: experimentArm(turnEndActions),
+  inOrder: foldsInOrder(),
+});
+type ShapedTail = {
+  stretch: AcpmuxRow[];
+  clockOffset: number;
+  agentFamily: string | undefined;
+  arms: TailArms;
+  foldSize: number | undefined;
+  foldReads: Map<string, boolean>;
+  ended: Map<string, boolean>;
+  rows: AcpmuxRow[];
+};
+/// Keyed by the stretch's first row. A coordinator woken by background tasks all day ends its running turn's
+/// tail in hundreds of ended turns the agent ran on its own, and each snapshot (40 a second while it streams)
+/// shaped every one of them again: 590 ms of shapeTurn under foldTailTurns in one minute of replay under load,
+/// the top of the pane's render (bench/replay-under-load --trace).
+const shapedTails = new RowMemo<AcpmuxRow, ShapedTail>();
+
+/// A row of the stretch drawn as before: the same row, or the footer `withTailAnswers`, `backgroundFooters` or
+/// a Continue made again from the same rows (their version follows those rows' versions).
+function sameTailRow(a: AcpmuxRow, b: AcpmuxRow): boolean {
+  if (a === b) return true;
+  return (
+    a.kind === "turnSummary" &&
+    b.kind === "turnSummary" &&
+    a.id === b.id &&
+    a.version === b.version &&
+    a.at === b.at &&
+    a.seq === b.seq &&
+    a.status === b.status &&
+    a.text === b.text &&
+    a.answerId === b.answerId &&
+    a.resumable === b.resumable &&
+    a.continuable === b.continuable
+  );
+}
+
+function sameArms(a: TailArms, b: TailArms): boolean {
+  return (
+    a.foldStyle === b.foldStyle &&
+    a.repliesArm === b.repliesArm &&
+    a.steeredArm === b.steeredArm &&
+    a.messagesArm === b.messagesArm &&
+    a.lineArm === b.lineArm &&
+    a.compact === b.compact &&
+    a.endActions === b.endActions &&
+    a.inOrder === b.inOrder
+  );
+}
+
+function tailBackgrounds(stretch: readonly AcpmuxRow[], endedBackground: ReadonlySet<string>): Map<string, boolean> {
+  const ended = new Map<string, boolean>();
+  for (const row of stretch) {
+    for (const id of [row.background?.id, row.inBackground])
+      if (id !== undefined && !ended.has(id)) ended.set(id, endedBackground.has(id));
+  }
+  return ended;
+}
+
+/// `foldTailTurn`, read back when nothing it was shaped from changed (`shapedTails`).
+function cachedFoldTailTurn(
+  stretch: AcpmuxRow[],
+  expanded: Folds,
+  endedBackground: ReadonlySet<string>,
+  clockOffset: number,
+  agentFamily: string | undefined,
+  arms: TailArms,
+): AcpmuxRow[] {
+  const first = stretch[0];
+  if (!first) return foldTailTurn(stretch, expanded, endedBackground, clockOffset, agentFamily);
+  const ended = tailBackgrounds(stretch, endedBackground);
+  const cached = shapedTails.get(first);
+  if (
+    cached &&
+    cached.clockOffset === clockOffset &&
+    cached.agentFamily === agentFamily &&
+    cached.stretch.length === stretch.length &&
+    (cached.foldSize === undefined || cached.foldSize === expanded.size) &&
+    sameArms(cached.arms, arms) &&
+    cached.ended.size === ended.size &&
+    [...ended].every(([id, has]) => cached.ended.get(id) === has) &&
+    cached.stretch.every((row, at) => sameTailRow(row, stretch[at]!)) &&
+    [...cached.foldReads].every(([key, open]) => expanded.has(key) === open)
+  )
+    return cached.rows;
+  const foldReads = new Map<string, boolean>();
+  let foldSize: number | undefined;
+  const recorded: Folds = {
+    has: (key) => {
+      const open = expanded.has(key);
+      foldReads.set(key, open);
+      return open;
+    },
+    get size() {
+      foldSize = expanded.size;
+      return foldSize;
+    },
+  };
+  const rows = foldTailTurn(stretch, recorded, endedBackground, clockOffset, agentFamily);
+  shapedTails.set(first, { stretch, clockOffset, agentFamily, arms, foldSize, foldReads, ended, rows });
+  return rows;
 }
 
 function foldTailTurn(
@@ -4541,6 +4652,18 @@ const TAKEAWAY_LINES = 3;
 /// (``mergeShortNotes``).
 export function isTakeaway(row: AcpmuxRow): boolean {
   if (row.kind !== "assistant") return false;
+  // A row is never changed in place (a new version is a new row), so its answer is read once: the running turn
+  // is shaped again on every snapshot and asked this of each of its replies (273 ms of isWorkNarration in one
+  // minute of replay under load).
+  const known = takeaways.get(row);
+  if (known !== undefined) return known;
+  const takeaway = isTakeawayText(row);
+  takeaways.set(row, takeaway);
+  return takeaway;
+}
+const takeaways = new RowMemo<AcpmuxRow, boolean>();
+
+function isTakeawayText(row: AcpmuxRow): boolean {
   const text = (row.text ?? "").trim();
   if (!text) return false;
   return (
