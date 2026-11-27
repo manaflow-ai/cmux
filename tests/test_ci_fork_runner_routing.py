@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Fork pull-request workflows must use GitHub-hosted runners with zero setup."""
+# guard-inputs: .github/workflows/
+# its walks are `.github/workflows/*.yml` (WORKFLOWS, a local `workflows`).
 
 from __future__ import annotations
 
@@ -120,6 +122,7 @@ RELEASE_PUBLICATION_JOBS = {
 # exempt above, or here with why it keeps the owner fork branch like any other job.
 # test_every_release_environment_job_is_classified fails on a new one.
 RELEASE_JOBS_FORK_GATED = {
+    "nightly-next-deltas": "signs and publishes post-feed deltas on the signing Mac; starts with the owner fork branch",
     "build-sign-notarize-nightly": "signs and notarizes on the nightly mini; its runs-on starts with the owner fork branch",
     "recover-nightly-next-notarization": "finishes a pending notarization on the nightly mini; starts with the owner fork branch",
     "keep-published-dsyms": "uploads dSYMs after publication; starts with the owner fork branch",
@@ -283,7 +286,8 @@ FORK_PULL_REQUEST_CONDITIONS = frozenset(
 # sends every pull request, fork or not, to the label.
 PULL_REQUEST_CONDITION = ("==", "github.event_name", "'pull_request'")
 FORK_PULL_REQUEST_LABEL = re.compile(
-    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
+    # Blacksmith's ARM Linux labels end in -arm (blacksmith-4vcpu-ubuntu-2404-arm): a Blacksmith VM like the rest.
+    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+(?:-arm)?|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
 )
 # Values that can resolve to an owned self-hosted label. A variable counts on
 # any line (env mirrors such as CMUX_PRODUCT_RUNNER must agree with runs-on); a

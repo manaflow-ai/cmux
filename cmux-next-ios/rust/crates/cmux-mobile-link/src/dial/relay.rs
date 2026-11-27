@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
+use cmux_braid_carrier::{Carrier, CarrierKind, Endpoint, OpenFuture};
 use cmux_transport::relay_frame::{FrameKind, PeerId, RELAY_FRAME_MAX_PAYLOAD, RelayFrame};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
@@ -122,6 +123,57 @@ impl RelayEndpoint {
         let rest = self.base_url.split_once("://").map_or(self.base_url.as_str(), |(_, rest)| rest);
         rest.split(['/', '?']).next().unwrap_or_default().to_owned()
     }
+
+    /// This endpoint as a braid carrier endpoint (RFD 0164 B7): the WebSocket relay, the last
+    /// rung of every ladder. The address carries the port the join dials (443, or 80 for a plain
+    /// `http://` service, unless the URL names one).
+    pub fn carrier_endpoint(&self) -> Endpoint {
+        let host = self.host();
+        let plain = self.base_url.starts_with("http://") || self.base_url.starts_with("ws://");
+        let named_port = host.rsplit_once(':').is_some_and(|(name, port)| {
+            !name.is_empty() && !port.ends_with(']') && port.parse::<u16>().is_ok()
+        });
+        let address =
+            if named_port { host.clone() } else { format!("{host}:{}", if plain { 80 } else { 443 }) };
+        Endpoint { kind: CarrierKind::WssRelay, address, host, login: None }
+    }
+}
+
+/// The relay as a braid carrier ([`cmux_braid_carrier::Carrier`]): opening its endpoint joins
+/// `session_id`'s relay as the endpoint's device, taking only `peer_device`'s frames.
+pub struct RelayRung<'a> {
+    pub endpoint: &'a RelayEndpoint,
+    pub session_id: &'a str,
+    pub peer_device: &'a str,
+    pub ticket: Option<&'a str>,
+}
+
+impl Carrier for RelayRung<'_> {
+    type Link = RelayCarrier;
+
+    fn kind(&self) -> CarrierKind {
+        CarrierKind::WssRelay
+    }
+
+    fn open<'b>(&'b self, endpoint: &'b Endpoint) -> OpenFuture<'b, RelayCarrier> {
+        Box::pin(async move {
+            if endpoint.kind != CarrierKind::WssRelay {
+                return Err(std::io::Error::other("the endpoint is another carrier's"));
+            }
+            RelayCarrier::join(self.endpoint, self.session_id, self.peer_device, self.ticket)
+                .await
+                .map_err(std::io::Error::other)
+        })
+    }
+}
+
+impl RelayRung<'_> {
+    /// [`Carrier::open`] on this rung's own endpoint, with the failure as the relay's own (the
+    /// session's retries read [`RelayFailure::is_final`]).
+    pub async fn join(&self) -> Result<RelayCarrier, RelayFailure> {
+        let endpoint = self.endpoint.carrier_endpoint();
+        self.open(&endpoint).await.map_err(RelayFailure::from_io)
+    }
 }
 
 /// `https://host` → `wss://host/v1/relay/<session>?deviceId=<id>`.
@@ -172,7 +224,25 @@ pub enum RelayFailure {
     Timeout,
 }
 
+impl std::fmt::Display for RelayFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe())
+    }
+}
+
+impl std::error::Error for RelayFailure {}
+
 impl RelayFailure {
+    /// A carrier's open error back as the relay's failure: the one [`RelayRung`] wrapped, else
+    /// an unreachable relay with the error's text.
+    pub fn from_io(error: std::io::Error) -> Self {
+        let detail = error.to_string();
+        match error.into_inner().map(|inner| inner.downcast::<RelayFailure>()) {
+            Some(Ok(failure)) => *failure,
+            _ => Self::Unreachable { detail },
+        }
+    }
+
     /// A short line for logs and the diagnosis.
     pub fn describe(&self) -> String {
         match self {
@@ -679,6 +749,58 @@ mod tests {
             RelayEndpoint::with_token("https://mobile-api.cmux.dev/x", None, "dev", "secret-token");
         assert_eq!(endpoint.host(), "mobile-api.cmux.dev");
         assert!(!format!("{endpoint:?}").contains("secret-token"));
+    }
+
+    #[test]
+    fn the_relay_is_a_braid_carrier_on_the_last_rung() {
+        let endpoint = |base: &str| RelayEndpoint::with_token(base, None, "dev", "t").carrier_endpoint();
+        let wss = endpoint("https://mobile-api.cmux.dev/");
+        assert_eq!(wss.kind, CarrierKind::WssRelay);
+        assert_eq!(wss.address, "mobile-api.cmux.dev:443");
+        assert_eq!(wss.host, "mobile-api.cmux.dev");
+        assert!(wss.on_443() && wss.login.is_none());
+        assert_eq!(endpoint("http://127.0.0.1:9000").address, "127.0.0.1:9000");
+        assert_eq!(endpoint("http://relay.test").address, "relay.test:80");
+        assert_eq!(endpoint("https://[::1]").address, "[::1]:443");
+        assert_eq!(endpoint("https://[::1]:8443").address, "[::1]:8443");
+        assert_eq!(cmux_braid_carrier::rank(&wss).0, cmux_braid_carrier::Rung::LastResort);
+        // A network whose only way out is a proxy keeps the relay on 443, and drops it elsewhere.
+        let proxy = cmux_braid_carrier::NetFacts { proxy_only: true, ..Default::default() };
+        assert!(cmux_braid_carrier::usable(&wss, proxy));
+        assert!(!cmux_braid_carrier::usable(&endpoint("https://relay.test:8443"), proxy));
+        let rung = RelayRung {
+            endpoint: &RelayEndpoint::with_token("https://x", None, "dev", "t"),
+            session_id: "s",
+            peer_device: "p",
+            ticket: None,
+        };
+        assert_eq!(rung.kind(), CarrierKind::WssRelay);
+        assert!(rung.reliable());
+    }
+
+    #[test]
+    fn a_relay_failure_survives_the_carrier_error() {
+        let refused = RelayFailure::Refused { status: 503, code: "relay_off".into() };
+        let back = RelayFailure::from_io(std::io::Error::other(refused.clone()));
+        assert_eq!(back, refused);
+        assert!(back.is_final(), "a refusal stays final through the carrier");
+        let other = RelayFailure::from_io(std::io::Error::other("no route"));
+        assert_eq!(other, RelayFailure::Unreachable { detail: "no route".into() });
+    }
+
+    /// Opening another carrier's endpoint is refused before any join.
+    #[tokio::test]
+    async fn the_relay_rung_opens_only_relay_endpoints() {
+        let relay = RelayEndpoint::with_token("https://x", None, "dev", "t");
+        let rung = RelayRung { endpoint: &relay, session_id: "s", peer_device: "p", ticket: None };
+        let turn = Endpoint {
+            kind: CarrierKind::TurnTls,
+            address: "t.example:443".into(),
+            host: "t.example".into(),
+            login: None,
+        };
+        let error = rung.open(&turn).await.expect_err("refused");
+        assert!(error.to_string().contains("another carrier"));
     }
 
     #[test]

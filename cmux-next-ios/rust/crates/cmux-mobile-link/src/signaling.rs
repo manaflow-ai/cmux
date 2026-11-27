@@ -89,6 +89,9 @@ pub enum SignalPayload {
         /// path label `turn-tls`); absent from older phones.
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// The hop/1 allocation among `relayed`. Older peers send plain WireGuard to its port.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<String>,
         /// The WireGuard protocol version ([`WG_VERSION`]); absent (0) from
         /// older peers, which still send relay frames and their marker.
         #[serde(default, skip_serializing_if = "is_zero")]
@@ -147,6 +150,9 @@ pub enum SignalPayload {
         relayed: Vec<String>,
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// The hop/1 allocation among `relayed`. Older peers send plain WireGuard to its port.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hop: Option<String>,
         /// Which of `endpoints` are public addresses the sender's router
         /// mapped for it (PCP, NAT-PMP or UPnP-IGD; PROTOCOL.md "Mapped
         /// endpoints"); absent from older peers, which offer none, and older
@@ -195,9 +201,10 @@ pub struct SignalEnvelope {
     /// sender. Clients never set it (the backend overwrites it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_user_id: Option<String>,
-    /// Stamped by the backend on forwarded `wg-*` signals (API 0.17.0): this
-    /// device's own ticket for the session's WebSocket relay, which a relay
-    /// join presents (PROTOCOL.md "WebSocket relay"). Clients never set it.
+    /// This device's own ticket for the session's WebSocket relay, if a backend
+    /// stamps one on forwarded `wg-*` signals; a relay join then presents it. The
+    /// production backend stamps none: a join is admitted by its Bearer token and
+    /// the session its hub bound (PROTOCOL.md "WebSocket relay"). Clients never set it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_ticket: Option<String>,
 }
@@ -247,7 +254,7 @@ pub enum SignalMessage {
     Presence {
         mac: MacPresence,
     },
-    Signal(SignalEnvelope),
+    Signal(Box<SignalEnvelope>),
     /// Backend → Mac: sealed replies held for it (API 0.13.0).
     Mailbox {
         items: Vec<MailboxItem>,
@@ -273,6 +280,12 @@ pub const RELAY_READY: &str = "ready";
 /// (no plain UDP and no TURN allocation); the peer joins too, without
 /// waiting for its own paths to fail.
 pub const RELAY_NOW: &str = "now";
+/// `relay`: this side joins the relay as its dial starts, beside the direct
+/// race (the phone when its tunnel starts, the Mac on the phone's offer), and
+/// sends its first handshake through it too; when both sides said so, the
+/// relay is up the moment direct UDP and TURN turn out not to work, rather
+/// than 3 s later. An older peer reads it as [`RELAY_READY`].
+pub const RELAY_FIRST: &str = "first";
 
 /// The WireGuard protocol version this side speaks (`version` in `wg-init`
 /// and `wg-resp`, PROTOCOL.md):
@@ -395,6 +408,11 @@ pub(crate) fn next_keepalive(now: tokio::time::Instant) -> tokio::time::Instant 
 
 struct Shared {
     device_id: String,
+    // Use the currently attached signaling identity for a new relay ticket
+    // after a PoP explicitly refuses the one a sleeping phone had.
+    ice_base: String,
+    token: String,
+    build_space: Option<crate::build_space::BuildSpace>,
     /// Counts inbound frames (any kind); `probe` waits for it to move.
     inbound: tokio::sync::watch::Sender<u64>,
     opened: std::time::Instant,
@@ -421,6 +439,10 @@ struct Shared {
     link_stat_sent: Mutex<Option<std::time::Instant>>,
     /// An older Worker refused `link_stat`: none is sent on this socket again.
     link_stat_refused: std::sync::atomic::AtomicBool,
+    /// Whether a `wg-relay` for an unknown session opens one (relay first on this
+    /// side): the phone's early cue to join the relay (PROTOCOL.md "Early join"). Else
+    /// it is dropped, as a Mac before relay first drops it.
+    early_relay_cue: std::sync::atomic::AtomicBool,
     /// A socket to a Mac's local hub (`local_hub.rs`), not the Worker: its
     /// sessions never move onto a Worker socket, nor a Worker's onto it.
     local: std::sync::atomic::AtomicBool,
@@ -546,6 +568,13 @@ async fn open_socket(
 }
 
 impl SignalingClient {
+    pub(crate) async fn fresh_ice(&self) -> Result<crate::api::IceConfig, crate::api::ApiError> {
+        crate::api::ApiClient::new(&self.shared.ice_base, &self.shared.token)
+            .with_build_space(self.shared.build_space.clone())
+            .ice()
+            .await
+    }
+
     /// Connect with `Authorization: Bearer <token>` and no build space.
     pub async fn connect(
         base_url: &str,
@@ -584,7 +613,7 @@ impl SignalingClient {
         // This network's netcheck when one is cached and the switch is on (PROTOCOL.md "Relay
         // placement", `netcheck.rs`); a connect never waits on a measurement.
         crate::netcheck::append_query(&mut url, base_url, build_space);
-        let client = Self::open(url, token, device_id, build_space, egress).await?;
+        let client = Self::open(url, base_url, token, device_id, build_space, egress).await?;
         // Measured after the upgrade, in the background: the next connect and relay join on this
         // network carry it.
         crate::netcheck::refresh_in_background(base_url, token, build_space, egress);
@@ -595,6 +624,7 @@ impl SignalingClient {
     /// leaving this device as `egress` says.
     async fn open(
         url: String,
+        base_url: &str,
         token: &str,
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
@@ -638,6 +668,11 @@ impl SignalingClient {
         let (mailbox_tx, mailbox_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
             device_id: device_id.to_owned(),
+            ice_base: base_url
+                .strip_prefix("ws")
+                .map_or_else(|| base_url.to_owned(), |suffix| format!("http{suffix}")),
+            token: token.to_owned(),
+            build_space: build_space.cloned(),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),
@@ -650,6 +685,7 @@ impl SignalingClient {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            early_relay_cue: std::sync::atomic::AtomicBool::new(false),
             local: std::sync::atomic::AtomicBool::new(false),
             hub_version: std::sync::atomic::AtomicU32::new(0),
         });
@@ -760,7 +796,7 @@ impl SignalingClient {
         );
         // A hub on this network: never through a proxy (its address is local).
         let local = crate::egress::Egress { proxy: crate::egress::ProxyConfig::Direct, ..Default::default() };
-        let client = Self::open(url, token, device_id, None, &local).await?;
+        let client = Self::open(url, base_url, token, device_id, None, &local).await?;
         client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(client)
     }
@@ -884,14 +920,14 @@ impl SignalingClient {
         session_id: &str,
         payload: SignalPayload,
     ) -> Result<(), SignalingError> {
-        let message = SignalMessage::Signal(SignalEnvelope {
+        let message = SignalMessage::Signal(Box::new(SignalEnvelope {
             to: to.to_owned(),
             from: self.shared.device_id.clone(),
             session_id: session_id.to_owned(),
             payload,
             from_user_id: None,
             relay_ticket: None,
-        });
+        }));
         let text = serde_json::to_string(&message).expect("signal serializes");
         self.shared.out.push_signal(Signal::Text(text))
     }
@@ -911,6 +947,14 @@ impl SignalingClient {
         *self.shared.link_stat_sent.lock().unwrap_or_else(PoisonError::into_inner) =
             Some(std::time::Instant::now());
         self.shared.out.push_signal(Signal::Text(text))
+    }
+
+    /// Let a `wg-relay` that arrives for an unknown session open it (default off: it is
+    /// dropped). The answer then joins the relay at once, with the Bearer token (and a
+    /// relay ticket only if the service stamped one), and waits for the `wg-init`
+    /// ([`crate::dial::answer`]).
+    pub fn accept_early_relay_cue(&self, accept: bool) {
+        self.shared.early_relay_cue.store(accept, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Whether this socket still sends `link_stat`: false once an older Worker refused one.
@@ -1015,6 +1059,7 @@ impl Shared {
             }
             SignalMessage::MailboxAck { .. } => {}
             SignalMessage::Signal(envelope) => {
+                let envelope = *envelope;
                 let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
                 if let Some(tx) = sessions.get(&envelope.session_id) {
                     if tx.send(SessionEvent::Signal(envelope.clone())).is_err() {
@@ -1022,10 +1067,14 @@ impl Shared {
                     }
                     return;
                 }
-                if !matches!(
-                    envelope.payload,
-                    SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. }
-                ) {
+                let early_cue = matches!(envelope.payload, SignalPayload::WgRelay { .. })
+                    && self.early_relay_cue.load(std::sync::atomic::Ordering::Relaxed);
+                if !early_cue
+                    && !matches!(
+                        envelope.payload,
+                        SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. }
+                    )
+                {
                     tracing::debug!(
                         session = envelope.session_id,
                         "dropping a signal for an unknown session"
@@ -1190,6 +1239,9 @@ mod tests {
         let rx = events.subscribe();
         let shared = super::Shared {
             device_id: "d".into(),
+            ice_base: String::new(),
+            token: String::new(),
+            build_space: None,
             local: std::sync::atomic::AtomicBool::new(false),
             hub_version: std::sync::atomic::AtomicU32::new(0),
             inbound: tokio::sync::watch::channel(0).0,
@@ -1204,6 +1256,7 @@ mod tests {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            early_relay_cue: std::sync::atomic::AtomicBool::new(false),
         };
         (shared, rx)
     }
@@ -1319,6 +1372,7 @@ mod tests {
             version: 0,
             relay: Some(RELAY_NOW.into()),
             ticket_early,
+            hop: None,
         };
         let quiet = serde_json::to_value(init(false)).unwrap();
         assert!(quiet.get("ticketEarly").is_none(), "{quiet}");
@@ -1333,7 +1387,7 @@ mod tests {
 
     #[test]
     fn wire_shapes_match_the_contract() {
-        let offer = SignalMessage::Signal(SignalEnvelope {
+        let offer = SignalMessage::Signal(Box::new(SignalEnvelope {
             to: "mac".into(),
             from: "phone".into(),
             session_id: "s".into(),
@@ -1344,7 +1398,7 @@ mod tests {
             },
             from_user_id: None,
             relay_ticket: None,
-        });
+        }));
         let json: serde_json::Value = serde_json::to_value(&offer).unwrap();
         assert_eq!(
             json,
@@ -1380,6 +1434,7 @@ mod tests {
             relayed_tls: Vec::new(),
             mapped: vec!["203.0.113.7:4000".into()],
             mapped_by: Some("upnp".into()),
+            hop: None,
         };
         let value = serde_json::to_value(&new).unwrap();
         assert_eq!(value["mapped"], serde_json::json!(["203.0.113.7:4000"]));
