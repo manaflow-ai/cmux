@@ -12,6 +12,7 @@ fn body(frame: u32, len: usize, keyframe: bool) -> FrameBody {
     FrameBody {
         t_capture_us: u64::from(frame) * 16_667,
         ref_frame: if keyframe { REF_NONE } else { frame - 1 },
+        ltr_token: None,
         access_unit: (0..len).map(|i| (i as u32 ^ frame) as u8).collect(),
     }
 }
@@ -402,7 +403,9 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         include_str!("upstream_ffi.rs"),
         include_str!("bulk_ffi.rs"),
         include_str!("clipboard_ffi.rs"),
-        include_str!("record_ffi.rs")
+        include_str!("record_ffi.rs"),
+        include_str!("ui/mod.rs"),
+        include_str!("view_ffi.rs")
     );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
@@ -539,4 +542,36 @@ fn a_frame_is_ready_in_the_push_that_completes_it() {
         assert_eq!(r.ready_frames(), 1);
         assert!(r.pop_frame().is_some());
     }
+}
+
+/// Review F3 on #47487: a decode report acknowledges the LTR token of the frame
+/// that decoded. Frames A and B are popped before A's decode is reported, and B
+/// is dropped (never decoded): the feedback names A's token, never B's.
+#[test]
+fn a_decode_acknowledges_the_decoded_frames_ltr_token_only() {
+    const A_TOKEN: u64 = 0xA0A0;
+    const B_TOKEN: u64 = 0xB0B0;
+    let r = receiver(CMUX_RD_CARRIER_DATAGRAM);
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    for (frame, token) in [(1, None), (2, Some(A_TOKEN)), (3, Some(B_TOKEN))] {
+        let mut b = body(frame, 400, frame == 1);
+        b.ltr_token = token;
+        let flags = if frame == 1 { flags::KEYFRAME } else { 0 };
+        for d in p.packetize(frame, flags, &b, 0).expect("packetize").datagrams {
+            push(&r, &d, 1_000);
+        }
+    }
+    let popped = pop_all(&r);
+    assert_eq!(popped.iter().map(|f| f.0).collect::<Vec<_>>(), [1, 2, 3]);
+    // The keyframe and A decoded; B was popped but its decode never reported.
+    note_decode(&r, 1, 900);
+    note_decode(&r, 2, 1_100);
+    let fb = decode_feedback(&feedback(&r, 50_000).expect("due"));
+    assert_eq!(fb.acked_ltr_tokens, [A_TOKEN], "only the decoded frame's token");
+}
+
+/// Reports frame `frame`'s decode.
+fn note_decode(r: &Owned, frame: u32, decode_us: u32) {
+    // SAFETY: live receiver.
+    assert_eq!(unsafe { cmux_rd_receiver_note_frame_decode(r.0, frame, decode_us) }, CMUX_RD_OK);
 }

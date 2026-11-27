@@ -6,5 +6,6 @@
   "author": "claude sonnet 5.5 (stall-38623 helper)",
   "owner": "teamleaderleo",
   "receipt": "Review (router-review): SHIP at d6f43ed5444da2108fd6cfa337a64c23b25a7828",
-  "expiry": "2026-12-21"
+  "expiry": "2026-12-21",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
 }

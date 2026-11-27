@@ -317,6 +317,7 @@ final class HomeNewMessageDirectory: ConversationDirectory, ConversationComposeL
     static func describe(_ failure: AccountCloud.Failure) -> String {
         switch failure.code {
         case "not_reachable", "not_authorized": String(localized: "You can't message them yet. They may need to join your team first.")
+        // retry-prompt-ok: creating a conversation is the person's write and the service rate-limited it; they choose to make it again
         case "home.rate_limited", "rate_limited": String(localized: "Too many new conversations. Try again in a minute.")
         case "invalid_invite": String(localized: "That isn't a valid email address or phone number.")
         default: failure.description

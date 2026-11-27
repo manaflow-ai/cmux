@@ -151,7 +151,7 @@ test("there is no Search | Ask switch and no Tab hint", async () => {
   const placeholder = field.querySelector<HTMLElement>(".acpmux-md-placeholder")!;
   expect(placeholder.textContent).toBe("Type a question, command, or URL");
   expect(placeholder.hidden).toBe(false);
-  expect(placeholder.querySelector(".acpmux-md-placeholder-key")).toBeNull();
+  expect(placeholder.querySelector(".ui-key-hint")).toBeNull();
 });
 
 test("Return on keywords asks the composer's agent", async () => {

@@ -191,6 +191,52 @@ test("list: a status event re-renders only the rows of the tasks it changes", as
   expect(await counted("TaskRow", () => send({ ...status("st_backlog"), category: "triage" }))).toBe(1);
 });
 
+/** An owner event from another writer: one entity upserted, at the next sequence. */
+function publishUpsert(provider: InstanceType<typeof MockTasksProvider>, value: Record<string, unknown>) {
+  provider.state.seq += 1;
+  provider.publish({
+    change: {
+      seq: provider.state.seq,
+      index: 0,
+      tx: `elsewhere-${provider.state.seq}`,
+      kind: `${String(value.entity)}.updated`,
+      change: { type: "upsert", value } as never,
+    },
+  });
+}
+
+// 1,000 tasks wearing the sample's labels in turn; `lbl_solo` worn by task_3 alone, `lbl_unused` by none.
+for (const [layout, row, selector] of [
+  ["list", "TaskRow", ".tasks-row"],
+  ["board", "BoardCard", ".tasks-card"],
+] as const) {
+  test(`${layout}: a label event redraws only the rows wearing that label (1,000 tasks)`, async () => {
+    const { provider } = await mount(layout, 1_000, (snapshot) => {
+      snapshot.labels.push({ id: "lbl_solo", name: "solo", color: 6 }, { id: "lbl_unused", name: "unused", color: 2 });
+      snapshot.tasks[2]!.labels = ["lbl_solo"];
+    });
+    expect(shownTasks(selector).has("task_3")).toBe(true);
+    const label = (id: string) => provider.state.labels.find((candidate) => candidate.id === id)!;
+    // A label no task wears is renamed, and a new one arrives: no row redraws.
+    expect(
+      await counted(row, () => publishUpsert(provider, { entity: "label", ...label("lbl_unused"), name: "spare" })),
+    ).toBe(0);
+    expect(
+      await counted(row, () => publishUpsert(provider, { entity: "label", id: "lbl_new", name: "new", color: 4 })),
+    ).toBe(0);
+    // task_3's own label is renamed, recoloured, then removed: its row alone redraws each time.
+    expect(
+      await counted(row, () => publishUpsert(provider, { entity: "label", ...label("lbl_solo"), name: "single" })),
+    ).toBe(1);
+    expect(await counted(row, () => publishUpsert(provider, { entity: "label", ...label("lbl_solo"), color: 1 }))).toBe(
+      1,
+    );
+    expect(
+      await counted(row, () => publishUpsert(provider, { entity: "label", ...label("lbl_solo"), archived: true })),
+    ).toBe(1);
+  });
+}
+
 // The inbox orders by priority then `updated_at`, so a changed task moves and its neighbours shift
 // with it: its one-item case is the list's (the same TaskRow); here, selection and re-render.
 for (const layout of ["list", "inbox"] as const) {

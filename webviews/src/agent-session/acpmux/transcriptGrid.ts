@@ -212,7 +212,7 @@ export const MARK_HEADS_TURN = 128;
 /// Added to the top row of a turn another agent's line opened (model.ts `topsIncomingTurn`): that notice or
 /// message, or the turn's "Working for" / "Worked for" line over it, right under the turn before's last reply
 /// when that turn draws no footer (a turn the agent ran on its own, one whose footer folded). It stands the
-/// block gap, as it does under a footer (transcriptSpacing.ts footer-to-received), not the 16 a status line
+/// block gap (under a footer it stands the run gap, FOOTER_WORKING_GAP_LOOKS), not the 16 a status line
 /// has under prose of its own turn: there the new turn read as the reply's tail (Leo, 2026-11-21: "it is
 /// noticeably bad when you start a new working for whatever and there is no space before"; found by
 /// replaying recorded chats through the chat simulator, sim/README.md). Toward the rows after it, it is
@@ -295,6 +295,26 @@ export function rowGapLook(): (typeof ROW_GAP_LOOKS)[RowGapLook] {
   return set !== undefined && set in ROW_GAP_LOOKS ? ROW_GAP_LOOKS[set as RowGapLook] : ROW_GAP_LOOKS.shipped;
 }
 
+/// The gap from a reply's footer row (Copy, Branch, ...) to the next turn's "Working for" / "Worked for" line, the
+/// waiting indicator or a step row (a woken turn's first tool row, another agent's line), in px at Interface Size 1. It matched no rule and stood the block gap (24): the 24 buttons sit
+/// centred in their 32 row and the 20 line in its 32 row, so it read as ~38 from the icons to the words (Leo,
+/// 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc buttons and the next
+/// working for?"). Not flush either: "it is noticeably bad when you start a new working for whatever and there is no
+/// space before" (Leo, 2026-11-21). It ships the run gap (16), the gap "Worked for" stands under any one-line row
+/// (ROW_GAP_LOOKS `shipped`), so a new turn's line reads as a new run, not the footer's tail (8) nor a block away.
+/// Gallery `agent-pane.woken-turn-gap` compares the looks (`<html data-footer-working-gap>`): `block` (24, before)
+/// and `footer` (8). Read only for such a pair.
+export const FOOTER_WORKING_GAP_LOOKS = {
+  block: TRANSCRIPT_BLOCK_GAP,
+  run: TRANSCRIPT_RUN_GAP,
+  footer: TRANSCRIPT_FOOTER_GAP,
+} as const;
+export type FooterWorkingGapLook = keyof typeof FOOTER_WORKING_GAP_LOOKS;
+export function footerWorkingGapLook(): FooterWorkingGapLook {
+  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset.footerWorkingGap;
+  return set === "block" || set === "footer" ? set : "run";
+}
+
 /// One gap per adjacent pair, the most specific first: the waiting rule, then turn, then block.
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
@@ -326,6 +346,11 @@ export function transcriptGap(previous: number, next: number): number {
   // "Worked for" opens a finished turn's work: right under another turn's last one-line row it stood flush with it,
   // so "Sent to", another agent's line and "Worked for" read as one run (Leo, 2026-11-21: "way too close. no way.").
   if (next === MARK_WORKED && (previous === MARK_STEP || previous === MARK_STATUS)) return workedHeadGap();
+  // The next turn's first row under a reply's footer row: its "Working for" / "Worked for" line, the waiting
+  // indicator, or a step (a woken turn's first tool row, another agent's line). A status line there keeps the
+  // footer gap (8), below.
+  if (previous === MARK_FOOTER_ROW && (next === MARK_WORKED || next === MARK_INDICATOR || next === MARK_STEP))
+    return FOOTER_WORKING_GAP_LOOKS[footerWorkingGapLook()];
   if (next === MARK_WORKED) next = MARK_STEP;
   const near = (mark: number) =>
     mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
@@ -346,7 +371,7 @@ export function transcriptGap(previous: number, next: number): number {
   // reply, never a block gap away with the turn gap under it, a lone line in the middle of the band
   // (Leo, 2026-11-04: "this bare background update tool call floating in teh air is so weird loking
   // proportionally"; design/transcript-spacing.md "Lone system rows"). Another agent's line or a
-  // tool run there is a step row and keeps the block gap (footer-to-received).
+  // tool run there is a step row and opens the next turn: the run gap, above (footer-to-received).
   if (previous === MARK_FOOTER_ROW && next === MARK_STATUS) return TRANSCRIPT_FOOTER_GAP;
   // Waiting for the first output: the indicator right under its prompt takes the block gap.
   if ((next === MARK_INDICATOR || next === MARK_FOOTER_SLOT) && previous === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;

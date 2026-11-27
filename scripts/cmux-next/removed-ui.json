@@ -32,7 +32,8 @@
     "ask": "ask-836d66e229",
     "date": "2026-11-22",
     "removed_by": "cmux#49723",
-    "pattern": "subagents\\.of\\b|cv-subagent-of__",
+    "pattern": "cv-subagent-of__",
+    "narrowed": "Leo, 2026-11-22 (ask-6a4fc080a7): \"it is prob ok to somehow denote the \\\"subagent of\\\"... at the top i feel like\"; cmux#49887 built that heading (subagents.of, behind agentPane.display.subagentOf, off by default), so the guard now covers only the old pill classes",
     "paths": [
       "webviews/src"
     ]
