@@ -34,6 +34,8 @@ export PATH="$root/bin:$PATH" CMUX_NEXT_ACPMUX_BIN=/stand-in/acpmux CMUX_NEXT_AC
 fail() { echo "build-dmg-side-tags: $*" >&2; exit 1; }
 
 sed '/^main "\$@"; exit \$?$/d' "$measure/nightly-fresh-launch.sh" >"$root/lib.sh"
+# This library copy is outside the checkout, just as a saved carrier can be.
+export NFL_BUILD_PROGRESS="$measure/build-progress.sh"
 # shellcheck disable=SC1091 # the library copy made above
 source "$root/lib.sh"
 declare -F build_dmg >/dev/null || fail "no build_dmg in nightly-fresh-launch.sh"
