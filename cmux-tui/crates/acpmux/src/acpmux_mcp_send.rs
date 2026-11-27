@@ -387,6 +387,25 @@ fn spool_message(text: String) -> Result<(String, Option<Arc<MessageFile>>), Str
 /// file is refused even when it is readable: a message goes to other sessions and peers, so it
 /// carries only the sender's own files.
 pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<MessageFile>>), String> {
+    use cmux_tui_util::retry::{Attempt, Patience};
+    // A file still being written (its size moved while it was read) is read again once it
+    // settles, for a couple of seconds, instead of asking the agent to send it again.
+    let changed = changed_while_read(&std::path::Path::new(path).display());
+    Patience::new("the message file to finish writing", std::time::Duration::from_secs(2))
+        .quiet()
+        .run(|| {
+            read_message_file_once(path)
+                .map_err(|e| if e == changed { Attempt::Retry(e) } else { Attempt::Fail(e) })
+        })
+}
+
+/// [`read_message_file`]'s refusal of a file whose size moved while it was read.
+fn changed_while_read(shown: &impl std::fmt::Display) -> String {
+    format!("{shown} kept changing while it was read: another program is still writing it")
+}
+
+/// One read of [`read_message_file`].
+fn read_message_file_once(path: &str) -> Result<(String, Option<Arc<MessageFile>>), String> {
     use std::io::Read;
     let path = std::path::Path::new(path);
     let shown = path.display();
@@ -428,9 +447,7 @@ pub(super) fn read_message_file(path: &str) -> Result<(String, Option<Arc<Messag
         ));
     }
     if bytes.len() as u64 != meta.len() {
-        return Err(format!(
-            "{shown} changed while it was read; send it again once writing finishes"
-        ));
+        return Err(changed_while_read(&shown));
     }
     let text = String::from_utf8(bytes).map_err(|_| {
         format!("{shown} is not UTF-8 text: send a binary file with acpmux send --attach")

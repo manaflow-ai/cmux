@@ -233,7 +233,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     crate::cli::errors::Code::Runtime,
                     "stop_if_idle_unsupported",
                     "the running daemon predates `session stop --if-idle`: nothing was stopped; \
-                     restart it on the installed acpmux, then retry",
+                     `acpmux daemon restart` runs the installed one",
                 )
                 .into());
             }
@@ -1689,7 +1689,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         let (message, warning) = if url.starts_with("ssh://") && has_token {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux machine ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`; `acpmux machine ls` shows when it connects (the saved WebSocket token is retained)"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
@@ -1711,7 +1711,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         } else {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; run `acpmux machine ls` and retry after it shows connected"
+                                    "peer {name} was saved and is probing in the background; `acpmux machine ls` shows when it connects"
                                 ),
                                 json!({
                                     "reason": "peer_probing",

@@ -92,6 +92,7 @@ dependencies = [
  "cmux-transport-rewrite",
  "cmux-tui-hooks",
  "cmux-tui-platform",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-usage-share",
@@ -2331,6 +2332,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-envelope",
  "cmux-supervise-core",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "flate2",
  "libc",
@@ -3041,6 +3043,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
+ "cmux-tui-util",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -3815,6 +3818,7 @@ dependencies = [
  "libc",
  "rusqlite",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

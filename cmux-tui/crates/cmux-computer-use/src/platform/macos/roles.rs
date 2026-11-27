@@ -509,7 +509,7 @@ pub fn step_tolerance(step: f64) -> f64 {
 }
 
 /// The refusal when an element that may open a menu cannot be read.
-pub const MENU_UNREAD_REFUSAL: &str = "this element could not be read well enough to tell whether it opens a menu, so nothing was done; try again, or take a screenshot and use another element";
+pub const MENU_UNREAD_REFUSAL: &str = "this element's role or menu did not answer for over a second, so whether it opens a menu is unknown and nothing was done; take a screenshot and use another element";
 
 /// What the focus guard reads after an AX focus write ([`focus_guard`]).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -622,7 +622,7 @@ pub enum SecureField {
 }
 
 /// The refusal when a web field's facts cannot be read.
-pub const WEB_FIELD_UNREAD: &str = "this web field could not be read well enough to write its value safely, so nothing was written; try again";
+pub const WEB_FIELD_UNREAD: &str = "this web field's role, frame or state did not answer for over a second, so its value cannot be written safely and nothing was written; take a screenshot (the page may still be loading) or use another element";
 
 /// The smallest a field may be, wide and high, for its value to be its
 /// content: input helpers of terminals and code editors are styled 1 pt or
@@ -790,7 +790,7 @@ pub fn menu_bar_walk(mut role_at: impl FnMut(usize) -> Option<String>) -> Option
 
 /// The refusal when an element's place (in the menu bar or not) cannot be
 /// read, before a press that the menu bar's checks would gate.
-pub const MENU_PLACE_UNREAD: &str = "Computer Use could not read whether this element is in the menu bar, so it does not act on it (the menu checks could not be applied); try again";
+pub const MENU_PLACE_UNREAD: &str = "whether this element is in the menu bar did not answer for over a second, so the menu checks cannot be applied and nothing was done; take a screenshot and use another element";
 
 /// Whether a focused element that contains the field may hold the
 /// person's caret on it: a web area, a group or a scroll area may (the caret
@@ -854,7 +854,7 @@ pub fn agreed_front(active: Option<i32>, keyboard: Option<i32>) -> Option<i32> {
 }
 
 /// The refusal when the front app cannot be read consistently.
-pub const FRONT_UNSURE: &str = "which app is in front could not be read consistently (a panel such as Spotlight may hold the keyboard), so the click was not posted; try again, or use an element_id";
+pub const FRONT_UNSURE: &str = "which app is in front read differently from the accessibility and workspace sides for over a second (a panel such as Spotlight may hold the keyboard), so the click was not posted; use an element_id, or close the panel";
 
 /// Command-A alone: Select All.
 pub fn is_select_all(combo: &crate::keys::KeyCombo) -> bool {
@@ -2014,7 +2014,7 @@ pub struct ChordFacts<'a> {
 
 pub const REFUSE_TOO_DEEP: &str = "this app's menus could not all be read to check this shortcut against the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_LAYOUT: &str = "this shortcut cannot be checked against the Computer Use deny list on this keyboard layout; use the app's menu items in the tree";
-pub const REFUSE_SERVICES_UNREAD: &str = "the Services shortcuts could not be read yet; try again in a moment, or use the app's menu items in the tree";
+pub const REFUSE_SERVICES_UNREAD: &str = "the Services shortcuts (`pbs -dump`) could not be read within 7 s, so this chord, which a Service might take, was not posted; use the app's menu items in the tree";
 pub const REFUSE_SERVICE: &str = "this shortcut runs a Service, which can hand the selection to an app on the Computer Use deny list; use the app's menu items in the tree";
 pub const REFUSE_BLOCKED: &str =
     "the menu item for this shortcut would reach an app on the Computer Use deny list";
