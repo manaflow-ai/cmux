@@ -711,6 +711,41 @@ class FlattenAndWhenTrueTests(unittest.TestCase):
             with self.subTest(entry), self.assertRaises(BindingError):
                 rendered(spawn_document(), bindings)
 
+    def test_flatten_values_cannot_share_a_wire_name_with_independent_remaining_fields(self) -> None:
+        bindings = spawn_bindings()
+        bindings["flatten"]["Other"] = {
+            "wire": ["cols", "height"], "encode": "try {value}.encode(to: encoder)"
+        }
+        bindings["families"]["Layout"]["requests"]["spawn-pane"]["flatten"]["other"] = {"type": "Other"}
+        with self.assertRaisesRegex(BindingError, "overlap.*cols"):
+            rendered(spawn_document(), bindings)
+
+    def test_flatten_overlap_is_rejected_even_when_the_shared_wire_is_absent_from_the_schema(self) -> None:
+        bindings = spawn_bindings()
+        bindings["flatten"]["Other"] = {
+            "wire": ["argv", "height"], "encode": "try {value}.encode(to: encoder)"
+        }
+        bindings["families"]["Layout"]["requests"]["spawn-pane"]["flatten"]["other"] = {"type": "Other"}
+        with self.assertRaisesRegex(BindingError, "overlap.*argv"):
+            rendered(spawn_document(), bindings)
+
+    def test_omit_rejects_unknown_and_required_fields(self) -> None:
+        for omitted, message in ((["unknown"], "does not have"), (["pane"], "requires")):
+            bindings = spawn_bindings(omit=omitted)
+            with self.subTest(omitted), self.assertRaisesRegex(BindingError, message):
+                rendered(spawn_document(), bindings)
+
+    def test_omit_removes_an_optional_field(self) -> None:
+        source = self.source(omit=["label"])
+        self.assertNotIn("case label", source)
+        self.assertNotIn("label: String?", source)
+
+    def test_omit_rejects_fields_written_by_flatten_and_mutation(self) -> None:
+        for omitted, message in ((["cols"], "flattened value"), (["origin"], "mutation")):
+            bindings = spawn_bindings(omit=omitted)
+            with self.subTest(omitted), self.assertRaisesRegex(BindingError, message):
+                rendered(spawn_document(), bindings)
+
 
 class OutAndCheckTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -867,6 +902,13 @@ class RepositoryBindingsTests(unittest.TestCase):
             for family in bindings.get("families", {}).values()
         ))
         self.assertIn("Layout/SetColumnWidthRequest.generated.swift", files)
+
+    def test_create_terminal_omits_the_detached_selector_but_keeps_workspace(self) -> None:
+        bindings = generate.load_bindings(generate.DEFAULT_BINDINGS)
+        files = render(load_ir(generate.DEFAULT_SCHEMA), bindings)
+        source = files["Creation/CreateTerminalRequest.generated.swift"]
+        self.assertIn("public var workspace: WorkspaceRef", source)
+        self.assertNotIn("detached", source)
 
     def test_the_repository_passes_its_own_check(self) -> None:
         """No generated type is still declared by hand in CmuxNextDaemon (the build would fail to compile)."""

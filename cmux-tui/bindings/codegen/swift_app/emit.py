@@ -515,12 +515,15 @@ class _Renderer:
                 raise BindingError(f"{command}.omit names {wire!r}, which the schema requires")
         if set(omit) & set(order):
             raise BindingError(f"{command}.omit cannot remove a field named in order")
+        omitted = set(omit)
         schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in omit}
         mutation = binding.get("mutation", False)
         if mutation not in (True, False):
             raise BindingError(f"{command}: mutation is true or false")
         synthetic: dict[str, _Field] = {}
         if mutation:
+            if omitted & set(_MUTATION_WIRE):
+                raise BindingError(f"{command}.omit cannot remove a field written by mutation")
             if not {"origin", "mutation_id"} <= set(schema_fields):
                 raise BindingError(f"{command}: mutation needs the schema's origin and mutation_id fields")
             schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in _MUTATION_WIRE}
@@ -537,6 +540,11 @@ class _Renderer:
             if spec.get("type") not in self.flatten:
                 raise BindingError(f"{command}.flatten.{name}: type must be one the top-level flatten registry names")
             wires, statement = self.flatten[spec["type"]]
+            if omitted & set(wires):
+                overlap = sorted(omitted & set(wires))
+                raise BindingError(
+                    f"{command}.omit cannot remove a field written by flattened value: {', '.join(overlap)}"
+                )
             overlap = sorted(claimed_flatten_wires & set(wires))
             if overlap:
                 raise BindingError(
