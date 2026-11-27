@@ -3,6 +3,7 @@
 use anyhow::Result;
 #[cfg(unix)]
 use anyhow::anyhow;
+use cmux_file_lock::{FileLock, Kind, LockError};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -10,18 +11,18 @@ use std::time::Duration;
 /// explicitly: a child forked but not yet exec'd shares the open file
 /// description, so closing this descriptor alone would leave the lock held
 /// after the daemon exits, and the next daemon would find it taken.
-pub(super) struct DaemonLock(std::fs::File);
+pub(super) struct DaemonLock(FileLock);
 
 #[cfg(unix)]
 impl DaemonLock {
     pub(super) fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
         use std::os::fd::AsFd;
-        self.0.as_fd()
+        self.0.file().as_fd()
     }
 
     /// Adopt the exact locked inode carried through an exec of this same PID.
     pub(super) fn inherit(fd: i32, path: &Path) -> Result<Self> {
-        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::os::fd::FromRawFd;
         use std::os::unix::fs::MetadataExt;
         // SAFETY: exec_update validates unique descriptors above stdio and transfers ownership.
         let file = unsafe { std::fs::File::from_raw_fd(fd) };
@@ -38,20 +39,12 @@ impl DaemonLock {
             "inherited daemon lock has no matching live holder"
         );
         // The inherited open description already owns this lock; a separate description fails.
-        anyhow::ensure!(
-            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
-            "inherited descriptor does not own the daemon lock"
-        );
-        Ok(Self(file))
-    }
-}
-
-#[cfg(unix)]
-impl Drop for DaemonLock {
-    fn drop(&mut self) {
-        use std::os::unix::io::AsRawFd;
-        // SAFETY: flock on the descriptor this guard owns.
-        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
+        // FileLock keeps ownership continuously and explicitly unlocks on drop, including
+        // while a forked child still has a duplicate of this open description.
+        let held = FileLock::try_take(file, Kind::Exclusive).map_err(|error| {
+            anyhow!("inherited descriptor does not own the daemon lock: {error}")
+        })?;
+        Ok(Self(held))
     }
 }
 
@@ -241,34 +234,28 @@ pub(super) fn holder_socket(path: &Path) -> Option<PathBuf> {
 
 #[cfg(unix)]
 pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
-    use std::os::unix::io::AsRawFd;
     let file = crate::config::private_state_rw(path)?;
-    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-    if rc != 0 {
-        let e = std::io::Error::last_os_error();
-        if e.kind() == std::io::ErrorKind::WouldBlock {
-            return Err(LockHeld::new(path, &file).into());
+    match FileLock::try_take(file, Kind::Exclusive) {
+        Ok(held) => {
+            record_pid(held.file());
+            Ok(DaemonLock(held))
         }
-        return Err(anyhow!("lock {}: {e}", path.display()));
+        Err(LockError::Busy(file)) => Err(LockHeld::new(path, &file).into()),
+        Err(LockError::Io(error)) => Err(anyhow!("lock {}: {error}", path.display())),
     }
-    record_pid(&file);
-    Ok(DaemonLock(file))
 }
-/// Windows: an exclusive `LockFileEx` lock (std's `File::try_lock`), held
-/// while the file stays open; the system releases it when the daemon exits
-/// (a child gets no copy: the daemon starts children with a handle list).
+/// Windows: an exclusive `LockFileEx` lock, explicitly unlocked by FileLock before close.
+/// A child gets no copy: the daemon starts children with a handle list.
 #[cfg(windows)]
 pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     use anyhow::Context;
     let file = crate::config::private_state_rw(path)?;
-    match file.try_lock() {
-        Ok(()) => Ok(DaemonLock(file)),
+    match FileLock::try_take(file, Kind::Exclusive) {
+        Ok(held) => Ok(DaemonLock(held)),
         // The lock covers the file, so its holder's pid cannot be read here.
-        Err(std::fs::TryLockError::WouldBlock) => {
-            Err(LockHeld { path: path.to_owned(), pid: None }.into())
-        }
-        Err(std::fs::TryLockError::Error(e)) => {
-            Err(anyhow::Error::new(e).context(format!("lock {}", path.display())))
+        Err(LockError::Busy(_)) => Err(LockHeld { path: path.to_owned(), pid: None }.into()),
+        Err(LockError::Io(error)) => {
+            Err(anyhow::Error::new(error).context(format!("lock {}", path.display())))
         }
     }
 }
@@ -393,17 +380,19 @@ mod tests {
         // Exec does not run the old guard's Drop. Transfer that same descriptor to a new
         // guard without unlocking it, while a second descriptor shares its open description.
         let old = std::mem::ManuallyDrop::new(acquire_lock(&path).unwrap());
-        let duplicate = old.0.try_clone().unwrap();
+        let duplicate = old.0.file().try_clone().unwrap();
         let probe = std::fs::File::open(&path).unwrap();
         assert!(lock_is_held(&probe));
         let inherited = DaemonLock::inherit(old.as_fd().as_raw_fd(), &path).unwrap();
-        assert_eq!(holder_pid(&inherited.0), Some(std::process::id()));
+        assert_eq!(holder_pid(inherited.0.file()), Some(std::process::id()));
         assert!(lock_is_held(&probe), "adoption released the shared open description's lock");
         assert!(acquire_lock(&path).is_err(), "another daemon entered during adoption");
-        drop(duplicate);
-        assert!(lock_is_held(&probe), "adopted guard did not retain lock ownership");
         drop(inherited);
-        assert!(!lock_is_held(&probe), "dropping the new guard did not release the lock");
+        assert!(
+            !lock_is_held(&probe),
+            "dropping the new guard must explicitly unlock while its duplicate remains open"
+        );
+        drop(duplicate);
         drop(probe);
         drop(acquire_lock(&path).expect("a later daemon can acquire the released lock"));
         std::fs::remove_dir_all(dir).unwrap();
