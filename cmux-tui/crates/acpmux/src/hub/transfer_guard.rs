@@ -84,6 +84,42 @@ impl Guard {
         Ok(Guard { control, roots, owner: false })
     }
 
+    /// The guard of a same-person hub move (`transfer_pull.rs` `hub_move_guard`), built from
+    /// this daemon's own config, never a request: `web_roots` under [`Guard::parse`]'s checks,
+    /// and with `home` the home folder itself, which `parse` refuses to any other caller. It
+    /// keeps the chat's origin (`owner`). Stored with the receive like any guard, so the write
+    /// and finish are held to the same roots; nothing outside the home folder is ever a root.
+    pub(super) async fn hub_move(web_roots: &[String], home: bool) -> Result<Guard, RpcError> {
+        let mut guard = if web_roots.is_empty() {
+            Guard { control: Control::Peer, roots: Vec::new(), owner: true }
+        } else if home {
+            // A VM host has its home as a root anyway: a bad webRoot is left out, not fatal.
+            match Guard::from_config_roots(web_roots).await {
+                Ok(mut g) => {
+                    g.owner = true;
+                    g
+                }
+                Err(_) => Guard { control: Control::Peer, roots: Vec::new(), owner: true },
+            }
+        } else {
+            let mut g = Guard::from_config_roots(web_roots).await?;
+            g.owner = true;
+            g
+        };
+        if home {
+            let h = dirs::home_dir()
+                .ok_or_else(|| guard_error("guard", "this daemon has no home folder"))?;
+            let h = spelled(&h).await.unwrap_or(h);
+            if !guard.roots.contains(&h) {
+                guard.roots.push(h);
+            }
+        }
+        if guard.roots.is_empty() {
+            return Err(guard_error("guard", "a hub move needs a root"));
+        }
+        Ok(guard)
+    }
+
     /// A hub move's guard (`transfer_pull.rs`, `transfer_hub_precopy.rs`), built from this
     /// daemon's own `webRoots`: each root that passes the same checks as `parse` is kept, and one
     /// that fails (a `/tmp` a probe wrote, a folder since deleted) is left out rather than
@@ -549,3 +585,7 @@ mod retired_root_tests;
 #[cfg(test)]
 #[path = "transfer_guard_config_root_tests.rs"]
 mod config_root_tests;
+
+#[cfg(test)]
+#[path = "transfer_guard_hub_move_tests.rs"]
+mod hub_move_tests;
