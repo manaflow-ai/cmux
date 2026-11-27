@@ -82,6 +82,13 @@ on:
         required: false
         default: ""
         type: string
+      # Only an explicit workflow_dispatch on the trusted main branch may
+      # enable the app-host compilation-cache canary. All other callers keep
+      # the historical cache-disabled default.
+      app_compilation_cache_canary:
+        required: false
+        default: false
+        type: boolean
       release_archs:
         required: false
         default: ""
@@ -225,10 +232,10 @@ env:
   # -- a consumer recomputing a different profile's identity simply declines
   # the artifact, which would silently cost a compile instead of reusing one.
   CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true' || inputs.compile_admitted != 'true') && 'app-host' || 'cli' }}
-  # Production app-cache enablement is a bounded canary. Keep the historical
-  # safe default off; set the repository variable to 1 only while collecting
-  # a real Mac hit/miss and compile-time receipt for the RFD0165 decision.
-  CMUX_CI_ENABLE_APP_COMPILATION_CACHE: ${{ vars.CMUX_CI_ENABLE_APP_COMPILATION_CACHE || '0' }}
+  # Production app-cache enablement is a bounded canary. Only an explicit
+  # main-branch dispatch can opt in; pull requests, schedules, forks and every
+  # other ref remain on the historical cache-disabled default.
+  CMUX_CI_ENABLE_APP_COMPILATION_CACHE: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.app_compilation_cache_canary && '1' || '0' }}
 
 jobs:
   admission-placement:
