@@ -30,8 +30,9 @@ on:
   # 89% of them on pull requests, at a 3% miss rate (cmuxterm-hq#16094). Nor on each push to feat-cmux-next
   # (2026-11-21, the post-merge batch tier, RFD 0023 in cmuxterm-hq): the post-merge batch
   # (cmux-next-post-merge.yml, suite gallery-health) calls it with the tip once a window, when the commits
-  # since the last batch touched a path the render reads, and renders every entry with no base (as the
-  # nightly dispatch does), so a red there fails and the batch bisects it to the merge that made it. The
+  # since the last batch touched a path the render reads, and renders the entries those commits touch (the
+  # plan job), judged against the last batch's head, so a new red fails and the batch bisects it to the merge
+  # that made it; the nightly dispatch renders every entry with no base. The
   # paths list lives in that suite of .github/post-merge-batch.json: what a gallery render reads, and nothing
   # else (2026-11-05 CI audit, cmuxterm-hq plans/ci/baggage-2026-11-05.md): the webviews UI sources and the
   # gallery's own build, the files outside webviews/ they import or read (galleryHost.ts, gen-strings.mjs),
@@ -279,6 +280,12 @@ jobs:
         env:
           EVENT: ${{ inputs.sha != '' && 'workflow_dispatch' || github.event_name }}
           BEFORE: ${{ github.event.before }}
+          # A post-merge batch run or bisect probe names the commit it is judged against (inputs.base): it renders
+          # the entries the commits since then touch, as a pull request renders the ones its change touches
+          # (2026-11-27, CI time map: every batch rendered all 22 shards, ~1,600 runner-minutes an hour, the
+          # largest gcp-pool cluster). A red in an entry those commits do not reach is not theirs to judge; a
+          # global file, the checker or this workflow still renders everything (unplaced.py, below).
+          BATCH_BASE: ${{ inputs.sha != '' && inputs.base || '' }}
         run: |
           set -euo pipefail
           # Each part in its own log group, so its time shows in the log and in the controller's
@@ -292,6 +299,12 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             # The merge's first parent is the base it was merged with: the diff is the pull request's change.
             git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          elif [ -n "$BATCH_BASE" ] && [[ "$BATCH_BASE" =~ ^[0-9a-f]{40}$ ]] \
+              && { git cat-file -e "$BATCH_BASE^{commit}" 2>/dev/null \
+                || timeout 120 git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$BATCH_BASE"; } \
+              && git diff --name-only "$BATCH_BASE" HEAD > "$RUNNER_TEMP/changed.txt"; then
+            # The batch's commits since its base. A base that cannot be read falls through to render everything.
+            echo "changes since the batch base ${BATCH_BASE:0:12}"
           elif [ "$EVENT" = workflow_dispatch ]; then
             # The nightly full render of the base, or a post-merge batch run: render everything.
             echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
