@@ -144,6 +144,34 @@ async fn a_quiet_link_an_open_chat_or_a_pending_delivery_needs_stays_past_the_bo
     assert!(plain.idle_due());
 }
 
+/// A peer whose chats this daemon keeps copies of (`vmBoundary`) is dialed at start and kept, as a
+/// GitHub-lending one is: an undialed link keeps no copy, and with no copy none of its chats
+/// resumes when it dies (`scripts/measure/fleet-recovery-bench.py --n 20`: 0 of 20).
+#[tokio::test]
+async fn a_peer_whose_copies_this_daemon_keeps_dials_at_start_and_stays() {
+    test_dial::refuse_all();
+    let peer = lazily(|| built("keeps-copies"));
+    let run = tokio::spawn(peer.clone().run());
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    assert!(test_dial::attempts().is_empty(), "a parked peer dialed before it kept copies");
+
+    peer.set_vm_boundary(true);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!test_dial::attempts().is_empty(), "keeping copies wakes the startup dial");
+    assert!(!peer.idle_parked());
+    peer.stop();
+    run.await.unwrap();
+    test_dial::clear();
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_copy_keeping_link_never_closes_unused() {
+    let kept = saved(|| built("vm"));
+    kept.set_vm_boundary(true);
+    tokio::time::advance(IDLE_CLOSE_AFTER * 4).await;
+    assert!(!kept.idle_due(), "its copies are its chats' recovery");
+}
+
 /// The link closes unused: no outage, no failed attempt, no error, no ask, and the peer waits to
 /// be used.
 #[tokio::test]

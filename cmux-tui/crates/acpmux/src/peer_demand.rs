@@ -25,7 +25,9 @@
 //!   it is `offline` and reconnects on use, instead of logging in to a machine nobody reads.
 //!
 //! A peer this daemon lends its GitHub login (`githubBroker`) is dialed at start and kept, as
-//! before: that peer asks over this link, and only over it. A leased peer (`peer_lease.rs`) and
+//! before: that peer asks over this link, and only over it.
+//! So is one whose chats this daemon keeps
+//! copies of (`vmBoundary`, `keeps_copies`): those copies are its chats' recovery when it dies. A leased peer (`peer_lease.rs`) and
 //! one a test builds keep the old rule too: dialed at once, kept while it answers.
 
 use super::Peer;
@@ -185,9 +187,13 @@ impl Peer {
     }
 
     /// Whether this peer's link closes, or stops redialing, once unused: a saved peer's does,
-    /// unless this daemon lends it its GitHub login (that peer asks over this link alone).
+    /// unless this daemon lends it its GitHub login (that peer asks over this link alone) or
+    /// keeps copies of its chats (`vmBoundary`, `hub/peer_snapshot/warm.rs` `keeps_copies`): the
+    /// copies are what its chats resume from when the machine dies, and a link left undialed
+    /// keeps none (`scripts/measure/fleet-recovery-bench.py --n 20`: 0 copies at the kill, 0 of
+    /// 20 resumed).
     fn closes_idle(&self) -> bool {
-        self.wanted.demand.closes_idle && !self.github_broker()
+        self.wanted.demand.closes_idle && !self.github_broker() && !self.vm_boundary()
     }
 
     /// Whether the peer has gone unused for [`IDLE_CLOSE_AFTER`] with nothing keeping it: no
@@ -223,7 +229,7 @@ impl Peer {
             tracing::info!(peer = %self.name, "the link is down and unused; it reconnects on use");
         }
         if !self.closes_idle() {
-            // Started lazily, but this daemon lends it GitHub: it dials now.
+            // Started lazily, but this daemon lends it GitHub or keeps its copies: it dials now.
             demand.parked.store(false, Ordering::SeqCst);
             return true;
         }
