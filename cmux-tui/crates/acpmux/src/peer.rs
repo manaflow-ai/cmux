@@ -461,7 +461,7 @@ pub struct Peer {
     /// `github_broker.rs`), and how many of its actions may run at once: the slots of its name
     /// (`owner_slots`), which a reconnect's new peer shares with the old one.
     github_broker: AtomicBool,
-    github_slots: Arc<tokio::sync::Semaphore>,
+    github_slots: Arc<crate::github_broker::OwnerSlots>,
     /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
     /// serving this daemon as a peer: the only link a GitHub action is taken on.
     github_link: AtomicU64,

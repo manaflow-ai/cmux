@@ -133,7 +133,12 @@ fn reason(reply: &Result<Value, RpcError>) -> Option<&str> {
 /// What an owner's answer says of its progress.
 fn outcome(reply: &Result<Value, RpcError>) -> Outcome {
     match reason(reply) {
-        Some("client.not_sent" | "client.busy" | "github.busy") => Outcome::NotRun,
+        // A Mac whose pool is low or paced (`github_pool.rs`) ran nothing; another Mac's pool may
+        // still serve it. A `github.budget.caller` refusal is this session's and stays.
+        Some(
+            "client.not_sent" | "client.busy" | "github.busy" | "github.budget.pool"
+            | "github.budget.pace",
+        ) => Outcome::NotRun,
         Some("client.ended" | "client.timeout") => Outcome::Lost,
         _ => Outcome::Answered,
     }
