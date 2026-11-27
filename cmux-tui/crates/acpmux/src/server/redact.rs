@@ -30,12 +30,13 @@ pub(super) fn hide_unreachable_peer(e: crate::rpc::RpcError) -> crate::rpc::RpcE
     if reason != Some("peer_unreachable") {
         return e;
     }
-    crate::rpc::RpcError::internal("peer_unreachable: the request was not sent; retry later")
-        .with_data(serde_json::json!({
+    crate::rpc::RpcError::internal("peer_unreachable: the request was not sent").with_data(
+        serde_json::json!({
             "reason": "peer_unreachable",
             "retryable": true,
             "detail": "the request was not sent",
-        }))
+        }),
+    )
 }
 
 /// A remote-origin (Web) connection never learns a token: not the
