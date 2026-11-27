@@ -54,13 +54,16 @@
 //! step per event, the saved list, a hand-off's status and times),
 //! the machine bootstrap, machine config and create retry rules
 //! (`cloud_bootstrap_*`, `cloud_machine_config_*`, `cloud_machine_step_outcome`,
-//! `cloud_create_*`, `cloud_power_retries`),
+//! `cloud_create_*`, `cloud_power_retries`), the Cloud start and create flow rules
+//! (`cloud_launch_*`),
 //! `cmux-window-rules`' window handler rules (`window_*`: what a close asks
 //! and whether it earns an undo toast),
 //! the window docks, Dock Column plan and Home Chief panel (`dock_model_*`),
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' empty workspace repair (`empty_workspace_step`: one
+//! step of the reducer whose state the app holds; `empty_workspace_cause`),
 //! `cmux-window-rules`' right column rule and subagent pane tracker
 //! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
@@ -100,12 +103,14 @@ mod cloud_config;
 mod cloud_handler;
 mod cloud_handoff;
 mod cloud_hybrid;
+mod cloud_launch;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
 mod cloud_task;
 mod dock_model;
 pub mod drag_handle;
+mod empty_workspace;
 pub mod focus;
 mod imessage;
 pub mod input;
@@ -651,6 +656,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            operation if empty_workspace::handles(operation) => {
+                empty_workspace::respond(operation, request)?
+            }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?
             }
@@ -669,6 +677,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_sequence::respond(operation, request)?
             }
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
+            operation if cloud_launch::handles(operation) => {
+                cloud_launch::respond(operation, request)?
+            }
             // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
             operation if cloud_bootstrap::handles(operation) => {
                 cloud_bootstrap::respond(operation, request)?
