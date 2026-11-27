@@ -31,6 +31,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -183,36 +184,78 @@ def compare(shots: list[Path], base: dict[str, Path]) -> list[dict]:
     return out
 
 
+NIGHTLY_TAG = os.environ.get("CMUX_IOS_VERIFY_NIGHTLY_TAG", "nightly-next")
+
+
+def search_prs(repo: str, q: str) -> list[dict]:
+    """Issue search for REPO. On a lane VM the broker refuses `gh pr list --search`; `lane-gh call search_issues` is
+    its route. Elsewhere, `gh api search/issues`. Each item: number and pull_request.merged_at."""
+    if shutil.which("lane-gh"):
+        out = sh("lane-gh", "call", "search_issues", repo, json.dumps({"q": q, "per_page": 30}), "--field", "items",
+                 check=False)
+        try:
+            return json.loads(out) if out.strip().startswith("[") else []
+        except ValueError:
+            return []
+    got = gh_json("api", "-X", "GET", "search/issues", "-f", f"q=repo:{repo} {q}", "-f", "per_page=30")
+    return (got or {}).get("items") or []
+
+
+def nightly_sha() -> str | None:
+    """The commit the NIGHTLY Leo runs was built from: the NIGHTLY_TAG tag (fetched fresh)."""
+    git("fetch", "-q", "--no-tags", "origin", f"+refs/tags/{NIGHTLY_TAG}:refs/tags/{NIGHTLY_TAG}", check=False)
+    return git("rev-parse", "-q", "--verify", f"refs/tags/{NIGHTLY_TAG}^{{commit}}", check=False) or None
+
+
+def in_nightly(sha: str | None, nightly: str | None) -> bool:
+    if not (sha and nightly):
+        return False
+    git("fetch", "-q", "--no-tags", "origin", sha, check=False)
+    return subprocess.run(["git", "-C", str(REPO_ROOT), "merge-base", "--is-ancestor", sha, nightly]).returncode == 0
+
+
 def baseline(repo: str, base_ref: str, work: Path) -> tuple[dict | None, dict[str, Path]]:
-    """The newest passing ios-flows proof on a PR merged into BASE_REF, and its screenshots."""
+    """The screens to diff against: the newest passing ios-flows proof on a PR merged into BASE_REF whose merge commit
+    is in the NIGHTLY (NIGHTLY_TAG), so a diff reads as against NIGHTLY. With none in the NIGHTLY yet, the newest
+    merged proof, labelled source "merged" so Tier 1 can tell; none at all is no baseline."""
+    nightly = nightly_sha()
     try:
-        prs = gh_json("pr", "list", "--repo", repo, "--base", base_ref, "--state", "merged", "--limit", "15",
-                      "--search", f"\"{proof_record.KIND} {SUITE}\" in:comments", "--json", "number,mergeCommit")
+        items = search_prs(repo, f"is:pr is:merged base:{base_ref} \"{proof_record.KIND} {SUITE}\" in:comments")
     except SystemExit:
         return None, {}
-    for p in prs or []:
+    fallback: tuple[dict | None, dict[str, Path]] = (None, {})
+    for item in items[:15]:
+        number = item["number"]
         try:
-            comments = gh_json("api", f"repos/{repo}/issues/{p['number']}/comments?per_page=100")
+            merge = (gh_json("api", f"repos/{repo}/pulls/{number}") or {}).get("merge_commit_sha")
+            comments = gh_json("api", f"repos/{repo}/issues/{number}/comments?per_page=100")
         except SystemExit:
+            continue
+        nightly_hit = in_nightly(merge, nightly)
+        if fallback[0] and not nightly_hit:
             continue
         recs = [r for c in comments if proof_record.trusted(c, proof_record.DEFAULT_BOTS.split(","))
                 for r in [proof_record.parse(c.get("body") or "")] if r and r["verdict"] == "pass"]
         for r in reversed(recs):
-            for run in r["runs"]:
-                if run.get("step") and run.get("mode") == "test":
-                    shots = [s for s in fetch(run["step"], work / f"base-{p['number']}") if s.suffix == ".png"]
-                    if shots:
-                        meta = {"source": "newest passing proof merged into " + base_ref, "pr": p["number"],
-                                "sha": r["head_sha"], "merge_commit": (p.get("mergeCommit") or {}).get("oid"),
-                                "step": run["step"]}
-                        return meta, {s.name: s for s in shots}
-    return None, {}
+            run = next((x for x in r["runs"] if x.get("step") and x.get("mode") == "test"), None)
+            shots = [s for s in fetch(run["step"], work / f"base-{number}") if s.suffix == ".png"] if run else []
+            if not shots:
+                continue
+            meta = {"source": "nightly" if nightly_hit else "merged", "nightly_tag": NIGHTLY_TAG,
+                    "nightly_sha": nightly, "pr": number, "sha": r["head_sha"], "merge_commit": merge,
+                    "step": run["step"]}
+            if nightly_hit:
+                return meta, {s.name: s for s in shots}
+            fallback = (meta, {s.name: s for s in shots})
+            break
+    return fallback
 
 
 def visual(captures: list[dict], base_meta: dict | None, video: str | None) -> dict:
     """What Tier 1 (land-judge, visual changes) checks: real-sim screens diffed against the last green build."""
     changed = [c["name"] for c in captures if c["verdict"] in ("changed", "new", "missing")]
     return {"screens": sum(1 for c in captures if c["verdict"] != "missing"), "baselined": base_meta is not None,
+            "baseline_source": (base_meta or {}).get("source", "none"),
             "changed": changed, "video": bool(video), "diffed": base_meta is not None and bool(captures)}
 
 

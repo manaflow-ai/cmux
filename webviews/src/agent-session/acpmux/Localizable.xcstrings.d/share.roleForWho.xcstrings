@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "composer.hybridStart" : {
-      "comment" : "Agent pane: a new chat's environment picker row indented under Cloud: start the chat on this Mac and let it move to Cloud (Auto)",
+    "share.roleForWho" : {
+      "comment" : "Agent pane: Share dialog: accessible name of a request row's role picker. {account} is their email or @handle",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "دور {account}"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Uloga za {account}"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Rolle for {account}"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Rolle für {account}"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hybrid start"
+            "value" : "Role for {account}"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Rol para {account}"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Rôle pour {account}"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Ruolo per {account}"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "{account} の役割"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "តួនាទីសម្រាប់ {account}"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "{account}의 역할"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Rolle for {account}"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Rola dla {account}"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Função para {account}"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Роль для {account}"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "บทบาทของ {account}"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "{account} için rol"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Роль для {account}"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "Vai trò cho {account}"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "{account} 的角色"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hybrid start"
+            "value" : "{account} 的角色"
           }
         }
       }

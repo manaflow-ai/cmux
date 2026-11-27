@@ -169,6 +169,30 @@ class Plan(unittest.TestCase):
         self.assertEqual(v["changed"], ["a.png"])
         self.assertTrue(v["diffed"] and v["video"])
         self.assertFalse(ios_verify.visual(caps, None, None)["diffed"])
+        self.assertEqual(ios_verify.visual(caps, {"source": "nightly"}, None)["baseline_source"], "nightly")
+        self.assertEqual(ios_verify.visual(caps, None, None)["baseline_source"], "none")
+
+    def test_baseline_prefers_a_proof_in_the_nightly(self):
+        rec = dict(RECORD, runs=[dict(RECORD["runs"][0], mode="test")])
+        body = pr.render(rec)
+        merges = {1: "m1", 2: "m2"}
+        saved = (ios_verify.nightly_sha, ios_verify.search_prs, ios_verify.gh_json, ios_verify.in_nightly,
+                 ios_verify.fetch)
+        try:
+            ios_verify.nightly_sha = lambda: "n" * 40
+            ios_verify.search_prs = lambda repo, q: [{"number": 1}, {"number": 2}]
+            ios_verify.gh_json = lambda *a: ({"merge_commit_sha": merges[int(a[1].rsplit("/", 1)[1])]}
+                                             if "/pulls/" in a[1] else [comment(body, login="x")])
+            ios_verify.in_nightly = lambda sha, n: sha == "m2"
+            ios_verify.fetch = lambda step, into: [pathlib.Path("a.png")]
+            meta, shots = ios_verify.baseline("o/r", "feat-cmux-next", pathlib.Path("/nonexistent"))
+            self.assertEqual((meta["pr"], meta["source"]), (2, "nightly"))
+            ios_verify.in_nightly = lambda sha, n: False
+            meta, _ = ios_verify.baseline("o/r", "feat-cmux-next", pathlib.Path("/nonexistent"))
+            self.assertEqual((meta["pr"], meta["source"]), (1, "merged"))
+        finally:
+            (ios_verify.nightly_sha, ios_verify.search_prs, ios_verify.gh_json, ios_verify.in_nightly,
+             ios_verify.fetch) = saved
 
 
 class Launcher(unittest.TestCase):
@@ -177,6 +201,58 @@ class Launcher(unittest.TestCase):
         self.assertRegex(dev, r'words: \["ios", "verify"\]')
         sh = (ROOT / "scripts/ci/ios-verify.sh").read_text()
         self.assertTrue(re.search(r"scripts/ci/ios_verify\.py", sh))
+
+
+class TokenFallbackTest(unittest.TestCase):
+    """Before -> after on PR 45147 (2026-11-27): the run's github.token 403'd on every call, the gate read with it
+    alone and posted `UI proof not read (HTTPError)` on every rerun. After: the pool token reads it."""
+
+    @staticmethod
+    def refused(code: int):
+        import urllib.error
+        return urllib.error.HTTPError("https://api.github.com/x", code, "refused", {}, None)
+
+    def test_a_refused_token_falls_back_to_the_next(self) -> None:
+        seen = []
+
+        def read(token: str) -> str:
+            seen.append(token)
+            if token == "run":
+                raise self.refused(403)
+            return f"read with {token}"
+
+        self.assertEqual(pr.with_tokens(read, ["run", "pool1", "pool2"]), "read with pool1")
+        self.assertEqual(seen, ["run", "pool1"])
+
+    def test_the_last_refusal_and_other_errors_raise(self) -> None:
+        import urllib.error
+
+        def always(token: str):
+            raise self.refused(403)
+
+        with self.assertRaises(urllib.error.HTTPError) as got:
+            pr.with_tokens(always, ["a", "b"])
+        self.assertEqual(pr.read_error(got.exception), "HTTPError 403")
+        tried = []
+
+        def missing(token: str):
+            tried.append(token)
+            raise self.refused(404)
+
+        # A 404 is the read's answer, not the token's: no other token changes it.
+        with self.assertRaises(urllib.error.HTTPError):
+            pr.with_tokens(missing, ["a", "b"])
+        self.assertEqual(tried, ["a"])
+        with self.assertRaises(ValueError):
+            pr.with_tokens(missing, [])
+
+    def test_read_tokens_puts_gh_token_first_then_the_pool_once_each(self) -> None:
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "run", "TOKENS": "run pool1  pool2"}, clear=False):
+            self.assertEqual(pr.read_tokens(), ["run", "pool1", "pool2"])
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": "", "TOKENS": ""}, clear=False):
+            self.assertEqual(pr.read_tokens(), [])
 
 
 if __name__ == "__main__":
