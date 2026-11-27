@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::super::*;
-use crate::store::{MemoryStore, SessionMeta};
+use crate::store::SessionMeta;
 
 fn meta(id: &str) -> SessionMeta {
     serde_json::from_value(json!({
@@ -18,6 +18,21 @@ fn meta(id: &str) -> SessionMeta {
         "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
     }))
     .unwrap()
+}
+
+/// A hub on the daemon's own on-disk store (`store.mode` local) in a fresh directory, holding
+/// chat `id`: the memory store keeps only a chat's newest 20k records, and drops every append to
+/// a chat it holds no meta for, so a bench on it reads an empty log.
+fn hub_with(id: &str) -> (Arc<Hub>, Arc<Session>, std::path::PathBuf) {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-reply-slot-bench-{}", uuid::Uuid::now_v7()));
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&cfg.store, &root).unwrap();
+    store.save(&meta(id)).unwrap();
+    let hub = Hub::new(cfg, store);
+    let s = hub.resolve(id).unwrap();
+    (hub, s, root)
 }
 
 fn update(kind: &str, body: Value) -> Value {
@@ -28,8 +43,7 @@ fn update(kind: &str, body: Value) -> Value {
 
 /// A chat of about `n` records: turns of a reply and a tool call, then a last reply, then a
 /// tool run of half the chat (the shape that cost 2.7 s a page on the fleet).
-fn chat(hub: &Hub, id: &str, n: usize) -> Arc<Session> {
-    let s = hub.insert_test_session(meta(id));
+fn chat(hub: &Hub, s: &Arc<Session>, n: usize) {
     let output = "x".repeat(400);
     let mut seq = 0usize;
     while seq < n / 2 {
@@ -74,7 +88,6 @@ fn chat(hub: &Hub, id: &str, n: usize) -> Arc<Session> {
         hub.append(&s, "in", "tool_call_update", update("tool_call_update", json!({"toolCallId": "tail", "status": "in_progress", "content": [{"type": "content", "content": {"type": "text", "text": output}}]})));
         seq += 1;
     }
-    s
 }
 
 /// `acpmux last -n 1` before the slot (`cli/last_reply.rs` `last_replies`), on the hub.
@@ -126,10 +139,8 @@ struct Row {
 }
 
 fn row(n: usize) -> Row {
-    let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
-    cfg.store.mode = crate::config::StoreMode::Memory;
-    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
-    let s = chat(&hub, "bench", n);
+    let (hub, s, root) = hub_with("bench");
+    chat(&hub, &s, n);
     // The old read stops at 5000 records: past a tool run that long it answers without the
     // reply (wrong, not only slow), so its answer is reported, not asserted.
     let scan_right = scan_last(&hub, "bench") == vec!["the last reply".to_owned()];
@@ -144,6 +155,8 @@ fn row(n: usize) -> Row {
         hub.append(&s, "in", "tool_call_update", tick.clone());
         hub.last_replies(&s, 1).unwrap()
     });
+    drop((s, hub));
+    let _ = std::fs::remove_dir_all(&root);
     Row { scan, scan_right, seed, warm, append }
 }
 
@@ -169,33 +182,20 @@ fn last_reply_read_is_flat_at_10x() {
     assert!(big.warm < big.scan, "slot read {:?} not under the scan {:?}", big.warm, big.scan);
 }
 
-/// The hub's read of a small chat: what the bench reads at scale, with the state in its message.
+/// The hub's read of a small chat, cold then warm: the bench's read at a size a test run takes.
 #[test]
 fn hub_reads_the_last_reply_of_a_small_chat() {
-    let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
-    cfg.store.mode = crate::config::StoreMode::Memory;
-    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
-    let s = chat(&hub, "small", 40);
-    let got = hub.last_replies(&s, 1).unwrap();
-    let kinds = Value::from(super::SEED_KINDS.to_vec());
-    let filter = crate::hub::EventFilter::parse(Some(&kinds)).unwrap();
-    let page = hub.events_page("small", 0, None, 512, None, true, &filter).unwrap();
-    let steps: Vec<String> = page
-        .events
-        .iter()
-        .rev()
-        .take(6)
-        .map(|e| format!("{} {} {} {:?}", e.seq, e.dir, e.kind, super::step(e)))
-        .collect();
-    let all = hub.events("small", 0, 512).unwrap();
-    assert_eq!(
-        got.0,
-        vec!["the last reply".to_owned()],
-        "through {} last_seq {} page {} all {} newest {steps:?} first {:?}",
-        got.1,
-        super::last_seq(&s),
-        page.events.len(),
-        all.len(),
-        all.first().map(|e| (&e.dir, &e.kind, &e.msg)),
-    );
+    let (hub, s, root) = hub_with("small");
+    chat(&hub, &s, 40);
+    let (replies, through) = hub.last_replies(&s, 1).unwrap();
+    assert_eq!(replies, vec!["the last reply".to_owned()]);
+    assert_eq!(through, super::last_seq(&s));
+    // Warm: the append path's fold carries the next reply.
+    hub.append(&s, "mux", "turn_started", json!({}));
+    let next = json!({"content": {"type": "text", "text": "next"}});
+    hub.append(&s, "in", "agent_message_chunk", update("agent_message_chunk", next));
+    let both = vec!["the last reply".to_owned(), "next".to_owned()];
+    assert_eq!(hub.last_replies(&s, 2).unwrap().0, both);
+    drop((s, hub));
+    let _ = std::fs::remove_dir_all(&root);
 }
