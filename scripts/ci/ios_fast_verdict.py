@@ -189,6 +189,23 @@ def post_status(state: str, description: str, repo: str, sha: str, tokens: list[
     return False
 
 
+def decide(pipeline: str, run: str, verdict: str, summary_text: str = "", fast_gates: str = "") -> tuple[str, str]:
+    """The cmux/ios-fast state and description from the pr pipeline's result and the ios fast verdict's outputs.
+    A pipeline the router meant to start but skipped (its fast gates failed) is error, never a pending that waits on
+    nothing."""
+    what = summary_text or "the changed iOS targets"
+    if pipeline == "skipped":
+        why = "its fast gates failed" if fast_gates == "failure" else "it never started"
+        return "error", f"No verdict: the pr pipeline was skipped on this head ({why}); fix it and push, or rerun it"
+    if run == "false":
+        return "success", "The plan builds nothing on this head"
+    if verdict == "success":
+        return "success", f"Passed: {what}"
+    if verdict == "failure":
+        return "failure", f"Failed: {what} (the ios fast verdict job's log)"
+    return "error", "No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled); rerun it"
+
+
 def diff_paths() -> list[str] | None:
     try:
         subprocess.run(["git", "rev-parse", "-q", "--verify", "HEAD^2"], check=True, capture_output=True)
@@ -208,7 +225,14 @@ def main(argv: list[str] | None = None) -> int:
     st = sub.add_parser("status")
     st.add_argument("state", choices=("pending", "success", "failure", "error"))
     st.add_argument("description")
+    sub.add_parser("verdict", help="post decide()'s state from PIPELINE, RUN, VERDICT, SUMMARY and FAST_GATES")
     args = parser.parse_args(argv)
+    if args.cmd == "verdict":
+        args.cmd = "status"
+        args.state, args.description = decide(os.environ.get("PIPELINE", ""), os.environ.get("RUN", ""),
+                                              os.environ.get("VERDICT", ""), os.environ.get("SUMMARY", ""),
+                                              os.environ.get("FAST_GATES", ""))
+        print(f"{STATUS_CONTEXT}: {args.state}: {args.description}")
     if args.cmd == "status":
         repo, sha = os.environ.get("REPO", ""), os.environ.get("SHA", "")
         tokens = [t for t in os.environ.get("TOKENS", "").split() if t]
