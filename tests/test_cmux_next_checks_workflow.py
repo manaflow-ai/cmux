@@ -188,7 +188,8 @@ class ChecksJobStructure(unittest.TestCase):
             with self.subTest(step=step["name"]):
                 self.assertIn("${{ steps.%s.outcome }}|%s\n" % (step["id"], step["name"]), outcomes)
         verdict_path = "scripts/ci/cmux_next_checks_verdict.sh"
-        self.assertEqual(aggregate["run"].strip(), f"bash {verdict_path}")
+        # The verdict lives in a script the step reads from the commit, not the checkout (#53174).
+        self.assertIn(f'cat-file blob "$GITHUB_SHA:{verdict_path}"', aggregate["run"])
         verdict = (ROOT / verdict_path).read_text(encoding="utf-8")
         self.assertIn("GITHUB_STEP_SUMMARY", verdict)
         self.assertIn("exit 1", verdict)
@@ -198,7 +199,8 @@ class ChecksJobStructure(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as summary:
             return subprocess.run(
                 ["bash", "-c", aggregate["run"]],
-                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name},
+                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name, "GITHUB_SHA": "HEAD"},
+                cwd=ROOT,
                 capture_output=True,
                 text=True,
             )
@@ -377,6 +379,7 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         (self.repo / "Packages/macOS/CmuxNext").mkdir(parents=True)
         shutil.copy(ROOT / "scripts/cmux-next/check-app-ffi-pin.sh", self.repo / "scripts/cmux-next/check-app-ffi-pin.sh")
         shutil.copy(ROOT / "scripts/ci/app_ffi_pin.py", self.repo / "scripts/ci/app_ffi_pin.py")
+        shutil.copy(ROOT / "scripts/ci/cmux_next_checks_verdict.sh", self.repo / "scripts/ci/cmux_next_checks_verdict.sh")
         crate = self.repo / "cmux-tui/crates/cmux-app-ffi"
         (crate / "src").mkdir(parents=True)
         (crate / "Cargo.toml").write_text('[package]\nname = "x"\n\n[lib]\npath = "src/lib.rs"\n')
@@ -493,8 +496,10 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         planted = self.repo / "scripts/ci/api_call_log/env.sh"
         planted.parent.mkdir(parents=True)
         planted.write_text("echo planted; exit 0\n")
+        (self.repo / "scripts/ci/cmux_next_checks_verdict.sh").write_text("echo planted; exit 0\n")
         summary = self.tmp / "summary"
         env.update(GITHUB_WORKSPACE=str(self.repo), GITHUB_STEP_SUMMARY=str(summary), EVENT_NAME="pull_request",
+                   GITHUB_SHA=self.merge,
                    OUTCOMES="failure|Check the app FFI pin\n")
         result = subprocess.run(["bash", "-e", "-c", rollup["run"]], cwd=self.repo, env=env, capture_output=True,
                                 text=True, timeout=60)
@@ -918,6 +923,17 @@ class GodfilePullRequestScope(unittest.TestCase):
 
 
 class PathRoutingStructure(unittest.TestCase):
+    @staticmethod
+    def stale_verdict(jobs: dict) -> tuple[dict, str]:
+        """generated-files' "Fail on stale generated files" step and what it runs: since #55494 the `verdict` step of
+        scripts/ci/cmux-next-steps/generated-files-linux.sh, which the Linux pool's job runs too."""
+        fail = next(step for step in jobs["generated-files"]["steps"]
+                    if step.get("name") == "Fail on stale generated files")
+        if "scripts/ci/cmux-next-steps/generated-files-linux.sh verdict" not in fail["run"]:
+            return fail, fail["run"]
+        script = (ROOT / "scripts/ci/cmux-next-steps/generated-files-linux.sh").read_text(encoding="utf-8")
+        return fail, fail["run"] + script.split("\n  verdict)\n", 1)[1].split("\n    ;;\n", 1)[0]
+
     def test_path_route_gates_each_mac_job_on_its_tier(self):
         """tests/test_cmux_next_route.py covers which paths reach which tier."""
         jobs = load_yaml(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -929,18 +945,21 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
-        self.assertIn("needs.path_route.outputs.generated == 'true'", jobs["generated-files"]["if"])
+        # generated-files reads the route's generated host, which is 'none' off the generated tier (#26687).
+        self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", jobs["generated-files"]["if"])
+        self.assertTrue(route["outputs"]["generated_host"].startswith(
+            "${{ steps.route.outputs.generated != 'true' && 'none' || "), route["outputs"]["generated_host"])
         self.assertIn("needs.path_route.outputs.native", jobs["release-compile"]["if"])
         self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
         # A same-repository PR runs its routed tiers; full-ci is what a fork PR needs
         # (SameRepositoryPullRequestsRunTheirTiers evaluates the conditions).
         self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || "
-                      "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs["generated-files"]["if"])
+                      "contains(needs.path_route.outputs.labels, ',full-ci,')", jobs["generated-files"]["if"])  # #57329
         # daemon-test runs after merge on feat-cmux-next (2026-11-26: 518 PR runs over 30 days, 9 reds, 0 real
         # catches; cmuxterm-hq docs/findings/2026-11-25-ci-value.md): a PR into another base keeps the old rule.
         self.assertIn("(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && "
                       "(github.event.pull_request.head.repo.full_name == github.repository || "
-                      "contains(github.event.pull_request.labels.*.name, 'full-ci')))", jobs["daemon-test"]["if"])
+                      "contains(needs.path_route.outputs.labels, ',full-ci,')))", jobs["daemon-test"]["if"])
         # A pull request's Swift canary is pr-pipeline.yml's `mac` job (ci/steps.toml, note-556).
         self.assertIn("needs.path_route.outputs.swift_canary == 'true'", jobs["swift-canary"]["if"])
         self.assertIn("&& github.event_name != 'pull_request')", jobs["swift-canary"]["if"])
@@ -951,7 +970,7 @@ class PathRoutingStructure(unittest.TestCase):
         # swift-test never runs on a PR into feat-cmux-next (its gate names the base since #49046).
         for job_id in HEAVY_COMPILES:
             self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && "
-                          "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
+                          "contains(needs.path_route.outputs.labels, ',full-ci,')", jobs[job_id]["if"], job_id)
         self.assertIn("(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
                       jobs["swift-test"]["if"])
         for job_id in (*HEAVY_COMPILES, "swift-test"):
@@ -1122,13 +1141,12 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn("generated-autofix", jobs)
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("Mint the autofix token", text)
-        fail = next(step for step in jobs["generated-files"]["steps"]
-                    if step.get("name") == "Fail on stale generated files")
-        self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
-        self.assertNotIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
-        self.assertIn("exit 1", fail["run"])
+        _, run = self.stale_verdict(jobs)
+        self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", run)
+        self.assertNotIn("scripts/cmux-next/ci-target-graph.py", run)
+        self.assertIn("exit 1", run)
         # No autofix of its own: only the "autofixed" verdict of what the PR autofix repairs (next test).
-        self.assertNotIn("autofix", fail["run"].replace("generated-autofixable", "").replace("autofixed", ""))
+        self.assertNotIn("autofix", run.replace("generated-autofixable", "").replace("autofixed", ""))
 
     def test_stale_generated_files_the_pr_autofix_repairs_report_autofixed(self):
         """Stale files the PR autofix regenerates from the pull request's own changes and pushes as a commit
@@ -1137,12 +1155,11 @@ class PathRoutingStructure(unittest.TestCase):
         jobs = load_yaml(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         gate = ("github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
                 "github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1'")
-        fail = next(step for step in jobs["generated-files"]["steps"]
-                    if step.get("name") == "Fail on stale generated files")
+        fail, run = self.stale_verdict(jobs)
         self.assertIn(gate, fail["env"]["AUTOFIXED_OK"])
-        self.assertIn('[[ "$AUTOFIXED_OK" == true ]] && why="$(scripts/cmux-next/generated-autofixable.sh)"', fail["run"])
+        self.assertIn('[[ "$AUTOFIXED_OK" == true ]] && why="$(scripts/cmux-next/generated-autofixable.sh)"', run)
         # The catalog failure (fresh exports fail too) stays red before the autofixed branch.
-        self.assertLess(fail["run"].index("a catalog failure"), fail["run"].index("AUTOFIXED_OK"))
+        self.assertLess(run.index("a catalog failure"), run.index('[[ "$AUTOFIXED_OK" == true ]]'))
         for name in ("Record this pass for the same inputs", "Save the pass"):
             step = next(s for s in jobs["generated-files"]["steps"] if s.get("name") == name)
             self.assertIn("steps.stale.outputs.autofixed != 'true'", step["if"])
@@ -1423,10 +1440,13 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
         self.assertNotIn("compile-check", step["run"])
         # A pull request reads its head's Debug app check (note-557); a push reads the tip check
         # (note-canary-linux-read) and its no-verdict case prints the `mac fallback` warning.
-        push = step["run"][step["run"].index("# A push reads"):]
+        # The comments moved to the notes doc (#54404): the push read is what follows the pull request block.
+        start = step["run"].index('if [[ -n "${PR:-}" ]]; then')
+        end = step["run"].index("\nfi\n", start) + 4
+        push = step["run"][end:]
         self.assertIn('fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait', push)
         self.assertIn("::warning title=mac fallback::", push)
-        pr = step["run"][step["run"].index('if [[ -n "${PR:-}" ]]; then'):step["run"].index("# A push reads")]
+        pr = step["run"][start:end]
         self.assertIn('--pr "$PR" --phase app-debug', pr)
         self.assertNotIn("compile-check", pr)
         self.assertIn("exit 0", pr)  # any non-pass leaves the Mac canary to run
@@ -1692,6 +1712,8 @@ def can_run_on_owned_runner(job: dict) -> bool:
         # The repair switch picks the ephemeral GCP repair JIT (cmux-gcp-repair-jit-x64) or the Linux pool, never a mini.
         runs_on = runs_on.replace("vars.CI_REPAIR_SKIP_FLEET != '1'", "")
         runs_on = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", runs_on)
+        # A variable compared to a literal picks an arm, never a label; a fork run gets no variables.
+        runs_on = re.sub(r"vars\.[A-Za-z0-9_]+ [!=]= '[^']*'|vars\.CI_FORK_LINUX_RUNNER", "", runs_on)
         if "vars." in runs_on or "outputs.mini_runner" in runs_on:
             return True
     return False
@@ -1821,13 +1843,18 @@ class SameTreeIsAnEvent(unittest.TestCase):
                 self.assertLessEqual(int(step["timeout-minutes"]), 2)
                 budget = int(step["env"]["CMUX_TUI_TREE_RUN_FETCH_SECONDS"])
                 self.assertLess(budget, 60 * int(step["timeout-minutes"]))
-        self.assertGreater(int(route["timeout-minutes"]), sum(int(step["timeout-minutes"]) for step in probes) + 2)
+        # The base-red read (#53863) is a probe too: it stops at its own limit, fails open to no job skipped.
+        base_red = next(step for step in route["steps"] if step.get("id") == "base-red")
+        self.assertIs(base_red.get("continue-on-error"), True)
+        self.assertEqual(route["outputs"]["base_red_jobs"], "${{ steps.base-red.outputs.red_jobs || '[]' }}")
+        self.assertGreater(int(route["timeout-minutes"]),
+                           sum(int(step["timeout-minutes"]) for step in (*probes, base_red)) + 2)
         report = next(step for step in route["steps"] if step.get("name") == "Report a probe that failed open")
         self.assertIn("steps.tree.outcome == 'failure'", report["if"])
         self.assertIn("steps.tree-final.outcome == 'failure'", report["if"])
         # The routed tiers come from the step before the probes, never from a probe.
         for name, value in route["outputs"].items():
-            if not name.startswith("tree_"):
+            if not name.startswith("tree_") and name != "base_red_jobs":
                 with self.subTest(output=name):
                     self.assertTrue(value.strip().startswith("${{ steps.route.outputs."), value)
 
@@ -1990,10 +2017,12 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
             "((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))",
             "((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || "
             "(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))")
-            .replace(label_guard, " && (github.event_name != 'pull_request' || "
-                     "needs.path_route.outputs.fast_tier_cargo != 'false')" + label_guard))
+            # A failed route runs no pull request cargo tier (#57604); a base-red cargo tier is skipped (#53863).
+            .replace(label_guard, " && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && "
+                     "needs.path_route.outputs.fast_tier_cargo != 'false') && !contains(fromJSON("
+                     "needs.path_route.outputs.base_red_jobs || '[]'), 'cmux-next fast tier (cargo)')" + label_guard))
         self.assertNotEqual(cargo["if"], mac["if"])
-        self.assertEqual(cargo["needs"], ["push-head-preflight", "path_route"])
+        self.assertEqual(cargo["needs"], ["push-head-preflight", "path_route", "pure-checks-coalesce"])  # #54976
         self.assertEqual(jobs["path_route"]["outputs"]["fast_tier_cargo"],
                          "${{ steps.route.outputs.fast_tier_cargo }}")
         self.assertEqual(cargo["concurrency"]["group"], mac["concurrency"]["group"].replace("-fast-tier'", "-fast-tier-cargo'"))
@@ -2325,6 +2354,19 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                 step = steps[index_of(steps, lambda s, n=name: s.get("name") == n)]
                 self.assertIn("(!startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') || steps.cef.outputs.dir != '')", step["if"])
 
+    @staticmethod
+    def skipped_on_a_hit(step: dict, guarded: set[str]) -> bool:
+        """The step's `if` is the reuse guard, or (an R2 cache step, #50151) an all-`&&` condition that needs an
+        output or success of a step a hit skips: a skipped step has empty outputs and outcome `skipped`."""
+        condition = str(step.get("if", ""))
+        if REUSE_GUARD in condition:
+            return True
+        if "||" in condition:
+            return False
+        terms = condition.removeprefix("${{").removesuffix("}}").split("&&")
+        return any(re.fullmatch(rf"steps\.{re.escape(id_)}\.(outputs\.[\w-]+ != ''|outcome == 'success')", term.strip())
+                   for term in terms for id_ in guarded)
+
     def test_a_hit_skips_every_step_that_builds_or_tests(self):
         for job in self.JOBS:
             with self.subTest(job=job):
@@ -2332,13 +2374,16 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                 start = index_of(steps, lambda s: s.get("name") == "Reuse that pass")
                 records = [i for i, s in enumerate(steps) if s.get("name") in (
                     "Record this pass for the same inputs", "Save the pass")]
+                guarded: set[str] = set()
                 for index, step in enumerate(steps[start + 1:], start + 1):
                     if index in records:
                         continue
                     if step.get("name") == "Request nightly-next promotion after this gate":
                         continue
                     with self.subTest(step=step.get("name") or step.get("uses")):
-                        self.assertIn(REUSE_GUARD, str(step.get("if", "")))
+                        self.assertTrue(self.skipped_on_a_hit(step, guarded), step.get("if"))
+                        if step.get("id"):
+                            guarded.add(step["id"])
                 # Nothing that builds, tests or reads a build cache comes before the lookup.
                 for step in steps[:start]:
                     text = json.dumps(step)
@@ -3161,6 +3206,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "github.repository_owner": "manaflow-ai",
             "github.event.pull_request.head.repo.full_name": head_repo,
             "github.event.pull_request.labels.*.name": list(labels),
+            "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
             "github.run_attempt": 1,
             "github.triggering_actor": "someone",
             "needs.push-head-preflight.outputs.current": "true",
@@ -3640,6 +3686,9 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
                          {"cmux-scheme-compile", "release-compile", "swift-test", "daemon-test"})
         generated = self.context()
         generated["needs.path_route.outputs.generated_host"] = "generated-files"
+        # It runs on the fleet's Linux pool (generated-files-linux, #55494) and holds no Mac, unless that is off.
+        self.assertNotIn("generated-files", evaluate(expression, generated).split())
+        generated["vars.CI_GENERATED_FILES_LINUX"] = "0"
         self.assertIn("generated-files", evaluate(expression, generated).split())
         generated["needs.path_route.outputs.tree_state"] = "pending"
         self.assertNotIn("daemon-test", evaluate(expression, generated).split())
@@ -3771,6 +3820,7 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
         if event == "pull_request":
             context.update({"github.event.pull_request.head.repo.full_name": head_repo,
                             "github.event.pull_request.labels.*.name": list(labels),
+                            "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
                             "github.event.pull_request.author_association": association})
         return context
 
@@ -3911,6 +3961,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
             "needs.path_route.outputs.macos": "true", "needs.push-head-preflight.outputs.current": "true",
             "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
             "github.event.pull_request.labels.*.name": [],
+            "needs.path_route.outputs.labels": ",,",
             "github.base_ref": "feat-cmux-next",
             # Every macOS label full or dead: the fast tier is listed for its build-fleet client.
             "needs.macos-placement.outputs.fleet_jobs": " fast-tier ",
@@ -3996,7 +4047,8 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         }
         if event == "pull_request":
             context.update({"github.event.pull_request.head.repo.full_name": head_repo,
-                            "github.event.pull_request.labels.*.name": list(labels)})
+                            "github.event.pull_request.labels.*.name": list(labels),
+                            "needs.path_route.outputs.labels": "," + ",".join(labels) + ","})
         return context
 
     def test_it_runs_on_a_same_repository_pr_the_native_tier_reaches(self):
@@ -4647,9 +4699,10 @@ esac
                 self.assertEqual(evaluate(one_runs_on(job), skipped), "blacksmith-6vcpu-macos-26")
                 # A tier placement listed for the fleet has no other route (no fast runner, Blacksmith list,
                 # owned list or retry runner): it still starts, to report its client's verdict. Without a
-                # client it still starts too (the base's deferred owned queue): it is never skipped.
+                # client it still starts too (the base's deferred owned queue): it is never skipped. It runs on
+                # the base push only: a pull request's fast tier is pr-pipeline.yml's `mac` job (note-556).
                 unplaced = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
-                            "github.event_name": "pull_request", "github.base_ref": "feat-cmux-next",
+                            "github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
                             "github.run_attempt": 1, "github.triggering_actor": "someone",
                             "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
                             "vars.CI_PR_POOL_OWNED": "1", "inputs.same_tree_sha": "", "inputs.dev_daily": False,
@@ -4710,8 +4763,8 @@ esac
                 context = {**base, **extra}
                 self.assertEqual(evaluate(one_runs_on(tier), context), "blacksmith-6vcpu-macos-26")
                 # Above the cold Blacksmith 6 vCPU fast-tier p90 (19.8 min, #38181) with room: this run
-                # is its own job, so the client's queue wait does not eat into it.
-                self.assertEqual(evaluate(tier["timeout-minutes"], context), 35)
+                # is its own job, so the client's queue wait does not eat into it. 35 cut off passing runs (#55298).
+                self.assertEqual(evaluate(tier["timeout-minutes"], context), 60)
                 self.assertEqual(evaluate(job_env(tier)["CMUX_FAST_TIER_FLEET"], context), "")
         # The hand-back's own fresh placement (side_lane_placement.handback()) decides where it runs: an idle
         # owned Mac, Blacksmith 6 vCPU unless excluded, else the owned route. With no reading (the job skipped,
