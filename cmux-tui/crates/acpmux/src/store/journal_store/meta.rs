@@ -327,10 +327,13 @@ fn shape(
         let mut ordered = vec![0u64; fields.len()];
         let mut placed = vec![false; fields.len()];
         let same = fields.iter().zip(hashes).all(|((name, _), hash)| {
-            match last.names.binary_search_by(|have| (**have).cmp(name)) {
-                Ok(at) if !placed[at] => {
-                    placed[at] = true;
-                    ordered[at] = *hash;
+            let Ok(at) = last.names.binary_search_by(|have| (**have).cmp(name)) else {
+                return false;
+            };
+            match (placed.get_mut(at), ordered.get_mut(at)) {
+                (Some(seen @ false), Some(slot)) => {
+                    *seen = true;
+                    *slot = *hash;
                     true
                 }
                 _ => false,
