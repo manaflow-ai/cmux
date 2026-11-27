@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5fe476a9ccfd02153853187f72260b4679e56a06cafbb47940da1b8f304842f6";
+inline constexpr std::string_view kProtocolIrSha256 = "b48f4073c0ff01cee0477f58ff5cc2ee155cc294640f7ac2318555aa8b5236e9";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -138,6 +138,7 @@ enum class PaneKind;
 struct PaneNeighborResult;
 struct PaneRef;
 struct PaneSurfaceResult;
+struct PhoneLinkOfferResult;
 struct PingResult;
 struct ProcessInfoResult;
 enum class ProgramStatusState;
@@ -508,6 +509,7 @@ struct NewTabRequest;
 struct NewWorkspaceRequest;
 struct NoteSizeActivityRequest;
 struct NotifyRequest;
+struct OfferLinkToPhoneRequest;
 struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
@@ -702,6 +704,7 @@ struct PaneAddedEvent;
 struct PaneClosedEvent;
 struct ParticipantAvatarChangedEvent;
 struct PersonalChangedEvent;
+struct PhoneOpenLinkEvent;
 struct ProgramStatusChangedEvent;
 struct RenderDeltaEvent;
 struct RenderStateEvent;
@@ -4546,6 +4549,12 @@ struct NotifyResult {
     friend bool operator==(const NotifyResult&, const NotifyResult&) = default;
 };
 
+struct OfferLinkToPhoneRequest {
+    std::string terminal_id{};
+    std::string url{};
+    friend bool operator==(const OfferLinkToPhoneRequest&, const OfferLinkToPhoneRequest&) = default;
+};
+
 struct TerminalColors {
     std::optional<ColorHex> bg{};
     Field<ColorHex> cursor{};
@@ -4678,6 +4687,17 @@ struct PasteImageResult {
 struct PersonalChangedEvent {
     std::uint64_t personal_revision{};
     friend bool operator==(const PersonalChangedEvent&, const PersonalChangedEvent&) = default;
+};
+
+struct PhoneLinkOfferResult {
+    bool offered{};
+    friend bool operator==(const PhoneLinkOfferResult&, const PhoneLinkOfferResult&) = default;
+};
+
+struct PhoneOpenLinkEvent {
+    std::string terminal_id{};
+    std::string url{};
+    friend bool operator==(const PhoneOpenLinkEvent&, const PhoneOpenLinkEvent&) = default;
 };
 
 struct PinWorkspaceRequest {
@@ -7627,6 +7647,12 @@ struct Codec<PaneSurfaceResult> {
 };
 
 template <>
+struct Codec<PhoneLinkOfferResult> {
+    static Result<Json> encode(const PhoneLinkOfferResult& value);
+    static Result<PhoneLinkOfferResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<PingResult> {
     static Result<Json> encode(const PingResult& value);
     static Result<PingResult> decode(const Json& value);
@@ -9847,6 +9873,12 @@ struct Codec<NotifyRequest> {
 };
 
 template <>
+struct Codec<OfferLinkToPhoneRequest> {
+    static Result<Json> encode(const OfferLinkToPhoneRequest& value);
+    static Result<OfferLinkToPhoneRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<PageCredentialRequest> {
     static Result<Json> encode(const PageCredentialRequest& value);
     static Result<PageCredentialRequest> decode(const Json& value);
@@ -11008,6 +11040,12 @@ template <>
 struct Codec<PersonalChangedEvent> {
     static Result<Json> encode(const PersonalChangedEvent& value);
     static Result<PersonalChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<PhoneOpenLinkEvent> {
+    static Result<Json> encode(const PhoneOpenLinkEvent& value);
+    static Result<PhoneOpenLinkEvent> decode(const Json& value);
 };
 
 template <>
