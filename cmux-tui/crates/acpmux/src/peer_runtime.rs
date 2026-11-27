@@ -757,9 +757,11 @@ impl Peer {
         self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease.
+    /// Set before the peer runs (`Hub::spawn_peer`), from its config or lease. A boundary peer
+    /// is dialed and kept (`peer_demand.rs` `closes_idle`), so a parked one wakes.
     pub fn set_vm_boundary(&self, on: bool) {
         self.vm_boundary.store(on, Ordering::SeqCst);
+        self.demand_changed();
     }
 
     /// From its config (`Hub::spawn_peer`, a reload): the person's own `group` for this machine.

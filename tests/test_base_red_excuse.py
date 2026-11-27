@@ -3916,6 +3916,18 @@ class PipelineLinuxBaseVerdict(unittest.TestCase):
         self.assertIn(f"excused '{PIPELINE_WEB_BROWSER}'", text)
         self.assertIn("run 40", text)
 
+    def test_split_web_caller_preserves_base_red_comparison(self):
+        name = "pr web pipeline / web-browser"
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER,), base=(COMPACTION_STEER,),
+                                     names=(name, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        self.assertIn(f"excused '{name}'", self.judge(gh))
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER, WEBKIT_SEND), base=(COMPACTION_STEER,),
+                                     names=(name, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        with self.assertRaisesRegex(excuse.Refused, "pass or do not run on feat-cmux-next run 40: .*webkit > send"):
+            self.judge(gh)
+
     def test_a_web_browser_test_the_base_leg_passes_blocks(self):
         gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER, WEBKIT_SEND), base=(COMPACTION_STEER,),
                                      names=(PIPELINE_WEB_BROWSER, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
@@ -9333,7 +9345,7 @@ class WsCheckPerTest(unittest.TestCase):
         # The set dropped, a description naming another step still does not match.
         self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()},
                         description=f"1 of 77 steps failed: {self.DEPLOY} [fails 1: Iaih2]")
-        with self.assertRaisesRegex(excuse.Refused, "none of the 30 newest main commits"):
+        with self.assertRaisesRegex(excuse.Refused, f"none of the {excuse.WS_CHECK_COMMITS} newest main commits"):
             self.judge()
 
     def learned_red(self, description):
@@ -18628,6 +18640,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # Split latency measurements (#61185) and acpmux's transfer_cli product tests (#58314).
+            "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
             "measure-swift-typecheck.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
@@ -18723,13 +18737,18 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
 
     def test_every_pull_request_workflow_is_classified(self):
         listed = [file for files in self.NOT_GUARD_WORKFLOWS.values() for file in files]
-        self.assertEqual(len(listed), len(set(listed)), "a workflow is listed twice")
         guard = set(excuse.GUARD_WORKFLOWS) | {file for file, _ in excuse.GUARD_JOB_IDS}
-        self.assertEqual(sorted(self.pull_request_workflows() - guard - set(listed)), [],
-                         "a workflow that runs on pull requests is neither in excuse.GUARD_WORKFLOWS nor "
-                         "NOT_GUARD_WORKFLOWS: classify its jobs")
-        self.assertEqual(sorted(set(listed) - set(self.workflows)), [], "a classified workflow is gone")
-        self.assertEqual(sorted(set(listed) & guard), [], "a guard workflow is listed as not one")
+        # Report every mismatch in one run: a duplicate must not hide unclassified workflows after a base merge.
+        with self.subTest(check="duplicates"):
+            self.assertEqual(len(listed), len(set(listed)), "a workflow is listed twice")
+        with self.subTest(check="unclassified"):
+            self.assertEqual(sorted(self.pull_request_workflows() - guard - set(listed)), [],
+                             "a workflow that runs on pull requests is neither in excuse.GUARD_WORKFLOWS nor "
+                             "NOT_GUARD_WORKFLOWS: classify its jobs")
+        with self.subTest(check="removed"):
+            self.assertEqual(sorted(set(listed) - set(self.workflows)), [], "a classified workflow is gone")
+        with self.subTest(check="conflicting"):
+            self.assertEqual(sorted(set(listed) & guard), [], "a guard workflow is listed as not one")
 
     def test_every_job_of_a_guard_workflow_is_declared_or_excluded_with_a_reason(self):
         declared = set(excuse.GUARD_JOB_IDS)

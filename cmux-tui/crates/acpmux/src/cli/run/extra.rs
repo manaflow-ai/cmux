@@ -1182,6 +1182,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
         Command::DaemonFelt => crate::cli::daemon_felt::run(json_out).await,
+        Command::DaemonWatchdogHold => crate::cli::watchdog_hold::run().await,
         Command::DaemonPlacement { message } => crate::cli::daemon_placement::run(&message).await,
         Command::DaemonStats { by, since, top } => {
             crate::cli::daemon_stats::run(by, &since, top, json_out).await
@@ -1468,6 +1469,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
+        // The account's consent authority, read and narrowed here; no daemon.
+        Command::Host(PeerCmd::Grantors { cmd }) => {
+            crate::cli::consent_grant::run_grantors(cmd, json_out)
+        }
         Command::Host(PeerCmd::Hypervisor { cmd }) => {
             crate::cli::machine_hypervisor::run(cmd, json_out).await
         }
@@ -1866,6 +1871,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::LeaveIntent { .. }
                 | PeerCmd::EnrollSelf { .. }
                 | PeerCmd::Consent { .. }
+                | PeerCmd::Grantors { .. }
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. }
