@@ -52,7 +52,7 @@ jobs:
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}${{ (((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 8
     permissions:
       contents: read
@@ -117,7 +117,7 @@ jobs:
       # tests/test_ci_checkout_branch_ref_exact.py keeps every checkout on main this way.
       - name: Checkout the classifier at the tip of the pull request's base branch
         if: steps.raw.outputs.ok != 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
@@ -170,7 +170,7 @@ jobs:
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           path: .app-token-spread
@@ -314,7 +314,7 @@ jobs:
       - name: Checkout the merge freeze checker from main
         if: ${{ !cancelled() && vars.MERGE_FREEZE_OWN_RUNNER != '1' && !github.event.pull_request.draft }}
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/main
           path: .merge-freeze

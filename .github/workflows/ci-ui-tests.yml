@@ -49,7 +49,7 @@ jobs:
     # repaired. Re-enable with CI_UI_TESTS_ENABLED=1; await-request also keeps
     # non-UI diffs out of the downstream test runner.
     if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_UI_TESTS_ENABLED == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds actions write and mostly waits; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds actions write and mostly waits; keeps CI's Linux pool free
     # A request can follow a long compile admission; the dispatch then waits up
     # to 50 minutes for the compile it adopts, then runs the tests.
     timeout-minutes: 360
@@ -65,7 +65,7 @@ jobs:
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           path: .app-token-spread
@@ -88,7 +88,7 @@ jobs:
           skip-token-revoke: true
 
       - name: Checkout the request reader from the default branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
@@ -107,7 +107,7 @@ jobs:
 
       - name: Checkout the dispatcher from the default branch
         if: steps.request.outputs.requested == 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false

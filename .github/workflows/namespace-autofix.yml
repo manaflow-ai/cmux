@@ -40,7 +40,7 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: write
@@ -49,7 +49,7 @@ jobs:
       # This workflow is pull_request_target on purpose. Only this base-revision
       # copy of the helper is executed; the PR tree is treated as data.
       - name: Checkout trusted base helpers
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           # One commit each: the job reads base files, diffs two trees and commits on the PR head, none of
@@ -92,7 +92,24 @@ jobs:
             exit 0
           fi
 
-          git fetch --no-tags --depth=1 origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"
+          # Every git network call goes through git_retry: a transient server answer
+          # ("fatal: protocol error: bad pack header", jobs 140171550533, 140171553343
+          # and 140171797930 at 21:13Z on 2026-11-26) failed the first fetch of three
+          # jobs at once. Four tries, 5, 15 and 30 s apart (under a minute in all).
+          # None of these spend REST quota: git over HTTPS is not rate limited
+          # like the API.
+          git_retry() {
+            local attempt=1 delay
+            for delay in 5 15 30; do
+              "$@" && return 0
+              echo "::warning::git attempt $attempt failed ($*); retrying in ${delay}s."
+              sleep "$delay"
+              attempt=$((attempt + 1))
+            done
+            "$@"
+          }
+
+          git_retry git fetch --no-tags --depth=1 origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"
           fetched_head="$(git rev-parse refs/remotes/pr/head)"
           [ "$fetched_head" = "$HEAD_SHA" ] || {
             echo "::error::Fetched PR head $fetched_head does not match event head $HEAD_SHA"
@@ -159,10 +176,10 @@ jobs:
               # One fetch per side: given both at once, git deepened only one of them.
               # The head goes through refs/pull/N/head, as above: a fork PR's raw
               # head SHA may not be fetchable from origin.
-              if ! git fetch --no-tags --quiet --deepen="$deepen" origin "$BASE_SHA"; then
+              if ! git_retry git fetch --no-tags --quiet --deepen="$deepen" origin "$BASE_SHA"; then
                 fetch_failed="deepening base $BASE_SHA by $deepen"; break
               fi
-              if ! git fetch --no-tags --quiet --deepen="$deepen" origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"; then
+              if ! git_retry git fetch --no-tags --quiet --deepen="$deepen" origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"; then
                 fetch_failed="deepening the PR head by $deepen"; break
               fi
             done
@@ -220,7 +237,7 @@ jobs:
           GIT_CONFIG_COUNT=1 \
           GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git -c core.hooksPath=/dev/null push --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
+            git_retry git -c core.hooksPath=/dev/null push --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
           echo "Applied safe namespace fixes and pushed lint: apply namespace autofix." >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$lint_status" -ne 0 ]; then
