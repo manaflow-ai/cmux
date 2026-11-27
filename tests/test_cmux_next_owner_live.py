@@ -339,7 +339,16 @@ class Route(unittest.TestCase):
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
             guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
         self.assertEqual([(to, area) for to, area, *_ in sent], [("host-b/motion-springs", "Layout motion")])
-        self.assertEqual(guardrails.owners_text({(head, guardrails.OWNERS): "own"}, head), "own")
+        # The lane's own edit to the table stands over the merged one.
+        commit("plans/cmux-next/OWNERS.md", table.format("mobile-*"), "claim the row")
+        own = types.SimpleNamespace(base=base, head=git("rev-parse", "HEAD"), before=())
+        commit("Layout/Pane.swift", "pane 2\n", "own change 2")
+        own = types.SimpleNamespace(base=base, head=git("rev-parse", "HEAD"), before=())
+        rows.append(row("host-c/mobile-bandwidth-steps", "running"))
+        sent.clear()
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertEqual([to for to, *_ in sent], ["host-c/mobile-bandwidth-steps"])
 
     def test_a_github_update_branch_merge_carries_no_owned_files(self):
         """2026-11-26: lane/updater-restore-adopt at a2b890f491d4 told the sidebar lane it changed

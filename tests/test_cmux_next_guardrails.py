@@ -2228,8 +2228,8 @@ class WarningTests(Fixture):
             "cmux-tui/crates/cmux-flow-trace/src/lib.rs": ["PL-trace"],
             # Not listed: a crate no row names has no owner (no catch-all row).
             "cmux-tui/crates/cmux-git/src/lib.rs": [],
-            "cmux-tui/crates/cmux-tui-core/src/holder_runtime/sink.rs": ["PL-daemon holder"],
-            "cmux-tui/crates/cmux-holder-v3/src/holder.rs": ["PL-daemon holder"],
+            "cmux-tui/crates/cmux-tui-core/src/holder_runtime/sink.rs": ["PL-daemon"],
+            "cmux-tui/crates/cmux-holder-v3/src/holder.rs": ["PL-daemon"],
             "cmux-tui/crates/acpmux/src/lib.rs": ["PL-acpmux"],
             "cmux-tui/crates/acpmux/src/main.rs": ["PL-acpmux"],
             "scripts/cmux-next/build-acpmux.sh": ["PL-acpmux"],
