@@ -60,10 +60,7 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         "jsonc.parse" => jsonc::parse(request),
         "jsonc.strip" => jsonc::strip(request),
         "jsonc.position" => jsonc::position_of(request),
-        _ => AREAS
-            .iter()
-            .find_map(|call| call(op, request))
-            .unwrap_or(Err(OpError::Unknown)),
+        _ => AREAS.iter().find_map(|call| call(op, request)).unwrap_or(Err(OpError::Unknown)),
     }
 }
 
