@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "commandRules.connecting" : {
-      "comment" : "Agent pane: a background ssh session with no command; {host} is the machine",
+    "composer.hybridStart" : {
+      "comment" : "Agent pane: a new chat's environment picker row indented under Cloud: start the chat on this Mac and let it move to Cloud (Auto)",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "جارٍ الاتصال بـ {host}"
+            "value" : "Hybrid start"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Povezivanje na {host}"
+            "value" : "Hybrid start"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Forbinder til {host}"
+            "value" : "Hybrid start"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Verbindung zu {host}"
+            "value" : "Hybrid start"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Connecting to {host}"
+            "value" : "Hybrid start"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Conectando a {host}"
+            "value" : "Hybrid start"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Connexion à {host}"
+            "value" : "Hybrid start"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Connessione a {host}"
+            "value" : "Hybrid start"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "{host} に接続中"
+            "value" : "Hybrid start"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កំពុងភ្ជាប់ទៅ {host}"
+            "value" : "Hybrid start"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "{host}에 연결 중"
+            "value" : "Hybrid start"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kobler til {host}"
+            "value" : "Hybrid start"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Łączenie z {host}"
+            "value" : "Hybrid start"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Conectando a {host}"
+            "value" : "Hybrid start"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Подключение к {host}"
+            "value" : "Hybrid start"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "กำลังเชื่อมต่อกับ {host}"
+            "value" : "Hybrid start"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "{host} sunucusuna bağlanılıyor"
+            "value" : "Hybrid start"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Підключення до {host}"
+            "value" : "Hybrid start"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đang kết nối tới {host}"
+            "value" : "Hybrid start"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "正在连接 {host}"
+            "value" : "Hybrid start"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "正在連線至 {host}"
+            "value" : "Hybrid start"
           }
         }
       }
