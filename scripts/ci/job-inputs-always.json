@@ -419,6 +419,14 @@
         ],
         "suggested_inputs_more": 677
       },
+      "app-store-shelf-pr": {
+        "why": "runs on every pull request head on purpose: a head that reaches no shelf input ends after a checkout and a diff, so a skipped land tier cannot let a shelf break merge (cmux#46903)",
+        "suggested_inputs": [
+          "first-party-apps/",
+          "scripts/ci/app-store-shelf-check.sh",
+          "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs"
+        ]
+      },
       "ios-placeholder-bounds": {
         "why": "runs on every pull request on purpose: land-judge's required list is to name its check run, so it records a pass on every head; seconds of stdlib Python",
         "suggested_inputs": [

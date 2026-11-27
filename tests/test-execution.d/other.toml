@@ -119,6 +119,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts/cmux-next/cargo-locks.py explain and the CI wrappers that hand it cargo's output (fake cargo, no build), and lists every cargo --locked wrapper; run python3 -m unittest tests/test_cargo_locks_explain.py yourself after changing cargo-locks.py or a wrapper that runs cargo with --locked (about 10 s)."
 
 [[test]]
+path = "tests/test_cargo_proc_macros_unstripped.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cargo_target_strip.py"
 lane = "linux-guard"
 
@@ -196,6 +200,10 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cu_driver_eval_pins.py"
 
 [[test]]
+path = "tests/test_daemon_wire_types_plugin_python.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_dead_code_stripping.py"
 lane = "linux-guard"
 
@@ -252,18 +260,15 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ext_prompt_checks.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ext_prompt_checks.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ext_prompt_composer.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ext_prompt_composer.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ext_prompt_palette.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ext_prompt_palette.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_fake_socket_env.py"

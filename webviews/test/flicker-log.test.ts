@@ -27,7 +27,7 @@ test("events go out in one batch with their time, and mounts count", () => {
   clock = 1_200;
   log.transcriptMounted();
   log.transcriptMounted();
-  // One batch at the end of the task: nothing went out before.
+  // One batch at the end of the task (the log arms no timer).
   expect(ends).toHaveLength(1);
   expect(sent).toHaveLength(0);
   ends[0]!();
@@ -47,7 +47,7 @@ test("a held burst keeps the newest and counts the dropped", () => {
   const log = new FlickerLog(
     (events) => sent.push(events),
     () => 0,
-    () => 0 as unknown as ReturnType<typeof setTimeout>,
+    () => {},
   );
   for (let index = 0; index < 70; index += 1) log.record("long-frame", { ms: index });
   log.flush();
@@ -242,11 +242,12 @@ test("the default timer runs with the global receiver, as Chromium requires", as
     log.flush();
     // The batch at the end of that task has run.
     await Promise.resolve();
-    // A record within a second of that batch waits on the default timer.
+    // A record within a second of that batch goes out at the end of its task too: the log arms no timer
+    // (#60925), so a strict `setTimeout` is never called with any receiver.
     expect(() => log.transcriptMounted()).not.toThrow();
     log.flush();
     expect(sent).toHaveLength(2);
-    expect(receivers).toHaveLength(1);
+    expect(receivers).toHaveLength(0);
   } finally {
     globalThis.setTimeout = real;
   }
