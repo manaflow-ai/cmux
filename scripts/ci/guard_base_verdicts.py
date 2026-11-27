@@ -44,7 +44,9 @@ API = "https://api.github.com"
 WORKFLOW = "cmux-next-guards.yml"
 BRANCH = "feat-cmux-next"
 ARTIFACT_PREFIX = "guard-verdicts-"
-MAX_BEHIND = 60
+# Finished push runs come about every 20 minutes and 40 commits (11-26: 82 commits between two of them), and a pull
+# request's base lags the tip: 60 commits back missed the nearest finished run for one of three sampled bases.
+MAX_BEHIND = 120
 RUNS_PAGE = 100
 CHECK_SEPARATOR = " :: "
 TIMEOUT_S = 20
@@ -232,15 +234,83 @@ def r2_source(public_url: str, root: Path, base: str, fetch=_fetch_public, shas:
     return None
 
 
-def unreachable_steps(root: Path, steps: list[str], changed: list[str]) -> set[str]:
-    """The steps (of STEPS) the CHANGED paths cannot reach, by guard_step_inputs.py's selection on ROOT."""
+# A change to these changes how every step runs (the runner, its shell, its expressions): nothing is reused across it.
+# ci-guards.yml and the selection are left out of it here: a step whose own definition (step_definitions) and whose
+# inputs are the same at the ancestor and the base gives the same verdict, whatever else the workflow changed.
+# 11-26: ci-guards.yml changed in every 40-commit window between two finished push runs, so the whole-run rule
+# reused nothing from any ancestor and every pull request re-ran 48-52 base-red steps (301-406 s).
+RUNNER_INPUTS = frozenset({
+    "scripts/ci/run_ci_guards.py",
+    "scripts/ci/guards-local.sh",
+    "scripts/ci/gh_expressions.py",
+    "scripts/cmux-next/safe_log.py",
+})
+WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
+ANCESTOR_MAX_CHANGED = 2000  # a diff past this reuses nothing: a bound on the selection's cost, not its truth
+
+
+def step_definitions(workflow: dict) -> dict[str, str]:
+    """{step name: what its verdict depends on besides its inputs}: the workflow's env, the step's job (all but
+    its steps), the job's setup steps run_ci_guards.py leaves to Actions, the steps before it that hand it state,
+    and the step itself, for every group it runs in."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import hashlib  # noqa: PLC0415
+    import run_ci_guards  # noqa: PLC0415
+
+    jobs = workflow.get("jobs") or {}
+    found: dict[str, list[str]] = {}
+    for unit in run_ci_guards.plan(workflow, "BASE_SHA", "HEAD"):
+        job = jobs.get(unit.job) or {}
+        setup = [raw for raw in job.get("steps") or []
+                 if "uses" in raw or str(raw.get("name")) in run_ci_guards.DEPENDENCY_STEPS
+                 or str(raw.get("name")) in run_ci_guards.WORKSPACE_STEPS]
+        context = {"env": workflow.get("env"), "job": {k: v for k, v in job.items() if k != "steps"}, "setup": setup}
+        handed: list = []
+        for step in unit.steps:
+            own = [step.name, step.run, step.working_directory, sorted(step.env.items())]
+            text = json.dumps([context, unit.group, handed, own], sort_keys=True, default=str)
+            found.setdefault(step.name, []).append(hashlib.sha256(text.encode("utf-8")).hexdigest())
+            if run_ci_guards.hands_state(step):
+                handed.append(own)
+    return {name: ",".join(sorted(hashes)) for name, hashes in found.items()}
+
+
+def workflow_at(git_root: Path, sha: str) -> dict | None:
+    """ci-guards.yml as it was at SHA, from GIT_ROOT's git (a blobless clone fetches the one blob)."""
+    try:
+        import yaml  # type: ignore  # noqa: PLC0415
+
+        text = subprocess.run(["git", "-C", str(git_root), "show", f"{sha}:{WORKFLOW_PATH}"], check=True,
+                              capture_output=True, text=True, timeout=120).stdout
+        loaded = yaml.safe_load(text)
+    except Exception:  # noqa: BLE001 - an unreadable ancestor workflow reuses nothing
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def unreachable_steps(root: Path, steps: list[str], changed: list[str], git_root: Path | None = None,
+                      ancestor: str | None = None) -> set[str]:
+    """The steps (of STEPS) whose verdict at the ancestor is the base's: the CHANGED paths (ancestor..base) reach
+    none of their inputs by guard_step_inputs.py's selection on ROOT (the base), and their definition in
+    ci-guards.yml is the same at ANCESTOR as at the base when the diff touches it."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import guard_step_inputs  # noqa: PLC0415 - the selection, beside this script
+    import run_ci_guards  # noqa: PLC0415
 
-    if guard_step_inputs.everything_reason(changed):
+    if len(changed) > ANCESTOR_MAX_CHANGED or RUNNER_INPUTS.intersection(changed):
         return set()
     known = {s[0]: s for s in guard_step_inputs.guard_steps(root)}
     wanted = [known[name] for name in steps if name in known]
+    if WORKFLOW_PATH in changed:
+        older = workflow_at(git_root or root, ancestor) if ancestor else None
+        if older is None:
+            return set()
+        try:
+            before = step_definitions(older)
+        except Exception:  # noqa: BLE001 - an ancestor workflow the runner cannot plan reuses nothing
+            return set()
+        now = step_definitions(run_ci_guards.load_yaml(root / WORKFLOW_PATH))
+        wanted = [s for s in wanted if before.get(s[0]) is not None and before.get(s[0]) == now.get(s[0])]
     picked = guard_step_inputs.select(guard_step_inputs.Tree(root), wanted, changed)
     # A step the selection does not know (a routed group outside ci-guards.yml) is never reused from an ancestor.
     return {s[0] for s in wanted if s[0] not in picked}
@@ -327,7 +397,7 @@ def main(argv: list[str]) -> int:
             hit = None
         if hit is not None:
             sha, downloaded, changed = hit
-            usable = None if changed is None else unreachable_steps(Path(args.root), steps, changed)
+            usable = None if changed is None else unreachable_steps(Path(args.root), steps, changed, Path(args.git_root), sha)
             return write_reused(Path(args.out), downloaded, steps, usable,
                                 f"the CI cache at {'the base itself' if changed is None else f'an ancestor {sha[:12]} ({len(changed)} paths behind)'}")
     if not token:
@@ -346,7 +416,8 @@ def main(argv: list[str]) -> int:
             return everything(f"no completed {BRANCH} push run at {args.base[:12]} or within {MAX_BEHIND} commits before it")
         if downloaded is None:
             return everything(f"push runs {', '.join(tried)} uploaded no {ARTIFACT_PREFIX}artifact")
-        usable = None if changed is None else unreachable_steps(Path(args.root), steps, changed)
+        usable = None if changed is None else unreachable_steps(Path(args.root), steps, changed, Path(args.git_root),
+                                                                 run.get("head_sha"))
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, urllib.error.URLError) as error:
         return everything(f"{type(error).__name__}: {error}")
     except Exception as error:  # noqa: BLE001 - a broken read fails open: every step re-runs on the base
