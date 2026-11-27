@@ -1209,14 +1209,3 @@ fn worker_double_timeout_marks_browser_not_responding_without_waiting() {
         BrowserStatus::Failed(crate::browser::BROWSER_NOT_RESPONDING_MESSAGE.to_string())
     );
 }
-
-#[test]
-fn history_before_attach_needs_no_second_try() {
-    let surface = test_surface();
-    let browser = surface.as_browser().expect("browser surface");
-    // Attach loads the current URL fresh, so a reload asked for before it is done.
-    browser.reload().expect("a reload before attach is what attach does");
-    let back = browser.back().unwrap_err().to_string();
-    assert!(back.contains("no back history entry"), "{back}");
-    assert!(!back.contains("retry"), "{back}");
-}

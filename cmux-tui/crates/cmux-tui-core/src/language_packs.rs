@@ -149,9 +149,7 @@ impl Code {
     /// The sentence a person reads. It names no path.
     const fn message(self) -> &'static str {
         match self {
-            Self::Offline => {
-                "cmux could not download this language: this Mac could not reach the download server."
-            }
+            Self::Offline => "cmux could not download this language and will try again later.",
             Self::Verify => "The downloaded language did not match what this cmux expects.",
             Self::BadManifest => "This version of cmux lists a language it cannot use.",
             Self::Io => "cmux could not save this language on this Mac.",
@@ -402,28 +400,6 @@ pub(crate) fn is_complete(root: &Path) -> bool {
         && std::fs::symlink_metadata(root.join(COMPLETE)).is_ok_and(|meta| meta.is_file())
 }
 
-/// How long a download that could not reach the server keeps trying
-/// (short in tests, so the offline test stays fast).
-#[cfg(not(test))]
-const OFFLINE_WAIT: Duration = Duration::from_secs(20);
-#[cfg(test)]
-const OFFLINE_WAIT: Duration = Duration::from_millis(300);
-
-/// Runs `attempt` again while it fails with [`Code::Offline`], up to `wait`.
-fn retry_offline(
-    mut attempt: impl FnMut() -> Result<(), Code>,
-    wait: Duration,
-) -> Result<(), Code> {
-    crate::retry::Patience::new("the language download", wait)
-        .quiet()
-        .spaced(Duration::from_millis(500), Duration::from_secs(4))
-        .run(|| match attempt() {
-            Ok(()) => Ok(()),
-            Err(Code::Offline) => Err(crate::retry::Attempt::Retry(Code::Offline)),
-            Err(code) => Err(crate::retry::Attempt::Fail(code)),
-        })
-}
-
 /// Downloads, checks, unpacks and puts `pack` in place; its folder.
 pub(crate) fn install(cache: &Path, pack: &Pack) -> Result<PathBuf, Code> {
     std::fs::create_dir_all(cache).map_err(|_| Code::Io)?;
@@ -444,9 +420,7 @@ pub(crate) fn install(cache: &Path, pack: &Pack) -> Result<PathBuf, Code> {
         }
     }
     let _cleanup = Cleanup { archive: &archive, partial: &partial };
-    // A dropped connection or a 5xx passes on a later try: retry it here
-    // (bounded) instead of reporting it for the person to ask again.
-    retry_offline(|| download(pack, &archive), OFFLINE_WAIT)?;
+    download(pack, &archive)?;
     std::fs::create_dir(&partial).map_err(|_| Code::Io)?;
     unpack(&archive, &partial)?;
     let mut marker = std::fs::File::create(partial.join(COMPLETE)).map_err(|_| Code::Io)?;

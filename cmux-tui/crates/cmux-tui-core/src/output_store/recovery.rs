@@ -72,27 +72,11 @@ impl OutputStore {
     ) -> anyhow::Result<()> {
         let current = self
             .recovery_state(terminal_id)
-            .ok_or(RecoveryRace("terminal output recovery disappeared while it was read"))?;
-        if current.0.as_ref() != epoch {
-            return Err(RecoveryRace("terminal output recovery changed while it was read").into());
-        }
+            .ok_or_else(|| anyhow::anyhow!("terminal output recovery disappeared; retry"))?;
+        anyhow::ensure!(current.0.as_ref() == epoch, "terminal output recovery changed; retry");
         Ok(())
     }
 }
-
-/// A terminal output read that raced a capture or a recovery epoch change.
-/// It passes on a later try, so the read retries it itself (bounded) and the
-/// text never asks the caller to retry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RecoveryRace(pub(crate) &'static str);
-
-impl std::fmt::Display for RecoveryRace {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-impl std::error::Error for RecoveryRace {}
 
 #[cfg(test)]
 #[path = "recovery_tests.rs"]

@@ -1,65 +1,12 @@
 //! The shared repo actions on local sockets and authenticated Cloud links.
 use super::{ClientTransport, MessageWriter, Mux};
 use serde_json::{Value, json};
-use std::collections::HashMap;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-use std::sync::{Mutex, OnceLock};
 static WORKERS: AtomicUsize = AtomicUsize::new(0);
 const MAX_WORKERS: usize = 16;
-/// Threads running or waiting for a worker slot. A request past
-/// `MAX_WORKERS` waits for a slot (up to `SLOT_WAIT`) instead of being
-/// refused with "retry after the current action finishes".
-static QUEUED: AtomicUsize = AtomicUsize::new(0);
-const MAX_QUEUED: usize = MAX_WORKERS * 4;
-const SLOT_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// One add per destination can run at a time. The runtime keeps the same
-/// serialization around the seed job, but taking this gate before the worker
-/// slot prevents duplicate adds from parking scarce workers while they wait
-/// for the first clone to finish.
-static DESTINATION_GATES: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
-
-fn destination_lock(key: &str) -> Arc<Mutex<()>> {
-    let mut gates =
-        DESTINATION_GATES.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
-    gates.retain(|_, gate| Arc::strong_count(gate) > 1);
-    gates.entry(key.to_owned()).or_default().clone()
-}
-
-/// Derive the folder destination used by `git.seed.start` from an add frame.
-/// Invalid requests return no key and continue through normal validation.
-fn destination_key(request: &Value) -> Option<String> {
-    let session = request.get("session")?.as_str()?.trim();
-    let input = request.get("repo")?.as_str()?.trim().trim_end_matches('/');
-    if session.is_empty() || input.is_empty() {
-        return None;
-    }
-    let normalized = crate::cloud_repos::normalize(input).ok()?;
-    let leaf = normalized.rsplit('/').next()?;
-    Some(format!("{}/{}", session, leaf.to_ascii_lowercase()))
-}
-
-fn busy(message: &str) -> Value {
-    json!({"code":"seed.clone_failed","message":message})
-}
-
-/// Waits (bounded, quietly) for one of the `max` worker slots of `workers`.
-fn take_slot(workers: &AtomicUsize, max: usize, wait: std::time::Duration) -> bool {
-    use crate::retry::{Attempt, Patience};
-    Patience::new("a repository worker", wait)
-        .quiet()
-        .spaced(std::time::Duration::from_millis(50), std::time::Duration::from_millis(500))
-        .run(|| {
-            workers
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < max).then_some(n + 1))
-                .map(|_| ())
-                .map_err(|_| Attempt::Retry(()))
-        })
-        .is_ok()
-}
 
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
@@ -74,43 +21,17 @@ pub(super) fn try_handle(
     if !permitted {
         return Some(writer.send_control(&json!({"id":id,"ok":false,"error_code":"remote_denied","error":"permission denied"})).is_ok());
     }
-    if QUEUED
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_QUEUED).then_some(n + 1))
+    if WORKERS
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_WORKERS).then_some(n + 1))
         .is_err()
     {
-        let message = format!(
-            "Repository actions are busy: {MAX_QUEUED} are already running or waiting for a turn."
-        );
-        return Some(
-            writer.send_control(&json!({"id":id,"ok":true,"data":busy(&message)})).is_ok(),
-        );
+        return Some(writer.send_control(&json!({"id":id,"ok":true,"data":{"code":"seed.clone_failed","message":"Repository actions are busy. Retry after the current action finishes."}})).is_ok());
     }
     let mux = mux.clone();
     let writer = writer.clone();
     let fallback = writer.clone();
     let fallback_id = id.clone();
-    let destination = (cmd == "cloud.repo.add").then(|| destination_key(&request)).flatten();
     match std::thread::Builder::new().name("cloud-repo".into()).spawn(move || {
-        struct Queued;
-        impl Drop for Queued {
-            fn drop(&mut self) {
-                QUEUED.fetch_sub(1, Ordering::AcqRel);
-            }
-        }
-        let _queued = Queued;
-        // Wait for another add targeting the same destination before taking a
-        // worker. The queued-thread cap bounds parked duplicate requests.
-        let destination_lock = destination.as_deref().map(destination_lock);
-        let _destination =
-            destination_lock.as_ref().map(|lock| lock.lock().unwrap_or_else(|e| e.into_inner()));
-        if !take_slot(&WORKERS, MAX_WORKERS, SLOT_WAIT) {
-            let message = format!(
-                "Repository actions stayed busy for {} s: {MAX_WORKERS} were still running.",
-                SLOT_WAIT.as_secs()
-            );
-            let _ = writer.send_control(&json!({"id":id,"ok":true,"data":busy(&message)}));
-            return;
-        }
         struct Done;
         impl Drop for Done {
             fn drop(&mut self) {
@@ -123,26 +44,10 @@ pub(super) fn try_handle(
     }) {
         Ok(_) => Some(true),
         Err(_) => {
-            QUEUED.fetch_sub(1, Ordering::AcqRel);
-            // The OS refused a thread (resource exhaustion): nothing ran.
-            Some(fallback.send_control(&json!({"id":fallback_id,"ok":false,"error_code":"seed.clone_failed","error":"The repository action did not run: this machine could not start a worker thread."})).is_ok())
+            WORKERS.fetch_sub(1, Ordering::AcqRel);
+            Some(fallback.send_control(&json!({"id":fallback_id,"ok":false,"error_code":"seed.clone_failed","error":"Retry the repository action; the worker could not start."})).is_ok())
         }
     }
-}
-
-#[cfg(test)]
-#[test]
-fn a_full_worker_pool_is_waited_for_instead_of_refused() {
-    let workers = Arc::new(AtomicUsize::new(2));
-    std::thread::scope(|scope| {
-        scope.spawn(|| {
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            workers.fetch_sub(1, Ordering::AcqRel);
-        });
-        assert!(take_slot(&workers, 2, std::time::Duration::from_secs(5)));
-    });
-    assert_eq!(workers.load(Ordering::Acquire), 2);
-    assert!(!take_slot(&workers, 2, std::time::Duration::from_millis(150)));
 }
 
 /// Local user and linked Mac requests retain their existing access. A
