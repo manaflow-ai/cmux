@@ -485,6 +485,12 @@ impl Mux {
                 }
                 Err(refusal) => refuse(refusal).await,
             },
+            Ok(CircuitService::Consent) => match incoming.consent(from).await {
+                Ok((local, serving)) => {
+                    tokio::join!(serving, self.carry_admitted(id, local, events, credit));
+                }
+                Err(refusal) => refuse(refusal).await,
+            },
             // The acpmux listener, reached as a plain circuit with no hello reaches it: the
             // peer link and its hub probe ride the pair's one kept circuit.
             Ok(CircuitService::Acpmux)
@@ -833,6 +839,44 @@ impl KeptCircuits {
                 );
             }
         }
+    }
+
+    /// Machines with a slot, live circuit or not.
+    #[cfg(test)]
+    pub(crate) fn slots(&self) -> usize {
+        self.by_machine.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    /// Drop every slot that holds nothing a dial would read: no circuit, or one closed for good
+    /// (idled out, its carrier gone: never opened again), no hold, and no refusal or reopen wait
+    /// still running. A slot a dial holds now (locked, or its `Arc` taken) stays.
+    ///
+    /// Without it a slot stayed for every machine ever dialed, its closed circuit and that
+    /// circuit's link with it: on a daemon that brokers for short-lived VMs, every VM ever made
+    /// is one (2026-11-27: a control host's daemon at 2.5 GB, VMs recreated all day). A dropped slot is
+    /// made again, empty, by the next dial, as the first dial made it, so nothing but memory
+    /// changes. Returns how many went.
+    pub(crate) fn prune(&self) -> usize {
+        let now = Instant::now();
+        let mut by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+        let before = by_machine.len();
+        by_machine.retain(|_, slot| {
+            // `by_machine`'s own reference is the one; any other is a dial or a pass using it.
+            if Arc::strong_count(slot) > 1 {
+                return true;
+            }
+            let Ok(mut kept) = slot.try_lock() else { return true };
+            if kept.live.as_ref().is_some_and(|mux| mux.is_closed() && !mux.wants_reopen()) {
+                kept.live = None;
+            }
+            let waiting = |until: Option<Instant>| until.is_some_and(|at| now < at);
+            kept.live.is_some()
+                || kept.held
+                || waiting(kept.no_mux_until)
+                || waiting(kept.no_acpmux_until)
+                || waiting(kept.reopen_at)
+        });
+        before - by_machine.len()
     }
 
     /// Every machine's slot whose kept circuit ended under it and wants opening again.

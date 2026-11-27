@@ -149,6 +149,9 @@ pub(super) async fn route(
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::consent_grant::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // Agent byte channels: listen, unlisten, open (`channels.rs`).
     if let Some(reply) = super::channels::dispatch(hub, conn, m, &params).await {
         return reply;
@@ -495,6 +498,11 @@ pub(super) async fn route(
                 (name.to_owned(), profile.clone())
             };
             let forked = crate::chat_fork::fork(harness, &profile_name, &profile, id, &cwd).await?;
+            crate::fork_spec::log(
+                &crate::fork_spec::ForkSpec::preset(crate::fork_spec::Preset::TerminalChat),
+                id,
+                &forked,
+            );
             Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {
