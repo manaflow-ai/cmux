@@ -3289,7 +3289,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// each other; the row resolves the most urgent pane from these instead.
     var agentStatusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
     /// Panels whose terminal shows an agent running on a remote host, in any
-    /// state. The remote status projectors own it; see `panelRunsAgent`.
+    /// state. `SSHTuiAgentStatusProjector` owns it; see `panelRunsAgent`.
     var remoteAgentPanelIds: Set<UUID> = []
     var programStatusStoresByPanelId: [UUID: ProgramStatusRecordStore] = [:]
     var programStatusUrgencyByPanelId: [UUID: Int] = [:]
