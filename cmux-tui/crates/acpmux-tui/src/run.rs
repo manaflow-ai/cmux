@@ -297,6 +297,7 @@ pub(super) fn make_app(
         history_more: HashMap::new(),
         input: Editor::default(),
         draft_sync: Default::default(),
+        picks_scope: cmux_scope::Scope::new("tui picks hold"),
         input_images: Vec::new(),
         command: Editor::default(),
         drafts: Vec::new(),

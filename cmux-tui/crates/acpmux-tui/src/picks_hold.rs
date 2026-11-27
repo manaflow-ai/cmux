@@ -30,7 +30,8 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         let (id, model) = (id.to_owned(), model.to_owned());
-        tokio::spawn(async move {
+        // Owned by the app's picks scope: its close ends a switch still running (check-spawn-owner).
+        self.picks_scope.spawn_named("model keep level", async move {
             let params = json!({"sessionId": id, "modelId": model});
             if !Self::run_request(
                 &client,

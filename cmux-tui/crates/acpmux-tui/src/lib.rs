@@ -177,6 +177,8 @@ pub struct App {
     pub input: Editor,
     /// The composer's tie to the chat's durable draft (`composer_draft.rs`).
     pub draft_sync: composer_draft::DraftSync,
+    /// The owner of the model switches that keep a chat's level (`picks_hold.rs`).
+    pub(crate) picks_scope: cmux_scope::Scope,
     pub input_images: Vec<PromptImage>,
     pub command: Editor,
     /// Not-yet-created sessions shown as the top sidebar rows, newest first.
