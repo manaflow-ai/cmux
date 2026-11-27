@@ -1,4 +1,4 @@
-import CmuxScreenKit
+@testable import CmuxScreenKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -107,7 +107,7 @@ struct ScreenInputTests {
         #expect(gesture.touchDown(at: 10).isEmpty)
         #expect(gesture.touchUp(at: 10.1) == [.press])
         #expect(gesture.buttonHeld)
-        #expect(gesture.deadline == 10.1 + gesture.dragWindow)
+        #expect(gesture.deadline == 10.1 + 0.25, "the drag window")
         #expect(gesture.advance(to: 10.2).isEmpty, "still inside the window")
         #expect(gesture.advance(to: 10.4) == [.release])
         #expect(!gesture.buttonHeld && gesture.deadline == nil)
@@ -139,7 +139,7 @@ struct ScreenInputTests {
     @Test func aStillTouchBecomesALongPressDrag() {
         var gesture = TrackpadGesture()
         _ = gesture.touchDown(at: 1)
-        #expect(gesture.deadline == 1 + gesture.longPressDuration)
+        #expect(gesture.deadline == 1 + 0.45, "the long press")
         #expect(gesture.advance(to: 1.2).isEmpty)
         #expect(gesture.advance(to: 1.5) == [.press])
         #expect(gesture.buttonHeld)

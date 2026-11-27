@@ -205,6 +205,7 @@ on:
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -395,6 +396,7 @@ on:
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
   workflow_dispatch:
 
 concurrency:
