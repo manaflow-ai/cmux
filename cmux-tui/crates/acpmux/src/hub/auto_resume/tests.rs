@@ -248,6 +248,7 @@ async fn automatic_restart_retry_shutdown_preserves_the_durable_schedule() {
                     slash: None,
                 },
                 1,
+                None,
             )
             .await;
     });

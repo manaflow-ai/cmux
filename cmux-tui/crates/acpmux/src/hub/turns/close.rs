@@ -318,16 +318,19 @@ impl Hub {
             None => session.child.lock().await,
         };
         let child = if let Some(generation) = generation {
-            let Some(result) = session.auto_resume.try_with_current(generation, || {
-                if self.hands_off(session) {
-                    return Err(());
-                }
-                session.detaching.store(true, Ordering::SeqCst);
-                Ok(slot.take())
+            // Shutdown scheduling takes `shutdown_plan` and then the retry mark
+            // (`before_shutdown(|| set_retry(...))`). Take the plan fence first here
+            // as well; taking the retry mark and then calling `hands_off` inverted
+            // that order and could deadlock a late retry against shutdown.
+            let Some(child) = self.before_shutdown(|| {
+                session.auto_resume.try_with_current(generation, || {
+                    session.detaching.store(true, Ordering::SeqCst);
+                    slot.take()
+                })
             }) else {
                 return false;
             };
-            let Ok(child) = result else {
+            let Some(child) = child else {
                 return false;
             };
             child

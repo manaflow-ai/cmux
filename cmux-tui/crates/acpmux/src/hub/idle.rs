@@ -162,7 +162,12 @@ impl Hub {
             && !session.harness_turn.load(Ordering::SeqCst)
             && session.asks_in_flight.load(Ordering::SeqCst) == 0
             && !self.secrets.waiting_in(&session.id)
-            && (session.queued() == 0 || sleeps_held)
+            // A firing continuation owns the aside entries held by its cut turn. They remain
+            // queued until the continuation succeeds, so treating every queued entry as a
+            // blocker would make a required quiet handoff wait for its own retry forever.
+            && (session.queued() == 0
+                || sleeps_held
+                || (firing_retry && session.queue().iter().all(|q| q.aside())))
             && session.pending_permissions().is_empty()
             && !self.holds_work_below(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).

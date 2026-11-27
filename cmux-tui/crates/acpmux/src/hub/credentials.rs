@@ -3,7 +3,9 @@
 //! refreshed ChatGPT access token about ten minutes before the last one expires. Its agent then
 //! restarts on the new credential and resumes the same conversation (Codex `thread/resume`, Claude
 //! `--resume`), after the idle gates and process census find it quiet. A refresh never cuts work; an already
-//! quiet agent is hibernated immediately, while busy work keeps the mark until the next quiet boundary.
+//! quiet agent is restarted immediately, while busy work keeps the mark until the next quiet boundary.
+//! Delivery is acknowledged only once a live agent carries it: a pending refresh is a retryable
+//! error, so the Mac redelivers it if this daemon hands off before the quiet restart.
 //!
 //! Nothing of it is recorded: no log record, meta field or event names the change, and the reply
 //! carries no value.
@@ -77,18 +79,29 @@ impl Hub {
         true
     }
 
-    /// Whether `session` (meta `m`) holds a launch credential that this daemon's memory alone keeps
-    /// (its summary's `credentialOnlyHere`): one is held and its agent is hibernated, so no running
-    /// agent carries it in its env for the next daemon to read back ([`Self::recover_credential`]).
-    /// A machine update wakes such a session before it restarts this daemon (cmux-host
-    /// `updater/credential_wake.rs`); without that, the chat's next start after the restart runs
-    /// on the machine's own route ("Claude is not signed in here"). False for a closed or watched
-    /// chat, which `session wake` does not start: its credential is still lost with the daemon.
+    /// Whether a live agent carries this exact token across a daemon handoff. A child slot
+    /// being changed is not evidence of delivery; the next resend can prove it after the change.
+    fn credential_carried(&self, session: &Session, credential: &AgentCredential) -> bool {
+        let Ok(child) = session.child.try_lock() else { return false };
+        if child.is_none() || self.waking(session) {
+            return false;
+        }
+        let launch = session.launch_env.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(env) = launch.as_ref() else { return false };
+        let pairs: Vec<_> = env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        crate::agent_credentials::recovered_from_launch(&pairs).as_ref() == Some(credential)
+    }
+
+    /// A hibernated agent, or an old live agent waiting for quiet, does not carry the newest
+    /// held credential. Such a credential would be lost in a daemon handoff. The machine
+    /// updater sees this marker; the Mac also retains its refresh for redelivery until the
+    /// update RPC succeeds with a host carrying that exact credential.
     pub(super) fn credential_only_here(&self, session: &Session, m: &SessionMeta) -> bool {
-        self.waking(session)
-            && m.status != SessionStatus::Closed
-            && m.watching.is_none()
-            && session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+        if m.status == SessionStatus::Closed || m.watching.is_some() {
+            return false;
+        }
+        let credential = session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        credential.as_ref().is_some_and(|credential| !self.credential_carried(session, credential))
     }
 
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
@@ -103,21 +116,32 @@ impl Hub {
                 .with_data(json!({"reason": "credentials.no_session"}))
         })?;
         self.credential_serves(&session.meta().harness, &credential).await?;
-        let changed = {
-            let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
-            let changed = held.as_ref() != Some(&credential);
-            *held = Some(credential);
-            changed
-        };
-        if !changed || session.child.lock().await.is_none() {
-            // The next start runs on it.
+        let stops = session.stops.load(std::sync::atomic::Ordering::SeqCst);
+        *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = Some(credential.clone());
+        if self.credential_carried(&session, &credential) {
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
         }
+        // An identical resend is still pending if the old child has not taken it yet. Returning
+        // success here would make the Mac forget to resend after a daemon handoff/adoption.
         self.respawn_when_quiet_required(&session);
-        if self.end_quiet_stale(&session, "credential-refresh", None).await {
-            return Ok(json!({"sessionId": session.id, "restart": "now"}));
+        let pending = || {
+            RpcError::new(-32000, "the refreshed credential is waiting for a quiet agent")
+                .with_data(json!({"reason": "credentials.pending", "retryable": true}))
+        };
+        let has_child = session.child.lock().await.is_some();
+        if has_child && !self.end_quiet_stale(&session, "credential-refresh", None).await {
+            return Err(pending());
         }
-        Ok(json!({"sessionId": session.id, "restart": "whenQuiet"}))
+        // A hibernated agent carries nothing either. Start on the held credential before
+        // acknowledging delivery, with the ordinary Stop fence and spawn failure handling.
+        if session.status() == SessionStatus::Closed || session.meta().watching.is_some() {
+            return Err(pending());
+        }
+        self.child_for_since(&session, stops).await?;
+        if !self.credential_carried(&session, &credential) {
+            return Err(pending());
+        }
+        Ok(json!({"sessionId": session.id, "restart": "now"}))
     }
 }
 
@@ -218,8 +242,11 @@ mod tests {
         let session = hub.new_session(req).await.unwrap();
         let before = hub.child_for(&session).await.unwrap().generation;
         *session.work_below_since.lock().unwrap() = 1;
-        let reply = hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
-        assert_eq!(reply["restart"], "whenQuiet");
+        let reply = hub.update_credential(&session.id, credential(SECOND)).await.unwrap_err();
+        assert_eq!(reply.data.as_ref().unwrap()["reason"], "credentials.pending");
+        assert_eq!(hub.session_summary(&session)["credentialOnlyHere"], true);
+        let again = hub.update_credential(&session.id, credential(SECOND)).await.unwrap_err();
+        assert_eq!(again.data.unwrap()["reason"], "credentials.pending");
         assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
         assert!(session.respawn_when_quiet.load(std::sync::atomic::Ordering::SeqCst));
         assert!(!hub.idle_eligible(&session), "background work holds the refresh");
@@ -230,11 +257,63 @@ mod tests {
         assert_ne!(before, after, "a new agent process");
         assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(SECOND));
         assert_eq!(hub.resolve(&session.id).unwrap().id, session.id, "the same chat");
-        let text = format!("{reply}{}", written(&hub, &session.id));
+        let text = format!("{reply:?}{}", written(&hub, &session.id));
         assert!(!text.contains(FIRST) && !text.contains(SECOND));
         // The same credential again restarts nothing.
         let again = hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
         assert_eq!(again["restart"], "none");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn automatic_restart_refresh_is_redelivered_after_daemon_handoff() {
+        use std::sync::atomic::Ordering;
+
+        let hub = hub();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential(FIRST)),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        let before = hub.child_for(&session).await.unwrap().generation;
+        let carried: Vec<_> = launched(&session).into_iter().collect();
+        let carried = crate::agent_credentials::launched_with(&carried);
+        *session.work_below_since.lock().unwrap() = 1;
+        let refresh = hub.update_credential(&session.id, credential(SECOND)).await.unwrap_err();
+        assert_eq!(refresh.data.unwrap()["reason"], "credentials.pending");
+
+        // A daemon handoff preserves the busy host but none of the daemon's credential memory
+        // or restart marks. Adoption reads the first token from that host, not the newer token.
+        *session.credential.lock().unwrap() = None;
+        *session.launch_env.lock().unwrap() = None;
+        session.respawn_when_quiet.store(false, Ordering::SeqCst);
+        session.respawn_required.store(false, Ordering::SeqCst);
+        assert!(hub.hold_launch_credential(&session, &carried));
+        assert_eq!(*session.credential.lock().unwrap(), Some(credential(FIRST)));
+
+        // The failed delivery remains due on the Mac; neither the first resend nor an identical
+        // resend is acknowledged while only the daemon holds the second token.
+        for _ in 0..2 {
+            let refresh = hub.update_credential(&session.id, credential(SECOND)).await.unwrap_err();
+            assert_eq!(refresh.data.unwrap()["reason"], "credentials.pending");
+            assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
+            assert_eq!(hub.session_summary(&session)["credentialOnlyHere"], true);
+        }
+        *session.work_below_since.lock().unwrap() = 0;
+        let delivered = hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
+        assert_eq!(delivered["restart"], "now");
+        assert_ne!(hub.child_for(&session).await.unwrap().generation, before);
+        assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(SECOND));
+        assert_ne!(hub.session_summary(&session)["credentialOnlyHere"], true);
+        assert_eq!(
+            hub.update_credential(&session.id, credential(SECOND)).await.unwrap()["restart"],
+            "none"
+        );
+        let text = written(&hub, &session.id);
+        assert!(!text.contains(FIRST) && !text.contains(SECOND));
+        hub.shutdown_all().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

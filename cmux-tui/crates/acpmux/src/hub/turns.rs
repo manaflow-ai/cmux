@@ -756,13 +756,30 @@ impl Hub {
         // awaits here and therefore cannot accidentally join the queue after the check.
         if fired.is_none() && running.is_none() && session.respawn_when_quiet.load(Ordering::SeqCst)
         {
-            match tokio::time::timeout(
-                super::prompt_admission::ADMISSION_BOUND,
-                self.end_quiet_stale(session, "prompt-restart", None),
-            )
-            .await
+            // Own the quiet check in a detached task. Once the census commits hibernation,
+            // `hibernate_held` takes the child slot and its kill may outlive this admission's
+            // three-second answer bound. Dropping a directly awaited future there would cancel
+            // after `slot.take()` and leave `detaching` set with the old host alive. A spawned
+            // owner continues the committed teardown after this prompt defers; a queued prompt
+            // also makes the task's final eligibility check refuse a new hibernation.
+            let quiet_restart = {
+                let hub = Arc::clone(self);
+                let session = Arc::clone(session);
+                tokio::spawn(
+                    async move { hub.end_quiet_stale(&session, "prompt-restart", None).await },
+                )
+            };
+            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, quiet_restart)
+                .await
             {
-                Ok(_) => {}
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => {
+                    tracing::warn!(
+                        session = %session.id,
+                        ?error,
+                        "prompt quiet-restart census task failed"
+                    );
+                }
                 Err(_) => {
                     tracing::warn!(
                         session = %session.id,
