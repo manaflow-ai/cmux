@@ -42,7 +42,7 @@ final class MacTabsCardSink: MacTabsSink {
             (tabID: card.tabID, info: MacCardInfo(
                 title: card.title, kind: card.kind, faviconHash: card.faviconHash, thumbHash: card.thumbHash,
                 screenHash: card.screenHash, screenColumns: card.screenColumns, screenRows: card.screenRows,
-                capturedAtMs: Int64((card.capturedAt.timeIntervalSince1970 * 1000).rounded())))
+                capturedAtMs: Int64((card.capturedAt.timeIntervalSince1970 * 1000).rounded()), tabKey: card.tabKey))
         }, epoch: epoch, macID: macID)
     }
 

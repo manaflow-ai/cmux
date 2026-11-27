@@ -107,6 +107,10 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
           </>
         ),
     ),
+  looksGallery: () =>
+    import("./LooksGalleryCard").then(({ LooksGalleryCard }) => (_focus, _workspace, reveal) => (
+      <LooksGalleryCard reveal={reveal} />
+    )),
   customizeProgress: () =>
     import("./CustomizeProgressCard").then(({ CustomizeProgressCard }) => () => <CustomizeProgressCard />),
   customizeChecklist: () =>
@@ -117,6 +121,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./McpServersCard").then(({ McpServersCard }) => () => <McpServersCard />),
   integrationsHub: () =>
     import("./IntegrationsHubCard").then(({ IntegrationsHubCard }) => () => <IntegrationsHubCard />),
+  developerTokens: () =>
+    import("./DeveloperTokensCard").then(({ DeveloperTokensCard }) => () => <DeveloperTokensCard />),
   automationsCloud: () =>
     import("./AutomationsCard").then(({ AutomationsCard }) => () => <AutomationsCard />),
   tailnet: () =>

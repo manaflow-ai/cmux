@@ -49,6 +49,18 @@ public final class MockAgentSession: AgentSessionSource {
     }
 
     public func events() -> AsyncStream<AgentSessionEvent> {
+        open(headed: false).rest
+    }
+
+    /// The mock holds its whole history (``loadsHistory`` is false), so it is the head: the
+    /// store has it before the chat's first frame. Streamed, it landed a tick later, and that
+    /// first frame was a new chat's: the composer played the new-chat entrance on a chat with
+    /// history, rising 24 pt over a dozen frames (#59189, disclosure-chat).
+    public func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        open(headed: true)
+    }
+
+    private func open(headed: Bool) -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         self.continuation = continuation
         // History (and a waiting turn's opening) arrive as one change.
@@ -57,11 +69,13 @@ public final class MockAgentSession: AgentSessionSource {
         if summary.status == .waiting { startWaitingTurn() }
         let replayed = batch ?? []
         batch = nil
-        continuation.yield(.batch(replayed))
+        var head: [AgentSessionEvent] = [.batch(replayed)]
         // `CMUX_MOBILE_MOCK_LINK=down`: the chat's history is there, its Mac is not.
-        if link == .down { continuation.yield(.status(.disconnected)) }
+        if link == .down { head.append(.status(.disconnected)) }
         observeHostLoad()
-        return stream
+        guard !headed else { return (head, stream) }
+        for event in head { continuation.yield(event) }
+        return ([], stream)
     }
 
     /// The link to the "Mac" (`CMUX_MOBILE_MOCK_LINK`): a slow one holds what each side
@@ -86,11 +100,18 @@ public final class MockAgentSession: AgentSessionSource {
         switch intent {
         case .prompt(let text, let attachments, let steer, let sentID, _):
             // The client's id comes back on the echo, as acpmux does: the store
-            // matches its send to it (`chat_send_acked`, a resend's dedupe).
+            // matches its send to it (`chat_send_acked`, a resend's dedupe) and the turn it drew as sent.
             let promptID = sentID.isEmpty ? UUID().uuidString : sentID
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))
                 emit(.queued(text: text, promptId: promptID, position: queued.count))
+            } else if DeveloperOptions.mockEchoDelay > .zero {
+                // DEBUG: a Mac's round trip before the prompt comes back.
+                let delay = DeveloperOptions.mockEchoDelay
+                Task { [weak self] in
+                    try? await Task.sleep(for: delay)
+                    self?.startTurn(text: text, attachments: attachments, promptID: promptID)
+                }
             } else {
                 startTurn(text: text, attachments: attachments, promptID: promptID)
             }
@@ -479,12 +500,8 @@ public final class MockAgentSession: AgentSessionSource {
             runFor: 380,
             finish: ACPToolCallUpdate(toolCallId: "s1", status: .completed, content: [.content(.text(S.searchOutput))])
         )
-        try await stream(S.planIntro, messageID: "m-intro")
-        var plan = S.plan
-        emit(.update(.plan(plan)))
+        try await stream(S.intro, messageID: "m-intro")
         try await pause(400)
-        plan[0].status = .inProgress
-        emit(.update(.plan(plan)))
         // Edits.
         try await tool(
             ACPToolCall(id: "e1", title: "Write TransportKind.swift", kind: .edit, status: .inProgress,
@@ -492,17 +509,11 @@ public final class MockAgentSession: AgentSessionSource {
             runFor: 600,
             finish: ACPToolCallUpdate(toolCallId: "e1", status: .completed, content: [.diff(path: S.kindPath, oldText: nil, newText: S.kindNew)])
         )
-        plan[0].status = .completed
-        plan[1].status = .inProgress
-        emit(.update(.plan(plan)))
         try await tool(
             ACPToolCall(id: "e2", title: "Edit LinkDialer.swift", kind: .edit, status: .inProgress, locations: [.init(path: S.dialerPath)]),
             runFor: 700,
             finish: ACPToolCallUpdate(toolCallId: "e2", status: .completed, content: [.diff(path: S.dialerPath, oldText: S.dialerOld, newText: S.dialerNew)])
         )
-        plan[1].status = .completed
-        plan[2].status = .inProgress
-        emit(.update(.plan(plan)))
         // Swift tests run (no permission needed).
         try await tool(
             ACPToolCall(id: "x1", title: "Run swift test", kind: .execute,
@@ -533,9 +544,6 @@ public final class MockAgentSession: AgentSessionSource {
         } else {
             emit(.update(.toolCallUpdate(ACPToolCallUpdate(toolCallId: "x2", status: .failed, content: [.content(.text("Denied by the person."))]))))
         }
-        plan[2].status = .completed
-        plan[3].status = .inProgress
-        emit(.update(.plan(plan)))
         // AskUserQuestion with two items.
         try await stream(allowed ? S.beforeQuestion : S.beforeQuestionDenied, messageID: "m-q")
         let question = S.question(session: summary.id)
@@ -550,8 +558,6 @@ public final class MockAgentSession: AgentSessionSource {
             finish: ACPToolCallUpdate(toolCallId: "e3", status: .completed,
                                       content: [.diff(path: S.settingsPath, oldText: S.settingsOld, newText: S.settingsNew(cellular: cellular))])
         )
-        plan[3].status = .completed
-        emit(.update(.plan(plan)))
         try await pause(300)
         try await stream(S.finalAnswer(cellular: cellular), messageID: "m-final")
     }

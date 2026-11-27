@@ -272,7 +272,7 @@
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   min-width: 0;
 }
 
@@ -346,7 +346,7 @@
   min-height: 150px;
   padding: 14px;
   border: 1px solid var(--page-separator);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   background: color-mix(in srgb, var(--page-elevated) 24%, transparent);
 }
 
@@ -359,7 +359,7 @@
 .apps-skeleton-icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
 }
 
 .apps-skeleton-line {
@@ -485,7 +485,7 @@
   width: auto;
   max-width: 100%;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   border: 1px solid var(--page-separator);
 }
 
@@ -659,7 +659,7 @@ code {
   padding: 8px;
   max-height: 220px;
   overflow: auto;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   font:
     11px ui-monospace,
@@ -719,7 +719,7 @@ code {
   min-height: 220px;
   margin-top: 8px;
   border: 1px dashed var(--page-separator);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
 }
 
 .apps-state-error {
@@ -742,7 +742,7 @@ code {
   margin-top: 12px;
   padding: 14px 16px;
   border: 1px solid var(--page-separator);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
 }
 
 .apps-cloud-feature-text {
@@ -931,7 +931,7 @@ code {
   gap: 24px;
   padding: 24px;
   border: 1px solid var(--page-separator);
-  border-radius: 16px;
+  border-radius: var(--ds-radius-2xl);
   background: linear-gradient(
     120deg,
     color-mix(in srgb, var(--page-selection) 55%, transparent),
@@ -1011,7 +1011,7 @@ code {
   max-height: 260px;
   object-fit: cover;
   object-position: top left;
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   border: 1px solid var(--page-separator);
   box-shadow: var(--elevation-2);
 }
@@ -1268,7 +1268,7 @@ code {
   width: 100%;
   aspect-ratio: 16 / 10;
   object-fit: contain;
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
 }
@@ -1284,7 +1284,7 @@ code {
   width: 96px;
   padding: 0;
   border: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: transparent;
   opacity: 0.65;
 }
@@ -1299,7 +1299,7 @@ code {
   width: 100%;
   aspect-ratio: 16 / 10;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
 }
 
 /* Facts: a label column and a value column (Shows up in, Information). */
@@ -1372,7 +1372,7 @@ code {
 .apps-perm .apps-badge {
   margin-inline-start: 8px;
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--page-hover);
 }
 
@@ -1399,7 +1399,7 @@ code {
   margin-top: 12px;
   padding: 12px 16px;
   border: 1px solid var(--page-separator);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
 }
 
 .apps-customize-feature-head {
@@ -1512,4 +1512,117 @@ code {
   inset-inline-start: 0;
   width: 100%;
   box-sizing: border-box;
+}
+
+/* The Features tab (FeaturesView.tsx): built-in features as switches, grouped. `list` is the
+   default (Settings' rows); `tiles` and `chips` are DEV variants (`features=`). */
+.apps-features {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 12px var(--page-edge) 24px;
+}
+
+.apps-features-intro {
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+}
+
+.apps-features-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.apps-features-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--page-separator);
+  border-radius: 12px;
+}
+
+.apps-feature {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  padding: 4px 12px;
+}
+
+.apps-features[data-features-style="list"] .apps-feature + .apps-feature {
+  border-top: 1px solid var(--page-separator);
+}
+
+.apps-feature-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.apps-feature-title {
+  color: var(--page-text);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
+
+.apps-feature-summary,
+.apps-feature-managed {
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+}
+
+.apps-features[data-features-style="tiles"] .apps-features-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  border: 0;
+}
+
+.apps-features[data-features-style="tiles"] .apps-feature {
+  align-items: flex-start;
+  padding: 8px 12px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+}
+
+.apps-features[data-features-style="tiles"] .apps-feature[data-on] {
+  background: var(--page-selection);
+}
+
+.apps-features[data-features-style="chips"] .apps-features-list {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+  border: 0;
+}
+
+.apps-features[data-features-style="chips"] .apps-feature {
+  min-height: 0;
+  padding: 0;
+}
+
+.apps-feature-chip {
+  padding: var(--grid-half-step) 8px;
+  border: 1px solid var(--page-separator);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-caption);
+}
+
+.apps-feature-chip:hover:not(:disabled) {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.apps-feature-chip[data-on] {
+  border-color: transparent;
+  background: var(--page-selection);
+  color: var(--page-text);
 }
