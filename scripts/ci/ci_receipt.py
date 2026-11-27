@@ -454,20 +454,36 @@ def lane_oidc_token(env=os.environ) -> str:
 LOOKUP_DEADLINE_S = 60
 
 
-def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT) -> dict:
-    request = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), method="POST", headers={
-        "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
-    try:
-        status, body, _ = deadline_http.request(request, LOOKUP_DEADLINE_S)
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        raise Rejected(f"the controller did not answer: {error}") from error
-    try:
-        answer = json.loads(body or b"{}")
-    except ValueError:
-        answer = {}
-    if status >= 300:
-        raise Rejected(f"the controller answered {status}: {answer.get('error') or body[:200]!r}")
-    return answer
+# A restarting controller answers 503 "the controller is starting; retry" for a few seconds: on 2026-11-27
+# 11:5xZ four of 30 dispatched land runs took that first answer as no receipt and re-ran the fast gates. A lookup
+# only reads, so a 5xx or 429 is asked again, backing off, within the one LOOKUP_DEADLINE_S budget.
+LOOKUP_RETRY_PAUSE_S = 2.0
+LOOKUP_RETRY_PAUSE_MAX_S = 10.0
+
+
+def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT, *,
+             clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> dict:
+    data = json.dumps(payload).encode()
+    end = clock() + LOOKUP_DEADLINE_S
+    pause = LOOKUP_RETRY_PAUSE_S
+    while True:
+        request = urllib.request.Request(endpoint, data=data, method="POST", headers={
+            "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
+        try:
+            status, body, _ = deadline_http.request(request, max(end - clock(), 1.0))
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            raise Rejected(f"the controller did not answer: {error}") from error
+        try:
+            answer = json.loads(body or b"{}")
+        except ValueError:
+            answer = {}
+        if (status >= 500 or status == 429) and end - clock() > pause:
+            sleep(pause)
+            pause = min(pause * 2, LOOKUP_RETRY_PAUSE_MAX_S)
+            continue
+        if status >= 300:
+            raise Rejected(f"the controller answered {status}: {answer.get('error') or body[:200]!r}")
+        return answer
 
 
 LaneAsk = Callable[[dict], dict]
