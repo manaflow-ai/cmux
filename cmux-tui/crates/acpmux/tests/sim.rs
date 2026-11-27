@@ -86,6 +86,58 @@ fn replay_command(seed: u64, opts: &Options) -> String {
     format!("(cd cmux-tui && {env} cargo test -p acpmux --features sim --test sim -- --nocapture)")
 }
 
+/// How the bulk loop counts one seed's run.
+#[derive(Debug, PartialEq)]
+enum Seed {
+    Holds,
+    /// Fails only by these known gaps: it holds once their cause is taken away.
+    KnownGap(String),
+    Fails(String),
+}
+
+/// Counts a run, asking `known_gaps` (a rerun with the gaps' causes taken away) only when that
+/// can excuse the failure. A hub that outlived this run is a teardown leak of this run: the
+/// rerun's clean hubs say nothing about it, so a leak always fails, on a known-gap leg too.
+fn classify(run: &world::Run, known_gaps: impl FnOnce() -> Vec<&'static str>) -> Seed {
+    let Err(failure) = invariants::check(run) else { return Seed::Holds };
+    if run.hubs.0 > 0 {
+        return Seed::Fails(failure);
+    }
+    let known = known_gaps();
+    if known.is_empty() { Seed::Fails(failure) } else { Seed::KnownGap(known.join(" + ")) }
+}
+
+/// A leaked run fails even when its known-gap rerun comes back clean, and a run that fails
+/// only by a known gap with its hubs gone is still counted as that gap.
+#[test]
+fn a_known_gap_never_excuses_a_leaked_hub() {
+    let opts = Options { faults: Faults::standard(), resend: true, power_drops_unflushed: true };
+    let seed = (0..64)
+        .find(|&s| {
+            let run = world::run(s, &opts);
+            invariants::check(&run).is_ok() && !run.faulty.given.is_empty()
+        })
+        .expect("no seed in 0..64 holds with a given prompt");
+    let clean_rerun = || vec!["a known gap"];
+    let run = world::run(seed, &opts);
+    assert_eq!(classify(&run, clean_rerun), Seed::Holds);
+
+    let mut leaked = world::run(seed, &opts);
+    leaked.hubs.0 = leaked.hubs.1.max(1);
+    let mut asked = false;
+    let got = classify(&leaked, || {
+        asked = true;
+        clean_rerun()
+    });
+    assert!(matches!(got, Seed::Fails(_)), "seed {seed}: a leaked hub was counted as {got:?}");
+    assert!(!asked, "seed {seed}: a leaked run asked for a known-gap rerun");
+
+    let mut gap_only = world::run(seed, &opts);
+    gap_only.faulty.given.push(gap_only.faulty.given.first().cloned().expect("a given prompt"));
+    assert_eq!(classify(&gap_only, clean_rerun), Seed::KnownGap("a known gap".into()));
+    assert!(matches!(classify(&gap_only, Vec::new), Seed::Fails(_)));
+}
+
 /// Every seed of the run, or the one SIM_SEED names, with its trace.
 #[test]
 fn seeds_hold_the_delivery_invariants() {
@@ -170,17 +222,12 @@ fn seeds_hold_the_delivery_invariants() {
             );
         }
         simulated += run.simulated;
-        if let Err(failure) = invariants::check(&run) {
-            let known =
-                if known_gaps { invariants::known_gaps_of(seed, &opts) } else { Vec::new() };
-            if known.is_empty() {
-                failures.push(format!(
-                    "seed {seed}: {failure}\n  replay: {}",
-                    replay_command(seed, &opts)
-                ));
-            } else {
-                shown.entry(known.join(" + ")).or_default().push(seed);
-            }
+        let gaps = || if known_gaps { invariants::known_gaps_of(seed, &opts) } else { Vec::new() };
+        match classify(&run, gaps) {
+            Seed::Holds => {}
+            Seed::KnownGap(gap) => shown.entry(gap).or_default().push(seed),
+            Seed::Fails(failure) => failures
+                .push(format!("seed {seed}: {failure}\n  replay: {}", replay_command(seed, &opts))),
         }
     }
     let wall = started.elapsed();
