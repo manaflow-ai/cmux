@@ -108,6 +108,12 @@ export function searchWords(rows: readonly ScreenRow[], words: (text: string) =>
   });
 }
 
+/// The rows a draft with staged files offers: its Ask rows only (Lucas 2026-11-26). A file goes to an
+/// agent; a web search, an address, a tab or a command would leave it behind.
+export function attachedRows(rows: readonly ScreenRow[]): ScreenRow[] {
+  return rows.filter((row) => row.type === "ask");
+}
+
 /// The agent the Ask row names.
 export type ScreenAsk = { harness: string; agent: string; model?: string };
 
@@ -447,8 +453,8 @@ export function defaultSelection(rows: readonly ScreenRow[]): number {
 /// read: the highlighted row (`current`) of the shown `rows`; with the list closed, the top of
 /// `suggested` (closed suggestions still answer Return: "reddit" opens reddit.com); with no row
 /// highlighted (↑ from the top row), the top one when the text is an address, since an address is
-/// never sent as a prompt. Staged files make Return send a prompt unless the row asks or creates
-/// (navigation keeps them in the chat). Undefined: Return sends the text as a prompt.
+/// never sent as a prompt. Staged files make Return send a prompt unless the row asks (the rows then
+/// offer only Ask, ``attachedRows``). Undefined: Return sends the text as a prompt.
 export function returnRow(
   rows: readonly ScreenRow[],
   suggested: readonly ScreenRow[],
@@ -458,7 +464,7 @@ export function returnRow(
   const list = rows.length ? rows : suggested;
   const opensTop = !rows.length || (current < 0 && context.address);
   const row = opensTop ? list[defaultSelection(list)] : rows[current];
-  const takes = !!row && (context.attachments === 0 || row.type === "ask" || row.type === "create");
+  const takes = !!row && (context.attachments === 0 || row.type === "ask");
   return { row, takes };
 }
 

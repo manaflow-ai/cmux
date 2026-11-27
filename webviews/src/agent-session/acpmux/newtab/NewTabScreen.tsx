@@ -98,6 +98,7 @@ import { initialRecentProject } from "./recentProject";
 import { startedProjectChoices, cloudPickChoices, rememberCloudPick } from "./startedProject";
 import { callNative } from "../callNative";
 import {
+  attachedRows,
   exactMatch,
   canonicalAddress,
   defaultSelection,
@@ -793,7 +794,7 @@ export function NewTabScreen(props: Props) {
   }, []);
   // The input card, which a file drag rings (composer/DropOverlay.tsx).
   const dropLandingTarget = () => fieldElement()?.closest(".nt-box") ?? null;
-  const submitNow = useRef((_beside?: boolean) => {});
+  const submitNow = useRef((_beside?: boolean, _heldForFiles?: boolean) => {});
   /// Set while the send a finished dictation session waited for goes (submit, below).
   const dictationEnded = useRef(false);
   /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
@@ -1484,10 +1485,14 @@ export function NewTabScreen(props: Props) {
   // title too): Return still goes there.
   const exactRow = exactMatch(typed.trim(), suggested, omnibar);
   // An address (a path, a URL) is never a prompt: its rows stay whatever the text names.
-  const offered =
-    toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home) && !profilePick
-      ? suggested.filter((row) => row.type === "ask" || row === exactRow)
-      : suggested;
+  // Staged files (or files still reading) go to an agent: only the Ask rows stay (screenModel attachedRows).
+  const offered = profilePick
+    ? suggested
+    : attachments.length > 0 || reading.length > 0
+      ? attachedRows(suggested)
+      : toolMentionsIn(text).length > 0 && !isAddress(typed.trim(), home)
+        ? suggested.filter((row) => row.type === "ask" || row === exactRow)
+        : suggested;
   const rows = text !== dismissed ? offered : NO_ROWS;
   // New tabs or pages from the host can shorten the rows under a highlight.
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
@@ -1854,7 +1859,12 @@ export function NewTabScreen(props: Props) {
     );
   };
   /// Return on the field; `beside` is Option-Return (an address or search opens as a new tab).
-  const submit = (beside = false) => {
+  /// `heldForFiles`: the send that waited for files still reading (below).
+  const submit = (beside = false, heldForFiles = false) => {
+    // Return pressed while files read saw only the Ask rows (attachedRows). Files removed before they
+    // settle leave the full rows, whose top can be a command or an address: that send is dropped, and
+    // the draft stays.
+    if (heldForFiles && attachments.length === 0 && reading.length === 0) return;
     // A dictation session still running ends first, keeping its words; this goes once they land.
     if (listening && props.dictation && !dictationEnded.current) {
       // The session is over even if this render has not heard so yet.
@@ -1885,7 +1895,7 @@ export function NewTabScreen(props: Props) {
     if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
     if (!shell && !navigates && holdsSend(prompt)) return;
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
-    if (holdForAttachments(() => resumeSend(() => submitNow.current(beside)))) return;
+    if (holdForAttachments(() => resumeSend(() => submitNow.current(beside, true)))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
