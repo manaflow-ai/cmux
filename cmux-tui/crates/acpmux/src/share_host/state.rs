@@ -321,7 +321,13 @@ pub(crate) fn status_now() -> Value {
             not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
         }
     };
-    refreshed(status, || super::joined().is_ok())
+    let mut status = refreshed(status, || super::joined().is_ok());
+    // The helper's own grant reading holds whether or not this machine joined yet, so `cmux
+    // remote-host grants` reads the helper's grants, not the app's, before the host runs.
+    if let Some(fields) = status.as_object_mut() {
+        fields.entry("helper").or_insert_with(|| super::helper::status_json(&crate::config::home()));
+    }
+    status
 }
 
 /// `status`, or, when it says the host does not run for want of a join and the machine is joined
