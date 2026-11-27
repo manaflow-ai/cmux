@@ -125,18 +125,24 @@ fn transcript_text(t: &Transcript) -> String {
 pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
     // One deadline includes name resolution, every reconnect and reply reads.
     // A phase must never reset the caller's timeout after spending it upstream.
+    let mut timeout_context = "deadline exceeded while resolving session names";
     match opts.timeout {
         Some(seconds) => tokio::time::timeout(
             std::time::Duration::from_secs(seconds),
-            wait_inner(client, opts, json_out),
+            wait_inner(client, opts, json_out, &mut timeout_context),
         )
         .await
-        .map_err(|_| AppError::timeout("no session resolved in time"))?,
-        None => wait_inner(client, opts, json_out).await,
+        .map_err(|_| AppError::timeout(timeout_context))?,
+        None => wait_inner(client, opts, json_out, &mut timeout_context).await,
     }
 }
 
-async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Result<()> {
+async fn wait_inner(
+    client: Arc<Client>,
+    opts: WaitOpts,
+    json_out: bool,
+    timeout_context: &mut &'static str,
+) -> Result<()> {
     let mut client = client;
     let started = tokio::time::Instant::now();
     // Resolve names first so a typo is exit 4, not a silent no-op.
@@ -157,6 +163,7 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
                 AppError::usage("--match and --regex need at least one session name").into()
             );
         }
+        *timeout_context = "deadline exceeded while waiting for matching text";
         return wait_match_after_update(
             client,
             &ids,
@@ -168,6 +175,7 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
         )
         .await;
     }
+    *timeout_context = "deadline exceeded while waiting for the requested session state";
     let params = json!({
         "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
         "until": opts.until,
@@ -205,6 +213,7 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
         }
         return Ok(());
     }
+    *timeout_context = "deadline exceeded while reading session replies";
     let shown: Vec<Value> = if opts.all || timed_out { sessions.clone() } else { resolved.clone() };
     let mut rows = Vec::new();
     let mut code = 0;
@@ -260,7 +269,9 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
             }
         }
         if timed_out {
-            eprintln!("acpmux: timeout: no session resolved in time");
+            eprintln!(
+                "acpmux: timeout: deadline exceeded while waiting for the requested session state"
+            );
         }
     }
     if code != 0 {
@@ -488,7 +499,10 @@ async fn wait_match_once(
             Some(d) => match tokio::time::timeout_at(d, next).await {
                 Ok(m) => m,
                 Err(_) => {
-                    return Err(AppError::timeout("no session produced the text in time").into());
+                    return Err(AppError::timeout(
+                        "deadline exceeded while waiting for matching text",
+                    )
+                    .into());
                 }
             },
             None => next.await,
@@ -858,6 +872,20 @@ pub(crate) async fn tag(
         let list: Vec<String> =
             tags.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or(""))).collect();
         println!("{}", if list.is_empty() { "no tags".to_owned() } else { list.join(" ") });
+    }
+    Ok(())
+}
+
+/// `acpmux session unsettle NAME`: the chat menu's Unarchive (`_acpmux/archive` false), which
+/// also drops a settled chat's reason (`hub/auto_settle.rs`).
+pub(crate) async fn unsettle(client: Arc<Client>, key: &str, json_out: bool) -> Result<()> {
+    let id = resolve_id(&client, &expand_session_key(key)?).await?;
+    let v =
+        client.request(method::MUX_ARCHIVE, json!({"sessionId": id, "archived": false})).await?;
+    if json_out {
+        print_json(&v);
+    } else {
+        println!("{key}: back on the lists");
     }
     Ok(())
 }
