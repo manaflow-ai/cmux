@@ -47,13 +47,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::ChildStdin;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{oneshot, watch};
 
 /// A chat's server ends after this long with no request in flight; its next request starts it
 /// again. The same window as an upstream's in `cmux mcp serve` (`upstream::IDLE_STOP`).
@@ -72,7 +72,21 @@ pub const HANDOVER_WAIT: Duration = Duration::from_secs(10);
 /// How often [`bind_kept`] tries the kept port again.
 const BIND_RETRY_EVERY: Duration = Duration::from_millis(100);
 /// How many earlier ports `run/mcp-gateway.json` remembers, for the harnesses configured at them.
-const PORTS_REMEMBERED: usize = 8;
+/// A chat keeps dialing the port it was configured at for as long as it lives, and a busy home
+/// holds chats from many daemon runs: on 2026-11-22 one home's live configs named 20 ports, so a
+/// bound of 8 left the oldest of them refused.
+const PORTS_REMEMBERED: usize = 24;
+/// Where a port with no kept one is derived: the IANA dynamic range, so a derived port cannot be
+/// a registered service's.
+const DERIVED_PORT_BASE: u16 = 49_152;
+#[cfg(test)]
+const DERIVED_PORT_SPAN: u16 = 8_192;
+/// `DERIVED_PORT_SPAN - 1`. The span is a power of two, so a port is derived with a mask instead
+/// of a division or a remainder: no arithmetic that can panic in a debug build, and none that can
+/// divide by zero. `the_derived_port_mask_is_the_span` keeps the two in step.
+const DERIVED_PORT_MASK: u64 = 8_191;
+/// How many ports upward from the derived one are tried before any free port will do.
+const DERIVED_PORT_TRIES: u16 = 16;
 const MAX_HEAD: usize = 64 * 1024;
 const MAX_BODY: usize = 32 * 1024 * 1024;
 /// The id of the `initialize` the gateway replays to a server it started for a later request.
@@ -105,6 +119,46 @@ struct Kept {
     launch: Launch,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     initialize: Option<Value>,
+    /// The server's own answers to the harness's start, kept for this launch ([`Answers`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    answers: Option<Answers>,
+}
+
+/// The chat's server's answers to `initialize` and `tools/list`, from its last start for this
+/// launch and binary. Every harness start (a new chat, each wake from hibernation) asks both
+/// before anything else, so each started the chat's `cmux mcp serve` and kept it for
+/// [`IDLE_STOP`], although most wakes never call a cmux tool: a live chat held one more
+/// process than it used. The gateway answers them from here when the same request was answered
+/// for the same launch and binary ([`stamp`]) before; a call starts the server as before, with
+/// the harness's kept `initialize` replayed. The list the harness gets on a wake is then the one
+/// it had, so its prompt prefix (and the prompt cache) stays the same.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+struct Answers {
+    /// The server binary's [`stamp`] when they were given: an update answers afresh.
+    stamp: String,
+    /// `initialize`'s params and the server's result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    initialize: Option<(Value, Value)>,
+    /// `tools/list`'s params and the server's result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    list: Option<(Value, Value)>,
+}
+
+/// The binary `launch` runs, as its size and modification time: another build (an app update at
+/// the same path) has another stamp. A command found on `PATH` stamps as its name.
+fn stamp(launch: &Launch) -> String {
+    let at = std::fs::metadata(&launch.command).ok();
+    let modified = at
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    format!("{}:{}:{modified}", launch.command.display(), at.map_or(0, |m| m.len()))
+}
+
+/// The methods a kept answer may stand in for.
+fn answered_from_kept(method: &str) -> bool {
+    matches!(method, "initialize" | "tools/list")
 }
 
 /// `run/mcp-gateway.json`.
@@ -184,6 +238,49 @@ pub struct Gateway {
     /// Every task of the gateway and its servers' readers.
     scope: Arc<cmux_scope::Scope>,
     chats: Mutex<HashMap<String, Arc<Chat>>>,
+    /// Looks for idle servers made ([`reap`]); tests read it.
+    reap_passes: AtomicUsize,
+    /// A chat had a request: [`reap`] looks again while it may hold a server.
+    used: Arc<tokio::sync::Notify>,
+    /// Every chat's start answers by launch shape ([`Shared`]).
+    shared: Arc<Shared>,
+}
+
+/// The start answers ([`Answers`]) of every chat, by launch shape: the launch with the chat's own
+/// session id taken out ([`Chat::shape`]). Each new chat's harness asks `initialize` and
+/// `tools/list` first, which started that chat's `cmux mcp serve` although most chats never call
+/// a cmux tool in their first minutes, and many never do. Another chat of the same shape that was
+/// answered within [`SHARED_FOR`] answers it instead, with no process; a call starts the
+/// server as before. Kept in memory only: a new daemon's first chat of a shape asks its server.
+#[derive(Default)]
+struct Shared {
+    by_shape: Mutex<HashMap<String, (Instant, Answers)>>,
+}
+
+/// How long another chat's answers stand for a new chat's ([`Shared`]): a list can change
+/// without a new launch or binary (a connection the person added that the server reads at its
+/// start), and the next server start after this long reads it afresh. The idle window, so a
+/// burst of new chats shares one start.
+const SHARED_FOR: Duration = IDLE_STOP;
+
+/// The stand-in for a chat's own session id in a launch shape and a shared answer.
+const SESSION_MARK: &str = "\u{1}session\u{1}";
+
+/// The stand-in for a chat's own session token in a launch shape (never in an answer).
+const TOKEN_MARK: &str = "\u{1}token\u{1}";
+
+/// `value` with every `from` in its strings replaced by `to`.
+fn swap_strings(value: &Value, from: &str, to: &str) -> Value {
+    match value {
+        Value::String(s) if s.contains(from) => Value::String(s.replace(from, to)),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|v| swap_strings(v, from, to)).collect())
+        }
+        Value::Object(fields) => Value::Object(
+            fields.iter().map(|(k, v)| (k.clone(), swap_strings(v, from, to))).collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 struct Chat {
@@ -198,7 +295,14 @@ struct Chat {
     /// Its tool servers, made by their first request for the launch they were made from.
     tools: Mutex<Option<(Launch, Arc<Vec<crate::tools_mcp::Served>>)>>,
     last: Mutex<Instant>,
+    /// The [`Chat::last`] request whose server and tool servers [`reap`] let go: equal to `last`,
+    /// the chat holds nothing and [`reap`] need not look at it.
+    reaped: Mutex<Instant>,
+    /// The gateway's [`Gateway::used`].
+    used: Arc<tokio::sync::Notify>,
     inflight: AtomicUsize,
+    /// The gateway's start answers by launch shape.
+    shared: Arc<Shared>,
 }
 
 /// One running `cmux mcp serve`.
@@ -213,7 +317,44 @@ struct Waiter {
     reply: oneshot::Sender<Value>,
     /// The request's `_meta.progressToken`: its `notifications/progress` go to `progress`.
     token: Option<Value>,
-    progress: Option<mpsc::UnboundedSender<Value>>,
+    progress: Option<ProgressTx>,
+}
+
+/// A request's progress: a coalescing slot holding the newest `notifications/progress` and how
+/// many came (RFD 0124 R4). A progress note says where the call is, so the newest says all the
+/// older ones did; a harness that reads its SSE stream slowly gets the newest when it reads,
+/// where an unbounded channel kept every note the server wrote meanwhile.
+type ProgressTx = watch::Sender<(u64, Option<Value>)>;
+
+/// Progress notes replaced by a newer one before their reader took them, since the daemon started.
+static PROGRESS_COALESCED: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(test)]
+fn progress_coalesced() -> u64 {
+    PROGRESS_COALESCED.load(Ordering::Relaxed)
+}
+
+/// The newest note in `rx` past the `seen`th, counting the ones it replaced.
+fn newest_progress(
+    rx: &mut watch::Receiver<(u64, Option<Value>)>,
+    seen: &mut u64,
+) -> Option<Value> {
+    let newest = rx.borrow_and_update();
+    let (count, note) = &*newest;
+    if *count <= *seen {
+        return None;
+    }
+    PROGRESS_COALESCED.fetch_add(*count - *seen - 1, Ordering::Relaxed);
+    *seen = *count;
+    note.clone()
+}
+
+/// Puts `note` in the slot, over any note not yet read.
+fn post_progress(progress: &ProgressTx, note: Value) {
+    progress.send_modify(|(count, slot)| {
+        *count += 1;
+        *slot = Some(note);
+    });
 }
 
 /// The daemon's gateway, once [`start`] bound it.
@@ -236,9 +377,20 @@ pub fn register(session: &str, launch: Launch) -> Option<Endpoint> {
     active()?.register(session, launch)
 }
 
+/// The chat's harness hibernated (`hub/idle.rs`): nothing will ask its server anything until
+/// the harness starts again, so the server stops now instead of after [`IDLE_STOP`]. Its launch
+/// and kept answers stay, so the wake answers its start from them ([`Answers`]).
+pub fn hibernated(session: &str) {
+    if let Some(gateway) = current() {
+        gateway.stop_chat(session);
+    }
+}
+
 /// The chat ended: its server stops and its launch file goes.
 pub fn forget(home: &Path, session: &str) {
     let _ = crate::home_fs::remove_file(launch_path(home, session));
+    // Its Computer Use session ends on the worker, as the stdio bridge's ended with its pipe.
+    crate::computer_use::served::end(session);
     if let Some(gateway) = current() {
         let chat = gateway.chats.lock().unwrap_or_else(PoisonError::into_inner).remove(session);
         if let (Some(chat), Ok(_)) = (chat, tokio::runtime::Handle::try_current()) {
@@ -313,12 +465,16 @@ pub async fn bind_at(
                      free one and keeping {port} in run/mcp-gateway.json"
                 );
                 earlier.insert(0, port);
-                TcpListener::bind(("127.0.0.1", 0)).await?
+                bind_derived(home).await?
             }
         },
-        None => TcpListener::bind(("127.0.0.1", 0)).await?,
+        None => bind_derived(home).await?,
     };
     let port = listener.local_addr()?.port();
+    // The record is one daemon's memory and can be short, stale or lost; the configs the daemon
+    // wrote are what the live harnesses dial. Both, so a chat whose port fell off the record is
+    // served again.
+    earlier.extend(ports_chats_are_configured_at(home));
     let mut seen = std::collections::HashSet::new();
     earlier.retain(|p| *p != 0 && *p != port && seen.insert(*p));
     earlier.truncate(PORTS_REMEMBERED);
@@ -346,6 +502,9 @@ pub async fn bind_at(
         idle,
         scope: Arc::new(cmux_scope::Scope::new("mcp gateway")),
         chats: Mutex::new(HashMap::new()),
+        reap_passes: AtomicUsize::new(0),
+        used: Arc::new(tokio::sync::Notify::new()),
+        shared: Arc::default(),
     });
     for listener in listeners {
         gateway.scope.spawn_named("mcp gateway listener", serve(gateway.clone(), listener));
@@ -354,11 +513,93 @@ pub async fn bind_at(
     Ok(gateway)
 }
 
+/// The ports this home's chats are configured at: every `http://127.0.0.1:PORT/mcp/` in the
+/// `--mcp-config` files the daemon wrote (`run/mcp/<session>.json`), newest file first. A harness
+/// only ever dials the url its config named at launch, so these are the ports where a chat gets
+/// `ECONNREFUSED` once the gateway moves — ground truth, where `run/mcp-gateway.json` is one
+/// daemon's memory of its own runs and may have been truncated, replaced or lost.
+fn ports_chats_are_configured_at(home: &Path) -> Vec<u16> {
+    let Ok(entries) = std::fs::read_dir(home.join("run").join("mcp")) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(std::time::SystemTime, u16)> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        // `<session>.gateway.json` is the kept launch, which names no url.
+        if !name.ends_with(".json") || name.ends_with(".gateway.json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+        let when = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        for port in configured_ports(&text) {
+            found.push((when, port));
+        }
+    }
+    // Newest config first: the ports most likely to belong to a chat that is still running.
+    found.sort_by_key(|a| std::cmp::Reverse(a.0));
+    let mut seen = std::collections::HashSet::new();
+    found.into_iter().map(|(_, port)| port).filter(|p| seen.insert(*p)).collect()
+}
+
+/// Every loopback gateway port named in one config's text.
+fn configured_ports(text: &str) -> Vec<u16> {
+    const MARK: &str = "http://127.0.0.1:";
+    text.split(MARK)
+        .skip(1)
+        .filter_map(|rest| {
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            // Only this gateway's routes: another loopback server's url is not ours. `strip_prefix`
+            // rather than a slice at `digits.len()`, which is an index into `rest` this code would
+            // have to prove is a char boundary.
+            if !rest.strip_prefix(digits.as_str())?.starts_with("/mcp/") {
+                return None;
+            }
+            digits.parse().ok()
+        })
+        .collect()
+}
+
+/// A port derived from the home path, probing upward, instead of a fresh ephemeral one: with no
+/// kept port (a lost or unreadable record, a first run after a reinstall) the gateway lands on the
+/// port its predecessor landed on, which is the port the live chats are configured at.
+async fn bind_derived(home: &Path) -> std::io::Result<TcpListener> {
+    let first = derived_port(home);
+    for step in 0..DERIVED_PORT_TRIES {
+        let within_span = (u64::from(first.saturating_sub(DERIVED_PORT_BASE))
+            .saturating_add(u64::from(step)))
+            & DERIVED_PORT_MASK;
+        let port = DERIVED_PORT_BASE.saturating_add(u16::try_from(within_span).unwrap_or(0));
+        match TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(listener) => return Ok(listener),
+            Err(e) => tracing::debug!("mcp gateway: derived port {port} is taken ({e})"),
+        }
+    }
+    TcpListener::bind(("127.0.0.1", 0)).await
+}
+
+/// `DERIVED_PORT_BASE + FNV-1a(home) & DERIVED_PORT_MASK`. The hash is written out here rather
+/// than taken from `DefaultHasher`, which the standard library may change between releases: this
+/// port has to be the same after an app update, not only after a restart.
+pub(crate) fn derived_port(home: &Path) -> u16 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in home.as_os_str().as_encoded_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    // The mask holds the result inside the span, so neither the conversion nor the add can lose a
+    // bit: `DERIVED_PORT_BASE + DERIVED_PORT_MASK` is 57343, well inside a `u16`.
+    DERIVED_PORT_BASE.saturating_add(u16::try_from(hash & DERIVED_PORT_MASK).unwrap_or(0))
+}
+
 /// Binds the kept port, trying again until `wait` runs out. A daemon hands over to its successor:
 /// the successor starts while the daemon it replaces still holds the port and only exits a second
 /// or so later (`daemon.stops.json`, `handover: another daemon of this home starts`). Taking a
 /// free port on the first `Address in use` made every restart move the gateway, and each move
-/// stranded every live harness, whose config names the port it was started with (big-red,
+/// stranded every live harness, whose config names the port it was started with (a Linux workstation,
 /// 2026-11-22: eight restarts, eight new ports, `ECONNREFUSED ... dialing
 /// http://127.0.0.1:41227/mcp/...` in a chat for the rest of its life).
 async fn bind_kept(port: u16, wait: Duration) -> std::io::Result<TcpListener> {
@@ -504,6 +745,8 @@ impl Gateway {
             crate::acpmux_mcp_names::SESSION_ENV,
             crate::secret_mcp::SESSION_ENV,
             crate::offer_mcp::SESSION_ENV,
+            crate::computer_use::mcp::SESSION_ENV,
+            crate::cloud_repo_mcp::SESSION_ENV,
         ] {
             if let Some(value) = env.get_mut(key) {
                 *value = session.to_owned();
@@ -526,6 +769,18 @@ impl Gateway {
         child.as_ref().map(Child::id).filter(|_| server.live())
     }
 
+    /// Stops the chat's server and drops its tool servers, unless a request is in flight.
+    pub fn stop_chat(&self, session: &str) {
+        let chat = self.chats.lock().unwrap_or_else(PoisonError::into_inner).get(session).cloned();
+        let Some(chat) = chat.filter(|c| c.inflight.load(Ordering::SeqCst) == 0) else { return };
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        chat.release_tools();
+        let scope = chat.scope.clone();
+        scope.spawn_named("mcp gateway stop", async move { chat.stop().await });
+    }
+
     /// How many chats have a server running now.
     pub fn running(&self) -> usize {
         let chats: Vec<_> =
@@ -546,9 +801,10 @@ impl Gateway {
             .get(session)
             .map(|c| c.kept.lock().unwrap_or_else(PoisonError::into_inner).clone());
         // The harness starting again sends `initialize` again; until then a kept one replays.
-        let initialize =
-            before.as_ref().filter(|k| k.launch == launch).and_then(|k| k.initialize.clone());
-        let kept = Kept { launch, initialize };
+        let same = before.as_ref().filter(|k| k.launch == launch);
+        let initialize = same.and_then(|k| k.initialize.clone());
+        let answers = same.and_then(|k| k.answers.clone());
+        let kept = Kept { launch, initialize, answers };
         crate::agent_tools::write_private(&path, &serde_json::to_vec(&kept)?)?;
         match chats.get(session) {
             Some(_) if before.as_ref().is_some_and(|k| k.launch == kept.launch) => {}
@@ -593,6 +849,7 @@ impl Gateway {
 
 impl Chat {
     fn new(id: &str, file: PathBuf, kept: Kept, gateway: &Gateway) -> Self {
+        let now = Instant::now();
         Chat {
             id: id.to_owned(),
             file,
@@ -601,9 +858,52 @@ impl Chat {
             server: tokio::sync::Mutex::new(None),
             tools_daemon: Arc::new(crate::tools_mcp::Daemon::at(gateway.socket.clone())),
             tools: Mutex::new(None),
-            last: Mutex::new(Instant::now()),
+            // Made holding nothing: nothing to let go until its first request.
+            last: Mutex::new(now),
+            reaped: Mutex::new(now),
+            used: gateway.used.clone(),
             inflight: AtomicUsize::new(0),
+            shared: gateway.shared.clone(),
         }
+    }
+
+    /// Its launch with its session id taken out, and the binary's [`stamp`]: chats of one shape
+    /// start the same server but for the session ([`Shared`]).
+    fn shape(&self, launch: &Launch) -> String {
+        let mut text = serde_json::to_string(launch).unwrap_or_default();
+        // Each chat's own secret: equal launches differ only by it and by the session id.
+        let token = launch.env.iter().find(|(k, _)| k == "ACPMUX_SESSION_TOKEN").map(|(_, v)| v);
+        if let Some(token) = token.filter(|t| !t.is_empty()) {
+            text = text.replace(token.as_str(), TOKEN_MARK);
+        }
+        let shape = if self.id.is_empty() { text } else { text.replace(&self.id, SESSION_MARK) };
+        format!("{}\n{shape}", stamp(launch))
+    }
+
+    /// Another chat's answer for `method` asked with `params` ([`Shared`]), for this chat.
+    fn shared_answer(&self, launch: &Launch, method: &str, params: &Value) -> Option<Value> {
+        let shape = self.shape(launch);
+        let asked = swap_strings(params, &self.id, SESSION_MARK);
+        let by_shape = self.shared.by_shape.lock().unwrap_or_else(PoisonError::into_inner);
+        let (_, answers) = by_shape.get(&shape).filter(|(at, _)| at.elapsed() < SHARED_FOR)?;
+        let slot = if method == "initialize" { &answers.initialize } else { &answers.list };
+        let (_, result) = slot.as_ref().filter(|(p, _)| *p == asked)?;
+        Some(swap_strings(result, SESSION_MARK, &self.id))
+    }
+
+    /// Keeps this chat's server's `result` for every new chat of its shape ([`Shared`]).
+    fn share_answer(&self, launch: &Launch, method: &str, params: &Value, result: &Value) {
+        let shape = self.shape(launch);
+        let asked = swap_strings(params, &self.id, SESSION_MARK);
+        let result = swap_strings(result, &self.id, SESSION_MARK);
+        let mut by_shape = self.shared.by_shape.lock().unwrap_or_else(PoisonError::into_inner);
+        by_shape.retain(|_, (at, _)| at.elapsed() < SHARED_FOR);
+        let (at, answers) = by_shape.entry(shape).or_insert_with(|| {
+            (Instant::now(), Answers { stamp: stamp(launch), ..Answers::default() })
+        });
+        *at = Instant::now();
+        let slot = if method == "initialize" { &mut answers.initialize } else { &mut answers.list };
+        *slot = Some((asked, result));
     }
 
     /// Its tool servers for the env `env` ([`Gateway::tools_env`]) of `launch`: the ones made
@@ -629,6 +929,46 @@ impl Chat {
 
     /// An idle chat's tool servers go with their daemon connection; its next request makes them
     /// again.
+    /// The kept result for `method` asked with `params` ([`Answers`]), if the same was answered
+    /// for this launch and binary.
+    fn kept_answer(&self, method: &str, params: &Value) -> Option<Value> {
+        let kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        let answers = kept.answers.as_ref().filter(|a| a.stamp == stamp(&kept.launch))?;
+        let slot = if method == "initialize" { &answers.initialize } else { &answers.list };
+        slot.as_ref().filter(|(asked, _)| asked == params).map(|(_, result)| result.clone())
+    }
+
+    /// [`Chat::kept_answer`], else another chat's of the same shape ([`Shared`]), which is then
+    /// this chat's own kept answer too (its wakes get the same list).
+    fn start_answer(&self, method: &str, params: &Value) -> Option<Value> {
+        if let Some(own) = self.kept_answer(method, params) {
+            return Some(own);
+        }
+        let launch = self.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
+        let result = self.shared_answer(&launch, method, params)?;
+        self.keep_answer(method, params.clone(), result.clone());
+        Some(result)
+    }
+
+    /// Keeps the server's `result` for `method` asked with `params`, in memory and in the chat's
+    /// launch file (so the next daemon has it too).
+    fn keep_answer(&self, method: &str, params: Value, result: Value) {
+        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        let stamp = stamp(&kept.launch);
+        let answers = kept.answers.get_or_insert_with(Answers::default);
+        if answers.stamp != stamp {
+            *answers = Answers { stamp, ..Answers::default() };
+        }
+        let slot = if method == "initialize" { &mut answers.initialize } else { &mut answers.list };
+        if slot.as_ref().is_some_and(|(p, r)| *p == params && *r == result) {
+            return;
+        }
+        *slot = Some((params, result));
+        let bytes = serde_json::to_vec(&*kept).unwrap_or_default();
+        drop(kept);
+        let _ = crate::agent_tools::write_private(&self.file, &bytes);
+    }
+
     fn release_tools(&self) {
         self.tools.lock().unwrap_or_else(PoisonError::into_inner).take();
         self.tools_daemon.release();
@@ -636,10 +976,17 @@ impl Chat {
 
     fn touch(&self) {
         *self.last.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        // A permit when the look is not waiting: it looks once more, then sleeps again.
+        self.used.notify_one();
     }
 
-    fn idle_for(&self) -> Duration {
-        self.last.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
+    fn last(&self) -> Instant {
+        *self.last.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether a request came since [`reap`] last let this chat's servers go.
+    fn may_hold(&self) -> bool {
+        self.last() != *self.reaped.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The running server, or a new one. A server started for anything but `initialize` gets the
@@ -738,7 +1085,7 @@ impl Server {
     async fn send(
         &self,
         message: &Value,
-        progress: Option<mpsc::UnboundedSender<Value>>,
+        progress: Option<ProgressTx>,
     ) -> Result<(oneshot::Receiver<Value>, ())> {
         let id = message.get("id").map(Value::to_string).ok_or_else(|| anyhow!("no id"))?;
         let token = message.pointer("/params/_meta/progressToken").cloned();
@@ -787,7 +1134,7 @@ async fn read_answers(
             if let Some(w) = waiting.values().find(|w| w.token.as_ref() == token && token.is_some())
                 && let Some(progress) = &w.progress
             {
-                let _ = progress.send(message);
+                post_progress(progress, message);
             }
             continue;
         }
@@ -820,10 +1167,13 @@ async fn serve(gateway: Arc<Gateway>, listener: TcpListener) {
     }
 }
 
-/// Stops each chat's server that had no request in flight for the gateway's idle window.
+/// Stops each chat's server that had no request in flight for the gateway's idle window, looking
+/// every `every` while a chat used since its last stop may hold a server or tool servers. With
+/// none it sleeps until a request ([`Chat::touch`]): an idle daemon with chats that all stopped
+/// wakes for nothing (it looked every 30 s, the last periodic wake of an idle daemon but the lag
+/// canary's).
 async fn reap(gateway: Arc<Gateway>, every: Duration) {
     loop {
-        tokio::time::sleep(every).await;
         let chats: Vec<_> = gateway
             .chats
             .lock()
@@ -831,17 +1181,28 @@ async fn reap(gateway: Arc<Gateway>, every: Duration) {
             .values()
             .cloned()
             .collect();
+        if !chats.iter().any(|chat| chat.may_hold()) {
+            // A request after the list was read left a permit: no request is missed.
+            gateway.used.notified().await;
+            continue;
+        }
+        tokio::time::sleep(every).await;
+        gateway.reap_passes.fetch_add(1, Ordering::Relaxed);
         for chat in chats {
-            if chat.inflight.load(Ordering::SeqCst) == 0 && chat.idle_for() >= gateway.idle {
+            let last = chat.last();
+            if chat.inflight.load(Ordering::SeqCst) == 0 && last.elapsed() >= gateway.idle {
                 chat.release_tools();
                 let server = match chat.server.try_lock() {
                     Ok(mut slot) => slot.take(),
-                    Err(_) => None,
+                    // A request holds the slot: looked at again next time.
+                    Err(_) => continue,
                 };
                 if let Some(server) = server {
                     tracing::debug!(session = %chat.id, "mcp gateway: idle server stops");
                     server.stop().await;
                 }
+                // A request since `last` keeps the chat looked at.
+                *chat.reaped.lock().unwrap_or_else(PoisonError::into_inner) = last;
             }
         }
     }
@@ -936,27 +1297,48 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
     }
 }
 
-/// The request's one JSON-RPC message, or None once it answered that there is none.
-async fn message_of(request: &Request, stream: &mut TcpStream) -> Option<Value> {
-    match serde_json::from_slice(&request.body) {
-        Ok(v @ Value::Object(_)) => Some(v),
-        _ => {
-            let error = json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "one JSON-RPC message per request"}});
-            let _ = respond(
-                stream,
-                "400 Bad Request",
-                "application/json",
-                error.to_string().as_bytes(),
-            )
-            .await;
-            None
+/// A request's body: one JSON-RPC message, or a batch of them (a JSON array, MCP 2025-03-26).
+enum Body {
+    One(Value),
+    Batch(Vec<Value>),
+}
+
+/// The request's message or batch, or None once it answered that there is neither.
+async fn body_of(request: &Request, stream: &mut TcpStream) -> Option<Body> {
+    let (code, text) = match serde_json::from_slice(&request.body) {
+        Ok(v @ Value::Object(_)) => return Some(Body::One(v)),
+        Ok(Value::Array(batch)) if !batch.is_empty() && batch.iter().all(Value::is_object) => {
+            return Some(Body::Batch(batch));
         }
-    }
+        Ok(Value::Array(_)) => (-32600, "a batch is a non-empty array of JSON-RPC messages"),
+        _ => (-32700, "one JSON-RPC message, or a batch of them, per request"),
+    };
+    let error = json!({"jsonrpc": "2.0", "id": null, "error": {"code": code, "message": text}});
+    let _ =
+        respond(stream, "400 Bad Request", "application/json", error.to_string().as_bytes()).await;
+    None
+}
+
+/// One message's answer: a JSON body, or 202 for a notification.
+async fn respond_one(stream: &mut TcpStream, answer: Option<Value>) {
+    let _ = match answer {
+        Some(answer) => {
+            respond(stream, "200 OK", "application/json", answer.to_string().as_bytes()).await
+        }
+        None => respond(stream, "202 Accepted", "text/plain", b"").await,
+    };
+}
+
+/// A batch's answers as one array, in the batch's order, none for its notifications; 202 when
+/// it held only notifications.
+async fn respond_batch(stream: &mut TcpStream, answers: Vec<Option<Value>>) {
+    let answers: Vec<Value> = answers.into_iter().flatten().collect();
+    respond_one(stream, (!answers.is_empty()).then_some(Value::Array(answers))).await;
 }
 
 /// A request to acpmux's own tool servers of the chat, answered here (`tools_mcp::answer`) in
 /// the chat's tool env. A call runs in this request's own task, so a card that waits on the
-/// person for up to an hour holds no other request.
+/// person for up to an hour holds no other request; a batch's calls run at once.
 async fn post_tools(
     gateway: &Gateway,
     chat: &Arc<Chat>,
@@ -964,16 +1346,34 @@ async fn post_tools(
     server: Option<&'static str>,
     stream: &mut TcpStream,
 ) {
-    let Some(mut message) = message_of(request, stream).await else { return };
+    match body_of(request, stream).await {
+        None => {}
+        Some(Body::One(message)) => {
+            respond_one(stream, tool_answer(gateway, chat, message, server).await).await;
+        }
+        Some(Body::Batch(batch)) => {
+            let answers = futures::future::join_all(
+                batch.into_iter().map(|message| tool_answer(gateway, chat, message, server)),
+            )
+            .await;
+            respond_batch(stream, answers).await;
+        }
+    }
+}
+
+/// `message`'s answer from the chat's own tool servers; none for a notification.
+async fn tool_answer(
+    gateway: &Gateway,
+    chat: &Arc<Chat>,
+    mut message: Value,
+    server: Option<&'static str>,
+) -> Option<Value> {
     if let Some(name) = server {
         for_server(&mut message, name);
     }
     chat.touch();
-    if message.get("id").is_none() {
-        // `initialized` and the like: the servers here keep no state for them.
-        let _ = respond(stream, "202 Accepted", "text/plain", b"").await;
-        return;
-    }
+    // `initialized` and the like carry no id: the servers here keep no state for them.
+    message.get("id")?;
     let launch = chat.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
     let env = gateway.tools_env(&chat.id, &launch);
     let servers = chat.tools(&launch, &env);
@@ -988,18 +1388,13 @@ async fn post_tools(
     .await;
     chat.inflight.fetch_sub(1, Ordering::SeqCst);
     chat.touch();
-    let _ = match answer {
-        Some(answer) => {
-            respond(stream, "200 OK", "application/json", answer.to_string().as_bytes()).await
-        }
-        None => respond(stream, "202 Accepted", "text/plain", b"").await,
-    };
+    answer
 }
 
 /// `message` for server `name` of a chat's tool servers: its params' `_meta` names it
 /// ([`crate::tools_mcp::SERVER_META`]) as the `cmux` server's request would, whatever the
 /// harness put there.
-fn for_server(message: &mut Value, name: &str) {
+pub(crate) fn for_server(message: &mut Value, name: &str) {
     let Some(fields) = message.as_object_mut() else { return };
     let params = fields.entry("params").or_insert_with(|| json!({}));
     if !params.is_object() {
@@ -1015,8 +1410,49 @@ fn for_server(message: &mut Value, name: &str) {
     }
 }
 
+/// What one relayed message gets back.
+enum Reply {
+    /// Nothing: a notification.
+    None,
+    /// This answer, as the response's body.
+    Json(Value),
+    /// This answer, as the last event of the SSE stream already under way.
+    Event(Value),
+}
+
+/// A request to the chat's own MCP server. A batch's messages are relayed at once: the server's
+/// answers come back by id ([`read_answers`]), so none waits on another.
 async fn post(chat: &Arc<Chat>, request: &Request, stream: &mut TcpStream) {
-    let Some(message) = message_of(request, stream).await else { return };
+    match body_of(request, stream).await {
+        None => {}
+        Some(Body::One(message)) => {
+            let sse = request.header("accept").is_some_and(|a| a.contains("text/event-stream"));
+            match relay_answer(chat, message, sse.then_some(&mut *stream)).await {
+                Reply::Event(answer) => {
+                    let _ = stream.write_all(&sse_event(&answer)).await;
+                    let _ = stream.shutdown().await;
+                }
+                Reply::Json(answer) => respond_one(stream, Some(answer)).await,
+                Reply::None => respond_one(stream, None).await,
+            }
+        }
+        Some(Body::Batch(batch)) => {
+            // No progress stream for a batch: its answers go back as one array.
+            let answers = futures::future::join_all(batch.into_iter().map(|message| async move {
+                match relay_answer(chat, message, None).await {
+                    Reply::Json(answer) | Reply::Event(answer) => Some(answer),
+                    Reply::None => None,
+                }
+            }))
+            .await;
+            respond_batch(stream, answers).await;
+        }
+    }
+}
+
+/// `message` relayed to the chat's server, or answered from what the chat kept. With `sse`, a
+/// call that carries a progress token streams its progress there as it comes.
+async fn relay_answer(chat: &Arc<Chat>, message: Value, sse: Option<&mut TcpStream>) -> Reply {
     chat.touch();
     let method = message.get("method").and_then(Value::as_str).unwrap_or("").to_owned();
     let Some(id) = message.get("id").cloned() else {
@@ -1028,8 +1464,7 @@ async fn post(chat: &Arc<Chat>, request: &Request, stream: &mut TcpStream) {
                 let _ = server.write(&message).await;
             }
         }
-        let _ = respond(stream, "202 Accepted", "text/plain", b"").await;
-        return;
+        return Reply::None;
     };
     if method == "initialize" {
         let mut kept = chat.kept.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1038,34 +1473,49 @@ async fn post(chat: &Arc<Chat>, request: &Request, stream: &mut TcpStream) {
         drop(kept);
         let _ = crate::agent_tools::write_private(&chat.file, &bytes);
     }
+    let params = message.get("params").cloned().unwrap_or(Value::Null);
+    if method == "ping" || answered_from_kept(&method) {
+        let kept =
+            if method == "ping" { Some(json!({})) } else { chat.start_answer(&method, &params) };
+        if let Some(result) = kept {
+            return Reply::Json(json!({"jsonrpc": "2.0", "id": id, "result": result}));
+        }
+    }
     chat.inflight.fetch_add(1, Ordering::SeqCst);
-    let streams = request.header("accept").is_some_and(|a| a.contains("text/event-stream"))
-        && message.pointer("/params/_meta/progressToken").is_some();
-    let answer = relay(chat, &message, &method, streams, stream).await;
+    let sse = sse.filter(|_| message.pointer("/params/_meta/progressToken").is_some());
+    let mut streamed = false;
+    let answer = relay(chat, &message, &method, sse, &mut streamed).await;
     chat.inflight.fetch_sub(1, Ordering::SeqCst);
     chat.touch();
+    if let (true, Ok(result)) =
+        (answered_from_kept(&method), answer.as_ref().map(|a| a.get("result")))
+        && let Some(result) = result
+    {
+        // Only a server's own answer is shared, so the window counts from a real start.
+        let launch = chat.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
+        chat.share_answer(&launch, &method, &params, result);
+        chat.keep_answer(&method, params, result.clone());
+    }
     let answer = answer.unwrap_or_else(|e| {
         json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": format!("cmux MCP server: {e:#}")}})
     });
-    if streams {
-        let _ = stream.write_all(&sse_event(&answer)).await;
-        let _ = stream.shutdown().await;
-    } else {
-        let _ = respond(stream, "200 OK", "application/json", answer.to_string().as_bytes()).await;
-    }
+    // A server that failed to start before the stream's head went out answers as plain JSON.
+    if streamed { Reply::Event(answer) } else { Reply::Json(answer) }
 }
 
 /// Sends the request to the chat's server (started if need be, once more if the running one
-/// died before it took the request) and waits for its answer. With `streams`, the SSE head goes
-/// out first and each progress notification is written as it comes.
+/// died before it took the request) and waits for its answer. With `stream`, the SSE head goes
+/// out first (`streamed` is set then) and each progress notification is written as it comes.
 async fn relay(
     chat: &Arc<Chat>,
     message: &Value,
     method: &str,
-    streams: bool,
-    stream: &mut TcpStream,
+    stream: Option<&mut TcpStream>,
+    streamed: &mut bool,
 ) -> Result<Value> {
-    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+    let streams = stream.is_some();
+    let (progress_tx, mut progress_rx) = watch::channel((0, None));
+    let mut seen = 0;
     let progress = streams.then_some(progress_tx);
     let mut tries = 0;
     let reply = loop {
@@ -1078,10 +1528,11 @@ async fn relay(
         }
     };
     drop(progress);
-    if !streams {
+    let Some(stream) = stream else {
         return reply.await.map_err(|_| anyhow!("the server ended before it answered"));
-    }
+    };
     let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-store\r\nconnection: close\r\n\r\n";
+    *streamed = true;
     stream.write_all(head.as_bytes()).await?;
     tokio::pin!(reply);
     loop {
@@ -1089,11 +1540,13 @@ async fn relay(
         // unbiased pick could take the answer while a note still waits.
         tokio::select! {
             biased;
-            Some(note) = progress_rx.recv() => {
-                stream.write_all(&sse_event(&note)).await?;
+            Ok(()) = progress_rx.changed() => {
+                if let Some(note) = newest_progress(&mut progress_rx, &mut seen) {
+                    stream.write_all(&sse_event(&note)).await?;
+                }
             }
             answer = &mut reply => {
-                while let Ok(note) = progress_rx.try_recv() {
+                if let Some(note) = newest_progress(&mut progress_rx, &mut seen) {
                     stream.write_all(&sse_event(&note)).await?;
                 }
                 return answer.map_err(|_| anyhow!("the server ended before it answered"));

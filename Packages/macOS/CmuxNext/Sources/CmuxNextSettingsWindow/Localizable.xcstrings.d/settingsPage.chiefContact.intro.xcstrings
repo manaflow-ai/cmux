@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.chiefContact.intro" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter your phone number or Apple ID email to contact your Chief."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أدخل رقم هاتفك أو بريد Apple ID للتواصل مع Chief."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unesite broj telefona ili e-adresu za Apple ID da kontaktirate svog Chiefa."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Indtast dit telefonnummer eller din Apple ID-mailadresse for at kontakte din Chief."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gib deine Telefonnummer oder Apple-ID-E-Mail ein, um deinen Chief zu kontaktieren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Introduce tu número de teléfono o correo del Apple ID para contactar con tu Chief."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisissez votre numéro de téléphone ou votre e-mail Apple ID pour contacter votre Chief."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inserisci il tuo numero di telefono o l’email Apple ID per contattare il tuo Chief."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "電話番号またはApple IDのメールアドレスを入力して、Chiefに連絡しましょう。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បញ្ចូលលេខទូរសព្ទ ឬអ៊ីមែល Apple ID របស់អ្នក ដើម្បីទាក់ទង Chief។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "전화번호 또는 Apple ID 이메일을 입력해 Chief에게 연락하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skriv inn telefonnummeret ditt eller Apple ID-e-posten din for å kontakte din Chief."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wpisz numer telefonu lub adres e-mail Apple ID, aby skontaktować się z Chief."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Digite seu número de telefone ou e-mail do Apple ID para falar com seu Chief."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Введите номер телефона или почту Apple ID, чтобы связаться с Chief."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ป้อนหมายเลขโทรศัพท์หรืออีเมล Apple ID เพื่อติดต่อ Chief ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief’inize ulaşmak için telefon numaranızı veya Apple ID e-postanızı girin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Введіть номер телефону або пошту Apple ID, щоб зв’язатися з Chief."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nhập số điện thoại hoặc email Apple ID để liên hệ với Chief của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入你的电话号码或 Apple ID 邮箱以联系 Chief。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "輸入你的電話號碼或 Apple ID 電郵以聯絡 Chief。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

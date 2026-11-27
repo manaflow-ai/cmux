@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 import CmuxNextCompat
 
@@ -87,7 +88,7 @@ public struct CloudConnectHedge: Sendable {
         return try await send(replay: Self.replay(of: request), clock: ContinuousClock()) { attempt in
             guard attempt > 0 else { return try await session.data(for: request) }
             resends?.note()
-            let fresh = URLSession(configuration: session.configuration, delegate: HedgeRefusesRedirects(), delegateQueue: nil)
+            let fresh = CmuxEgress.session(site: "CmuxNextCloud.CloudConnectHedge", configuration: session.configuration, delegate: HedgeRefusesRedirects(), delegateQueue: nil)
             defer { fresh.finishTasksAndInvalidate() }
             return try await fresh.data(for: request)
         }

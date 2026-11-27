@@ -1,5 +1,10 @@
 import Foundation
+#if canImport(OSLog)
 import OSLog
+#endif
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "links")
 
@@ -16,7 +21,7 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "links")
 /// `/g/<grp_>[/w/<ws_>]` page, and `cmux.com/link/<kind>/…`, the same path as
 /// the native link. A link is an address, never a command: every query
 /// parameter but the ones named here is ignored, and nothing it names is
-/// created or run.
+/// created or run. Parsing is Rust's; this keeps the values the app routes by.
 public struct CmuxLink: Hashable, Sendable {
     public enum Target: Hashable, Sendable {
         /// A workspace by its `ws_` resource id.
@@ -84,26 +89,22 @@ public struct CmuxLink: Hashable, Sendable {
     }
 
     /// The link `url` names, or nil when it is not a cmux link (another
-    /// scheme or host, the sign-in callback, a malformed id).
+    /// scheme or host, the sign-in callback, a malformed id). The grammar is
+    /// Rust's (`cmux-mobile-link-ffi/src/cmux_link.rs`); where Rust does not
+    /// link (the macOS and Linux package builds, which have no phone UI) no
+    /// URL is a cmux link.
     public init?(url: URL) {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.user == nil, components.password == nil,
-              let scheme = components.scheme?.lowercased() else { return nil }
-        let query = components.queryItems ?? []
-        if scheme == "https" {
-            guard components.port == nil, let host = components.host?.lowercased(),
-                  let link = Self.web(host: host, path: Self.segments(components.path), query: query) else { return nil }
-            self = link
-            return
-        }
-        guard Self.isLinkScheme(scheme), components.port == nil,
-              let host = components.host?.lowercased(), !host.isEmpty,
-              let link = Self.native(host: host, path: Self.segments(components.path), query: query, fragment: components.fragment)
-        else { return nil }
-        self = link
+        #if os(iOS)
+        guard let parsed = cmuxLinkParse(url: url.absoluteString) else { return nil }
+        self.init(Self.target(parsed.target), message: parsed.message)
+        #else
+        return nil
+        #endif
     }
 
     /// Whether `scheme` is a cmux build's link scheme. `cmux-next` is never a link.
+    /// Kept in Swift: ``ChatShareLink`` reads it on every platform, and the macOS/Linux package
+    /// builds have no Rust (step B, #58735).
     public static func isLinkScheme(_ scheme: String) -> Bool {
         let scheme = scheme.lowercased()
         return ["cmux", "cmux-nightly", "cmux-rc", "cmux-dev"].contains(scheme) || scheme.hasPrefix("cmux-dev-")
@@ -111,159 +112,23 @@ public struct CmuxLink: Hashable, Sendable {
 
     /// The hosts whose https links the phone opens.
     public static let webHosts: Set<String> = ["cmux.com", "www.cmux.com"]
-    /// The hosts that serve a cloud group's hand-off page (as the Mac's `DeepLink.groupWebHosts`).
-    public static let groupWebHosts: Set<String> = ["cloud-api.cmux.dev", "cloud-api-staging.cmux.dev", "cmux.com", "www.cmux.com"]
 
-    // MARK: Parsing
-
-    private static func segments(_ path: String) -> [String] {
-        path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-    }
-
-    private static func native(host: String, path: [String], query: [URLQueryItem], fragment: String?) -> CmuxLink? {
-        if host == "mac-screen" {
-            guard path.isEmpty, fragment == nil else { return nil }
-            return macScreen(query: query)
-        }
-        guard let first = path.first else { return nil }
-        switch host {
-        case "workspace":
-            guard path.count == 1, fragment == nil, isResourceID(first, prefix: "ws_") else { return nil }
-            return CmuxLink(.workspace(first))
-        case "pane":
-            guard path.count == 1, fragment == nil, isResourceID(first, prefix: "pane_") else { return nil }
-            return CmuxLink(.pane(first))
-        case "tab":
-            guard path.count == 1, fragment == nil, isResourceID(first, prefix: "tab_") else { return nil }
-            return CmuxLink(.tab(first))
-        case "session":
-            guard path.count == 1, isToken(first) else { return nil }
-            guard let fragment else { return CmuxLink(.session(first, turn: nil)) }
-            guard fragment.hasPrefix("turn-"), isToken(String(fragment.dropFirst(5))) else { return nil }
-            return CmuxLink(.session(first, turn: String(fragment.dropFirst(5))))
-        case "chief":
-            guard path.count == 3, path[1] == "session", fragment == nil, isChiefHome(first), isToken(path[2]) else { return nil }
-            return CmuxLink(.chiefSession(home: first, session: path[2]))
-        case "agent":
-            guard path.count == 2, fragment == nil else { return nil }
-            return agent(harness: first, session: path[1], query: query)
-        case "group":
-            guard fragment == nil, isGroupID(first) else { return nil }
-            if path.count == 1 { return CmuxLink(.group(first, workspace: nil)) }
-            guard path.count == 3, path[1] == "workspace", isResourceID(path[2], prefix: "ws_") else { return nil }
-            return CmuxLink(.group(first, workspace: path[2]))
-        case "conversation":
-            guard isToken(first) else { return nil }
-            if path.count == 1 { return CmuxLink(.conversation(first, message: nil)) }
-            guard path.count == 3, path[1] == "message", isToken(path[2]) else { return nil }
-            return CmuxLink(.conversation(first, message: path[2]))
-        default:
-            // Includes `auth-callback`, the sign-in callback.
-            return nil
+    #if os(iOS)
+    private static func target(_ target: CmuxLinkTarget) -> Target {
+        switch target {
+        case let .workspace(id): .workspace(id)
+        case let .pane(id): .pane(id)
+        case let .tab(id): .tab(id)
+        case let .session(id, turn): .session(id, turn: turn)
+        case let .chiefSession(home, session): .chiefSession(home: home, session: session)
+        case let .agent(harness, session): .agent(harness: harness, session: session)
+        case let .group(id, workspace): .group(id, workspace: workspace)
+        case let .conversation(id, message): .conversation(id, message: message)
+        case let .macScreen(device, display, control, name):
+            .macScreen(MacScreenLink(device: device, display: display, control: control, name: name))
         }
     }
-
-    private static func web(host: String, path: [String], query: [URLQueryItem]) -> CmuxLink? {
-        var path = path
-        if groupWebHosts.contains(host), path.count >= 2, path[0] == "g", isGroupID(path[1]) {
-            if path.count == 2 { return CmuxLink(.group(path[1], workspace: nil)) }
-            guard path.count == 4, path[2] == "w", isResourceID(path[3], prefix: "ws_") else { return nil }
-            return CmuxLink(.group(path[1], workspace: path[3]))
-        }
-        guard webHosts.contains(host) else { return nil }
-        // cmux.com's locale prefix (`/en/deeplink/agent`).
-        if let first = path.first, first.count == 2 || (first.count == 5 && first.contains("-")), path.count > 1,
-           ["deeplink", "link"].contains(path[1]) {
-            path.removeFirst()
-        }
-        if path == ["deeplink", "screen"] { return macScreen(query: query) }
-        if path == ["deeplink", "agent"] {
-            func value(_ name: String) -> String? {
-                let items = query.filter { $0.name == name }
-                return items.count == 1 ? items[0].value : nil
-            }
-            guard let harness = value("harness"), let session = value("session") else { return nil }
-            return agent(harness: harness, session: session, query: query)
-        }
-        // `cmux.com/link/<kind>/…` is the native link's path on the web.
-        guard path.first == "link", path.count >= 3 else { return nil }
-        return native(host: path[1], path: Array(path.dropFirst(2)), query: query, fragment: nil)
-    }
-
-    /// `device=` (required, a uuid), `display=` (decimal), `control=1`, `name=`; each at most once.
-    private static func macScreen(query: [URLQueryItem]) -> CmuxLink? {
-        func value(_ name: String) -> String?? {
-            let items = query.filter { $0.name == name }
-            if items.isEmpty { return .some(nil) }
-            return items.count == 1 ? .some(items[0].value) : nil
-        }
-        guard let device = value("device") ?? nil, isDeviceID(device),
-              let display = value("display"), let control = value("control"), let name = value("name") else { return nil }
-        if let display, !isDisplayID(display) { return nil }
-        let label = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return CmuxLink(.macScreen(MacScreenLink(device: device.lowercased(), display: display, control: control == "1",
-                                                 name: label.flatMap { $0.isEmpty ? nil : String($0.prefix(200)) })))
-    }
-
-    private static func agent(harness: String, session: String, query: [URLQueryItem]) -> CmuxLink? {
-        guard isHarness(harness), isAgentSession(session) else { return nil }
-        let messages = query.filter { $0.name == "message" }
-        let message = messages.count == 1 ? messages[0].value.flatMap { isToken($0) && !isOnlyDots($0) ? $0 : nil } : nil
-        return CmuxLink(.agent(harness: harness, session: session), message: message)
-    }
-
-    // MARK: Grammar (the Mac's DeepLink)
-
-    static func isResourceID(_ text: String, prefix: String) -> Bool {
-        guard text.hasPrefix(prefix) else { return false }
-        let hex = text.utf8.dropFirst(prefix.utf8.count)
-        return hex.count == 32 && hex.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
-    }
-
-    /// A hub device id: a uuid (any case).
-    static func isDeviceID(_ text: String) -> Bool {
-        UUID(uuidString: text) != nil
-    }
-
-    /// A CGDirectDisplayID in decimal (a UInt32).
-    static func isDisplayID(_ text: String) -> Bool {
-        (1...10).contains(text.utf8.count) && text.utf8.allSatisfy { (48...57).contains($0) } && UInt32(text) != nil
-    }
-
-    static func isGroupID(_ text: String) -> Bool {
-        guard text.hasPrefix("grp_") else { return false }
-        let rest = text.utf8.dropFirst(4)
-        return rest.count == 20 && rest.allSatisfy { (48...57).contains($0) || (97...122).contains($0) }
-    }
-
-    static func isChiefHome(_ text: String) -> Bool {
-        text.utf8.count == 8 && text.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
-    }
-
-    static func isToken(_ text: String) -> Bool {
-        (1...200).contains(text.utf8.count) && text.utf8.allSatisfy { byte in
-            (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
-                || byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_") || byte == UInt8(ascii: ".")
-        }
-    }
-
-    static func isHarness(_ text: String) -> Bool {
-        (1...64).contains(text.utf8.count) && text.utf8.allSatisfy { byte in
-            (48...57).contains(byte) || (97...122).contains(byte) || byte == UInt8(ascii: "-")
-        }
-    }
-
-    static func isAgentSession(_ text: String) -> Bool {
-        (1...256).contains(text.utf8.count) && !isOnlyDots(text) && text.utf8.allSatisfy { byte in
-            (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
-                || byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_")
-                || byte == UInt8(ascii: ".") || byte == UInt8(ascii: ":")
-        }
-    }
-
-    static func isOnlyDots(_ text: String) -> Bool {
-        text.utf8.allSatisfy { $0 == UInt8(ascii: ".") }
-    }
+    #endif
 }
 
 /// Hands a cmux link tapped anywhere in the app (a chat message, the Feed,

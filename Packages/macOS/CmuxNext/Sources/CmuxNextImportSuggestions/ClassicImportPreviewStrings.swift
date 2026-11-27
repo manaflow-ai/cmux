@@ -18,6 +18,18 @@ public nonisolated struct ClassicImportPreviewStrings: Equatable, Sendable {
         self.cleanup = cleanup
     }
 
+    public static var consentTitle: String {
+        String(localized: "classicImport.preview.consentTitle", defaultValue: "Import from classic cmux?",
+               table: "ImportSuggestions", bundle: .localizedModule)
+    }
+    public static var consentData: String {
+        String(localized: "classicImport.preview.consentData", defaultValue: "Import your settings, shortcuts, palette history, terminal configuration and saved workspaces.",
+               table: "ImportSuggestions", bundle: .localizedModule)
+    }
+    public static var consentEffects: String {
+        String(localized: "classicImport.preview.consentEffects", defaultValue: "Opening saved workspaces can reconnect SSH hosts, load pages and resume agent chats.",
+               table: "ImportSuggestions", bundle: .localizedModule)
+    }
     public static var title: String {
         String(localized: "classicImport.preview.title", defaultValue: "Import your classic cmux workspaces?", table: "ImportSuggestions", bundle: .localizedModule)
     }

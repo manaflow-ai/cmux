@@ -10,11 +10,11 @@
 //! makes every registry commit that much slower inside `COMMIT`.
 //!
 //! Numbers (time to listen and to be ready, startup laps) go to stderr:
-//! `cargo test -p cmux-tui --test fault_injection -- --nocapture`.
+//! `cargo test -p cmux-tui --test it -- fault_injection:: --nocapture`.
 
 #![cfg(unix)]
 
-mod fault_support;
+use crate::fault_support;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -10,6 +10,9 @@ pub(super) mod cubic;
 #[cfg(feature = "socket-tcp-reno")]
 pub(super) mod reno;
 
+#[cfg(feature = "socket-tcp-bbr")]
+pub(super) mod bbr;
+
 #[allow(unused_variables)]
 pub(super) trait Controller {
     /// Returns the number of bytes that can be sent.
@@ -55,6 +58,9 @@ pub(super) enum AnyController {
 
     #[cfg(feature = "socket-tcp-cubic")]
     Cubic(cubic::Cubic),
+
+    #[cfg(feature = "socket-tcp-bbr")]
+    Bbr(bbr::Bbr),
 }
 
 impl AnyController {
@@ -96,6 +102,9 @@ impl AnyController {
 
             #[cfg(feature = "socket-tcp-cubic")]
             AnyController::Cubic(c) => c,
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            AnyController::Bbr(b) => b,
         }
     }
 
@@ -109,6 +118,9 @@ impl AnyController {
 
             #[cfg(feature = "socket-tcp-cubic")]
             AnyController::Cubic(c) => c,
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            AnyController::Bbr(b) => b,
         }
     }
 }

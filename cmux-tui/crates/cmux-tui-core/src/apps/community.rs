@@ -65,7 +65,6 @@ const KINDS: [(&str, &str, bool); 2] =
 const DEFAULT_LIMIT: usize = 50;
 const MAX_LIMIT: usize = 200;
 const MAX_README: usize = 512 << 10;
-const MAX_SYNCED: usize = 500;
 const SYNCED_KINDS: [&str; 5] = ["extension", "setup", "theme", "snippet", "plugin"];
 
 /// Reads one registry URL. An implementation bounds the time and the body
@@ -86,7 +85,7 @@ impl RegistryFetch for HttpRegistryFetch {
             .build()
             .map_err(|e| e.to_string())?;
         runtime.block_on(async move {
-            let client = reqwest::Client::builder()
+            let client = cmux_egress::client_builder("cmux_tui_core::apps::community")
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(REQUEST_TIMEOUT)
                 .build()
@@ -1016,9 +1015,8 @@ impl Supervisor {
     }
 
     fn community_synced_put(&self, p: SyncedPutParams) -> Result<Value, ApiError> {
-        if p.items.len() > MAX_SYNCED {
-            return Err(bad_request(format!("at most {MAX_SYNCED} synced items")));
-        }
+        // Synced items are not capped by count: the account sends its whole list in this one
+        // request, which the request line bound already bounds, and each item costs one check.
         for item in &p.items {
             item.check().map_err(bad_request)?;
         }

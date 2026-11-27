@@ -1,0 +1,38 @@
+[package]
+name = "cmux-no-checkout"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A chat works on a GitHub repository with nothing cloned: reads through the contents and git data APIs, edits kept in memory, a patch materialized as a commit (blobs, tree, commit, ref) and a pull request; only the paths a command must run are written to disk, in a folder deleted when it ends. Also the Auto rule that picks no-checkout, projection or a full checkout per task."
+
+[lints]
+workspace = true
+
+[features]
+# A GitHub stand-in on loopback (the contents and git data routes this crate calls), for tests and
+# the bench's write side.
+mock = ["dep:cmux-scope"]
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+cmux-egress.workspace = true
+cmux-process.workspace = true
+cmux-scope = { workspace = true, optional = true }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile = "3"
+tokio.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+# Seeded-secret tests: the gate sends each request to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
+tokio = { workspace = true, features = ["test-util"] }
+# The `mock` stand-in for this crate's own tests.
+cmux-no-checkout = { path = ".", features = ["mock"] }
+async-trait.workspace = true

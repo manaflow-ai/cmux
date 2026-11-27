@@ -77,6 +77,9 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// That row's text when it is not Add harness…: with Cloud picked it opens Settings > Cloud
+  /// (cloudPickerEntries.ts), "Set up more for Cloud…".
+  addAgentLabel?: string;
   /// A pick of a model whose harness needs setting up here (not installed, or signed out): the
   /// composer installs it in place, signs it in and then starts the chat on the model
   /// (harnessSetup.ts). With it, the search finds those harnesses' models too; without it their

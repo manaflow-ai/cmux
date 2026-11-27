@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.remote.screenSharingProfile.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يستخدم الوضع الفائق الاتصال كاملًا عند عرض جهاز Mac آخر عبر اتصال مباشر سريع: حتى 120 إطارًا في الثانية وحتى 150 ميغابت في الثانية ونص شبه خالٍ من الفقد. المتوازن هو الافتراضي. ليس وضع الاتصال الفائق الذي يصلح الشبكات التي تفقد الحزم."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra troši vezu na brzoj direktnoj konekciji kad gledate drugi Mac: do 120 fps, do 150 Mbps, tekst gotovo bez gubitaka. Uravnoteženo je zadano. Nije Ultra način veze, koji popravlja mreže s gubicima."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra bruger forbindelsen fuldt ud på en hurtig direkte forbindelse, når du ser en anden Mac: op til 120 fps, op til 150 Mbps, næsten tabsfri tekst. Afbalanceret er standard. Ikke Ultra-forbindelsestilstand, som reparerer et netværk med pakketab."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra nutzt bei einer schnellen direkten Verbindung die volle Leitung, wenn du einen anderen Mac ansiehst: bis zu 120 fps, bis zu 150 Mbit/s, nahezu verlustfreier Text. Ausgewogen ist der Standard. Nicht der Ultra-Verbindungsmodus, der verlustbehaftete Netzwerke repariert."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra aprovecha toda la conexión directa rápida al ver otro Mac: hasta 120 fps, hasta 150 Mbps y texto casi sin pérdidas. Equilibrado es el valor predeterminado. No es el Modo de conexión ultra, que repara redes con pérdidas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra exploite toute la liaison sur une connexion directe rapide quand vous regardez un autre Mac : jusqu’à 120 i/s, jusqu’à 150 Mbit/s, texte quasi sans perte. Équilibré est la valeur par défaut. À ne pas confondre avec le Mode de connexion ultra, qui répare un réseau avec pertes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra sfrutta tutto il collegamento su una connessione diretta veloce quando guardi un altro Mac: fino a 120 fps, fino a 150 Mbps, testo quasi senza perdita. Bilanciato è il valore predefinito. Non è la Modalità connessione ultra, che ripara una rete con perdite."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ウルトラは、別の Mac を表示するときに高速な直接接続の帯域をフルに使います：最大 120 fps、最大 150 Mbps、ほぼロスレスの文字。既定はバランスです。パケットを失うネットワークを修復するウルトラ接続モードとは別の設定です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អ៊ុលត្រាប្រើតំណទាំងស្រុងលើការតភ្ជាប់ផ្ទាល់លឿន ពេលមើល Mac ផ្សេង៖ រហូតដល់ 120 fps រហូតដល់ 150 Mbps អក្សរស្ទើរតែគ្មានការបាត់បង់។ តុល្យភាពគឺលំនាំដើម។ មិនមែនរបៀបតភ្ជាប់អ៊ុលត្រា ដែលជួសជុលបណ្ដាញបាត់កញ្ចប់ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "울트라는 다른 Mac을 볼 때 빠른 직접 연결의 대역폭을 모두 사용합니다: 최대 120fps, 최대 150Mbps, 거의 무손실 텍스트. 기본값은 균형입니다. 손실이 있는 네트워크를 복구하는 울트라 연결 모드와는 다릅니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra bruker hele forbindelsen på en rask direkte tilkobling når du ser en annen Mac: opptil 120 fps, opptil 150 Mbps, nesten tapsfri tekst. Balansert er standard. Ikke Ultra-tilkoblingsmodus, som reparerer et nettverk med pakketap."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra wykorzystuje całe łącze przy szybkim połączeniu bezpośrednim, gdy oglądasz inny Mac: do 120 kl./s, do 150 Mb/s, tekst prawie bez strat. Domyślnie wybrany jest tryb zrównoważony. To nie Tryb połączenia ultra, który naprawia sieć z utratą pakietów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra usa todo o link em uma conexão direta rápida ao ver outro Mac: até 120 fps, até 150 Mbps, texto quase sem perdas. Equilibrado é o padrão. Não é o Modo de conexão ultra, que repara uma rede com perdas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ультра использует весь канал при быстром прямом подключении, когда вы смотрите другой Mac: до 120 кадров/с, до 150 Мбит/с, текст почти без потерь. По умолчанию — Сбалансированный. Это не Режим ультрасоединения, который восстанавливает потери в сети."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "อัลตร้าใช้ลิงก์เต็มที่บนการเชื่อมต่อตรงที่รวดเร็วเมื่อดู Mac เครื่องอื่น: สูงสุด 120 fps สูงสุด 150 Mbps ข้อความแทบไม่สูญเสีย ค่าเริ่มต้นคือสมดุล ไม่ใช่โหมดการเชื่อมต่ออัลตร้า ซึ่งซ่อมเครือข่ายที่สูญเสียแพ็กเก็ต"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra, başka bir Mac'i görüntülerken hızlı doğrudan bağlantının tamamını kullanır: 120 fps'ye kadar, 150 Mbps'ye kadar, neredeyse kayıpsız metin. Varsayılan Dengeli'dir. Kayıplı ağı onaran Ultra bağlantı modu değildir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ультра використовує весь канал на швидкому прямому з’єднанні, коли ви дивитеся інший Mac: до 120 кадрів/с, до 150 Мбіт/с, текст майже без втрат. Типово — Збалансований. Це не Режим ультраз’єднання, який відновлює втрати в мережі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ultra dùng hết đường truyền trên kết nối trực tiếp nhanh khi xem một máy Mac khác: tối đa 120 fps, tối đa 150 Mbps, chữ gần như không mất mát. Cân bằng là mặc định. Không phải Chế độ kết nối Ultra, chế độ sửa mạng bị mất gói."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看另一台 Mac 时，超强会在快速直连上用满带宽：最高 120 fps、最高 150 Mbps，文字近乎无损。默认为均衡。它不是用于修复丢包网络的超强连接模式。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "檢視另一台 Mac 時，超強會在快速直連上用滿頻寬：最高 120 fps、最高 150 Mbps，文字近乎無損。預設為平衡。它不是用來修復掉包網路的超強連線模式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

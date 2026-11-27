@@ -50,3 +50,16 @@ test("the rows of a closed More Options are no arrow-key stops", async () => {
   await fire(before, "keydown", { key: "ArrowDown" });
   expect(hidden).not.toContain(document.activeElement as HTMLElement);
 });
+
+// Leo, 2026-11-19: "just fucking have them be highlights." The active pane highlight color
+// (focusRing.color) is on its home page, Tabs and Panes, behind the More Options of the card that
+// holds the focus ring rows (Pane Style), and a link to the key opens that page.
+test("the active pane highlight color shows on Tabs and Panes under the focus ring card's More Options", async () => {
+  expect(routeSection("appearance", "focusRing.color")).toBe("tabs");
+  page = await renderPage({ path: "/settings/tabs" });
+  const rows = [...page.container.querySelectorAll<HTMLElement>('[data-row-key="focusRing.color"]')];
+  expect(rows.length).toBe(1);
+  expect(rows[0]!.closest(".more-options-rows")).not.toBeNull();
+  const card = rows[0]!.closest("[data-card]");
+  expect(card?.querySelector('[data-row-key="focusRing.enabled"]')).not.toBeNull();
+});

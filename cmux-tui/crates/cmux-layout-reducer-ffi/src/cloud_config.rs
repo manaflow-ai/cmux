@@ -30,6 +30,11 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: cmux_cloud_config::capture_auth::Request = read(request)?;
             json!(cmux_cloud_config::capture_auth::next(&request))
         }
+        // The shared session store's next state and effects (Team-signed production builds).
+        b"cloud_auth_shared_session_next" => {
+            let request: cmux_cloud_config::shared_session_store::Request = read(request)?;
+            json!(cmux_cloud_config::shared_session_store::next(&request))
+        }
         // The build's Cloud from the runtime selection, with its token store's names.
         b"cloud_config_from_selection" => {
             let inputs: config::Inputs = read(request)?;
@@ -55,6 +60,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "url": config::sign_in_url(&request.auth_web_origin, &request.callback_scheme, request.state.as_deref()) })
+        }
+        // What the sign-in screens say they sign in to: the configuration's backend, named.
+        b"cloud_config_backend_label" => {
+            #[derive(Deserialize)]
+            struct Request {
+                backend: config::Backend,
+            }
+            let request: Request = read(request)?;
+            json!(config::backend_label(&request.backend))
         }
         // Sign-in with no callback (`cli_sign_in`): each request the app sends, and what each answer means.
         b"cloud_auth_cli_sign_in_start" => {
@@ -166,6 +180,19 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "opensDefaultBrowser": auth::opens_default_browser(request.window, request.default_browser.as_deref()) })
+        }
+        // Where a sign-in opens: cmux's in-app tab (when the app can open one), the popup or the default browser.
+        b"cloud_auth_sign_in_place" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                window: auth::SignInWindow,
+                default_browser: Option<String>,
+                #[serde(default)]
+                in_app: bool,
+            }
+            let request: Request = read(request)?;
+            json!({ "place": auth::sign_in_place(request.window, request.default_browser.as_deref(), request.in_app) })
         }
         b"cloud_auth_creation_scope" => {
             #[derive(Deserialize)]

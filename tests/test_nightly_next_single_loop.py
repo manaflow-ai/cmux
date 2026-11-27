@@ -156,14 +156,14 @@ if leave_slot([OLD_HEAD], OLD_HEAD, LOOP_RETRY="1").strip() != "superseded=false
 if leave_slot([""], OLD_HEAD, LOOP_RETRY="1").strip() != "superseded=false":
     failures.append("an unread nightly-next ref keeps the build slot")
 # The a22a4eb1 case: the run is stale and feat-cmux-next moved; the tick promotes a newer commit while it waits.
-if leave_slot([OLD_HEAD, OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=23).strip() != "superseded=true":
-    failures.append("a push run that waited 23 min in the group must wait for the tick's promotion and leave to it")
-if leave_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, LOOP_RETRY="1").strip() != "superseded=true":
-    failures.append("a loop retry must wait for the tick to promote a newer buildable commit and leave to it")
+if leave_slot([NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=23).strip() != "superseded=true":
+    failures.append("a push run that waited 23 min in the group leaves to an already promoted head, with one read and no wait")
+if leave_slot([NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, LOOP_RETRY="1").strip() != "superseded=true":
+    failures.append("a loop retry leaves to an already promoted newer commit")
 if leave_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=1).strip() != "superseded=false":
     failures.append("a fresh push run never waits for a promotion")
 if leave_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=23, YIELD_MINUTES="0").strip() != "superseded=false":
-    failures.append("a stale run with nothing promoted in YIELD_MINUTES builds its own commit")
+    failures.append("a stale run with nothing promoted builds its own commit at once")
 # Run 44893172356 of 89a0aaea (2026-11-21): created 7 min before this step, but its first job started at once; its
 # own decide and tree-pending steps are not a wait in the group, so it builds now instead of waiting YIELD_MINUTES.
 import time
@@ -172,7 +172,7 @@ if leave_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=7, started_mi
               YIELD_MINUTES="6").strip() != "superseded=false" or time.monotonic() - began > 60:
     failures.append("a push run whose own jobs took 7 min, with no wait before its first job, builds at once")
 # A resolve job queued 6 min for a busy nightly mini did wait for the slot.
-if leave_slot([OLD_HEAD, NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=8, started_min_ago=7.9,
+if leave_slot([NEW_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=8, started_min_ago=7.9,
               job_queue_seconds=360).strip() != "superseded=true":
     failures.append("a push run whose jobs sat 6 min in their runner queues is stale and leaves to the promotion")
 if leave_slot([OLD_HEAD], OLD_HEAD, feat=FEAT_TIP, created_min_ago=8, started_min_ago=7.9, job_queue_seconds=-1,

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.dropFiles" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أفلِت الصور أو ملفات PDF أو الملفات النصية لإرفاقها"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ispustite slike, PDF datoteke ili tekstualne datoteke za prilaganje"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slip billeder, PDF-filer eller tekstfiler for at vedhæfte"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bilder, PDF-Dateien oder Textdateien zum Anhängen hierher ziehen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drop images, PDFs, or text files to attach"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Suelta imágenes, archivos PDF o archivos de texto para adjuntarlos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Déposez des images, des fichiers PDF ou des fichiers texte pour les joindre"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trascina qui immagini, file PDF o file di testo per allegarli"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "画像、PDF、またはテキストファイルをドロップして添付"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទម្លាក់រូបភាព ឯកសារ PDF ឬឯកសារអត្ថបទ ដើម្បីភ្ជាប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이미지, PDF 또는 텍스트 파일을 끌어다 놓아 첨부"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Slipp bilder, PDF-filer eller tekstfiler for å legge ved"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upuść obrazy, pliki PDF lub pliki tekstowe, aby je załączyć"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solte imagens, arquivos PDF ou arquivos de texto para anexar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перетащите изображения, PDF-файлы или текстовые файлы, чтобы прикрепить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "วางรูปภาพ ไฟล์ PDF หรือไฟล์ข้อความเพื่อแนบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eklemek için görselleri, PDF dosyalarını veya metin dosyalarını bırakın"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перетягніть зображення, PDF-файли або текстові файли, щоб прикріпити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thả hình ảnh, tệp PDF hoặc tệp văn bản để đính kèm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拖入图片、PDF 文件或文本文件以附加"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "拖入圖片、PDF 檔案或文字檔案以附加"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

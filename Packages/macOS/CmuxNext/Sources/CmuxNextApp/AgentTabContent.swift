@@ -26,12 +26,10 @@ struct AgentTabContent {
         let focused = pane.workspace?.focus.state.pane
         // A Mac tab that shows a Cloud chat in place (CloudFrontedChats) draws that chat's page, and its files and machine are the chat's.
         let front = services.agentTabs.frontedChats.front(of: AgentTabKey(machine: pane.daemon.machineID, key: key)), chat = front?.key ?? key, machine = front?.machine ?? pane.daemon.machineID
-        let deferred = services.agentTabs.deferAtLaunch(
+        let deferred = (services.agentTabs.existingView(chat, machine: machine) == nil && pane.defersPageUntilFrame(key)) || services.agentTabs.deferAtLaunch( // no page before the first frame: its last frame until then
             chat, machine: machine, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
-        ) { [weak pane] in
-            if let pane, pane.currentTabKey == key { pane.showSelected() }
-        }
+        ) { [weak pane] in if let pane, pane.currentTabKey == key { pane.showSelected() } }
         if deferred {
             drawLastPage(key, until: nil)
             return nil
@@ -91,7 +89,7 @@ struct AgentTabContent {
             images.whenReadEnds(images.slot(key, machine: pane.daemon.machineID)) { [weak pane] in guard let pane, pane.currentTabKey == key, pane.view.launchImageView == nil else { return }; let view = pane.services.agentTabs.existingView(key, machine: pane.daemon.machineID); if view?.model.hasPainted != true { AgentTabContent(pane: pane).drawLastPage(key, until: view) } }
         }
         guard let imageView = paneView.launchImageView, let view else { return }
-        view.standOverPicture(); view.holdChromiumPageUntilPainted() // a Chromium New Tab page draws over the picture only whole, once it painted
+        view.standOverPicture(); view.holdChromiumPageUntilPainted(rebuilt: pane.services.agentTabs.rebuiltAway.remove(key) != nil) // a Chromium New Tab page, or a chat built again for its renderer, draws over the picture only whole, once it painted
         // The image's limit takes it only once the page has drawn. A chat read at launch can take
         // longer than that limit (acpmux's attach, and the page holds its first frame until the
         // chat is read), and the frame it would hand the pane to is empty.
