@@ -417,7 +417,13 @@ fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session
         deadline,
         &mut progress,
     );
-    if deadline.passed(runner) { progress.late(request) } else { outcome }
+    if deadline.passed(runner) && !waited_out(&outcome) { progress.late(request) } else { outcome }
+}
+
+/// Whether `outcome` is the wait's own `chat.wait_timeout`: it holds what the wait learned (a capacity wait, the
+/// failed turn the next status read starts after), which [`Progress::late`]'s copy from before the wait lacks.
+fn waited_out(outcome: &Outcome) -> bool {
+    matches!(outcome, Outcome::Failed { error, .. } if error["code"] == "chat.wait_timeout")
 }
 
 /// The command that sends to `session` on `machine_id` again (`cmux chat send`): never a start, which would
@@ -1456,7 +1462,7 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // during deletion, rather than suggesting the caller retry on a machine we just deleted.
     let rolled_back = matches!(&outcome, Outcome::Failed { error, .. }
         if error.pointer("/details/cleanup").is_some());
-    if deadline.passed(&mut timed) && !rolled_back {
+    if deadline.passed(&mut timed) && !rolled_back && !waited_out(&outcome) {
         outcome = progress.late(request);
     }
     if let (Some(id), Outcome::Done(answer)) = (progress.made.as_deref(), &mut outcome)
@@ -2483,11 +2489,17 @@ fn wait_turn(
     if baseline == 0
         && let Some(tab) = tab
     {
-        match pushed_turn(runner, machine_id, tab, deadline) {
-            Pushed::Ended(ended) => return ended.outcome(answer),
+        match pushed_turn(runner, machine_id, tab, deadline, &mut answer) {
+            Pushed::Ended(ended) => return resumed(ended.outcome(answer)),
             Pushed::Permission => return permission_waiting(answer),
-            Pushed::Unavailable => {
+            Pushed::Unavailable(first_output) => {
                 answer.set("wait_route", json!("exec"));
+                // The link read the reply's first output before it went away: the exec route's history keeps no
+                // first-output time, so the records' is the only one (hq run 45241258907: two 60 s slices and a
+                // closed link, then the exec wait, and the reply's first text was gone from the answer).
+                if let Some(first) = first_output {
+                    answer.set("turn_ms", json!({"first_output": first}));
+                }
             }
             Pushed::TimedOut => {
                 return wait_timeout(request, machine_id, session, Some(baseline), answer);
@@ -2498,6 +2510,9 @@ fn wait_turn(
     let mut unanswered = 0;
     // Whether a read showed the sent turn (a turn after `baseline`): from then on the wait is for its end only.
     let mut seen = false;
+    // The turn the wait is for comes after this one: `baseline`, then a turn that failed on capacity, whose
+    // continuation the guest's acpmux runs by itself ([`capacity_wait`]).
+    let mut baseline = baseline;
     loop {
         let polled = if let Some(polled) = first.take() {
             polled
@@ -2532,6 +2547,16 @@ fn wait_turn(
                 // `acp last` reads the session's newest reply, not this turn's: a turn that failed
                 // before it said anything (the agent's usage limit) would answer the turn before's
                 // reply as its own. It answers its own error instead, as the pushed route does.
+                let error = turn.value.get("error");
+                let said = error.and_then(Value::as_str).or_else(|| {
+                    error.and_then(|error| error.get("message")).and_then(Value::as_str)
+                });
+                let typed = turn.value.get("errorKind").map(|_| &turn.value).or(error);
+                if let Some(wait) = capacity_wait(said.unwrap_or_default(), typed, &answer) {
+                    answer.set("capacity_wait", wait);
+                    (baseline, seen) = (turn.seq, false);
+                    continue;
+                }
                 let message = turn_failure_message(turn);
                 return Outcome::Failed {
                     error: json!({"code": "chat.turn_failed", "message": message,
@@ -2551,7 +2576,7 @@ fn wait_turn(
                 );
             };
             answer.set("reply", json!(text));
-            return Outcome::Done(answer);
+            return resumed(Outcome::Done(answer));
         }
         // `acp wait` exits 0 (ended), 2 (a permission) or 3 (its own timeout); anything else
         // (the session gone, acpmux down) with no readable turn is not work still running.
@@ -2582,6 +2607,42 @@ fn wait_turn(
             let pause = deadline.bound(runner, NOT_STARTED_PAUSE);
             runner.pause(pause);
         }
+    }
+}
+
+/// The answer's `capacity_wait` when a failed turn's `error` is a capacity error the guest's acpmux waits out and
+/// continues in the same chat (`hub/auto_resume.rs`: the prompt `<id>~resume-N`): the SR2 gateway's 503 "no
+/// non-exhausted ... accounts", a 529 overloaded. acpmux's own classifier says so
+/// ([`acpmux::hub::transient_cause`]), unless the error's record (`typed`) carries an `errorKind`: none is
+/// capacity (a usage limit, a sign-in, a dead agent). `retry_after_s`: the wait the error names, else its record's
+/// `details.retryAfterMs`. None: any other failure, which ends the wait at once.
+fn capacity_wait(error: &str, typed: Option<&Value>, answer: &Value) -> Option<Value> {
+    let typed_kind = typed.and_then(|typed| typed.get("errorKind")).filter(|kind| !kind.is_null());
+    if typed_kind.is_some() || acpmux::hub::transient_cause(error) != Some("capacity") {
+        return None;
+    }
+    let retry_ms = acpmux::hub::retry_after_ms(error).or_else(|| {
+        typed.and_then(|typed| typed.pointer("/details/retryAfterMs")).and_then(Value::as_u64)
+    });
+    let failed = at(answer, "capacity_wait").get("failed_turns").and_then(Value::as_u64);
+    Some(json!({
+        "retry_after_s": retry_ms.map(|ms| ms.div_ceil(1000)),
+        "resumed": false,
+        "failed_turns": failed.unwrap_or(0) + 1,
+        "error": super::wire::sanitize_remote_text(error),
+    }))
+}
+
+/// A turn that ended well after a capacity wait ([`capacity_wait`]): its answer says the chat recovered by itself.
+fn resumed(outcome: Outcome) -> Outcome {
+    match outcome {
+        Outcome::Done(mut answer) => {
+            if let Some(wait) = answer.get_mut("capacity_wait").and_then(Value::as_object_mut) {
+                wait.insert("resumed".into(), json!(true));
+            }
+            Outcome::Done(answer)
+        }
+        other => other,
     }
 }
 
@@ -2664,8 +2725,9 @@ enum Pushed {
     Ended(PushedTurn),
     /// The agent asks a permission.
     Permission,
-    /// No app, an app without `cloud.machine_stream`, no link, or a link that could not be read: the exec route.
-    Unavailable,
+    /// No app, an app without `cloud.machine_stream`, no link, or a link that could not be read: the exec route,
+    /// with the prompt-to-first-output time (ms) of the records the link did read, when they had one.
+    Unavailable(Option<u64>),
     /// `--timeout` passed while the turn ran.
     TimedOut,
 }
@@ -2789,17 +2851,31 @@ impl PushedTurn {
     }
 }
 
-/// What a failed turn in `acp history` says about its end: its own error (a string, or an
-/// object's `message`), else its status (`the turn ended failed`).
+/// What a failed turn in `acp history` says about its end: its own error (`errorText`, as
+/// acpmux's `lastTurn` keeps it, or `error`: a string, or an object's `message`) and what to do
+/// (`recovery`), else its status (`the turn ended failed`) and that no reason was recorded.
 fn turn_failure_message(turn: &Turn) -> String {
-    let error = turn.value.get("error");
-    let said = error
-        .and_then(Value::as_str)
-        .or_else(|| error.and_then(|error| error.get("message")).and_then(Value::as_str));
-    match said.map(str::trim).filter(|said| !said.is_empty()) {
+    let said = ["errorText", "error"].into_iter().find_map(|key| {
+        let error = turn.value.get(key)?;
+        error
+            .as_str()
+            .or_else(|| error.get("message").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|said| !said.is_empty())
+    });
+    let mut message = match said {
         Some(said) => super::wire::sanitize_remote_text(said),
-        None => format!("the turn ended {}", turn.status),
+        None if turn.status == "cancelled" => format!("the turn ended {}", turn.status),
+        None => format!("the turn ended {} and its chat recorded no reason", turn.status),
+    };
+    if let Some(recovery) = turn.value.get("recovery").and_then(Value::as_str).map(str::trim)
+        && !recovery.is_empty()
+        && !message.contains(recovery)
+    {
+        message.push_str(if message.ends_with(['.', '!', '?']) { " " } else { ". " });
+        message.push_str(&super::wire::sanitize_remote_text(recovery));
     }
+    message
 }
 
 /// Stop reasons of a turn that ended without its reply (as the history's failed statuses).
@@ -2813,14 +2889,32 @@ fn is_agent_output(record: &Value) -> bool {
     !replay && matches!(kind, Some("agent_message_chunk" | "agent_thought_chunk" | "tool_call"))
 }
 
+/// The prompt (`mux` `user_message`) to the agent's first output (an `in` record, [`is_agent_output`]) in a fresh
+/// chat's records, oldest first, on their own `at` clock: None until both are there.
+fn first_output_ms(records: &[Value]) -> Option<u64> {
+    let at = |record: &Value| record.get("at").and_then(Value::as_u64);
+    let prompt = records.iter().position(|record| {
+        record.get("dir").and_then(Value::as_str) == Some("mux")
+            && record.get("kind").and_then(Value::as_str) == Some("user_message")
+    })?;
+    let mut after = records.iter().skip(prompt);
+    let from = at(after.next()?)?;
+    let first = after.find(|record| {
+        record.get("dir").and_then(Value::as_str) == Some("in") && is_agent_output(record)
+    })?;
+    at(first).map(|to| to.saturating_sub(from))
+}
+
 /// A fresh chat's turn over the machine's link: the app answers the link's stream socket
 /// (`cloud.machine_stream`), and [`Runner::observe`] reads the tab's records there, in slices of at most
-/// [`PUSH_SLICE`] within `deadline`, each after the newest seq the one before read.
+/// [`PUSH_SLICE`] within `deadline`, each after the newest seq the one before read. A turn that failed on capacity
+/// ([`capacity_wait`], set on `answer`) is not the end: the wait goes on for its continuation's.
 fn pushed_turn(
     runner: &mut dyn Runner,
     machine_id: &str,
     surface: u64,
     deadline: Deadline,
+    answer: &mut Value,
 ) -> Pushed {
     let asked =
         runner.app("cloud.machine_stream", json!({"machine": machine_id}), Duration::from_secs(10));
@@ -2828,7 +2922,7 @@ fn pushed_turn(
         .and_then(Result::ok)
         .and_then(|answer| answer.get("socket").and_then(Value::as_str).map(str::to_owned))
     else {
-        return Pushed::Unavailable;
+        return Pushed::Unavailable(None);
     };
     let mut records: Vec<Value> = Vec::new();
     let mut after = 0u64;
@@ -2837,21 +2931,32 @@ fn pushed_turn(
         if slice.is_zero() {
             return Pushed::TimedOut;
         }
-        let answer = match runner.observe(&socket, surface, after, slice) {
-            Ok(answer) => answer,
+        let observed = match runner.observe(&socket, surface, after, slice) {
+            Ok(observed) => observed,
             Err(link_wait::Failure::Timeout) if deadline.passed(runner) => return Pushed::TimedOut,
-            Err(_) => return Pushed::Unavailable,
+            Err(_) => return Pushed::Unavailable(first_output_ms(&records)),
         };
-        if let Some(page) = answer.get("records").and_then(Value::as_array) {
+        if let Some(page) = observed.get("records").and_then(Value::as_array) {
             records.extend(page.iter().cloned());
         }
-        after = answer.get("last_seq").and_then(Value::as_u64).unwrap_or(after);
-        match answer.get("ended").and_then(Value::as_str) {
+        after = observed.get("last_seq").and_then(Value::as_u64).unwrap_or(after);
+        match observed.get("ended").and_then(Value::as_str) {
             Some("turn_end") => {
-                return PushedTurn::read(&records).map_or(Pushed::Unavailable, Pushed::Ended);
+                let Some(ended) = PushedTurn::read(&records) else {
+                    return Pushed::Unavailable(first_output_ms(&records));
+                };
+                let failure = ended.failure.as_ref();
+                let said = failure.and_then(|failure| failure.get("error")).and_then(Value::as_str);
+                match failure.and_then(|failure| capacity_wait(said?, Some(failure), answer)) {
+                    Some(wait) => {
+                        answer.set("capacity_wait", wait);
+                        records.clear();
+                    }
+                    None => return Pushed::Ended(ended),
+                }
             }
             Some("permission") => return Pushed::Permission,
-            Some("closed") => return Pushed::Unavailable,
+            Some("closed") => return Pushed::Unavailable(first_output_ms(&records)),
             _ if deadline.passed(runner) => return Pushed::TimedOut,
             _ => {}
         }
