@@ -194,8 +194,11 @@ def ios_receipt(run, job, log):
     processed = re.findall(r"- Uploaded to cmux INTERNAL at ([0-9TZ:.-]+); processed\.", log)
     if not title or len(set(builds)) != 1 or not processed:
         raise ValueError(f"iOS run {run['id']}: no processed TestFlight build receipt")
-    return receipt("ios", title[1], builds[0], processed[-1],
-                   f"https://github.com/{REPO}/actions/runs/{run['id']}/job/{job['id']}")
+    result = receipt("ios", title[1], builds[0], processed[-1],
+                     f"https://github.com/{REPO}/actions/runs/{run['id']}/job/{job['id']}")
+    if run.get("run_attempt"):
+        result["evidence"]["run_attempt"] = run["run_attempt"]
+    return result
 
 
 def mac_receipt(run, job, log, expected_sha):
@@ -292,18 +295,23 @@ def refresh(registry, reader, count=3):
             continue
         prefix = f"https://github.com/{REPO}/actions/runs/{run['id']}/job/"
         known = next((r for r in registry["releases"] if r["platform"] == "ios"
-                      and r["sha"] == title[1] and r["evidence"]["url"].startswith(prefix)), None)
+                      and r["sha"] == title[1] and r["evidence"]["url"].startswith(prefix)
+                      and run.get("run_attempt") is not None
+                      and r["evidence"].get("run_attempt") == run["run_attempt"]), None)
         if known:
             ios.append(known)
         else:
-            jobs = reader.api(f"actions/runs/{run['id']}/jobs", per_page=100)["jobs"]
+            attempt = f"attempts/{run['run_attempt']}/" if run.get("run_attempt") else ""
+            jobs = reader.api(f"actions/runs/{run['id']}/{attempt}jobs", per_page=100)["jobs"]
             job = next((j for j in jobs if j["name"] == "Sign, validate, upload to cmux INTERNAL"
                         and successful_step(j, "Sign, validate, upload")), None)
             if not job:
                 continue
             ios.append(ios_receipt(run, job, reader.log(job["id"])))
-        if len(ios) == count:
-            break
+    # GitHub lists runs by creation time, while a rerun can publish much later.
+    # Inspect the whole bounded snapshot before selecting publication order.
+    ios.sort(key=lambda r: timestamp(r["published_at"]), reverse=True)
+    ios = ios[:count]
     # Discard unselected old entries: stale seed records cannot fill a live gap.
     result = {"schema_version": 1, "releases": ios + mac}
     resolve(result, count)

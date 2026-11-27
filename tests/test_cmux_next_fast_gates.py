@@ -205,6 +205,8 @@ class PhonePairRequiredGate(unittest.TestCase):
 
     def test_no_early_success_and_no_duplicate_pair(self):
         doc = workflow()
+        self.assertEqual(triggers(doc)["workflow_call"]["outputs"]["pair_verdict"]["value"],
+                         "${{ jobs.pair-skew.outputs.pair_verdict }}")
         self.assertIn("pair-skew", job(doc, "post")["needs"])
         receipt = step_named(job(doc, "resolve")["steps"], "Post the cmux-next/fast-gates status from the receipt")
         self.assertIn("steps.pair-route.outputs.required == 'false'", receipt["if"])

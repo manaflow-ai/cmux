@@ -16,6 +16,8 @@ SPEC.loader.exec_module(window)
 class ShippedWindowTests(unittest.TestCase):
     def setUp(self):
         self.registry = json.loads(SCRIPT.with_suffix(".json").read_text())
+        for release in self.registry["releases"][:3]:
+            release["evidence"]["run_attempt"] = 1
 
     def test_seed_is_three_published_builds_each_direction(self):
         result = window.resolve(self.registry)
@@ -151,7 +153,7 @@ class ShippedWindowTests(unittest.TestCase):
             window.refresh(self.registry, Reader())
 
     def ios_runs(self):
-        return [{"id": run, "display_title": "cmux-next-ios INTERNAL " + entry["sha"]}
+        return [{"id": run, "run_attempt": 1, "display_title": "cmux-next-ios INTERNAL " + entry["sha"]}
                 for run, entry in zip((46011215834, 46002620214, 45931253674),
                                       self.registry["releases"][:3])]
 
@@ -195,6 +197,45 @@ class ShippedWindowTests(unittest.TestCase):
         self.assertEqual(result["include"][0]["sha"], "f"*40)
         self.assertNotIn("20261127025823",
                          [i for r in result["include"] for i in r["release_ids"]])
+
+    def test_older_run_rerun_can_publish_the_newest_build(self):
+        runs = self.ios_runs() + [{"id": 99, "run_attempt": 2,
+            "display_title": "cmux-next-ios INTERNAL " + "f" * 40}]
+        result = self.refresh_rerun(runs, 99)
+        self.assertEqual(result["releases"][0]["sha"], "f" * 40)
+        self.assertEqual(result["releases"][0]["release_id"], "20261128000000")
+        self.assertEqual(result["releases"][0]["evidence"]["run_attempt"], 2)
+
+    def test_cached_previous_attempt_cannot_mask_new_publication(self):
+        runs = self.ios_runs()
+        runs[0]["run_attempt"] = 2
+        result = self.refresh_rerun(runs, runs[0]["id"])
+        self.assertEqual(result["releases"][0]["release_id"], "20261128000000")
+        self.assertEqual(result["releases"][0]["evidence"]["run_attempt"], 2)
+
+    def test_legacy_cache_without_attempt_requires_current_job_receipt(self):
+        runs = self.ios_runs()
+        self.registry["releases"][0]["evidence"].pop("run_attempt")
+        result = self.refresh_rerun(runs, runs[0]["id"])
+        self.assertEqual(result["releases"][0]["release_id"], "20261128000000")
+
+    def refresh_rerun(self, runs, expected_run):
+        class Reader:
+            def read(inner, url):
+                return self.feed()
+            def api(inner, path, **query):
+                if path.endswith("/runs"):
+                    return {"workflow_runs": runs}
+                attempt = next(run["run_attempt"] for run in runs if run["id"] == expected_run)
+                self.assertEqual(path, f"actions/runs/{expected_run}/attempts/{attempt}/jobs")
+                return {"jobs": [{"id": 100, "name": "Sign, validate, upload to cmux INTERNAL",
+                    "conclusion": "success", "steps": [{"name": "Sign, validate, upload",
+                                                            "conclusion": "success"}]}]}
+            def log(inner, job_id):
+                self.assertEqual(job_id, 100)
+                return ("==> wait for App Store Connect to process 20261128000000\n"
+                        "- Uploaded to cmux INTERNAL at 2026-11-28T00:01:00Z; processed.\n")
+        return window.refresh(self.registry, Reader())
 
     def test_live_mac_predecessor_requires_historical_publication(self):
         registry = copy.deepcopy(self.registry)

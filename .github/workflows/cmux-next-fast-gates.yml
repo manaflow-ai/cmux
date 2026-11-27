@@ -45,6 +45,10 @@ on:
   # and the checks read `cmux-next fast gates / <job>`. The status `cmux-next/fast-gates` is unchanged; a merger
   # that finds none dispatches this workflow as before.
   workflow_call:
+    outputs:
+      pair_verdict:
+        description: Explicit compatibility assertion verdict; empty means infrastructure/no verdict
+        value: ${{ jobs.pair-skew.outputs.pair_verdict }}
     inputs:
       pair_required:
         description: Resolve affected phone/Mac heads on every PR tier
