@@ -187,8 +187,11 @@ jobs:
               # Only build the entries this parent actually renders. An unrelated broken gallery file must not
               # suppress every authentic before image for the planned highlights.
               entries_at=$(jq -r --arg parent "$parent" '[.[] | select(.parent == $parent) | .entry] | unique | join(",")' "$out/plan.json") &&
+              # --skip-broken only where that commit's manifest.ts knows it: a parent from before #62376 stops at
+              # "Unknown option '--skip-broken'", which on 2026-11-27 (run 46048895481) cost all 4 parents their befores.
               (cd "$at/webviews" && bun install --frozen-lockfile &&
-                bun scripts/gallery/manifest.ts --entries "$entries_at" --skip-broken --themes pair --widths normal --frame component \
+                skip=$(grep -q -- "--skip-broken" scripts/gallery/manifest.ts && echo --skip-broken || true) &&
+                bun scripts/gallery/manifest.ts --entries "$entries_at" $skip --themes pair --widths normal --frame component \
                   --out "$RUNNER_TEMP/cases-$parent.json") &&
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
                 --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&

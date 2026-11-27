@@ -12,7 +12,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swif
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultHostView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultListView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Vault/VaultRowView.swift
