@@ -60,6 +60,59 @@ pub(super) fn host_scene(
     Ok(Value::Array(ops))
 }
 
+/// Loads a command extension's script and checks every catalog export without
+/// invoking any of the command handlers.
+pub(super) fn host_catalog(app: &str, main: &str, exports: &[String]) -> Result<(), String> {
+    use cmux_app_host::{AppInfo, AppVm, InitParams, Limits};
+    let names = serde_json::to_string(exports).map_err(|e| format!("catalog exports: {e}"))?;
+    let mut vm = AppVm::new(Limits::default())?;
+    vm.init(InitParams {
+        app: AppInfo { id: app.into(), version: "0.1.0".into() },
+        settings: json!({}),
+        api_version: cmux_app_manifest::capabilities::Capabilities::get().api_version.clone(),
+        ops: None,
+        known_ops: None,
+        locale: None,
+        strings: Value::Null,
+        main: main.into(),
+        main_name: Some("dist/main.js".into()),
+    })
+    .map_err(|e| format!("init: {e:?}"))?;
+    let source = format!(
+        "(() => {{ const appExports = globalThis.__cmuxAppExports || {{}}; const expected = {names}; const types = {{}}; for (const name of expected) types[name] = typeof appExports[name]; return types; }})()"
+    );
+    let result = vm
+        .eval_json(&source)
+        .map_err(|e| format!("eval: {e:?}"))?
+        .map_err(|e| format!("eval: {e}"))?;
+    for name in exports {
+        if result[name] != "function" {
+            return Err(format!("catalog export {name} is {}", result[name].as_str().unwrap_or("missing")));
+        }
+    }
+    Ok(())
+}
+
+/// Export names declared by the package's catalog. Package validation already
+/// checks the catalog's schema and path, but reading it here keeps this check
+/// independent from the daemon and gives headless mode the same source of
+/// truth as the command runtime.
+fn catalog_exports(pkg: &dev::Package) -> Result<Vec<String>, String> {
+    let Some(path) = pkg.manifest.pointer("/catalog").and_then(Value::as_str) else {
+        return Ok(Vec::new());
+    };
+    let catalog: Value = serde_json::from_str(
+        &std::fs::read_to_string(pkg.dir.join(path)).map_err(|e| format!("{path}: {e}"))?,
+    )
+    .map_err(|e| format!("{path}: {e}"))?;
+    Ok(catalog["operations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|op| op["export"].as_str().map(str::to_owned))
+        .collect())
+}
+
 /// One headless reload: validate, build, validate again, then load and render the probe.
 pub(super) fn once(options: &DevOptions) -> Outcome {
     let builds =
@@ -94,11 +147,15 @@ pub(super) fn once(options: &DevOptions) -> Outcome {
         "headless: validated, built and rendered here; run `cmux ext dev` with cmux open to see it in the window"
             .to_owned(),
     );
-    let Some(interface) = dev::probe_interface(&pkg.manifest) else {
+    let interface = dev::probe_interface(&pkg.manifest);
+    let exports = match catalog_exports(&pkg) {
+        Ok(exports) => exports,
+        Err(error) => return outcome.failed(Phase::Load, vec![Problem::message(error)]),
+    };
+    if interface.is_none() && exports.is_empty() {
         outcome.phase = Phase::Done;
         return outcome;
-    };
-    outcome.probe = Some(interface.clone());
+    }
     let main_path =
         pkg.manifest.pointer("/runtime/main").and_then(Value::as_str).unwrap_or("dist/main.js");
     let script = match std::fs::read_to_string(pkg.dir.join(main_path)) {
@@ -108,6 +165,20 @@ pub(super) fn once(options: &DevOptions) -> Outcome {
                 .failed(Phase::Load, vec![Problem::message(format!("{main_path}: {error}"))]);
         }
     };
+    let Some(interface) = interface else {
+        if !exports.is_empty() {
+            if let Err(reason) = host_catalog(&pkg.id, &script, &exports) {
+                return outcome.failed(Phase::Load, vec![dev::load_problem(&reason)]);
+            }
+            outcome.next = Some(
+                "headless: validated, built and loaded catalog command exports here; run `cmux ext dev` with cmux open to use it in the window"
+                    .to_owned(),
+            );
+        }
+        outcome.phase = Phase::Done;
+        return outcome;
+    };
+    outcome.probe = Some(interface.clone());
     let export = pkg.manifest["implements"][&interface]["export"].as_str().unwrap_or("");
     // As the daemon does (cmux-tui-core apps/widgets.rs): a widget renders with
     // `surface: "widget"`, which gives its ctx the host-owned now() clock.
