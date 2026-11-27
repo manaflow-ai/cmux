@@ -110,7 +110,10 @@ struct CloudStartSessionTests {
             "agent": .string("codex"), "connection": .string("personal-1")
         ]))
         #expect(request.connection == "personal-1")
-        #expect(request.command.contains(" --connection personal-1"))
+        #expect(request.command.contains(" --connection \(CloudStartCore.shellQuoted("personal-1"))"))
+        var other = request
+        other.connection = "team-1"
+        #expect(CloudStartRunKey(request, caller: nil, account: []) != CloudStartRunKey(other, caller: nil, account: []))
         for invalid in ["", "has space", "$(id)", String(repeating: "a", count: 129)] {
             #expect(throws: ActionFailure(message: "connection_invalid")) {
                 try CloudStartSession.request(Self.invocation(["agent": .string("codex"), "connection": .string(invalid)]))

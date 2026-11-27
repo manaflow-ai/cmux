@@ -66,6 +66,9 @@ fn the_model_is_taken_from_model_or_agent_and_checked() {
 fn a_selected_connection_is_parsed_and_forwarded_to_start_session() {
     let asked = request(&["--connection", "personal-1", "--prompt", "go", "--name", "dev"]);
     assert_eq!(asked.connection.as_deref(), Some("personal-1"));
+    assert!(
+        again_command(&asked, &Machine::Named("dev".into())).contains("--connection personal-1")
+    );
     let mut fake = Fake::new(vec![
         signed_in(),
         started(),

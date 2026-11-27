@@ -1077,6 +1077,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     if let Some(model) = &request.model {
         words.push(format!("--model {}", shell_quote(model)));
     }
+    if let Some(connection) = &request.connection {
+        words.push(format!("--connection {}", shell_quote(connection)));
+    }
     if let Some(effort) = &request.effort {
         words.push(format!("--effort {}", shell_quote(effort)));
     }
