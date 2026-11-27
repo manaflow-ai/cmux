@@ -89,6 +89,8 @@ FULL_CI_ONLY_JOBS = ("web-browser",)
 def full_ci_only_jobs() -> tuple[str, ...]:
     """FULL_CI_ONLY_JOBS, or none when $CI_PR_BROWSER_FULL_CI_ONLY is 0."""
     return () if os.environ.get("CI_PR_BROWSER_FULL_CI_ONLY", "1").strip() == "0" else FULL_CI_ONLY_JOBS
+
+
 # A land_handoff_only callee (the machine channel PR head build) skips the label handoff itself and builds only
 # the merge train's tip and land's update-branch head. 13-17Z 2026-11-26: 72 of 112 PR head builds (1,769 of
 # 3,002 runner-min) came from a ready-to-land or full-ci label being added, 66 of the 102 PRs built had not merged
@@ -101,6 +103,20 @@ def full_ci_only_jobs() -> tuple[str, ...]:
 def handoff_label_skip() -> bool:
     """Whether a land_handoff_only callee skips the label handoff ($CI_MC_HANDOFF_LABEL_SKIP, on unless 0)."""
     return os.environ.get("CI_MC_HANDOFF_LABEL_SKIP", "1").strip() != "0"
+
+
+def full_ci_kept(event: dict) -> bool:
+    """Whether the PR asks for FULL_CI_ONLY_JOBS: `full-ci` in the payload's own label list, the label as it stands
+    when GitHub sends the event. land-judge's lane-VM pulse (label_lane_pulse: full-ci added and taken off 2 s later)
+    is the land handoff, as ready-to-land is (head_tier.labels_of keeps it for the tier), not a request for the
+    browser suites: its `labeled` payload no longer lists full-ci, so it routes the land tier without them. After
+    #58223 (2026-11-26 12:28Z) the pulse was most of what web-browser still ran: 5 of 8 sampled runs 15-17Z, about
+    4-6k runner-min a day. A full-ci someone keeps on the PR is in the list and still routes them; a pulse GitHub
+    sends before the take-off lands routes them too (more, never less). Leo, 2026-11-21: "de facto, im asking for
+    99% fewer minutes of ci time, period."
+    """
+    pr = event.get("pull_request") or {}
+    return FULL_CI in {str(label.get("name") or "") for label in pr.get("labels") or []}
 
 
 MANIFEST = HERE / "pr_router.json"
@@ -275,7 +291,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
-            full_ci = head_tier.full_ci_applies(event)
+            full_ci = head_tier.full_ci_applies(event) and full_ci_kept(event)
             steps = table_steps(config, files, full=tier == "full" or full_ci, full_ci=full_ci)
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
@@ -539,7 +555,7 @@ def main(argv: list[str]) -> int:
         carried, rows = plan_for(decided, facts, callees)
         start, why = route(event, callees, files, decided=decided, land_update=land_update_head(event, callees),
                            carried=carried)
-        full_ci = head_tier.full_ci_applies(event)
+        full_ci = head_tier.full_ci_applies(event) and full_ci_kept(event)
         full = decided[0] == "full" or full_ci
         table = [job for job in table_jobs_routed(callees, files, full=full, full_ci=full_ci) if job not in rows]
         if rows:
