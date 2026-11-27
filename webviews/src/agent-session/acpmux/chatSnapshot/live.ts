@@ -256,8 +256,7 @@ let stopCoverWait: (() => void) | undefined;
 
 /// Takes over from the copy once the live page lays out what the copy shows (swapDiff.ts
 /// `liveMatchesCopy`), at most ``SWAP_MATCH_MS`` after the page drew the chat: the live page renders
-/// under the copy, and removing the copy before a frame paints shows it in one step. The first read is
-/// at the call, so a page that already matches takes over in the frame its own commit paints. Swapped at the
+/// under the copy, and removing the copy before a frame paints shows it in one step. Swapped at the
 /// first frame, a part the host answers after the chat is read (a folder's trust ask, 91 px over the
 /// composer) came in 50 ms later and drew every row up by its height, after each relaunch (relaunch-shift
 /// bench; Leo, 2026-11-14: "too much render shift when the thing restarts to update").
@@ -313,13 +312,7 @@ export function swapChatSnapshot(doc: Document = document): void {
       if (frame !== undefined) view.cancelAnimationFrame(frame);
     };
   };
-  // The first read is now, not at the next frame: the page calls this from the effect of the commit
-  // that drew the chat, so its layout is already the one the next frame paints, and a page that
-  // matches goes in that frame. Read a frame later, the copy covered one more frame of a page already
-  // drawn (first-load-after-restart.bench.ts, PROFILE=1: `step > removeChatSnapshot` 10 to 40 ms after
-  // the page's last commit; Leo, 2026-11-27: "lickety split instantly rendered properly, in the right
-  // place"). A page that does not match yet reads again per frame, as before.
-  step();
+  view.requestAnimationFrame(step);
 }
 
 /// How long the live page may take to draw the chat before the copy goes anyway, so a page that

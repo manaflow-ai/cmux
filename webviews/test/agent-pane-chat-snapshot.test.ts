@@ -203,7 +203,7 @@ const watch = () => {
   if (w.frames.length < (w.askLate ? 14 : 6)) requestAnimationFrame(watch);
 };
 requestAnimationFrame(() => {
-  // The watch's first read follows the swap in the same frame callback, so it reads what that frame paints.
+  // The swap's frame callback is queued before the watch's, so the watch reads what that frame paints.
   swapChatSnapshot();
   watch();
   requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -366,9 +366,8 @@ requestAnimationFrame(() => {
     const frames = (await page.evaluate(() => (window as any).frames)) as { host: boolean; opacity: string }[];
     // Each frame shows the copy over a clear live root, or the live root alone: never both, never neither.
     for (const frame of frames) expect(frame.host ? frame.opacity === "0" : frame.opacity === "").toBe(true);
-    // The live page already lays out what the copy shows: the copy goes in the first frame (live.ts
-    // `swapChatSnapshot` reads at the call, not a frame later).
-    expect(frames[0]!.host).toBe(false);
+    expect(frames[0]!.host).toBe(true);
+    expect(frames.findIndex((frame) => !frame.host)).toBe(1);
     const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, unknown>;
     expect(afterSwap).toEqual({ header: before.header, row: before.row, composer: before.composer });
     await context.close();
@@ -773,7 +772,8 @@ requestAnimationFrame(() => {
         opacity: string;
         chrome: number[][];
       }[];
-      expect(frames[0]!.host).toBe(false);
+      expect(frames[0]!.host).toBe(true);
+      expect(frames.some((frame) => !frame.host)).toBe(true);
       for (const frame of frames) {
         expect(frame.host ? frame.opacity === "0" : frame.opacity === "").toBe(true);
         expect(frame.chrome).toEqual(afterSwap);
@@ -955,9 +955,8 @@ requestAnimationFrame(() => {
     const page = await context.newPage();
     await relaunched(page, snapshot, "theme-1", { short: true });
     const frames = (await page.evaluate(() => (window as any).frames)) as { host: boolean }[];
-    // The live page already lays out what the copy shows: the copy goes in the first frame (live.ts
-    // `swapChatSnapshot` reads at the call, not a frame later).
-    expect(frames[0]!.host).toBe(false);
+    expect(frames[0]!.host).toBe(true);
+    expect(frames.findIndex((frame) => !frame.host)).toBe(1);
     await context.close();
   });
 
