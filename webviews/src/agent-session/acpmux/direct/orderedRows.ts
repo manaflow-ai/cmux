@@ -9,6 +9,7 @@ import {
   pullRequestRowKey,
 } from "../summary/transcriptPullRequests";
 import { markOneRowChange } from "../rowChanges";
+import { BackgroundSpans } from "./backgroundSpans";
 import { noteKeptPrefix } from "../conversation/prefixFlatMap";
 import { RowUpdates } from "../rowUpdates";
 
@@ -86,7 +87,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// sequence number and its ended record's, once heard. A row an event between them made is that
   /// turn's (`inBackground`). An ended record heard first (an older page's started record comes
   /// later) waits in `backgroundEnds`.
-  private backgroundSpans: { id: string; from: number; to?: number }[] = [];
+  private readonly backgroundSpans = new BackgroundSpans();
   private readonly backgroundClaims = new Map<string, string[]>();
   private readonly backgroundEnds = new Map<string, { seq: number; turn: AcpmuxBackgroundTurn }>();
   /// Each background turn's reply rows, in order (`markBackgroundRows`).
@@ -106,9 +107,9 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// A background turn's started record at `seq`: how it ended when its ended record came first,
   /// and whether rows its events made before this record was heard draw something (`hasRows`).
   openBackground(id: string, seq: number): { ended?: AcpmuxBackgroundTurn; hasRows: boolean } {
-    if (this.backgroundSpans.some((span) => span.id === id)) return { hasRows: false };
+    if (this.backgroundSpans.get(id)) return { hasRows: false };
     const ended = this.backgroundEnds.get(id);
-    this.backgroundSpans.push({ id, from: seq, to: ended?.seq });
+    this.backgroundSpans.add({ id, from: seq, to: ended?.seq });
     this.backgroundEnds.delete(id);
     let hasRows = false;
     const claimed: string[] = [];
@@ -153,10 +154,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   /// A background turn's ended record at `seq`, which says how it ended (`turn`).
   closeBackground(seq: number, turn: AcpmuxBackgroundTurn): void {
-    const span = this.backgroundSpans.find((span) => span.id === turn.id);
+    const span = this.backgroundSpans.get(turn.id);
     // A span a prompt already closed (`openBackgroundsBefore`) keeps that end: acpmux's own ended
     // record, heard later, says how the turn ended and never takes the prompt's rows back.
-    if (span) span.to = span.to === undefined ? seq : Math.min(span.to, seq);
+    if (span) this.backgroundSpans.close(turn.id, seq);
     else this.backgroundEnds.set(turn.id, { seq, turn });
     // An older page's start can arrive before its end while newer rows are already held.
     // The start attributed those rows provisionally; the end bounds that attribution.
@@ -186,7 +187,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   /// The background turns still open at `seq`: started before it, with no ended record heard.
   openBackgroundsBefore(seq: number): string[] {
-    return this.backgroundSpans.filter((span) => span.to === undefined && span.from < seq).map((span) => span.id);
+    return this.backgroundSpans.openBefore(seq);
   }
 
   /// Whether a reply row is a prompt's turn's own, whatever span its event falls in: acpmux names a
@@ -201,11 +202,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   /// The background turn an event at `order` belongs to.
   private backgroundAt(order: number): string | undefined {
-    for (let at = this.backgroundSpans.length - 1; at >= 0; at -= 1) {
-      const span = this.backgroundSpans[at]!;
-      if (span.from < order && (span.to === undefined || order < span.to)) return span.id;
-    }
-    return undefined;
+    return this.backgroundSpans.at(order);
   }
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
@@ -359,7 +356,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
     let turn: string | undefined;
-    if (this.backgroundSpans.length && row.kind !== BACKGROUND_TURN && row.kind !== "user" && !this.local.has(id)) {
+    if (this.backgroundSpans.size && row.kind !== BACKGROUND_TURN && row.kind !== "user" && !this.local.has(id)) {
       turn = this.backgroundAt(this.order.get(id)!);
       if (turn !== undefined && this.promptsReply(id, row, turn)) turn = undefined;
       if (turn !== undefined && row.inBackground !== turn) row = { ...row, inBackground: turn };
@@ -634,7 +631,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.lastWrite.clear();
     this.frames.clear();
     this.latest = 0;
-    this.backgroundSpans = [];
+    this.backgroundSpans.clear();
     this.backgroundClaims.clear();
     this.backgroundEnds.clear();
     this.compactionIds.clear();
@@ -783,7 +780,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.changeOrders.splice(low, high - low);
     }
     // The background turns that began and ended in the run, and their replies.
-    this.backgroundSpans = this.backgroundSpans.filter((span) => {
+    this.backgroundSpans.retain((span) => {
       const inside = span.from >= from && span.to !== undefined && span.to < before;
       if (inside) this.backgroundReplies.delete(span.id);
       return !inside;
@@ -816,7 +813,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     }
     this.latest = 0;
     // The replay hears the background turns' records again.
-    this.backgroundSpans = [];
+    this.backgroundSpans.clear();
     this.backgroundClaims.clear();
     this.backgroundEnds.clear();
   }
