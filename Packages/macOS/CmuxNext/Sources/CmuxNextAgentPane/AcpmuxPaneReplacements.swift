@@ -10,9 +10,13 @@ import CmuxNextCompat
 /// (``AgentPaneTransport/lineDrained(within:)``), so every start or open handed over before it has
 /// been counted or refused by then. It stops counting when it isn't sent, or the daemon answers it
 /// with an error on its own connection (a definite failed open). A success holds until the chat is
-/// adopted, after which the pane is no new chat. One sent on a connection that has since closed
-/// stays counted: the daemon may still have taken it. The check and the count are one step under
-/// the lock, so a start and a Sandboxed send can't both pass.
+/// adopted, after which the pane is no new chat. One sent on a connection that is still open keeps
+/// counting across a reconnect until its own (late) answer comes on it. Once that connection has
+/// ended and its last frames were read (``ended(connection:)``), no answer of it can reach the page
+/// any more, so it can open no chat here and stops counting: before, such a start held the tab for
+/// good, and every Cloud start in it was refused as "A chat is already starting in this tab"
+/// (cmux#63348). The check and the count are one step under the lock, so a start and a Sandboxed
+/// send can't both pass.
 public nonisolated final class AcpmuxPaneReplacements: Sendable {
     private struct State {
         var waiting: [Int: Int] = [:]
@@ -76,6 +80,13 @@ public nonisolated final class AcpmuxPaneReplacements: Sendable {
 
     func endSandbox() {
         state.withLock { $0.sandbox = false }
+    }
+
+    /// `connection` ended and every frame it received was read (``AcpmuxPaneSocket``'s close, on its
+    /// inbound queue after the last pass): a start or open still out on it can never be answered to
+    /// this page, so it no longer counts. A success it already read still holds (`opened`).
+    func ended(connection: Int) {
+        state.withLock { _ = $0.waiting.removeValue(forKey: connection) }
     }
 
     private static func drop(_ state: inout State, _ connection: Int) {

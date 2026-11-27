@@ -143,7 +143,7 @@ struct AgentPaneSandboxRunTests {
         _ = other.sending(method: "session/load", connection: 0)
         other.observe(["method": "_acpmux/event", "params": [:]], replyTo: nil, connection: 0)
         #expect(other.holds)
-        // A start sent on a socket that then closed keeps its hold across the reconnect: the new
+        // A start sent on a socket still reading keeps its hold across the reconnect: the new
         // connection's answers don't end it; only its own (late) answer does.
         let reconnected = AcpmuxPaneReplacements()
         _ = reconnected.sending(method: "session/new", connection: 1)
@@ -151,6 +151,20 @@ struct AgentPaneSandboxRunTests {
         #expect(reconnected.holds)
         reconnected.observe(["id": 3, "error": ["code": -32000]], replyTo: "session/new", connection: 1)
         #expect(!reconnected.holds)
+        // Once its socket ended and was read to the end, no answer can come: the hold ends (cmux#63348),
+        // and only that connection's; an open it already read still holds.
+        let ended = AcpmuxPaneReplacements()
+        _ = ended.sending(method: "session/new", connection: 1)
+        _ = ended.sending(method: "session/new", connection: 2)
+        ended.ended(connection: 1)
+        #expect(ended.holds)
+        ended.ended(connection: 2)
+        #expect(!ended.holds)
+        #expect(ended.admits())
+        _ = ended.sending(method: "session/new", connection: 3)
+        ended.observe(["id": 4, "result": [:]], replyTo: "session/new", connection: 3)
+        ended.ended(connection: 3)
+        #expect(ended.holds)
         // One counted but never sent stops counting.
         let unsent = AcpmuxPaneReplacements()
         _ = unsent.sending(method: "session/resume", connection: 0)

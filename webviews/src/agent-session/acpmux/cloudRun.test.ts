@@ -7,6 +7,7 @@ import type { AcpmuxHostConfig } from "./direct";
 import { cloudSendAgent } from "./cloudModePick";
 import {
   cloudFolderGrants,
+  cloudPageFolderBack,
   cloudPageRefusal,
   pageOnOtherMachine,
   cloudRunsHere,
@@ -686,4 +687,13 @@ test("a page whose chat runs on another machine never offers or picks Cloud", ()
     /const cloudOfferable = !onOtherMachinePage && \(sandboxOfferable \|\| emptyLocalChat \|\| pickOnlyChat\);/,
   );
   expect(source).toMatch(/const cloudPicked = sandbox\.mode === "cloud" && !onOtherMachinePage && /);
+});
+
+test("a page's Cloud send that ended here puts its folder back on the composer's chip (cmux#63348)", () => {
+  // The card read "cmuxterm-hq" while the chip the prompt came back to read "No folder".
+  expect(cloudPageFolderBack({ cwd: "/Users/me/cmuxterm-hq" })).toBe("/Users/me/cmuxterm-hq");
+  // The machine's home: No folder on the chip too.
+  expect(cloudPageFolderBack({ home: true })).toBe("");
+  // A start that named neither leaves the chip as it is.
+  expect(cloudPageFolderBack({})).toBeUndefined();
 });

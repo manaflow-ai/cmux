@@ -5264,6 +5264,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     heldBack,
     runCloudHere,
     cloudRetryFolder,
+    // A page's Cloud send that ended here: its folder is the chip's again, as the person's pick on that page was,
+    // so the composer's next send names it as the card did (cmux#63348).
+    restoreCloudPageFolder: (folder) => {
+      folderChoice.current += 1;
+      pickedProject.current = folder || undefined;
+      setProjectDraft(folder);
+    },
     harnessSwitch,
     notices,
   });
