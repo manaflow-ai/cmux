@@ -337,7 +337,9 @@ impl Link {
         json!(kinds)
     }
 
-    /// The app's connect: `initialize` and the first watch page together, both answered.
+    /// The app's connect: `initialize` and the first watch page together, both answered. It asks
+    /// for row changes as patches (`_meta.acpmux.sessionChangedDelta`, `session-changed-delta-v1`,
+    /// #51376) as a raw-text phone does; a daemon without it ignores the key and sends whole rows.
     async fn open(
         addr: std::net::SocketAddr,
         token: &str,
@@ -1465,6 +1467,17 @@ fn emit_rates(k: &Key, t: &TapInner, wire: (u64, u64), secs: f64, app: App, per_
         let pings = if per_min { (secs / 15.0).floor() as u64 * LINK_PING_BYTES } else { 0 };
         emit(k, &format!("link_bytes{unit}_down"), rate(t.link_down + pings));
         emit(k, &format!("link_bytes{unit}_up"), rate(t.link_up + pings));
+    }
+    // Bytes per row change: each `_acpmux/session_changed` (the whole row) or, to a client that
+    // asked (#51376), `_acpmux/session_patch` (what changed), the JSON text; the phone's link adds
+    // a 9-byte frame header to each, under the 16 KiB deflate threshold. And how many of each came.
+    let of = |name: &str| t.down.get(name).copied().unwrap_or((0, 0));
+    let (whole, patch) = (of("_acpmux/session_changed"), of("_acpmux/session_patch"));
+    let (n, bytes) = (whole.0 + patch.0, whole.1 + patch.1);
+    if n > 0 {
+        emit(k, "session_changed_msgs", Some(whole.0 as f64));
+        emit(k, "session_patch_msgs", Some(patch.0 as f64));
+        emit(k, "bytes_per_session_changed", Some((bytes as f64 / n as f64).round()));
     }
     for (way, map) in [("down", &t.down), ("up", &t.up)] {
         let mut rows: Vec<_> = map.iter().collect();

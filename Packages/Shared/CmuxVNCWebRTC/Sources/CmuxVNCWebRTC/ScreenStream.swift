@@ -387,10 +387,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             if ended { task.cancel() }
         }
         var last: (buffer: CVPixelBuffer, crop: CGRect)?
-        var lastPush = DispatchTime.now()
-        /// When the screen last changed (the source's last picture) or the encoder last needed a fresh one (a
-        /// quality step, the viewer's refresh): the idle refresh backs off from here (``idleRefreshDue``).
-        var lastChange = DispatchTime.now()
+        var idle = ScreenStreamHost.IdleRefresh()
         var displays: [CGSize] = []
         var current = 0
         var quality = ScreenQuality.auto
@@ -610,7 +607,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             do {
                 try await session.backend.start(frame: { [weak self] buffer, crop in
                     session.lock.withLock { session.captured += 1 }
-                    self?.push(buffer, crop: crop, session: session, change: true)
+                    self?.push(buffer, crop: crop, session: session)
                 }, displays: { [weak self] sizes, current in
                     session.lock.withLock {
                         session.displays = sizes
@@ -643,53 +640,98 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 log("video: \(summary) capture \(String(format: "%.1f", Double(captured) / seconds)) fps target \(target.map(String.init) ?? "-") fps")
             }
         })
-        // Idle refresh: capture sends nothing while the screen is still, but the encoder sharpens a still picture
-        // over the next few frames, a lost keyframe needs a frame to answer it, and a quality step needs one to take
-        // effect. Backing off (``idleRefreshDue``): soon after a change, then every 4 s, so a still screen costs
-        // almost nothing on the wire (RFD 0088 slice 3b) where a refresh every 500 ms kept encoding it.
+        // Idle refresh: capture sends nothing while the screen is still, so the
+        // last picture is repeated a few times for the encoder to sharpen it,
+        // then nothing goes out until something asks again (IdleRefresh).
         session.add(Task { [weak self] in
+            var requests: Int?
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(250)) // idle refresh check period
+                try? await Task.sleep(for: .nanoseconds(IdleRefresh.periodNs)) // idle refresh period
                 guard let self else { return }
+                let now = DispatchTime.now().uptimeNanoseconds
+                let idle = session.lock.withLock { session.idle.isIdle(now: now) }
+                // A still screen: a viewer that lost a picture asks for a keyframe (PLI/FIR).
+                // The count is read only on a still screen, from its first still period on.
+                if !idle {
+                    requests = nil
+                } else if let count = await session.link.keyframeRequests() {
+                    if let requests, count > requests { session.lock.withLock { session.idle.keyframeRequested(now: now) } }
+                    requests = count
+                }
                 let stale = session.lock.withLock { () -> (CVPixelBuffer, CGRect)? in
-                    let now = DispatchTime.now().uptimeNanoseconds
-                    guard let last = session.last,
-                          Self.idleRefreshDue(sinceChangeNs: now &- session.lastChange.uptimeNanoseconds,
-                                              sincePushNs: now &- session.lastPush.uptimeNanoseconds) else { return nil }
+                    guard let last = session.last, session.idle.repeatNow(now: DispatchTime.now().uptimeNanoseconds) else { return nil }
                     return (last.buffer, last.crop)
                 }
-                if let stale { push(stale.0, crop: stale.1, session: session) }
+                if let stale { repeatLast(stale.0, crop: stale.1, session: session) }
             }
         })
     }
 
-    /// Whether a still screen gets its last picture encoded again: once the last push is older than half the time
-    /// since the screen last changed, at least 450 ms and at most 4 s apart. So after a change a refresh comes at
-    /// about 0.5, 1, 2, 4 s, then every 4 s (0.25 fps): the first few let the encoder sharpen the still picture, the
-    /// rest bound how long a lost keyframe takes to repair.
-    static func idleRefreshDue(sinceChangeNs: UInt64, sincePushNs: UInt64) -> Bool {
-        let interval = min(max(sinceChangeNs / 2, idleRefreshMinimumNs), idleRefreshMaximumNs)
-        return sincePushNs >= interval
+    /// When the host repeats the last picture while the source sends none.
+    /// A new picture, a quality, size or rate change, the viewer's `refresh`
+    /// and a keyframe request each allow ``repeats`` repeats ``periodNs``
+    /// apart; a still screen then sends nothing at all (RFD 0088 slice 3b:
+    /// it used to send 2 pictures a second forever).
+    struct IdleRefresh {
+        static let periodNs: UInt64 = 500_000_000
+        /// Enough for VideoToolbox to bring a still picture to full quality.
+        static let repeats = 4
+        private(set) var remaining = 0
+        private var lastPushNs: UInt64 = 0
+
+        /// A picture went to the encoder (new or repeated).
+        mutating func pushed(now: UInt64, fresh: Bool) {
+            lastPushNs = now
+            if fresh { remaining = Self.repeats }
+        }
+
+        /// Something needs the picture encoded again.
+        mutating func arm() { remaining = Self.repeats }
+
+        /// How soon after a picture a keyframe request (PLI/FIR) still means
+        /// the viewer lost it. libwebrtc's receiver also asks for a keyframe
+        /// on its own 3 s after the last frame while packets are recent;
+        /// answering that one would repeat a still screen forever.
+        static let lossRequestWindowNs: UInt64 = 2_000_000_000
+
+        /// The viewer asked for a keyframe: re-arm only when it follows a
+        /// picture closely enough to be a loss, not the receiver's timeout.
+        mutating func keyframeRequested(now: UInt64) {
+            if lastPushNs != 0, now &- lastPushNs < Self.lossRequestWindowNs { arm() }
+        }
+
+        /// No picture for a period and none left to repeat.
+        func isIdle(now: UInt64) -> Bool { remaining == 0 && stale(now: now) }
+
+        /// Whether to repeat the last picture now; counts the repeat.
+        mutating func repeatNow(now: UInt64) -> Bool {
+            guard remaining > 0, stale(now: now) else { return false }
+            remaining -= 1
+            return true
+        }
+
+        private func stale(now: UInt64) -> Bool { now &- lastPushNs > Self.periodNs * 9 / 10 }
     }
 
-    static let idleRefreshMinimumNs: UInt64 = 450_000_000
-    static let idleRefreshMaximumNs: UInt64 = 4_000_000_000
-
-    /// Restarts the idle refresh's back-off: the encoder needs a fresh picture soon (a quality step, the viewer
-    /// asked). Pushes the last picture at once.
+    /// The encoder needs a fresh picture now (a quality step, the viewer's
+    /// `refresh`): push the last one at once and allow its repeats again.
     private func refreshSoon(_ session: Session) {
         let last = session.lock.withLock { () -> (buffer: CVPixelBuffer, crop: CGRect)? in
-            session.lastChange = .now()
+            session.idle.arm()
             return session.last
         }
-        if let last { push(last.buffer, crop: last.crop, session: session) }
+        if let last { repeatLast(last.buffer, crop: last.crop, session: session) }
     }
 
-    private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session, change: Bool = false) {
+    private func repeatLast(_ buffer: CVPixelBuffer, crop: CGRect, session: Session) {
+        session.lock.withLock { session.idle.pushed(now: DispatchTime.now().uptimeNanoseconds, fresh: false) }
+        session.video.push(buffer, crop: crop, timestampNs: Int64(DispatchTime.now().uptimeNanoseconds))
+    }
+
+    private func push(_ buffer: CVPixelBuffer, crop: CGRect, session: Session) {
         session.lock.withLock {
             session.last = (buffer, crop)
-            session.lastPush = .now()
-            if change { session.lastChange = session.lastPush }
+            session.idle.pushed(now: DispatchTime.now().uptimeNanoseconds, fresh: true)
         }
         session.video.push(buffer, crop: crop, timestampNs: Int64(DispatchTime.now().uptimeNanoseconds))
     }
@@ -907,7 +949,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
             if applyQuality(session) { sendDisplays(session) }
             return
         }
-        if input.t == "refresh" { refreshSoon(session) } // and the backend's own refresh below (VNC asks for a full update)
+        if input.t == ScreenStreamViewer.refreshMessage { refreshSoon(session) } // and the backend's own refresh below (VNC asks for a full update)
         deliver(input, to: session.backend)
     }
 
@@ -999,7 +1041,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
         if let settings { session.link.applyVideo(settings) }
         session.backend.setFrameRate(fps)
         session.backend.setMaximumLongEdge(cap)
-        refreshSoon(session) // a still screen shows the new settings now, not at the next back-off step
+        refreshSoon(session) // new encoder settings take effect on the next picture, which a still screen does not send
         if changed { log("frame rate: \(fps) fps (this Mac \(hostRate.map(String.init) ?? "?") Hz, viewer \(session.lock.withLock { session.viewerFrameRate }.map(String.init) ?? "?") Hz)") }
         return changed
     }
@@ -1366,6 +1408,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     /// the viewer's zoom, `d` true when a pinch just ended (``ViewerDemand``).
     /// An older host ignores it and keeps the full size.
     static let viewDemandMessage = "view"
+    /// Asks for the picture again (``ScreenStreamHost/IdleRefresh``; the VNC backend redraws).
+    static let refreshMessage = "refresh"
 
     /// Tells the Mac how large this viewer shows the stream (every 2 s, and
     /// with `pinch` when a zoom ends). Auto and Smooth Motion then capture
