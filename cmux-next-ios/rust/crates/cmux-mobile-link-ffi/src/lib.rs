@@ -49,7 +49,9 @@ mod terminal_prediction;
 mod terminal_projection;
 mod vnc;
 mod window_layout;
+mod workspace_arrangement;
 mod workspace_groups;
+mod workspace_moves;
 
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
@@ -100,6 +102,10 @@ pub use window_layout::{WindowLayout, overview_columns, window_layout};
 pub use workspace_groups::{
     GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,
     PhoneSidebarRow, PhoneWorkspaceGroup, WorkspaceGroupSlot, pending_group_edit_step, workspace_group_slots,
+};
+pub use workspace_moves::{
+    WorkspaceSortStep, neighbor_move_reordered, neighbor_move_targets, personal_index_moving,
+    personal_index_placing, workspace_sort_steps,
 };
 
 uniffi::setup_scaffolding!();
@@ -1611,6 +1617,16 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
+/// file at `path` (an Application Support file of this build's own), so a dial after a relaunch
+/// with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
+/// are kept for this process only. Returns how many hosts the file remembered.
+#[uniffi::export]
+pub fn set_route_literals_path(path: String) -> u32 {
+    let loaded = cmux_mobile_link::route_literals::RouteLiterals::shared().set_file(path);
+    u32::try_from(loaded).unwrap_or(u32::MAX)
 }
 
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
