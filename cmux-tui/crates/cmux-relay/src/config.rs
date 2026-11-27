@@ -283,7 +283,7 @@ impl RelayConfig {
 
 #[derive(Clone)]
 pub enum RelayCommand {
-    Serve(RelayConfig),
+    Serve(Box<RelayConfig>),
     Ticket {
         secret: Vec<u8>,
         issuer: String,
@@ -428,7 +428,7 @@ impl RelayCommand {
             }
         }
         config.validate()?;
-        Ok(Self::Serve(config))
+        Ok(Self::Serve(Box::new(config)))
     }
 
     fn parse_ticket(
