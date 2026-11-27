@@ -535,7 +535,7 @@ pub fn translator_for_person(for_person: bool) -> Arc<Translator> {
     translator_with(for_person && crate::claude_stdio::prompt_suggestions::enabled_in_settings())
 }
 
-fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
+pub(crate) fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
     Arc::new(Translator {
         inner: cmux_codex_acp::Translator::new(Options {
             client_name: "acpmux".into(),

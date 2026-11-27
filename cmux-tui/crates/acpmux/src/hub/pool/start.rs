@@ -128,8 +128,8 @@ impl Hub {
             env,
             cwd: draft.cwd.clone(),
             codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
-            // Only a person's chat can claim a pooled Codex bridge (lifecycle.rs).
-            codex_prompt_suggestions: true,
+            // A person can claim this bridge only under the same setting it was warmed with.
+            codex_prompt_suggestions: spec.key.prompt_suggestions == Some(true),
             translator,
             socket: agent_host::socket_path(&dir, &session_id),
             hosts_dir: dir,

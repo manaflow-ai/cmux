@@ -1024,7 +1024,7 @@ async fn codex_prompt_suggestions_follow_the_caller_and_the_global_setting() {
             assert_eq!(
                 options.iter().any(|option| option["id"] == "prompt-suggestions"),
                 is_person && enabled,
-                "{options:?}"
+                "is_person={is_person}, global={enabled}: {options:?}"
             );
         }
     }
