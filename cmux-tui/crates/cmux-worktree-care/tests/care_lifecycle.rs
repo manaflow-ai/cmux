@@ -399,8 +399,8 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
             name: "lane".into(),
             cwd: open.clone(),
             open: true,
+            archived_checkout: None,
             updated_ms: 0,
-            ids: Vec::new(),
             ids: Vec::new(),
         }],
         settings: Settings {
@@ -674,6 +674,7 @@ fn care_stale_only_frees_a_merged_clean_worktree_and_skips_dirty_and_live_ones()
             name: "chat".into(),
             cwd: live.clone(),
             open: true,
+            archived_checkout: None,
             updated_ms: 0,
             ids: Vec::new(),
         }],
@@ -757,6 +758,7 @@ fn care_a_chat_opened_after_the_scan_keeps_its_stale_worktree() {
                 name: "late".into(),
                 cwd: late.clone(),
                 open: true,
+                archived_checkout: None,
                 updated_ms: 0,
                 ids: Vec::new(),
             }]
@@ -812,6 +814,7 @@ fn care_a_chat_opened_while_it_is_archived_keeps_its_stale_worktree() {
                 name: "archiving".into(),
                 cwd: late.clone(),
                 open: true,
+                archived_checkout: None,
                 updated_ms: 0,
                 ids: Vec::new(),
             }]
@@ -828,6 +831,66 @@ fn care_a_chat_opened_while_it_is_archived_keeps_its_stale_worktree() {
     );
     assert!(reads.load(std::sync::atomic::Ordering::SeqCst) >= 2, "read again before removal");
     assert!(wt.exists(), "the chat's worktree stays");
+}
+
+#[test]
+fn pr_archive_preserves_late_writes_and_restores_the_linked_checkout() {
+    let _slot = merge_tree_slot();
+    let (base, main) = repository("pr-archive");
+    let wt = base.join("pr");
+    git(&main, &["worktree", "add", "-qb", "cmux/pr", wt.to_str().unwrap()]);
+    let store = Store::open(base.join("store")).unwrap();
+    let session = cmux_worktree_care::policy::Session {
+        name: "chat".into(),
+        cwd: wt.clone(),
+        open: true,
+        updated_ms: 0,
+        archived_checkout: Some(cmux_worktree_care::policy::ArchivedCheckout {
+            root: wt.clone(),
+            common_dir: main.join(".git"),
+            branch: "cmux/pr".into(),
+            head: git(&wt, &["rev-parse", "HEAD"]),
+        }),
+        ids: Vec::new(),
+    };
+    let mut options = Options {
+        roots: vec![main],
+        sessions: vec![session.clone()],
+        settings: Settings { recent_hours: [0; 3], ..Settings::default() },
+        uses: nothing(),
+        open: Arc::new(|root| {
+            write(&root.join(".env"), "written after the scan");
+            Ok(None)
+        }),
+        guarded: unguarded(),
+        apply: true,
+        pressure: Some(Pressure::Normal),
+        only: vec![wt.clone()],
+        measure: false,
+        stale_only: false,
+        measure_budget: None,
+        sessions_now: None,
+    };
+    options.sessions.push(session);
+    assert_eq!(pass::run(&options, &store).unwrap().items[0].verdict.action, Action::Keep);
+    options.sessions.pop();
+    write(&wt.join("node_modules/local"), "user content");
+    assert_eq!(pass::run(&options, &store).unwrap().items[0].verdict.action, Action::Keep);
+    std::fs::remove_file(wt.join("node_modules/local")).unwrap();
+    std::fs::remove_dir(wt.join("node_modules")).unwrap();
+    let report = pass::run(&options, &store).unwrap();
+    let item = &report.items[0];
+    assert_eq!(item.verdict.action, Action::Park, "{:?}", item.verdict);
+    assert!(item.outcome.as_ref().unwrap().ok, "{:?}", item.outcome);
+    assert!(!wt.exists());
+    let manifest = store.find("cmux/pr").unwrap();
+    assert!(archive::expire(&store, u64::MAX, 0).unwrap().is_empty());
+    std::fs::create_dir(&wt).unwrap();
+    assert!(restore(&store, &manifest, None).is_err());
+    std::fs::remove_dir(&wt).unwrap();
+    restore(&store, &manifest, None).unwrap();
+    assert_eq!(std::fs::read_to_string(wt.join(".env")).unwrap(), "written after the scan");
+    assert_eq!(git(&wt, &["branch", "--show-current"]), "cmux/pr");
 }
 
 /// `git` in `dir` as if run `hours` ago: its commits and reflog entries

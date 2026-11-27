@@ -108,11 +108,27 @@ pub(super) async fn retention(
         return Some(hub.history_offload_now(req).await);
     }
     if m == method::MUX_HISTORY_DELETE {
+        // Recently deleted, and its undo (`hub/history_delete.rs`).
+        if params.get("deleted").and_then(Value::as_bool).unwrap_or(false) {
+            return Some(Ok(hub.history_deleted()));
+        }
+        if let Some(id) = str_param(params, "restore") {
+            let restored = hub.resolve(id).and_then(|session| {
+                let restored = hub.history_restore(&session)?;
+                Ok(json!({"sessionId": session.id, "restored": restored}))
+            });
+            return Some(restored);
+        }
         let export = str_param(params, "export").map(PathBuf::from);
         if export.as_ref().is_some_and(|a| !a.is_absolute()) {
             return Some(Err(RpcError::invalid_params("export must be an absolute folder")));
         }
-        let req = crate::hub::HistoryDeleteRequest { dry_run, older_than_days: days, export };
+        let req = crate::hub::HistoryDeleteRequest {
+            dry_run,
+            older_than_days: days,
+            export,
+            ..Default::default()
+        };
         return Some(hub.history_delete_now(req).await);
     }
     if m == method::MUX_TRANSCRIPT_OFFLOAD {

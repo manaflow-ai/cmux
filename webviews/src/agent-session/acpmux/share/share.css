@@ -37,6 +37,9 @@
   color: var(--cmux-danger, var(--ui-fg-2));
   font-size: var(--text-detail);
 }
+.share-dialog__status[role="status"] {
+  color: var(--ui-fg-2);
+}
 .share-dialog__section {
   display: flex;
   flex-direction: column;
