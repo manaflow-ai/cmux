@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   addCloudPreviewPort,
   cloudPreviewPorts,
+  dropCloudPreviewPorts,
   installCloudPreviewPortHook,
   resetCloudPreviewPorts,
   seedCloudPreviewPorts,
@@ -207,6 +208,39 @@ describe("Cloud preview port cards", () => {
       expect(renderedPorts).toEqual([[3000], [], [3001], []]);
     } finally {
       unsubscribe();
+    }
+  });
+
+  test("each pane view keeps its own chat's cards (a shared pane document)", () => {
+    const woken: string[] = [];
+    const offA = subscribeCloudPreviewPorts(() => woken.push("a"), "a");
+    const offB = subscribeCloudPreviewPorts(() => woken.push("b"), "b");
+    try {
+      setCloudPreviewContext({ machineID: "m", sessionId: "chat-a", turnId: "t1", active: true }, "a");
+      setCloudPreviewContext({ machineID: "m", sessionId: "chat-b", turnId: "t2", active: true }, "b");
+      woken.length = 0;
+      seedCloudPreviewPorts([{ port: 8080 }], "b");
+      expect(addCloudPreviewPort({ port: 3000, process: "vite" }, "a")).toBe(true);
+      expect(addCloudPreviewPort({ port: 8080 }, "b")).toBe(false);
+      expect(addCloudPreviewPort({ port: 4000 }, "b")).toBe(true);
+      expect(cloudPreviewPorts("a")).toEqual([{ port: 3000, process: "vite" }]);
+      expect(cloudPreviewPorts("b")).toEqual([{ port: 4000 }]);
+      expect(cloudPreviewPorts()).toEqual([]);
+      expect(woken).toEqual(["a", "b"]);
+      // A port for one chat's session never becomes a card in the other's.
+      expect(addCloudPreviewPort({ port: 5000, sessionId: "chat-b" }, "a")).toBe(false);
+      expect(cloudPreviewPorts("a")).toEqual([{ port: 3000, process: "vite" }]);
+      dropCloudPreviewPorts("a");
+      expect(cloudPreviewPorts("a")).toEqual([]);
+      expect(cloudPreviewPorts("b")).toEqual([{ port: 4000 }]);
+      // Its readers still listen after the drop: the next chat in view a wakes them.
+      woken.length = 0;
+      setCloudPreviewContext({ machineID: "m", sessionId: "chat-c", turnId: "t3", active: true }, "a");
+      expect(addCloudPreviewPort({ port: 3000 }, "a")).toBe(true);
+      expect(woken).toEqual(["a", "a"]);
+    } finally {
+      offA();
+      offB();
     }
   });
 });

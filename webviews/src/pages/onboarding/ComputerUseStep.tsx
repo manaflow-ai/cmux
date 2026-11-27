@@ -13,6 +13,7 @@ import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import { Check } from "../../agent-session/acpmux/conversation/icons";
+import { COMPUTER_USE_TILE } from "../../agent-session/acpmux/toolMentions";
 import { OPS, type ComputerUseRow, type ComputerUseState } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import { computerUseCaptureNote, computerUseLine, computerUseName, computerUseNote } from "./text";
@@ -92,7 +93,8 @@ export function ComputerUseStep({ computerUse }: { computerUse: ComputerUseState
       ) : (
         <>
           <div className="onb-cu-head">
-            <HostIcon image={computerUse.helperIcon} className="onb-cu-helper" />
+            {/* Computer Use's own tile, as the composer's @computer-use draws it (Lucas 2026-11-23: "lets use the icon here too"). */}
+            <img className="onb-cu-helper" data-tile="" src={COMPUTER_USE_TILE} alt="" draggable={false} />
             <h1 className="onb-title">{strings.t("onboarding.computerUse.heading")}</h1>
             <p className="onb-sentence">
               {computerUse.allGranted

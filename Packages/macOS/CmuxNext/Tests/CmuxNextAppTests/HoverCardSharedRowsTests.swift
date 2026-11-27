@@ -52,7 +52,10 @@ import Testing
         #expect(tone == .danger)
         #expect(bars.count == 3 && bars.last == 1)
         let quiet = ResourceReport(total: ResourceUsage(cpu: 0.01, memoryBytes: 10 << 20), processCount: 1)
-        #expect(WorkspaceHoverCardContent.resourceRow(quiet, history: [0.01]) == nil)
+        let calm = try #require(WorkspaceHoverCardContent.resourceRow(quiet, history: [0.01]))
+        #expect(calm.ink == .secondary)
+        #expect(calm.text == ResourceFormat.line(quiet.total))
+        #expect(WorkspaceHoverCardContent.resourceRow(nil, history: []) == nil)
     }
 
     @Test func aBlankPageHasNoAddressForATitleOrPlace() {
@@ -98,11 +101,13 @@ import Testing
         // The sidebar adds a chat that never left the home folder (no folder line, Leo 2026-10-21),
         // one running-work card per `WorkspaceHoverCardWork.Style` (#30439), and the tab rows' four
         // line styles, each on this Mac and on another machine, and a Cloud workspace that names its machine once.
-        // Then the layout pairs (a3d0df7a, d8413ab9) and each origin a workspace can name (#46854), each its own
-        // card: those parts are counted from the gallery's own builders, so a new arm adds its cards here too.
+        // Then the layout pairs (a3d0df7a, d8413ab9), each origin a workspace can name (#46854), and a workspace whose
+        // terminal serves ports (one card per port-row state), each its own card: those parts are counted from the
+        // gallery's own builders, so a new arm adds its cards here too.
         let now = Date()
         let count = tabs ? 5 : 10 + WorkspaceHoverCardWork.Style.allCases.count + 8 + 1 + 2
             + WorkspaceHoverCardGallery.layoutCards(now: now).count + WorkspaceHoverCardGallery.originCards(now: now).count
+            + WorkspaceHoverCardGallery.portCards(now: now).count
         #expect(cards.count == count)
         #expect(Set(cards.map(\.name)).count == count)
     }

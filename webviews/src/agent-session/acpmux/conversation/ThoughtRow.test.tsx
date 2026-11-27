@@ -358,6 +358,31 @@ test("with explicit animation off the toggle does not schedule a Web Animation",
   expect(animations).toEqual([]);
 });
 
+// Leo, 2026-11-25: "this is extremely strange": a summarized thought's row read "I'm checking the
+// next thinking, and it reads 'Already known....'", a line about the thinking, not the thinking.
+test("a thought's line is never a meta line about the thinking: it reads what the thinking says", () => {
+  expect(thoughtHead("I'm checking the next thinking, and it reads 'Already known....'").line).toBe(
+    "Already known....",
+  );
+  expect(thoughtHead("I\u2019m reading the latest thinking, which says \u201cThe run passed.\u201d\nmore").line).toBe(
+    "The run passed.",
+  );
+  expect(thoughtHead("**I'm checking the next thinking, and it reads 'Merge is done'**\n\nBody.")).toEqual({
+    line: "Merge is done",
+    title: true,
+    rest: "Body.",
+    gap: true,
+  });
+  expect(thoughtHead("Let me review the previous thinking. The tests pass on main.").line).toBe(
+    "The tests pass on main.",
+  );
+  // A thought that only names its subject keeps its line.
+  expect(thoughtHead("Checking the thinking budget in the config.").line).toBe(
+    "Checking the thinking budget in the config.",
+  );
+  expect(thoughtHead("I'm checking the next thinking").line).toBe("I'm checking the next thinking");
+});
+
 test("a thought's line is its own first line, a leading heading its words, and the rest is what follows", () => {
   expect(thoughtHead("**Planning the retry fix**\n\nMore detail.")).toEqual({
     line: "Planning the retry fix",
@@ -572,4 +597,56 @@ test("a line longer than THOUGHT_LINE_CHARS names its button with its start, so 
   render(thought(huge), false, "huge:0");
   expect(toggle()?.getAttribute("aria-label")).toBe(name);
   expect(preview()).toBe(huge);
+});
+
+// A folded row reads whether its line is cut only when the page's ResizeObserver reports it, after
+// the frame's own layout, never in the commit that mounts it (Leo, 2026-11-26: "Why should non
+// visible thing even affect the renderer thread anyways?"): a read there forced style and layout for
+// every folded row mounted, off-screen ones too. The report draws the chevron before that frame paints.
+test("a folded row reads its cut from the ResizeObserver's report, not in the commit that mounts it", () => {
+  const observed = new Set<{ callback: () => void; boxes: Set<Element> }>();
+  (dom!.window as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    private readonly entry: { callback: () => void; boxes: Set<Element> };
+    constructor(callback: () => void) {
+      this.entry = { callback, boxes: new Set() };
+      observed.add(this.entry);
+    }
+    observe(box: Element) {
+      this.entry.boxes.add(box);
+    }
+    unobserve(box: Element) {
+      this.entry.boxes.delete(box);
+    }
+    disconnect() {
+      observed.delete(this.entry);
+    }
+  };
+  const report = () =>
+    act(() => {
+      // A report can swap the row's line node, so its observer: walk the ones observing now.
+      const now = Array.from(observed);
+      for (const { callback, boxes } of now) if (boxes.size > 0) callback();
+    });
+  let reads = 0;
+  thoughtLayout.cut = () => {
+    reads += 1;
+    return clipped;
+  };
+  threshold = "every";
+  height = 20;
+  clipped = true;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_400 }, false, "observed-cut:0");
+  expect(reads).toBe(0);
+  expect(whole()).not.toBeNull();
+  report();
+  expect(reads).toBeGreaterThan(0);
+  expect(whole()).toBeNull();
+  expect(toggle()?.querySelector(".cv-tool__chevron")).not.toBeNull();
+  // A report that finds the same cut renders nothing again; one that finds it whole folds the chevron away.
+  report();
+  expect(toggle()).not.toBeNull();
+  clipped = false;
+  report();
+  expect(toggle()).toBeNull();
+  expect(whole()).not.toBeNull();
 });

@@ -12,6 +12,9 @@ private let theme = CmuxMobileTheme.standard
 public struct CloudMachinesScreen: View {
     @State private var model: CloudMachinesModel
     @State private var creating = false
+    /// A failed load reads again on its own (Leo, 2026-11-22: "vacuous decisions like that should
+    /// be just done"): a spinner first, the failure with one quiet line past the quiet bound, no Try Again.
+    @State private var autoRetry = AutoRetry()
     /// Opens the Cloud chats through a paired Mac (the shell's Cloud Chats sheet); nil hides it.
     private let openChats: (() -> Void)?
 
@@ -31,28 +34,37 @@ public struct CloudMachinesScreen: View {
                         .accessibilityIdentifier("cloudMachines.new")
                 }
             }
-            .refreshable { await model.load() }
+            .refreshable { await model.load(reportFailure: true) }
             .task { await model.load() }
+            .autoRetry(autoRetry, failing: loadFailed) { await model.load() }
             .sheet(isPresented: $creating) { NewCloudMachineSheet(model: model) }
             .modifier(CloudMachineAlerts(model: model, showsFailure: !model.showsDetail))
             .background(theme.colors.bgGrouped.color.ignoresSafeArea())
     }
 
+    /// The list failed to load for a signed-in account: a read to try again on its own.
+    private var loadFailed: Bool {
+        guard case .failed = model.phase else { return false }
+        return model.isSignedIn
+    }
+
     @ViewBuilder private var content: some View {
         switch model.phase {
-        case .loading:
-            CmuxSpinner(label: Text("Loading Cloud machines…"))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("cloudMachines.loading")
-        case .failed(let message):
+        case .failed(let message) where !loadFailed || autoRetry.isQuietLineShown:
             ContentUnavailableView {
                 Label("Couldn't load Cloud machines", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await model.load() } }.buttonStyle(.borderedProminent)
+                AutoRetryQuietLine(autoRetry)
             }
             .accessibilityIdentifier("cloudMachines.failed")
+        case .loading, .failed:
+            // placeholder-ok: This personal Cloud list has never answered for this account.
+            CmuxSpinner(label: Text("Loading Cloud machines…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("cloudMachines.loading")
+                .placeholderBound("cloud.machines.loading", .milliseconds(2000))
         case .loaded:
             list
         }
@@ -83,9 +95,9 @@ public struct CloudMachinesScreen: View {
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if machine.status == .running {
-                                Button("Pause", systemImage: "pause") { Task { await model.pause(machine) } }.tint(.orange).disabled(!model.canAct)
+                                Button("Pause", systemImage: "pause") { Task { await model.pause(machine) } }.tint(CmuxMobileTheme.standard.colors.needsYou.color).disabled(!model.canAct)
                             } else if machine.status == .paused {
-                                Button("Start", systemImage: "play") { Task { await model.start(machine) } }.tint(.green).disabled(!model.canAct)
+                                Button("Start", systemImage: "play") { Task { await model.start(machine) } }.tint(CmuxMobileTheme.standard.colors.success.color).disabled(!model.canAct)
                             }
                         }
                         .accessibilityIdentifier("cloudMachines.row.\(machine.id)")
@@ -261,10 +273,10 @@ struct CloudMachineAlerts: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.failure != nil }, set: { if !$0 { model.failure = nil } })) {
+            .alert("Couldn't do that", isPresented: Binding(get: { showsFailure && model.shownFailure != nil }, set: { if !$0 { model.dismissFailure() } })) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(model.failure ?? "")
+                Text(model.shownFailure ?? "")
             }
     }
 }
@@ -282,7 +294,6 @@ struct NewCloudMachineSheet: View {
                 Section {
                     TextField("Name (optional)", text: $name)
                         .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
                         .accessibilityIdentifier("cloudMachines.new.name")
                 }
                 Section {

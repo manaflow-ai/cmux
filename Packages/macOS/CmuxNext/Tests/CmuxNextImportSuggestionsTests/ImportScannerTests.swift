@@ -24,10 +24,10 @@ struct ImportScannerTests {
         deinit { try? FileManager.default.removeItem(at: url) }
     }
 
-    static func scanner(_ home: Home, imported: Set<String> = [], classic: Int? = nil,
+    static func scanner(_ home: Home, imported: Set<String> = [], classic: ClassicImportAvailability = .unavailable,
                         probe: @escaping @Sendable (URL) -> FileAccess = FileAccess.probe) -> ImportScanner {
         ImportScanner(home: home.url, environment: ImportEnvironment(homeDirectory: home.url, locateApp: { _ in nil }),
-                      variables: [:], importedProfiles: imported, classicWorkspaces: { classic }, probe: probe)
+                      variables: [:], importedProfiles: imported, classicAvailability: classic, probe: probe)
     }
 
     static let chrome = "Library/Application Support/Google/Chrome"
@@ -124,20 +124,18 @@ struct ImportScannerTests {
         #expect(Self.scanner(home) { _ in .missing }.scan().isEmpty)
     }
 
-    @Test func ghosttyIsInUseAndClassicCountsItsWorkspaces() throws {
+    @Test func ghosttyIsInUseAndClassicCanBeOfferedWithoutReadingItsWorkspaces() throws {
         let home = try Home([".config/ghostty/config"])
-        let found = Self.scanner(home, classic: 7) { _ in .missing }.scan()
+        let found = Self.scanner(home, classic: .available) { _ in .missing }.scan()
         #expect(found.first { $0.kind == .ghostty }?.access == .inUse)
-        #expect(found.first { $0.kind == .cmuxClassic }?.count == 7)
-    }
+        let classic = try #require(found.first { $0.kind == .cmuxClassic })
+        #expect(classic.count == nil && !classic.offersNothingNew)
 
-    /// Classic has a saved session and all of it is already here: the card stays (Settings ›
-    /// Import offers the import again); no saved session means no card.
-    @Test func classicWithEverythingHereIsStillFound() throws {
-        let home = try Home()
-        let found = Self.scanner(home, classic: 0) { _ in .missing }.scan()
-        #expect(found.first { $0.kind == .cmuxClassic }?.count == 0)
-        #expect(Self.scanner(home, classic: nil) { _ in .missing }.scan().allSatisfy { $0.kind != .cmuxClassic })
+        let accepted = Self.scanner(home, classic: .alreadyImported) { _ in .missing }.scan()
+        let finished = try #require(accepted.first { $0.kind == .cmuxClassic })
+        #expect(finished.count == 0 && finished.offersNothingNew)
+        let deck = ImportCardDeck(findings: [finished], state: .init(), jobs: .init())
+        #expect(deck.cards().first?.primary?.title == ImportSuggestionStrings.importAgain)
     }
 
     /// Conductor's workspaces are counted from its folders; its database alone is enough for a
@@ -155,6 +153,26 @@ struct ImportScannerTests {
         let databaseOnly = try Home(["Library/Application Support/com.conductor.app/conductor.db"])
         #expect(Self.scanner(databaseOnly) { _ in .missing }.scan().first { $0.kind == .conductor }?.count == 0)
         #expect(Self.scanner(try Home()) { _ in .missing }.scan().allSatisfy { $0.kind != .conductor })
+    }
+
+    /// Move this Mac to AutoCloud counts git checkouts one level under the roots `cmux migrate
+    /// plan laptop` reads, and only while `cloud.autoCloud` is on (off by default).
+    @Test func autoCloudCountsCheckoutsOnlyWhenOffered() throws {
+        let home = try Home(["code/app/.git/HEAD", "code/web/.git", "Projects/api/.git/HEAD",
+                             // Not checkouts: a folder with no `.git`, a file, a checkout two levels down, a root not read.
+                             "code/notes/README", "code/todo.md", "src/group/nested/.git/HEAD", "Desktop/site/.git/HEAD"])
+        let off = ImportScanner(home: home.url, environment: ImportEnvironment(homeDirectory: home.url, locateApp: { _ in nil }), probe: { _ in .missing })
+        #expect(off.scan().allSatisfy { $0.kind != .autoCloud })
+
+        var on = off
+        on.offersAutoCloud = true
+        let found = try #require(on.scan().first { $0.kind == .autoCloud })
+        #expect(found.id == "cloud.moveThisMac" && found.count == 3 && found.access == .ready)
+        #expect(found.name == ImportSuggestionStrings.moveToAutoCloud)
+
+        let empty = try Home(["code/notes/README"])
+        #expect(ImportScanner(home: empty.url, environment: ImportEnvironment(homeDirectory: empty.url, locateApp: { _ in nil }),
+                              probe: { _ in .missing }, offersAutoCloud: true).autoCloud() == nil)
     }
 
     @Test func iTermProfilesAndTheirColors() throws {

@@ -7,7 +7,9 @@ Run by cloud-chat-proof.yml's `flow: github-pr-app` before the recording (docs/c
    App to the public (a private App, or a wrong slug), and then an organization the App's owner does not own (the test
    org) cannot install it: the recording would stop on GitHub's install page. No secret; `--public-only` runs this alone.
 2. With the staging Stack pair in the environment (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD): the account signs in, and
-   `GET /v1/integrations/github/status` on the staging Cloud API says `configured: true` and `app_slug: <slug>`.
+   `GET /v1/integrations/github/status` on the staging Cloud API says `configured: true` and names the App's slug
+   (the API reads it from GitHub's `GET /app`, so a renamed App needs no change here). Check 1 then reads that slug;
+   `--slug` pins one instead, and `--public-only` without `--slug` checks FALLBACK_SLUG.
 
 Prints one `config: NAME ok|FAIL ...` line per check and exits 1 if any failed. Never prints a token or a password.
 """
@@ -22,7 +24,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-DEFAULT_SLUG = "cmux-cloud-staging"
+FALLBACK_SLUG = "cmux-cloud-staging"
 DEFAULT_API = "https://cloud-api-staging.cmux.dev"
 
 
@@ -71,41 +73,44 @@ def stack_sign_in(email: str, password: str) -> str:
     return module.sign_in(email, password, "staging")["accessToken"]
 
 
-def api_status(api: str, slug: str) -> bool:
+def api_status(api: str, slug: str | None) -> tuple[bool, str | None]:
+    """The status check, and the slug the API answered (None when it named none)."""
     email = os.environ.get("CMUX_DOGFOOD_STACK_EMAIL", "")
     password = os.environ.get("CMUX_DOGFOOD_STACK_PASSWORD", "")
     if not email or not password:
-        return say("api_status", False, "CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD are not set (the staging capture account)")
+        return say("api_status", False, "CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD are not set (the staging capture account)"), None
     try:
         token = stack_sign_in(email, password)
     except SystemExit as exc:
-        return say("api_status", False, f"the staging account did not sign in: {exc}")
+        return say("api_status", False, f"the staging account did not sign in: {exc}"), None
     status, body = get(f"{api.rstrip('/')}/v1/integrations/github/status", {"authorization": f"Bearer {token}"})
     del token
     if status != 200:
         return say("api_status", False, f"GET /v1/integrations/github/status answers HTTP {status or 'no answer'}; retry, "
-                   "and if it stays, the staging API is down or refuses the account")
+                   "and if it stays, the staging API is down or refuses the account"), None
     seen = body.get("app_slug")
     configured = body.get("configured") is True
     connection = body.get("connection") if isinstance(body.get("connection"), dict) else None
     detail = (f"configured {configured}, app_slug {seen!r}, allowed {body.get('allowed', '?')}, "
               f"connection {connection.get('status') if connection else 'none'}")
-    if not configured or seen != slug:
-        return say("api_status", False, f"{detail}; the recording needs configured true and app_slug {slug!r}: set the "
-                   "staging API's GitHub App (cmux-platform staging env) to that App")
-    return say("api_status", True, detail)
+    seen = seen.strip() if isinstance(seen, str) and seen.strip() else None
+    if not configured or seen is None or (slug is not None and seen != slug):
+        want = f"app_slug {slug!r}" if slug else "an app_slug"
+        return say("api_status", False, f"{detail}; the recording needs configured true and {want}: set the "
+                   "staging API's GitHub App (cmux-platform staging env) to that App"), seen
+    return say("api_status", True, detail), seen
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--slug", default=DEFAULT_SLUG)
+    parser.add_argument("--slug", default=None, help="pin the App's slug (default: the one the staging API names)")
     parser.add_argument("--api", default=DEFAULT_API)
     parser.add_argument("--public-only", action="store_true", help="only the App's public page (no secret)")
     args = parser.parse_args()
-    results = [public_app(args.slug)]
-    if not args.public_only:
-        results.append(api_status(args.api, args.slug))
-    return 0 if all(results) else 1
+    if args.public_only:
+        return 0 if public_app(args.slug or FALLBACK_SLUG) else 1
+    ok, seen = api_status(args.api, args.slug)
+    return 0 if public_app(args.slug or seen or FALLBACK_SLUG) and ok else 1
 
 
 if __name__ == "__main__":

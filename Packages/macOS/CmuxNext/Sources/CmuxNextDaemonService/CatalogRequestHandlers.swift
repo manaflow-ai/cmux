@@ -253,6 +253,7 @@ struct CatalogRequestStrings {
     }
 
     static var noPane: String {
+        // retry-prompt-ok: refuses the person's own request until they pick a tab (their choice, no button)
         String(localized: "catalogRequest.noPane", defaultValue: "Click a tab first, then try again.", table: "CatalogRequests", bundle: .localizedModule)
     }
 

@@ -4,7 +4,9 @@ import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/toolRowModel";
-import { permissionDiffs, shellCommand } from "../direct";
+import { useAutoRetry } from "../autoRetry";
+import { permissionDiffs } from "../permissionMessage";
+import { shellCommand } from "../toolActivity";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
@@ -357,10 +359,21 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   useEffect(() => {
     if (!working && answered) setEnded(answered);
   }, [working, answered]);
+  // The chat's permission requests could not be read (`ready` false, nothing in doubt): they are read
+  // again on its own (autoRetry.ts), never behind a Refresh button, since a read has no cost (Leo,
+  // 2026-11-22: "vacuous decisions like that should be just done"). Nothing shows at first; past
+  // the deadline, one quiet line. A failed answer (the read is fine) keeps its words and Refresh,
+  // and an answer in doubt keeps Check and retry, which sends the person's decision again.
+  const reading = state.supported && !state.ready && !state.uncertain && (!!state.error || state.loading);
+  const readFailed = reading && !!state.error;
+  const { stillTrying } = useAutoRetry(readFailed ? state.error : undefined, onRefresh, {
+    busy: state.loading || state.busy,
+  });
   if (!state.supported) return null;
   const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
   const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
-  if (!pending.length && !receipt && !state.error) return null;
+  const still = reading && stillTrying;
+  if (!pending.length && !receipt && !still && (!state.error || readFailed)) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
   // The group the keys answer (respondToPending): the first one waiting, whose answers list the
   // letters. No keycap is drawn: the pending command is one quiet row (Leo 2026-10-14), its answers small.
@@ -452,17 +465,25 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
           ))}
         </details>
       )}
-      {state.error && (
-        <div className="acpmux-permission-error" role="alert">
-          <span>{state.error}</span>
-          <button disabled={state.busy || state.loading} onClick={state.uncertain ? onRetry : onRefresh}>
-            {withShortcut(
-              state.uncertain ? t("permission.checkRetry") : t("permission.refresh"),
-              state.uncertain ? retryShortcut : refreshShortcut,
-            )}
-          </button>
-        </div>
-      )}
+      {reading
+        ? still && (
+            <p className="acpmux-permission-coverage" data-still-trying="">
+              {t("permission.stillReading")}
+            </p>
+          )
+        : state.error && (
+            <div className="acpmux-permission-error" role="alert">
+              <span>{state.error}</span>
+              {/* retry-prompt-ok: Check and retry sends the person's permission decision again (it may run a
+                tool); Refresh follows a failed answer, which the person reviews before answering again. */}
+              <button disabled={state.busy || state.loading} onClick={state.uncertain ? onRetry : onRefresh}>
+                {withShortcut(
+                  state.uncertain ? t("permission.checkRetry") : t("permission.refresh"),
+                  state.uncertain ? retryShortcut : refreshShortcut,
+                )}
+              </button>
+            </div>
+          )}
     </section>
   );
 }
