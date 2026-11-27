@@ -141,7 +141,7 @@ final class SidebarNoticeCardView: NSView {
             lineLabels.forEach { $0.removeFromSuperview() }
             lineLabels = notice.lines.prefix(Self.maxLines).map { line in
                 let label = Self.wrappingLabel()
-                label.stringValue = Self.bullet + line
+                label.attributedStringValue = Self.bulleted(line)
                 content.addSubview(label)
                 return label
             }
@@ -439,14 +439,22 @@ final class SidebarNoticeCardView: NSView {
         y += titleHeight
         let bodyWidth = max(0, width - pad - bodyX)
         if let detail = notice.detail {
-            let height = max(2 * line.caption, textHeight(detail, font: detailFont(notice), width: bodyWidth, in: measuring))
+            // A loading card keeps two lines so its stages never change its height; any other detail is as tall
+            // as its text (the Update Available card drew an empty line under its one-line version).
+            let minimum = notice.progress != nil ? 2 * line.caption : line.caption
+            let height = max(minimum, textHeight(detail, font: detailFont(notice), width: bodyWidth, in: measuring))
             frames.detail = CGRect(x: bodyX, y: y + Metrics.cardTextGap, width: bodyWidth, height: height)
             y += Metrics.cardTextGap + height
         }
         let lines = notice.lines.prefix(maxLines)
-        if !lines.isEmpty { y += Metrics.space1 }
+        // The list sits one row gap under the detail, its items a small gap apart so wrapped items read as one.
+        if !lines.isEmpty { y += Metrics.space2 }
+        let lineGap = Metrics.space1 / 2
         for text in lines {
-            let height = max(line.caption, textHeight(Self.bullet + text, font: Typography.cardBody, width: bodyWidth, in: measuring))
+            measuring.font = Typography.cardBody
+            measuring.attributedStringValue = bulleted(text)
+            let height = max(line.caption, ceil(measuring.size(forWidth: bodyWidth).height))
+            if !frames.lines.isEmpty { y += lineGap }
             frames.lines.append(CGRect(x: bodyX, y: y, width: bodyWidth, height: height))
             y += height
         }
@@ -483,6 +491,16 @@ final class SidebarNoticeCardView: NSView {
     /// A list line's mark.
     private static let bullet = "• "
 
+    /// `line` after its bullet with a hanging indent: a wrapped line starts under the text, not under the bullet
+    /// (Lawrence 2026-11-26, on the Update Available card's changelog).
+    static func bulleted(_ line: String) -> NSAttributedString {
+        let indent = ceil((bullet as NSString).size(withAttributes: [.font: Typography.cardBody]).width)
+        let style = NSMutableParagraphStyle()
+        style.headIndent = indent
+        style.lineBreakMode = .byWordWrapping
+        return NSAttributedString(string: bullet + line, attributes: [.paragraphStyle: style])
+    }
+
     override func layout() {
         super.layout()
         let b = bounds, pad = Self.padding, line = Self.lineHeight, close = Self.closeSide
@@ -511,7 +529,10 @@ final class SidebarNoticeCardView: NSView {
         }
         // The text button sits on the first row: the glyph's own, else the title's.
         let dismissMid = rows.glyphRow ? icon.frame.midY : titleLabel.frame.minY + line.body / 2
-        dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: dismissMid - dismissHeight / 2, width: dismissWidth, height: dismissHeight)
+        // The text button's words end on the card's padding line, the edge the buttons and bar end on: its hover fill
+        // reaches `space1` past it (Hide and Cancel stood half a padding in, out of line with everything under them).
+        let textEdge = b.width - pad + Metrics.space1
+        dismissButton.frame = NSRect(x: textEdge - dismissWidth, y: dismissMid - dismissHeight / 2, width: dismissWidth, height: dismissHeight)
         // The x in the card's top trailing corner, concentric with the card (Lawrence 2026-11-15: a card's x must be
         // concentric with its corner): the same inset from the top and the side, its hover the corner less it.
         let corner = Metrics.cornerControl(outerRadius: Self.cardCornerRadius, side: close)
@@ -519,7 +540,7 @@ final class SidebarNoticeCardView: NSView {
         closeButton.concentricRadius = corner.childRadius
         // The card's Cancel: a text button on the first row at the top right, left of the x when the card has one.
         let trailingWidth = trailingButton.fittingWidth
-        let trailingEnd = closeButton.isHidden ? b.width - pad / 2 : closeButton.frame.minX - Metrics.space1
+        let trailingEnd = closeButton.isHidden ? textEdge : closeButton.frame.minX - Metrics.space1
         trailingButton.frame = NSRect(x: trailingEnd - trailingWidth, y: dismissMid - dismissHeight / 2, width: trailingWidth, height: dismissHeight)
         layoutProgress(rows.progress)
         for (button, frame) in zip(actionButtons, rows.buttons) { button.frame = frame }
