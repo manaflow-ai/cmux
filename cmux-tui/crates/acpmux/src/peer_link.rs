@@ -58,6 +58,9 @@ pub struct LinkTimings {
     // timeout: a remote handler that stays connected but never answers needs a finite forwarding
     // hazard bound; a dead peer is detected by the transport keepalive.
     pub start: Duration,
+    /// How long a request waits for a link that is coming back (`Peer::await_reconnect`) before
+    /// it is refused as `peer_unreachable`. Zero refuses at once.
+    pub reconnect_wait: Duration,
 }
 
 /// The peer's whole `session/new` budget (`hub::SESSION_NEW_BUDGET`), plus room for the link.
@@ -81,6 +84,7 @@ impl Default for LinkTimings {
             stable_after: Duration::from_secs(60),
             request: Duration::from_secs(600),
             start: START_DEFAULT,
+            reconnect_wait: Duration::from_secs(5),
         }
     }
 }
@@ -111,6 +115,12 @@ impl LinkTimings {
         }
         if let Some(n) = secs("ACPMUX_PEER_START_SECS") {
             t.start = Duration::from_secs(n);
+        }
+        if let Some(ms) = std::env::var("ACPMUX_PEER_RECONNECT_WAIT_MS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+        {
+            t.reconnect_wait = Duration::from_millis(ms);
         }
         t
     }
@@ -874,6 +884,9 @@ impl PeerState {
     }
 }
 
+/// A link whose peer was heard less than this ago is taken to be on its way back (`Link::coming_back`).
+pub const COMING_BACK_MS: u64 = 30_000;
+
 /// How long a link stays down before its automatic retries park on an hourly schedule.
 pub const PARK_AFTER_MS: u64 = 24 * 60 * 60 * 1_000;
 
@@ -924,6 +937,17 @@ impl Link {
 
     pub fn is_ready(&self) -> bool {
         self.open && self.ready
+    }
+
+    /// Whether a request should wait for this link (`Peer::await_reconnect`): it is open and
+    /// finishing its handshake, its daemon is restarting, its first attempt has not ended, or the
+    /// peer was heard less than [`COMING_BACK_MS`] ago. A peer never reached, or not heard for
+    /// longer, is not waited for.
+    pub fn coming_back(&self, now: u64) -> bool {
+        self.open
+            || self.restarting
+            || (self.attempts == 0 && self.down_since.is_none())
+            || self.last_seen.is_some_and(|at| now.saturating_sub(at) < COMING_BACK_MS)
     }
 
     /// Whether an unforced reconnect leaves this link alone (`Hub::reconnect_peer_with`): it is
@@ -1099,7 +1123,7 @@ pub fn describe(name: &str, link: &Link, error: Option<&str>, now: u64) -> Strin
 /// request was not sent, so retrying it never runs it twice.
 pub fn unreachable_error(name: &str, link: &Link, error: Option<&str>, now: u64) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: {}; the request was not sent; run `acpmux machine ls` and retry after the peer reconnects",
+        "peer_unreachable: {}; the request was not sent; `acpmux machine ls` shows when it reconnects",
         describe(name, link, error, now)
     )).with_data(
         json!({
@@ -1376,6 +1400,22 @@ mod tests {
         assert_eq!(data["lastSeen"], 0);
         let never = describe("gone", &Link::default(), None, 5);
         assert_eq!(never, "gone (connecting, never reached)");
+    }
+
+    /// A request waits for a link that was heard moments ago or has not tried yet, never for
+    /// one that never answered or has been quiet for long (`Peer::await_reconnect`).
+    #[test]
+    fn a_request_waits_only_for_a_link_on_its_way_back() {
+        assert!(Link::default().coming_back(0), "its first attempt has not ended");
+        let mut blip = Link::default();
+        blip.opened(0);
+        blip.ready(0);
+        blip.down(1_000, STABLE);
+        assert!(blip.coming_back(COMING_BACK_MS - 1), "heard moments ago");
+        assert!(!blip.coming_back(COMING_BACK_MS + 1), "quiet for long");
+        let mut never = Link::default();
+        never.down(1_000, STABLE);
+        assert!(!never.coming_back(1_001), "never reached: refused at once");
     }
 
     #[test]
