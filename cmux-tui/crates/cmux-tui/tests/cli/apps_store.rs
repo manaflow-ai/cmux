@@ -1737,9 +1737,15 @@ fn build_store_folder(apps: &Apps) -> Vec<String> {
 /// action (`native_pane_show_action`, the table the sidebar item and
 /// `app.open` share); a native pane with none opens nothing. `None` is an app
 /// with nothing to open: installing it adds nothing the person can use.
+/// A setting-backed entry (a first-party manifest's `setting`, as Auto cleanup
+/// since #46903) is its switch: the entry's on/off writes that cmux setting,
+/// which cmux reads (`store.rs` `setting_of`), so installing it does something.
 fn open_target(entry: &Value, placed: &Value) -> Option<String> {
     let manifest = &entry["manifest"];
     let id = entry["id"].as_str().unwrap_or_default();
+    if let Some(key) = manifest["setting"]["key"].as_str() {
+        return Some(format!("setting switch {key}"));
+    }
     if manifest["implements"]["cmux.widget/1"].is_object() {
         // A widget shows only as a placed tile: the Install click places it (widgets.rs).
         return ["newtab", "sidebar"].into_iter().find_map(|place| {
@@ -1879,6 +1885,24 @@ fn a_command_only_store_listing_has_nothing_to_open_after_install() {
     let nothing: Vec<&String> =
         results.iter().filter(|(_, target)| target.is_none()).map(|(id, _)| id).collect();
     assert_eq!(nothing, [&"manaflow-ai/standup".to_string()], "{results:?}");
+}
+
+/// The rule above, without a daemon: a setting-backed entry (Auto cleanup,
+/// #46903) opens its switch, and a command-only manifest with no setting
+/// still opens nothing, so the shelf still fails a busted listing.
+#[test]
+fn a_setting_backed_listing_counts_its_switch_and_a_command_only_one_still_opens_nothing() {
+    let setting = json!({ "id": "cmux/worktree-cleanup", "manifest": {
+        "id": "cmux/worktree-cleanup",
+        "setting": { "key": "worktrees.autoCleanup", "default": true } } });
+    assert_eq!(
+        open_target(&setting, &json!({})).as_deref(),
+        Some("setting switch worktrees.autoCleanup")
+    );
+    let command_only = json!({ "id": "manaflow-ai/standup", "manifest": {
+        "id": "manaflow-ai/standup",
+        "contributes": { "commands": [{ "id": "standup.post" }] } } });
+    assert_eq!(open_target(&command_only, &json!({})), None);
 }
 
 /// The App Store page's listing (appstore-look): a row carries the app's
