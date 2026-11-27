@@ -12,7 +12,7 @@
     },
     {
       "path": "generated_metadata.go",
-      "sha256": "83b3042d8594a923af0fd5d071a3a27e09b46d1e8252311e060fe611669c335c",
+      "sha256": "0af1a821e72bf1b3a0896d23dd322a75b63bf556c6cdb3cf760c7649b9736dc6",
       "size": 140113
     },
     {
@@ -27,7 +27,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "816402c2834bf963171df769de97fbd2c131e0173d875084b403cd83a008ff4c",
+  "ir_sha256": "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c",
   "language": "go",
   "mux_protocol": 12,
   "schema_version": 2

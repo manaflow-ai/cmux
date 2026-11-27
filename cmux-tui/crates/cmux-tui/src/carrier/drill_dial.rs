@@ -112,9 +112,10 @@ impl CarrierSession for Session {
     }
 
     async fn lines(&self) -> Result<Lines, String> {
-        let mux = OpenedMuxControl::open(&self.multiplexer)
-            .await
-            .map_err(|error| format!("the daemon did not open a mux control stream: {error}"))?;
+        let mux = OpenedMuxControl::open(&self.multiplexer).await.map_err(|error| {
+            let tried = self.route().map(Route::name);
+            mux_open_failure(&error.to_string(), self.connection.last_failure().as_deref(), tried)
+        })?;
         let (ours, theirs) = tokio::io::duplex(1 << 20);
         let (their_reader, their_writer) = tokio::io::split(theirs);
         let pump = self.pumps.spawn_until_cancelled("drill mux pump", async move {
@@ -131,6 +132,24 @@ impl CarrierSession for Session {
     async fn kill(&self, route: Route) -> usize {
         self.routes.kill(route).await
     }
+}
+
+/// The failure of a stream the session could not open. A session whose resume gave up is
+/// closed, and its mux open says only `connection is closed`: the reason its last resume
+/// failed is said after it, as the connect log's `why=` codes (on `tried`, the route the
+/// session last moved to, for a code whose text names none), so the drill's record names the
+/// step that ran out the resume window (cloud-carrier-ssh-failover, 2026-11-27 run
+/// 46061527895, read nothing more). Codes only: never a host or a credential.
+pub(crate) fn mux_open_failure(
+    error: &str,
+    last_resume: Option<&str>,
+    tried: Option<&'static str>,
+) -> String {
+    let mut text = format!("the daemon did not open a mux control stream: {error}");
+    if let Some(why) = last_resume.and_then(|detail| contract::why_codes_on(detail, tried)) {
+        text.push_str(&format!(" (last resume: why={why})"));
+    }
+    text
 }
 
 /// Dials the machine of `spec` the way `cmux carrier dial` does (this device's carrier key,
@@ -181,3 +200,7 @@ pub(crate) async fn dial(spec: DialSpec) -> Result<Arc<dyn CarrierSession>, Stri
         pumps: cmux_scope::Scope::new("carrier drill session"),
     }))
 }
+
+#[cfg(test)]
+#[path = "drill_dial_tests.rs"]
+mod tests;

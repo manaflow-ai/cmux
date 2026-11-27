@@ -1,5 +1,6 @@
 import CmuxMobileArtifacts
 #if os(iOS)
+import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
@@ -22,7 +23,7 @@ struct ChatComposer: View {
     /// Expand and focus as soon as the composer appears (Reply instead,
     /// which swaps the permission bar back to the composer).
     var expandOnAppear = false
-    /// Replaces "Reply to <agent>" (e.g. while replying instead of a permission).
+    /// Replaces "Reply to <chat>" (e.g. while replying instead of a permission).
     var placeholderOverride: String?
     /// Sending answers the pending permission with a denial plus this message.
     var denyingPermission = false
@@ -410,6 +411,8 @@ struct ChatComposer: View {
                     .onTapGesture { expand() }
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel(placeholder)
+                    // The label is the chat's name, so tests find the capsule by this id.
+                    .accessibilityIdentifier("agentChat.composer.collapsed")
             } else {
                 // Return starts a new line, the send button sends; a hardware
                 // keyboard's Return sends, Shift-Return starts a new line.
@@ -449,7 +452,9 @@ struct ChatComposer: View {
     }
 
     private var placeholder: String {
-        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+        // A started chat is named by its title, never by the tab's title, which is the first
+        // prompt until the chat is named (issue 51331).
+        placeholderOverride ?? (store.isNewChat ? "Ask \(store.summary.agentName)" : store.replyPlaceholder)
     }
 
     /// Expands the capsule, then focuses the field once it exists.
@@ -553,7 +558,8 @@ struct ChatComposer: View {
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.primary)
             .lineLimit(1)
-            .padding(.horizontal, 12)
+            .padding(.leading, 10)
+            .padding(.trailing, 12)
             .frame(minHeight: 34)
             .background(Color.cmuxMobileFill, in: .capsule)
             // 44 pt high target around the 34 pt pill.
@@ -573,17 +579,34 @@ struct ChatComposer: View {
         .accessibilityIdentifier("agentChat.composer.model")
     }
 
+    /// The pill as the Mac's model chip draws it: the harness's mark, the model in full weight, and
+    /// the rest quieter. A mode other than the agent's first (Plan, Full access) is a small symbol,
+    /// not its name, and the effort a secondary word; a chevron says it opens a menu (issue 51331:
+    /// "Opus 5.5 Bypass permissions Medium" read as one long run of words).
     private func pickerLabel(withEffort: Bool) -> some View {
-        HStack(spacing: 4) {
+        let hasModel = store.currentModelName != nil || store.currentModelID != nil
+        return HStack(spacing: 6) {
+            if let family = AgentSenderIcon.family(store.summary.harness),
+               AgentBrandCatalog.spec(forAgent: family) != nil {
+                AgentBrandMark(agent: family, size: 15, style: .brand)
+                    .accessibilityHidden(true)
+            }
             Text(store.currentModelName ?? store.currentModelID ?? currentModeName ?? "Model")
-            // A mode other than the agent's first (Plan, Full access) stays in sight, as before.
-            if withEffort, store.currentModelName != nil || store.currentModelID != nil, let mode = currentModeName,
-               store.currentModeID != store.modes.first?.id {
-                Text(mode).foregroundStyle(.secondary)
+            if hasModel, let mode = store.currentModeID, mode != store.modes.first?.id, currentModeName != nil {
+                Image(systemName: ACPMode.pillSymbol(mode))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(ACPMode.isFullAccess(mode) ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    .accessibilityHidden(true)
             }
-            if withEffort, store.currentModelName != nil || store.currentModelID != nil, let effort = currentEffortName {
-                Text(effort).foregroundStyle(.secondary)
+            if withEffort, hasModel, let effort = currentEffortName {
+                Text(effort)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
         }
         .fixedSize(horizontal: withEffort, vertical: false)
     }
