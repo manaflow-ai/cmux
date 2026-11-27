@@ -8,6 +8,12 @@ extension PaletteController {
     public func commandsPage() -> PalettePageSpec {
         let registryProvider = makeRegistryProvider()
         registryProvider.curatesEmptyRoot = true
+        // The first frame reads the actions the empty root can show, not every catalog action (CMUX NEXT Stable perf
+        // gate: 25-36 ms of Cmd-Shift-P's turn read every action's state).
+        registryProvider.firstFrameRows = { [weak model] in
+            guard let model else { return .init(keys: [], pins: []) }
+            return .init(keys: model.frecency.rowKeys, pins: model.searcher.rankSettings.withLock { $0.pins })
+        }
         var providers: [any PaletteProvider] = [registryProvider]
         // Commands only: no open workspace, group, pane or tab rows, whatever is typed. Those are Cmd-P's (Go to
         // Workspace) and Search's (Cmd-Shift-A) (Lawrence 2026-11-15, msg 34162: "cmd shift p should NOT show

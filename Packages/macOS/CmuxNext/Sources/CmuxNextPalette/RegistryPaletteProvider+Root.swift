@@ -3,7 +3,7 @@ import CmuxNextActions
 extension RegistryPaletteProvider {
     /// A stable empty-query vocabulary. Adding a catalog action never lengthens the root;
     /// the complete catalog remains available to typed search and the Commands scope.
-    private static let rootIntentIDs: Set<ActionID> = [
+    static let rootIntentIDs: Set<ActionID> = [
         "newTab", "newTab.default", "newWindow", "closeTab", "closeWorkspace",
         "closePane", "splitRight", "splitDown", "openBrowser", "palette.newAgentChat",
         "palette.quickAgentChat", "openSettings", "goToWorkspace", "tab.search", "search.chats",
@@ -32,7 +32,7 @@ extension RegistryPaletteProvider {
         "agentPane.git.push", "newCloudMachine", "cloudSSH", "remote.reconnect", "agent.harness.add", "macScreen.open",
     ]
 
-    private static let rootFamilies: [(category: ActionCategory, members: Set<ActionCategory>, symbol: String)] = [
+    static let rootFamilies: [(category: ActionCategory, members: Set<ActionCategory>, symbol: String)] = [
         (.window, [.window, .pane, .screen, .other], "rectangle.split.2x2"),
         (.workspace, [.workspace, .sidebar], "rectangle.stack"),
         (.tab, [.tab], "rectangle.on.rectangle"),
@@ -42,6 +42,18 @@ extension RegistryPaletteProvider {
         (.cloud, [.cloud, .remote], "cloud"),
         (.settings, [.settings, .notifications], "gearshape"),
     ]
+
+    /// Each root family's section ids, in ``rootFamilies``' order: the rows `curatedRootItems` reads for its row.
+    static let rootFamilySectionIDs: [Set<String>] = rootFamilies.map { Set($0.members.map(\.paletteSectionID)) }
+
+    /// The root families (indices into ``rootFamilies``) whose row reads a section id's rows.
+    static let rootFamiliesBySectionID: [String: [Int]] = {
+        var families: [String: [Int]] = [:]
+        for (index, sections) in rootFamilySectionIDs.enumerated() {
+            for section in sections { families[section, default: []].append(index) }
+        }
+        return families
+    }()
 
     /// Changes empty-query visibility without rebuilding action rows, aliases, targets or effects. `eligible`: the
     /// listed actions the root may show (bound or served by the palette, not debug-only). A family's page lists its
@@ -64,8 +76,7 @@ extension RegistryPaletteProvider {
         // What `items` hid on the empty query (folded family members): a family's page shows them so again.
         let folded = Set(items.lazy.filter(\.hidesWhenQueryEmpty).map(\.id))
         let section = PaletteSection(id: "rootFamilies", title: PaletteStrings.commandsTitle, order: -100)
-        for family in Self.rootFamilies {
-            let sections = Set(family.members.map(\.paletteSectionID))
+        for (family, sections) in zip(Self.rootFamilies, Self.rootFamilySectionIDs) {
             // Retain the existing detailed families and their folded members in the drilldown.
             var listsEligible = false, anyEnabled = false
             for item in items where sections.contains(item.section.id) {
