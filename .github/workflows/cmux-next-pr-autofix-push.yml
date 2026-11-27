@@ -59,7 +59,7 @@ jobs:
     # The environment that holds CMUX_PR_AUTOFIX_APP_ID/KEY. This job runs from main (workflow_run), so its
     # deployment, if GitHub logs one, is on main's commit, never on the pull request.
     environment: cmux-pr-autofix
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
     timeout-minutes: 10
     permissions:
       actions: read
@@ -113,7 +113,7 @@ jobs:
       # the pull request's code, and the script decides what of it may be pushed.
       - name: Check out the base's apply script
         if: steps.pr.outputs.push == 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           path: base
@@ -123,7 +123,7 @@ jobs:
 
       - name: Check out the pull request head
         if: steps.pr.outputs.push == 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           path: head

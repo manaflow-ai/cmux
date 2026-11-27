@@ -2858,7 +2858,7 @@ class BranchWorkflowCopyTests(unittest.TestCase):
         steps = workflow["jobs"]["sweep"]["steps"]
         checkout = next(step for step in steps if step.get("name") == "Check out feat-cmux-next's workflow files")
         self.assertEqual(checkout["uses"].split("@")[0], "actions/checkout")
-        self.assertEqual(checkout["with"]["ref"], "feat-cmux-next")
+        self.assertEqual(checkout["with"]["ref"], "refs/heads/feat-cmux-next")
         self.assertEqual(checkout["with"]["sparse-checkout"], ".github/workflows")
         self.assertIs(checkout["with"]["persist-credentials"], False)
         # A failed fetch only means that branch's runs are all listed, as before.

@@ -31612,7 +31612,9 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     isSubagent: suppressVisibleMutations,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
-                    detail: isClearSessionStart ? "clear-session-start" : nil,
+                    detail: isClearSessionStart
+                        ? "clear-session-start"
+                        : (isClaudeCompactSessionStart(parsedInput) ? AgentJournalEventDraft.compactSessionStartDetail : nil),
                     attention: Self.semanticAttentionContext(parsedInput.rawObject),
                     occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
                     store: sessionStore,
@@ -33001,6 +33003,13 @@ struct CMUXCLI {
             )
             return false
         }
+    }
+
+    private func isClaudeCompactSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let source = parsedInput.object?["source"] as? String else {
+            return false
+        }
+        return source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "compact"
     }
 
     private func isClaudeClearSessionStart(_ parsedInput: ClaudeHookParsedInput) -> Bool {
