@@ -1,5 +1,6 @@
 import AVFoundation
 import CmuxNextCompat
+import CmuxNextWakeups
 import CoreMedia
 public import Foundation
 
@@ -125,11 +126,13 @@ public nonisolated final class RemoteMovieReplaySource: RemoteViewStreamSource {
         let task = Task.detached(priority: .userInitiated) {
             let clock = ContinuousClock()
             let start = clock.now
+            // Each frame's time in the file is a deadline: the replay is the stream's only event source.
+            let timer = DemandTimer(owner: "RemoteMovieReplaySource.frame")
             var frame: UInt32 = 0
             replay: for loop in 0 ..< loops {
                 for sample in samples {
                     let due = start + .seconds((Double(loop) * period + sample.seconds) / rate)
-                    if due > clock.now { try? await clock.sleep(until: due) }
+                    if due > clock.now { await Self.wait(timer, for: clock.now.duration(to: due)) }
                     if Task.isCancelled { break replay }
                     let now = DispatchTime.now().uptimeNanoseconds
                     continuation.yield(RemoteAccessUnit(
@@ -189,6 +192,39 @@ public nonisolated final class RemoteMovieReplaySource: RemoteViewStreamSource {
         units?.finish()
         statuses?.finish()
         cursors?.finish()
+    }
+
+    /// Resumes after `delay` on `timer`, or at once when the replay is cancelled.
+    private static func wait(_ timer: DemandTimer, for delay: Duration) async {
+        let pending = PendingResume()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                pending.set(continuation)
+                timer.schedule(after: delay, reason: "replay frame") { pending.resume() }
+                if Task.isCancelled {
+                    timer.cancel()
+                    pending.resume()
+                }
+            }
+        } onCancel: {
+            timer.cancel()
+            pending.resume()
+        }
+    }
+
+    /// One wait's continuation, resumed once by whichever comes first: the deadline or a cancel.
+    private final class PendingResume: Sendable {
+        private let state = Mutex<CheckedContinuation<Void, Never>?>(nil)
+
+        func set(_ continuation: CheckedContinuation<Void, Never>) { state.withLock { $0 = continuation } }
+
+        func resume() {
+            let continuation = state.withLock { pending in
+                defer { pending = nil }
+                return pending
+            }
+            continuation?.resume()
+        }
     }
 
     private static func fourCC(_ code: FourCharCode) -> String {
