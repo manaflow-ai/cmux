@@ -176,6 +176,15 @@ impl Daemon {
         )
         .await
     }
+    /// A one-shot ready watch whose `match` is looked for in `match_in` of each turn.
+    pub async fn watch_in(&self, to: &str, source: &str, pattern: &str, match_in: &str) -> Value {
+        self.call(
+            "_acpmux/watch_add",
+            json!({"to": to, "sessions": [source], "until": ["ready"], "once": true,
+            "match": pattern, "matchIn": match_in}),
+        )
+        .await
+    }
     pub async fn list(&self) -> Value {
         self.call("_acpmux/watch_ls", json!({})).await
     }
