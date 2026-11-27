@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46018008993",
+  "recorded_at": "2026-11-27T15:44:18Z",
+  "reason": "image inputs changed in 96bfe7caef4508a345835f559358826768430e93..6a35eb8238d327b978234a089cba9064a8bf2c2e; cmux-tui 888676d0c3b8, the newest build published on HEAD (pinned b75b74ccf357; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "888676d0c3b883d36a5660821f5c1d13184dbb7c",
+  "fixes": [
+    {
+      "sha": "6a35eb8238d327b978234a089cba9064a8bf2c2e",
+      "mergedAt": "2026-11-27T14:40:10Z",
+      "subject": "cloud image: Codex's managed layer defines the cmux provider but no longer selects it, so own mode works (#61850)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T15:44:18Z",
+    "snapshot_id": "sh-3e8ca0e5fb9e403b82152c2a0abe750a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46018008993): 34 checks passed"
+  },
+  "promotion": {
+    "result": "nothing",
+    "job": "success",
+    "commit": "",
+    "image": "cloud-native-auto-888676d0-46018008993-1",
+    "revision": "ci-46018008993-1",
+    "at": null
+  },
+  "rolled_back": false
+}
