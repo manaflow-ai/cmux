@@ -942,6 +942,8 @@ public struct AgentChatBottomStack: View {
                         // measured place (the transcript's inset, the keyboard pin) is the resting one.
                         .newChatEntrance(.composer, style: entranceStyle, settled: composerSettled)
                         .releasesNewChatEntrance($composerSettled) { [store] in store.newChatEntrance.composer = true }
+                        // Collapsed or open: the capsule a chat with turns opens on builds no text field.
+                        .chatReadyMarkOnShow()
                         .transition(.opacity)
                 }
             }

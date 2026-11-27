@@ -320,6 +320,18 @@ public final class AgentChatStore {
 
     public nonisolated static let untitledName = "New session"
 
+    /// The composer's placeholder for a started chat: "Reply to <the chat's title>", else
+    /// "Reply…". Only a title the agent or acpmux gave the chat (`sessionTitle`, from the
+    /// harness's `session_info_update` or acpmux's `AcpmuxSession.chatName`), never the tab's
+    /// title or the session's name, which are the first prompt until the chat is named: the
+    /// field read "Reply to Take over https://github.com/manaflow-…" (issue 51331).
+    public var replyPlaceholder: String { Self.replyPlaceholder(sessionTitle: sessionTitle) }
+
+    public nonisolated static func replyPlaceholder(sessionTitle: String?) -> String {
+        guard let title = sessionTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { return "Reply…" }
+        return "Reply to \(title)"
+    }
+
     public nonisolated static func chatTitle(sessionTitle: String?, name: String, firstPrompt: String?) -> String {
         if let sessionTitle, !sessionTitle.isEmpty { return sessionTitle }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2251,7 +2263,7 @@ public final class AgentChatStore {
         case .usage(let used, let size):
             if usage?.used != used || usage?.size != size { usage = (used, size) }
         case .sessionInfo(let title):
-            if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
+            if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != sessionTitle { sessionTitle = title }
         }
     }
 
