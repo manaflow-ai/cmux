@@ -5498,7 +5498,9 @@
     "errorInvalidTotp": "Ten kod uwierzytelniania dwuskładnikowego jest nieprawidłowy.",
     "errorSignUpNotAllowed": "Obecnie nie można tworzyć nowych kont.",
     "errorPasskey": "Logowanie kluczem dostępu nie zostało ukończone. Spróbuj ponownie lub użyj innej metody.",
-    "errorGeneric": "Coś poszło nie tak. Spróbuj ponownie."
+    "errorGeneric": "Coś poszło nie tak. Spróbuj ponownie.",
+    "errorRedirectNotAllowed": "Adres logowania tej kompilacji nie jest dozwolony w {backend}.",
+    "backendDevelopment": "backendzie deweloperskim"
   },
   "MobileRelease106": {
     "title": "Co nowego w 1.0.6",

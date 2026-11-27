@@ -27,6 +27,7 @@ import Testing
         let current: Bool
         private var methodLog: [String] = []
         private var failGap = false
+        private var failNextGap = false
         private var liveWithFirstGapPage: [(seq: Int, json: String)] = []
         private var attachParams: [[String: Any]] = []
         private var eventsCalls = 0
@@ -48,6 +49,7 @@ import Testing
         /// The Mac has written through turn `turn` (its last seq).
         func write(through turn: Int) { lock.withLock { end = turn * 5 + 5 } }
         func failGapPages(_ fail: Bool) { lock.withLock { failGap = fail } }
+        func failNextGapPage() { lock.withLock { failNextGap = true } }
         /// Each gap page holds at most `limit` records (the gap is read in several pages).
         func gapPagesHold(_ limit: Int) { lock.withLock { gapLimit = limit } }
         /// Turns written (and sent live) while the first gap page is read.
@@ -135,7 +137,8 @@ import Testing
                         let gapPage = params["maxBytes"] != nil
                         if gapPage {
                             gapPages += 1
-                            if failGap {
+                            if failGap || failNextGap {
+                                failNextGap = false
                                 return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"page timed out"}}"#.utf8)]
                             }
                         }
@@ -379,6 +382,23 @@ import Testing
         await Self.waitUntil { !store.isFillingGap }
         #expect(store.turns.map(\.id) == Self.ids(0...last))
         #expect(source.gapFill == nil)
+    }
+
+    /// A transient gap-page failure retries on the healthy connection, without waiting for
+    /// another attach to restart the fill.
+    @Test func aNarrowHoleRetriesAfterOnePageFailure() async throws {
+        let last = Self.narrowMissed
+        let fake = Fake(turns: 0..<(last + 1), visibleThrough: Chat.turns * 5)
+        fake.gapPagesHold(50)
+        fake.failNextGapPage()
+        let (hub, source, store, link) = try await Self.reconnect(fake, missedThrough: last)
+        defer { withExtendedLifetime((hub, link)) {} }
+
+        await Self.waitUntil { Self.shows(store, last) && !store.isFillingGap }
+        #expect(store.turns.map(\.id) == Self.ids(0...last))
+        #expect(source.gapFill == nil)
+        #expect(fake.attaches.count == 1)
+        #expect(fake.gapPageCount >= 5)
     }
 
     /// Turns the Mac writes while the gap fills arrive live and stay after the newest page;

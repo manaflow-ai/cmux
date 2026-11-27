@@ -84,11 +84,11 @@ impl LeaseBook {
     /// Write through a temp file and rename, so a crash never leaves half a book.
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+            crate::home_fs::create_dirs(dir)?;
         }
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(self)?)?;
-        std::fs::rename(&tmp, path)?;
+        crate::home_fs::write(&tmp, serde_json::to_vec_pretty(self)?)?;
+        crate::home_fs::rename(&tmp, path)?;
         Ok(())
     }
 

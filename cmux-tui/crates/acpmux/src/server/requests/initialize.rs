@@ -142,10 +142,16 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TEAM_ACK,
     method::MUX_TEAM_INBOX,
     method::MUX_TEAM_LISTEN,
+    method::MUX_TEAM_NAVIGATOR,
+    method::MUX_TEAM_PICK,
     method::MUX_TEAM_READ,
     method::MUX_TEAM_SEND,
+    method::MUX_TEAM_SESSION_INFO,
+    method::MUX_TRANSCRIPT_OFFLOAD,
     method::MUX_TURN_FRAMES,
     method::MUX_TURN_SHOTS,
+    method::MUX_ROOMS,
+    method::MUX_FOLLOW,
     method::MUX_TYPING,
     method::MUX_UPLOADS_KEEP,
     method::MUX_USAGE,
@@ -159,6 +165,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_WORKTREE_CLEAN,
     method::MUX_WORKTREE_REPORT,
     method::MUX_WORKTREE_RESTORE,
+    method::SESSION_SIGNATURE,
     super::super::peer_forward::TRUST_PEER_EXTENSION,
 ];
 
@@ -256,7 +263,7 @@ pub(super) fn initialize(
             "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
         },
         "authMethods": [],
-        "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": capabilities,
+        "_meta": {"acpmux": {"version": VERSION, "abi": crate::protocol::ABI, "build": crate::hub::build(), "capabilities": capabilities,
         // `local`: the unix socket or the proven local app
         // (`local_app.rs`), which the session pool serves.
         "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -361,6 +368,14 @@ fn bundled_cli_is_executable(path: &std::path::Path) -> bool {
     path.is_file()
 }
 
+/// `ACPMUX_PEER_SEND_WINDOW_KB`: the bytes of a peer link's bulk lane its transport may hold
+/// (`outbound.rs` `Outbound::set_window`). Unset or 0: [`super::super::outbound::BULK_WINDOW`],
+/// as every connection before it.
+fn peer_send_window() -> Option<usize> {
+    let kb = std::env::var("ACPMUX_PEER_SEND_WINDOW_KB").ok()?.trim().parse::<usize>().ok()?;
+    kb.checked_mul(1024).filter(|&bytes| bytes > 0)
+}
+
 /// What an `initialize` sets on its connection for the requests after it: the client's name,
 /// and whether a Mac lends this machine its GitHub login. Set in order, before the next request
 /// on the connection is spawned (`server/mod.rs`), so a peer link's `_acpmux/watch` sent with
@@ -373,6 +388,9 @@ pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
             format!("{} {name} {}", super::super::origin_usage_key(conn.origin), conn.id),
             !link,
         );
+        if link && let Some(bytes) = peer_send_window() {
+            conn.out.set_window(bytes);
+        }
     }
     // Only over a link that read this machine's peer token over ssh, never a paired device's
     // (`hub/github_owner.rs`). It counts from its `_acpmux/watch`, once the Mac's side of the

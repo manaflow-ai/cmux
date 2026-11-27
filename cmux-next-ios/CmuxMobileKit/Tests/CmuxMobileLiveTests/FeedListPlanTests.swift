@@ -86,6 +86,7 @@ import Testing
         #expect(plan.reconfigure.isEmpty)
     }
 
+    #if os(iOS)
     // MARK: Snapshot edits
 
     @Test func aLiveInsertIsAnEditNotARebuild() {
@@ -106,6 +107,8 @@ import Testing
     @Test func aReSortRebuilds() {
         #expect(FeedSnapshotEdit(old: ["a", "b", "c"], new: ["b", "a", "c"]) == nil)
     }
+
+    #endif
 
     // MARK: The pinned group (open asks first)
 
@@ -134,6 +137,8 @@ import Testing
         #expect(FeedPinnedGroup.count(store.visibleItems, filter: .all) == 0)
     }
 
+    // The edit rules are in Rust (feed_list_edit.rs); its tests run there too, and these on iOS.
+    #if os(iOS)
     /// An answered ask leaves the pinned group as one row move (the table animates it), not a rebuild.
     @Test func anAnsweredAskIsARowMove() {
         let old = ["ask-new", "ask-old", "new", "mid", "last"]
@@ -175,10 +180,38 @@ import Testing
         #expect(FeedMoveEdit(old: asks + ["a"], new: ["a"] + asks, movers: Set(asks), limit: 5)?.applied(to: asks + ["a"]) == ["a"] + asks)
     }
 
+    #endif
+
     /// Only events never shown before count for the "N new" pill (an undone Done does not).
     @Test func onlyNeverSeenEventsAreNew() {
         var seen: Set<String> = ["a", "b"]
         #expect(FeedListPlan.fresh(["n1", "a"], seen: &seen) == ["n1"])
         #expect(FeedListPlan.fresh(["n1"], seen: &seen).isEmpty)
+    }
+
+    // MARK: Arrivals (ios-feed.md item K)
+
+    @Test func liveEventsAtTheTopSpringIn() {
+        #expect(FeedArrival.springs(fresh: ["n"], order: ["n", "a", "b"], hadRows: true, atTop: true))
+        #expect(FeedArrival.springs(fresh: ["n", "m"], order: ["m", "n", "a"], hadRows: true, atTop: true))
+    }
+
+    @Test func aLoadAFilterSwitchOrAScrolledReaderShowsAtOnce() {
+        // The first rows of a session.
+        #expect(!FeedArrival.springs(fresh: ["a", "b"], order: ["a", "b"], hadRows: false, atTop: true))
+        // The reader is down the list (the "N new" pill counts them instead) or a jump is animating.
+        #expect(!FeedArrival.springs(fresh: ["n"], order: ["n", "a"], hadRows: true, atTop: false))
+        // A filter switch brings in unseen older rows below the top.
+        #expect(!FeedArrival.springs(fresh: ["old"], order: ["a", "old"], hadRows: true, atTop: true))
+        // A burst bigger than an arrival.
+        let burst: [String] = (0..<5).map { "n\($0)" }
+        #expect(!FeedArrival.springs(fresh: Set(burst), order: burst + ["a"], hadRows: true, atTop: true))
+        #expect(!FeedArrival.springs(fresh: [], order: ["a"], hadRows: true, atTop: true))
+    }
+
+    @Test func theSoftTapPlaysAtMostOncePerGap() {
+        #expect(FeedArrival.taps(now: 100, last: nil))
+        #expect(!FeedArrival.taps(now: 101, last: 100))
+        #expect(FeedArrival.taps(now: 100 + FeedArrival.hapticGap, last: 100))
     }
 }

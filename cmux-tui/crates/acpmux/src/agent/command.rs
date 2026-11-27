@@ -81,6 +81,9 @@ pub(crate) async fn harness_command_ready(
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
 /// A tool call's bound (`CMUX_DEADLINE` and the tool that set it): never an agent's.
 pub(crate) const CALL_BOUND_ENV: [&str; 2] = ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"];
+/// Where `lane-gh` finds its broker's socket (its default: the `ssh -R` forward's `broker.sock`).
+#[cfg(unix)]
+const LANE_GH_SOCKET_ENV: &str = "LANE_GH_SOCKET";
 
 pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
     cmd.get_envs()
@@ -316,6 +319,15 @@ fn build_harness_command(
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
             .envs(crate::person_tokens::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
+        // RFD 0060 Weft move 3 (`laneGhCarrier`, off by default): lane-gh over the carrier forward
+        // this daemon holds, while one of its owners is healthy; a profile's own value wins.
+        #[cfg(unix)]
+        if let Some(socket) = crate::cli::host_broker_forward::healthy_held_socket()
+            && !cmd.as_std().get_envs().any(|(k, _)| k == LANE_GH_SOCKET_ENV)
+            && !env.contains_key(LANE_GH_SOCKET_ENV)
+        {
+            cmd.env(LANE_GH_SOCKET_ENV, socket);
+        }
         // This daemon's own acpmux, by absolute path: a login profile's PATH may find an older
         // one, which proves no caller (`cli_caller.rs`, bench round 4 A5).
         if let Some(bin) = crate::cli_caller::own_bin() {
@@ -420,10 +432,16 @@ fn build_harness_command(
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
-        // Interactive or background (subrouter_priority.rs), after the lines already set.
+        // The sr and sr2 launchers reach their gateway with no base URL of their own.
+        let launcher = [Some(program.as_str()), Some(name), family]
+            .into_iter()
+            .flatten()
+            .any(|p| crate::sr2_priority::is_sr2_launcher(p) || is_sr_launcher(p));
+        // Interactive or background (subrouter_priority.rs), after the lines already set; only
+        // on a gateway's route, never on a direct Anthropic request.
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        if let Some(headers) = crate::subrouter_priority::custom_headers(get) {
+        if let Some(headers) = crate::subrouter_priority::custom_headers(get, launcher) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
         // sr2 cost labels (sr2_cost_labels.rs), over the lines set just above.
@@ -437,10 +455,10 @@ fn build_harness_command(
         cmd.env_remove(crate::sr2_priority::PERSON_ENV);
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        let launcher = crate::sr2_priority::is_sr2_launcher(program)
+        let sr2_launcher = crate::sr2_priority::is_sr2_launcher(program)
             || crate::sr2_priority::is_sr2_launcher(name)
             || family.is_some_and(crate::sr2_priority::is_sr2_launcher);
-        if let Some(headers) = crate::sr2_priority::custom_headers(get, launcher, sr2_person) {
+        if let Some(headers) = crate::sr2_priority::custom_headers(get, sr2_launcher, sr2_person) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
     }
@@ -505,6 +523,13 @@ fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
             "{CONFIG_ENV} is not a JSON object: kept as it is, so OpenCode is not asked to ask before each tool"
         ),
     }
+}
+
+/// Whether `program` (or a profile name) is the subrouter launcher: `sr` (`sr claude ...`) or
+/// the `claude-sr` profile named for it, which runs through the subrouter gateway.
+fn is_sr_launcher(program: &str) -> bool {
+    let base = std::path::Path::new(program.trim()).file_name().and_then(|n| n.to_str());
+    base.is_some_and(|b| b == "sr" || b == "claude-sr")
 }
 
 /// How Claude Code started from `profile` writes its question previews
