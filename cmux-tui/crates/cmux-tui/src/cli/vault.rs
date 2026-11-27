@@ -737,4 +737,36 @@ mod tests {
         assert!(parse(&words("ls --team nope")).is_err());
         assert_eq!(parse(&[]).unwrap().0, Verb::Help);
     }
+
+    /// The vault's one client: the bearer goes out in `authorization` and nowhere else (not the
+    /// path, not the team header, not the body), checked on the wire by cmux-egress's capture.
+    #[test]
+    fn seeded_bearer_rides_only_in_authorization() {
+        cmux_egress::capture::install().unwrap();
+        let origin = "https://vault-api.seeded-person.example.org";
+        cmux_egress::allow_named(origin);
+        let bearer = Zeroizing::new("SEEDvaultBearer-7c1e9a".to_owned());
+        let transport =
+            Transport::new(origin.to_owned(), bearer, Some("team_SEEDteam".into())).unwrap();
+        let body =
+            serde_json::json!({ "name": "OPENAI_API_KEY", "ciphertext": "c2VlZGVkLWNpcGhlcg" });
+        let _ = transport.send(
+            "PUT",
+            "/v1/vault/secrets",
+            &[("x-cmux-device", "dev_SEED")],
+            Some(&body),
+        );
+
+        assert_eq!(
+            cmux_egress::capture::requests_to("vault-api.seeded-person.example.org").len(),
+            1
+        );
+        assert_eq!(
+            cmux_egress::capture::leaks("SEEDvaultBearer-7c1e9a"),
+            vec![
+                "vault-api.seeded-person.example.org PUT /v1/vault/secrets: header authorization"
+                    .to_owned()
+            ]
+        );
+    }
 }

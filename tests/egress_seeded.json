@@ -160,6 +160,9 @@
   "cmux_tui::cli::runnable_link": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/runnable_link_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_team_query"
   },
+  "cmux_tui::cli::vault": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/vault.rs::seeded_bearer_rides_only_in_authorization"
+  },
   "cmux_tui::cli::video": {
    "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"
   },
