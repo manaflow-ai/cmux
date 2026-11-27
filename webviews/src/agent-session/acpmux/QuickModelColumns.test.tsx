@@ -874,10 +874,11 @@ test("another model, then a level, then Fast each land at once, the level kept w
     ["codex-Sol", "high", false],
     ["codex-Sol", "high", true],
   ]);
-  // Return on the picked model lands nothing again, and the menu stays open.
+  // Return on the picked model lands nothing again; it is the keyboard's commit, so it closes the
+  // menu (a click keeps it open, #50998; Return then only closes it).
   await press("Enter");
   expect(calls.picks).toHaveLength(3);
-  expect(calls.open).toBe(true);
+  expect(calls.open).toBe(false);
 });
 
 test("a tab without the running model shows its first model's catalog levels", async () => {
@@ -901,6 +902,16 @@ test("Fast flips at once on the running model, before the session reports it", a
   expect(calls.fast).toEqual([true]);
   expect(fastSwitch().getAttribute("aria-checked")).toBe("true");
   expect(fastSwitch().querySelector("[data-on]")).not.toBeNull();
+});
+
+test("five Fast cycles on a running model missing from a nonempty catalog never pick another model", async () => {
+  const calls = await openMenu([{ ...claude, models: [model("claude", "Sonnet")] }, codex]);
+  for (let cycle = 0; cycle < 5; cycle++) {
+    await click(fastSwitch());
+    await click(fastSwitch());
+  }
+  expect(calls.fast).toEqual(Array.from({ length: 10 }, (_, i) => i % 2 === 0));
+  expect(calls.picks).toHaveLength(0);
 });
 
 test("Fast on another model holds it with Fast and no level the person did not pick", async () => {

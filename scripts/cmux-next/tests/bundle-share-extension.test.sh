@@ -33,20 +33,34 @@ for key in sys.argv[2].split("."):
 print("" if value is None else value)' "$1" "$2"
 }
 
-# The host claims images the way the app does (Resources/Info.plist's "Image" document type): a sandboxed
-# extension may open files only with an app that claims their type, else Launch Services refuses with
-# kLSAppDoesNotClaimTypeErr (-10820, "sandboxed callers only") and the host never launches.
+# The host claims what the app claims: Resources/Info.plist's document types and URL schemes, read from the
+# app's own plist so the stand-in cannot drift from it. A sandboxed extension may open files only with an
+# app that claims them, else Launch Services refuses with kLSAppDoesNotClaimTypeErr (-10820, "sandboxed
+# callers only") and the host never launches; a stand-in that claimed only an "Image" type and not the
+# app's "file" URL scheme got exactly that (measure step 2ef5d86b, 2026-11-26). An entry whose value is a
+# build setting still unresolved here ($(CMUX_...), like the http/https handler rank) is left out.
+APP_PLIST="$ROOT/Resources/Info.plist"
 write_app_plist() { # <app> <id> <name> <executable>
   mkdir -p "$1/Contents"
   python3 -I -c '
-import plistlib, sys
-images = {"CFBundleTypeName": "Image", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
-          "LSItemContentTypes": ["public.png", "public.jpeg", "public.image"]}
+import json, plistlib, sys
+source = plistlib.load(open(sys.argv[5], "rb"))
+def resolved(entry):
+    text = json.dumps(entry).replace("$(PRODUCT_BUNDLE_IDENTIFIER)", sys.argv[2])
+    return None if "$(" in text else json.loads(text)
+def claims(key):
+    return [e for e in map(resolved, source.get(key, [])) if e is not None]
+documents, schemes = claims("CFBundleDocumentTypes"), claims("CFBundleURLTypes")
+images = [d for d in documents if "public.image" in d.get("LSItemContentTypes", [])]
+files = [u for u in schemes if "file" in u.get("CFBundleURLSchemes", [])]
+if not images or not files:
+    sys.exit("%s claims no images or no file URL scheme" % sys.argv[5])
 plistlib.dump({"CFBundleIdentifier": sys.argv[2], "CFBundleName": sys.argv[3], "CFBundleExecutable": sys.argv[4],
                "CFBundlePackageType": "APPL", "CFBundleVersion": "4242", "CFBundleShortVersionString": "0.99.1",
-               "LSMinimumSystemVersion": "14.0", "LSUIElement": True, "CFBundleDocumentTypes": [images]},
+               "LSMinimumSystemVersion": "14.0", "LSUIElement": True,
+               "CFBundleDocumentTypes": documents, "CFBundleURLTypes": schemes},
               open(sys.argv[1], "wb"))' \
-    "$1/Contents/Info.plist" "$2" "$3" "$4"
+    "$1/Contents/Info.plist" "$2" "$3" "$4" "$APP_PLIST" || fail "the stand-in Info.plist could not be written from $APP_PLIST"
 }
 
 check_plist() { # <appex Info.plist> <app id> <app name>
@@ -185,6 +199,14 @@ handoff_trace() {
   printf 'extension steps (%s):\n' "$ext_id"
   /usr/bin/log show --last 2m --style compact --info --predicate "subsystem == \"$ext_id\"" \
     2>&1 | grep -v '^Timestamp\|^Filtering' | tail -30 || true
+  # What Launch Services holds for the host: the types and schemes a -10820 is judged against.
+  printf 'launch services record (%s):\n' "$host_app"
+  "$LSREGISTER" -dump 2>/dev/null | awk -v id="com.cmuxterm.test.share-host.$suffix" '
+    /^-{20,}/ { if (hit) exit; block = ""; next }
+    { block = block $0 "\n" }
+    index($0, id) && /identifier:/ { hit = 1 }
+    END { if (hit) printf "%s", block; else print "(no record)" }' |
+    grep -E 'identifier|path:|claim|bindings|schemes|rank|role|flags' | head -60 || true
 }
 said=$("$TMP/perform" "$host_name Chat" "$TMP/shot.png" "$TMP/build/opened.txt" 2>&1) || {
   status=$?

@@ -195,7 +195,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(decision.base, A)
 
     def test_a_yolo_upload_counts_for_the_upload_gap(self):
-        decision = self.plan(runs=[dict(run(B, minutes_ago=20, run_id=3), yolo=True),
+        decision = self.plan(runs=[dict(run(B, minutes_ago=10, run_id=3), yolo=True),
                                    run(A, minutes_ago=8 * 60, run_id=2)])
         self.assertFalse(decision.build)
         self.assertIn("run 3", decision.reason)
@@ -236,12 +236,12 @@ class PlanTests(unittest.TestCase):
 
     def test_one_upload_per_gap(self):
         """2026-11-22: eight cmux INTERNAL uploads in five hours, one App Store Connect email each."""
-        recent = self.plan(runs=[run(A, minutes_ago=20, run_id=2)])
+        recent = self.plan(runs=[run(A, minutes_ago=10, run_id=2)])
         self.assertFalse(recent.build)
         self.assertIn("next upload waits until", recent.reason)
         in_flight = self.plan(runs=[run(B, status="in_progress", conclusion=None, minutes_ago=5, run_id=3), run(A, run_id=2)])
         self.assertFalse(in_flight.build)
-        self.assertTrue(self.plan(runs=[run(A, minutes_ago=30, run_id=2)]).build)
+        self.assertTrue(self.plan(runs=[run(A, minutes_ago=15, run_id=2)]).build)
         # A person's dispatch skips the gap.
         self.assertTrue(self.plan(runs=[run(A, minutes_ago=60, run_id=2)], force=True).build)
         # A failure does not start the gap.
@@ -255,6 +255,8 @@ class PlanTests(unittest.TestCase):
         decision = self.plan(runs=[running, run(A, minutes_ago=4 * 60, run_id=2)])
         self.assertTrue(decision.build, decision.reason)
         self.assertLess(ib.MIN_UPLOAD_GAP, dt.timedelta(hours=1))
+        # Under one build (17 to 22 min), so the gap never delays a head past the running build's end.
+        self.assertLessEqual(ib.MIN_UPLOAD_GAP, dt.timedelta(minutes=17))
 
     def test_base_is_the_newest_success(self):
         decision = self.plan(runs=[run(B, conclusion="failure", run_id=3), run(A, minutes_ago=120, run_id=2)])
@@ -613,6 +615,41 @@ RUNS_JSON = json.dumps({"workflow_runs": [{"id": 7, "display_title": f"cmux-next
                                            "created_at": "2026-10-20T08:00:00Z", "head_sha": "f" * 40}]})
 
 
+class FakeClock:
+    """time.time and time.sleep for a test: sleeping moves the clock, nothing really waits."""
+
+    def __init__(self):
+        self.start = self.now = 1_800_000_000.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class RoutedGh:
+    """FakeGh that answers `gh api rate_limit` (free, never rate-limited) apart from the scripted calls."""
+
+    def __init__(self, *answers, reset_in=None, clock=None):
+        self.answers, self.reset_in, self.clock = list(answers), reset_in, clock
+        self.reads = self.rate_limit_reads = 0
+        self.argvs = []
+
+    def __call__(self, argv, **_kw):
+        if argv[:3] == ["gh", "api", "rate_limit"]:
+            self.rate_limit_reads += 1
+            if self.reset_in is None:
+                return subprocess.CompletedProcess(argv, 0, json.dumps(
+                    {"resources": {"core": {"remaining": 4000, "reset": 0}}}), "")
+            return subprocess.CompletedProcess(argv, 0, json.dumps(
+                {"resources": {"core": {"remaining": 0, "reset": self.clock() + self.reset_in}}}), "")
+        self.reads += 1
+        self.argvs.append(argv)
+        code, out, err = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        return subprocess.CompletedProcess(argv, code, out, err)
+
+
 class GitHubApiTests(CapturedOutput):
     """Run 39724971722: a rate-limited `gh api` read turned the whole decide job red."""
 
@@ -639,17 +676,76 @@ class GitHubApiTests(CapturedOutput):
         self.assertEqual(ib.builder_runs(runner=gh, sleep=lambda _s: None), [])
         self.assertEqual(gh.calls, 1)
 
-    def test_lasting_outage_skips_the_head_instead_of_failing(self):
-        gh = FakeGh(RATE_LIMITED)
+    def test_lasting_outage_builds_the_head_instead_of_dropping_it(self):
+        """2026-11-25, trigger run 45707227721: the plan skipped on a spent installation limit, the next push met
+        the same limit, and no INTERNAL build ran from 19:04Z to 21:47Z. Past the whole wait it fails open."""
+        clock = FakeClock()
+        gh = RoutedGh(RATE_LIMITED, reset_in=None, clock=clock)
+        out = self.output_file()
         with mock.patch.object(ib, "_show", return_value="x"), \
                 mock.patch.object(ib, "builder_has_script", return_value=True), \
-                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": ""}):
-            code = ib.cmd_plan(A, ".", runner=gh, sleep=lambda _s: None)
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
+            code = ib.cmd_plan(A, ".", runner=gh, sleep=clock.sleep, clock=clock)
         self.assertEqual(code, 0)
-        self.assertGreater(gh.calls, 1)
-        self.assertIn("::warning::GitHub API unavailable after retries: gh: API rate limit exceeded",
-                      self.out.getvalue())
-        self.assertIn("skip: GitHub API rate-limited or down", self.out.getvalue())
+        self.assertIn("build=true", out.read_text())
+        self.assertIn("base=\n", out.read_text())
+        self.assertIn("BUILD: the builder's run list stayed unreadable", self.out.getvalue())
+        self.assertNotIn("skip: GitHub API rate-limited or down", self.out.getvalue())
+        # It waited the whole budget, in steps, before failing open.
+        self.assertGreaterEqual(clock.now - clock.start, ib.PLAN_API_WAIT.total_seconds())
+        self.assertGreater(gh.reads, 4)
+
+    def test_a_spent_limit_waits_for_its_reset_then_plans(self):
+        clock = FakeClock()
+        # Four rate-limited tries (one _gh_json round), then the limit resets and the run list reads.
+        gh = RoutedGh(RATE_LIMITED, RATE_LIMITED, RATE_LIMITED, RATE_LIMITED, (0, RUNS_JSON, ""),
+                      reset_in=600, clock=clock)
+        out = self.output_file()
+        with mock.patch.object(ib, "_show", return_value="x"), \
+                mock.patch.object(ib, "builder_has_script", return_value=True), \
+                mock.patch.object(ib, "builder_tip", return_value=None), \
+                mock.patch.object(ib, "yolo_shas", return_value=set()), \
+                mock.patch.object(ib, "changed_files", return_value=["cmux-next-ios/App.swift"]), \
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
+            code = ib.cmd_plan(B, ".", runner=gh, sleep=clock.sleep, clock=clock)
+        self.assertEqual(code, 0)
+        self.assertIn("build=true", out.read_text())
+        self.assertIn(f"base={A}", out.read_text())  # planned from the real run list, not failed open
+        self.assertIn("trying again in 605s", self.out.getvalue())
+        self.assertEqual(gh.rate_limit_reads, 1)
+
+    def test_an_outage_never_builds_before_cmux_next_ios_lands(self):
+        clock = FakeClock()
+        out = self.output_file()
+        with mock.patch.object(ib, "_show", return_value=None), mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
+            ib.cmd_plan(A, ".", runner=RoutedGh(RATE_LIMITED, clock=clock), sleep=clock.sleep, clock=clock)
+        self.assertIn("build=false", out.read_text())
+
+    def test_dispatch_waits_out_a_spent_limit(self):
+        clock = FakeClock()
+        gh = RoutedGh(RATE_LIMITED, RATE_LIMITED, RATE_LIMITED, RATE_LIMITED, (0, "", ""), reset_in=120, clock=clock)
+        self.assertEqual(ib.cmd_dispatch(A, B, runner=gh, sleep=clock.sleep, clock=clock), 0)
+        post = gh.argvs[-1]
+        self.assertEqual(post[:5], ["gh", "api", "-X", "POST",
+                                    "repos/manaflow-ai/cmux/actions/workflows/ios-internal-nightly.yml/dispatches"])
+        self.assertIn("ref=rc/cnx-ios-builder", post)
+        self.assertIn(f"inputs[sha]={A}", post)
+        self.assertIn(f"inputs[base]={B}", post)
+        self.assertIn(f"dispatched cmux-next-ios INTERNAL {A} (base {B})", self.out.getvalue())
+
+    def test_dispatch_that_never_gets_through_is_red(self):
+        clock = FakeClock()
+        code = ib.cmd_dispatch(A, "", runner=RoutedGh(RATE_LIMITED, clock=clock), sleep=clock.sleep, clock=clock)
+        self.assertEqual(code, 1)
+        self.assertIn("::error title=cmux INTERNAL dispatch lost::", self.out.getvalue())
+
+    def output_file(self):
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = Path(tmp.name) / "out"
+        out.write_text("")
+        return out
 
     def test_a_spent_quota_reads_again_on_the_fallback_token_and_plans(self):
         """2026-11-25 21:35Z and 21:38Z: the shared GITHUB_TOKEN quota was spent and two decides in a row
@@ -673,12 +769,34 @@ class GitHubApiTests(CapturedOutput):
         self.assertIn("reading again with GH_FALLBACK_TOKEN", self.out.getvalue())
         self.assertNotIn("skip: GitHub API rate-limited", self.out.getvalue())
 
-    def test_both_tokens_spent_is_an_error_annotation(self):
+    def test_both_tokens_spent_waits_then_builds_the_head(self):
+        """Both tokens spent: the plan waits out the limit, then fails open instead of going blind."""
+        clock = FakeClock()
+        out = self.output_file()
         with mock.patch.object(ib, "_show", return_value="x"), \
                 mock.patch.object(ib, "builder_has_script", return_value=True), \
-                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": "", "GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "wf"}):
-            ib.cmd_plan(A, ".", runner=FakeGh(RATE_LIMITED), sleep=lambda _s: None)
-        self.assertIn("::error title=cmux INTERNAL trigger blind::", self.out.getvalue())
+                mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out), "GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "wf"}):
+            code = ib.cmd_plan(A, ".", runner=RoutedGh(RATE_LIMITED, reset_in=None, clock=clock),
+                               sleep=clock.sleep, clock=clock)
+        self.assertEqual(code, 0)
+        self.assertIn("build=true", out.read_text())
+        self.assertNotIn("trigger blind", self.out.getvalue())
+
+    def test_dispatch_falls_back_to_the_app_token(self):
+        seen = []
+
+        def gh(argv, **kw):
+            seen.append(os.environ.get("GH_TOKEN"))
+            if os.environ.get("GH_TOKEN") == "wf":
+                return subprocess.CompletedProcess(argv, *RATE_LIMITED)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        clock = FakeClock()
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "wf", "GH_FALLBACK_TOKEN": "app"}):
+            code = ib.cmd_dispatch(A, B, runner=gh, sleep=clock.sleep, clock=clock)
+            self.assertEqual(os.environ["GH_TOKEN"], "wf")
+        self.assertEqual(code, 0)
+        self.assertEqual(seen[-1], "app")
+        self.assertIn("trying GH_FALLBACK_TOKEN", self.out.getvalue())
 
     def test_other_api_errors_still_fail(self):
         gh = FakeGh((1, "", "gh: Resource not accessible by integration (HTTP 403)"))
@@ -752,6 +870,16 @@ class TriggerRunnerTests(unittest.TestCase):
         group = next(line.strip() for line in workflow.splitlines() if line.strip().startswith("group:"))
         self.assertIn("github.event_name == 'workflow_dispatch' && '-dispatch'", group)
         self.assertIn("cancel-in-progress: false", workflow)
+
+    def test_the_decide_job_outlasts_both_api_waits_and_dispatches_with_them(self):
+        """2026-11-25: a spent API limit dropped heads; the plan and the dispatch now wait it out in the job."""
+        workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
+        decide = workflow.split("\n  decide:\n", 1)[1].split("\n  yolo:\n", 1)[0]
+        minutes = int(re.search(r"timeout-minutes: (\d+)", decide).group(1))
+        waits = (ib.PLAN_API_WAIT + ib.DISPATCH_API_WAIT).total_seconds() / 60
+        self.assertGreaterEqual(minutes, waits + 5)
+        self.assertIn('ios_internal_builder.py dispatch --sha "$HEAD_SHA" --base "$BASE_SHA"', decide)
+        self.assertNotIn("gh workflow run ios-internal-nightly.yml", decide)
 
 if __name__ == "__main__":
     unittest.main()

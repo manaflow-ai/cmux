@@ -1,6 +1,7 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import { useLiveSummary, useLiveSummaryValue } from "./liveSummary";
 import { acpmuxPerf } from "./perf";
+import { KeyHint } from "../../ui/KeyHint";
 import React, {
   useCallback,
   useContext,
@@ -38,7 +39,6 @@ import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
-import { Keycap } from "./Keycap";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
@@ -111,7 +111,7 @@ import {
   MenuSeparator,
 } from "../../ui/Menu";
 import { cx } from "../../ui/cx";
-import { registerPicker } from "./pickerOpeners";
+import { registerPicker, ChatViewParked } from "./pickerOpeners";
 import { MENU_WINDOW_AT, MenuWindowRows, sectionStarts, useMenuWindow } from "../../ui/menuWindow";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
@@ -147,6 +147,7 @@ import {
   modelFamily,
   reasoningChoices,
   effortTakes,
+  hintIsKey,
 } from "./composerPickerModel";
 /// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
 type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
@@ -1023,9 +1024,21 @@ export function ComposerPickers({
   // level there (cloudStartMode): this Mac's answer for the agent the machine runs tells that level,
   // never the mode itself, which is the machine's harness's (cloud-ergo-start-chat).
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer" && !snapshot.startsOnCloud;
-  const asksStart = awaiting && local && modes.length === 0;
+  // The access chip waits on the chat's modes, not on its session id: a session acpmux attached
+  // reports its id before its modes (`summary.modes` absent), and dropping the start mode in that
+  // gap blanked the chip between "Bypass permissions" and the reported mode (Leo 2026-11-26: "the
+  // bypass permissions appears then disappears after it loaded in").
+  // Only a harness known to report modes waits: one that reports none never fills the gap.
   const chipCatalogEntry = snapshot.catalog.find((entry) => entry.id === chipHarness);
   const chipFamily = summary?.family ?? chipCatalogEntry?.family;
+  const modesComing =
+    !!summary?.sessionId &&
+    !switching &&
+    !summary.modes &&
+    chipCatalogEntry?.modeless !== true &&
+    (chipCatalogEntry?.reportsModes === true || harnessFamilyMenu(chipFamily, chipHarness) !== undefined);
+  const modesAwaited = modes.length === 0 && (awaiting || modesComing);
+  const asksStart = modesAwaited && local;
   // The agent the Cloud machine starts (cloudStartAgent): the composer's own, except UniiChat (a Mac
   // with no agent CLI shows it), which the send leaves out so the machine starts Claude. Another
   // agent whose Cloud modes cmux does not know keeps the chip's generic label: the machine decides.
@@ -1123,8 +1136,7 @@ export function ComposerPickers({
     harnessFamilyMenu(chipFamily, chipHarness) !== undefined ||
     !!startAnswer?.modeId;
   const modeless =
-    awaiting &&
-    modes.length === 0 &&
+    modesAwaited &&
     ((profileModes?.modeless ?? chipCatalogEntry?.modeless) === true || (chipCatalogEntry !== undefined && !someModes));
   // A harness whose modes acpmux knows only from its harness row (`reported`: its startup probe, or
   // a chat of it this daemon ran, such as Antigravity's) and where acpmux sets no start mode (it has
@@ -1147,7 +1159,7 @@ export function ComposerPickers({
       : (startAnswer ??
         (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
         ownStart ??
-        (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined)));
+        (modesAwaited ? MODE_PLACEHOLDER : undefined)));
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
@@ -1645,7 +1657,8 @@ function AccessMenu({
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, () => setOpen(true))), [label, parked]);
   const modeShortcut = useShortcut(SHORTCUT_ACTIONS.composerSwitchMode);
   // A pick draws at once, until the session reports a mode: the picked one, or (once the agent
   // answered) any other than the one the pick left, which the agent runs instead (it mapped the
@@ -2016,14 +2029,16 @@ export function ContextRing({
   const arcRadius = ring.radius;
   const meter = useRingMotion(chat, planShown ? "plan" : contextKnown ? "context" : undefined, fraction);
   const counts = meter.motion !== "ease-number-jumps" && meter.motion !== "instant";
+  const parked = useContext(ChatViewParked);
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
     // intentionally inert, so opening it by label must not reveal an empty 0% card.
+    if (parked) return;
     const unregister = registerPicker(t("context.title"), () => {
       if (known) setPinned(true);
     });
     return unregister;
-  }, [known, t]);
+  }, [known, t, parked]);
   useEffect(() => {
     // Usage can disappear when a session resets: no pinned card over a stale reading.
     if (!known) closeCard();
@@ -2192,7 +2207,7 @@ export function ContextRing({
       >
         {/* Known usage shows this card in place of the ring's tooltip, so the card names the key
             (Show Context Usage) where the tooltip would: top right, in the secondary ink. */}
-        {ringShortcut && <span className="ui-tooltip-hint acpmux-context-card-hint">{ringShortcut}</span>}
+        {ringShortcut && <KeyHint keys={ringShortcut} className="ui-tooltip-hint acpmux-context-card-hint" />}
         {planShown && (
           <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
             <PlanUsageCardBody limits={plan?.limits} family={plan?.family} now={now} />
@@ -2343,7 +2358,8 @@ export function Picker({
     },
     [open],
   );
-  useEffect(() => registerPicker(label, open), [label, open]);
+  const parked = useContext(ChatViewParked);
+  useEffect(() => (parked ? undefined : registerPicker(label, open)), [label, open, parked]);
   // Past MENU_WINDOW_AT rows (the host's catalog rows are not bounded) only the rows near the
   // menu's viewport draw (menuWindow.tsx).
   const sizes = sections.map((section) => section.choices.length);
@@ -2496,13 +2512,18 @@ const PickerMenuItem = memo(function PickerMenuItem({
           </span>
         )}
       </span>
-      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {choice.hint &&
+        (hintIsKey(choice.hint) ? (
+          <KeyHint keys={choice.hint} className="acpmux-menu-hint" />
+        ) : (
+          <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
+        ))}
       {returnHint && choice.verb && (
         // Drawn on every row and shown on the highlighted one only (styles.css), so moving the
         // highlight re-renders nothing. Decoration: the row's name is what a screen reader reads.
         <span className="acpmux-menu-return" aria-hidden="true">
           <span className="acpmux-menu-return-verb">{choice.verb}</span>
-          <Keycap>↩</Keycap>
+          <KeyHint keys="↩" />
         </span>
       )}
       {current && <CheckIcon />}
@@ -2821,6 +2842,7 @@ function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: Qu
             : t(phase.reasonKey ?? "harnesses.commandFailed"),
           busy: false,
           actions: [
+            // retry-prompt-ok: runs the harness's install (and its sign-in) again, a command with side effects.
             { label: t("picker.tryAgain"), run: retryHarnessSetup },
             ...(docsUrl
               ? [

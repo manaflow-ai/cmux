@@ -1,2 +1,4 @@
-# file.open documents --where editor following files.textEditor (#48831 follow-up); the re-pin carries it
+# --machine opens a file of another machine, and a joined Mac's dial can take longer than 2 s (lane/rmp-own-file-open): the dump has the old fields until the re-pin
+/arguments
 /description
+/waitsForResult

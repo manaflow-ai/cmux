@@ -203,6 +203,11 @@ pub(crate) fn dispatch(
     if operation == "git.files.list" {
         // A folder in no repository still lists, from the disk: git only adds to a file tree.
         return match Repository::open(&directory) {
+            // The home folder's repository holds every folder of the home
+            // folder: its listing would walk all of them (`cmux_git::home`).
+            Ok(repository) if !repository.lists_untracked() => {
+                list::list_folder(&directory, &request.fields)
+            }
             Ok(repository) => list::list(&repository, &directory, &request.fields),
             Err(OpenError::NotARepository) => list::list_folder(&directory, &request.fields),
             Err(error) => Err(open_failed(operation, &directory, error)),
@@ -299,8 +304,14 @@ fn status(directory: &Path, github: bool) -> Result<read_cache::RefsRead, Resour
     if let Some((_, base)) = repository.base_branch() {
         value.set("base", json!(base));
     }
-    if let Some(main) = repository.main_checkout() {
+    let layout = repository.layout();
+    if let Some(main) = layout.main_checkout {
         value.set("worktree", json!({"main_root": main.to_string_lossy()}));
+    }
+    // A view offers no Commit (git.commit refuses merge_in_progress) and no
+    // Apply (git.worktree.apply refuses unmerged) while this is set.
+    if let Some(state) = layout.in_progress {
+        value.set("in_progress", json!(state));
     }
     Ok(read_cache::RefsRead { value, root, git_dir, stamp })
 }
