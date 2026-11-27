@@ -128,6 +128,7 @@ smoke() { # binary name dist tests
     cmux-relay)
       check "$name --version" version_ok "$exe"
       check "$name serves /healthz and a websocket" relay_serves "$exe" ;;
+    acpmux) check "$name --version" version_ok "$exe" ;; # build-windows-acpmux's only check
     *) check "$name --version" version_ok "$exe"; check "$name --help" help_ok "$exe" ;;
   esac
 }
@@ -138,7 +139,7 @@ case "${1:-}" in
     setup
     for b in cmux-tui cmux-tui-hook cmux-tui-host cmux-relay chatmux-relay; do smoke "$b" "${2:?DIST_DIR}" "${3:?TESTS_DIR}"; done
     exit $failed ;;
-  cmux-tui|cmux-tui-hook|cmux-tui-host|cmux-relay|chatmux-relay)
+  cmux-tui|cmux-tui-hook|cmux-tui-host|cmux-relay|chatmux-relay|acpmux)
     setup; smoke "$1" "${2:?DIST_DIR}" "${3:?TESTS_DIR}"; exit $failed ;;
   *) echo "usage: $0 setup | all DIST TESTS | BINARY DIST TESTS" >&2; exit 2 ;;
 esac
