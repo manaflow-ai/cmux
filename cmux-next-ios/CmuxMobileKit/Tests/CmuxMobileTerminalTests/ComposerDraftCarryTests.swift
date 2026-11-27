@@ -78,7 +78,7 @@ import Testing
         let after = model()
         after.adoptComposer(from: before)
         #expect(after.composerText == "make test", "the old session stops with its hold: never silently lost")
-        #expect(after.composerNotice == TerminalConnectionState.inputNotSentNotice)
+        #expect(after.composerNotice == nil, "kept quietly, no banner")
     }
 
     @Test func theDraftIsWrittenAsItChangesAndGoesOnceSent() {

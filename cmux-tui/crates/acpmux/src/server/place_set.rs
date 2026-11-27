@@ -10,10 +10,11 @@
 //! * `place_undo {sessionId, confirm?}`: moves back to where the newest `moved` line came from.
 //! * `place_get {sessionId | sessionIds}`: the pin, and where a move stands.
 //!
-//! The move to a machine is the existing `acpmux session move` (this daemon runs it as a child),
-//! so a chat moves exactly as `session move` moves it: `--carry-changes`, the branch pushed, the
+//! The move to a machine is the existing `acpmux session move` (this daemon runs it as a child), so
+//! a chat moves exactly as `session move` moves it: `--carry-changes`, the branch pushed, the
 //! worktree made there. Cloud starts a fresh Cloud machine and moves the chat onto it with the
-//! `cmux` CLI (`CMUX_BIN`, else `cmux` on PATH), the same two steps a hybrid start's driver runs
+//! `cmux` CLI (`login_env::cmux_cli`: `CMUX_BIN`, else the app's bundled CLI, else `cmux` on PATH),
+//! the same two steps a hybrid start's driver runs
 //! (`place_move::cloud_new_words`, `cloud_move_words`): the machine starts at once, even
 //! mid-turn, and the chat moves once it is up and the chat is between turns; a fresh machine the
 //! chat did not move to is paused. A chat between turns moves now; a running one waits for its
@@ -493,9 +494,7 @@ fn move_line(
 
 /// One `cmux --json` step ([`pm::step_answer`]), bounded by `limit`.
 async fn cmux(words: &[String], limit: Duration) -> Result<Value, String> {
-    let bin = std::env::var_os(crate::hosted_mcp::CMUX_BIN_ENV)
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "cmux".into());
+    let bin = crate::login_env::cmux_cli();
     let mut command = tokio::process::Command::new(bin);
     command.args(words).stdin(std::process::Stdio::null()).kill_on_drop(true);
     let step = words.iter().take(2).cloned().collect::<Vec<_>>().join(" ");
