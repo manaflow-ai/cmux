@@ -2397,8 +2397,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         run: scripts/ci/clear-dirs.sh remote-daemon-assets
 
-      - &x12
-        name: Wait through GitHub API rate limits in this job's gh calls
+      - name: Wait through GitHub API rate limits in this job's gh calls
         # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-2.md
         if: inputs.nightly_next_unsigned_run == ''
         run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
@@ -7114,7 +7113,7 @@ jobs:
       - name: Wait through GitHub API rate limits in this job's gh calls
         if: inputs.nightly_next_unsigned_run == ''
         # This job has checked out the workflow's trusted publication tooling above. The split build job
-        # keeps x12's source-tree fallback because it has no .publish-tooling checkout.
+        # keeps its source-tree fallback because it has no .publish-tooling checkout.
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
       - *claim-publication-mac
       # After the claim (the release App key comes after it, rule 7a of
