@@ -312,7 +312,7 @@ pub fn plan_recorded(
             url: repo.github.url(),
             repo: repo.github.slug(),
             base,
-            head_ref: repo.head_ref,
+            head_ref: repo.here.head_ref,
             head: recorded.head.clone(),
             index: recorded.index.clone(),
             work: recorded.work.clone(),
@@ -337,20 +337,38 @@ enum Since<'a> {
     Previous(&'a PreviousSeed),
 }
 
-/// The working copy as the plan sees it.
+/// The working copy and the GitHub remote a seed goes to.
 struct Repo {
-    top: PathBuf,
-    head: String,
-    head_ref: Option<String>,
+    here: Here,
     remote: String,
     /// HEAD's upstream (`refs/remotes/...`) when it is on [`Self::remote`].
     upstream: Option<String>,
     github: github::GithubRepo,
-    paths: GitPaths,
     /// Whether `core.sparseCheckout` is on.
     sparse_checkout: bool,
     /// Read once, on first use ([`Self::refs`]).
     refs: std::cell::OnceCell<Refs>,
+}
+
+/// Local working-copy state. Comparing a seed on pull needs no remote.
+struct Here {
+    top: PathBuf,
+    head: String,
+    head_ref: Option<String>,
+    paths: GitPaths,
+}
+
+impl std::ops::Deref for Repo {
+    type Target = Here;
+    fn deref(&self) -> &Here {
+        &self.here
+    }
+}
+
+impl std::ops::DerefMut for Repo {
+    fn deref_mut(&mut self) -> &mut Here {
+        &mut self.here
+    }
 }
 
 /// The paths inside the git dir the plan reads (`--git-path`, absolute).
@@ -374,7 +392,7 @@ struct Refs {
     stash: Option<String>,
 }
 
-impl Repo {
+impl Here {
     fn open(folder: &Path) -> Result<Self, Fallback> {
         // One rev-parse for what took one git each: the top, the git paths the plan reads,
         // HEAD's commit and its branch (`HEAD` when detached). When it fails, the questions
@@ -417,7 +435,15 @@ impl Repo {
             ));
         }
         let head_ref = (symbolic != "HEAD").then_some(symbolic);
-        let remotes: Vec<String> = git::text(git::at(&top).arg("remote"))
+        Ok(Self { top, head, head_ref, paths })
+    }
+}
+
+impl Repo {
+    fn open(folder: &Path) -> Result<Self, Fallback> {
+        let here = Here::open(folder)?;
+        let top = &here.top;
+        let remotes: Vec<String> = git::text(git::at(top).arg("remote"))
             .map_err(|error| failed("listing remotes", error))?
             .lines()
             .map(str::to_string)
@@ -425,7 +451,7 @@ impl Repo {
         if remotes.is_empty() {
             return Err(Fallback::new(FallbackCode::NoRemote, "the repository has no remote"));
         }
-        let tracked = head_ref.as_deref().and_then(|head_ref| upstream_of(&top, head_ref));
+        let tracked = here.head_ref.as_deref().and_then(|head_ref| upstream_of(top, head_ref));
         let tracked = tracked.filter(|(remote, _)| remotes.contains(remote));
         let remote = if let Some((remote, _)) = &tracked {
             remote.clone()
@@ -442,17 +468,14 @@ impl Repo {
                 ),
             ));
         };
-        let config = Config::read(&top);
-        let github = remote_repo(&top, &remote, config.url(&remote))?;
-        let sparse_checkout = config.sparse_checkout(&top);
+        let config = Config::read(top);
+        let github = remote_repo(top, &remote, config.url(&remote))?;
+        let sparse_checkout = config.sparse_checkout(top);
         Ok(Self {
-            top,
-            head,
-            head_ref,
+            here,
             remote,
             upstream: tracked.map(|(_, upstream)| upstream),
             github,
-            paths,
             sparse_checkout,
             refs: std::cell::OnceCell::new(),
         })
@@ -578,7 +601,7 @@ impl Repo {
     }
 }
 
-/// Which fallback a folder takes when [`Repo::open`]'s one rev-parse failed (`error`), asked
+/// Which fallback a folder takes when [`Here::open`]'s one rev-parse failed (`error`), asked
 /// in the order a person fixes them: no working copy, not its top, no commit.
 fn why_not(folder: &Path, error: String) -> Fallback {
     let shown = folder.display();
@@ -748,9 +771,11 @@ pub(crate) struct Current {
 }
 
 pub(crate) fn current(folder: &Path) -> Result<Current, Fallback> {
-    let repo = Repo::open(folder)?;
+    let repo = Here::open(folder)?;
     let scratch = Scratch::new()?;
-    let made = commits(&repo, &scratch)?;
+    let sparse_checkout =
+        git::optional(git::at(&repo.top).args(["config", "--bool", "core.sparseCheckout"]));
+    let made = commits(&repo, &scratch, sparse_checkout.as_deref() == Some("true"))?;
     Ok(Current { head_ref: repo.head_ref, head: repo.head, index: made.index, work: made.work })
 }
 
@@ -773,7 +798,7 @@ fn build(
     let (submodules, submodule_work, staged) = submodules(repo)?;
     let scratch = Scratch::new()?;
     let Commits { index: index_commit, work: work_commit, mut skipped, sparse, untracked } =
-        commits(repo, &scratch)?;
+        commits(repo, &scratch, repo.sparse_checkout)?;
     let store = scratch.0.join("store.git");
     git::output(git::at(&scratch.0).args(["init", "-q", "--bare", "--template="]).arg(&store))
         .map_err(|error| failed("making the scratch repository", error))?;
@@ -880,7 +905,7 @@ fn build(
 /// working tree with untracked files that are not ignored, less
 /// [`untracked_left_out`], on INDEX), built through a copy of the index in
 /// `scratch`.
-fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
+fn commits(repo: &Here, scratch: &Scratch, sparse_checkout: bool) -> Result<Commits, Fallback> {
     let index = scratch.0.join("index");
     let real_index = &repo.paths.index;
     if real_index.is_file() {
@@ -894,7 +919,7 @@ fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
     let index_commit = commit(repo, &index_tree, &repo.head, "cmux seed index")?;
 
     let (skipped, untracked) = untracked_left_out(repo)?;
-    let sparse = sparse_patterns(repo);
+    let sparse = sparse_patterns(repo, sparse_checkout);
     // In a sparse checkout `--sparse` also takes untracked files outside
     // the patterns; entries git keeps out of the working tree stay as they
     // are either way.
@@ -959,7 +984,7 @@ fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
     Ok(Commits { index: index_commit, work, skipped, sparse, untracked })
 }
 
-impl Repo {
+impl Here {
     /// git in the working copy with the scratch index.
     fn scratch_git(&self, index: &Path) -> Command {
         let mut command = git::at(&self.top);
@@ -981,7 +1006,7 @@ impl Repo {
     }
 }
 
-fn commit(repo: &Repo, tree: &str, parent: &str, message: &str) -> Result<String, Fallback> {
+fn commit(repo: &Here, tree: &str, parent: &str, message: &str) -> Result<String, Fallback> {
     git::text(
         git::at(&repo.top)
             .env("GIT_AUTHOR_NAME", SEED_NAME)
@@ -1044,7 +1069,7 @@ pub(crate) const BIG_UNTRACKED_TOTAL_CAP: u64 = 1_000_000_000;
 /// names them) and big files past [`BIG_UNTRACKED_FILE_CAP`] or, in path
 /// order, past what is left of [`BIG_UNTRACKED_TOTAL_CAP`].
 /// The listing it read comes along, for [`attribute_files`].
-fn untracked_left_out(repo: &Repo) -> Result<(Vec<Skipped>, Vec<u8>), Fallback> {
+fn untracked_left_out(repo: &Here) -> Result<(Vec<Skipped>, Vec<u8>), Fallback> {
     use std::os::unix::ffi::OsStrExt as _;
     let listed =
         git::output(git::at(&repo.top).args(["ls-files", "-z", "--others", "--exclude-standard"]))
@@ -1167,8 +1192,8 @@ fn submodules(repo: &Repo) -> Result<(Vec<Submodule>, Vec<Skipped>, Vec<u8>), Fa
 }
 
 /// The sparse-checkout patterns when sparse checkout is on.
-fn sparse_patterns(repo: &Repo) -> Option<String> {
-    repo.sparse_checkout
+fn sparse_patterns(repo: &Here, sparse_checkout: bool) -> Option<String> {
+    sparse_checkout
         .then(|| std::fs::read_to_string(&repo.paths.sparse_checkout).unwrap_or_default())
 }
 

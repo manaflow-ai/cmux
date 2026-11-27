@@ -376,6 +376,19 @@ fn a_linked_worktree_is_planned_from_its_own_state() {
 }
 
 #[test]
+fn current_matches_planned_commits_after_removing_the_remote() {
+    let fixture = Fixture::new();
+    write(&fixture.work.join("src/lib.rs"), "local work\n");
+    let planned = plan(&fixture.work, &fixture.path("seed.bundle")).unwrap();
+    git(&fixture.work, &["remote", "remove", "origin"]);
+    let current = super::plan::current(&fixture.work).unwrap();
+    assert_eq!(current.head_ref, planned.params.head_ref);
+    assert_eq!(current.head, planned.params.head);
+    assert_eq!(current.index, planned.params.index);
+    assert_eq!(current.work, planned.params.work);
+}
+
+#[test]
 fn sparse_patterns_are_sent() {
     let f = Fixture::new();
     git(&f.work, &["sparse-checkout", "set", "--no-cone", "/README.md", "/src/"]);
