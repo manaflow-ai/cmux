@@ -94,6 +94,36 @@ The sidebar's row decorations (`cmux.sidebar.rows/1`) and the hover card (`cmux.
 are drawn from your own `local/customize` app only for now; a setup's views layer draws its
 sections, panels and pages.
 
+## The looks gallery
+
+Settings > Appearance lists public look repos by name, each shown on the golden sample, with an
+Install button. Installing one is the same `cmux setup install` with its card; the gallery itself
+changes nothing. The list is `cmux-tui/crates/cmux-customize/src/setup/looks.json`, built into
+cmux and changed only by a reviewed PR: Studio, Paper, Cards New Tab and Threads New Tab, then the
+ten look packs in `examples/looks` (Tachyon, Kerf, Prism, Hush, Basalt, Linen, Docket, Ember,
+Folio, Tandem). A catalog look names its repo as `HOST/OWNER/REPO[/PATH][@BRANCH]`: the packs are
+folders of cmux on `feat-cmux-next`, which carries them, so they name that branch. A catalog look
+never names a commit; the card shows the commit the branch is at now, and Install pins that commit.
+
+```sh
+cmux --json setup gallery
+cmux --json setup preview manaflow-ai/paper-look --scheme light
+```
+
+- `gallery` reads only that list and the receipts (no network) and prints
+  `{"looks": [{"id", "name", "tagline", "repo", "tags", "installed"}], "stack": [{"id", "name",
+  "on", "position", "source", "commit", "catalog"}]}`. A look's `installed` is `null` or its row
+  of `stack`. `stack` is every installed setup, top layer first (`position` 1), with `catalog: false`
+  for one the list does not name.
+- `preview ID|REPO` takes a look's id or its repo, listed or installed (any other repo too). It
+  fetches one image over https, at most 4 MiB: `preview/golden-SCHEME.png` (`--scheme light|dark`,
+  default dark), then the other scheme's, then `screenshots/chat.png`. An installed look's image
+  comes from the commit it is installed at, a listed one's from the default branch, an installed
+  folder's from the folder. It prints `{"id", "scheme", "path", "dataUrl", "cached"}`, or the error
+  `setup.preview_missing` when the repo has none of the three. The image (or that there is none)
+  is kept for 24 h in `~/.local/state/cmux/customize/looks/previews/OWNER-NAME/SCHEME.png`.
+- A look repo writes its golden previews with `bun run golden:looks --setup DIR --preview`.
+
 ## Make one
 
 ```sh

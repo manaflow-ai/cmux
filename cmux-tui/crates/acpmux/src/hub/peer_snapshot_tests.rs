@@ -70,6 +70,7 @@ fn a_copy_survives_a_restart_and_keeps_each_seq_once() {
 }
 
 /// The file's inode, mtime and bytes: what a rewrite (a temporary file renamed in) changes.
+#[cfg(unix)]
 fn file_state(path: &Path) -> (u64, std::time::SystemTime, Vec<u8>) {
     use std::os::unix::fs::MetadataExt as _;
     let meta = std::fs::symlink_metadata(path).unwrap();
@@ -77,6 +78,7 @@ fn file_state(path: &Path) -> (u64, std::time::SystemTime, Vec<u8>) {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_write_with_the_same_content_touches_nothing_and_a_changed_one_rewrites_the_file() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     let mut store = store_at(dir.path());
@@ -2565,7 +2567,7 @@ fn a_proof_whose_copy_was_evicted_goes_back_or_again() {
 }
 
 #[test]
-fn a_copy_a_bound_evicts_still_covers_its_chat_until_it_moves() {
+fn a_copy_a_bound_evicts_is_not_read_ahead_again_until_kept_again() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     let mut store = store_at(dir.path());
     let empty = || std::ops::RangeInclusive::new(1, 0);
@@ -2579,14 +2581,17 @@ fn a_copy_a_bound_evicts_still_covers_its_chat_until_it_moves() {
         assert!(n < 10_000, "the bound never evicted the first copy");
     }
     assert!(!file(dir.path(), "first").exists(), "its file went");
-    // The read-ahead takes the evicted chat as covered as far as it was, so a chat that did not
-    // move is not read again only to be evicted again.
-    assert_eq!(store.covers(PEER).get("first"), Some(&(Some(7), 9)));
+    // The read-ahead does not read the evicted chat again, moved or not, only to evict another.
+    let covers = store.covers(PEER);
+    assert_eq!(covers.evicted.get("first"), Some(&7));
+    assert!(!covers.kept.contains_key("first"));
     assert!(store.evicted.len() <= EVICTED_KEYS);
     // Keeping it again forgets the eviction; the copy kept answers.
     keep(&mut store, "first", 10..=12);
     assert!(!store.evicted.contains_key(&key("first")));
-    assert_eq!(store.covers(PEER).get("first"), Some(&(Some(7), 12)));
+    let covers = store.covers(PEER);
+    assert_eq!(covers.kept.get("first"), Some(&(Some(7), 12)));
+    assert!(!covers.evicted.contains_key("first"));
     store.forget_peer(PEER);
     assert!(store.evicted.keys().all(|k| k.0 != PEER), "a forgotten peer's evictions go");
 }

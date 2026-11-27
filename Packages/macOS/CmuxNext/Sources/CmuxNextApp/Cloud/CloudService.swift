@@ -75,7 +75,7 @@ final class CloudService {
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
     @ObservationIgnored var signedIn: @MainActor () -> Void = {} // an account just signed in: the App warms its spare (CloudStartChat.wireSetup), called only in front (CloudSpareReadiness.warmsAtSignIn)
-    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth, teams: { [weak self] active in guard let self else { return nil }; return await CloudMoveCLI.wireTeams(binary: self.move.cli, identity: self.installIdentity, active: active) }, onSpareReady: { [weak self] in self?.spareReadiness.prime($0) }) // hears readiness in every team Rust's wireTeams names (the active one and the install token's); primes in the install token's team (CloudSpareReadiness.Dependencies.team)
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth, teams: { [weak self] active in guard let self else { return nil }; return await CloudMoveCLI.wireTeams(binary: self.move.cli, identity: self.installIdentity, active: active) }, onSpareReady: { [weak self] in self?.spareReadiness.prime($0) }).onPausing { [weak self] in if let session = self?.machines.session($0), session.machine.status.isLive { session.suspend() } } // hears readiness in every team Rust's wireTeams names (the active one and the install token's); primes in the install token's team (CloudSpareReadiness.Dependencies.team); a machine the platform is about to pause parks its link before any list shows it (the list's live-to-paused edge repeats it harmlessly; a pause that never lands reconnects on the next attach)
     @ObservationIgnored private(set) lazy var spareReadiness = CloudSpareReadiness(CloudStartChat.spareReadiness(self)) // the warm spare keyed and linked ahead of its claim
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
@@ -120,6 +120,8 @@ final class CloudService {
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
+    /// The chats moving to another machine now: each window's sidebar row for the move.
+    let chatMoves = ChatMoves()
     /// Who drives each Chief's computer (Chief computer take-over): the lease of every Cloud machine a
     /// Chief on this Mac uses, and the last answer for each Cloud Chief's own sandbox.
     @ObservationIgnored let computerControl = ChiefComputerControlStore()
@@ -173,7 +175,7 @@ final class CloudService {
         self.mainWork = mainWork
         self.work = work
         configuration = selectedConfiguration ?? .unavailable
-        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
+        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture, consentSession: SessionConsentClient.consentSession(configuration))
         let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
@@ -277,20 +279,20 @@ final class CloudService {
         // must not restore auth or start the credential relay/Cloud observers.
         guard !configuration.apiBaseURL.isFileURL else { return }
         installIDs.preload(localStore: machines.local.store)
-        auth.start(); changes.start(); changes.startPush(machineAPI.statePush(baseURL: configuration.relayAPIBaseURL()), connection: { [machines] in machines.local.connection }) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
+        auth.start(); changes.start(); changes.startPush(machineAPI.stateWatch(baseURL: configuration.relayAPIBaseURL(), connection: { [machines] in machines.local.connection })) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
         startCredentialProvider()
         if linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
-            let machines = machines
+            let machines = machines, changes = changes
             linkEvents = machines.local.store.sideEvents.subscribe { event in
-                guard let change = CloudLinkChange(event) else { return }
+                guard let change = CloudLinkChange(event) else { changes.machineState(event); return }
                 machines.session(change.key.machine)?.linkChanged(change)
             }
             // task-owner: observers; cancelled in stop()
             observers.append(Task {
                 // A reconnected local connection is a new daemon client: subscribe it again.
                 for await state in ObservationStream({ machines.local.store.connectionState }) {
-                    guard case .connected = state, !machines.cloud.isEmpty else { continue }
+                    guard case .connected = state else { changes.daemonDisconnected(); continue }; changes.rewatch(); guard !machines.cloud.isEmpty else { continue }
                     await CloudAppLinks.resubscribe(local: machines.local)
                 }
             })
@@ -863,7 +865,7 @@ final class CloudService {
     /// A guest link's owner token from `api` (the daemon's room's, cmux#31372; nil: the build's default), registering that install first when
     /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team.
     func shareOwnerToken(api: URL?) async -> String? {
-        guard let stackUser = auth.user?.id, !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
+        guard let stackUser = await auth.restoredUserID(), !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
         let auth = auth, share = await shareInstalls.identity(for: api)
         do {
             try await share.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })

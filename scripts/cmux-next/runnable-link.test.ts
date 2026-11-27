@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canaryCountCommand, facts, projectSetupCommand, SCRUB_COMMAND, usable, usableCommand, verdict, withRoom, strays, type OpenRow } from "./runnable-link.ts";
+import { canaryCountCommand, facts, projectSetupCommand, SCRUB_COMMAND, usable, usableCommand, verdict, withRoom, strays, runTag, snapshotCensus, stillLive, type OpenRow } from "./runnable-link.ts";
 
 const row = (over: Partial<OpenRow>): OpenRow => ({ run: 1, via: "link", copy: "m", resolve_ms: 1, fork_call_ms: 1, running_ms: 1, first_exec_ms: 1, scrub_ms: 1, usable_ms: 1, click_to_usable_ms: 20_000, canary_before_scrub: 1, canary_after_scrub: 0, facts: null, error: null, ...over });
 
@@ -39,12 +39,64 @@ describe("runnable link", () => {
     const now = 10 * 3600_000;
     const rows = [
       { id: "a", name: "runnable link rl-x parent", status: "running", created_at: now - 60_000 },
-      { id: "b", name: "runnable link rl-y open 1", status: "running", created_at: now - 3 * 3600_000 },
+      { id: "b", name: "runnable link rl-y open 1", status: "running", created_at: now - 81 * 60_000 },
       { id: "c", name: "runnable link rl-y open 2", status: "running", created_at: now - 600_000 },
       { id: "d", name: "cloud journey auto jr-1", status: "running", created_at: 0 },
       { id: "e", name: "runnable link rl-x open 1", status: "deleted", created_at: now },
       { id: "f", name: "runnable link rl-x open 2", status: "running", created_at: now },
     ];
     expect(strays(rows, "rl-x", now, new Set(["f"]))).toEqual(["a", "b"]);
+  });
+
+  test("the sweep also takes snapshots: this run's by exact name, old ones by an ISO created_at", () => {
+    const now = Date.parse("2026-11-25T21:00:00Z");
+    const rows = [
+      { id: "s1", name: "runnable link rl-x", status: "ready", created_at: "2026-11-25T20:59:00Z" },
+      { id: "s2", name: "runnable link rl-old", status: "ready", created_at: "2026-11-25T17:00:00Z" },
+      { id: "s3", name: "runnable link rl-new", status: "ready", created_at: "2026-11-25T20:30:00Z" },
+      { id: "s4", name: "runnable link rl-nodate", status: "ready" },
+      { id: "s5", name: "someone's snapshot", status: "ready", created_at: "2020-01-01T00:00:00Z" },
+    ];
+    expect(strays(rows, "rl-x", now, new Set())).toEqual(["s1", "s2"]);
+  });
+
+  test("the sweep takes the link API's own snapshots too (named by the mint's clientKey), never someone else's", () => {
+    const now = Date.parse("2026-11-25T23:00:00Z");
+    const rows = [
+      { id: "l1", name: "link user_9 rl-x-mint", status: "ready", created_at: "2026-11-25T22:59:00Z" },
+      { id: "l2", name: "link user_9 rl-old-mint", status: "ready", created_at: "2026-11-24T18:00:00Z" },
+      { id: "l3", name: "link user_9 rl-old-mint-expiring", status: "ready", created_at: "2026-11-24T18:00:00Z" },
+      { id: "l4", name: "link user_9 rl-new-mint", status: "ready", created_at: "2026-11-25T22:30:00Z" },
+      { id: "l5", name: "link user_9 handoff-1", status: "ready", created_at: "2020-01-01T00:00:00Z" },
+      { id: "l6", name: "cmux-1234", status: "ready", created_at: "2020-01-01T00:00:00Z" },
+      { id: "l7", name: "link user_9 rl-new2-mint", status: "failed", created_at: "2026-11-25T22:30:00Z" },
+      { id: "l8", name: "cmux-5678", status: "failed", created_at: "2020-01-01T00:00:00Z" },
+    ];
+    expect(strays(rows, "rl-x", now, new Set())).toEqual(["l1", "l2", "l3", "l7"]);
+    expect(runTag("runnable link rl-ab parent")).toBe("rl-ab");
+    expect(runTag("runnable link rl-ab")).toBe("rl-ab");
+    expect(runTag("link user_1 rl-ab-mint")).toBe("rl-ab");
+    expect(runTag("link user_1 rl-ab-open-1")).toBeNull();
+  });
+
+  test("the snapshot census folds ids so the script that fills the slots shows by name", () => {
+    const now = Date.parse("2026-11-25T22:00:00Z");
+    const c = snapshotCensus([
+      { name: "headless rl-abc123", status: "ready", created_at: "2026-11-25T12:00:00Z" },
+      { name: "headless rl-def456", status: "ready", created_at: "2026-11-25T20:00:00Z" },
+      { name: "gone", status: "deleted" },
+    ], now);
+    expect(c).toEqual({ total: 3, live: 2, oldest_h: 10, by_shape: { "headless rl-#": 2 } });
+  });
+
+  test("the mint waits for swept snapshots to leave the live list, not just for the delete to return", () => {
+    const rows = [
+      { id: "a", status: "ready" },
+      { id: "b", status: "deleting" },
+      { id: "c", status: "deleted" },
+      { id: "d", status: "ready" },
+    ];
+    expect(stillLive(rows, ["a", "b", "c", "z"])).toEqual(["a"]);
+    expect(stillLive([], ["a"])).toEqual([]);
   });
 });

@@ -109,6 +109,10 @@ public struct TerminalTabPage: View {
     let isOnPage: Bool
     /// This page's own identity for the host's size-claim ownership.
     @State private var pageID = UUID()
+    /// When the connecting cover went up (nil: no cover), for ``TerminalLoadWatch``.
+    @State private var coverSince: ContinuousClock.Instant?
+    /// The cover has been up past ``TerminalLoadWatch/bound``.
+    @State private var coverOverdue = false
 
     public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool,
                 isOnPage: Bool? = nil) {
@@ -168,22 +172,51 @@ public struct TerminalTabPage: View {
             // skeleton, which take no touches. No status over the content or by the composer:
             // the title pill's subtitle says it after 10 s (`TerminalModel.connectionLine`).
             .overlay {
+                let cover = Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
+                                            drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil)
+                let stage = cover ? TerminalLoadWatch.stage(model.connectionState, waited: coverOverdue ? TerminalLoadWatch.bound : .zero)
+                    : .loading
                 Group {
-                    if Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
-                                       drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil) {
+                    if cover {
                         // Once attached the cover stays until the live rows are drawn, then
                         // goes in one frame: a cut, never a fade over live rows (R3-4). Its
                         // rows are laid out for the page as it is now (keyboard up or down).
-                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText,
+                        // Past its bound it draws no gray bars: words and Retry instead.
+                        TerminalConnectingView(topInset: insets.top, showsPlaceholder: stage == .loading,
+                                               screenText: model.cardScreenText,
                                                rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
                             .placeholderBound("terminal.page.connecting", .milliseconds(2000))
+                        if stage == .stalled {
+                            TerminalLoadStalledPanel(state: model.connectionState) { retryAttach() }
+                                .padding(.top, insets.top)
+                                .padding(.bottom, insets.bottom + rowsLift)
+                        }
                     }
                 }
                 .allowsHitTesting(isInteractive)
                 .accessibilityHidden(!isInteractive)
+                // The cover's bound: past it, the page says so and tries the attach again by
+                // itself, again after each retry delay, for as long as the cover is up.
+                .task(id: cover) {
+                    guard cover else {
+                        coverSince = nil
+                        coverOverdue = false
+                        return
+                    }
+                    coverSince = coverSince ?? .now
+                    try? await Task.sleep(until: coverSince! + TerminalLoadWatch.bound, clock: .continuous)
+                    guard !Task.isCancelled else { return }
+                    coverOverdue = true
+                    var attempt = 0
+                    while !Task.isCancelled {
+                        retryAttach()
+                        try? await Task.sleep(for: TerminalLoadWatch.retryDelay(attempt))
+                        attempt += 1
+                    }
+                }
             }
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the
@@ -196,6 +229,13 @@ public struct TerminalTabPage: View {
 }
 
 extension TerminalTabPage {
+    /// Tries the attach again: the shell's recovery (the Mac's link, the tab's live session
+    /// in place of a placeholder, the session's attach), when there is one.
+    @MainActor func retryAttach() {
+        guard let reconnect = host.model.reconnect else { return }
+        Task { await reconnect() }
+    }
+
     /// Whether the page draws the connecting cover (the Mac's screen text or a skeleton) over
     /// its surface: only while the surface has no rows of its own, neither fed from the kept
     /// page nor drawn from the Mac, and never a still picture (it takes no scroll or tap).
@@ -210,10 +250,14 @@ extension TerminalTabPage {
 public struct TerminalTabCard: View {
     let model: TerminalModel
     let insets: EdgeInsets
+    /// A picture of the tab from elsewhere (the Mac's thumbnail, kept across launches), drawn in place
+    /// of the labeled placeholder: a card never blanks while any picture of its tab is known.
+    let fallback: UIImage?
 
-    public init(model: TerminalModel, insets: EdgeInsets) {
+    public init(model: TerminalModel, insets: EdgeInsets, fallback: UIImage? = nil) {
         self.model = model
         self.insets = insets
+        self.fallback = fallback
     }
 
     public var body: some View {
@@ -266,8 +310,14 @@ public struct TerminalTabCard: View {
                         .opacity(content.drawnOpacity)
                     }
                 case .nothing:
-                    // Nothing known yet: the terminal's background, no stand-in.
-                    EmptyView()
+                    // Nothing of the terminal known yet: a picture of the tab from elsewhere (the Mac's
+                    // thumbnail) when there is one, else the terminal's background, no stand-in.
+                    if let fallback {
+                        Image(uiImage: fallback).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width, height: geo.size.width * fallback.size.height / max(1, fallback.size.width))
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
+                    }
                 }
             }
         }

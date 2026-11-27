@@ -21,6 +21,7 @@ pub mod permission;
 pub mod presence;
 pub mod process;
 pub mod session;
+pub mod signature;
 pub mod sync;
 #[cfg(test)]
 mod tests;
@@ -35,6 +36,23 @@ use crate::rpc::method;
 
 /// The IR format version. Bump on a change to the IR's own shape.
 pub const IR_VERSION: &str = "1";
+
+/// The wire ABI this build speaks, sent at initialize as `_meta.acpmux.abi` (hq RFD 0178, build 3).
+/// It is the newest revision in `spec/acpmux-abi.compat.json`, the cmux-api-compat gate's file:
+/// it goes up only when a gated break adds a revision there, never for an additive change.
+/// Additive changes are announced by `features` and `capabilities` instead. A peer that sends no
+/// `abi` is read as 0 ([`peer_abi`]): an older build that degrades, never an error.
+/// `protocol::tests::abi_is_the_compat_files_newest_revision` keeps the two equal.
+pub const ABI: u32 = 2;
+
+/// The ABI a peer's initialize reply or hello names in `_meta.acpmux.abi`; 0 when it names none
+/// (a build from before the field), so callers degrade instead of failing.
+pub fn peer_abi(init: &Value) -> u32 {
+    init.pointer("/_meta/acpmux/abi")
+        .and_then(Value::as_u64)
+        .and_then(|abi| u32::try_from(abi).ok())
+        .unwrap_or(0)
+}
 
 /// Who sends a message, and whether it is answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +203,10 @@ pub fn registry() -> Vec<MethodDecl> {
         acp(method::SESSION_UPDATE, Notification),
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
+        // acpmux's own, in the session/ space: each session's dot glyph.
+        request::<signature::SignatureParams, signature::SignatureResult>(
+            method::SESSION_SIGNATURE,
+        ),
         // Which of the connection's requests still run (server/in_flight.rs `states`).
         untyped(method::MUX_REQUEST_STATE, Request),
         // ACP extensions acpmux names in the acp.* space.
@@ -235,6 +257,8 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
+        request::<presence::RoomsParams, presence::RoomsResult>(method::MUX_ROOMS),
+        request::<presence::FollowParams, presence::FollowResult>(method::MUX_FOLLOW),
         request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
         request::<here::HereParams, here::HereResult>(method::MUX_HERE),
         request::<sync::SyncPullParams, sync::SyncPullResult>(method::MUX_SYNC_PULL),
@@ -336,8 +360,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
         untyped(method::MUX_SURGERY, Request),
-        untyped(method::MUX_TASK_LIST_SET, Request),
-        untyped(method::MUX_TASK_LIST_GET, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
         untyped(method::MUX_PLAN_COMPARE, Request),
         untyped(method::MUX_PLAN_KEEP, Request),
@@ -348,8 +370,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
+        untyped(method::MUX_HISTORY_DELETE, Request),
+        untyped(method::MUX_HISTORY_OFFLOAD, Request),
+        untyped(method::MUX_TRANSCRIPT_OFFLOAD, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_AUTO_SESSION_MOVE, Request),
         untyped(method::MUX_CHAT_MOVE, Request),
         untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
         untyped(method::MUX_AUTO_SESSION_WAKE, Request),
@@ -374,6 +400,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
         untyped(method::MUX_SESSION_FILES, Request),
+        untyped(method::MUX_PAUSED_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
         keyed::<params::TurnShotsParams>(method::MUX_TURN_SHOTS, Request),
@@ -474,6 +501,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SECRET_REQUEST, Request),
         keyed::<params::SecretSubmitParams>(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
+        untyped(method::MUX_CHAT_SECRETS_SET, Request),
+        untyped(method::MUX_CHAT_SECRETS_CLEAR, Request),
+        untyped(method::MUX_CHAT_SECRETS_LIST, Request),
         untyped(method::MUX_ELEVATION_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_ANSWER, Request),
@@ -528,6 +558,7 @@ pub fn registry() -> Vec<MethodDecl> {
         // Harnesses, models, routes.
         keyed::<params::HarnessesParams>(method::MUX_HARNESSES, Request),
         keyed::<params::HarnessEnableParams>(method::MUX_HARNESS_ENABLE, Request),
+        keyed::<params::HarnessDisableParams>(method::MUX_HARNESS_DISABLE, Request),
         untyped(method::MUX_HARNESS_ADD, Request),
         untyped(method::MUX_HARNESS_REMOVE, Request),
         untyped(method::MUX_HARNESS_RESTORE, Request),
@@ -581,6 +612,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONNECTIONS_CHATGPT_TOKEN, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_IMPORT, Request),
         untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL, Request),
         untyped(method::MUX_CONNECTIONS_CREDENTIAL, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
@@ -596,8 +631,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/host_health", Request),
         untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
+        untyped("_acpmux/autocloud_enroll", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
+        untyped("_acpmux/place_set", Request),
+        untyped("_acpmux/place_undo", Request),
+        untyped("_acpmux/place_get", Request),
         untyped("_acpmux/chat_place", Request),
         untyped("_acpmux/chat_place_set", Request),
         untyped(method::MUX_PLACE_CHAT, Request),
@@ -661,6 +700,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<PeerRowsChanged>(method::MUX_PEER_ROWS_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
+        notification::<presence::RoomNote>(method::MUX_ROOM),
         notification::<peer_state::PeerStateChanged>(method::MUX_PEER_STATE_CHANGED),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
         untyped(method::MUX_CONNECTIONS_CHANGED, Notification),

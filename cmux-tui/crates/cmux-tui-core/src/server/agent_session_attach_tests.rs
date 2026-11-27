@@ -68,7 +68,7 @@ impl FakeAcpmux {
                 let fixture = fixture.clone();
                 let transfers = shared_transfers.clone();
                 std::thread::spawn(move || {
-                    serve(stream, frame_tx, &fixture, &transfers, &attachment_ready_tx)
+                    serve(stream, frame_tx, &fixture, &transfers, &attachment_ready_tx);
                 });
             }
         });

@@ -5,8 +5,8 @@ import Foundation
 /// actor (architecture.md 5a: the main thread does no unbounded work).
 ///
 /// A small envelope with nothing queued ahead of it is rendered and evaluated at once, as before.
-/// Anything else waits in a FIFO that one drain task works through: it renders each script in a
-/// `@concurrent` function and evaluates it on the main actor, one at a time, so events never
+/// Anything else waits in a FIFO that one drain task works through: it renders each envelope's JSON
+/// text in a `@concurrent` function and delivers it on the main actor, one at a time, so events never
 /// reorder. A ``Gate`` holds the FIFO at a point: the page's reply to a message it posted must
 /// reach the page after the events sent before it and before the events sent after it, as when
 /// every script was evaluated synchronously. ``reset()`` drops what is queued (the router closed:
@@ -73,6 +73,7 @@ final class PageScriptPipeline {
         }
     }
 
+    /// Takes each envelope's JSON text (``PageRouter/receiveText(_:)``), in send order.
     private let evaluate: @MainActor (String) -> Void
     private let render: @Sendable (JSONValue) async -> String
     private var queue: [Item] = []
@@ -105,7 +106,7 @@ final class PageScriptPipeline {
     func send(_ envelope: JSONValue, onDrop: @escaping @MainActor () -> Void = {}) {
         if isIdle, envelope.fits(Self.inlineBudget) {
             // main-actor-ok: bounded by inlineBudget; larger envelopes render off the main actor.
-            evaluate(PageRouter.receiveScript(envelope))
+            evaluate(PageRouter.receiveText(envelope))
             return
         }
         enqueue(.envelope(envelope, Drop(onDrop)))
@@ -186,7 +187,7 @@ final class PageScriptPipeline {
     }
 
     @concurrent nonisolated static func render(_ envelope: JSONValue) async -> String {
-        PageRouter.receiveScript(envelope)
+        PageRouter.receiveText(envelope)
     }
 }
 

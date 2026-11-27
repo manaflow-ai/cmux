@@ -659,6 +659,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             layout.remembered = { [weak self] items, width in self?.rememberedHeights(items, width) ?? items.map { _ in nil } }
             layout.didMeasure = { [weak self] item, height, width in self?.remember(item, height: height, width: width) }
         }
+        // The layout-shift count: rows on screen, in the list's visible bounds, native and hosted
+        // cells alike. Measured in the list, so the list scaled or moved whole (the tab grid's
+        // zoom, the live page following its card) is not a shift.
+        LayoutShiftProbe.shared?.watch(collectionView, prefix: "chat.") { [weak self] in self?.probeRows() ?? [] }
         #if DEBUG
         if let probe = LoadFrameProbe.shared {
             probe.watch(collectionView, rows: { [weak self] in self?.probeRows() ?? [] },
@@ -1328,8 +1332,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         heightMemory.record(scope: memoryScope, width: width, id: item.id, content: content, fold: item.fold, height: height)
     }
 
-    #if DEBUG
-    /// The rows on screen and their frames in the list's visible bounds (`LoadFrameProbe`).
+    /// The rows on screen and their frames in the list's visible bounds (`LoadFrameProbe`,
+    /// `LayoutShiftProbe`).
     private func probeRows() -> [(String, CGRect)] {
         let offset = collectionView.contentOffset
         return collectionView.indexPathsForVisibleItems.compactMap { indexPath in
@@ -1338,6 +1342,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         }
     }
 
+    #if DEBUG
     /// A row's part in its turn, for the send trace (`LoadFrameProbe`, `CMUX_MOBILE_SEND_TRACE`).
     private func probeRole(_ id: String) -> String {
         guard let kind = rows[id]?.kind else { return "other" }
@@ -1623,9 +1628,6 @@ final class ChatRowLookup {
         cell.contentConfiguration = UIHostingConfiguration {
             ChatRowTop {
                 ChatRowView(row: row, context: context)
-                    // The layout-shift count: a drawn row must not move or resize (UIKit list: window space).
-                    .layoutShiftTracked("chat.\(id)", in: .window)
-
                     // VoiceOver hears which row holds Find in Chat's current match.
                     .accessibilityAddTraits(marked ? .isSelected : [])
                     // Rows whose views keep their own state (a question's answers, a code card shown in
@@ -1697,13 +1699,13 @@ extension ChatRow {
         case .tool: "tool"
         case .toolGroup: "toolGroup"
         case .edit: "edit"
-        case .plan: "plan"
         case .permission: "permission"
         case .question: "question"
         case .subagents: "subagents"
         case .working: "working"
         case .editedFiles: "editedFiles"
         case .stopped: "stopped"
+        case .notSent: "notSent"
         case .failed: "failed"
         case .actions: "actions"
         case .nextStep: "nextStep"
@@ -1774,12 +1776,11 @@ extension ChatRow {
         case .tool(let call) where call.hasImages: return 32 + 6 + CGFloat(min(call.images.count, ToolOutputImages.maxShown)) * (ToolOutputImages.maxHeight + 6)
         case .thought, .tool, .toolGroup, .working, .worked: return 32
         case .edit(_, let files): return files == nil ? 44 : 44 + 12 * 19 + 20
-        case .plan(let entries): return 56 + CGFloat(entries.count) * 30
         case .permission: return 120
         case .question: return 220
         case .subagents(let ids): return 45 + CGFloat(ids.count) * 52
         case .editedFiles(let changes): return 49 + CGFloat(changes.files.count) * 44
-        case .stopped: return 18
+        case .stopped, .notSent: return 18
         case .failed: return 170
         case .actions: return 44
         case .nextStep(let ask, let answer, _): return answer == nil ? 96 + CGFloat(ask.options.count) * 50 : 64

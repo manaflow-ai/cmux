@@ -68,32 +68,16 @@ struct CloudStartRowTests {
         #expect(strip.title(mac) == "List the folder", "the tab read \(AgentPaneModel.tabTitle) or workspace-6")
     }
 
-    /// cmux#45947: New Cloud Chat opens a workspace of its own whose row reads as Cloud from the click, before any Send,
-    /// and reads as this Mac's again once its start ended (refused or failed: the chat stays here).
+    /// cmux#45947: New Cloud Chat opens a workspace of its own whose chat tab reads as Cloud from the click, before any Send
+    /// (``AgentCloudStartTitles/marksCloud(_:workspace:)``), and as this Mac's again once its start ended. Its sidebar row never
+    /// draws a cloud (cmux#55668).
     @Test func newCloudChatsWorkspaceReadsAsCloudFromTheClickUntilItsStartEnds() {
         let titles = AgentCloudStartTitles()
         #expect(!titles.startsInCloud(workspace: "ws-new"))
         titles.beginWorkspace("ws-new")
         #expect(titles.startsInCloud(workspace: "ws-new") && !titles.startsInCloud(workspace: "ws-other"))
         titles.endWorkspace("ws-new")
-        #expect(!titles.startsInCloud(workspace: "ws-new"), "a start that ended left its row drawn as Cloud")
+        #expect(!titles.startsInCloud(workspace: "ws-new"), "a start that ended left its tab drawn as Cloud")
         titles.endWorkspace(nil)
-    }
-
-    /// A row of this Mac whose page is starting a Cloud chat draws the cloud mark and VoiceOver says Cloud; it names
-    /// no machine. Another row of this Mac draws none.
-    @Test func aStartingRowOfThisMacHasTheCloudMark() throws {
-        let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        var starting = SidebarWorkspace(id: WorkspaceID("ws-6"), machineID: mac.id, title: "Fix the flaky login test")
-        starting.startsInCloud = true
-        let plain = SidebarWorkspace(id: WorkspaceID("ws-7"), machineID: mac.id, title: "api")
-        let model = SidebarModel(sections: [SidebarRowSection(kind: .machine(mac), nodes: [.workspace(starting), .workspace(plain)])])
-        let layout = SidebarLayout.make(sections: model.sections, metrics: .standard, options: model.listOptions())
-        let content = { (id: String) in layout.rows.first { $0.key == .workspace(WorkspaceID(id)) }?.content }
-        let row = try #require(content("ws-6"))
-        #expect(row.runsInCloud && row.machine == nil, "the row of a starting Cloud chat drew no cloud mark")
-        #expect(try #require(content("ws-7")).runsInCloud == false)
-        let label = WorkspaceRowView.accessibilityText(starting, content: row, tabCount: nil, presence: [])
-        #expect(label.contains("Cloud") && !label.contains("This Mac"), "\(label)")
     }
 }

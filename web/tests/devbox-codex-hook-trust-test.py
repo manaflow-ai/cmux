@@ -63,6 +63,15 @@ class CodexHookTrustTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("probe-ok 2", result.stdout)
 
+    def test_chat_config_before_the_hook_flags_passes(self):
+        # The real wrapper puts the chat's config overrides first (cmux#54161).
+        result = self.run_probe(
+            "-c agents.max_concurrent_threads_per_session=1000 -c agents.max_depth=16 "
+            "--enable hooks hooks.Stop=x status=trusted status=+trusted"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("probe-ok 2", result.stdout)
+
     def test_an_untrusted_injected_hook_fails(self):
         result = self.run_probe("--enable hooks hooks.Stop=x status=trusted status=+untrusted")
         self.assertEqual(result.returncode, 1)

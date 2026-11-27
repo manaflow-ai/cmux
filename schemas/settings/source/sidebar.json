@@ -390,6 +390,34 @@
           }
         },
         {
+          "key": "sidebar.folderlessUngrouped",
+          "note": "Group by Folder's rows with no folder sit at the end of the list with no No Folder header (SidebarLayout's folder loop; customize-app-profiles, the Claude Code app's look). Off by default: the No Folder header shows as before.",
+          "title": {
+            "key": "settings.sidebar.folderlessUngrouped",
+            "text": "Ungroup Rows With No Folder"
+          },
+          "help": {
+            "key": "settings.sidebar.folderlessUngrouped.help",
+            "text": "Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "projects",
+            "chats",
+            "group",
+            "folder",
+            "no folder",
+            "ungrouped",
+            "header"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.nav",
           "note": "The nav block a look puts at the top of the sidebar: plain icon and label rows that run cmux actions. Rust validates it (cmux-layout-reducer sidebar_nav.rs); empty draws no block.",
           "title": {
@@ -495,7 +523,7 @@
         },
         {
           "key": "sidebar.showLiveToggle",
-          "note": "Off by default (Lawrence 2026-11-25: \"get rid of it by default... keep things as minimal as possible\"; Leo 2026-11-24 first asked for an icon \"somewhere omnipresent\"). Off hides the footer's Live button only; presence.live and the Live palette action stay.",
+          "note": "Off by default (Lawrence 2026-11-25: \"get rid of it by default... keep things as minimal as possible\"; Leo 2026-11-25 didn't want it on by default either; Leo 2026-11-24 first asked for an icon \"somewhere omnipresent\"). Off hides the footer's Live button only; presence.live and the Live palette action stay.",
           "title": {
             "key": "settings.sidebar.showLiveToggle",
             "text": "Show Live Button"
@@ -814,6 +842,13 @@
                 "key": "settings.choice.sidebarLookStudio",
                 "text": "Studio"
               }
+            },
+            {
+              "value": "rex",
+              "title": {
+                "key": "settings.choice.sidebarLookRex",
+                "text": "Rex"
+              }
             }
           ],
           "default": "cmux",
@@ -825,6 +860,9 @@
             "claude",
             "codex",
             "studio",
+            "rex",
+            "minimal",
+            "sessions",
             "like",
             "app"
           ],
@@ -1022,6 +1060,58 @@
           }
         },
         {
+          "key": "sidebar.profileMenu.style",
+          "name": "profileMenuStyle",
+          "title": {
+            "key": "settings.sidebar.profileMenu.style",
+            "text": "Profile Menu"
+          },
+          "help": {
+            "key": "settings.sidebar.profileMenu.style.help",
+            "text": "What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "app",
+              "title": {
+                "key": "settings.choice.profileMenuApp",
+                "text": "App Menu"
+              }
+            },
+            {
+              "value": "account",
+              "title": {
+                "key": "settings.choice.profileMenuAccount",
+                "text": "Account Menu"
+              }
+            }
+          ],
+          "default": "app",
+          "keywords": [
+            "profile",
+            "account",
+            "accounts",
+            "switch",
+            "switching",
+            "sign out",
+            "log out",
+            "usage",
+            "menu",
+            "claude",
+            "codex"
+          ],
+          "swift_enum": {
+            "name": "SidebarProfileMenuStyle",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.detailedStatusIcons",
           "title": {
             "key": "settings.sidebar.detailedStatusIcons",
@@ -1137,37 +1227,6 @@
             "hidden",
             "hide",
             "sessions"
-          ],
-          "swift_owner": {
-            "type": "SidebarSectionsSetting",
-            "prefixed": true
-          }
-        },
-        {
-          "key": "sidebar.showAutomaticSessions",
-          "note": "Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.",
-          "title": {
-            "key": "settings.sidebar.showAutomaticSessions",
-            "text": "Show Automatic Sessions"
-          },
-          "help": {
-            "key": "settings.sidebar.showAutomaticSessions.help",
-            "text": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "sidebar",
-            "automatic",
-            "auto",
-            "script",
-            "automation",
-            "background",
-            "hidden",
-            "hide",
-            "fold",
-            "sessions",
-            "tidy"
           ],
           "swift_owner": {
             "type": "SidebarSectionsSetting",
@@ -1747,6 +1806,81 @@
             "bell",
             "show",
             "hide"
+          ],
+          "swift_owner": {
+            "type": "SidebarPriorityViewSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.priorityView.filters",
+          "title": {
+            "key": "settings.sidebar.priorityView.filters",
+            "text": "Priority Filters"
+          },
+          "help": {
+            "key": "settings.sidebar.priorityView.filters.help",
+            "text": "All, Waiting, Unread and Running chips with counts, and Mark All as Read."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "priority",
+            "activity",
+            "filter",
+            "unread",
+            "running",
+            "waiting",
+            "mark all as read"
+          ],
+          "swift_owner": {
+            "type": "SidebarPriorityViewSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.priorityView.showIdle",
+          "title": {
+            "key": "settings.sidebar.priorityView.showIdle",
+            "text": "Idle Chats in Priority"
+          },
+          "help": {
+            "key": "settings.sidebar.priorityView.showIdle.help",
+            "text": "Off, Priority lists only chats that need you or are running."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "sidebar",
+            "priority",
+            "activity",
+            "idle",
+            "hide"
+          ],
+          "swift_owner": {
+            "type": "SidebarPriorityViewSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.priorityView.statusWords",
+          "title": {
+            "key": "settings.sidebar.priorityView.statusWords",
+            "text": "Priority Status Words"
+          },
+          "help": {
+            "key": "settings.sidebar.priorityView.statusWords.help",
+            "text": "Each Priority row says its state, such as Needs you or Done."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "priority",
+            "activity",
+            "status",
+            "label"
           ],
           "swift_owner": {
             "type": "SidebarPriorityViewSetting",
