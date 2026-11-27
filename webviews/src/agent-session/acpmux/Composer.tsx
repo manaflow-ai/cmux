@@ -3602,6 +3602,7 @@ function ComposerFrame({
         chat={snapshot.summary?.sessionId || sessionId}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
+        {...(snapshot.summary?.rateLimitedUntil ? { heldUntil: snapshot.summary.rateLimitedUntil } : {})}
         {...(pauseReason ? { pauseReason } : {})}
         pauseSaid={pauseSaid}
         t={t}

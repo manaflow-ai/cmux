@@ -1488,6 +1488,9 @@ export type AcpmuxSnapshot = {
     backgroundsWork?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
+    /// The account's rate limit holds every turn until this time (Unix ms): what is sent meanwhile
+    /// queues and goes in as one turn at the reset (acpmux `rateLimitedUntil`, hub/rate_hold.rs).
+    rateLimitedUntil?: number;
     /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
     /// (acpmux `watching`): no prompt goes until the user takes it over.
     watching?: string;

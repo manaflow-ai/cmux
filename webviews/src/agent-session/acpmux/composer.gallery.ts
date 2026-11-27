@@ -2196,6 +2196,18 @@ export default agentPaneEntry({
         };
       })(),
     },
+    "queued-rate-held": {
+      note: "Messages sent while the account's rate limit holds the chat wait in the queue as ordinary rows, under one note that says when they go in (the reset's clock time, local). Nothing reads Steering: they were not steered.",
+      snapshot: (() => {
+        const held = steering(true);
+        return {
+          ...held,
+          isWorking: false,
+          summary: { ...held.summary!, status: "ready", rateLimitedUntil: Date.now() + 29 * 60_000 },
+          queue: waiting,
+        };
+      })(),
+    },
     "queued-keyboard": {
       note: "Play: ↑ from the empty prompt reaches the last queued prompt, ↑ again the one before; Return edits it in its row (Return saves, Esc cancels). On a row, ⌥↑/⌥↓ move it and Delete removes it; ⌘Return does nothing there (Steer is the row's button).",
       snapshot: { ...steering(true), queue: waiting },

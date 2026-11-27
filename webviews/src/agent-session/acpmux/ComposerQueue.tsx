@@ -50,7 +50,7 @@ import { framesNoteVideo } from "./composer/videoPrompt";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { resumePausedQueue } from "./queuePause";
 import type { ComposerAttachment } from "./attachments";
-import type { Translate } from "./i18n";
+import { usePaneLanguage, type Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { KeyHint } from "../../ui/KeyHint";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
@@ -225,6 +225,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   paused,
   pauseReason,
   pauseSaid = false,
+  heldUntil,
   t,
   onRemove,
   onCancelEdit,
@@ -250,6 +251,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   /// The composer status dot says the pause, with its reason and Resume (ComposerStatusDot.tsx
   /// `dotSaysQueuePaused`; RFD 0128): the paused note stays out, the prompts it holds stay listed.
   pauseSaid?: boolean;
+  /// The account's rate limit holds every turn until this time (Unix ms, `rateLimitedUntil`): what
+  /// was sent meanwhile waits here, and the note says until when instead of leaving it unsaid.
+  heldUntil?: number;
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
@@ -428,6 +432,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
     paused,
     pauseReason,
     pauseSaid,
+    heldUntil,
     wakeNoteShown,
     skills,
     t,
@@ -736,7 +741,9 @@ export const ComposerQueue = React.memo(function ComposerQueue({
   // for Resume (`cancel.rs`): `paused`, so the note and its Resume stay (review of #36821, F1).
   // acpmux's own prompts (a surge digest, a subagent's resume) are never the person's rows: they list
   // in Session Info's Background tasks (session-info/agentSide.ts; Leo, 2026-11-24).
+  const lang = usePaneLanguage();
   const note = paused && !pauseSaid;
+  const holdsUntil = heldUntil !== undefined && heldUntil > Date.now() && shown.length > 0;
   if (shown.length === 0 && !(note && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
@@ -1207,6 +1214,11 @@ export const ComposerQueue = React.memo(function ComposerQueue({
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >
+        {holdsUntil && !note && (
+          <li className="acpmux-queue-paused acpmux-queue-held" data-held-for="rate-limit">
+            <span>{t("composer.queueHeldUntil", { time: heldClock(heldUntil, lang) })}</span>
+          </li>
+        )}
         {note && (
           <li className="acpmux-queue-paused">
             <span
@@ -1342,3 +1354,8 @@ function QueuedEdit({
     />
   );
 }
+
+/// The reset's clock time in the person's own time zone and language ("3:40 PM"): the note says
+/// when the held messages go in, not a countdown that drifts.
+const heldClock = (at: number, lang: string) =>
+  new Intl.DateTimeFormat(lang, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
