@@ -71,3 +71,48 @@ fn app_assets_use_only_explicit_or_adjacent_resources() {
     )));
     assert_eq!(roots(exe, Some("/packaged/pane".into())), vec![PathBuf::from("/packaged/pane")]);
 }
+
+/// The app build stores lazy chunks packed (pack-webviews-chunks.py): a chunk
+/// missing from the folder is served from its `.deflate` copy, inflated.
+#[tokio::test]
+async fn app_assets_serve_a_packed_chunk_inflated() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(dir.path().join("chunks")).await.unwrap();
+    let chunk = "export const katex = 1;\n".repeat(200);
+    let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::best());
+    encoder.write_all(chunk.as_bytes()).unwrap();
+    let packed = encoder.finish().unwrap();
+    tokio::fs::write(dir.path().join("chunks/katex-AB12.js.deflate"), &packed).await.unwrap();
+    let (status, body, kind) = read(dir.path(), "chunks/katex-AB12.js", "text/javascript").await;
+    assert_eq!((status, kind), ("200 OK", "text/javascript"));
+    assert_eq!(body, chunk.as_bytes());
+    // The plain file, when there, wins.
+    tokio::fs::write(dir.path().join("chunks/katex-AB12.js"), "plain").await.unwrap();
+    assert_eq!(read(dir.path(), "chunks/katex-AB12.js", "text/javascript").await.1, b"plain");
+    // A copy that does not inflate is a 404, as a missing file is.
+    tokio::fs::write(dir.path().join("chunks/broken.js.deflate"), [0xff, 0xff, 0xff, 0xff])
+        .await
+        .unwrap();
+    assert_eq!(read(dir.path(), "chunks/broken.js", "text/javascript").await.0, "404 Not Found");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn app_assets_packed_links_cannot_escape_or_stand_for_another_file() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    tokio::fs::create_dir(dir.path().join("chunks")).await.unwrap();
+    let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::best());
+    encoder.write_all(b"private").unwrap();
+    let packed = encoder.finish().unwrap();
+    let secret = outside.path().join("secret.js.deflate");
+    tokio::fs::write(&secret, &packed).await.unwrap();
+    std::os::unix::fs::symlink(&secret, dir.path().join("chunks/escape.js.deflate")).unwrap();
+    assert_eq!(read(dir.path(), "chunks/escape.js", "text/javascript").await.0, "404 Not Found");
+    tokio::fs::write(dir.path().join("chunks/view.js.deflate"), &packed).await.unwrap();
+    std::os::unix::fs::symlink("view.js.deflate", dir.path().join("chunks/other.js.deflate"))
+        .unwrap();
+    assert_eq!(read(dir.path(), "chunks/other.js", "text/javascript").await.0, "404 Not Found");
+}

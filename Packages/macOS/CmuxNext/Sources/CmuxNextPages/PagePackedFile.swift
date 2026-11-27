@@ -10,14 +10,15 @@ import Foundation
 /// A file is inflated in memory each time a page asks for it; Settings' first paint inflates about
 /// 200 KB into 1.5 MB in a few milliseconds, so nothing keeps it. Nothing is written outside the
 /// signed bundle: a first-party page's code never comes from a folder another process can write
-/// (``PageWebView/mayServe(_:from:testRoot:)``).
-nonisolated enum PagePackedFile {
+/// (``PageWebView/mayServe(_:from:testRoot:)``). The agent pane's lazy `chunks/` ship the same way
+/// in the app (scripts/cmux-next/pack-webviews-chunks.py), read by its own handler through this too.
+nonisolated public enum PagePackedFile {
     /// The suffix pack-pages.mjs gives a packed file (its `PACKED_SUFFIX`).
-    static let suffix = ".deflate"
+    public static let suffix = ".deflate"
 
     /// `file`'s bytes from its packed copy (`file` + ``suffix``), nil when there is none or it does
     /// not inflate. It reads the disk: call it off the main actor, as ``PageSchemeHandler/read(_:)``.
-    static func read(_ file: URL) -> Data? {
+    public static func read(_ file: URL) -> Data? {
         // The packed copy sits beside the file it stands for, as the route resolved it: a link that
         // leads anywhere else is not followed (PageSchemeHandler.route's symlink rule).
         let packed = URL(fileURLWithPath: file.path + suffix).standardizedFileURL.resolvingSymlinksInPath()

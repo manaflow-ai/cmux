@@ -100,7 +100,9 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     /// Reads `file` off the main thread.
     @concurrent nonisolated static func read(_ file: URL) async -> Data? {
         // concurrency-allow: @concurrent, so this read never runs on the main actor
-        try? Data(contentsOf: file, options: .mappedIfSafe)
+        if let data = try? Data(contentsOf: file, options: .mappedIfSafe) { return data }
+        // The app stores the pane's lazy chunks packed (pack-webviews-chunks.py, CMUX-570).
+        return PagePackedFile.read(file)
     }
 
     /// The file `url` names inside `root`, or nil for another scheme or
