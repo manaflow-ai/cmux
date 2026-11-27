@@ -1093,6 +1093,54 @@ class DeadLabelRescueTests(unittest.TestCase):
         self.assertEqual(actions.calls, [])
         self.assertIn("`publish to R2` is running", summary)
 
+    def test_a_run_with_any_running_job_is_never_cancelled(self) -> None:
+        # Review BLOCK on cmux#27114: a force-cancel ends every job of the run, so any running job (not only a
+        # publish) would lose its work. Both rescues leave such a run for a later pass.
+        running = {"name": "unit tests", "status": "in_progress", "runner_name": "bs-9", "labels": []}
+        actions = self.stranded()
+        actions.run_jobs[10] = [self.DEAD_16, running]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("`unit tests` is running", summary)
+        runs = [{"id": 20, "status": "in_progress", "event": "push", "name": "CI", "created_at": ago(30)}]
+        actions = FakeActions(None, runs, {20: [self.DEAD_16, running]})
+        clock = Clock()
+        lines = switch.rescue_stuck_runs(actions, own_run_id=1, minutes=5, now=clock.now, sleep=clock.sleep,
+                                         log=lambda _: None, dry_run=False)
+        self.assertEqual(actions.calls, [])
+        self.assertTrue(any("`unit tests` is running" in line for line in lines), lines)
+
+    def test_a_job_that_started_after_the_listing_holds_the_cancel(self) -> None:
+        actions = self.stranded()
+        listed = {"n": 0}
+        before = actions.jobs
+
+        def jobs(run_id: int, attempt: int | None = None) -> list[dict]:
+            if run_id != 10:
+                return before(run_id, attempt)
+            listed["n"] += 1
+            started = {"name": "lint", "status": "in_progress", "runner_name": "bs-3", "labels": []}
+            return [self.DEAD_16] + ([started] if listed["n"] > 1 else [])
+
+        actions.jobs = jobs  # type: ignore[method-assign]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("run 10: changed since it was listed", summary)
+
+    def test_an_incomplete_job_listing_is_never_acted_on(self) -> None:
+        actions = self.stranded()
+        before = actions.jobs
+
+        def jobs(run_id: int, attempt: int | None = None) -> list[dict]:
+            if run_id == 10:
+                raise switch.GitHubError("GET /actions/runs/10/jobs incomplete (100 of 140 jobs)")
+            return before(run_id, attempt)
+
+        actions.jobs = jobs  # type: ignore[method-assign]
+        summary = self.rescue(actions)
+        self.assertEqual(actions.calls, [])
+        self.assertIn("run 10: could not list jobs", summary)
+
     def test_a_run_that_changed_since_the_listing_is_left_alone(self) -> None:
         actions = self.stranded()
         actions.run = lambda run_id: {"id": run_id, "status": "queued", "run_attempt": 2}  # type: ignore[method-assign]
@@ -1412,6 +1460,32 @@ class ReadTokenTests(unittest.TestCase):
         api.force_cancel(8)
         api.rerun(8)
         self.assertEqual([token for *_, token in sent], ["bot", "bot", "workflow", "workflow"])
+
+    def test_a_job_listing_is_complete_or_an_error(self) -> None:
+        def paged(pages: list[dict]) -> tuple[switch.GitHub, list[str]]:
+            api = switch.GitHub("bot", "manaflow-ai/cmux")
+            asked: list[str] = []
+
+            def send(method: str, path: str, data: bytes | None, token: str) -> dict:
+                asked.append(path)
+                return pages[len(asked) - 1]
+            api._send = send  # type: ignore[method-assign]
+            return api, asked
+
+        full = [{"id": n} for n in range(100)]
+        # Read across pages until a short one.
+        api, asked = paged([{"total_count": 140, "jobs": full}, {"total_count": 140, "jobs": full[:40]}])
+        self.assertEqual(len(api.jobs(7)), 140)
+        self.assertEqual(asked, ["/actions/runs/7/jobs?per_page=100&page=1", "/actions/runs/7/jobs?per_page=100&page=2"])
+        # A short page while total_count says more: some jobs went unread.
+        api, _ = paged([{"total_count": 140, "jobs": full[:90]}])
+        with self.assertRaisesRegex(switch.GitHubError, "incomplete .90 of 140 jobs."):
+            api.jobs(7)
+        # Every page full: the rest past MAX_JOB_PAGES is unread.
+        api, asked = paged([{"jobs": full}] * switch.MAX_JOB_PAGES)
+        with self.assertRaisesRegex(switch.GitHubError, "incomplete"):
+            api.jobs(7, 2)
+        self.assertEqual(len(asked), switch.MAX_JOB_PAGES)
 
     def test_a_refused_read_is_not_asked_again_on_the_workflow_token(self) -> None:
         # The workflow token can never read a variable: its 403 hid the first refusal's cause.

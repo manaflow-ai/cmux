@@ -388,6 +388,24 @@ class ScanTests(RepoCase):
         self.assertEqual([item["path"] for item in report["files"]], ["7/index.html"])
         self.assertNotIn("cmux3s", out)  # matched text is never printed
 
+    def test_budget_stops_at_a_chunk_and_moves_the_marker_there(self) -> None:
+        start = self.commit({"README.md": "hi"})
+        first = self.commit({"1/a.png": "x"})
+        self.commit({"2/leak.png": "x"})
+        third = self.commit({"3/c.png": "x"})
+        env = {"PR_MEDIA_SCAN_CHUNK_COMMITS": "1", "PR_MEDIA_SCAN_BUDGET_SECONDS": "0.0001"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(privacy.time, "monotonic", side_effect=[0, 5, 10, 15, 20]):
+            report, out = self.scan(start, third, apply=False)
+        self.assertEqual(report["marker"], first)
+        self.assertTrue(report["partial"])
+        self.assertEqual(report["files"], [])
+        self.assertIn("time budget spent", out)
+        # The next run starts at the marker and reaches the tip, finding the leak.
+        report, _ = self.scan(first, third, apply=False)
+        self.assertEqual(report["marker"], third)
+        self.assertEqual([item["path"] for item in report["files"]], ["2/leak.png"])
+        self.assertEqual(privacy.chunk_boundaries(self.work, start, third)[-1], third)
+
     def test_no_marker_scans_nothing(self) -> None:
         end = self.commit({"5/leak.png": "x"})
         report, _ = self.scan(None, end, apply=True)
