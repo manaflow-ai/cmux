@@ -4195,3 +4195,37 @@ fi
 python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind swift ${selected[@]+"${selected[@]}"} \
   --receipt "${RUNNER_TEMP:-$CI_TOOLS}/cmux-next-fast-tier.json"
 '''
+
+# Real Link input survives a lost route and a new UDP socket or TURN allocation.
+# Headless: no simulator boot, host network changes, or real device. The detector
+# itself has a 15-second setup bound and a 2-second recovery bound per case;
+# this step also allows compilation on a cold worker.
+[step.ios-roaming-headless]
+job = "linux"
+alone = true
+timeout = 1200
+title = "iOS roaming: same-session input recovery"
+about = "direct rebind and TURN reallocation preserve every input on the production input lane within two seconds"
+needs = ["rust"]
+inputs = [
+  "ci/steps.toml",
+  "cmux-next-ios/rust/**",
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**",
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**",
+  "cmux-tui/crates/cmux-wg/**",
+  "cmux-tui/crates/cmux-transport/**",
+  "cmux-tui/crates/cmux-braid-*/**",
+  "cmux-tui/crates/cmux-egress/**",
+  "cmux-tui/crates/cmux-proxy/**",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-terminal-projection/**",
+  "cmux-tui/vendor/smoltcp/**",
+  "cmux-tui/rust-toolchain.toml",
+  ".cargo/**",
+]
+run = '''
+cd cmux-next-ios/rust
+export CARGO_TERM_COLOR=never
+TIMEFORMAT='ROAMING_BUILD_AND_TEST wall_s=%R local_user_s=%U local_sys_s=%S'
+time cargo test --locked -p cmux-mobile-link --test roaming_gate -- --nocapture
+'''
