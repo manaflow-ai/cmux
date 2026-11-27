@@ -353,15 +353,16 @@ def provider_pr_merges(repo: str, base_ref: str, since: float, token: Optional[s
             prs = gh_api(f"repos/{repo}/pulls?{query}", token, run)
             if not isinstance(prs, list) or any(not isinstance(p, dict) for p in prs):
                 raise SourceError("invalid closed-PR response")
-        except SourceError as e:
-            return {"rows": list(rows.values()), "complete": False, "reason": str(e)}
+        except SourceError:
+            # This reason is exported in the public PR stream; do not include command stderr.
+            return {"rows": list(rows.values()), "complete": False, "reason": "provider merge page unavailable"}
         for pr in prs:
             merged = ts(pr.get("merged_at"))
             sha = pr.get("merge_commit_sha")
             number = pr.get("number")
             if (merged is not None and merged >= since and type(number) is int and number > 0
                     and isinstance(sha, str) and SHA_RE.fullmatch(sha)
-                    and (pr.get("base") or {}).get("ref") == base):
+                    and isinstance(pr.get("base"), dict) and pr["base"].get("ref") == base):
                 rows[(number, sha)] = {"pr": number, "sha": sha, "merged_at": pr["merged_at"]}
         updated = [ts(pr.get("updated_at")) for pr in prs]
         if len(prs) < 100 or (updated and all(t is not None for t in updated) and min(updated) < since):
@@ -485,6 +486,9 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
     end = time.time() if now is None else now
     since = end - window_days * 86400
     merges = first_parent_pr_merges(git_dir, base_ref, since, run)
+    # A successful rev-list in a shallow clone can omit real ancestors. Positive membership is proof;
+    # absence is not, and must not let a later feed masquerade as the first containing publication.
+    history_complete = (git(git_dir, ["rev-parse", "--is-shallow-repository"], run) or "").strip() == "false"
     feeds = [(ts(e["feed_at"]), e) for e in feed_list(feeds or [], records, end, window_days)]
     feeds = [(t, e) for t, e in feeds if t is not None and t <= end]
     feeds.sort(key=lambda item: (item[0], item[1]["sha"], item[1]["build"]))
@@ -494,8 +498,11 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
         if head not in held:
             held[head] = _ancestors_since(git_dir, head, since, run)
         if held[head] is None:
-            return _contains_commit(git_dir, commit, head, run)
-        return commit in held[head]
+            answer = _contains_commit(git_dir, commit, head, run)
+            return None if answer is False and not history_complete else answer
+        if commit in held[head]:
+            return True
+        return False if history_complete else None
 
     rows: List[Dict[str, Any]] = []
     provider = provider_merges or {"rows": [], "complete": False, "reason": "no provider merge records"}
@@ -559,8 +566,9 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
             "unconfirmed": sum(1 for _, e in feeds if not e.get("confirmed")),
             "unidentified": sum(1 for _, e in feeds if not e.get("confirmed_identity")),
             "classified": {"from": classified["from"], "to": classified["to"]} if sound_span(classified) else None,
-            "partial": not provider.get("complete") or not covered(rows, feeds, since, end, classified)
-            or any(r["reason"] == "could not verify integration ancestry" for r in rows),
+            "partial": not history_complete or not provider.get("complete") or not covered(rows, feeds, since, end, classified)
+            or any(r["reason"] in ("could not verify integration ancestry", "could not verify nightly head ancestry")
+                   for r in rows),
             "provider_complete": bool(provider.get("complete")), "provider_reason": provider.get("reason"),
             "matched_prs": len(durations),
             "unmatched_prs": sum(r["sha"] in by_sha and r["status"] != "attributed" for r in rows),

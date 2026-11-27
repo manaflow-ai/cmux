@@ -77,6 +77,13 @@ def fixture_attribution(records, git_dir, base_ref=ns.BASE_REF, *, confirm_feeds
         records = [verified(f) for f in records]
         if "feeds" in kwargs:
             kwargs["feeds"] = [verified(f) for f in kwargs["feeds"]]
+    if "run" in kwargs:
+        graph = kwargs["run"]
+        def complete_graph(cmd, **kw):
+            if "--is-shallow-repository" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "false\n", "")
+            return graph(cmd, **kw)
+        kwargs["run"] = complete_graph
     return ns.pr_attribution(records, git_dir, base_ref, **kwargs,
                              provider_merges={"rows": list(provider.values()), "complete": True})
 
@@ -207,6 +214,8 @@ class PrAttribution(unittest.TestCase):
             ]) + "\n"
 
         def __call__(self, cmd, **kw):
+            if "--is-shallow-repository" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "false\n", "")
             if "rev-list" in cmd:
                 return subprocess.CompletedProcess(cmd, 128, "", "no rev-list in this fake")
             if "log" in cmd:
@@ -1240,6 +1249,27 @@ class PublicationReceipt(unittest.TestCase):
 
 
 class VerifiedPrAttribution(unittest.TestCase):
+    def test_shallow_missing_ancestor_cannot_attribute_to_a_later_feed(self):
+        provider = {"complete": True, "rows": [{"pr": 7, "sha": "m1", "merged_at": "2026-11-14T00:00:00Z"}]}
+        feeds = [{"build": "old", "sha": "aaaaaaa", "feed_at": "2026-11-12T00:00:00Z"},
+                 {"build": "first", "sha": "bbbbbbb", "feed_at": "2026-11-14T01:00:00Z"},
+                 {"build": "later", "sha": "ccccccc", "feed_at": "2026-11-14T02:00:00Z"}]
+        feeds = [{**f, "confirmed": True, "confirmed_identity": True, "sha_source": "signed_notes"} for f in feeds]
+        def graph(cmd, **kw):
+            if "--is-shallow-repository" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "true\n", "")
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "m1\tp1\t1794614400\tmerge (#7)\n", "")
+            if "rev-list" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "m1\n" if cmd[-1] == "ccccccc" else "", "")
+            raise AssertionError(cmd)
+        result = ns.pr_attribution(feeds, ".", run=graph, now=ns.ts("2026-11-20T00:00:00Z"),
+                                   provider_merges=provider,
+                                   classified={"from": "2026-11-12T00:00:00Z", "to": "2026-11-20T00:00:00Z"})
+        self.assertTrue(result["partial"])
+        self.assertEqual((result["matched_prs"], result["unmatched_prs"], result["p50"]), (0, 1, None))
+        self.assertEqual(result["rows"][0]["reason"], "could not verify nightly head ancestry")
+
     def test_provider_clock_identity_and_first_verified_feed(self):
         graph = PrAttribution.Git()
         graph.log += "m5\tp1\t1794700800\tspoofed merge (#101)\0noreply@github.com\n"
@@ -1274,6 +1304,8 @@ class VerifiedPrAttribution(unittest.TestCase):
 
     def test_provider_merge_without_message_marker_or_matching_commit_clock(self):
         def graph(cmd, **kw):
+            if "--is-shallow-repository" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "false\n", "")
             if "log" in cmd:
                 return subprocess.CompletedProcess(cmd, 0, "", "")
             if "rev-list" in cmd:
@@ -1305,7 +1337,7 @@ class VerifiedPrAttribution(unittest.TestCase):
         self.assertEqual(limited["rows"], result["rows"])
         failed = ns.provider_pr_merges("o/r", "origin/feat-cmux-next", 0, "t", FakeGh())
         self.assertFalse(failed["complete"])
-        self.assertIn("HTTP 404", failed["reason"])
+        self.assertEqual(failed["reason"], "provider merge page unavailable")
 
 
 if __name__ == "__main__":

@@ -7,8 +7,8 @@ name: nightly speed budget
 # stage's trailing median, and writes the one cmuxterm-hq issue "cmux NEXT nightly speed budget", whose hidden JSON
 # is the history. The quality report reads that history for its nightly_speed metric.
 #
-# GitHub reads per run: one list of nightly.yml runs on nightly-next, two jobs lists per newly published build, and
-# nothing more when nothing is new. Nothing depends on this workflow and it never gates a nightly. A push to
+# GitHub reads per run: nightly.yml runs and publication job receipts, plus at most 40 pages of closed PRs for
+# provider-verified merge identities and timestamps. Nothing depends on this workflow and it never gates a nightly. A push to
 # nightly-next runs nightly-next's own copy of the file, so no default-branch dispatcher is needed.
 on:
   push:
