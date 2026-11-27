@@ -90,7 +90,9 @@ pub const BREAK_IDLE_SECONDS: f64 = 60.0;
 pub fn needed_idle_seconds(idle_minutes: f64, staged_seconds: Option<f64>) -> f64 {
     let needed = idle_seconds(idle_minutes);
     match staged_seconds {
-        Some(staged) if staged.is_finite() && staged >= ESCALATE_AFTER_SECONDS => needed.min(BREAK_IDLE_SECONDS),
+        Some(staged) if staged.is_finite() && staged >= ESCALATE_AFTER_SECONDS => {
+            needed.min(BREAK_IDLE_SECONDS)
+        }
         _ => needed,
     }
 }
@@ -203,16 +205,15 @@ pub fn decide(facts: &IdleFacts) -> Decision {
     if !facts.enabled {
         return Decision::hold(Hold::Off);
     }
-    let away =
-        match away(
-            facts.input_idle_seconds,
-            facts.screen_locked,
-            needed_idle_seconds(facts.idle_minutes, facts.staged_seconds),
-        ) {
-            Ok(away) => away,
-            Err(None) => return Decision::hold(Hold::Unknown),
-            Err(Some(seconds_left)) => return Decision::hold(Hold::NotIdle { seconds_left }),
-        };
+    let away = match away(
+        facts.input_idle_seconds,
+        facts.screen_locked,
+        needed_idle_seconds(facts.idle_minutes, facts.staged_seconds),
+    ) {
+        Ok(away) => away,
+        Err(None) => return Decision::hold(Hold::Unknown),
+        Err(Some(seconds_left)) => return Decision::hold(Hold::NotIdle { seconds_left }),
+    };
     if facts.declined_installs > 0 {
         let wait = retry_after_seconds(facts.declined_installs);
         // A decline with no time read is as recent as can be: wait the whole backoff.

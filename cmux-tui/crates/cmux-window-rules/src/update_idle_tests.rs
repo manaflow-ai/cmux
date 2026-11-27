@@ -35,9 +35,11 @@ fn a_long_waiting_update_installs_at_a_natural_break() {
 /// The break never overrides an unsent draft or an unreadable input time.
 #[test]
 fn a_natural_break_still_respects_drafts_and_unknowns() {
-    let facts = IdleFacts { staged_seconds: Some(9.0 * 3600.0), unsent_drafts: Some(1), ..idle(5.0) };
+    let facts =
+        IdleFacts { staged_seconds: Some(9.0 * 3600.0), unsent_drafts: Some(1), ..idle(5.0) };
     assert_eq!(decide(&facts).hold, Some(Hold::UnsentDraft));
-    let facts = IdleFacts { staged_seconds: Some(9.0 * 3600.0), input_idle_seconds: None, ..idle(5.0) };
+    let facts =
+        IdleFacts { staged_seconds: Some(9.0 * 3600.0), input_idle_seconds: None, ..idle(5.0) };
     assert_eq!(decide(&facts).hold, Some(Hold::Unknown));
     // an older app sends no staged time: the full idle time applies
     let old: IdleFacts = serde_json::from_value(serde_json::json!({
