@@ -1492,9 +1492,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   string, so it lasts one daemon run. Revs of different epochs are unrelated. `epoch` names
   the host process and the daemon run its tab ids came from: it is new at each hostd start
   and each time hostd reconnects to the daemon (taken as a new run), and a new one drops
-  every row, order and held picture of the old, so a phone gets a manifest. A tab naming
-  an agent session the phone's chat exposure blocks is hidden, and every tab is while the
-  exposure is unavailable. Browser favicons and thumbnails come from the Mac app on its
+  every row, order and held picture of the old, so a phone gets a manifest. Remote Control
+  is one app-wide switch (`mobile.allowIPhoneConnections`, which runs or stops hostd), so no
+  chat's tab is hidden for exposure; the filter keeps the rule that a tab naming an agent
+  session the exposure blocks is hidden, and every tab is while it is unavailable. Browser favicons and thumbnails come from the Mac app on its
   stdin line `{"type":"tab_picture","surface": <daemon surface u64>, "part": "thumb" |
   "favicon", "path", "w"?, "h"?, "captured_at_ms"?}`: `path` is an absolute regular file
   (not a link) in the app's caches (`phone-tab-pictures`) of 1 byte to 2 MiB, JPEG or PNG
