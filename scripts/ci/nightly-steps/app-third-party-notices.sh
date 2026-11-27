@@ -7,6 +7,9 @@
 #   app-third-party-notices.sh start       nightly-next-one: generate them in the background (background_build.py,
 #                                          "notices") into that hand-off; they read no build output
 #   app-third-party-notices.sh generate D  the background command: generate outside the checkout, then pack into D
+#   app-third-party-notices.sh pr          cmux-next-guards.yml rust-notices-tree: the same generation on a pull
+#                                          request that changes a notice input, outside the checkout; a crate whose
+#                                          license texts do not match (license_match.py) fails it as it fails the nightly
 #
 # The background run never writes the checkout's THIRD_PARTY_LICENSES.md: the Release build copies the committed file,
 # and bundle-notices replaces exactly that copy. A background run that fails packs nothing, so the plain step generates.
@@ -32,8 +35,14 @@ case "${1:-}" in
     python3 scripts/ci/nightly_inputs.py pack-notices "$out" --notices "$work/THIRD_PARTY_LICENSES.md"
     exit 0
     ;;
+  pr)
+    work="$RUNNER_TEMP/notices-pr"
+    rm -rf "$work" && mkdir -p "$work"
+    CMUX_NOTICES_OUT="$work/THIRD_PARTY_LICENSES.md" generate
+    exit 0
+    ;;
   "") ;;
-  *) echo "usage: app-third-party-notices.sh [start | generate DIR]" >&2; exit 2 ;;
+  *) echo "usage: app-third-party-notices.sh [start | generate DIR | pr]" >&2; exit 2 ;;
 esac
 if python3 scripts/ci/nightly_inputs.py install-notices "$handoff"; then
   status=0
