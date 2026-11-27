@@ -15,6 +15,7 @@ prefix="cmux-next-fast-tier-cargo-v2-$workspace-"
   echo "registry-key=cmux-next-fast-tier-cargo-registry-v1-$inputs"
   echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
   # The workspace delta on top of that entry, one per feat-cmux-next commit (scripts/ci/cargo-target-delta.sh).
+  echo "ws-base=cmux-next-fast-tier-cargo-ws-v1-$workspace-"
   echo "ws-prefix=cmux-next-fast-tier-cargo-ws-v1-$workspace-$inputs-"
   echo "ws-key=cmux-next-fast-tier-cargo-ws-v1-$workspace-$inputs-$GITHUB_SHA"
 } >> "$GITHUB_OUTPUT"
