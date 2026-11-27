@@ -81,10 +81,16 @@ public struct VaultScreen: View {
                 Label("Couldn't load the vault", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(message)
-            } actions: {
-                Button("Try Again") { Task { await model.load() } }.buttonStyle(.borderedProminent)
             }
             .accessibilityIdentifier("vault.failed")
+            // The vault reads again by itself, jittered, for as long as this page shows the failure.
+            .task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(Double.random(in: 4...8)))
+                    guard !Task.isCancelled else { return }
+                    await model.load()
+                }
+            }
         case .loaded:
             List {
                 switch model.state {

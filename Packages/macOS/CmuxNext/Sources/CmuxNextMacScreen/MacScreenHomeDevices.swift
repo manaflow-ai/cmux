@@ -1,7 +1,10 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextDevices
+import CmuxNextWakeups
 import Foundation
+import Observation
 
 /// What the home page reads of the device hub: the hub (while signed in),
 /// this Mac as a host, and whether the build has a hub at all.
@@ -144,7 +147,7 @@ struct MacScreenHomeSnapshot: Equatable {
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: registered ? nil : home.hubQuiet.note(hub.status))
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -599,5 +602,28 @@ extension DeviceDiscovery.Reason {
         }
         guard let detail, !detail.isEmpty else { return text }
         return text + " (" + detail + ")"
+    }
+}
+
+/// Holds "Connecting this Mac to the device hub…" back for ``NoticeTiming/connectionQuiet`` (the shared 10 s bound,
+/// `schemas/notice-timing` `connectionQuietMs`): a hub that joins within it draws no note. A failure says why at once.
+@MainActor @Observable
+final class MacScreenHubQuiet {
+    /// Bumped when the hold ends: the page's snapshot reads it, so the page draws the note then.
+    private(set) var revealed = 0
+    @ObservationIgnored private let joining: QuietHold
+
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        joining = QuietHold(owner: "mac-screen-home-hub-joining", delay: NoticeTiming.connectionQuiet, clock: clock)
+    }
+
+    /// The note for `status` while this Mac is not registered: a failure at once, the joining line once it has lasted.
+    func note(_ status: DeviceHub.Status) -> String? {
+        _ = revealed
+        var failed = false
+        if case .failed = status { failed = true }
+        joining.update(!failed) { [weak self] in self?.revealed &+= 1 }
+        if failed { return MacScreenHomeSnapshot.hubNote(status) }
+        return joining.held ? nil : MacScreenHomeSnapshot.hubNote(status)
     }
 }
