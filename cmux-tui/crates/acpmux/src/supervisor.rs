@@ -16,9 +16,8 @@
 //! - **Restart means resume**: the decision names the transcript to resume from; a caller that
 //!   finds the transcript itself is the poison falls back to a fresh session handed a summary.
 //!
-//! This absorbs the decision core of leo-workspace `tools/agent_revive.py` (at most
-//! `MAX_REVIVES` = 3 in a 6 h `REVIVE_WINDOW_S`) and `tools/lane_deaths.py` (a lane owning PRs
-//! is revived first; past `max_revives` its coordinator is handed it). Pure: no hub, no clock.
+//! The policy: at most 3 restarts in a 6 h window; a session that owns open work is restarted
+//! first; past the limit its owner is handed it. Pure: no hub, no clock.
 //! `hub/exit_notify.rs` logs the decision next to the exit record when `ACPMUX_SUPERVISOR=1`
 //! (default off); nothing acts on it yet.
 
@@ -69,7 +68,7 @@ pub struct Intensity {
 }
 
 impl Default for Intensity {
-    /// `agent_revive.py`'s limits (3 in 6 h) and a token budget a crash loop would pass.
+    /// 3 restarts in 6 h, and a token budget a crash loop would pass.
     fn default() -> Self {
         Self { max_restarts: 3, window_ms: 6 * 3600 * 1000, max_tokens: 2_000_000 }
     }
