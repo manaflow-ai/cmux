@@ -67,6 +67,14 @@
 # mode bundles none): the daemon starts every holder from a content-addressed
 # copy of it when it answers --version with a wire range the daemon speaks, else
 # runs the holder built into bin/cmux-tui-host.
+# The login-time pre-read goes beside bin/cmux as bin/cmux-launch-preread
+# (CMUX_NEXT_LAUNCH_PREREAD_BIN, a sibling of a local client, or the verified
+# tree/pin companion). Older publications without the reader bundle none.
+# The app host and the browser host: when the bundled cmux runs them by argv[0]
+# (link-folded-hosts.sh --probe), bin/cmux-app-host and bin/cmux-browser-host are
+# relative links to cmux like cmux-tui and acpmux, nothing is fetched or placed
+# for them and their *_sha256 fields stay empty; an explicit CMUX_NEXT_*_BIN still
+# places a copy, and a cmux from before the fold gets its own binaries as above.
 # Release signing (sign-cmux-bundle-helpers.sh)
 # signs every Mach-O in bin/ the same way as bin/cmux, and
 # check-bundled-browser-host.sh checks the placed copy.
@@ -118,7 +126,7 @@ fi
 clear_outputs() {
   rm -f "$dest" "$dest_dir/cmux-tui" "$dest_dir/acpmux" \
     "$dest_dir/cmux-app-host" "$dest_dir/cmux-cloud" "$dest_dir/cmux-browser-host" \
-    "$dest_dir/cmux-tui-host" "$dest_dir/cmux-holder" "$dest_dir/cmux-agent-screen-detection" \
+    "$dest_dir/cmux-tui-host" "$dest_dir/cmux-holder" "$dest_dir/cmux-agent-screen-detection" "$dest_dir/cmux-launch-preread" \
     "$dest_dir/cmux-tui.version" "$dest_dir/daemon-capabilities.json"
 }
 # pin_error <message>: a pin-mode build without its pinned cmux-tui fails, the
@@ -242,18 +250,33 @@ companion_source() {
     fi
   fi
 }
-companion_source cmux-app-host "${CMUX_NEXT_APP_HOST_BIN:-}" app_host_sha256
-app_host_src="$companion_src"
+# The browser host and the app host run from bin/cmux by argv[0] when this
+# build carries them (link-folded-hosts.sh, CMUX-570): bin/cmux-browser-host
+# and bin/cmux-app-host are then links to cmux, like cmux-tui and acpmux, and
+# no copy is fetched or placed. An explicit CMUX_NEXT_*_BIN still places its
+# copy. A build from before the fold bundles its own binaries as before.
+folded_hosts=()
+if "$repo_root/scripts/cmux-next/link-folded-hosts.sh" --probe "$src"; then
+  [[ -n "${CMUX_NEXT_APP_HOST_BIN:-}" ]] || folded_hosts+=(cmux-app-host)
+  [[ -n "${CMUX_NEXT_BROWSER_HOST_BIN:-}" ]] || folded_hosts+=(cmux-browser-host)
+fi
+is_folded() { [[ " ${folded_hosts[*]:-} " == *" $1 "* ]]; }
+app_host_src=""
+is_folded cmux-app-host || { companion_source cmux-app-host "${CMUX_NEXT_APP_HOST_BIN:-}" app_host_sha256; app_host_src="$companion_src"; }
 companion_source cmux-cloud "${CMUX_NEXT_CLOUD_SERVER_BIN:-}" cloud_server_sha256
 cloud_server_src="$companion_src"
-companion_source cmux-browser-host "${CMUX_NEXT_BROWSER_HOST_BIN:-}" browser_host_sha256
-browser_host_src="$companion_src"
+browser_host_src=""
+is_folded cmux-browser-host || { companion_source cmux-browser-host "${CMUX_NEXT_BROWSER_HOST_BIN:-}" browser_host_sha256; browser_host_src="$companion_src"; }
 companion_source cmux-tui-host "${CMUX_NEXT_TERMINAL_HOST_BIN:-}" terminal_host_sha256
 terminal_host_src="$companion_src"
 companion_source cmux-holder "${CMUX_NEXT_HOLDER_BIN:-}" holder_sha256
 holder_src="$companion_src"
 companion_source cmux-agent-screen-detection "${CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN:-}" agent_screen_detection_sha256
 agent_screen_detection_src="$companion_src"
+# Optional on older trees; hosted and pinned readers use the same checksum
+# verification as the other companions.
+companion_source cmux-launch-preread "${CMUX_NEXT_LAUNCH_PREREAD_BIN:-}" launch_preread_sha256
+launch_preread_src="$companion_src"
 
 version_file="$dest_dir/cmux-tui.version"
 version_text="mode=$mode
@@ -270,6 +293,7 @@ browser_host_sha256=${browser_host_src:+$(sha256_of "$browser_host_src")}
 terminal_host_sha256=${terminal_host_src:+$(sha256_of "$terminal_host_src")}
 holder_sha256=${holder_src:+$(sha256_of "$holder_src")}
 agent_screen_detection_sha256=${agent_screen_detection_src:+$(sha256_of "$agent_screen_detection_src")}
+launch_preread_sha256=${launch_preread_src:+$(sha256_of "$launch_preread_src")}
 "
 
 mkdir -p "$dest_dir"
@@ -299,12 +323,16 @@ place_companion() {
     echo "bundled $file from $from"
   fi
 }
-place_companion "$app_host_src" cmux-app-host
+is_folded cmux-app-host || place_companion "$app_host_src" cmux-app-host
 place_companion "$cloud_server_src" cmux-cloud
-place_companion "$browser_host_src" cmux-browser-host
+is_folded cmux-browser-host || place_companion "$browser_host_src" cmux-browser-host
 place_companion "$terminal_host_src" cmux-tui-host
 place_companion "$holder_src" cmux-holder
 place_companion "$agent_screen_detection_src" cmux-agent-screen-detection
+place_companion "$launch_preread_src" cmux-launch-preread
+if (( ${#folded_hosts[@]} )); then
+  "$repo_root/scripts/cmux-next/link-folded-hosts.sh" "$dest_dir" "${folded_hosts[@]}"
+fi
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi

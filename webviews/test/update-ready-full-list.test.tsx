@@ -4,6 +4,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;
@@ -27,12 +28,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("the popover lists every change of the update, not three and a count", async () => {
@@ -160,4 +158,55 @@ test("the popover lists every build the update spans, one line each, in its own 
   // No numbers: one line per change, its detail after the title.
   expect(host.querySelector(".wn-pop-n")).toBeNull();
   expect(host.querySelector(".wn-pop-row .wn-pop-line")?.textContent).toMatch(/^What's New lists the recent builds/);
+});
+
+// #36932 review F1: a build of the span with no reviewed entries, only its commits, still lists
+// them, as the card's preview does; it is not dropped from the update.
+test("a build in the span with only commits lists its readable changes", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  const span = [
+    {
+      build: "423",
+      shortVersion: "1.0.0-nightly.423",
+      date: "2026-11-05",
+      highlights: [{ id: "h3", title: "Terminal tabs reopen in place", body: "", category: "new" as const }],
+      changes: [],
+    },
+    {
+      build: "422",
+      shortVersion: "1.0.0-nightly.422",
+      date: "2026-11-05",
+      highlights: [],
+      changes: ["Sidebar rows keep their color while dragged"],
+    },
+  ];
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights
+        data={{
+          version: "1.0.0-nightly.4212118000001",
+          build: "4212118000001",
+          fromVersion: "1.0.0-nightly.4210546000001",
+          fromBuild: "4210546000001",
+          source: "whatsNew",
+          language: "en",
+          items: [{ id: "tabs", title: "Terminal tabs reopen in place", summary: null, category: "new" }],
+          rest: [],
+          moreCount: 0,
+          changelog: { from: "1.0.0-nightly.4210546000001", to: "1.0.0-nightly.4212118000001" },
+        }}
+        span={span}
+        strings={createStrings(table)}
+        actions={{ openChangelog: () => undefined }}
+      />,
+    ),
+  );
+  const rows = [...host.querySelectorAll(".wn-pop-row .wn-pop-item")].map((row) => row.textContent ?? "");
+  expect(rows[0]).toBe("Terminal tabs reopen in place");
+  expect(rows.some((row) => row.includes("keep their color while dragged"))).toBe(true);
 });

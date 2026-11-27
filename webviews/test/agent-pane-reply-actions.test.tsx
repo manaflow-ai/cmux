@@ -4,7 +4,7 @@
 // Claude Code desktop does (Leo, 2026-10-31: "claude code doesn't have individual copy pastable
 // things for the entire thing, only the bottom. ironically we have literally the complete opposite.
 // so let's invert our behaviour. btw yes claude code desktop does copy all of it incl. tool call top
-// level things"). A turn of tool calls alone draws no Copy and no Read aloud.
+// level things"). A turn of tool calls alone copies its calls (G04) and draws no Read aloud.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PendingSteer } from "../src/agent-session/acpmux/conversation/PendingSteer";
@@ -110,7 +110,9 @@ test("the footer copies the whole turn: every reply in order and each tool run's
   expect(html).toContain('aria-label="Copy"');
 });
 
-test("a turn of tool calls alone has no Copy and no Read aloud", () => {
+// G04 (cmuxterm-hq#13766): every finished turn ends on its row, a turn of tool calls alone too. Its
+// Copy copies the calls; with no words to say, it still has no Read aloud.
+test("a turn of tool calls alone copies its calls and has no Read aloud", () => {
   const rows = turnView(
     [
       row("u1", "user", 0, { text: "List the agents." }),
@@ -121,10 +123,14 @@ test("a turn of tool calls alone has no Copy and no Read aloud", () => {
     { now: 10_000 },
   );
   const footer = rows.find((one) => one.kind === "turnSummary")!;
-  expect(footer.turnCopy).toBeUndefined();
+  expect(footer.turnCopy).toEqual([
+    { tools: [expect.objectContaining({ tool: expect.objectContaining({ id: "c1" }) })] },
+  ]);
   const html = renderToStaticMarkup(<TurnFooter row={footer} />);
-  expect(html).not.toContain('aria-label="Copy"');
-  expect(html).toContain('class="cv-turn-time"');
+  expect(html).toContain('aria-label="Copy"');
+  expect(html).not.toContain('aria-label="Read aloud"');
+  // Its age at the footer's end, shown on hover (Leo, 2026-11-22, over Lawrence's 2026-11-11 no-time footer: "you hover and you get the timing").
+  expect(html).toContain("cv-turn-time");
 });
 
 test("a steer that waits for the agent offers Copy beside Send now", () => {

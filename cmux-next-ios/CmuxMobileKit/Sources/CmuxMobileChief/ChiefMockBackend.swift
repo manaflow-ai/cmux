@@ -1,5 +1,6 @@
 import CmuxAgentQuestion
 import CmuxConversationCore
+import CmuxMobileModel
 import Foundation
 import ImageIO
 
@@ -15,13 +16,16 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     let engine: Engine
     public let liveFeed = ChiefLiveFeed()
 
-    /// `sleep` paces Chief (pass a no-op in tests); `now` stamps messages.
-    public init(identity: ChiefIdentity = .standard, now: Date = Date(),
-                sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }) {
+    /// `sleep` paces Chief (pass a no-op in tests); `now` stamps the seeded transcript, and
+    /// ``MockClock`` the messages after it (a fixed instant for the App Review gate's stills).
+    /// `quiet`: a new conversation with people (New Message's demo) — no seeded transcript,
+    /// no question and no replies; a sent message is delivered and read.
+    public init(identity: ChiefIdentity = .standard, now: Date = MockClock.now(),
+                sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }, quiet: Bool = false) {
         let showsLiveDemo = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-live")
-        engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo)
+        engine = Engine(identity: identity, now: now, sleep: sleep, showsLiveDemo: showsLiveDemo, quiet: quiet)
         self.sleep = sleep
-        if !showsLiveDemo {
+        if !showsLiveDemo, !quiet {
             questionFeed.update([ChiefMockScript.question], seq: ChiefMockScript.questionSeq)
         }
         // Opt-in synthetic live state for before/after simulator captures.
@@ -61,11 +65,11 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
     }
 
     public func edit(messageID: String, text: String) async throws -> ConversationMessage {
-        try await engine.update(messageID) { $0.text = text; $0.editedAt = Date(); $0.editCount += 1 }
+        try await engine.update(messageID) { $0.text = text; $0.editedAt = MockClock.now(); $0.editCount += 1 }
     }
 
     public func unsend(messageID: String) async throws -> ConversationMessage {
-        try await engine.update(messageID) { $0.text = ""; $0.unsentAt = Date(); $0.reactions = [] }
+        try await engine.update(messageID) { $0.text = ""; $0.unsentAt = MockClock.now(); $0.reactions = [] }
     }
 
     public func setTyping(_ isTyping: Bool) async {}
@@ -115,9 +119,13 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             return info
         }
 
-        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep, showsLiveDemo: Bool = false) {
+        /// No transcript and no replies (``ChiefMockBackend/init(identity:now:sleep:quiet:)``).
+        let quiet: Bool
+
+        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep, showsLiveDemo: Bool = false, quiet: Bool = false) {
             self.identity = identity
             self.sleep = sleep
+            self.quiet = quiet
             // A completed Chief reply would suppress the live bubble when the
             // first history page lands. This scene starts with an unanswered
             // synthetic prompt so both revisions show the long live reply.
@@ -125,7 +133,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
                 id: "demo-prompt", seq: 1, clientMessageID: "demo-prompt",
                 senderID: identity.meID, sentAt: now, text: "Please check the sample project.",
                 delivery: .read(nil)
-            )] : ChiefMockScript.history(identity: identity, now: now)
+            )] : quiet ? [] : ChiefMockScript.history(identity: identity, now: now)
         }
 
         private var headSeq: Int { messages.compactMap(\.seq).max() ?? 0 }
@@ -174,7 +182,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             let seq = headSeq + 1
             let message = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: draft.clientMessageID, senderID: identity.meID,
-                sentAt: Date(), text: draft.text, replyToID: draft.replyToID,
+                sentAt: MockClock.now(), text: draft.text, replyToID: draft.replyToID,
                 attachments: draft.attachmentIDs.compactMap { uploads[$0] }, delivery: .delivered,
                 mentions: draft.mentions, textRuns: draft.textRuns, effect: draft.effect
             )
@@ -188,9 +196,10 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
         func respond(to message: ConversationMessage) async {
             await sleep(.milliseconds(700))
             guard var read = messages.first(where: { $0.id == message.id }) else { return }
-            read.delivery = .read(Date())
+            read.delivery = .read(MockClock.now())
             store(read)
             emit(read)
+            guard !quiet else { return }
             if let reaction = ChiefMockScript.tapback(for: message.text) {
                 await sleep(.milliseconds(450))
                 if var reacted = messages.first(where: { $0.id == message.id }) {
@@ -209,9 +218,12 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             // Typing time grows with the reply, as a person's would.
             await sleep(.milliseconds(min(2600, 900 + reply.count * 12)))
             let seq = headSeq + 1
+            // Markdown links and tables as the real Chief's arrive (``ChiefWire``).
+            let linked = ConversationMarkdownLinks.extract(reply)
+            let tabled = ConversationMarkdownTables.extract(linked.text, links: linked.links)
             let answer = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
-                sentAt: Date(), text: reply
+                sentAt: MockClock.now(), text: tabled.text, textRuns: tabled.runs, links: tabled.links, tables: tabled.tables
             )
             store(answer)
             emit(answer)
@@ -242,7 +254,7 @@ public final class ChiefMockBackend: ConversationFileBackend, ChiefLiveSource, @
             let seq = headSeq + 1
             let message = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
-                sentAt: Date(), text: text
+                sentAt: MockClock.now(), text: text
             )
             store(message)
             emit(message)
@@ -276,6 +288,20 @@ extension ChiefMockBackend: ChiefQuestionSource {
     }
 }
 
+/// The mock lists a few skills on `/`, as the Mac's Chief host does
+/// (ChiefSlashSkills.swift); layout and flow only.
+extension ChiefMockBackend: ChiefSlashSkillSource {
+    public var slashSkills: [ChiefSlashSkill] {
+        [
+            ChiefSlashSkill(name: "cmux-views", description: "Build a cmux view page from what you describe.", source: "chief"),
+            ChiefSlashSkill(name: "triage", description: "Sort the inbox and say what needs you.", source: "chief"),
+            ChiefSlashSkill(name: "emil-prototype", description: "Explore several versions behind a live picker.", source: "claude"),
+            ChiefSlashSkill(name: "verify-implementation", description: "Draft acceptance criteria, build, and verify with video.", source: "claude"),
+            ChiefSlashSkill(name: "vercel:ai-sdk", description: "Answer questions about the AI SDK.", source: "plugin:vercel"),
+        ]
+    }
+}
+
 /// Chief's seeded transcript and canned replies.
 struct ChiefMockScript {
     /// The question part of the seeded transcript's last message (seq 8).
@@ -290,14 +316,14 @@ struct ChiefMockScript {
 
     static func history(identity: ChiefIdentity, now: Date) -> [ConversationMessage] {
         let lines: [(me: Bool, minutesAgo: Double, text: String)] = [
-            (false, 26 * 60, "Morning. Overnight: Codex finished the pricing page fix on cmux.com (14 tests pass), and the fleet build for feat-cmux-next-ios is green."),
+            (false, 26 * 60, "Morning. Overnight: Codex finished the pricing page fix on cmux.com (**14 tests pass**), and the fleet build for feat-cmux-next-ios is **green**."),
             (true, 26 * 60 - 2, "nice. anything waiting on me?"),
             (false, 26 * 60 - 3, "One thing: Claude in cmux wants to know which transport to default to on cellular. I left it in your Feed."),
             (true, 95, "Can you start a Claude session on the cmux-next-ios workspace to build the workspaces tab?"),
             (false, 94, "Started Claude in cmux-next-ios on cmux mini 2 with your note as the first prompt. I'll tell you when it needs you."),
-            (false, 41, "Claude finished the TabsKit integration. It opened 3 files and ran the build: BUILD SUCCEEDED."),
+            (false, 41, "Claude finished the TabsKit integration. It opened 3 files and ran the build: **BUILD SUCCEEDED**."),
             (true, 40, "🙌 thanks"),
-            (false, 3, "Heads up: Claude in cmux is asking to run `cargo test -p cmux-mobile-link`. Want me to allow it?"),
+            (false, 3, "**Heads up:** Claude in cmux is asking to run `cargo test -p cmux-mobile-link`. Want me to allow it?"),
         ]
         // Each reply is later than the message it answers (the send-time
         // drawer shows every time).
@@ -305,11 +331,14 @@ struct ChiefMockScript {
         var messages: [ConversationMessage] = []
         for (index, line) in lines.enumerated() {
             let seq = index + 1
+            // Chief's Markdown as the wire draws it (ChiefWire.message): bold runs, stars removed.
+            let shown = line.me ? ChiefMarkdownBold.Rendered(text: line.text, runs: [], links: [], mentions: []) : ChiefMarkdownBold.render(line.text)
             var message = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: "seed-\(seq)",
                 senderID: line.me ? identity.meID : identity.chiefID,
-                sentAt: now.addingTimeInterval(-line.minutesAgo * 60), text: line.text,
-                delivery: line.me ? .read(nil) : nil
+                sentAt: now.addingTimeInterval(-line.minutesAgo * 60), text: shown.text,
+                delivery: line.me ? .read(nil) : nil,
+                textRuns: shown.runs
             )
             // Chief answers the request inline (an incoming reply quoting an outgoing message).
             if seq == 5 { message.replyToID = "msg_local_4" }
@@ -320,7 +349,43 @@ struct ChiefMockScript {
             }
             messages.append(message)
         }
+        // `-cmux-mobile-chief-markdown-quote`: Chief's before/after table with its shots, a later line, and my reply to
+        // the table, through the real wire (ChiefWire.message), so a capture shows the reply's quote of a Markdown
+        // message (Lawrence, 2026-11-20: "this preview thing is not very good").
+        if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-chief-markdown-quote") {
+            messages += markdownQuote(identity: identity, now: now, after: messages.count)
+        }
         return messages
+    }
+
+    /// The `-cmux-mobile-chief-markdown-quote` scene: three messages after the seeded `count`, the last my reply.
+    static func markdownQuote(identity: ChiefIdentity, now: Date, after count: Int) -> [ConversationMessage] {
+        let wire = ChiefWire(identity: identity)
+        let table = """
+            Both themes are fixed.
+
+            | | Before | After |
+            |---|---|---|
+            | Light | ![before, light](/Users/me/shots/before-light.png) | ![after, light](/Users/me/shots/after-light.png) |
+            | Dark | ![before, dark](/Users/me/shots/before-dark.png) | ![after, dark](/Users/me/shots/after-dark.png) |
+            """
+        let lines: [(me: Bool, secondsAgo: Double, text: String)] = [
+            (false, 120, table),
+            (false, 90, "See [PR 12](https://github.com/manaflow-ai/cmux/pull/12) ![the shot](/Users/me/shots/after-light.png) for the diff."),
+            (true, 60, "this preview thing is not very good"),
+        ]
+        let formatter = ISO8601DateFormatter()
+        return lines.enumerated().compactMap { offset, line in
+            let seq = count + offset + 1
+            var object: [String: Any] = [
+                "id": "msg_local_\(seq)", "seq": seq, "client_msg_id": "seed-\(seq)",
+                "author": line.me ? identity.meID : identity.chiefID,
+                "created_at": formatter.string(from: now.addingTimeInterval(-line.secondsAgo)),
+                "parts": [["type": "text", "text": line.text]], "reactions": [],
+            ]
+            if line.me { object["reply_to"] = ["message_id": "msg_local_\(count + 1)"] }
+            return wire.message(object, peerReadSeq: line.me ? seq : 0)
+        }
     }
 
     static func tapback(for text: String) -> ConversationReaction? {
@@ -347,6 +412,17 @@ struct ChiefMockScript {
         }
         if lower.contains("test") {
             return "Running the tests in cmux on Aziz's Mac Studio now. I'll post the result here."
+        }
+        if lower.contains("table") {
+            return """
+            Here are your agents:
+
+            | Agent | Task | State |
+            | --- | --- | :---: |
+            | a42 | Keyboard | building |
+            | a49 | Panes | done |
+            | a52 | Pin tab | open |
+            """
         }
         if lower.contains("stop") || lower.contains("cancel") {
             return "Stopped. Nothing else is running."

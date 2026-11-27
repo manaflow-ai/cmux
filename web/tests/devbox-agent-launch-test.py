@@ -9,6 +9,13 @@ import subprocess
 import sys
 import time
 import unittest
+import importlib.util
+
+# tests/process_gone.py by path: `python3 -I` puts no script folder on sys.path.
+_spec = importlib.util.spec_from_file_location(
+    "process_gone", Path(__file__).resolve().parents[2] / "tests" / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(process_gone)
 
 
 class AgentLaunchTests(unittest.TestCase):
@@ -22,8 +29,8 @@ class AgentLaunchTests(unittest.TestCase):
 
     def assert_reaped(self, output):
         pid = int(re.search(r"CHILD_PID:(\d+)", output).group(1))
-        with self.assertRaises(ProcessLookupError):
-            os.kill(pid, 0)
+        # Its group was killed; the PTY child is reaped, but a process bash forked is reaped by init, later.
+        self.assertTrue(process_gone.died(pid))
 
     def test_colored_ready_marker_and_process_cleanup(self):
         result = self.run_probe(

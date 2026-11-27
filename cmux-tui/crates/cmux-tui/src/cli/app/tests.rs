@@ -11,18 +11,7 @@ fn args(words: &[&str]) -> Vec<String> {
 fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. }
-        | AppCommand::Events { .. }
-        | AppCommand::DebugCall { .. }
-        | AppCommand::Screenshot { .. }
-        | AppCommand::Right { .. }
-        | AppCommand::Renderers { .. }
-        | AppCommand::Settings(_)
-        | AppCommand::Nightly(_)
-        | AppCommand::Live(_)
-        | AppCommand::Version => {
-            panic!("expected a call")
-        }
+        other => panic!("expected a call, got {other:?}"),
     }
 }
 
@@ -195,6 +184,36 @@ fn a_remote_or_cloud_action_cwd_is_sent_as_typed() {
     assert_eq!(sent("tab new", ActionName::Cli), json!(cwd.to_string_lossy()));
 }
 
+/// `cmux cloud start-session --from-folder DIR` names a folder of this Mac, and a relative one is
+/// of the caller's working directory: the CLI sends it absolute, as `cloud start-chat` makes it
+/// (one path, `caller_absolute`); the app checks the folder. `~/…` and an absolute folder go as
+/// typed, and its `--cwd` stays a folder on the machine.
+#[test]
+fn relative_from_folder_of_cloud_start_session_is_made_absolute() {
+    let cwd = std::env::current_dir().unwrap();
+    for (action, name) in
+        [("cloud start-session", ActionName::Cli), ("cloudStartSession", ActionName::Any)]
+    {
+        let sent = |words: &[&str]| {
+            let (method, params) = call(run_action(action, &args(words), name).unwrap());
+            assert_eq!(method, "action.run");
+            params["args"].clone()
+        };
+        let sent_folder = |words: &[&str]| sent(words)["fromFolder"].clone();
+        assert_eq!(
+            sent_folder(&["--from-folder", "src"]),
+            json!(cwd.join("src").to_string_lossy())
+        );
+        assert_eq!(
+            sent_folder(&["--from-folder=./app/web"]),
+            json!(cwd.join("app/web").to_string_lossy())
+        );
+        assert_eq!(sent_folder(&["--from-folder", "~/app"]), json!("~/app"));
+        assert_eq!(sent_folder(&["--from-folder", "/srv/app"]), json!("/srv/app"));
+        assert_eq!(sent(&["--cwd", "."])["cwd"], json!("."), "{action}");
+    }
+}
+
 /// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
 /// caller's working directory, so the app gets it absolute; `--persistent`
 /// alone is a true flag and `--size` keeps its value.
@@ -325,6 +344,37 @@ fn remote_views_reads_the_release_remote_view_state() {
     assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
 }
 
+/// `cmux app mac-screens` reads the app's release Mac Screen state, all tabs or
+/// one; it is a read, never an `action.run`, and takes no other word.
+#[test]
+fn mac_screens_reads_the_release_mac_screen_state() {
+    let (method, params) = call(parse(&args(&["app", "mac-screens"])).unwrap().unwrap());
+    assert_eq!(method, "mac_screen.state");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "mac-screens", "--tab", "tab_1"])).unwrap().unwrap());
+    assert_eq!(method, MAC_SCREENS_METHOD);
+    assert_eq!(params, json!({ "tab": "tab_1" }));
+    assert!(parse(&args(&["app", "mac-screens", "connect"])).is_err());
+    assert!(parse(&args(&["app", "mac-screens", "--input", "x"])).is_err());
+}
+
+/// `cmux app clicks` reads the app's release click trace, all of it or the
+/// newest `--limit`; it takes no other word and no zero or negative limit.
+#[test]
+fn clicks_reads_the_release_click_trace() {
+    let (method, params) = call(parse(&args(&["app", "clicks"])).unwrap().unwrap());
+    assert_eq!(method, "input.clicks");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "clicks", "--limit", "20"])).unwrap().unwrap());
+    assert_eq!(method, CLICKS_METHOD);
+    assert_eq!(params, json!({ "limit": 20 }));
+    assert!(parse(&args(&["app", "clicks", "clear"])).is_err());
+    assert!(parse(&args(&["app", "clicks", "--limit", "0"])).is_err());
+    assert!(parse(&args(&["app", "clicks", "--limit", "x"])).is_err());
+}
+
 /// `cmux app machines` and `cmux app join-line` call the app's every-build
 /// `machine.list` and `device.join_line`, never `app call` (debug builds only)
 /// and never an `action.run`.
@@ -386,38 +436,32 @@ fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
     assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
 }
 
-/// Every action the app's catalog marks `waitsForPerson = true` gets the
-/// person deadline here too: the CLI must not give up before the app does.
+/// Every action the app's catalog marks `waitsForPerson` gets the person deadline here too: the
+/// CLI must not give up before the app does. Read from the catalog's dump, which the app's and
+/// cmux-action-catalog's tests both check against the catalog the app reads.
 #[test]
 fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
-    let catalog = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog");
-    let Ok(entries) = std::fs::read_dir(&catalog) else { return };
+    let dump =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plans/cmux-next/action-catalog.json");
+    let Ok(text) = std::fs::read_to_string(&dump) else { return };
+    let catalog: Value = serde_json::from_str(&text).expect("the catalog dump is JSON");
     let mut checked = 0;
-    for entry in entries.flatten() {
-        let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
-        for line in text.lines().filter(|line| line.contains(".waitsForPerson = true")) {
-            // `start.waitsForPerson = true`: the descriptor variable's `id:` and `cliName:`.
-            let variable = line.trim().split('.').next().unwrap_or_default();
-            let declared = format!("var {variable} = ActionDescriptor(");
-            let Some(start) = text.find(&declared) else { continue };
-            let body = &text[start..];
-            let body = &body[..body.find("\n        )").unwrap_or(body.len())];
-            for key in ["id: \"", "cliName: \""] {
-                if let Some(at) = body.find(key) {
-                    let name = &body[at + key.len()..];
-                    let name = &name[..name.find('"').unwrap_or(0)];
-                    assert_eq!(
-                        waiting_run_timeout(name),
-                        PERSON_RUN_TIMEOUT,
-                        "{name} waits for a person in the app"
-                    );
-                    checked += 1;
-                }
+    for action in catalog["actions"].as_array().into_iter().flatten() {
+        if action["waitsForPerson"] != Value::Bool(true) {
+            continue;
+        }
+        for key in ["id", "cliName"] {
+            if let Some(name) = action[key].as_str() {
+                assert_eq!(
+                    waiting_run_timeout(name),
+                    PERSON_RUN_TIMEOUT,
+                    "{name} waits for a person in the app"
+                );
+                checked += 1;
             }
         }
     }
-    assert!(checked > 0, "no waitsForPerson descriptor found under {}", catalog.display());
+    assert!(checked > 0, "no waitsForPerson action found in {}", dump.display());
 }
 
 /// `cmux share chat` (and its MCP tool, `agent.share`) waits for the owner's answer in the app
@@ -425,7 +469,7 @@ fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
 /// a late Make Link still reaches the caller instead of a link nobody receives.
 ///
 /// `share` is not an app scope ([`parse`] answers None for it): the CLI reaches the action through
-/// `run_app_action_fallback` in `cli.rs`, which leaves `share chat` to the generic path (only
+/// `run_app_action_fallback` in `cli/app_commands.rs`, which leaves `share chat` to the generic path (only
 /// `share revoke|kick` are rewritten, `share_cli::action`) and runs [`run_action`] with the words
 /// before the first flag as the CLI name. This test takes that same path.
 #[test]
@@ -478,10 +522,14 @@ fn busy_is_retried_only_when_the_app_says_nothing_ran() {
     assert!(retry_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
     assert!(!retry_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
     assert!(!retry_before_running(&json!({ "code": "busy" })));
-    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon,
-    // are asked again too; one that may have started is not.
+    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon
+    // (`state: not_run`), are asked again too; one that may have started is not, and neither is
+    // an `unavailable` the app decided (`refusal_tests.rs`).
     assert!(retry_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
-    assert!(retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
+    assert!(retry_before_running(
+        &json!({ "code": "unavailable", "data": { "not_run": true, "state": "not_run" } })
+    ));
+    assert!(!retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
     assert!(!retry_before_running(
         &json!({ "code": "timeout", "data": { "state": "in_progress" } })
     ));
@@ -1117,6 +1165,12 @@ fn settings_writes_take_confirm_and_reset_is_a_verb() {
             json!({ "path": "a.b", "confirm": true }),
         ),
         (&["settings", "unset", "a.b"][..], "settings.unset", json!({ "path": "a.b" })),
+        // `--yes` is the CLI's confirm word; `--confirm` is its old spelling.
+        (
+            &["settings", "reset", "a.b", "--yes"][..],
+            "settings.reset",
+            json!({ "path": "a.b", "confirm": true }),
+        ),
     ];
     for (words, method, params) in cases {
         let command = parse(&args(words)).unwrap_or_else(|error| panic!("{words:?}: {error:?}"));
@@ -1124,7 +1178,7 @@ fn settings_writes_take_confirm_and_reset_is_a_verb() {
     }
     assert!(parse(&args(&["settings", "set", "a.b"])).is_err());
     assert!(parse(&args(&["settings", "reset"])).is_err());
-    assert!(parse(&args(&["settings", "reset", "a.b", "--yes"])).is_err());
+    assert!(parse(&args(&["settings", "reset", "a.b", "--yeah"])).is_err());
 }
 
 /// RED: a user-only key the app refuses (`setting_user_only`) ends the
@@ -1171,9 +1225,18 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Renderers { .. }
+        | AppCommand::RendererProfile { .. }
+        | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
+        | AppCommand::Health(_)
         | AppCommand::Live(_)
+        | AppCommand::Try(_)
+        | AppCommand::Share(_)
+        | AppCommand::Published(_)
+        | AppCommand::LaunchTimes(_)
+        | AppCommand::Record(_)
+        | AppCommand::WebPieces(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -1416,22 +1479,42 @@ fn open_dash_from_a_program_in_a_terminal_is_interactive() {
     // `cmux --quiet open --link -` with the URL on stdin. Stdin is the URL, not the person:
     // stdout alone tells, or the tab opens in the background and Enter seems to do nothing.
     let link = args(&["--link", "--caller", "gh", "-"]);
-    assert!(open_is_interactive(&link, false, true));
-    assert!(!open_is_interactive(&link, false, false), "an agent's pipe stays in the background");
+    assert!(open_is_interactive(&link, false, true, true));
+    assert!(
+        !open_is_interactive(&link, false, false, false),
+        "an agent's pipe stays in the background"
+    );
     let mut stdin = "https://github.com/login/device\n".as_bytes();
     let environment = std::collections::HashMap::new();
-    let AppCommand::Open { requests, .. } =
-        parse_open_with(&link, open_is_interactive(&link, false, true), &environment, &mut stdin)
-            .unwrap()
-    else {
+    let AppCommand::Open { requests, .. } = parse_open_with(
+        &link,
+        open_is_interactive(&link, false, true, true),
+        &environment,
+        &mut stdin,
+    )
+    .unwrap() else {
         panic!("expected open command")
     };
     assert_eq!(requests[0].method, "browser.open_link");
     assert_eq!(requests[0].params["focus"], true);
     // A typed `cmux open URL` still needs both; `-` after `--` is a path, not stdin.
-    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true));
-    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true));
-    assert!(!open_is_interactive(&args(&["--", "-"]), false, true));
+    assert!(open_is_interactive(&args(&["https://a.example/"]), true, true, true));
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), false, true, true));
+    assert!(!open_is_interactive(&args(&["--", "-"]), false, true, true));
+}
+
+#[test]
+fn open_dash_from_a_program_with_its_output_elsewhere_is_interactive() {
+    // Lawrence 2026-11-12: `pscale auth login` in a cmux-next terminal printed its device URL,
+    // and no page showed. pscale (Go's `exec.Command("open", url).Run()`, as pkg/browser does)
+    // runs `open` with stdin and stdout on /dev/null, so the shim's `cmux open --link -` has no
+    // terminal on either. The process still has the person's terminal as its controlling
+    // terminal, which an agent's command (run with no terminal) does not: the page takes the focus.
+    let link = args(&["--link", "--caller", "pscale", "-"]);
+    assert!(open_is_interactive(&link, false, false, true), "a program in the person's terminal");
+    assert!(!open_is_interactive(&link, false, false, false), "an agent's command has no terminal");
+    // A typed `cmux open URL` with its output redirected stays as it was: stdin and stdout tell.
+    assert!(!open_is_interactive(&args(&["https://a.example/"]), true, false, true));
 }
 
 #[test]
@@ -1549,7 +1632,7 @@ fn on_is_the_default_chat_target_key() {
         assert!(cmux_config::Schema::embedded().row(alias).is_none(), "{alias} is a key");
         assert_eq!(super::super::command::resolve_alias(alias), *key);
         // The key is in the embedded export (settings-schema.json), which the CLI's list and
-        // validate and MCP's settings_* tools read; agents may set it (agent-policy.json).
+        // validate and MCP's settings_* tools read; agents may set it (schemas/settings/source/agent-policy/).
         let row = cmux_config::Schema::embedded().row(key);
         assert!(row.is_some_and(|row| row.agent_settable), "{key} is not an agent-settable key");
     }
@@ -1616,6 +1699,18 @@ fn settings_validate_reports_what_the_owner_would() {
     let ok = validate("// my rice\n{ \"sidebar\": { \"side\": \"right\", }, \"actions\": {} }\n")
         .unwrap();
     assert_eq!(ok["valid"], true);
+    assert_eq!(ok.get("deprecated"), None);
+
+    // A key the file names the old way: valid (it still applies), with the new name.
+    let old = validate("{ \"sidebar\": { \"showCounts\": false } }").unwrap();
+    assert_eq!(old["valid"], true);
+    assert_eq!(old["deprecated"][0]["from"], "sidebar.showCounts");
+    assert_eq!(old["deprecated"][0]["to"], "sidebar.workspaceRow.tabCount");
+    let message = old["deprecated"][0]["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("sidebar.showCounts is now sidebar.workspaceRow.tabCount"),
+        "{message}"
+    );
 
     let error = validate(
         "{ \"sidebar\": { \"side\": \"top\" }, \"appearance\": { \"glassTransparency\": 9 } }",
@@ -1700,6 +1795,35 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
 }
 
+/// An agent names the workspace its session runs in (`CMUX_WORKSPACE_ID`), so
+/// the app places it there when no tab shows its chat (a closed chat tab, a
+/// Chief subagent told again later), never in the focused workspace, Home
+/// (user, 2026-11-18).
+#[test]
+fn an_agent_names_its_own_workspace_in_its_caller() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    };
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "a1"), ("CMUX_WORKSPACE_ID", "W-1")])),
+        Some(json!({ "agent_session": "a1", "workspace": "W-1" }))
+    );
+    // A terminal caller is found by its terminal; it names no workspace.
+    assert_eq!(
+        caller_from(env(&[("CMUX_TUI_TERMINAL_ID", "t1"), ("CMUX_WORKSPACE_ID", "W-1")])),
+        Some(json!({ "terminal_id": "t1" }))
+    );
+}
+
+/// `cmux open --link` (the `BROWSER` and `open` shims every agent runs) names
+/// its caller, so an agent's link opens beside its own chat, not beside the
+/// focused pane in Home (user, 2026-11-18).
+#[test]
+fn open_link_sends_the_caller() {
+    assert!(takes_caller("browser.open_link"));
+    assert!(takes_caller("file.open"), "an agent's `cmux open FILE` opens in its own workspace");
+}
+
 /// Every page verb sends its caller: the app runs a verb without a tab on the
 /// browser nearest the caller, not the person's focused tab in another window
 /// (#26648), and an input verb's agent cursor tag says who drives and where
@@ -1725,6 +1849,9 @@ fn page_verbs_send_the_caller() {
 
 #[path = "right_tests.rs"]
 mod right;
+
+#[path = "refusal_tests.rs"]
+mod refusal;
 
 #[test]
 fn only_reads_and_keyed_runs_are_resent_after_a_dropped_connection() {
@@ -2035,7 +2162,7 @@ fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
     // Never accepted: the request and the `ping` wait in the backlog and nothing answers.
     let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
     let mut stream = UnixStream::connect(&socket).unwrap();
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let answer = request(&mut stream, "system.identify", json!({}), Duration::from_millis(200));
     assert_eq!(answer, Err(wait::timeout_message(Duration::from_millis(200))));
     assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
@@ -2046,7 +2173,7 @@ fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
 #[test]
 fn a_not_run_refusal_is_retried_inside_the_cli() {
     let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
-        "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 1 } } });
+        "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 1 } } });
     let answered = json!({ "id": 1, "ok": true, "result": { "machines": [] } });
     let (socket, app) = fake_app(vec![refused.clone(), refused, answered]);
     let mut stream = connect(&socket).unwrap();
@@ -2060,6 +2187,111 @@ fn a_not_run_refusal_is_retried_inside_the_cli() {
     let connections = app.join().unwrap();
     assert_eq!(answer.unwrap().unwrap()["machines"], json!([]));
     assert_eq!(connections[0].len(), 3, "{connections:?}");
+}
+
+/// An app whose daemon connection takes 5 s to come back (every answer until then `unavailable`, `not_run`):
+/// the CLI asks again, with backoff, until the request's deadline, and the caller gets the answer. Five fixed
+/// tries (about 3 s) failed this slow-but-working daemon.
+#[test]
+fn a_daemon_that_comes_back_after_5_s_is_waited_for() {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-slow");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let back_after = Duration::from_secs(5);
+    let app = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let (mut line, mut asked, mut first) = (String::new(), 0, None);
+        while reader.read_line(&mut line).unwrap() > 0 {
+            line.clear();
+            asked += 1;
+            let since = *first.get_or_insert_with(Instant::now);
+            let answer = if since.elapsed() < back_after {
+                json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+                    "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 100 } } })
+            } else {
+                json!({ "id": 1, "ok": true, "result": { "machines": [] } })
+            };
+            writeln!(writer, "{answer}").unwrap();
+            if answer["ok"] == true {
+                break;
+            }
+        }
+        drop(dir);
+        asked
+    });
+    let mut stream = connect(&socket).unwrap();
+    let started = Instant::now();
+    let answer = request_with_retry(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        READ_TIMEOUT,
+    );
+    let took = started.elapsed();
+    drop(stream);
+    let asked = app.join().unwrap();
+    assert_eq!(answer.unwrap().unwrap()["machines"], json!([]), "asked {asked} times in {took:?}");
+    // The retry behaviour, not a wall-clock window a loaded runner can miss: the app was asked again until it
+    // answered (more than the old five tries), and never before its 5 s were up.
+    assert!(took >= back_after, "{took:?}");
+    assert!(asked > 6, "more than the old five retries: {asked}");
+}
+
+/// A caller with its own short budget (an MCP tool call) keeps it: a refusal that never passes ends at that
+/// budget, not at the 30 s a person's command waits.
+#[test]
+fn a_short_caller_keeps_its_own_deadline() {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-short");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let app = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let (mut line, mut asked) = (String::new(), 0);
+        while reader.read_line(&mut line).unwrap_or(0) > 0 {
+            line.clear();
+            asked += 1;
+            let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+                "message": "the daemon connection closed", "data": { "not_run": true, "state": "not_run", "retry_after_ms": 50 } } });
+            if writeln!(writer, "{refused}").is_err() {
+                break;
+            }
+        }
+        drop(dir);
+        asked
+    });
+    let mut stream = connect(&socket).unwrap();
+    let budget = Duration::from_millis(600);
+    let answer = request_with_retry_within(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        budget,
+    );
+    drop(stream);
+    let asked = app.join().unwrap();
+    let refusal = answer.unwrap().unwrap_err();
+    assert_eq!(refusal["code"], "unavailable", "{refusal}");
+    // Asked again within the budget, then the refusal is the answer: named, and far short of the 30 s floor.
+    assert!(asked > 1, "{asked}");
+    let waited = refusal["data"]["not_run_waited_ms"].as_u64().unwrap();
+    assert!(u128::from(waited) < run::NOT_RUN_DEADLINE_FLOOR.as_millis() / 2, "{refusal}");
+}
+
+/// A refusal that says nothing ran and never passes is answered at the request's deadline, never held past it.
+#[test]
+fn a_not_run_refusal_that_never_passes_ends_at_the_deadline() {
+    assert_eq!(run::not_run_deadline(None), run::NOT_RUN_DEADLINE_FLOOR);
+    assert_eq!(run::not_run_deadline(Some(READ_TIMEOUT)), run::NOT_RUN_DEADLINE_FLOOR);
+    assert_eq!(run::not_run_deadline(Some(WAITING_RUN_TIMEOUT)), WAITING_RUN_TIMEOUT);
+    let refused = json!({ "code": "busy", "data": { "not_run": true, "retry_after_ms": 100 } });
+    let waits: Vec<u128> = (0..6).map(|n| run::retry_wait(&refused, n).as_millis()).collect();
+    assert_eq!(waits, [100, 200, 400, 800, 1600, 2000]);
 }
 
 /// A person's `cmux machine new` / `cloud new-machine` opens the machine it made, so the window's
@@ -2085,103 +2317,155 @@ fn a_persons_new_machine_opens_the_machine_it_made() {
     assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
 }
 
-/// `exchange_within` keeps one deadline: an app that sends a byte now and then, never a whole
-/// line, ends the read at the deadline, not when it stops (#37485's review, F1).
+/// A reply that trickles in a byte at a time, each inside the read window, still ends at the
+/// request's deadline: every socket read gets only what is left of it, not a fresh window.
 #[test]
-fn exchange_within_ends_at_its_deadline_for_an_app_that_trickles() {
-    let (mut ours, mut app) = UnixStream::pair().unwrap();
-    let trickle = std::thread::spawn(move || {
-        let mut request = [0_u8; 256];
-        let _ = app.read(&mut request);
-        for _ in 0..40 {
-            if app.write_all(b" ").is_err() {
+fn a_reply_sent_in_chunks_ends_at_the_deadline() {
+    let (reader, mut writer) = UnixStream::pair().unwrap();
+    let sender = std::thread::spawn(move || {
+        for _ in 0..30 {
+            std::thread::sleep(Duration::from_millis(30));
+            if writer.write_all(b" ").is_err() {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(50));
         }
+        let _ = writer.write_all(b"{\"id\":1,\"ok\":true,\"result\":{}}\n");
     });
-    let started = std::time::Instant::now();
-    let answer = exchange_within(
-        &mut ours,
-        "settings.get",
-        json!({ "path": "chat.on" }),
-        Duration::from_millis(300),
-    );
-    let took = started.elapsed();
-    assert!(answer.is_err(), "{answer:?}");
-    assert!(took < Duration::from_millis(1000), "took {took:?}, the app trickled for 2 s");
-    drop(ours);
-    trickle.join().unwrap();
+    let started = Instant::now();
+    let deadline = Some(started + Duration::from_millis(300));
+    let answer =
+        read_reply(&reader, "slow.get", Some(Duration::from_millis(100)), deadline, |_, _| true);
+    let waited = started.elapsed();
+    drop(reader);
+    sender.join().unwrap();
+
+    assert_eq!(answer, Ok(Err(deadline_passed("slow.get"))));
+    assert!(waited < Duration::from_millis(700), "{waited:?}");
 }
 
-/// A whole line within the deadline is the answer.
+/// The liveness ping is held to the request's deadline: it gets what is left, not a whole read
+/// window, and one that ends past the deadline gives the deadline refusal, not a transport error.
 #[test]
-fn exchange_within_reads_a_whole_line() {
-    let (mut ours, mut app) = UnixStream::pair().unwrap();
-    let answer = std::thread::spawn(move || {
-        let mut request = [0_u8; 256];
-        let _ = app.read(&mut request);
-        app.write_all(b"{\"id\":1,\"ok\":true,\"result\":{\"value\":\"cloud\"}}\n").unwrap();
-    });
-    let reply = exchange_within(
-        &mut ours,
-        "settings.get",
-        json!({ "path": "chat.on" }),
-        Duration::from_secs(5),
-    );
-    answer.join().unwrap();
-    assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
+fn the_ping_gets_only_what_is_left_of_the_deadline() {
+    let (reader, _writer) = UnixStream::pair().unwrap();
+    let windows = std::cell::RefCell::new(Vec::new());
+    let started = Instant::now();
+    let deadline = Some(started + Duration::from_millis(300));
+    let answer =
+        read_reply(&reader, "slow.get", Some(Duration::from_millis(200)), deadline, |_, window| {
+            windows.borrow_mut().push(window);
+            // A probe that takes its whole window and a little more, then finds nobody.
+            std::thread::sleep(window + Duration::from_millis(20));
+            false
+        });
+
+    assert_eq!(answer, Ok(Err(deadline_passed("slow.get"))));
+    let windows = windows.into_inner();
+    assert_eq!(windows.len(), 1, "{windows:?}");
+    assert!(windows.iter().all(|window| *window <= Duration::from_millis(110)), "{windows:?}");
 }
 
-/// `exchange_within` asks the app to catch up with the daemon first (`after: "sync"`), as every
-/// app request does, so `cmux chat` right after `cmux config set on cloud` reads the new
-/// `chat.on` (#37485's review at 7103f6c0, F1; #37663).
 #[test]
-fn exchange_within_reads_after_the_daemon_sync() {
-    let (mut ours, mut app) = UnixStream::pair().unwrap();
-    let request = std::thread::spawn(move || {
-        let mut line = Vec::new();
-        let mut byte = [0_u8; 1];
-        while app.read(&mut byte).unwrap_or(0) == 1 && byte != [b'\n'] {
-            line.extend_from_slice(&byte);
+fn app_publish_versions_rollback_and_ls_run_here_not_on_the_app_socket() {
+    let parsed = |words: &[&str]| match parse(&args(words)) {
+        Ok(Some(AppCommand::Published(parsed))) => parsed.command,
+        other => panic!("{words:?} parsed to {other:?}"),
+    };
+    assert_eq!(
+        parsed(&["app", "publish", "web", "--port", "3000"]),
+        cmux_apps::cli::Command::Publish {
+            name: Some("web".into()),
+            port: Some(3000),
+            cmd: None,
+            dir: None,
+            git_ref: None,
+            include_dirty: false,
+            share_team: false,
         }
-        app.write_all(b"{\"id\":1,\"ok\":true,\"result\":{\"value\":\"cloud\"}}\n").unwrap();
-        serde_json::from_slice::<Value>(&line).unwrap()
-    });
-    let reply = exchange_within(
-        &mut ours,
-        "settings.get",
-        json!({ "path": "chat.on" }),
-        Duration::from_secs(5),
     );
-    let sent = request.join().unwrap();
-    assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
-    assert_eq!(sent.get("params"), Some(&json!({ "path": "chat.on", "after": "sync" })), "{sent}");
+    assert_eq!(
+        parsed(&["app", "versions", "web"]),
+        cmux_apps::cli::Command::Versions { name: "web".into() }
+    );
+    assert_eq!(
+        parsed(&["app", "rollback", "web", "--to", "v1"]),
+        cmux_apps::cli::Command::Rollback { name: "web".into(), to: Some(1) }
+    );
+    assert_eq!(parsed(&["app", "ls"]), cmux_apps::cli::Command::Ls);
+    assert!(parse(&args(&["app", "publish", "--port", "x"])).is_err());
 }
 
-/// An optional read's `--socket` kind probe ends at its deadline: a socket that takes the request
-/// and never answers is `socket.wrong_kind` within the deadline, not after the app timeout that
-/// waits out a busy app (#37485's review at 20fdfedd, F1).
 #[test]
-fn a_bounded_socket_probe_ends_at_its_deadline() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("silent.sock");
-    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
-    let silent = std::thread::spawn(move || {
-        let (mut peer, _) = listener.accept().unwrap();
-        let mut request = [0_u8; 256];
-        let _ = peer.read(&mut request);
-        std::thread::sleep(Duration::from_secs(3));
-    });
-    let global =
-        GlobalArgs { socket: Some(path), output: OutputMode::Quiet, ..GlobalArgs::default() };
-    let started = std::time::Instant::now();
-    let connected = connect_command_within(&global, Some(Duration::from_millis(300)));
-    let took = started.elapsed();
-    let code = connected
-        .err()
-        .and_then(|error| error.get("code").and_then(Value::as_str).map(str::to_owned));
-    assert_eq!(code.as_deref(), Some("socket.wrong_kind"));
-    assert!(took < Duration::from_millis(1500), "the probe took {took:?}");
-    silent.join().unwrap();
+fn app_publish_include_dirty_leaves_a_following_json_to_the_output_mode() {
+    let (global, command) = super::super::parse_globals(&args(&[
+        "app",
+        "publish",
+        "web",
+        "--cmd",
+        "npm start",
+        "--include-dirty",
+        "--json",
+    ]))
+    .unwrap();
+    assert_eq!(global.output, OutputMode::Json);
+    assert_eq!(command, args(&["app", "publish", "web", "--cmd", "npm start", "--include-dirty"]));
+}
+
+/// An agent's `cmux window screenshot` of Home came back grey and was read as a blank pane: the
+/// grey is the app's privacy mask. The CLI's line names the masked areas for every screenshot
+/// verb; a raw capture, an empty list or another action adds nothing.
+#[test]
+fn a_masked_screenshot_says_what_its_grey_areas_are() {
+    let masked = json!({ "id": "run_1", "result": { "path": "/tmp/s.png", "masked": 2, "masked_areas": ["chat", "home"] } });
+    for action in ["window screenshot", "pane screenshot", "tab screenshot"] {
+        let note = page::masked_note(&json!({ "action": action }), &masked).expect(action);
+        assert!(note.contains("chat, home"), "{action}: {note}");
+        assert!(note.contains("not blank"), "{action}: {note}");
+    }
+    let raw = json!({ "result": { "path": "/tmp/s.png" } });
+    assert_eq!(page::masked_note(&json!({ "action": "window screenshot" }), &raw), None);
+    let none = json!({ "result": { "path": "/tmp/s.png", "masked": 0, "masked_areas": [] } });
+    assert_eq!(page::masked_note(&json!({ "action": "window screenshot" }), &none), None);
+    assert_eq!(page::masked_note(&json!({ "action": "window close" }), &masked), None);
+}
+
+/// Leo: "you guys kept fighting focus". `cmux cloud start-session --no-focus` (an agent's or a probe's
+/// start, `cloud start-chat --no-focus`'s step) says `focus: false` in the run itself, never an argument the
+/// action does not take; the app then shows, selects and raises nothing for it. Without the flag the run is
+/// today's: no `focus` at all, so a CLI start changes the app's view only with `--focus` (a person's own
+/// start in the app is origin `user`, which always may: `ActionInvocation.allowsViewChange`).
+#[test]
+fn no_focus_asks_the_app_to_leave_the_view_alone() {
+    let start = |extra: &[&str]| {
+        let mut words = args(&["--name", "box", "--agent", "claude"]);
+        words.extend(args(extra));
+        let (method, params) =
+            call(run_action("cloud start-session", &words, ActionName::Cli).unwrap());
+        assert_eq!(method, "action.run");
+        assert_eq!(params["args"]["name"], "box");
+        params
+    };
+    let quiet = start(&["--no-focus"]);
+    assert_eq!(quiet["focus"], false, "{quiet}");
+    assert!(quiet["args"].get("noFocus").is_none(), "{quiet}");
+    // Today's runs, unchanged: none says focus, and `--focus` asks for the view change.
+    assert!(start(&[]).get("focus").is_none());
+    assert_eq!(start(&["--focus"])["focus"], true);
+    // An action with its own `focus` argument (`open-remote`) gets it as that argument too.
+    let (_, remote) =
+        call(run_action("open-remote", &args(&["--no-focus"]), ActionName::Cli).unwrap());
+    assert_eq!(
+        (remote["focus"].clone(), remote["args"]["focus"].clone()),
+        (json!(false), json!(false))
+    );
+    // A person's `cmux cloud new-machine` opens the machine it made; with `--no-focus` nothing opens.
+    let made = json!({ "result": { "machine_id": "vm_1", "status": "running" } });
+    let (_, asked) =
+        call(run_action("cloud new-machine", &args(&["--no-focus"]), ActionName::Cli).unwrap());
+    assert_eq!(created_target(OutputMode::Human, &asked, &made), None);
+    let (_, plain) = call(run_action("cloud new-machine", &[], ActionName::Cli).unwrap());
+    assert_eq!(created_target(OutputMode::Human, &plain, &made).as_deref(), Some("machine:vm_1"));
+    // `cmux vm start-session --help` lists it.
+    let help = super::super::cloud_help::verb_help("start-session", false).unwrap();
+    assert!(help.contains("[--no-focus]"), "{help}");
 }

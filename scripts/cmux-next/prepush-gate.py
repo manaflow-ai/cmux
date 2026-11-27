@@ -36,11 +36,14 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                motion, scrollbars, state roots, process scan, Swift CLI, closed history, test
                notification centers, string tables, module resources, capability text, browser
                chrome icons, App Store review rules (also on cmux-next-ios/ changes), the perf
-               source guard, fleet host names in gallery fixtures (also on Packages/ changes)
+               source guard, fleet host names in gallery fixtures (also on Packages/ changes), lists draw
+               only visible rows (check-visible-only.py: the visible-only-* ast-grep rules, counted per file
+               against visible-only-baseline.tsv; also on Packages/Shared, Packages/iOS and cmux-next-ios changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
-               dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
+               dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match); not the
+               visible-only-* rules, which the visible-only scanner ratchets per file
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf; local only: the pre-push hook and a plain
-               local run, never --base/--head, --commits or GitHub Actions (no new CI gate, lead 2026-10-27)
+               local run, never --base/--head, --commits or GitHub Actions (lead 2026-10-27, made under the 2026-10-23 no-new-CI rule, since lifted)
   rustfmt      changed cmux-tui/**/*.rs through the pinned rustfmt (cmux-tui/rustfmt.toml); local only, like
                swiftformat; a file the base already left unformatted does not block
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
@@ -53,11 +56,17 @@ and the push removes no reserved entry. CMUX_NEXT_CHECKS_SKIP_REASON does not sk
 `Ghostty-defaults-OK: <the user's words>` trailer on a pushed commit does (Lawrence 2026-10-20).
 Also on every push: "Sidebar look owner" (plans/cmux-next/sidebar-owner.md): a commit that changes the
 sidebar package's code (CmuxNextSidebar/, not its strings, resources or mock) carries a `Sidebar-Look: <the user's words, or "no visual
-change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.md in the same commit.
+change">` trailer, and a visual change also adds its entry under plans/cmux-next/sidebar-owner/ (one file per
+entry, scripts/ci/entry_logs.py; editing the frozen sidebar-owner.md still counts) in the same commit.
 233 sidebar commits in four days with no owner undid each other (Lawrence 2026-10-23: "why were there so
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
-that note (its 11-character sha) passes. CI also sweeps every commit since the check landed
+that note or an entry file (its 11-character sha) passes. CI also sweeps every commit since the check landed
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
+Also on every push: "Chrome layer look" (schemas/theme/chrome-layer-colors.json): a commit that changes that
+file (the colours ChromeLayerColorTests reads off the sidebar, footer and titlebar in the default themes, plain
+and over a picture), or a hunk of a chrome-layer token source naming a chrome token, carries a `Chrome-Look-OK:`
+trailer quoting Leo: his name and his words in quotes. #39984 dimmed the sidebar for a non-Leo issue (Leo
+2026-11-11: "bro why is the sidebar now a different color?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
 Also on every push: "UI font" (check-ui-font.py): the UI font stays the macOS system font with no
@@ -81,7 +90,43 @@ action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's 
 new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
 CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
 2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
+Also on every local run, the same way: "Runs-on variables declare their single-host fallback": when the push changes
+.github/workflows/ or .github/single-host-fallbacks.json, check-single-host-fallbacks.py (the installed copy for the
+hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
+not already have (cmux#40221 merged two). CI runs it only with --advisory: warnings, never a red step.
 
+Also on every local run, the same way: "Test redefinitions" (check-test-redefinitions.py): each tests/**/*.py file
+the push changes may not define one name twice in one class or module body (ruff/pyflakes F811); only a
+redefinition the head has and the base did not refuses. cmux#41779 landed a second `count_fetches` that replaced the
+locked one, so its parallel test appended from several threads with no lock.
+
+Also on every local run, the same way: "Every Cargo.lock matches its manifests" (cargo-locks.py check): when the push
+changes any Cargo.toml or Cargo.lock, every tracked Cargo.lock in the repository is resolved with
+`cargo update --workspace --locked` (index only, no build, seconds), not only the changed workspace's: a manifest
+reaches other workspaces' locks through path dependencies (2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml, a
+direct push, and cmux-app-ffi's lock failed --locked on every pull request until #40883). It refuses only on cargo's
+own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
+feat-cmux-next (base-autofix.sh --locks).
+
+Also on every local run, the same way: "Settings exports keep their keys" (settings-export-key-drift.py): when the
+push changes a settings source (schemas/settings/) or a keyed settings export (settings-schema.json, the docs settings
+reference, docs/mdm/), no export may drop a key the base's export had and the head's sources still declare, or gain a
+key no head source declares. Git objects only, keys only, so it is never red on the base. #43022 and #43027
+(2026-11-15) carried exports regenerated at an older tree that dropped tabs.newTabApp; the Mac export comparison was
+red on the base all day, so its signal was ignored.
+
+Also on every local run, the same way: "Cargo.lock adds no new crate versions" (cargo-lock-new-versions.py): when the
+push changes a Cargo.lock, every downloaded (crate, version) in each changed lock must be in some Cargo.lock at the
+base, unless a pushed commit has a `Cargo-Lock-New-Versions: <why>` line (#42155 said it added no versions and added
+seven). Git objects only, no cargo.
+
+Also on every local run, the same way: "Port drift" (ffi_caller_ratchet.py): every function a cmux-tui crate exports
+in cmux-tui/crates/*/include/*.h has a caller in Packages/**/*.swift outside test targets, or is listed in
+scripts/cmux-next/ffi-caller-baseline.txt, which only shrinks. A push that adds an uncalled export, removes its last
+caller, or gives a listed one a caller without `--update` is refused; an export the app's pinned library
+(Packages/macOS/CmuxNext/app-ffi-pin.json) lacks is a note until the re-pin. It runs only when the push changes a
+header, the baseline, the checker or a Swift line naming a cmux_/acpmux_ function: a push that only moves the pin
+(the re-pin bot's, or one by hand) is not judged. The fast gates' --advisory pass warns.
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -95,7 +140,7 @@ the installed one (main's CI has none today); a reviewed `// crash-allow: <reaso
 no baseline to record it in.
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
-gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
+gains no gate; Lawrence 2026-10-23, since lifted): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
 refuses NEW unjustified @unchecked Sendable / nonisolated(unsafe) (the crash ratchet's class and escape, which
 its per-module count cannot see before a push), DispatchQueue.main.async, ObservableObject/@Published, store
 references in list rows, generic classes with an implicit deinit, waiting action binds, detached tasks without a
@@ -116,7 +161,18 @@ starts on a thread before the scanners, so a push pays what is left of it at the
 Swift files it reads and analyzes; --timings prints the wait). Its one escape is a dated exception in
 arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
 
-Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
+No new committed generated files (GENERATED_CHECK, every run, CI's fast gates too): a file the push adds that a
+generator in scripts/ci/generated-files.json writes, or that is named or headed as generated, and that no
+"committed" generator covers, refuses the push (generated_files_guard.py added: git objects only, under a second;
+2026-11-22, #49757 committed a settings-sources output the SwiftPM build plugin makes, and the package stopped
+compiling). CI's full guard (cmux-next-guards.yml) still judges hand edits, rule changes and the baseline.
+
+Committed generated files are fresh (GENERATED_FRESH_CHECK, local runs only like the highlights): when the push
+changes a "committed" generator's generator, inputs or outputs (generated-files.json, a pure-Python gen-*.py with
+--check) and the checkout is the pushed head with no uncommitted edits, the generator's --check runs there; a stale
+one is run for real (the fix lands in the checkout) and the push is refused until the rewritten files are committed.
+
+Not here (they stay on CI and the fleet): the other generators (cargo, node and gofmt ones), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
 
   scripts/cmux-next/prepush-gate.py                  # what HEAD adds over the integration branch it left
@@ -132,27 +188,48 @@ import argparse
 import ast
 import collections
 import concurrent.futures
+import contextlib
 import fcntl
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
+import sysconfig
+import tarfile
 import tempfile
 import time
 import urllib.request
 import zipfile
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
-DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
+# Full remote-tracking names, never `origin/feat-cmux-next`: git reads a short name as a local branch of that name
+# (refs/heads/origin/feat-cmux-next, which some tool creates) when one exists (push_range.UPSTREAM, 2026-11-20).
+# Reports print them without refs/remotes/.
+DEFAULT_BASE_REFS = ("refs/remotes/origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
 SCRIPTS = "scripts/cmux-next"
 SCOPES = (PKG + "/", "cmux-tui/", "webviews/")
+# The paths the trees hold: SCOPES and the Swift outside the macOS package some scanners judge (the visible-only
+# ratchet's Packages/Shared, Packages/iOS and cmux-next-ios; the App Store rules' cmux-next-ios).
+CHANGED_SCOPES = SCOPES + ("Packages/Shared/", "Packages/iOS/", "cmux-next-ios/")
 SWIFT_SCOPE = PKG + "/"
 # Files a scanner reads besides the changed ones: present in both trees, so they never differ.
 CONTEXT = (
@@ -162,7 +239,12 @@ CONTEXT = (
     PKG + "/Sources/CmuxNextIcons/Resources/icon-catalog.json",
     "cmux.xcodeproj/project.pbxproj",
     "cmux-next-ios/project.yml",
+    "schemas/motion-scale/motion-scale.json",  # check-motion-tokens.py reads the scale's steps
+    "backend/apps/api/wrangler.jsonc",  # check-build-spaces.py reads every Durable Object binding
+    "backend/apps/api/src/build-space.ts",  # and its two lists of them
 )
+# The cloud API Worker's sources: only check-build-spaces.py reads them.
+BUILD_SPACES_SCOPE = "backend/apps/api/"
 # Check code outside scripts/cmux-next: check-package-dependency-lists.py imports the masker from scripts/ (an installed
 # copy reads its own, beside it). Like the check code, it is the head's on both sides.
 CHECK_CODE = ("scripts/swift_source_mask.py",)
@@ -173,7 +255,12 @@ DATA_SUFFIXES = (".tsv", ".json")
 # manifest-only push).
 MANIFEST = PKG + "/Package.swift"
 MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
+SPAWN_OWNER_CHECK = "Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)"
 DEPS_CHECK = "Package dependency lists sorted"
+VISIBLE_ONLY_CHECK = "Lists draw only visible rows (check-visible-only.py, visible-only-baseline.tsv)"
+# The ast-grep rules whose hits that scanner counts per file against its baseline: the ast-grep layer leaves them out,
+# so a hit is judged once, by count (an edit to a listed line is not a new hit).
+RATCHETED_RULE_PREFIX = "visible-only-"
 SURFACE_MATERIALS_CHECK = "Each surface's material is one its kind allows (design/surface-materials.md)"
 # The check reads its manifest and every file it judges, not only the changed ones: it gets each side's whole set.
 SURFACE_MATERIALS_DATA = "schemas/surface-materials/"
@@ -186,6 +273,14 @@ DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
 # (CI step name, command, path prefixes that make it run). {root} is the tree, {pkg} its CmuxNext
 # package, {s} its scripts/cmux-next. Mirrors the job's steps; tests/test_cmux_next_prepush_gate.py
 # keeps this list in step with the workflow.
+# The exit codes each scanner's verdicts use (audited 2026-11-11): 0 for none and 1 for findings, all of them. Exit 2
+# is a refusal to judge in check-crash-safety.sh (not a git checkout), check-state-roots.sh, check-no-process-scan.py,
+# check-no-raw-spawn.py, check-no-raw-flock.py and check-visible-only.py (a bad baseline row; for the last also an
+# ast-grep failure); any other code, or a signal, is no verdict either. A scanner whose verdicts use other codes
+# names them here.
+SCANNER_VERDICT_CODES: dict[str, tuple[int, ...]] = {}
+DEFAULT_VERDICT_CODES = (0, 1)
+
 SCANNERS = (
     ("Dialog buttons show their keys (u2647)", ["python3", "-I", "{s}/check-dialog-key-hints.py", "{root}"], (PKG + "/", "webviews/")),
     ("Main-thread concurrency", ["/bin/bash", "{s}/check-concurrency.sh", "{pkg}"], (PKG + "/", "Packages/Shared/")),
@@ -193,16 +288,42 @@ SCANNERS = (
     ("Type scale", ["python3", "-I", "{s}/check-swift-type-scale.py", "--root", "{root}",
                     "--baseline", "{s}/swift-type-scale-baseline.tsv"], (PKG + "/",)),
     ("Motion tokens", ["/bin/bash", "{s}/check-motion.sh", "{pkg}"], (PKG + "/",)),
+    ("Motion and colour tokens", ["python3", "-I", "{s}/check-motion-tokens.py", "--root", "{root}"],
+     # Only paths the gate diffs (SCOPES); CI's step reads the whole tree, the first-party apps and the Rust tokens.
+     (PKG + "/", "webviews/src/", "cmux-tui/crates/acpmux/web/")),
     ("Overlays are glass, never solid", ["python3", "-I", "{s}/check-overlay-glass.py", "{root}"], (PKG + "/",)),
     (SURFACE_MATERIALS_CHECK,
      ["python3", "-I", "{s}/check-surface-materials.py", "{root}"],
      (PKG + "/", "webviews/src/", "schemas/surface-materials/", "scripts/cmux-next/check-surface-materials.py")),
     ("Scrollbars thin, one style", ["/bin/bash", "{s}/check-scrollbars.sh", "{root}"], (PKG + "/", "webviews/")),
-    ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
+    # Lawrence 2026-11-12: "roundness of all buttons should match roundness of tabs/workspaces".
+    ("Buttons round as tabs", ["python3", "-I", "{s}/check-button-radius.py", "{root}"], (PKG + "/", "webviews/src/")),
+    # Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside".
+    ("Containers concentric with their buttons", ["python3", "-I", "{s}/check-concentric-containers.py", "{root}"],
+     (PKG + "/", "webviews/src/", "scripts/cmux-next/check-concentric-containers.py",
+      "scripts/cmux-next/concentric-containers-baseline.txt")),
+    # Lawrence 2026-11-15: "for all buttons ... we only want to have different bg color on mousedown".
+    ("Buttons change only their fill when pressed", ["python3", "-I", "{s}/check-pressed-state.py", "{root}"], (PKG + "/", "webviews/src/")),
+    ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"],
+     # Also its Classic ids check (goal next-zero-classic-footprint-all-surfaces): every macOS package and the scripts.
+     SCOPES + ("Packages/macOS/", "scripts/cmux-next/")),
     ("No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)",
      ["python3", "-I", "{s}/check-no-process-scan.py", "{root}"], SCOPES),
+    # Leo 2026-11-21: "i wonder if there's a script or some kinda tool we can build to simply get rid fo the prompt?"
+    # A keychain or LocalAuthentication call with no no-UI guard can stop an unattended Mac on a panel.
+    ("Keychain calls never prompt unattended (keychain-prompt ratchet)",
+     ["python3", "-I", "{s}/check-keychain-no-prompt.py", "{root}"],
+     (PKG + "/Sources/", "Packages/macOS/CmuxPhonePush/", "Packages/Shared/",
+      "scripts/cmux-next/check-keychain-no-prompt.py", "scripts/cmux-next/keychain-no-prompt-baseline.tsv")),
     ("No raw spawns in the daemon (cmux_process, reviews of pl-holder-11)",
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
+    (SPAWN_OWNER_CHECK,
+     ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
+    # Lawrence 2026-11-16: "think of root cause fixes ... that make focus stealers easier to audit in central place".
+    ("Keyboard moves go through the focus route (plans/cmux-next/focus-loss-AUDIT.md)",
+     ["python3", "-I", "{s}/check-focus-routes.py", "{root}"], (PKG + "/", "webviews/src/", "scripts/cmux-next/focus-routes-baseline.tsv")),
+    ("No raw file locks (cmux_file_lock::FileLock, lane c-agenthost lock audit)",
+     ["python3", "-I", "{s}/check-no-raw-flock.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-flock-baseline.tsv")),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -220,11 +341,27 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-perf-source-guard.py", "{root}"], (PKG + "/",)),
     ("No fleet host names in gallery fixtures",
      ["python3", "-I", "{s}/check-fixture-host-names.py", "{root}"], ("Packages/", "webviews/src/")),
+    # Leo 2026-11-18: "we draw the visible area, right? ... there are so many places where I'm pretty sure we're just
+    # drawing the whole list. And we need to be able to guard against that."
+    (VISIBLE_ONLY_CHECK, ["python3", "-I", "{s}/check-visible-only.py", "{root}"],
+     (PKG + "/Sources/", "Packages/Shared/", "Packages/iOS/", "cmux-next-ios/", "scripts/cmux-next/visible-only-baseline.tsv")),
     # A target's new import of another local target must be declared (2026-10-29: a63986a4 and e875485c each pushed
     # an undeclared test import straight to feat-cmux-next and turned this CI step red on every pull request).
     # Pure Python, no build: it reads the manifest and the pushed Swift files.
     ("Package dependency lists sorted",
      ["python3", "-I", "{s}/check-package-dependency-lists.py", "{pkg}/Package.swift"], (PKG + "/",)),
+    # Dev builds do not intertwine (AGENTS.md "Dev builds are separate"): every Durable Object binding is classified
+    # per build or account-wide, and no entry point or object reaches an object outside its build space.
+    ("Build spaces (backend/apps/api/src/build-space.ts)",
+     ["python3", "-I", "{s}/check-build-spaces.py", "{root}"], (BUILD_SPACES_SCOPE, "scripts/cmux-next/check-build-spaces.py")),
+    # The user, 2026-11-16: "for dev builds we must make sure that all such values and configurations have a dev
+    # build isolation that prevents each dev build from deriving state from each other even from prod." A new path
+    # every build shares (~/.config/cmux, a fixed Application Support or Caches folder, Keychain service or defaults
+    # suite) needs BuildStatePaths or a reviewed row in dev-build-state-baseline.tsv.
+    ("Dev build state is its own (BuildStatePaths)",
+     ["python3", "-I", "{s}/check-dev-build-state.py", "{root}"],
+     (PKG + "/Sources/", "cmux-tui/crates/", "scripts/cmux-next/check-dev-build-state.py",
+      "scripts/cmux-next/dev-build-state-baseline.tsv")),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
@@ -245,11 +382,103 @@ rescue Psych::SyntaxError => e
   exit 1
 end
 """
-CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
+# A runs-on variable with no declared fallback (cmux#40221 merged two; the build-fleet policy test read this repository
+# live and went red after the merge). Local only: ci-guards.yml runs the same script with --advisory, warnings only.
+FALLBACKS_CHECK = "Runs-on variables declare their single-host fallback (.github/single-host-fallbacks.json)"
+FALLBACKS_SCRIPT = "scripts/cmux-next/check-single-host-fallbacks.py"
+FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
+# A Rust port that stops at step A: a C ABI function with no Swift caller (cmuxterm-hq
+# docs/architecture/consolidation-2026-11-12.md: 0 of 28 cmux-daemon-conn-core functions called). Local only, like
+# the workflow parse (the 2026-10-23 no-new-CI rule, since lifted); the fast gates' --advisory pass names it as a warning.
+PORT_DRIFT_CHECK = "Port drift (ffi_caller_ratchet.py: every exported cmux-tui C function has a Swift caller)"
+PORT_DRIFT_SCRIPT = SCRIPTS + "/ffi_caller_ratchet.py"
+PORT_DRIFT_HEADER = re.compile(r"^cmux-tui/crates/[^/]+/include/[^/]+\.h$")
+PORT_DRIFT_NAME = re.compile(r"\b(?:cmux|acpmux)_\w+")
+PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is not a push's (port_drift)
+# The production journey's schedule registers from main, so main's copy of this workflow is what runs; only the
+# scripts come from feat-cmux-next. cmux#43781's --preclaim-login sat on feat-cmux-next's copy and never reached
+# production until cmux#43866 synced main's. Local only (Lawrence's 2026-10-23 no-new-CI rule, since lifted).
+#
+# Every scheduled workflow is held the same way (cmuxterm-hq docs/investigations/2026-11-18-boneheaded-designs.md
+# section 10: thirteen scheduled files existed only here and never fired, and all 33 on both branches differed): a push
+# that changes a workflow with a `schedule:` is refused when main has no copy of it (the schedule never fires) or when
+# its jobs or crons now differ from main's, unless a pushed commit names the main twin in a `Main-Twin:` trailer.
+# A file whose main copy is another workflow under the same path (other job names or triggers before the push:
+# classic's nightly.yml beside NEXT's) has no twin to open: only its crons are held (cmux#44131).
+# NO_MAIN_TWIN lists the scheduled files that stay here on purpose, each with why.
+MAIN_TWIN_CHECK = "Scheduled workflows match main's (a schedule runs main's copy)"
+MAIN_TWIN_FILE = ".github/workflows/cloud-journey-prod.yml"  # compared whether or not it has a schedule
+MAIN_TWIN_DIR = ".github/workflows/"
+MAIN_TWIN_REF = "refs/remotes/origin/main"
+MAIN_TWIN_SCHEDULE = re.compile(r"^  schedule:[ \t]*(#.*)?$", re.MULTILINE)
+MAIN_TWIN_CRON = re.compile(r"^\s*-\s*cron:\s*['\"]?([^'\"#\n]+?)['\"]?\s*(#.*)?$", re.MULTILINE)
+NO_MAIN_TWIN = {
+    "ios-testflight.yml": "a TestFlight delivery workflow (secrets, uploads): turning its schedule on is its owner's call",
+    "ios-internal-nightly-trigger.yml": "the INTERNAL nightly builder's trigger: turning it on is the nightly owner's call",
+    "nightly-next-cua-signed-host.yml": "an hourly nightly-next Mac check: turning it on is the nightly owner's call",
+}
+MAIN_TWIN_TRAILER = re.compile(r"^Main-Twin:[ \t]*\S", re.MULTILINE)
+# feat-cmux-next's `environment: {name, deployment: false}` and main's `environment: NAME` are one setting to compare.
+MAIN_TWIN_ENV_BLOCK = re.compile(r"^(\s*)environment:\n\s+name: (\S+)\n\s+deployment: false$")
+MAIN_TWIN_HINT = ("Open the same change against main (`gh pr create --base main`; workflows land there under the CI "
+                  "exception), then add a `Main-Twin: <that PR's URL>` trailer to this commit and push again.")
+FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
+                  "`fallback` that takes the job and `after_minutes`), then push. Check with "
+                  "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
+# A test file that defines one name twice in one body keeps only the last (ruff/pyflakes F811): cmux#41779's second
+# `count_fetches` replaced the locked one and its parallel test appended without the lock. Local only, like SwiftFormat.
+REDEFINITION_CHECK = "Test redefinitions (scripts/cmux-next/check-test-redefinitions.py)"
+REDEFINITION_SCRIPT = SCRIPTS + "/check-test-redefinitions.py"
+REDEFINITION_FILE = re.compile(r"^tests/.+\.py$")
+# What follows `<path>:` on a checker line. The path is never read from the text (a test path may hold `:`, and a
+# `[^:]+` path pattern then matched nothing, so a finding or an older checker's parse error with exit 1 read as clean:
+# #41827 review, F1); it is the one of the files the gate passed that the line starts with (redefinition_record).
+REDEFINITION_REST = re.compile(r"^\d+: (?:(?P<what>.+?) redefines line \d+|(?P<unparsed>does not parse): )")
+# The checker's own stderr summaries; any other line on a run that exits 1 is output the gate cannot read.
+REDEFINITION_SUMMARY = re.compile(r"^\d+ redefinition\(s\) in tests/ |^a tests/ file does not parse")
+REDEFINITION_HINT = ("Keep one definition of each name: Python keeps only the last `def` of a name in a class or module, "
+                     "so the earlier one never runs (a lock it held, a fixture it set up, a test it was). Merge what "
+                     "the two did into the one that stays, then push.")
+CARGO_LOCK_CHECK = "Every Cargo.lock matches its manifests (scripts/cmux-next/cargo-locks.py)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
-CARGO_DRIFT = "cannot update the lock file"
-CARGO_HINT = ("Fix the lock: run `cargo metadata --offline --format-version 1 >/dev/null` in that workspace (it "
-              "rewrites Cargo.lock with no version changes), commit it, then push.")
+CARGO_LOCKS_SCRIPT = SCRIPTS + "/cargo-locks.py"
+# The gate's outer limit on the lock check, and the deadline it gives the check inside it: the check ends its own
+# resolves by then and reports what it could not judge, so this limit is never what ends it (cmux#41742 review F2).
+CARGO_LOCKS_TIMEOUT = 300
+CARGO_LOCKS_DEADLINE = CARGO_LOCKS_TIMEOUT - 45
+# A changed Cargo.lock adds no (crate, version) that no base Cargo.lock has, unless a pushed commit says so
+# (2026-11-12: #42155 called itself a lock alignment that added no versions and added seven).
+NEW_VERSIONS_CHECK = "Cargo.lock adds no new crate versions (scripts/cmux-next/cargo-lock-new-versions.py)"
+NEW_VERSIONS_SCRIPT = SCRIPTS + "/cargo-lock-new-versions.py"
+NEW_VERSIONS_HINT = ("A changed Cargo.lock uses a crate version that no Cargo.lock on the base has. If the change means "
+                     "to add it, say so: add a line `Cargo-Lock-New-Versions: <why>` to a pushed commit's message "
+                     "(and the PR body). Otherwise pin it to a version a base lock already has "
+                     "(`cargo update -p NAME --precise VERSION`).")
+# A settings export keeps every key the base's export had and the sources declare, and gains none they do not
+# (2026-11-15: #43022 and #43027 carried exports from an older tree without tabs.newTabApp).
+GENERATED_CHECK = "No new committed generated files (scripts/ci/generated_files_guard.py added)"
+GENERATED_SCRIPT = "scripts/ci/generated_files_guard.py"
+GENERATED_HELPER = "scripts/ci/ci_process_tree.py"  # the guard imports it from beside itself
+SETTINGS_KEYS_CHECK = "Settings exports keep their keys (scripts/cmux-next/settings-export-key-drift.py)"
+SETTINGS_KEYS_SCRIPT = SCRIPTS + "/settings-export-key-drift.py"
+SETTINGS_KEYS_PATHS = ("schemas/settings/", "web/data/next-docs/settings-reference.generated.json", "docs/mdm/")
+SETTINGS_KEYS_HINT = ("A settings export lost a key its source declares, or has one no source declares: it was "
+                      "regenerated at another tree. Regenerate the exports at this head on the fleet "
+                      "(scripts/cmux-next/regenerate-settings-exports.sh; its header has the command) and apply the "
+                      "patch; never hand-edit them. On a merge conflict in an export, take the base's side first.")
+CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
+              "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
+              "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
+# cmux#55547: #51769 added 3 keys to a string catalog and its diff rewrote 281k lines: its base merges ran main's older
+# trusted merge driver, which put the branch's text and order back over the base's. Compared with the push's merge base
+# with feat-cmux-next, so a base merge's own changes never count. CI's fast gates run it on BASE..MERGE.
+XCSTRINGS_CHECK = "String catalogs edited in place (scripts/cmux-next/check-xcstrings-diff.py)"
+XCSTRINGS_SCRIPT = SCRIPTS + "/check-xcstrings-diff.py"
+XCSTRINGS_HINT = ("A string catalog was re-serialized, not edited: take the merge base's text back (git checkout "
+                  "$(git merge-base HEAD origin/feat-cmux-next) -- <catalog>) and add or remove keys in place with "
+                  "scripts/xcstrings-edit.py. After a base merge, rerun scripts/install-git-hooks.sh from a feat-cmux-next "
+                  "checkout (the clone's trusted merge driver may be main's older copy) and redo the merge. A deliberate "
+                  "reformat: an `Xcstrings-Reformat: <why>` commit trailer.")
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
 # The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
@@ -259,8 +488,32 @@ SIDEBAR_EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/",
                   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Mock/",
                   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings")
 SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
+# New entries, one file each (scripts/ci/entry_logs.py ENTRY_LOGS): two PRs adding entries never touch one line. The
+# frozen note had 47 GitHub conflicts among 96 PRs in the 14 days to 2026-11-25 (scripts/ci/conflict_hotspots.py).
+SIDEBAR_ENTRIES = "plans/cmux-next/sidebar-owner/"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
+# The chrome layer (sidebar, footer, titlebar) keeps its colour unless Leo asks (#39984 laid a 20% black dim on the
+# sidebar for a non-Leo issue; Leo 2026-11-11: "bro why is the sidebar now a different color?", reverted by #41047).
+# ChromeLayerColorTests holds the colours each region paints in the default dark and light themes, plain and over a
+# picture, against CHROME_VECTORS; a commit that changes that file, or a hunk of a chrome-layer token source that
+# names a chrome token, needs a `Chrome-Look-OK:` trailer quoting Leo: his name and his words in quotes.
+CHROME_CHECK = "Chrome layer look (schemas/theme/chrome-layer-colors.json)"
+CHROME_VECTORS = "schemas/theme/chrome-layer-colors.json"
+CHROME_SOURCES = (f"{PKG}/Sources/CmuxNextDesign/Palette.swift",
+                  f"{PKG}/Sources/CmuxNextDesign/PaletteDynamic.swift",
+                  f"{PKG}/Sources/CmuxNextDesign/MainPane.swift",
+                  f"{PKG}/Sources/CmuxNextSidebar/Views/SidebarStyle.swift",
+                  f"{PKG}/Sources/CmuxNextSidebar/Views/SidebarContainerView.swift",
+                  f"{PKG}/Sources/CmuxNextSidebar/Logic/SidebarTunables.swift",
+                  f"{PKG}/Sources/CmuxNextApp/WindowRootView+Surface.swift",
+                  "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift")
+CHROME_TOKENS = re.compile(r"\b(surfaceDim\w*|sidebarDim|sidebarBackground|windowBackground|surfaceBackground|"
+                           r"chromeBackground|sidebarStep|mainPaneChromeShade|mainPaneShade\w*|applySurfaceFill|"
+                           r"SidebarStyle\.ground)\b")
+CHROME_TRAILER = re.compile(r"^Chrome-Look-OK:[ \t]*(\S.*)$", re.MULTILINE)
+CHROME_LEO = re.compile(r"\bLeo\b")
+CHROME_QUOTE = re.compile(r"[\"“][^\"“”]{3,}[\"”]")
 # An added line that opens or closes a conflict hunk (`=======` alone is a Markdown or RST rule).
 CONFLICT_OPEN = re.compile(r"^<{7} ")
 CONFLICT_CLOSE = re.compile(r"^>{7} ")
@@ -282,22 +535,61 @@ CRASH_OK = re.compile(r"^Crash-allow-OK:[ \t]*(\S.*)$", re.MULTILINE)
 # refuses the fix (lead 2026-11-03: the merge service refused #33091, the process-scan base red's fix, this way). So
 # each tree reads its own commit's row wherever it is lower than the installed one (a deleted row counts as 0), and
 # the installed row everywhere else: a raise or a new row is still judged against the installed copy, as before.
+# A file the push renames (baseline_renames.py: git's renames, one map for this hook and CI's check-spawn-owner) is
+# the same code: the head tree first gives its new path the old path's installed row (and LINE_BASELINES line), capped
+# at the old row and at the push's own new row, and carry_crash_moves does the same for crash rows that moved crate
+# (2026-11-24: acpmux's TUI split into acpmux-tui, every row moved with it, was refused as new debt three times).
 # Left out: crash-safety-baseline.json (a count under its row is only a note there; a raise needs Crash-allow-OK),
 # and the baselines no scanner here reads (godfile, layers, main-actor-work, check-menu-actions, rust-panic,
 # system-blue, type-scale, app-size): their CI checks read the pushed tree's own copy.
 RATCHET_BASELINES = {
+    "focus-routes-baseline.tsv": ((0,), 1),
     "process-scan-baseline.tsv": ((0,), 1),
+    "keychain-no-prompt-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
+    # check-state-roots.sh's Classic ids check: path, text, count. Left out, a push that removed a Classic site
+    # and deleted its row was refused (goal next-zero-classic-footprint-all-surfaces: 41 stale rows on base).
+    "classic-ids-baseline.tsv": ((0, 1), 2),
     "raw-spawn-baseline.tsv": ((0,), 1),
+    "raw-flock-baseline.tsv": ((0,), 1),
+    "spawn-owner-baseline.tsv": ((0,), 1),
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
+    "visible-only-baseline.tsv": ((0, 1), 2),
 }
+
+
+def classic_ids_text(text: str) -> str:
+    """A classic-ids row's text in the trimmed form check-state-roots.sh keys on (cmux#55211): the character after
+    the match (a quote, slash, comma or paren) is context, not key. Base's old-form rows (the matched text with its
+    trailing quote, slash or comma kept) and the trimmed ones then key the same, so an installed copy of either form
+    never reads the other's rows as deleted and its hits as new (2026-11-25: #55211 was refused for ~60 such rows)."""
+    if text.startswith("com.cmuxterm.app"):
+        return "com.cmuxterm.app"
+    if re.match(r"(\.config|\.local|Library|\.cache)", text):
+        return re.sub(r"cmux.$", "cmux", text)
+    if not text.startswith("/tmp/"):
+        return re.sub(r"[,)]$", ")", text)
+    return text
+
+
+# A ratchet baseline whose key text has more than one written form: file -> {key column: its one form}.
+RATCHET_KEY_FORMS = {"classic-ids-baseline.tsv": {1: classic_ids_text}}
+# Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
+# its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
+# finding (2026-11-17: the act-as-me consent card moved onto the shared dialog card and could not push). Each tree
+# keeps only the installed lines its own commit still lists: a removed line is taken, an added one never is.
+LINE_BASELINES = ("concentric-containers-baseline.txt",)
 CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 # check-crash-safety.sh reads the CmuxNext app entry, a file only feat-cmux-next's tree has: a main-based push skips
 # that scanner and runs main's crash rule, the crash ratchet (crash_ratchet_findings).
 CRASH_SAFETY_CHECK = "Crash safety"
 APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
-MAIN_REF = "origin/main"
+# PKG_SCANNERS: every scanner handed {pkg} reads PKG's Package.swift or Sources, which main's tree does not have, so a
+# push whose head has no PKG manifest skips them all (2026-11-17: a main-based push touching Packages/Shared/ ran
+# "Main-thread concurrency", whose check-concurrency.sh died with FileNotFoundError in package_targets, and the hook
+# refused the push without a verdict).
+MAIN_REF = "refs/remotes/origin/main"  # full name: see DEFAULT_BASE_REFS
 CRASH_RATCHET_CHECK = "Crash ratchet (crash_ratchet.py: no crate gains a Rust unwrap, expect, panic or exit)"
 CRASH_RATCHET = "crash_ratchet.py"
 RUST_CRATES = "cmux-tui/crates/"
@@ -392,6 +684,29 @@ def log(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+TOOL_INT_MAX_DIGITS = 4300
+
+
+class ToolOutputNoVerdict(ValueError):
+    """A numeric field from checker output was too large or malformed to parse safely."""
+
+
+def parse_tool_int(raw: str, context: str) -> int:
+    """Parse a decimal integer from tool output, refusing unbounded or malformed text."""
+    text = str(raw).strip()
+    digits = text[1:] if text[:1] in "+-" else text
+    if not digits or not digits.isascii() or not digits.isdecimal():
+        raise ToolOutputNoVerdict(f"{context}: expected a decimal integer, got {text[:80]!r}")
+    if len(digits) > TOOL_INT_MAX_DIGITS:
+        raise ToolOutputNoVerdict(f"{context}: integer has {len(digits)} digits (limit {TOOL_INT_MAX_DIGITS})")
+    return int(text)
+
+
+def absolute(path: Path) -> Path:
+    """Anchor a path before changing cwd, preserving symlinks (rustup selects its tool by argv[0])."""
+    return Path(os.path.abspath(path))
+
+
 def load_sibling(name: str, filename: str):
     """The module FILENAME beside this file (scripts/cmux-next in a checkout; the hook folder for the installed copy)."""
     spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
@@ -404,14 +719,42 @@ def load_sibling(name: str, filename: str):
 git_batch = load_sibling("cmux_next_git_batch", "git_batch.py")
 
 
+BASELINE_RENAMES = "baseline_renames.py"
+
+
+def load_baseline_renames(trusted_scripts: Path | None):
+    """baseline_renames.py (the one rename map every path-keyed baseline reads): the installed reviewed copy for the
+    hook, else this checkout's. An install older than it has no map, and the hook carries nothing (as before)."""
+    script = (trusted_scripts / BASELINE_RENAMES) if trusted_scripts else Path(__file__).with_name(BASELINE_RENAMES)
+    if not script.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("cmux_next_baseline_renames", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module if all(hasattr(module, attr) for attr in ("diff_args", "parse")) else None
+
+
+def baseline_moves(repo: Path, base: str, head: str, trusted_scripts: Path | None) -> dict[str, str]:
+    """{new path: old path} of the push's renames (git diff -M plus baseline_renames.MOVED_BASELINE_PATHS)."""
+    renames = load_baseline_renames(trusted_scripts)
+    return renames.parse(git(repo, *renames.diff_args(base, head))) if renames else {}
+
+
+# head tree -> the crash baseline rows it read before carry_crash_moves gave moved hits to their new crate, so
+# crash_ratchet_findings (which adds the proven moves itself) does not allow a moved hit twice.
+CRASH_ROWS_BEFORE_CARRY: dict[str, dict] = {}
+
+
 def git(repo: Path, *args: str, check: bool = True) -> bytes:
+    repo = absolute(repo)
     result = git_batch.run(repo, list(args))
     if check and result.returncode != 0:
-        raise SystemExit(f"prepush-gate: git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
+        raise CannotDecide(f"prepush-gate: git {' '.join(args)} failed: {result.stderr.decode(errors='replace').strip()}")
     return result.stdout
 
 
 def rev_ok(repo: Path, rev: str) -> bool:
+    repo = absolute(repo)
     return subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"],
                           capture_output=True).returncode == 0
 
@@ -429,7 +772,7 @@ def load_push_range(repo: Path, trusted_scripts: Path | None):
         return sys.modules[name]
     script = (trusted_scripts or repo / SCRIPTS) / PUSH_RANGE
     if not script.is_file():
-        raise SystemExit(f"prepush-gate: {script} is missing; rerun scripts/install-git-hooks.sh")
+        raise CannotDecide(f"prepush-gate: {script} is missing; rerun scripts/install-git-hooks.sh")
     spec = importlib.util.spec_from_file_location(name, script)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module  # dataclasses resolve their module through sys.modules
@@ -439,20 +782,29 @@ def load_push_range(repo: Path, trusted_scripts: Path | None):
 
 def changed_files(repo: Path, base: str, head: str) -> list[str]:
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode()
-    return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cmux-next-ios/")))
+    return sorted(n for n in names.split("\0") if n and n.startswith(CHANGED_SCOPES + (BUILD_SPACES_SCOPE,)))
 
 
 def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
     files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
     sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
+    # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
+    try:
+        blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES for rev in (base, head)])
+    except git_batch.GitError as error:
+        raise CannotDecide(f"prepush-gate: {error}")
     files: set[str] = set()
     for name, (keys, count) in RATCHET_BASELINES.items():
-        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
-                for blob in (blob_at(repo, rev, f"{SCRIPTS}/{name}") for rev in (base, head))]
+        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count, name) if blob else {}
+                for blob in (blobs[f"{rev}:{SCRIPTS}/{name}"] for rev in (base, head))]
         files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
-    return sorted(p for p in files if p.startswith(SCOPES) and blob_at(repo, base, p) is not None
-                  and blob_at(repo, head, p) is not None)
+    files = {p for p in files if p.startswith(CHANGED_SCOPES)}
+    try:
+        present = git_batch.cat_file(repo, [f"{rev}:{p}" for p in sorted(files) for rev in (base, head)])
+    except git_batch.GitError as error:
+        raise CannotDecide(f"prepush-gate: {error}")
+    return sorted(p for p in files if present[f"{base}:{p}"] is not None and present[f"{head}:{p}"] is not None)
 
 
 def deleted_package_swift(repo: Path, base: str, head: str) -> list[str]:
@@ -463,6 +815,17 @@ def deleted_package_swift(repo: Path, base: str, head: str) -> list[str]:
 
 
 # ---------------------------------------------------------------- pinned tools
+
+def side_workers(environ=os.environ, cpus: int | None = None) -> int:
+    """How many scanners the gate runs at once: a core each, at most 16, and no more than the cores a CI mini's runner
+    hook granted the job (CMUX_CI_CPU_BUDGET). The checks job runs the gate's own suite beside its other checks, each
+    gate spawning one scanner per core of the whole mini on a grant of 5 (job 131984422217)."""
+    workers = min(16, cpus or os.cpu_count() or 4)
+    budget = environ.get("CMUX_CI_CPU_BUDGET", "")
+    if budget.isdigit() and int(budget) > 0:
+        workers = min(workers, int(budget))
+    return workers
+
 
 def platform_key() -> str:
     system = {"Darwin": "darwin", "Linux": "linux"}.get(platform.system(), platform.system().lower())
@@ -502,7 +865,13 @@ def release_download():
             return None
         spec = importlib.util.spec_from_file_location(name, script)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except ImportError:
+            # The helper imports deadline_http.py from beside itself. A hook installed before that has an older
+            # refresh_checks.py, which rewrites the helper from feat-cmux-next but not deadline_http.py: download
+            # directly, as with no helper, until scripts/install-git-hooks.sh runs again.
+            return None
         sys.modules[name] = module
     return sys.modules[name]
 
@@ -520,26 +889,26 @@ def download(url: str, archive: Path) -> None:
     try:
         fetcher.download(url, archive, log=lambda message: log(f"prepush-gate: {message}"))
     except fetcher.NoAsset as error:
-        raise SystemExit(f"prepush-gate: {error}") from error
+        raise CannotDecide(f"prepush-gate: {error}") from error
 
 
 def ensure_tool(lock: Path, tool: str) -> Path:
     """The pinned binary, downloaded and sha256-checked once per version."""
     rows = read_lock(lock)
     if tool not in rows:
-        raise SystemExit(f"prepush-gate: {tool} has no pinned build for {platform_key()} in {lock}")
+        raise CannotDecide(f"prepush-gate: {tool} has no pinned build for {platform_key()} in {lock}")
     version, url, sha, member = rows[tool]
-    target = tools_dir() / f"{tool}-{version}-{platform_key()}" / tool
+    target = absolute(tools_dir()) / f"{tool}-{version}-{platform_key()}" / tool
     if target.is_file() and os.access(target, os.X_OK):
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
     log(f"prepush-gate: downloading {tool} {version} (once) from {url}")
     with tempfile.TemporaryDirectory(dir=target.parent) as tmp:
-        archive = Path(tmp) / "tool.zip"
+        archive = absolute(Path(tmp)) / "tool.zip"
         download(url, archive)
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         if digest != sha:
-            raise SystemExit(f"prepush-gate: {tool} download sha256 {digest} != pinned {sha}; refusing it")
+            raise CannotDecide(f"prepush-gate: {tool} download sha256 {digest} != pinned {sha}; refusing it")
         with zipfile.ZipFile(archive) as zf:
             extracted = Path(zf.extract(member, tmp))
         extracted.chmod(0o755)
@@ -555,7 +924,7 @@ def write_tree(repo: Path, dest: Path, files: dict[str, str], index: bool = True
     try:
         blobs = git_batch.cat_file(repo, [f"{files[p]}:{p}" for p in paths])
     except git_batch.GitError as error:
-        raise SystemExit(f"prepush-gate: {error}")
+        raise CannotDecide(f"prepush-gate: {error}")
     for path in paths:
         blob = blobs[f"{files[path]}:{path}"]
         if blob is None:
@@ -588,6 +957,7 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
     scripts = [] if trusted_scripts else [p for p in ls_tree(repo, head, SCRIPTS + "/")
                                           if "/" not in p[len(SCRIPTS) + 1:] or p.startswith(SCRIPTS + "/lint/")]
     base_data = set(ls_tree(repo, base, SCRIPTS + "/"))
+    moved = baseline_moves(repo, base, head, trusted_scripts) if trusted_scripts else {}
     trees = []
     for side, rev in (("base", base), ("head", head)):
         files = {p: head for p in scripts}  # the check code is the head's on both sides
@@ -608,16 +978,20 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
             missing = [p for p in CHECK_CODE if not (trusted_scripts / Path(p).name).is_file()
                        and blob_at(repo, head, p) is not None]
             if missing:
-                raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {', '.join(Path(p).name for p in missing)}).")
+                raise CannotDecide(f"prepush-gate: {STALE_INSTALL} (it has no {', '.join(Path(p).name for p in missing)}).")
             shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
-            lowered = lower_ratchet_baselines(repo, rev, dest / SCRIPTS)
+            lowered = lower_ratchet_baselines(repo, rev, dest / SCRIPTS, moved if side == "head" else None)
             if lowered and side == "head":
-                log("prepush-gate: these ratchet rows read the push's own lower values:\n  " + "\n  ".join(lowered))
+                log("prepush-gate: these ratchet rows read the push's own lower values (or moved with a renamed file):\n  " + "\n  ".join(lowered))
             if side == "head":
                 taken = apply_reviewed_crash_data(repo, base, head, dest / SCRIPTS)
                 if taken:
                     log("prepush-gate: Crash safety reads these reviewed raises of the pushed crash data:\n  "
                         + "\n  ".join(taken))
+                carried = carry_crash_moves(repo, base, head, moved, dest / SCRIPTS, work / "crash-moves")
+                if carried:
+                    log("prepush-gate: Crash safety reads these hits as moved with their files, not new:\n  "
+                        + "\n  ".join(carried))
         trees.append(dest)
     return trees[0], trees[1]
 
@@ -748,7 +1122,8 @@ def normalize(text: str, tree: Path) -> str:
     roots = [tree, tree / PKG, tree / PKG / "Sources", tree / PKG / "Tests", tree / "Packages"]
 
     def keyed(match: re.Match) -> str:
-        line = source_line(tree, roots, match.group("path"), int(match.group("line")))
+        line = source_line(tree, roots, match.group("path"),
+                           parse_tool_int(match.group("line"), "finding line"))
         return f"{match.group('path')}:«{line}»" if line is not None else match.group("path")
     parts = []
     last = 0
@@ -785,6 +1160,102 @@ class Finding(str):
         return finding
 
 
+class NoVerdict(str):
+    """A check that ran but gave no verdict (it crashed, timed out, or printed output of the wrong shape). It is
+    never subtracted as old debt: not by a base run that gave no verdict alike (both sides crash the same way, so
+    the diff would hide it), and not by gate_own's runs over a merge's upstream ranges. Its key is its own object,
+    so push_range.less never matches it.
+
+    OUTSIDE, when set, is why the missing verdict is not the push's (outside_cause: the check timed out or was
+    killed, gave no verdict at the base too, or a tool or install this machine lacks): main() then warns with it and
+    lets the push through. Unset, the push's own change stopped the check (it judged the base and not the head), and
+    the push is refused (Leo 2026-11-22: a gate refuses only for the pusher's own diff)."""
+
+    outside: str | None
+
+    def __new__(cls, text: str, outside: str | None = None) -> "NoVerdict":
+        record = super().__new__(cls, text)
+        record.outside = outside
+        return record
+
+    @property
+    def key(self) -> str:
+        return f"no-verdict:{id(self)}"
+
+
+def outside_cause(head_stopped: str, base_stopped: str | None = None) -> str | None:
+    """Why a check's no verdict at the head is not the push's own doing, or None when it is: only when the base run
+    of the same check gave no verdict either (it crashed, timed out or was killed there too: the check is broken, or
+    this machine too loaded, without the push). A check that judged the base and timed out, was killed or crashed at
+    the head stopped on the push's change, and refuses (#50633 review B2)."""
+    if base_stopped:
+        return (f"it {head_stopped} at the pushed head and gave no verdict at the base either ({base_stopped}), so "
+                "the push's diff did not cause it")
+    return None
+
+
+# Whether this run is a developer's own push through the installed hook (--pre-push with the reviewed checks copy,
+# off GitHub Actions). Only then does a no verdict from outside the push's diff warn and let the push through
+# (own_refusals, main(), the unbounded range, the watchdog). Every other run (--base/--head, --commits, no installed
+# copy, CI) takes the check code from the pushed head on both sides, so a push that breaks a checker would read as
+# "no verdict at the base either": there any no verdict fails, as before (#50633 review B1/B3). Set by _main.
+HOOK_RUN = False
+
+
+def hook_run(pre_push: bool, trusted_scripts: Path | None) -> bool:
+    return bool(pre_push and trusted_scripts is not None and not os.environ.get("GITHUB_ACTIONS"))
+
+
+class CannotDecide(SystemExit):
+    """The gate cannot judge the push for a reason outside its diff (a tool or install this machine lacks, a git
+    read that failed): main() warns with the reason and lets the push through. A SystemExit, so every handler that
+    catches one (fail-open layers) still does."""
+
+
+REFUSED_WORDS = re.compile(r",? so (?:the )?push is refused|,? and (?:the )?push is refused|(?:the )?push is refused")
+
+
+def own_refusals(found: list[tuple[str, list[str]]], hook: bool) -> tuple[list[tuple[str, list[str]]], list[str]]:
+    """(the findings that refuse the push, a warning line for each NoVerdict whose cause is outside the diff). Off a
+    hook run (HOOK_RUN) every finding refuses, a no verdict too."""
+    if not hook:
+        return found, []
+    kept, warned = [], []
+    for name, records in found:
+        mine = []
+        for record in records:
+            if isinstance(record, NoVerdict) and record.outside:
+                # The record's own text says the push is refused, which is not so here (#50633 review F3).
+                said = REFUSED_WORDS.sub("", str(record))
+                warned.append(f"prepush-gate: WARNING: {name} could not judge this push for a reason outside its "
+                              f"diff ({record.outside}); the push goes through unchecked by it, so say so in your "
+                              f"report (CI still runs its own checks). What it said: {said}")
+            else:
+                mine.append(record)
+        if mine:
+            kept.append((name, mine))
+    return kept, warned
+
+
+# Output that says a check stopped instead of judging: a Python traceback, or run()'s timeout line.
+NO_VERDICT = re.compile(r"Traceback \(most recent call last\)|^timed out after \d+s$|^ast-grep failed: |"
+                        r"^(?:SwiftFormat|SwiftLint|rustfmt) gave no verdict: ", re.M)
+
+
+def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str | None:
+    """Why a check's run gave no verdict, or None when it gave one: it timed out (run()'s 124), was killed by a signal
+    (a negative code), crashed (a traceback), or exited with a code outside CODES (the codes its verdicts use)."""
+    if code == 124:
+        return "timed out"
+    if code < 0:
+        return f"was killed by signal {-code}"
+    if NO_VERDICT.search(out):
+        return "crashed"
+    if codes is not None and code not in codes:
+        return f"exited {code}"
+    return None
+
+
 def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) -> list[str]:
     seen = collections.Counter(normalize(r, base_tree) for r in records(base_out))
     fresh = []
@@ -800,38 +1271,52 @@ def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) 
 
 
 def run(cmd: list[str], cwd: Path, timeout: int = 120) -> tuple[int, str]:
-    """CMD's exit code and output, or 124 and "timed out" past TIMEOUT seconds.
+    """CMD's exit code and output, or 124 and "timed out" past TIMEOUT seconds, scaled for this host's load
+    (loaded_timeout).
 
     A timed-out command is stopped with stop(), not subprocess.run's SIGKILL, so a `git` under it clears
     the lock it holds (see stop())."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")} | CI_ENV
+    cwd = absolute(cwd)
+    limit = loaded_timeout(timeout)
     with subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                           stdin=subprocess.DEVNULL) as process:
         try:
-            out, err = process.communicate(timeout=timeout)
+            out, err = process.communicate(timeout=limit)
         except subprocess.TimeoutExpired:
             stop([process.pid, *_descendants(process.pid)])
             try:
                 process.communicate(timeout=GRACE_SECONDS + 5)
             except subprocess.TimeoutExpired:  # not even SIGKILL got it reaped (an unkillable disk wait)
                 process.kill()
-            return 124, f"timed out after {timeout}s"
+            return 124, f"timed out after {limit:.0f}s"
     return process.returncode, out + err
 
 
 def fill(cmd: list[str], tree: Path) -> list[str]:
+    tree = absolute(tree)
     return [c.format(root=tree, pkg=tree / PKG, s=tree / SCRIPTS) for c in cmd]
 
 
 def escaped(tree: Path, rel: str, index: int, rule: str) -> bool:
+    """Whether ast-grep's match of RULE at line INDEX (0-based) of REL carries a reviewed escape (ESCAPES) on that
+    line or in the comment block above it. A match it cannot place, a path outside TREE or a line outside the file,
+    escapes nothing: the finding stands (#41851 review: lines[index] was read before INDEX was checked, so a negative
+    one read the file's last line, one past the end crashed the comment walk, and `../x` read outside the tree)."""
     pattern = ESCAPES.get(rule)
     if pattern is None:
         return False
+    root = tree.resolve()
+    path = (root / rel).resolve()
+    if not path.is_relative_to(root) or path == root:
+        return False
     try:
-        lines = (tree / rel).read_text(encoding="utf-8", errors="replace").split("\n")
+        lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
     except OSError:
         return False
-    if index < len(lines) and pattern.search(lines[index]):
+    if not 0 <= index < len(lines):
+        return False
+    if pattern.search(lines[index]):
         return True
     j = index - 1
     while j >= 0 and COMMENT_LINE.match(lines[j]):
@@ -841,20 +1326,43 @@ def escaped(tree: Path, rel: str, index: int, rule: str) -> bool:
     return False
 
 
+def ast_grep_shape_fault(matches) -> str | None:
+    """Why MATCHES (ast-grep's parsed `--json=compact` output) is not a list of matches, or None when it is: each a dict
+    with a str `file`, an int `range.start.line`, and str `ruleId` and `message`. Valid JSON of another shape (an
+    `{"error": ...}` object) made the reads below raise and crash the gate instead of refusing (#41827 review, F1)."""
+    if not isinstance(matches, list):
+        return f"a {type(matches).__name__}, not a list"
+    for index, m in enumerate(matches):
+        start = m.get("range", {}).get("start", {}) if isinstance(m, dict) and isinstance(m.get("range"), dict) else None
+        if (not isinstance(m, dict) or not isinstance(m.get("file"), str) or not isinstance(start, dict)
+                or not isinstance(start.get("line"), int) or isinstance(start.get("line"), bool)
+                or not isinstance(m.get("ruleId"), str) or not isinstance(m.get("message"), str)):
+            return f"match {index} has no file, range.start.line, ruleId and message"
+    return None
+
+
 def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
+    binary, config, tree = absolute(binary), absolute(config), absolute(tree)
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
     result = subprocess.run([str(binary), "scan", "-c", str(config), "--json=compact", *present],
                             cwd=tree, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    # Its verdicts exit 0 (no error-level match) or 1 (one, and the list holds it). A config error exits 1 with no
+    # list, a crash otherwise; `stdout or "[]"` read either as "no matches" and passed the push.
+    if result.returncode not in (0, 1) or (result.returncode != 0 and not result.stdout.strip()):
+        return f"ast-grep failed: exit {result.returncode}: {result.stderr.strip()[-300:] or 'no output'}"
     try:
-        matches = json.loads(result.stdout or "[]")
+        matches = json.loads(result.stdout)
     except json.JSONDecodeError:
         return f"ast-grep failed: {result.stderr.strip()}"
+    fault = ast_grep_shape_fault(matches)
+    if fault:
+        return f"ast-grep failed: printed JSON of the wrong shape ({fault}): {result.stdout.strip()[:200]}"
     lines = []
     for m in matches:
         rel, index = m["file"], m["range"]["start"]["line"]
-        if escaped(tree, rel, index, m["ruleId"]):
+        if m["ruleId"].startswith(RATCHETED_RULE_PREFIX) or escaped(tree, rel, index, m["ruleId"]):
             continue
         lines.append(f"{rel}:{index + 1}: [{m['ruleId']}] {m['message']}")
     return "\n".join(sorted(lines))
@@ -865,6 +1373,7 @@ SWIFTFORMAT_FINDING = re.compile(r"^\S.*\.swift:\d+:\d+: (?:error|warning): \([A
 
 
 def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
+    binary, config, tree = absolute(binary), absolute(config), absolute(tree)
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
@@ -873,8 +1382,17 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     # rewriting it, even for one file. Linting the changed files takes milliseconds without it.
     # No --quiet: with it SwiftFormat 0.64 prints only "Source input did not pass lint check." and no finding, so this
     # layer never refused anything. Its findings are `<path>:<line>:<col>: error: (<rule>) <message>` lines.
-    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", *present], tree)
-    return "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
+    code, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", *present], tree)
+    # Its verdicts exit 0 (clean) or 1 (findings). A file it cannot parse, a bad config or a crash exits otherwise
+    # (70), and keeping only the finding lines of that run passed a push it never read.
+    if code not in (0, 1):
+        return f"SwiftFormat gave no verdict: exit {code}: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    found = "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
+    # Exit 1 is "the lint failed": with no line the gate reads as a finding (a changed output format), it is no verdict,
+    # never "clean" (#41827 review: unrecognized checker output must not count as a pass).
+    if code == 1 and not found:
+        return f"SwiftFormat gave no verdict: exit 1 with no finding line: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    return found
 
 
 RUST_SCOPE = "cmux-tui/"
@@ -903,6 +1421,31 @@ def _manifest_text(repo: Path, tree: Path, rel: str) -> str | None:
     return None
 
 
+# The files the rustfmt layer reads from the checkout around the judged files: each crate's manifest (its edition, or
+# its own [workspace]), the config, and the toolchain pin rustup reads from the folder rustfmt runs in.
+RUST_WORKSPACE_FILES = ("Cargo.toml", "rustfmt.toml", ".rustfmt.toml", "rust-toolchain.toml", "rust-toolchain")
+
+
+def has_work_tree(repo: Path) -> bool:
+    """REPO is a checkout, not a clone with no work tree (a bare mirror or core.bare clone root, REPO its git dir)."""
+    done = subprocess.run(["git", "-C", str(absolute(repo)), "rev-parse", "--is-inside-work-tree"],
+                          capture_output=True, text=True)
+    return done.returncode == 0 and done.stdout.strip() == "true"
+
+
+def rust_workspace_root(repo: Path, head: str, work: Path) -> Path:
+    """The folder rustfmt() reads the cmux-tui workspace from: the checkout, or, for a clone with no work tree (the
+    bare mirror repo_publish pushes from), the head's RUST_WORKSPACE_FILES written under WORK from git objects. Without
+    them that push found no rustfmt.toml and the layer judged nothing."""
+    if has_work_tree(repo):
+        return repo
+    names = [p for p in ls_tree(repo, head, RUST_SCOPE) if p.rsplit("/", 1)[-1] in RUST_WORKSPACE_FILES]
+    root = work / "rust-workspace"
+    write_tree(repo, root, {p: head for p in [*names, "rust-toolchain.toml", "rust-toolchain"]}, index=False)
+    (root / RUST_SCOPE).mkdir(parents=True, exist_ok=True)  # rustfmt runs there
+    return root
+
+
 def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
     """The edition `cargo fmt --all` in cmux-tui/ formats PATH with, or None when it does not format PATH at all.
 
@@ -927,54 +1470,125 @@ def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
     return rust_edition(repo)
 
 
+# rustup's answers when the toolchain rust-toolchain.toml pins, or its rustfmt component, is not installed
+# (RUSTUP_AUTO_INSTALL=0): `error: 'rustfmt' is not installed for the toolchain 'T'` (newer: `... 'T'.`, `... for
+# the custom toolchain 'T'`), `error: toolchain 'T' is not installed`, `error: override toolchain 'T' is not
+# installed`, and `error: the 'rustfmt' binary, normally provided by the 'rustfmt' component, is not applicable to the
+# 'T' toolchain`. Each is the whole of stderr's first line, and rustup prints nothing after it but its own hint
+# (RUSTUP_HINT): `help: run `rustup ...` to install it`, or `To install, run `rustup ...``.
+RUSTUP_MISSING = re.compile(
+    r"error: (?:'rustfmt(?:\.exe)?' is not installed for the (?:custom )?toolchain '[^'\n]+'\.?"
+    r"|(?:override )?toolchain '[^'\n]+' is not installed"
+    r"|the 'rustfmt(?:\.exe)?' binary, normally provided by the 'rustfmt' component, is not applicable to the "
+    r"'[^'\n]+' toolchain)")
+RUSTUP_HINT = re.compile(r"(?:help: (?:run|use) `rustup [^`\n]+`(?: to install it)?|To install, run `rustup [^`\n]+`)\.?")
+
+
+def rustup_missing(stderr: bytes) -> bool:
+    """True when STDERR is rustup's "no such toolchain or component" answer and nothing else: its error as the first
+    line, then only rustup's own hint. A rustfmt diagnostic or a panic that carries such a line anywhere else is not
+    (#41888 review: a diagnostic quoting `let toolchain = ;` passed as a missing component)."""
+    lines = [line.strip() for line in stderr.decode(errors="replace").splitlines() if line.strip()]
+    return bool(lines) and RUSTUP_MISSING.fullmatch(lines[0]) is not None and all(
+        RUSTUP_HINT.fullmatch(line) for line in lines[1:])
+
+
+def resolve_rustfmt(env: dict[str, str], cwd: Path) -> Path | None:
+    """The rustfmt the layer runs: the first file named rustfmt, executable or not, in a folder of ENV's PATH, each
+    folder read from CWD (the folder rustfmt runs in) as the shell reads it there, an empty one being CWD itself; None
+    when there is none. rustfmt() runs exactly this file, so "is it there" and "what runs" are one lookup (#41945
+    review: the probe read PATH=. and an empty entry from the gate's own folder while rustfmt ran in cmux-tui/), and
+    a test that mocks the run mocks this too, with no real install."""
+    cwd = absolute(cwd)
+    for folder in env.get("PATH", os.defpath).split(os.pathsep):
+        candidate = absolute((cwd / folder) / "rustfmt")  # an absolute folder replaces CWD; "" and "." are CWD
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     """One finding per changed cmux-tui Rust file that rustfmt would change: `<path>: not rustfmt-clean ...`.
 
     Each file goes through rustfmt's stdin mode, so only that file is judged (a path argument would also format the
     files its `mod` lines name). The rustfmt is the one the cmux-tui checkout pins (rust-toolchain.toml, run in
-    cmux-tui/), never installed for this check; with no such rustfmt the layer warns and finds nothing. The tip's
-    `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    cmux-tui/), never installed for this check; with no rustfmt on PATH, or rustup's own answer that the pinned
+    toolchain or its rustfmt is not installed, the layer warns and finds nothing; a rustfmt that will not start is no
+    verdict. The tip's `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    repo, config, tree = absolute(repo), absolute(config), absolute(tree)
     present = [p for p in rust if (tree / p).is_file()]
     if not present or not config.is_file():
         return ""
     env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0"}
+    # No rustfmt (and no rustup proxy) on PATH: not available here, which warns. Asked of PATH itself, from the folder
+    # rustfmt runs in: a launch that raises FileNotFoundError can also be a rustfmt that is there with a missing `#!`
+    # interpreter (#41927 review). Any file named rustfmt counts, executable or not: one that will not start is no
+    # verdict, below. The file found is the one run, by its path (#41945 review).
+    scope = repo / RUST_SCOPE
+    binary = resolve_rustfmt(env, scope)
+    if binary is None:
+        log("prepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked")
+        return ""
     findings = []
     for path in present:
         edition = rustfmt_edition(repo, tree, path)
         if edition is None:
             continue  # outside the cmux-tui workspace's `cargo fmt --all`: not this layer's to judge
-        args = ["rustfmt", "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
+        args = [str(binary), "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
         source = (tree / path).read_bytes()
         try:
-            done = subprocess.run(args, cwd=repo / RUST_SCOPE, input=source, env=env, capture_output=True, timeout=60)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            log(f"prepush-gate: WARNING: rustfmt did not run ({type(error).__name__}); Rust formatting NOT checked")
-            return ""
+            done = subprocess.run(args, cwd=scope, input=source, env=env, capture_output=True, timeout=loaded_timeout(60))
+        except subprocess.TimeoutExpired:
+            # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
+            return f"rustfmt gave no verdict: timed out after 60s on {path}"
+        except OSError as error:
+            # A rustfmt that is on PATH and would not start (not executable, a `#!` interpreter that is gone, raising
+            # FileNotFoundError): no verdict (#41888 and #41927 review).
+            return f"rustfmt gave no verdict: it could not be started on {path} ({type(error).__name__}: {error})"
         if done.returncode != 0:
-            if b"error[" in done.stderr or (b"error:" in done.stderr and b"toolchain" not in done.stderr and b"not installed" not in done.stderr):
+            # Only rustup's own "no such toolchain or component" answer is "not available here" and warns, and only
+            # as the whole of stderr (rustup_missing): a rustfmt diagnostic quotes the source, which can say
+            # "toolchain" or "not installed" anywhere (#41888 review). Then a parse error is a finding; any other
+            # failure (a panic, a crash) is no verdict, never a pass (#41827 review).
+            if rustup_missing(done.stderr):
+                log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
+                    f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
+                return ""
+            # A parse error is rustfmt's exit 1 with its diagnostic first; a panic (exit 101) quoting `error:` is not.
+            first = next((line.strip() for line in done.stderr.splitlines() if line.strip()), b"")
+            if done.returncode == 1 and (first.startswith(b"error[") or first.startswith(b"error:")):
                 findings.append(f"{path}: rustfmt cannot parse it: "
                                 f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
                 continue
-            log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
-                f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
-            return ""
+            tail = " ".join(done.stderr.decode(errors="replace").strip().splitlines()[-2:])[:300] or "no output"
+            return f"rustfmt gave no verdict: exit {done.returncode} on {path}: {tail}"
         if done.stdout != source:
             findings.append(f"{path}: not rustfmt-clean; run `cargo fmt` in cmux-tui/ (the pre-commit hook does this)")
     return "\n".join(findings)
 
 
 def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
+    binary, config, tree = absolute(binary), absolute(config), absolute(tree)
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
-    _, out = run([str(binary), "lint", "--config", str(config), "--quiet", "--no-cache", "--reporter", "xcode",
-                  *present], tree)
-    return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    code, out = run([str(binary), "lint", "--config", str(config), "--quiet", "--no-cache", "--reporter", "xcode",
+                     *present], tree)
+    # Its verdicts exit 0, 2 (serious violations) or 3 (strict warnings). A config it cannot read or a crash exits 1
+    # or a signal, and keeping only the located lines of that run passed a push it never read.
+    if code not in (0, 2, 3):
+        return f"SwiftLint gave no verdict: exit {code}: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    found = "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    # Exit 2 or 3 says it found violations: with no located line the gate reads, that is no verdict, never "clean".
+    if code in (2, 3) and not found:
+        return f"SwiftLint gave no verdict: exit {code} with no located finding: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    return found
 
 
 # ---------------------------------------------------------------- gate
 
 def _json_at(repo: Path, rev: str, path: str) -> dict:
+    repo = absolute(repo)
     result = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
     try:
         value = json.loads(result.stdout) if result.returncode == 0 else {}
@@ -1020,36 +1634,114 @@ def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str |
     return found
 
 
-def _ratchet_rows(text: str, keys: tuple[int, ...], count: int) -> dict[tuple[str, ...], int]:
-    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows."""
-    rows = {}
+def _ratchet_rows(text: str, keys: tuple[int, ...], count: int, name: str = "") -> dict[tuple[str, ...], int]:
+    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows. NAME's
+    RATCHET_KEY_FORMS bring each key to its one form, and rows that then share a key add up."""
+    forms = RATCHET_KEY_FORMS.get(name, {})
+    rows: dict[tuple[str, ...], int] = {}
     for line in text.splitlines():
         parts = line.split("\t")
         if line.startswith("#") or len(parts) <= max(*keys, count) or not parts[count].isdigit():
             continue
-        rows[tuple(parts[i] for i in keys)] = int(parts[count])
+        key = tuple(forms[i](parts[i]) if i in forms else parts[i] for i in keys)
+        rows[key] = rows.get(key, 0) + parse_tool_int(parts[count], "ratchet count")
     return rows
 
 
-def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str]:
+def carry_renamed_rows(lines: list[str], moved: dict[str, str], parse, pushed_paths: set[str],
+                       count: int) -> tuple[list[str], list[str]]:
+    """(LINES with carried rows, notes): each installed row of an old path in MOVED ({new: old}) is also given to its
+    new path (column 0), added to any row the new path already has: a moved file is the same code, never a new file's
+    debt. Only while the pushed copy (PUSHED_PATHS, its row paths) keeps no row for the old path, as a move leaves it;
+    an old path that still has its own row keeps it, and the new path takes nothing. The rows are capped at the old
+    row's count here, and at the pushed copy's own row by the lowering after."""
+    old_to_new: dict[str, list[str]] = {}
+    for new, old in moved.items():
+        if old not in pushed_paths and new != old:
+            old_to_new.setdefault(old, []).append(new)
+    if not old_to_new:
+        return lines, []
+    gains: dict[tuple[str, ...], tuple[int, str]] = {}
+    for line in lines:
+        row = parse(line)
+        if not row:
+            continue
+        (key, n), = row.items()
+        for new in old_to_new.get(key[0], ()):
+            new_key = (new, *key[1:])
+            prior, _ = gains.get(new_key, (0, line))
+            gains[new_key] = (prior + n, line)
+    out, notes = [], []
+    for line in lines:
+        row = parse(line)
+        if row:
+            (key, n), = row.items()
+            if key in gains:
+                gain, _ = gains.pop(key)
+                parts = line.rstrip("\n").split("\t")
+                parts[count] = str(n + gain)
+                line = "\t".join(parts) + ("\n" if line.endswith("\n") else "")
+                notes.append(f"{' '.join(key)} {n} -> {n + gain} (carried across a rename)")
+        out.append(line)
+    for new_key, (gain, template) in sorted(gains.items()):
+        parts = template.rstrip("\n").split("\t")
+        parts[0] = new_key[0]
+        parts[count] = str(gain)
+        if out and not out[-1].endswith("\n"):
+            out[-1] += "\n"
+        out.append("\t".join(parts) + "\n")
+        notes.append(f"{' '.join(new_key)} 0 -> {gain} (carried across a rename)")
+    return out, notes
+
+
+def carry_renamed_lines(lines: list[str], moved: dict[str, str], listed: set[str]) -> list[str]:
+    """The LINE_BASELINES lines ("path: site") of each old path in MOVED, under its new path, while the pushed copy
+    (LISTED) no longer lists the old line; the shrink-only filter after keeps one only if the pushed copy lists it."""
+    out = []
+    for new, old in moved.items():
+        for line in lines:
+            if line.startswith(old + ":") and line.rstrip("\n") not in listed:
+                carried = new + line[len(old):]
+                out.append(carried if carried.endswith("\n") else carried + "\n")
+    return out
+
+
+def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path, moved: dict[str, str] | None = None) -> list[str]:
     """Rewrite each RATCHET_BASELINES file in SCRIPTS_DIR (a tree's copy of the installed scripts) so a row reads REV's
     own count where that is lower (a row REV deleted reads 0 and is dropped); every other line stays the installed
-    one, so a raise or a new row is never taken. REV without the file changes nothing. Returns what was lowered."""
+    one, so a raise or a new row is never taken. REV without the file changes nothing. Returns what was lowered.
+    MOVED ({new path: old path}, baseline_renames.py) first gives each new path its old path's installed row and line
+    (carry_renamed_rows), so a moved file is the same code; the lowering then caps it at REV's own row."""
     taken: list[str] = []
+    # One `cat-file --batch` for every baseline, not a `git show` each: each git start costs 0.3 s on a big mirror, and
+    # this runs for every side of every tree a gate builds (2026-11-21: 13 s of one merge push's dependency trees).
+    try:
+        texts = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in (*RATCHET_BASELINES, *LINE_BASELINES)])
+    except git_batch.GitError as error:
+        raise CannotDecide(f"prepush-gate: {error}")
     for name, (keys, count) in RATCHET_BASELINES.items():
         path = scripts_dir / name
-        own = git_batch.run(repo, ["show", f"{rev}:{SCRIPTS}/{name}"])
-        if not path.is_file() or own.returncode != 0:
+        own = texts.get(f"{rev}:{SCRIPTS}/{name}")
+        if not path.is_file() or own is None:
             continue
-        pushed = _ratchet_rows(own.stdout.decode(errors="replace"), keys, count)
-        lines, changed = [], False
-        for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
-            row = _ratchet_rows(line, keys, count)
+        pushed = _ratchet_rows(own.decode(errors="replace"), keys, count, name)
+        installed_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        carried = carry_renamed_rows(installed_lines, moved or {},
+                                     lambda line: _ratchet_rows(line, keys, count, name),
+                                     set(k[0] for k in pushed), count)
+        taken += [f"{name}: {note}" for note in carried[1]]
+        lines, changed = [], bool(carried[1])
+        # Installed rows that share a key (two written forms of one text) share the push's count: each takes what
+        # is left of it, in file order.
+        left = dict(pushed)
+        for line in carried[0]:
+            row = _ratchet_rows(line, keys, count, name)
             if not row:
                 lines.append(line)
                 continue
             (key, installed), = row.items()
-            now = pushed.get(key, 0)
+            now = min(installed, left.get(key, 0))
+            left[key] = left.get(key, 0) - now
             if now >= installed:
                 lines.append(line)
                 continue
@@ -1063,6 +1755,21 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
             taken.append(f"{name}: {' '.join(key)} {installed} -> {now}")
         if changed:
             path.write_text("".join(lines), encoding="utf-8")
+    for name in LINE_BASELINES:
+        path = scripts_dir / name
+        own = texts.get(f"{rev}:{SCRIPTS}/{name}")
+        if not path.is_file() or own is None:
+            continue
+        listed = set(own.decode(errors="replace").splitlines())
+        installed = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        carried = carry_renamed_lines(installed, moved or {}, listed)
+        # A comment or blank line stays; a site line stays only while the pushed copy still lists it.
+        kept = [line for line in installed + carried
+                if not line.strip() or line.startswith("#") or line.rstrip("\n") in listed]
+        if kept != installed:
+            taken += [f"{name}: {line.rstrip()} (line removed)" for line in installed if line not in kept]
+            taken += [f"{name}: {line.rstrip()} (carried across a rename)" for line in carried if line in kept]
+            path.write_text("".join(kept), encoding="utf-8")
     return taken
 
 
@@ -1114,6 +1821,7 @@ STALE_INSTALL = "the installed hook is older than the checks this push needs: re
 def main_based(repo: Path, head: str, head_tree: Path) -> bool:
     """True for a push cut from main: HEAD's tree has no CmuxNext app entry, or the commit where HEAD left origin/main
     is not on origin/feat-cmux-next (HEAD_TREE holds HEAD's copy of the entry when HEAD has one)."""
+    repo, head_tree = absolute(repo), absolute(head_tree)
     if not (head_tree / APP_ENTRY).is_file():
         return True
     feat = DEFAULT_BASE_REFS[0]
@@ -1153,7 +1861,7 @@ def load_crash_ratchet(repo: Path, head_tree: Path, trusted_scripts: Path | None
                                                   "proven_moves", "WAIVED")):
             return module
         log(f"prepush-gate: {script} has no crash ratchet this gate can call; trying the next copy")
-    raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {CRASH_RATCHET}).")
+    raise CannotDecide(f"prepush-gate: {STALE_INSTALL} (it has no {CRASH_RATCHET}).")
 
 
 def rust_owner_files(path: str) -> list[str]:
@@ -1176,12 +1884,55 @@ def add_blobs(repo: Path, tree: Path, rev: str, paths: list[str]) -> None:
     try:
         blobs = git_batch.cat_file(repo, [f"{rev}:{p}" for p in wanted])
     except git_batch.GitError as error:
-        raise SystemExit(f"prepush-gate: {error}")
+        raise CannotDecide(f"prepush-gate: {error}")
     for path in wanted:
         blob = blobs[f"{rev}:{path}"]
         if blob is not None:
             (tree / path).parent.mkdir(parents=True, exist_ok=True)
             (tree / path).write_bytes(blob)
+
+
+def carry_crash_moves(repo: Path, base: str, head: str, moved: dict[str, str], scripts_dir: Path,
+                      work: Path) -> list[str]:
+    """Give the crash baseline in SCRIPTS_DIR (the head tree's installed copy, which Crash safety reads) the hits of
+    each renamed Rust file (MOVED, {new: old}) that changed crate, where the push's own baseline moved them: CI's
+    crash_ratchet.carry_moves over the proven moves (the same lines, gone from the old crate's files and in the new
+    one's), capped at the installed source row and at the push's own new row; the source row goes down by as much.
+    Only the renamed files are scanned. Returns what was carried."""
+    pairs = [(new, old) for new, old in moved.items() if new.endswith(".rs") and old.endswith(".rs")
+             and new.startswith(RUST_CRATES) and old.startswith(RUST_CRATES)
+             and new.split("/")[2] != old.split("/")[2]]
+    baseline_path = scripts_dir / Path(CRASH_BASELINE).name
+    if not pairs or not baseline_path.is_file() or not (scripts_dir / CRASH_RATCHET).is_file():
+        return []
+    spec = importlib.util.spec_from_file_location("cmux_crash_ratchet_carry", scripts_dir / CRASH_RATCHET)
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    if not all(hasattr(ratchet, a) for a in ("Scan", "scan_rust", "baseline_rows", "baseline_data", "proven_moves",
+                                             "carry_moves", "row_label")):
+        return []
+    own = blob_at(repo, head, CRASH_BASELINE)
+    try:
+        installed = ratchet.baseline_rows(json.loads(baseline_path.read_text()))
+        pushed = ratchet.baseline_rows(json.loads(own)) if own is not None else {}
+    except (OSError, ValueError, AttributeError):
+        return []
+    scans = []
+    for side, rev, paths in (("old", base, [old for _, old in pairs]), ("new", head, [new for new, _ in pairs])):
+        add_blobs(repo, work / side, rev, paths)
+        scan = ratchet.Scan()
+        ratchet.scan_rust(str(work / side), scan, True)
+        scans.append(scan)
+    moves = ratchet.proven_moves(*scans)
+    targets = {(s, l, k, t) for s, l, k, _, t in moves}
+    risen = {row: n for row, n in pushed.items() if row in targets and n > installed.get(row, 0)}
+    allowance, carried = ratchet.carry_moves(installed, risen, moves)
+    if not carried:
+        return []
+    CRASH_ROWS_BEFORE_CARRY[str(scripts_dir.parent.parent)] = installed
+    baseline_path.write_text(json.dumps(ratchet.baseline_data(allowance), indent=1, sort_keys=True) + "\n")
+    return [f"{ratchet.row_label(source)} -> {ratchet.row_label(target)}: {hits} (moved with a renamed file)"
+            for source, target, hits in carried]
 
 
 def prepare_crash_ratchet(repo: Path, base: str, head: str, head_tree: Path, trusted_scripts: Path | None,
@@ -1220,7 +1971,9 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, base_tree: Path, he
     def baseline(tree: Path) -> dict:
         data = ratchet.load_baseline(str(tree / SCRIPTS / "crash-safety-baseline.json"))
         return ratchet.baseline_rows(data) if data else {}
-    base_rows, head_rows = baseline(base_tree), baseline(head_tree)
+    base_rows = baseline(base_tree)
+    # The installed rows before carry_crash_moves: the proven moves below are added here, not taken twice.
+    head_rows = CRASH_ROWS_BEFORE_CARRY.get(str(head_tree)) or baseline(head_tree)
     allowance = {row: n - base_rows.get(row, 0) for row, n in head_rows.items() if n > base_rows.get(row, 0)}
     for (section, lang, kind, _source, target), hits in ratchet.proven_moves(old, new).items():
         row = (section, lang, kind, target)
@@ -1253,18 +2006,59 @@ def blob_at(repo: Path, rev: str, path: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None) -> bytes | None:
+def tree_mode(repo: Path, rev: str, path: str) -> str | None:
+    """The Git tree mode for PATH at REV, or None when the path is absent."""
+    result = subprocess.run(["git", "-C", str(repo), "ls-tree", "-z", rev, "--", path], capture_output=True)
+    if result.returncode != 0:
+        return None
+    for entry in result.stdout.split(b"\0"):
+        if not entry:
+            continue
+        header, name = entry.split(b"\t", 1)
+        if name.decode(errors="surrogateescape") == path:
+            return header.split(b" ", 1)[0].decode("ascii")
+    return None
+
+
+def non_regular_inputs(repo: Path, rev: str, *paths: str) -> list[str]:
+    """Required check inputs present at REV that are directories, symlinks or other non-regular tree entries."""
+    return [path for path in paths if (mode := tree_mode(repo, rev, path)) is not None and not mode.startswith("100")]
+
+
+def deleted_inputs(repo: Path, base: str, head: str, *paths: str) -> list[str]:
+    """Each of PATHS (a file a check reads, a declaration it judges against, or the check itself) that BASE has and
+    HEAD does not. "HEAD has no such file, so the check does not apply" holds only for a branch older than the file:
+    BASE lacks it too. A push that deletes it is not older than the check, and skipping the check for it would let a
+    push turn a check off by deleting what the check reads (review F1 on #40894: deleting
+    .github/single-host-fallbacks.json passed undeclared runs-on variables). Every such exemption asks this first."""
+    return [path for path in paths if blob_at(repo, head, path) is None and blob_at(repo, base, path) is not None]
+
+
+def deleted_input_refusals(check: str, paths: list[str]) -> list[str]:
+    """The refusal for a push that deletes PATHS, which CHECK reads (deleted_inputs). Never subtracted as old debt."""
+    return [NoVerdict(f"prepush-gate: {check}: the push deletes {path}, which this check reads, so the check cannot "
+                      f"judge the pushed head and the push is refused (only a branch whose base lacks it too is "
+                      f"exempt); restore it, or land its removal with the check's own change") for path in paths]
+
+
+def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None, base: str | None = None) -> bytes | None:
     """The check script at PATH to run for a push to HEAD: the installed reviewed copy on a hook run (TRUSTED_SCRIPTS),
-    HEAD's own on a manual run; None when HEAD is older than the check. A hook run never falls back to the pushed head's
-    copy (the hook never runs code a push controls): an install that lacks a check HEAD has refuses the push."""
+    HEAD's own on a manual run; None when HEAD is older than the check (BASE, when given, lacks it too). A hook run
+    never falls back to the pushed head's copy (the hook never runs code a push controls): an install that lacks a
+    check HEAD has refuses the push. A push that deletes the check (BASE has it, HEAD not: deleted_inputs) still runs
+    it: the installed copy on a hook run, BASE's on a manual one."""
+    malformed = non_regular_inputs(repo, head, path)
+    if malformed:
+        raise SystemExit(f"prepush-gate: {path} must be a regular file at the pushed head; refusing the check.")
     at_head = blob_at(repo, head, path)
+    deleted = base is not None and bool(deleted_inputs(repo, base, head, path))
     if trusted_scripts is None:
-        return at_head
-    if at_head is None:
+        return blob_at(repo, base, path) if at_head is None and deleted else at_head
+    if at_head is None and not deleted:
         return None  # a commit older than this check
     installed = trusted_scripts / Path(path).name
     if not installed.is_file():
-        raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {Path(path).name}).")
+        raise CannotDecide(f"prepush-gate: {STALE_INSTALL} (it has no {Path(path).name}).")
     return installed.read_bytes()
 
 
@@ -1275,14 +2069,18 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
         return result.stdout if result.returncode == 0 else None
 
     # The hook runs the installed reviewed checker (as for the scanners); a manual run, the checkout's.
-    script = check_script(repo, head, RESERVED_SCRIPT, trusted_scripts)
+    script = check_script(repo, head, RESERVED_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than this check
+    # A head without the list or the surfaces reads as no findings below: only a branch older than them may.
+    gone = deleted_inputs(repo, base, head, RESERVED_LIST, RESERVED_SURFACES)
+    if gone:
+        return deleted_input_refusals(RESERVED_CHECK, gone)
     with tempfile.TemporaryDirectory(prefix="cmux-reserved-") as tmp:
-        work = Path(tmp)
+        work = absolute(Path(tmp))
         (work / "check.py").write_bytes(script)
 
-        def findings(rev: str, base_list: bytes | None) -> list[str] | None:
+        def findings(rev: str, base_list: bytes | None) -> tuple[list[str], str | None] | None:
             reserved, surfaces = blob(rev, RESERVED_LIST), blob(rev, RESERVED_SURFACES)
             if reserved is None or surfaces is None:
                 return None
@@ -1293,21 +2091,76 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
             if base_list is not None:
                 (work / "base-list.json").write_bytes(base_list)
                 cmd += ["--base-reserved", str(work / "base-list.json")]
-            _, out = run(cmd, work)
-            return [line for line in out.splitlines() if line.strip()]
+            code, out = run(cmd, work)
+            # Its verdicts exit 0 (none) or 1 (findings); anything else, a traceback or a timeout is no verdict, and so
+            # is an exit 1 that prints no finding, and output that is not its findings (#41888 review: "could not read
+            # checker input" on both revisions subtracted to [] and passed).
+            lines = [line for line in out.splitlines() if line.strip()]
+            return lines, no_verdict(code, out, (0, 1)) or unread_findings(code, lines, RESERVED_FINDING)
 
-        head_lines = findings(head, blob(base, RESERVED_LIST)) or []
-        base_lines = findings(base, None) or []
-    fresh = [line for line in head_lines if line not in base_lines]
+        head_lines, head_stopped = findings(head, blob(base, RESERVED_LIST)) or ([], None)
+        base_lines, base_stopped = findings(base, None) or ([], None)
+    if head_stopped:
+        return [NoVerdict(f"{RESERVED_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the push is "
+                          f"refused: {' '.join(head_lines[-2:])[:300]}", outside_cause(head_stopped, base_stopped))]
+    fresh = [line for line in head_lines if base_stopped or line not in base_lines]
     if fresh and RESERVED_OK.search(git(repo, "log", "--format=%B", f"{base}..{head}", check=False).decode(errors="replace")):
         log(f"prepush-gate: {RESERVED_CHECK}: allowed by a Ghostty-defaults-OK trailer:\n  " + "\n  ".join(fresh))
         return []
     return fresh
 
 
+# check-ghostty-reserved-keys.py's findings: each names the file it is about, then what is wrong.
+RESERVED_FINDING = re.compile(r"(?:ghostty-reserved-keys|action-surfaces)\.json: \S.*")
+# check-ui-font.py's INPUTS, for a copy too old to answer --inputs: its findings name one of these paths.
+UI_FONT_INPUTS = ("schemas/type-scale/type-scale.json", "schemas/type-scale/ui-font-pin.json",
+                  "webviews/src/pages/shared/desktop.css", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/",
+                  "webviews/src/", "Native/OptChat/")
+
+
+def unread_findings(code: int, lines: list[str], finding: re.Pattern[str]) -> str | None:
+    """Why LINES, a checker's verdict output for exit CODE (0 or 1), are not its findings, or None when they are:
+    exit 1 prints at least one finding and nothing that is not one (FINDING, a whole line); exit 0 prints nothing.
+    Only parsed findings subtract base from head: anything else is no verdict."""
+    if code == 1 and not lines:
+        return "exited 1 but printed no finding"
+    unread = [line for line in lines if not finding.fullmatch(line.strip())]
+    if unread:
+        return f"exited {code} with output that is not a finding: {unread[0][:200]}"
+    if code == 0 and lines:
+        return f"exited 0 but printed findings: {lines[0][:200]}"
+    return None
+
+
+# check-ui-font.py's own summary, the last line of each run: `ui font: ok`, or `ui font: N finding(s). ...` after
+# its findings. Only these are dropped before the findings are read; any other `ui font:` line is output the gate did
+# not parse (#41945 review, F2: `ui font: could not read ...` with exit 0 was dropped and read as a clean run).
+UI_FONT_SUMMARY = re.compile(r"ui font: (?:ok|\d+ finding\(s\)\.(?: .*)?)")
+UI_FONT_COUNT = re.compile(r"ui font: (?:(?:ok)|(?P<count>\d+) finding\(s\)\.(?: .*)?)")
+
+
+# One line of a checker's `--inputs` answer: a repository path, a file (`a/b.json`) or a folder (`a/b/`), in plain
+# path characters with no `.` or `..` part, and with a `/` or a `.` in it. A diagnostic (`could not ...: ...`, a
+# traceback, an absolute or `../` path, a bare word like `error`) is not one.
+INPUT_PATH = re.compile(r"(?=[^/]*[/.])(?!/)(?:(?!\.\.?(?:/|$))[A-Za-z0-9._@+-]+(?:/|$))+")
+
+
+def input_paths(paths: tuple[str, ...]) -> bool:
+    """Whether every one of PATHS is a repository path (INPUT_PATH), so the answer can be a list of what a checker
+    reads. Not whether each is in the head's tree: a checker may name an input the head lacks and report it missing
+    itself (check-ui-font.py: `<pin>: missing`), and a push that adds it changes that path, so it still runs."""
+    return bool(paths) and all(INPUT_PATH.fullmatch(path) for path in paths)
+
+
+def ui_font_finding(inputs: tuple[str, ...]) -> re.Pattern[str]:
+    """A check-ui-font.py finding: `<path>: <what>` or `<path>:<line>: <what>`, the path one of its INPUTS."""
+    return re.compile(r"(?:%s)[^:\s]*(?::\d+)?: \S.*" % "|".join(re.escape(i) for i in inputs))
+
+
 def ui_font_inputs(check: Path) -> tuple[str, ...] | None:
     """The files and folders CHECK (a check-ui-font.py) reads, from its own `--inputs`; None when it cannot say
     (a copy older than --inputs, or any failure), so the caller runs it."""
+    check = absolute(check)
     try:
         code, out = run(["python3", "-I", str(check), "--inputs"], check.parent, timeout=60)
     except Exception:  # any failure to ask means "unknown": the check runs
@@ -1324,86 +2177,663 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
     change what it finds, so neither pass runs. Each pass reads every webviews/src and Native/OptChat source
     (4268 files on feat-cmux-next, 2026-11-09): 9.6 s of an 18.8 s gate on a push of one Python file, plus one
     on-demand fetch (5-8 s) per source blob a blob:none clone lacks."""
-    script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts)
+    repo = absolute(repo)
+    script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-ui-font-") as tmp:
-        check = Path(tmp) / "check.py"
+        check = absolute(Path(tmp)) / "check.py"
         check.write_bytes(script)
         inputs = ui_font_inputs(check)
+        # An exit-0 answer is only the check's inputs when every line is a repository path; a diagnostic there
+        # would be the changed-path set, match no changed file, and skip the check (#41945 review, F1). Then it is
+        # not known what the check reads, and it runs.
+        if inputs is not None and not input_paths(inputs):
+            log(f"prepush-gate: {UI_FONT_SCRIPT} --inputs printed something other than repository paths "
+                f"({' | '.join(inputs)[:200]!r}); running the check")
+            inputs = None
         if inputs is not None:
             names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head)
             names = names.decode("utf-8", "surrogateescape")
             if not any(path.startswith((*inputs, UI_FONT_SCRIPT)) for path in names.split("\0") if path):
                 return []
 
-        def findings(*args: str) -> list[str]:
-            code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
-            if code == 124:
-                return [f"check-ui-font.py {' '.join(args)}: {out}"]
-            return [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
+        shape = ui_font_finding(inputs or UI_FONT_INPUTS)
 
-        head_lines = findings("--rev", head, "--base", base)
+        def findings(*args: str) -> tuple[list[str], str | None]:
+            code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], absolute(Path(tmp)), timeout=600)
+            summaries = [line.strip() for line in out.splitlines() if UI_FONT_SUMMARY.fullmatch(line.strip())]
+            lines = [line for line in out.splitlines()
+                     if line.strip() and not UI_FONT_SUMMARY.fullmatch(line.strip())]
+            count = UI_FONT_COUNT.fullmatch(summaries[-1]).group("count") if summaries else None
+            count = 0 if summaries and count is None and summaries[-1] == "ui font: ok" else (
+                parse_tool_int(count, "ui font summary count") if count is not None else None)
+            if code in (0, 1) and (len(summaries) != 1 or count is None or (code == 0 and count != 0)
+                                   or (code == 1 and count == 0)):
+                reason = f"summary disagrees with exit {code}: {summaries[-1] if summaries else 'missing'}"
+                return lines, reason
+            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1 that
+            # prints no finding (only its `ui font:` summary), and output that is not its findings (#41888 review).
+            # Its INPUTS guard stop is not a finding either; it refuses on its own below.
+            reason = no_verdict(code, out, (0, 1))
+            if reason is None and not any(UI_FONT_GUARD in line for line in lines):
+                reason = unread_findings(code, lines, shape)
+            return lines, reason
+
+        head_lines, head_stopped = findings("--rev", head, "--base", base)
         # A guard stop (a read outside the check's INPUTS) prints the same line on both passes, so the diff below
         # would hide it and pass a push the check never judged (review of #39838): it refuses on its own.
         stopped = [line for line in head_lines if UI_FONT_GUARD in line]
         if stopped:
             return stopped
-        base_lines = set(findings("--rev", base))
-        return [line for line in head_lines if line not in base_lines]
+        # A crash or a timeout is the same class: both passes can print it alike, so it refuses on its own too.
+        base_lines, base_stopped = findings("--rev", base)
+        if head_stopped:
+            return [NoVerdict(f"{UI_FONT_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the push "
+                              f"is refused: {' '.join(head_lines[-2:])[:300]}", outside_cause(head_stopped, base_stopped))]
+        # A base pass with no verdict never subtracts: every head finding counts.
+        return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
 
-def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
-    """Each Cargo workspace whose Cargo.lock no longer matches its manifests at head, when the push changes a
-    Cargo.toml or Cargo.lock in it.
+def _journey_jobs(text: str) -> str:
+    """The `jobs:` section of a journey workflow as GitHub runs it, for comparing feat-cmux-next's copy with main's:
+    comment lines and blank lines dropped, and an `environment:` block with `deployment: false` read as main's string
+    form (main's actionlint knows only `environment: NAME`; cmux#43866). `runs-on:` lines are dropped too: main's guards
+    pin a job holding production secrets to a literal label (tests/test_ci_runner_set.py PINNED), while
+    feat-cmux-next's runs it from the runner pool, so the runner is each branch's own."""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.rstrip() == "jobs:"), None)
+    if start is None:
+        return ""
+    kept = [line.rstrip() for line in lines[start:]
+            if line.strip() and not line.lstrip().startswith(("#", "runs-on:"))]
+    out: list[str] = []
+    i = 0
+    while i < len(kept):
+        block = MAIN_TWIN_ENV_BLOCK.match("\n".join(kept[i:i + 3]))
+        if block:
+            out.append(f"{block.group(1)}environment: {block.group(2)}")
+            i += 3
+            continue
+        out.append(kept[i])
+        i += 1
+    return "\n".join(out)
+
+
+def _twin_shape(text: str) -> tuple[str, tuple[str, ...]]:
+    """What a schedule runs from a workflow file: its jobs as _journey_jobs reads them, and its crons."""
+    crons = tuple(sorted(m.group(1).strip() for m in MAIN_TWIN_CRON.finditer(text))) if MAIN_TWIN_SCHEDULE.search(
+        text) else ()
+    return _journey_jobs(text), crons
+
+
+def _twin_identity(text: str) -> tuple[frozenset[str], frozenset[str]]:
+    """A workflow's job ids and trigger names. Two copies of one path that differ here are two workflows, not one
+    that drifted: main's nightly.yml is classic's build (18 jobs) and feat-cmux-next's is NEXT's (52), so a change to
+    one has no counterpart in the other to open as a twin."""
+    def section(key: str) -> tuple[str, str]:
+        found = re.search(rf"^['\"]?{key}['\"]?:[ \t]*(.*)$", text, re.MULTILINE)
+        if not found:
+            return "", ""
+        rest = text[found.end():]
+        end = re.search(r"^\S", rest, re.MULTILINE)
+        return found.group(1).split("#")[0].strip(), rest[:end.start() if end else len(rest)]
+
+    inline, body = section("on")
+    triggers = re.findall(r"[a-z_]+", inline) if inline else re.findall(r"^  ([a-z_]+):", body, re.MULTILINE)
+    _, jobs = section("jobs")
+    return frozenset(re.findall(r"^  ([A-Za-z0-9_-]+):", jobs, re.MULTILINE)), frozenset(triggers)
+
+
+def _cut_from_main(repo: Path, head: str, main_ref: str) -> bool:
+    """True when HEAD is a branch off main, by git objects alone: feat-cmux-next has the CmuxNext app entry and HEAD
+    does not, or the commit where HEAD left main is not on feat-cmux-next (main_based's test, without a head tree)."""
+    feat = DEFAULT_BASE_REFS[0]
+
+    def ok(*args: str) -> bool:
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True).returncode == 0
+
+    if not ok("rev-parse", "--verify", "--quiet", feat):
+        return False
+    if ok("cat-file", "-e", f"{feat}:{APP_ENTRY}") and not ok("cat-file", "-e", f"{head}:{APP_ENTRY}"):
+        return True
+    fork = git(repo, "merge-base", head, main_ref, check=False).decode().strip()
+    return bool(fork) and subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", fork, feat],
+                                         capture_output=True).returncode == 1
+
+
+def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_REF) -> list[str]:
+    """What head adds to MAIN_TWIN_CHECK: a scheduled workflow that main lacks, or whose jobs or crons main's lacks.
+
+    A schedule registers from main, so main's definition is what runs; only scripts come from feat-cmux-next.
+    cmux#43781 changed feat-cmux-next's copy of the production journey (--preclaim-login) and production never ran it
+    until cmux#43866 brought main's copy along; thirteen scheduled files never fired at all (boneheaded-designs
+    section 10). For each workflow the push changes that has a `schedule:` (here or on main; MAIN_TWIN_FILE always):
+    a file main has no copy of is refused unless NO_MAIN_TWIN lists it; a file whose jobs or crons differ from main's
+    is refused, unless the push left them as base had them (a warning: the drift is base's) or a pushed commit that changes the file names the main
+    twin PR in a `Main-Twin:` trailer. A file whose main copy was already another workflow before the push (other
+    job ids or triggers, _twin_identity) is held by its crons only, like a main dispatcher: no twin of a job change
+    can exist there. A scheduled file main lacks that base already had with the same crons is base's drift too: a
+    warning on a hook run (HOOK_RUN; any other run refuses it, as before). A push when main cannot be read passes (local only: not a CI gate)."""
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
+                            check=False).decode(errors="replace").split()
+             if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
+    if not names:
+        return []
+    main_readable = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", main_ref],
+                                   capture_output=True).returncode == 0
+    if not main_readable:
+        return []
+    if _cut_from_main(repo, head, main_ref):
+        # The main twin PR itself (cmux#48672's scheduled shim, 2026-11-21): the file this push adds or changes is
+        # main's copy, the one that fires, so it names no twin.
+        return []
+
+    def read(rev: str, name: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{name}"], capture_output=True)
+        return done.stdout.decode(errors="replace") if done.returncode == 0 else None
+
+    problems = []
+    for name in names:
+        ours, before, main = read(head, name), read(base, name), read(main_ref, name)
+        if ours is None:
+            continue  # deleted here: nothing of this branch's is left to fire
+        scheduled = bool(MAIN_TWIN_SCHEDULE.search(ours) or (main and MAIN_TWIN_SCHEDULE.search(main)))
+        if name != MAIN_TWIN_FILE and not scheduled:
+            continue
+        messages = git(repo, "log", "--format=%B%x1e", f"{base}..{head}", "--", name,
+                       check=False).decode(errors="replace")
+        if MAIN_TWIN_TRAILER.search(messages):
+            continue
+        if main is None:
+            if name == MAIN_TWIN_FILE or Path(name).name in NO_MAIN_TWIN or not MAIN_TWIN_SCHEDULE.search(ours):
+                continue
+            if (HOOK_RUN and before is not None and MAIN_TWIN_SCHEDULE.search(before)
+                    and _twin_shape(before)[1] == _twin_shape(ours)[1]):
+                # Base already had this schedule and main no copy: the drift is not the push's (it leaves the crons
+                # as base had them), so it warns, never refuses (Leo 2026-11-22: refuse only the pusher's own diff).
+                log(f"prepush-gate: WARNING: {name}: has a schedule, but {main_ref} has no copy of it, so the schedule "
+                    f"never fires. This was so before this push, which does not change its crons, so the push goes "
+                    f"through. {MAIN_TWIN_HINT}")
+                continue
+            problems.append(f"{name}: has a schedule, but {main_ref} has no copy of it, so the schedule never fires. "
+                            f"Add the same file to main, or drop the schedule, or list it in NO_MAIN_TWIN with why. "
+                            f"{MAIN_TWIN_HINT}")
+            continue
+        shape = _twin_shape(ours)
+        other = before is not None and _twin_identity(before) != _twin_identity(main)
+        if other or re.search(rf"gh workflow run {re.escape(Path(name).name)}\b[^\n]*--ref feat-cmux-next", main):
+            # main's copy is a dispatcher (cmux-next-ios-kit.yml's shape): its cron starts this file on
+            # feat-cmux-next, so this copy's jobs are what run; only the crons must agree. The same when main's copy
+            # is another workflow (other): no twin of a job change can exist in it, but a cron edit still never fires.
+            crons = shape[1]
+            if not crons or crons == _twin_shape(main)[1] or (before is not None and crons == _twin_shape(before)[1]):
+                continue
+            problems.append(f"{name}: its crons {list(crons)} differ from {main_ref}'s "
+                            f"{'copy (another workflow under this path)' if other else 'dispatcher'} "
+                            f"{list(_twin_shape(main)[1])}, which is what fires. {MAIN_TWIN_HINT}")
+            continue
+        if shape == _twin_shape(main):
+            continue
+        if before is not None and shape == _twin_shape(before):
+            # The jobs and crons differ from main's as they did before the push: base's drift, not the push's.
+            log(f"prepush-gate: WARNING: {name}: its jobs or crons differ from {main_ref}'s, as they did before this "
+                f"push (which leaves them as they were), so the push goes through. {MAIN_TWIN_HINT}")
+            continue
+        problems.append(f"{name}: its jobs or crons now differ from {main_ref}'s, and the schedule runs main's copy, so "
+                        f"this change never runs on its schedule. {MAIN_TWIN_HINT}")
+    return problems
+
+
+# A job with no timeout-minutes runs for GitHub's 6 h default when it hangs; a job-level always() with no !cancelled()
+# still queues on a cancelled run and holds its group on a label with no free runner (boneheaded-designs section 11).
+# Local only, like the twin check (the 2026-10-23 no-new-CI rule, since lifted); tests/test_ci_workflow_job_bounds.py is the
+# manual check.
+JOB_BOUNDS_CHECK = "Workflow jobs are bounded (a timeout-minutes; no always() on a cancelled run)"
+JOB_BOUNDS_ALLOW = ".github/workflow-job-bounds.json"
+
+
+def job_bounds_drift(repo: Path, base: str, head: str) -> list[str]:
+    """What head adds to JOB_BOUNDS_CHECK: a job in a changed workflow that has no timeout-minutes, or a job-level
+    always() with no !cancelled() that .github/workflow-job-bounds.json (at head) does not list. A finding base already
+    had is not the push's. The reader is the trusted hook copy beside this gate (install-git-hooks.sh), else
+    scripts/ci's; a push passes when neither is there."""
+    here = Path(__file__).resolve()
+    module_path = next((p for p in (here.with_name("workflow_job_bounds.py"),
+                                    here.parent.parent / "ci" / "workflow_job_bounds.py") if p.is_file()), None)
+    if module_path is None:
+        return []
+    spec = importlib.util.spec_from_file_location("cmux_workflow_job_bounds", module_path)
+    bounds = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bounds)
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
+                            check=False).decode(errors="replace").split()
+             if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
+    if not names:
+        return []
+
+    def read(rev: str, name: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{name}"], capture_output=True)
+        return done.stdout.decode(errors="replace") if done.returncode == 0 else None
+
+    try:
+        allow = json.loads(read(head, JOB_BOUNDS_ALLOW) or "{}").get("always_on_cancel") or {}
+    except ValueError:
+        allow = {}
+    problems = []
+    for name in names:
+        ours = read(head, name)
+        if ours is None:
+            continue
+        short = Path(name).name
+        missing, unguarded = bounds.text_bounds(short, ours)
+        before = read(base, name)
+        old_missing, old_unguarded = bounds.text_bounds(short, before) if before is not None else ([], {})
+        for where in missing:
+            if where not in old_missing:
+                problems.append(f"{where}: no timeout-minutes; size it to the job's p99 plus headroom")
+        for where, cond in unguarded.items():
+            if where not in old_unguarded and where not in allow:
+                problems.append(f"{where}: if: {cond} still queues on a cancelled run; use !cancelled(), or list it in "
+                                f"{JOB_BOUNDS_ALLOW} with why it must run on a cancel")
+    return problems
+
+
+# A local reusable call whose callee (any of its jobs, even one its `if` skips) asks for a scope the calling job does
+# not grant fails the caller at startup: no job runs. 2026-11-25: #55503 gave base-coalesce's coalesce job actions:
+# read, and every feat-cmux-next run of cmux-next.yml and cmux-tui-artifacts.yml ended startup_failure. The detector
+# (scripts/ci/check_reusable_workflow_permissions.py) ran only in ci.yml's guard group, which a feat-cmux-next pull
+# request without full-ci never starts. Local only, like the job-bounds check; git objects only, about a second, only when a workflow changes.
+REUSABLE_PERMS_CHECK = "Reusable-workflow calls stay within the caller's permissions (else startup_failure)"
+
+
+def reusable_perms_drift(repo: Path, base: str, head: str) -> list[str]:
+    """What head adds to REUSABLE_PERMS_CHECK: a local `uses: ./.github/workflows/...` call that GitHub would reject at
+    startup, when base..head changes a workflow file. A failure base already had is not the push's. The reader is the
+    trusted hook copy beside this gate (install-git-hooks.sh), else scripts/ci's; a push passes when neither is there."""
+    here = Path(__file__).resolve()
+    module_path = next((p for p in (here.with_name("check_reusable_workflow_permissions.py"),
+                                    here.parent.parent / "ci" / "check_reusable_workflow_permissions.py")
+                        if p.is_file()), None)
+    if module_path is None:
+        return []
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_DIR,
+                            check=False).decode(errors="replace").split()
+             if n.endswith((".yml", ".yaml")) and "/" not in n[len(MAIN_TWIN_DIR):]]
+    if not names:
+        return []
+    spec = importlib.util.spec_from_file_location("cmux_reusable_workflow_permissions", module_path)
+    perms = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = perms  # its @dataclass reads its own module from sys.modules
+    spec.loader.exec_module(perms)
+
+    def failures(rev: str) -> list[str] | None:
+        with tempfile.TemporaryDirectory(prefix="cmux-reusable-perms-") as tmp:
+            # One archive of the directory (about 0.1 s), not a `git show` per file (about 1.5 s for ~100 workflows).
+            archive = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev, MAIN_TWIN_DIR],
+                                     capture_output=True)
+            if archive.returncode != 0:
+                return None
+            with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+                tar.extractall(tmp, filter="data")
+            workflows = Path(tmp) / MAIN_TWIN_DIR
+            try:
+                return perms.check_workflows_dir(workflows, "write")[1]
+            except Exception:  # a workflow its YAML-subset reader cannot parse: the workflow parse check names it
+                return None
+
+    ours = failures(head)
+    if not ours:
+        return []
+    theirs = set(failures(base) or [])
+    return [f for f in ours if f not in theirs]
+
+
+def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """What head adds to the port-drift ratchet (PORT_DRIFT_CHECK) over base: an exported cmux-tui C function with
+    no Swift caller that the baseline does not list, or a baseline line whose function gained a caller.
+
+    It runs only when base..head changes a header, the baseline, the checker, or a Swift line under Packages that
+    names an exported-looking function (cmux_*, acpmux_*): a caller is gained or lost only on such a line, so a
+    Swift change that names none cannot move the verdict, and most pushes skip both passes (each reads every
+    Packages Swift file at its commit, about 3 s). The head pass runs first; the base pass only when it found
+    something, and subtracts what the base already had.
+
+    A push that only moves the app's FFI pin (app-ffi-pin.json) is not judged, though a re-pin can turn an export
+    the old pin lacked into drift: that export was step A's, its caller is step B's, and the re-pin (the bot's, or
+    one by hand) cannot add it. The full check names it from the re-pin on. A push that moves the pin and also
+    changes one of the paths above is judged as any other."""
+    script = check_script(repo, head, PORT_DRIFT_SCRIPT, trusted_scripts)
+    if script is None:
+        return []  # a commit older than this check
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode(
+        "utf-8", "surrogateescape").split("\0") if n]
+    if not any(PORT_DRIFT_HEADER.match(n) or n in (PORT_DRIFT_SCRIPT, SCRIPTS + "/ffi-caller-baseline.txt")
+               for n in names):
+        swift = [n for n in names if n.startswith("Packages/") and n.endswith(".swift")]
+        if not swift:
+            return []
+        diff = git(repo, "diff", "--no-renames", "--no-ext-diff", "-U0", base, head, "--", *swift,
+                   check=False).decode("utf-8", "replace")
+        # A comment opened or closed on a changed line can hide or reveal an unchanged caller below it.
+        if not any(PORT_DRIFT_NAME.search(line) or "/*" in line or "*/" in line for line in diff.splitlines()
+                   if line[:1] in "+-" and not line.startswith(("+++", "---"))):
+            return []
+    with tempfile.TemporaryDirectory(prefix="cmux-port-drift-") as tmp:
+        check = Path(tmp) / "check.py"
+        check.write_bytes(script)
+
+        def findings(rev: str) -> tuple[list[str], str | None]:
+            code, out = run(["python3", "-I", str(check), "--repo", str(repo), "--rev", rev], Path(tmp), timeout=300)
+            lines = [line for line in out.splitlines() if line.startswith("ffi-caller-ratchet: ")
+                     and not line.startswith("ffi-caller-ratchet: ok:")]
+            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1
+            # that prints no finding.
+            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
+                                                            else None)
+
+        head_lines, head_stopped = findings(head)
+        if head_stopped:
+            return [NoVerdict(f"{PORT_DRIFT_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the "
+                              f"push is refused: {out_tail(head_lines)}",
+                              outside_cause(head_stopped, findings(base)[1]))]
+        if not head_lines:
+            return []
+        base_lines, base_stopped = findings(base)
+        fresh = [line for line in head_lines if base_stopped or line not in set(base_lines)]
+        # Drift already on the integration branch is not the push's: a branch that merged it in would otherwise be
+        # refused for a finding it cannot fix (the baseline never takes a line back), e.g. two PRs that each passed,
+        # one dropping a baseline entry and one removing that function's last caller. That is a base red for its
+        # owner, not a refusal of every later push.
+        tip = rev_or_none(repo, PORT_DRIFT_TIP)
+        if fresh and tip and tip not in (base, head):
+            tip_lines, tip_stopped = findings(tip)
+            if not tip_stopped:
+                fresh = [line for line in fresh if line not in set(tip_lines)]
+        return fresh
+
+
+def rev_or_none(repo: Path, ref: str) -> str | None:
+    result = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
+                            capture_output=True, text=True)
+    return result.stdout.strip() or None
+
+
+def out_tail(lines: list[str]) -> str:
+    return " ".join(lines[-2:])[:300]
+
+
+def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """Every tracked Cargo.lock that no longer matches its workspace's manifests at head, when the push changes any
+    Cargo.toml or Cargo.lock anywhere in the repository (scripts/cmux-next/cargo-locks.py check).
 
     2026-11-02: #31462 moved fs4 between two crates' Cargo.toml and put it under the wrong crate in Cargo.lock.
     Every --locked cargo step on feat-cmux-next then stopped ("cannot update the lock file"), the NEXT nightly
-    included, until #31717. It reads the pushing checkout itself (no tree is exported), so it runs only when
-    head is the checked-out HEAD and the workspace's Cargo files have no uncommitted edits; it refuses only on
-    cargo's own lock error and lets the push through on any other (no cargo, an uncached index, a timeout).
+    included, until #31717. 2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml and cmux-tui/Cargo.lock only, and
+    the cmux-app-ffi and cmux-layout-reducer-ffi workspaces (their own locks, cmux-tui's crates by path) went stale;
+    this check then read only the lock of the workspace a changed file sat in, so it passed. Now any Cargo change
+    checks every lock: a manifest reaches other workspaces through path dependencies. It reads the pushing
+    checkout itself (no tree is exported), so it runs only when head is the checked-out HEAD and no Cargo file has
+    uncommitted edits; it refuses only on cargo's own lock error and lets the push through on any other (no cargo,
+    an uncached index, a timeout).
     """
-    changed = [p for p in changed_files(repo, base, head) if CARGO_FILE.search(p)]
-    if not changed or shutil.which("cargo") is None:
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(CARGO_FILE.search(p) for p in names.split("\0") if p) or shutil.which("cargo") is None:
+        return []
+    if not has_work_tree(repo):
+        # cargo resolves the checkout itself; a clone with no work tree (a bare mirror) has none to resolve.
+        log("prepush-gate: Cargo.lock check skipped: this clone has no work tree (CI's --locked cargo steps check it)")
         return []
     try:
         checked_out = git(repo, "rev-parse", "HEAD").decode().strip() == git(repo, "rev-parse", head).decode().strip()
     except subprocess.CalledProcessError:
         return []
     # Pathspecs here use git's default matching, where `*` also matches `/`.
-    locks = [p for p in git(repo, "ls-files", "-z", "--", "*Cargo.lock").decode().split("\0")
-             if p.rpartition("/")[2] == "Cargo.lock"]
-    roots = sorted({lock.rpartition("/")[0] for lock in locks
-                    if any(p.startswith(lock.rpartition("/")[0] + "/") or "/" not in lock for p in changed)})
-    if not roots:
-        return []
-    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--",
-                            *(f"{root}/*Cargo.toml" if root else "*Cargo.toml" for root in roots),
-                            *(f"{root}/Cargo.lock" if root else "Cargo.lock" for root in roots)],
+    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--", "*Cargo.toml", "*Cargo.lock"],
                            capture_output=True).returncode != 0
     if not checked_out or dirty:
         log("prepush-gate: Cargo.lock check skipped: the pushed head is not this checkout's clean HEAD")
         return []
-    # A toolchain the workspace pins but this host lacks is never installed for a lock check.
-    env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0", "CARGO_TERM_COLOR": "never"}
-    found = []
-    for root in roots:
-        manifest = repo.resolve() / root / "Cargo.toml"
-        if not manifest.is_file():
+    script = check_script(repo, head, CARGO_LOCKS_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than the shared check
+    with tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-") as tmp:
+        check = absolute(Path(tmp)) / "cargo-locks.py"
+        check.write_bytes(script)
+        # 30 workspaces resolve offline in parallel (about 4 s on a warm index); any the cached index cannot answer
+        # then resolve with the network one at a time, each with its own 120 s limit, all inside --deadline.
+        command = ["python3", "-I", str(check), "check", "--repo", str(repo.resolve())]
+        if b"--deadline" in script:  # an older head's copy has no --deadline (and its own default budget)
+            command += ["--deadline", str(CARGO_LOCKS_DEADLINE)]
+        code, out = run(command, absolute(Path(tmp)), timeout=CARGO_LOCKS_TIMEOUT)
+    if code == 124:
+        log(f"prepush-gate: Cargo.lock check skipped: {out}")
+        return []
+    # A traceback is the checker crashing, not cargo answering: no verdict on any lock, so it refuses (its own
+    # handled failures, no cargo or an uncached index, print no traceback and still let the push through).
+    if NO_VERDICT.search(out) and code != 0:
+        return [NoVerdict(f"{CARGO_LOCKS_SCRIPT} crashed instead of judging the locks, so the push is refused: "
+                          f"{' '.join(out.strip().splitlines()[-2:])[:300]}")]
+    stale = [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
+    # Its exit 1 means "a lock is stale" and comes with the `stale:` lines; an exit 1 the gate cannot read one from is
+    # no verdict, never a pass (#41827 review: unrecognized checker output).
+    if code == 1 and not stale:
+        return [NoVerdict(f"{CARGO_LOCKS_SCRIPT} exited 1 but named no stale lock, so the push is refused: "
+                          f"{' '.join(out.strip().splitlines()[-2:])[:300] or 'no output'}")]
+    return stale
+
+
+def new_crate_versions(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<lock>: <crate> <version>` of each downloaded crate version a Cargo.lock changed in base..head has and no
+    Cargo.lock at base has (NEW_VERSIONS_CHECK), unless a commit in base..head has a `Cargo-Lock-New-Versions: <why>`
+    line. It reads git objects only (no cargo, no network), and runs only when the range changes a Cargo.lock."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(p == "Cargo.lock" or p.endswith("/Cargo.lock") for p in names.split("\0") if p):
+        return []
+    script = check_script(repo, head, NEW_VERSIONS_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-new-versions-") as tmp:
+        check = absolute(Path(tmp)) / "cargo-lock-new-versions.py"
+        check.write_bytes(script)
+        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", base, "--head", head],
+                        absolute(Path(tmp)), timeout=120)
+    found = [line.removeprefix("new: ") for line in out.splitlines() if line.startswith("new: ")]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no crate version" if code == 1 and not found
+                                                else None)
+    if stopped:
+        return [NoVerdict(f"{NEW_VERSIONS_SCRIPT} {stopped} instead of judging the locks, so the push is refused: "
+                          f"{out_tail(out.splitlines())}", outside_cause(stopped))]
+    return found
+
+
+def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<export>: ...` per settings export the range leaves without a key the base's export had and the head's sources
+    declare, or with a key no head source declares (SETTINGS_KEYS_CHECK). Git objects only, and only when the range
+    changes a settings source or export. Compared with HEAD's merge base with feat-cmux-next, like xcstrings_rewrites:
+    a base merge that takes the base's export (CI's generated-drift check demands that copy) brings back keys the
+    branch's previous push removed, and those are the base's, not this push's (cmux#55721)."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(p.startswith(SETTINGS_KEYS_PATHS) for p in names.split("\0") if p):
+        return []
+    # When BASE already descends from the merge base (no base merge in the range), BASE is closer.
+    fork = git(repo, "merge-base", head, DEFAULT_BASE_REFS[0], check=False).decode().strip()
+    if not fork or subprocess.run(["git", "-C", str(absolute(repo)), "merge-base", "--is-ancestor", fork, base],
+                                  capture_output=True).returncode == 0:
+        fork = base
+    script = check_script(repo, head, SETTINGS_KEYS_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-settings-keys-") as tmp:
+        check = absolute(Path(tmp)) / "settings-export-key-drift.py"
+        check.write_bytes(script)
+        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", fork, "--head", head],
+                        absolute(Path(tmp)), timeout=120)
+    found = [line.removeprefix("drift: ") for line in out.splitlines() if line.startswith("drift: ")]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no export" if code == 1 and not found else None)
+    if stopped:
+        return [NoVerdict(f"{SETTINGS_KEYS_SCRIPT} {stopped} instead of judging the exports, so the push is refused: "
+                          f"{out_tail(out.splitlines())}", outside_cause(stopped))]
+    return found
+
+
+def xcstrings_rewrites(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<catalog>: ...` per string catalog the push re-serializes (moved keys, entries rewritten with no value change,
+    changed separators) instead of adding, removing or editing entries (XCSTRINGS_CHECK). Compared with HEAD's merge base
+    with feat-cmux-next, the diff a pull request shows. Git objects only, and only when the push changes a catalog."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", "*.xcstrings").decode(
+        "utf-8", "surrogateescape")
+    if not any(names.split("\0")):
+        return []
+    # The push's merge base with feat-cmux-next, so a base merge's own changes never count. When BASE already
+    # descends from it (no base merge in the range; CI's BASE..MERGE with a stale or missing ref), BASE is closer.
+    fork = git(repo, "merge-base", head, DEFAULT_BASE_REFS[0], check=False).decode().strip()
+    if not fork or subprocess.run(["git", "-C", str(absolute(repo)), "merge-base", "--is-ancestor", fork, base],
+                                  capture_output=True).returncode == 0:
+        fork = base
+    script = check_script(repo, head, XCSTRINGS_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-xcstrings-") as tmp:
+        check = absolute(Path(tmp)) / "check-xcstrings-diff.py"
+        check.write_bytes(script)
+        code, out = run(["python3", "-I", str(check), "range", fork, head], repo, timeout=120)
+    lines = out.splitlines()
+    found = [line.strip() for line in lines if line.startswith("  ") and ".xcstrings: " in line]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no catalog" if code == 1 and not found else None)
+    if stopped:
+        return [NoVerdict(f"{XCSTRINGS_SCRIPT} {stopped} instead of judging the catalogs, so the push is refused: "
+                          f"{out_tail(lines)}", outside_cause(stopped))]
+    return found if code == 1 else []
+
+
+def new_generated_files(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<file>: a new committed generated file (...)` per file the range adds that a generator writes, or that is
+    named or headed as generated, and that no "committed" generator covers (GENERATED_CHECK). Git objects only, and
+    only when the range adds a file; the rules are the base's.
+
+    2026-11-22: #49757 committed SettingsSchema+Appearance5.generated.swift after #50929 moved the settings sources
+    into a SwiftPM build plugin (settings-sources, status "build"), and the package stopped compiling. CI's full
+    guard (cmux-next-guards.yml) judges a feat-cmux-next pull request only with full-ci and a push once per
+    30-minute window, so the merge landed unjudged."""
+    added = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", base, head)
+    if not added.strip(b"\0"):
+        return []
+    script = check_script(repo, head, GENERATED_SCRIPT, trusted_scripts, base)
+    helper = check_script(repo, head, GENERATED_HELPER, trusted_scripts, base)
+    if script is None or helper is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-generated-") as tmp:
+        work = absolute(Path(tmp))
+        check = work / "generated_files_guard.py"
+        check.write_bytes(script)
+        (work / "ci_process_tree.py").write_bytes(helper)
+        code, out = run(["python3", "-I", str(check), "added", "--repo", str(repo.resolve()), "--base", base,
+                         "--head", head], work, timeout=120)
+    found = [line.removeprefix("error: ") for line in out.splitlines() if line.startswith("error: ")]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no file" if code == 1 and not found else None)
+    if stopped:
+        return [NoVerdict(f"{GENERATED_SCRIPT} {stopped} instead of judging the added files, so the push is refused: "
+                          f"{out_tail(out.splitlines())}", outside_cause(stopped))]
+    return found
+
+
+GENERATED_FRESH_CHECK = "Committed generated files match their generators (gen-*.py --check, regenerated here)"
+GENERATED_CONFIG = "scripts/ci/generated-files.json"
+
+
+def generated_glob(pattern: str) -> re.Pattern[str]:
+    """generated_files_guard.py's glob: `**/` spans any directories (or none), `**` anything, `*` and `?` one level."""
+    out, i = [], 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out.append(r"(?:.*/)?")
+            i += 3
+        elif pattern.startswith("**", i):
+            out.append(r".*")
+            i += 2
+        elif pattern[i] in "*?":
+            out.append(r"[^/]*" if pattern[i] == "*" else r"[^/]")
+            i += 1
+        else:
+            out.append(re.escape(pattern[i]))
+            i += 1
+    return re.compile("".join(out) + r"\Z")
+
+
+def fresh_generators(repo: Path, base: str, head: str, changed: list[str]) -> list[dict]:
+    """The base's "committed" generators with a Python `--check` whose generator, inputs or outputs the push changes.
+    The rules are the base's (a push cannot widen what is judged), read from git objects."""
+    raw = blob_at(repo, base, GENERATED_CONFIG)
+    if raw is None:
+        return []
+    try:
+        generators = json.loads(raw).get("generators", [])
+    except (ValueError, AttributeError):
+        return []
+    picked = []
+    for entry in generators:
+        if not isinstance(entry, dict) or entry.get("status") != "committed" or entry.get("check") != ["--check"]:
             continue
-        for network in ("--offline", None):
-            args = ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(manifest)]
-            try:
-                run = subprocess.run(args + ([network] if network else []), cwd=manifest.parent, env=env,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60)
-            except (OSError, subprocess.TimeoutExpired):
-                break
-            if run.returncode == 0:
-                break
-            if CARGO_DRIFT in run.stderr:
-                found.append(f"{root + '/' if root else ''}Cargo.lock: does not match its manifests "
-                             f"(cargo metadata --locked: {CARGO_DRIFT})")
-                break
+        script = entry.get("generator", "")
+        if not (script.startswith(SCRIPTS + "/") and script.endswith(".py")):
+            continue  # a .py beside the checks only: the installed copy has it, and it needs no build or tool
+        patterns = [generated_glob(g) for g in [script, *entry.get("inputs", []), *entry.get("outputs", [])]]
+        if any(pattern.match(path) for path in changed for pattern in patterns):
+            picked.append(entry)
+    return picked
+
+
+def generated_freshness(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<output>: stale ...` per committed generated file the pushed head does not match its generator on, for each
+    "committed" generator (generated-files.json) with a `--check` whose generator, inputs or outputs the push
+    changes. These generators read and write far more than the json lists (motion-scale walks the webviews trees),
+    so the check runs in the checkout itself, and only when the checkout is the pushed head: HEAD is HEAD and no
+    tracked file differs from it. The script it runs is the checkout's, and on a hook run only when its bytes are the
+    installed reviewed copy's (the hook never runs code a push controls); a push that changes a generator leaves it
+    to CI's generated drift job.
+
+    Mistakes this mechanical are fixed, not only refused (Leo, 2026-11-23: "Mistakes should also be auto fixed and
+    ran properly a lot of these are pretty mechanical"): a stale generator is run for real in the checkout, and the
+    refusal names the files it rewrote, to commit and push again."""
+    changed = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode().split("\0") if n]
+    picked = fresh_generators(repo, base, head, changed)
+    if not picked:
+        return []
+    head_now = git(repo, "rev-parse", "--verify", "--quiet", "HEAD", check=False).decode().strip()
+    dirty = git(repo, "status", "--porcelain", "-z", "--untracked-files=no", check=False).strip(b"\0")
+    names = ", ".join(entry.get("id", "?") for entry in picked)
+    if head_now != head or dirty:
+        why = "the checkout is not at the pushed head" if head_now != head else "the checkout has uncommitted edits"
+        log(f"prepush-gate: generated freshness ({names}) not checked: {why}; CI's generated drift job judges it.")
+        return []
+    found: list[str] = []
+    for entry in picked:
+        script = entry["generator"]
+        code_bytes = check_script(repo, head, script, trusted_scripts, base)
+        if code_bytes is None or not (repo / script).is_file():
+            continue  # a commit older than this generator, or one that deletes it
+        if code_bytes != (repo / script).read_bytes():
+            log(f"prepush-gate: {entry.get('id')}: the push changes {script}, so its freshness is left to CI's "
+                "generated drift job (the hook runs only the installed copy).")
+            continue
+        code, out = run(["python3", "-I", str(repo / script), "--check"], repo, timeout=60)
+        if code == 0:
+            continue
+        stopped = no_verdict(code, out, (0, 1))
+        if stopped:
+            found.append(NoVerdict(f"{script} --check {stopped} at the pushed head: {out_tail(out.splitlines())}"))
+            continue
+        before = set(git(repo, "diff", "--name-only", "-z").decode().split("\0")) - {""}
+        fix_code, fix_out = run(["python3", "-I", str(repo / script)], repo, timeout=60)
+        rewrote = sorted(set(git(repo, "diff", "--name-only", "-z").decode().split("\0")) - {""} - before)
+        if fix_code == 0 and rewrote:
+            shown = ", ".join(rewrote[:5]) + (f" and {len(rewrote) - 5} more" if len(rewrote) > 5 else "")
+            found.append(f"{script}: its outputs were stale at the pushed head, so it ran and rewrote {len(rewrote)} "
+                         f"file(s) in your checkout ({shown}): review and commit them, then push again")
+        else:
+            found.append(f"{script} --check fails at the pushed head and running it fixed nothing (exit {fix_code}); "
+                         f"fix what it says: {out_tail((out + fix_out).splitlines())}")
     return found
 
 
@@ -1425,7 +2855,7 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             name = line[6:] if line.startswith("+++ b/") else ""
         elif line.startswith("@@"):
             match = re.search(r"\+(\d+)", line)
-            number = int(match.group(1)) if match else 0
+            number = parse_tool_int(match.group(1), "diff hunk line") if match else 0
         elif line.startswith("+") and name:
             text = line[1:]
             if CONFLICT_OPEN.match(text) or CONFLICT_CLOSE.match(text):
@@ -1436,6 +2866,105 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     return [f"{name}:{n}: {text}" for name, marks in sorted(found.items())
             if any(CONFLICT_OPEN.match(t) for _, t in marks) and any(CONFLICT_CLOSE.match(t) for _, t in marks)
             for n, text in marks]
+
+
+def redefinition_record(line: str, files: list[str]) -> tuple[str, str, bool] | None:
+    """(path, dotted name, whether it is a parse error) for one checker line about one of FILES, else None. The longest
+    file the line starts with wins, so `tests/a:1.py` is never read as `tests/a` line 1."""
+    for path in sorted(files, key=len, reverse=True):
+        if line.startswith(path + ":"):
+            rest = REDEFINITION_REST.match(line[len(path) + 1:])
+            if rest:
+                return path, rest["what"] or "", bool(rest["unparsed"])
+    return None
+
+
+def redefinition_verdict(code: int, out: str, files: list[str]) -> tuple[list[tuple[str, tuple[str, str]]], str | None]:
+    """([(finding line, (path, name))], why the run gave no verdict or None) for one checker run over FILES.
+
+    No verdict: run()'s timeout, a signal, a crash or an exit outside 0 and 1 (no_verdict); a file the checker could
+    not parse, whatever the exit; an exit 1 that names no finding or prints a line the gate cannot read; an exit 0 that
+    names a finding or prints a line the gate cannot read. Exit 1 is the checker's "findings" verdict only when its
+    output says which."""
+    found, unread, unparsed = [], [], None
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        record = redefinition_record(line, files)
+        if record is None:
+            if not REDEFINITION_SUMMARY.match(line):
+                unread.append(line)
+        elif record[2]:
+            unparsed = unparsed or line
+        else:
+            found.append((line, record[:2]))
+    if unparsed and code in (1, 2):  # its parse-error exit, or 1 from a copy older than it
+        return [], f"could not parse {unparsed}"
+    stopped = no_verdict(code, out, (0, 1))
+    if stopped:
+        return [], stopped
+    if unparsed:
+        return [], f"could not parse {unparsed}"
+    if code == 1 and (unread or not found):
+        return [], (f"exited 1 with output it cannot read: {unread[0][:200]}" if unread
+                    else "exited 1 but named no redefinition")
+    if code == 0 and found:
+        return [], "exited 0 but named a redefinition"
+    if code == 0 and unread:  # a line in no shape it reads: nothing it can trust, whatever the exit (#41888 review)
+        return [], f"exited 0 with output it cannot read: {unread[0][:200]}"
+    return found, None
+
+
+def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
+                               restrict: set[str] | None = None) -> list[str]:
+    """Each name a tests/**/*.py file the push changes defines twice in one class or module body at HEAD and not at
+    BASE (REDEFINITION_CHECK). A finding is keyed by file and dotted name, not line, so moved code is not new.
+
+    The checker is the installed reviewed copy on a hook run, HEAD's own on a plain run; a checker that gives no
+    verdict (a crash, a timeout, an exit other than 0 or 1, a file it could not parse) refuses, and its refusal is a
+    NoVerdict, so gate_own never takes it off against an upstream range that failed alike."""
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head,
+                            "--", "tests/").decode().split("\0") if n and REDEFINITION_FILE.match(n)]
+    if restrict is not None:
+        names = [n for n in names if n in restrict]
+    if not names:
+        return []
+    if trusted_scripts is None:
+        script = blob_at(repo, head, REDEFINITION_SCRIPT)
+    else:
+        installed = trusted_scripts / Path(REDEFINITION_SCRIPT).name
+        script = installed.read_bytes() if installed.is_file() else None
+    if script is None:
+        log(f"prepush-gate: WARNING: no {Path(REDEFINITION_SCRIPT).name} in the hook's checks copy yet, so the test "
+            "redefinition check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
+        return []
+    with tempfile.TemporaryDirectory(prefix="cmux-redefinitions-") as tmp:
+        work = absolute(Path(tmp))
+        (work / "check.py").write_bytes(script)
+
+        def findings(rev: str) -> tuple[list[tuple[str, tuple[str, str]]], str | None]:
+            tree = work / rev[:12]
+            files = []
+            for name in names:
+                data = blob_at(repo, rev, name)
+                if data is None:
+                    continue
+                (tree / name).parent.mkdir(parents=True, exist_ok=True)
+                (tree / name).write_bytes(data)
+                files.append(name)
+            if not files:
+                return [], None
+            code, out = run(["python3", "-I", str(work / "check.py"), "--root", str(tree), *files], tree)
+            return redefinition_verdict(code, out, files)
+
+        head_lines, stopped = findings(head)
+        base_lines, base_stopped = findings(base)
+        if stopped:
+            return [NoVerdict(f"{REDEFINITION_SCRIPT} {stopped} at the pushed head instead of judging it, so the "
+                              "push is refused", outside_cause(stopped, base_stopped))]
+
+    old = set() if base_stopped else {key for _, key in base_lines}
+    return [line for line, key in head_lines if key not in old]
 
 
 def yaml_problem(text: str) -> tuple[bool, str | None]:
@@ -1461,7 +2990,7 @@ def yaml_problem(text: str) -> tuple[bool, str | None]:
     if ruby is None:
         return False, None
     try:
-        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=30)
+        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=loaded_timeout(30))
     except (OSError, subprocess.SubprocessError):
         return False, None
     if result.returncode == 0:
@@ -1477,7 +3006,7 @@ def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
     Its external linters are off (-shellcheck= -pyflakes=): syntax is what keeps GitHub from loading a workflow."""
     try:
         result = subprocess.run([actionlint, "-no-color", "-oneline", "-shellcheck=", "-pyflakes=",
-                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=60)
+                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=loaded_timeout(60))
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode not in (0, 1):
@@ -1526,13 +3055,221 @@ def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | Non
     return found
 
 
+# scripts/ci/guards-local.sh's pin, so the hook and the local guard venv read YAML with the same PyYAML.
+PYYAML_PIN = "PyYAML==6.0.3"
+
+
+def has_pyyaml(python: str) -> bool:
+    """Whether PYTHON, run the way the hook runs every layer (`-I`: no user site), can import yaml."""
+    try:
+        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=loaded_timeout(60)).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+# Where Debian and Ubuntu's python3-yaml lands: the one place `apt-get install` can put PyYAML for an interpreter.
+APT_DIST_PACKAGES = "/usr/lib/python3/dist-packages"
+
+
+def interpreter_sys_path(python: str) -> list[str]:
+    """PYTHON's sys.path as the hook runs it (-I, so no user site and no PYTHONPATH); [] when it does not answer."""
+    try:
+        done = subprocess.run([python, "-I", "-c", "import json, sys; print(json.dumps(sys.path))"],
+                              capture_output=True, text=True, timeout=loaded_timeout(30))
+        listed = json.loads(done.stdout) if done.returncode == 0 else []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+    return [p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
+
+
+# How pip may install into an interpreter (PEP 668), as one line run with `python -I -c PEP668_ROUTE [STDLIB PURELIB]`
+# (both paths or neither: the interpreter's own). Externally managed: not a venv (sys.prefix == sys.base_prefix; a
+# venv reads its base's stdlib, so it sees the base's marker, yet pip installs into the venv: Codex on #40966) and
+# STDLIB holds EXTERNALLY-MANAGED. It prints one route:
+#   pip       not externally managed, PURELIB writable: plain pip
+#   sudo-pip  not externally managed, PURELIB not writable by this user: pip with sudo
+#   break     externally managed, PURELIB writable (Homebrew): pip --break-system-packages (Codex on leo-workspace#4198)
+#   refuse    externally managed, PURELIB not writable (a system Python under /usr): no pip; say what to do
+# leo-workspace machines/host-baseline.json's PyYAML install runs this same text, and both repos' tests pin its sha256
+# (tests/test_ci_single_host_fallbacks.py PEP668_ROUTE_SHA256), so change both sides together.
+PEP668_ROUTE = 'import os, sys, sysconfig; p = sysconfig.get_paths(); s, w = sys.argv[1:3] if len(sys.argv) == 3 else (p["stdlib"], p["purelib"]); m = sys.prefix == sys.base_prefix and os.path.exists(os.path.join(s, "EXTERNALLY-MANAGED")); print(("break" if m else "pip") if os.access(w, os.W_OK) else ("refuse" if m else "sudo-pip"))'
+PEP668_ROUTES = ("pip", "sudo-pip", "break", "refuse")
+
+
+def pep668_route(python: str, stdlib: str | None = None, purelib: str | None = None) -> str:
+    """PEP668_ROUTE's answer for PYTHON, asked of PYTHON itself with -I. STDLIB and PURELIB override the paths PYTHON
+    reports (a missing one of the two is this interpreter's). A PYTHON that does not answer is judged by this
+    interpreter, with PYTHON's paths taken as this interpreter's."""
+    paths = sysconfig.get_paths()
+    given = [] if stdlib is None and purelib is None else [
+        paths["stdlib"] if stdlib is None else stdlib, paths["purelib"] if purelib is None else purelib]
+    for asked, extra in ((python, given), (sys.executable, given or [paths["stdlib"], paths["purelib"]])):
+        try:
+            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=loaded_timeout(30))
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0 and done.stdout.strip() in PEP668_ROUTES:
+            return done.stdout.strip()
+    return "refuse"
+
+
+def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
+                           apt: bool | None = None, syspath: list[str] | None = None) -> str:
+    """The one command that makes PyYAML importable for PYTHON under `-I`, which ignores user site-packages, so
+    `pip install --user` never helps the hook. apt's python3-yaml only where it reaches PYTHON: apt-get exists and
+    PYTHON's own sys.path (SYSPATH; read from PYTHON when None) holds APT_DIST_PACKAGES (Codex on #40880: a venv or
+    a custom Python on an apt host never sees it). Otherwise pip, run as -I so a PyYAML already in the user site does
+    not satisfy it, into PYTHON's own prefix, by pep668_route(): plain, with sudo, with --break-system-packages, or
+    no pip at all and what to do instead."""
+    apt = shutil.which("apt-get") is not None if apt is None else apt
+    if apt and APT_DIST_PACKAGES in (interpreter_sys_path(python) if syspath is None else syspath):
+        return "sudo apt-get install -y python3-yaml"
+    route = pep668_route(python, stdlib, purelib)
+    if route == "refuse":
+        return (f"{python} is externally managed (PEP 668) and this user cannot write its prefix: install PyYAML "
+                "6.0.3 with its own package manager, or rerun scripts/install-git-hooks.sh with a venv's python3 "
+                "first on PATH")
+    pip = f"{shlex.quote(python)} -I -m pip install {'--break-system-packages ' if route == 'break' else ''}{PYYAML_PIN}"
+    return f"sudo {pip}" if route == "sudo-pip" else pip
+
+
+FALLBACKS_STATUSES = ("found", "incomplete")
+FALLBACKS_RESOLVER = "tests/workflow_jobs.py"  # the shared resolve step the checker reads runs-on through
+FALLBACKS_INCOMPLETE = "incomplete"
+
+
+def fallback_output_fault(listed: object) -> str | None:
+    """What is wrong with the checker's --json output LISTED, or None: it must be a list of objects, each with a string
+    key, a string message and a status of FALLBACKS_STATUSES (Codex on #40840: findings were str()-coerced, so
+    `[{"key": [], "message": {}}]` read as one equal finding on both sides and was subtracted)."""
+    if not isinstance(listed, list):
+        return f"a {type(listed).__name__}, not a list"
+    for index, item in enumerate(listed):
+        if not isinstance(item, dict):
+            return f"item {index} is a {type(item).__name__}, not an object"
+        for field in ("key", "message"):
+            if not isinstance(item.get(field), str):
+                return f"item {index}'s {field} is a {type(item.get(field)).__name__}, not a string"
+        if item.get("status") not in FALLBACKS_STATUSES:
+            return f"item {index}'s status is {item.get('status')!r}, not one of {', '.join(FALLBACKS_STATUSES)}"
+    return None
+
+
+def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """Each runs-on variable or single-host label HEAD reads with no declared fallback that BASE did not already have.
+
+    Runs only when BASE..HEAD changes .github/workflows/ or the declaration. The checker is the installed reviewed copy
+    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run (BASE's when the push deletes it). Only two cases pass
+    unchecked: a branch older than the declaration (BASE and HEAD both lack it), and a hook install older than the
+    checker (a warning). Review F1 on #40894: a HEAD without the declaration was exempt whatever BASE had, so deleting
+    it with a new `runs-on: ${{ vars.X }}` passed; a push that deletes it (deleted_inputs) now refuses. A checker that runs
+    and crashes, exits non-zero or prints no JSON list REFUSES the push (Codex on #40799: a null `variables` crashed
+    the checker and the layer passed), whatever the cause, a missing PyYAML included.
+
+    Codex on #40840. F1: a finding whose status is "incomplete" (the scan did not run: a declaration of the wrong
+    shape, a workflow that does not load) refuses at the head whether or not the base had it too; the base's copy was
+    subtracted as old debt, so a new vars.NAME passed with no scan. F2: the output must be a list of objects, each
+    with a string key, a string message and a known status; anything else (`[{"key": [], "message": {}}]`, which
+    str() made equal on both sides) is a checker failure and refuses. A base that gives no verdict, or an incomplete
+    one, subtracts nothing."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", ".github/").decode().split("\0")
+    if not any(n == FALLBACKS_DECLARATION or n.startswith(".github/workflows/") for n in names if n):
+        return []
+    malformed = non_regular_inputs(repo, head, FALLBACKS_DECLARATION)
+    if malformed:
+        return [NoVerdict(f"prepush-gate: {FALLBACKS_CHECK}: {path} must be a regular file at the pushed head, so the "
+                          "check cannot judge the declaration") for path in malformed]
+    gone = deleted_inputs(repo, base, head, FALLBACKS_DECLARATION)
+    if gone:
+        return deleted_input_refusals(FALLBACKS_CHECK, gone)
+    if blob_at(repo, head, FALLBACKS_DECLARATION) is None:
+        return []  # a branch older than the declaration: its base lacks it too
+    if trusted_scripts is None:
+        # A push that deletes the checker or its resolver still runs them (check_script): the base's copy.
+        script = check_script(repo, head, FALLBACKS_SCRIPT, None, base)
+        resolver = check_script(repo, head, FALLBACKS_RESOLVER, None, base)
+    else:
+        installed = trusted_scripts / Path(FALLBACKS_SCRIPT).name
+        script = installed.read_bytes() if installed.is_file() else None
+        beside = trusted_scripts / Path(FALLBACKS_RESOLVER).name
+        resolver = beside.read_bytes() if beside.is_file() else None
+    if script is None:
+        log(f"prepush-gate: WARNING: no {Path(FALLBACKS_SCRIPT).name} in the hook's checks copy yet, so the single-host "
+            "fallback check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
+        return []
+    # The checker reads runs-on through the shared resolver beside it. A checker that needs one the install lacks
+    # (an install from before it) refuses with the reinstall command; it never reads the pushed copy.
+    if resolver is None and b"load_workflow_jobs" in script:
+        return [NoVerdict(f"prepush-gate: {STALE_INSTALL} (it has no {Path(FALLBACKS_RESOLVER).name}, which "
+                          f"{Path(FALLBACKS_SCRIPT).name} reads runs-on through).",
+                          "this clone's installed checks copy is older than the check")]
+    # The checker runs under this interpreter: the one the hook picked (scripts/git-hooks/hook_python.sh), which
+    # imports yaml whenever any candidate on this host does. When none does, the refusal names each it tried.
+    if not has_pyyaml(sys.executable):
+        fix = pyyaml_install_command(sys.executable)
+        tried = os.environ.get("CMUX_HOOK_PYTHON_TRIED", "").strip()
+        also = f" (no Python the hook tried imports yaml: {tried})" if tried else ""
+        return [NoVerdict((f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}")
+                          + also, "no Python on this machine imports yaml, which the checker needs")]
+    with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
+        work = absolute(Path(tmp))
+        (work / "check.py").write_bytes(script)
+        if resolver is not None:
+            (work / Path(FALLBACKS_RESOLVER).name).write_bytes(resolver)
+
+        def keyed(rev: str) -> tuple[dict[str, str], list[str]] | str:
+            """(the findings at REV by key, the messages of its incomplete ones), or the reason the checker gave no
+            verdict (a crash, an exit, no JSON, output of the wrong shape)."""
+            tree = work / rev[:12]
+            tree.mkdir()
+            paths = [".github/workflows"] + ([FALLBACKS_DECLARATION] if blob_at(repo, rev, FALLBACKS_DECLARATION) else [])
+            archive = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", rev, *paths],
+                                     capture_output=True)
+            if archive.returncode != 0:
+                return f"git archive {rev[:12]} failed: {archive.stderr.decode(errors='replace').strip()[:200]}"
+            subprocess.run(["tar", "-x", "-C", str(tree)], input=archive.stdout, check=True)
+            if not (tree / FALLBACKS_DECLARATION).is_file():
+                return {}, []
+            code, out = run([sys.executable, "-I", str(work / "check.py"), "--root", str(tree), "--json"], work)
+            tail = " ".join(out.strip().splitlines()[-3:])[:300]
+            if code != 0:
+                return f"exited {code}: {tail or 'no output'}"
+            try:
+                listed = json.loads(next(line for line in out.splitlines() if line.startswith("[")))
+            except (ValueError, StopIteration) as error:
+                return f"printed no JSON list of findings ({error.__class__.__name__}): {tail or 'no output'}"
+            bad = fallback_output_fault(listed)
+            if bad:
+                return f"printed findings of the wrong shape ({bad}): {tail[:200]}"
+            return ({f["key"]: f["message"] for f in listed},
+                    [f["message"] for f in listed if f["status"] == FALLBACKS_INCOMPLETE])
+
+        now = keyed(head)
+        if isinstance(now, str):
+            then = keyed(base)
+            return [NoVerdict(f"the single-host fallback checker did not give a verdict at the pushed head, so the "
+                              f"push is refused (fix the declaration or the checker; `python3 {FALLBACKS_SCRIPT}` "
+                              f"shows it): {now}", outside_cause(now, then if isinstance(then, str) else None))]
+        found, incomplete = now
+        if incomplete:
+            return [NoVerdict(f"the single-host fallback scan did not run at the pushed head, so the push is refused "
+                              f"whatever the base had (fix the declaration or the workflow): {message}")
+                    for message in incomplete]
+        before = keyed(base)
+        # No verdict at the base, or an incomplete one: subtract nothing, every head finding is new.
+        before = before[0] if isinstance(before, tuple) and not before[1] else {}
+        return [message for key, message in sorted(found.items()) if key not in before]
+
+
 def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
                        restrict: set[str] | None = None) -> list[str]:
     """`<highlight file>: <validator problem>` for each problem of each What's New highlight BASE..HEAD adds or changes.
 
     The validator is the release-notary test's (HIGHLIGHTS_CODE): for the hook (TRUSTED_SCRIPTS) the one at this
     clone's origin/feat-cmux-next, so a pushed edit to it cannot pass its own highlight; for a plain run the head's.
-    It fails open: no validator at that ref, or one that does not run, prints a warning and refuses nothing."""
+    No validator at that ref (a clone without the base, a validator older than the rules) prints a warning and refuses
+    nothing: CI's release-notary test still judges it. A validator that ran and crashed, exited non-zero or wrote no
+    result gave no verdict on the highlight, and refuses (a NoVerdict): a highlight that crashes it passed before."""
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head, "--",
                 HIGHLIGHTS_DIR).decode()
     files = sorted(n for n in names.split("\0") if n.endswith(".md") and "/" not in n[len(HIGHLIGHTS_DIR):]
@@ -1542,12 +3279,13 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
     code_rev = next((ref for ref in DEFAULT_BASE_REFS if rev_ok(repo, ref)), None) if trusted_scripts else head
     try:
         if code_rev is None:
-            raise ValueError(f"no {' or '.join(DEFAULT_BASE_REFS)} in this clone to read the validator from")
+            raise ValueError(f"no {' or '.join(r.removeprefix('refs/remotes/') for r in DEFAULT_BASE_REFS)} in this "
+                             "clone to read the validator from")
         blobs = git_batch.cat_file(repo, [f"{code_rev}:{p}" for p in HIGHLIGHTS_CODE] + [f"{head}:{p}" for p in files])
         if any(blobs[f"{code_rev}:{p}"] is None for p in HIGHLIGHTS_CODE):
             return []  # a validator older than the highlights' rules: CI's test is older too
-        with tempfile.TemporaryDirectory(prefix="cmux-prepush-highlights-") as tmp:
-            work = Path(tmp)
+        with scratch_dir(prefix="cmux-prepush-highlights-") as tmp:
+            work = absolute(Path(tmp))
             for p in HIGHLIGHTS_CODE:
                 (work / Path(p).name).write_bytes(blobs[f"{code_rev}:{p}"])
             args = []
@@ -1557,11 +3295,21 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
             result = work / "result.json"
             code, out = run([sys.executable, "-I", "-c", HIGHLIGHTS_PROGRAM, str(work), str(result), *args], work,
                             timeout=60)
-            # The exit code and the result file are the answer; the output is only for the warning below.
-            if code != 0 or not result.is_file():
-                raise ValueError(f"exit {code}: {out.strip().splitlines()[-1] if out.strip() else 'no output'}")
-            problems = json.loads(result.read_text(encoding="utf-8"))
-    except (Exception, SystemExit) as error:  # noqa: BLE001 - fail open: CI's release-notary test still runs it
+            # The exit code and the result file are the answer; the output is only for the refusal below.
+            try:
+                problems = json.loads(result.read_text(encoding="utf-8")) if code == 0 else None
+            except (OSError, ValueError):
+                problems = None
+            # A dict of highlight name to a list of problem strings; any other shape (a value that is not a list, a
+            # problem that is not a string) raised in the loop below and crashed the gate (#41827 review).
+            if not isinstance(problems, dict) or not all(
+                    isinstance(v, list) and all(isinstance(x, str) for x in v) for v in problems.values()):
+                tail = out.strip().splitlines()[-1] if out.strip() else "no output"
+                shape = "" if problems is None else ", wrote a result of the wrong shape"
+                return [NoVerdict(f"the What's New validator gave no verdict on {', '.join(files)} (exit {code}{shape}: "
+                                  f"{tail[:300]}), so the push is refused; run python3 scripts/whats-new/test_digest.py",
+                                  outside_cause(no_verdict(code, out) or ""))]
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - no validator here: CI's release-notary test still runs it
         log(f"prepush-gate: WARNING: the What's New highlights were not validated ({type(error).__name__}: {error}); "
             "run python3 scripts/whats-new/test_digest.py before pushing a highlight.")
         return []
@@ -1678,17 +3426,22 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
     """(sha, finding) for each pushed commit that changes the sidebar's drawing code without the owner's record.
 
     A commit touching the sidebar package's code (`SIDEBAR_CODE` but `SIDEBAR_EXEMPT`) needs a `Sidebar-Look:` trailer: the user's words that asked for the
-    look (a visual change, which must also edit `SIDEBAR_NOTE` in that commit) or `no visual change` (a
+    look (a visual change, which must also add or edit an entry under `SIDEBAR_ENTRIES`, or edit `SIDEBAR_NOTE`, in
+    that commit) or `no visual change` (a
     behavior or performance change; the sidebar look contract tests hold the look). Checked per commit, so a
     later commit cannot launder an earlier one.
 
-    A commit the owner has logged passes too: its 11-character sha in `SIDEBAR_NOTE` at `ack_rev` (default
+    A commit the owner has logged passes too: its 11-character sha in `SIDEBAR_NOTE` or an entry at `ack_rev` (default
     `head`). That is how a commit that reached the branch without a trailer (an old hook, a cancelled CI
     run; dcd4316ef5c, 2026-10-23) is reviewed once instead of failing every later sweep.
     """
     found: list[tuple[str, str]] = []
     note = subprocess.run(["git", "-C", str(repo), "show", f"{ack_rev or head}:{SIDEBAR_NOTE}"], capture_output=True)
     logged = note.stdout.decode(errors="replace") if note.returncode == 0 else ""
+    # Every entry file's lines in one call (`git grep` over the tree at that revision, names left off).
+    entries = subprocess.run(["git", "-C", str(repo), "grep", "-h", "-I", "-e", "", f"{ack_rev or head}", "--",
+                              SIDEBAR_ENTRIES], capture_output=True)
+    logged += entries.stdout.decode(errors="replace") if entries.returncode == 0 else ""
     # One `git log` for the whole range (a CI sweep reads every commit since the check landed): per commit a
     # record separator, the sha, the message, then the files it changes.
     out = git(repo, "log", "--reverse", "--no-merges", "--name-only", "--format=%x1e%H%x1f%B%x1f",
@@ -1703,73 +3456,256 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
         trailer = SIDEBAR_TRAILER.search(message)
         where = f"{sha[:11]} {subject[:70]} ({views[0]}{f' and {len(views) - 1} more' if len(views) > 1 else ''})"
         if trailer is None:
-            found.append((sha, f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and edit "
-                               f"{SIDEBAR_NOTE}) or `Sidebar-Look: no visual change`."))
-        elif not SIDEBAR_NO_VISUAL.match(trailer.group(1).strip()) and SIDEBAR_NOTE not in files:
-            found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must update "
-                               f"{SIDEBAR_NOTE} in the same commit: the target look and the commit log."))
+            found.append((sha, f"{where}: no `Sidebar-Look:` trailer. Add `Sidebar-Look: <the user's words>` (and add "
+                               f"an entry file under {SIDEBAR_ENTRIES}) or `Sidebar-Look: no visual change`."))
+        elif (not SIDEBAR_NO_VISUAL.match(trailer.group(1).strip()) and SIDEBAR_NOTE not in files
+              and not any(f.startswith(SIDEBAR_ENTRIES) for f in files)):
+            found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must add its "
+                               f"entry under {SIDEBAR_ENTRIES} in the same commit: the target look and the commit log."))
     return found
+
+
+def chrome_hunks(repo: Path, sha: str, sources: list[str]) -> list[str]:
+    """The chrome-layer token sources among SOURCES whose change in SHA touches a hunk naming a chrome token
+    (`CHROME_TOKENS`, in a changed line or its three lines of context)."""
+    out = git(repo, "show", "--format=", "--no-color", "-U3", sha, "--", *sources, check=False).decode(errors="replace")
+    named: list[str] = []
+    path, hunk, changed = "", [], False
+
+    def close() -> None:
+        if changed and path and path not in named and any(CHROME_TOKENS.search(line) for line in hunk):
+            named.append(path)
+
+    for line in out.split("\n"):
+        if line.startswith("diff --git "):
+            close()
+            path, hunk, changed = line.split(" b/", 1)[-1], [], False
+        elif line.startswith("@@"):
+            close()
+            hunk, changed = [], False
+        elif line.startswith(("+++", "---")):
+            continue
+        elif line[:1] in ("+", "-", " "):
+            hunk.append(line[1:])
+            changed = changed or line[:1] != " "
+    close()
+    return named
+
+
+def chrome_look(repo: Path, base: str, head: str) -> list[str]:
+    """Each pushed commit that changes the chrome layer's recorded colours (`CHROME_VECTORS`) or a chrome token in
+    its sources (`CHROME_SOURCES`) without a `Chrome-Look-OK:` trailer quoting Leo (his name and quoted words).
+
+    Checked per commit, like the sidebar owner, so a later commit cannot launder an earlier one. Leo's ask
+    (2026-11-11, after #39984 dimmed the sidebar for a non-Leo issue): a chrome-layer token change fails unless
+    the pull request quotes him. ChromeLayerColorTests fails on any change to what those regions paint until the
+    file is rewritten, so a colour change reaches this rule through the file even from an unlisted source."""
+    found: list[str] = []
+    watched = [CHROME_VECTORS, *CHROME_SOURCES]
+    out = git(repo, "log", "--reverse", "--no-merges", "--name-only", "--format=%x1e%H%x1f%B%x1f",
+              f"{base}..{head}", "--", *watched, check=False).decode(errors="replace")
+    for record in out.split("\x1e")[1:]:
+        sha, message, names = (record.split("\x1f") + ["", ""])[:3]
+        files = [f for f in names.split("\n") if f in watched]
+        if not files:
+            continue
+        touched = ([CHROME_VECTORS] if CHROME_VECTORS in files else []) + chrome_hunks(
+            repo, sha, [f for f in files if f != CHROME_VECTORS])
+        if not touched:
+            continue
+        trailer = CHROME_TRAILER.search(message)
+        words = trailer.group(1).strip() if trailer else ""
+        if CHROME_LEO.search(words) and CHROME_QUOTE.search(words):
+            continue
+        subject = message.strip().splitlines()[0] if message.strip() else ""
+        where = f"{sha[:11]} {subject[:70]} ({touched[0]}{f' and {len(touched) - 1} more' if len(touched) > 1 else ''})"
+        why = ("no `Chrome-Look-OK:` trailer" if trailer is None else
+               f"`Chrome-Look-OK: {words[:60]}` does not quote Leo (his name and his words in quotes)")
+        found.append(f"{where}: changes the chrome layer's colour (sidebar, footer, titlebar) with {why}. The chrome "
+                     "keeps its colour unless Leo asks: add `Chrome-Look-OK: Leo <date> \"<his words>\"`, or leave "
+                     f"the chrome tokens and {CHROME_VECTORS} as they are.")
+    return found
+
+
+AST_GREP_JOB = "ast-grep (scripts/cmux-next/lint/ast-grep-rules)"
+SWIFTFORMAT_JOB = "SwiftFormat --lint"
+RUSTFMT_JOB = "rustfmt (cmux-tui)"
+SWIFTLINT_JOB = "SwiftLint (syntax rules)"
+# Every check gate() runs in its temp trees: a run whose CHECKS names none of them builds no tree.
+TREE_CHECKS = frozenset({name for name, _cmd, _prefixes in SCANNERS} | {DEPS_CHECK, AST_GREP_JOB, SWIFTFORMAT_JOB,
+                                                                        RUSTFMT_JOB, SWIFTLINT_JOB, CRASH_RATCHET_CHECK})
+# The checks the pull request's fast-gates job runs with the same refusal (cmux_next_fast_gates.py: this gate with
+# --base/--head, which runs no hook-only layer): the scanners, ast-grep and SwiftLint. A loaded host's hook leaves these
+# to that job (--defer-ci-layers, deferred_ci_layers); every other check still runs in the hook.
+CI_LAYER_CHECKS = frozenset({name for name, _cmd, _prefixes in SCANNERS} | {DEPS_CHECK, AST_GREP_JOB, SWIFTLINT_JOB})
+# The pushed refs no pull request's CI judges before they land: a push to these runs every layer, loaded or not.
+INTEGRATION_PUSH_REFS = ("refs/heads/feat-cmux-next", "refs/heads/main")
+INTEGRATION_PUSH_PREFIXES = ("refs/heads/perf/",)
+# What this run leaves to CI (main sets it from deferred_ci_layers; empty everywhere else, CI included).
+DEFERRED_CHECKS: frozenset[str] = frozenset()
+
+
+def deferred_ci_layers(pushed_lines: list[str]) -> frozenset[str]:
+    """CI_LAYER_CHECKS when every pushed ref with commits is a branch a pull request's CI judges, else nothing.
+
+    For a loaded host (the hook passes --defer-ci-layers at a load average of one runnable process per core or more).
+    2026-11-22: cosmic-gray, Leo's own Mac that also hosts agents, sat at load 163-234 on 15 cores while he typed, with
+    a gate starting every 7 s; the scanners, ast-grep and SwiftLint the hook ran there are the ones the PR's fast-gates
+    job runs again with the same refusal. A push to feat-cmux-next, main or perf/* (no PR CI before it lands), a tag,
+    or a line the gate cannot read keeps every layer."""
+    refs = []
+    for line in pushed_lines:
+        parts = line.split()
+        if len(parts) != 4:
+            if line.strip():
+                return frozenset()
+            continue
+        if set(parts[1]) == {"0"}:
+            continue  # a delete sends no commits
+        refs.append(parts[2])
+    if not refs or any(not ref.startswith("refs/heads/") or ref in INTEGRATION_PUSH_REFS
+                       or ref.startswith(INTEGRATION_PUSH_PREFIXES) for ref in refs):
+        return frozenset()
+    return CI_LAYER_CHECKS
 
 
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
          restrict: set[str] | None = None, swiftformat_layer: bool = False,
-         highlights_layer: bool = False) -> list[tuple[str, list[str]]]:
+         highlights_layer: bool = False, checks: set[str] | None = None) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base; the tree checks read only RESTRICT's files when given.
+
+    CHECKS: run only the checks of these names (gate_own's runs over the ranges a merge does not own, which only take
+    findings off the push's own run: a check that found nothing there has nothing to take off). None runs them all.
 
     SWIFTFORMAT_LAYER: run SwiftFormat (main() sets it for the local pre-push hook and a plain local run only), or
     when `--only` names swiftformat. HIGHLIGHTS_LAYER: validate the What's New highlights the push changes (set
     like SWIFTFORMAT_LAYER), or when `--only` names highlights."""
+    repo = absolute(repo)
+    trusted_scripts = absolute(trusted_scripts) if trusted_scripts is not None else None
+
+    def want(name: str) -> bool:
+        return name not in DEFERRED_CHECKS and (checks is None or name in checks)
+
     reserved: list[tuple[str, list[str]]] = []
-    if only is None or "reserved" in only:
+    if (only is None or "reserved" in only) and want(RESERVED_CHECK):
         fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
-    if only is None or "ui-font" in only:
+    if (only is None or "ui-font" in only) and want(UI_FONT_CHECK):
         fresh = ui_font(repo, base, head, trusted_scripts)
         reserved += [(UI_FONT_CHECK, fresh)] if fresh else []
-    if only is None or "conflicts" in only:
+    if (only is None or "conflicts" in only) and want(CONFLICT_CHECK):
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
-    # Local only, like the highlights (CLAUDE.md: no new CI gates): CI's "Lint every workflow" step (actionlint, on
+    # Every run, CI's too: git objects only, under a second, and only when the range adds a file.
+    if (only is None or "generated-files" in only) and want(GENERATED_CHECK):
+        generated = new_generated_files(repo, base, head, trusted_scripts)
+        if generated:
+            reserved.append((GENERATED_CHECK, generated))
+    # Local only (a hook run or a plain run): CI's generated drift job judges every pull request after the push.
+    # Cheap: only when the push changes a committed generator's generator, inputs or outputs.
+    if (highlights_layer if only is None else "generated-fresh" in only) and want(GENERATED_FRESH_CHECK):
+        stale = generated_freshness(repo, base, head, trusted_scripts)
+        if stale:
+            reserved.append((GENERATED_FRESH_CHECK, stale))
+    # Local only, like the highlights (the 2026-10-23 no-new-CI rule, since lifted): CI's "Lint every workflow" step (actionlint, on
     # every pull request and every feat-cmux-next and main push) is the backstop. Here it meets a direct commit first.
-    if highlights_layer if only is None else "workflows" in only:
+    if (highlights_layer if only is None else "workflows" in only) and want(WORKFLOW_CHECK):
         broken = workflow_problems(repo, base, head, restrict)
         if broken:
             reserved.append((WORKFLOW_CHECK, broken))
+    # Local only, like the workflow parse (the 2026-10-23 no-new-CI rule, since lifted): ci-guards.yml runs the checker --advisory.
+    if (highlights_layer if only is None else "single-host-fallbacks" in only) and restrict is None and want(FALLBACKS_CHECK):
+        undeclared = single_host_fallback_problems(repo, base, head, trusted_scripts)
+        if undeclared:
+            reserved.append((FALLBACKS_CHECK, undeclared))
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
-    if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
-        drift = cargo_lock_drift(repo, base, head)
+    if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None and want(CARGO_LOCK_CHECK):
+        drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
-    if only is None or "sidebar" in only:
+    # Local only (the 2026-10-23 no-new-CI rule, since lifted): git objects only, seconds, and only when a Cargo.lock changes.
+    if (highlights_layer if only is None else "new-crate-versions" in only) and want(NEW_VERSIONS_CHECK):
+        added = new_crate_versions(repo, base, head, trusted_scripts)
+        if added:
+            reserved.append((NEW_VERSIONS_CHECK, added))
+    # Local only (the 2026-10-23 no-new-CI rule, since lifted): git objects only, keys only, and only when a settings file changes. Not
+    # in gate_own's runs over the ranges a merge does not own (RESTRICT): this is not a debt check, so those runs have
+    # nothing to take off. A merge push's own run already compares with the merged base's exports (#43022's shape).
+    if (highlights_layer if only is None else "settings-export-keys" in only) and restrict is None and want(SETTINGS_KEYS_CHECK):
+        drift = settings_export_keys(repo, base, head, trusted_scripts)
+        if drift:
+            reserved.append((SETTINGS_KEYS_CHECK, drift))
+    # Local only, like SwiftFormat (the 2026-10-23 no-new-CI rule, since lifted).
+    if (highlights_layer if only is None else "redefinitions" in only) and want(REDEFINITION_CHECK):
+        redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
+        if redefined:
+            reserved.append((REDEFINITION_CHECK, redefined))
+    # Local only, like the workflow parse (the 2026-10-23 no-new-CI rule, since lifted): the fast gates' --advisory pass warns.
+    if (highlights_layer if only is None else "port-drift" in only) and restrict is None and want(PORT_DRIFT_CHECK):
+        drift = port_drift(repo, base, head, trusted_scripts)
+        if drift:
+            reserved.append((PORT_DRIFT_CHECK, drift))
+    # Local only, like the workflow parse (the 2026-10-23 no-new-CI rule, since lifted): hq's NOW names a standing difference.
+    if (highlights_layer if only is None else "main-twin" in only) and restrict is None and want(MAIN_TWIN_CHECK):
+        drift = main_twin_drift(repo, base, head)
+        if drift:
+            reserved.append((MAIN_TWIN_CHECK, drift))
+    # Local only, like the twin check (the 2026-10-23 no-new-CI rule, since lifted).
+    if (highlights_layer if only is None else "job-bounds" in only) and restrict is None and want(JOB_BOUNDS_CHECK):
+        unbounded = job_bounds_drift(repo, base, head)
+        if unbounded:
+            reserved.append((JOB_BOUNDS_CHECK, unbounded))
+    # Local only, like the job-bounds check.
+    if (highlights_layer if only is None else "reusable-perms" in only) and restrict is None and want(REUSABLE_PERMS_CHECK):
+        rejected = reusable_perms_drift(repo, base, head)
+        if rejected:
+            reserved.append((REUSABLE_PERMS_CHECK, rejected))
+    if (only is None or "sidebar" in only) and want(SIDEBAR_CHECK):
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
             reserved.append((SIDEBAR_CHECK, owner))
-    if only is None or "freeze" in only:
+    if (only is None or "chrome" in only) and want(CHROME_CHECK):
+        chrome = chrome_look(repo, base, head)
+        if chrome:
+            reserved.append((CHROME_CHECK, chrome))
+    if (only is None or "freeze" in only) and want(FREEZE_CHECK):
         frozen = window_freezes(repo, base, head)
         if frozen:
             reserved.append((FREEZE_CHECK, frozen))
-    if only is None or "crash-allow" in only:
+    if (only is None or "xcstrings" in only) and want(XCSTRINGS_CHECK):
+        rewritten = xcstrings_rewrites(repo, base, head, trusted_scripts)
+        if rewritten:
+            reserved.append((XCSTRINGS_CHECK, rewritten))
+    if (only is None or "crash-allow" in only) and want(CRASH_ALLOW_CHECK):
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
             reserved.append((CRASH_ALLOW_CHECK, unreviewed))
-    # Local only, like SwiftFormat (CLAUDE.md: no new CI gates): CI's release-notary test stays the backstop.
-    if highlights_layer if only is None else "highlights" in only:
+    # Local only, like SwiftFormat (the 2026-10-23 no-new-CI rule, since lifted): CI's release-notary test stays the backstop.
+    if (highlights_layer if only is None else "highlights" in only) and want(HIGHLIGHTS_CHECK):
         t0 = time.monotonic()
         bad = highlight_problems(repo, base, head, trusted_scripts, restrict)
         if timings:
             log(f"  {time.monotonic() - t0:5.2f}s  {HIGHLIGHTS_CHECK}")
         if bad:
             reserved.append((HIGHLIGHTS_CHECK, bad))
-    # Local only, like the highlights (CLAUDE.md: no new CI gates): NOW's whats_new count is the backstop.
-    if highlights_layer if only is None else "pictures" in only:
+    # Local only, like the highlights (the 2026-10-23 no-new-CI rule, since lifted): NOW's whats_new count is the backstop.
+    if (highlights_layer if only is None else "pictures" in only) and want(PICTURES_CHECK):
         missing = picture_problems(repo, base, head, restrict)
         if missing:
             reserved.append((PICTURES_CHECK, missing))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt", "crash-ratchet"}:
+        return reserved
+    # So does a run whose CHECKS name no tree check: it builds no tree (on 2026-11-21 a merge push's upstream run built
+    # its dependency and surface material trees, about 13,000 and 10,000 files a side, for checks it never read).
+    if checks is not None and not checks & TREE_CHECKS:
+        return reserved
+    # And a run whose tree layers were all left to CI (DEFERRED_CHECKS: a loaded host's hook) builds none either.
+    if (DEFERRED_CHECKS >= CI_LAYER_CHECKS and only is not None
+            and not only & {"swiftformat", "rustfmt", "crash-ratchet"}):
         return reserved
     changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
@@ -1778,38 +3714,48 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         deleted = [p for p in deleted if p in restrict]
     # The checker lies outside SCOPES: a push that only drops IMPORT_BASELINE lines still needs the dependency check.
     dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if only is None or "scanners" in only else ()
-    # The surface materials manifest lies outside SCOPES too: a push that only edits it still runs its check.
+    # The surface materials manifest lies outside SCOPES too: a push that only edits it, or only deletes a file the
+    # check judges (an entry then goes stale), still runs its check.
     materials_data = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--",
                                      SURFACE_MATERIALS_DATA).decode().split("\0") if n]
+    materials_data += [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head,
+                                      "--", *SURFACE_MATERIALS_SOURCES).decode().split("\0")
+                       if n.endswith((".swift", ".tsx"))]
     if not changed and not dropped and not deleted and not materials_data:
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = list(reserved)
-    with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
-        base_tree, head_tree = build_trees(repo, base, head, changed + deleted, Path(tmp), trusted_scripts)
+    with scratch_dir() as tmp:
+        base_tree, head_tree = build_trees(repo, base, head, changed + deleted, absolute(Path(tmp)), trusted_scripts)
         # The tool rules and pins: on a hook run, only the installed reviewed copy's (head_tree/SCRIPTS is that copy);
         # a pin names a binary the gate downloads and runs, and its sha256 proves nothing when the same file names it.
         # An install without them refuses. A manual run reads the head's, else (a commit older than the gate) the
         # checkout's.
         if trusted_scripts is not None and not (trusted_scripts / "lint-tools.lock").is_file():
-            raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no lint-tools.lock).")
+            raise CannotDecide(f"prepush-gate: {STALE_INSTALL} (it has no lint-tools.lock).")
         config_root = head_tree if (head_tree / SCRIPTS / "lint-tools.lock").is_file() else repo
         lint = config_root / SCRIPTS / "lint"
         lock = config_root / SCRIPTS / "lint-tools.lock"
         jobs: dict[str, tuple] = {}
         trees_for: dict[str, tuple[Path, Path]] = {}
+        has_package = (head_tree / MANIFEST).is_file()
         for name, cmd, prefixes in SCANNERS:
             script = next(Path(c) for c in fill(cmd, head_tree) if c.startswith(str(head_tree / SCRIPTS)))
             if not script.is_file():
                 continue  # a commit older than this check
             if name == CRASH_SAFETY_CHECK and not (head_tree / APP_ENTRY).is_file():
                 continue  # a main-based push: its crash rule is the crash ratchet below
+            if not has_package and any("{pkg}" in c for c in cmd):
+                continue  # a main-based push: no CmuxNext package for a {pkg} scanner to judge (PKG_SCANNERS)
             runs = any(p.startswith(prefixes) for p in changed) or (name == SURFACE_MATERIALS_CHECK and materials_data)
-            if runs and (only is None or "scanners" in only):
+            if runs and (only is None or "scanners" in only) and want(name):
                 jobs[name] = ("cmd", cmd)
-        if (dropped or deleted) and DEPS_CHECK not in jobs:
+        if VISIBLE_ONLY_CHECK in jobs and lock.is_file():
+            # The scanner runs the pinned ast-grep the layer below runs (downloaded once, sha256 checked).
+            os.environ["CMUX_AST_GREP"] = str(ensure_tool(lock, "ast-grep"))
+        if (dropped or deleted) and DEPS_CHECK not in jobs and has_package and want(DEPS_CHECK):
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
             # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is
@@ -1817,7 +3763,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             package = sorted({p for rev in (base, head) for prefix in MANIFEST_SOURCES
                               for p in ls_tree(repo, rev, prefix) if p.endswith(".swift")} | {MANIFEST})
             # Not indexed: the check reads files, never ls-files, and indexing 9,000 files twice was most of the cost.
-            trees_for[DEPS_CHECK] = build_trees(repo, base, head, package, Path(tmp) / "deps", trusted_scripts,
+            trees_for[DEPS_CHECK] = build_trees(repo, base, head, package, absolute(Path(tmp)) / "deps", trusted_scripts,
                                                 index=False)
         if SURFACE_MATERIALS_CHECK in jobs:
             # Each side's manifest and every file the check judges, so a finding both sides have cancels out and an
@@ -1825,48 +3771,66 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             judged = sorted({p for rev in (base, head) for prefix in SURFACE_MATERIALS_SOURCES
                              for p in ls_tree(repo, rev, prefix) if p.endswith((".swift", ".tsx"))}
                             | {p for rev in (base, head) for p in ls_tree(repo, rev, SURFACE_MATERIALS_DATA)})
-            trees_for[SURFACE_MATERIALS_CHECK] = build_trees(repo, base, head, judged, Path(tmp) / "materials",
+            trees_for[SURFACE_MATERIALS_CHECK] = build_trees(repo, base, head, judged, absolute(Path(tmp)) / "materials",
                                                              trusted_scripts, index=False)
         if not lock.is_file():
             sources, swift = [], []  # a checkout older than the pinned tools: scanners only
-        if sources and (only is None or "ast-grep" in only):
-            jobs["ast-grep (scripts/cmux-next/lint/ast-grep-rules)"] = ("fn", ast_grep, ensure_tool(lock, "ast-grep"),
+        if sources and (only is None or "ast-grep" in only) and want(AST_GREP_JOB):
+            jobs[AST_GREP_JOB] = ("fn", ast_grep, ensure_tool(lock, "ast-grep"),
                                                                        lint / "sgconfig.yml", sources)
         # Local only (lead 2026-10-27): CI and the merge-time gates (fast gates, car guards: --base/--head; pushes:
-        # --commits) never refused a SwiftFormat finding, and must not start to (CLAUDE.md: no new CI gates).
-        if swift and (swiftformat_layer if only is None else "swiftformat" in only):
-            jobs["SwiftFormat --lint"] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
+        # --commits) never refused a SwiftFormat finding, and must not start to (lead 2026-10-27; the
+        # 2026-10-23 no-new-CI rule it cited was lifted 2026-11-18, and changing this is a separate decision).
+        if swift and (swiftformat_layer if only is None else "swiftformat" in only) and want(SWIFTFORMAT_JOB):
+            jobs[SWIFTFORMAT_JOB] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
                                           lint / "swiftformat.conf", swift)
-        # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate).
+        # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate, a 2026-10-23 rule since lifted).
         rust = [p for p in changed if p.startswith(RUST_SCOPE) and p.endswith(".rs")]
-        if rust and (swiftformat_layer if only is None else "rustfmt" in only):
-            jobs["rustfmt (cmux-tui)"] = ("fn", rustfmt, repo, repo / RUST_SCOPE / "rustfmt.toml", rust)
-        if swift and (only is None or "swiftlint" in only):
-            jobs["SwiftLint (syntax rules)"] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
+        if rust and (swiftformat_layer if only is None else "rustfmt" in only) and want(RUSTFMT_JOB):
+            rust_root = rust_workspace_root(repo, head, absolute(Path(tmp)))
+            jobs[RUSTFMT_JOB] = ("fn", rustfmt, rust_root, rust_root / RUST_SCOPE / "rustfmt.toml", rust)
+        if swift and (only is None or "swiftlint" in only) and want(SWIFTLINT_JOB):
+            jobs[SWIFTLINT_JOB] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)
 
         def side(job, tree):
             t0 = time.monotonic()
+            tree = absolute(tree)
             if job[0] == "cmd":
                 code, out = run(fill(job[1], tree), tree)
             else:
                 _, fn, binary, config, files = job
-                out = fn(binary, config, tree, files)
+                out = fn(absolute(binary), absolute(config), tree, files)
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
 
         crates = [p for p in changed if p.startswith(RUST_CRATES) and p.endswith(".rs")]
-        crash_layer = bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4))) as pool:
+        crash_layer = (bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
+                       and want(CRASH_RATCHET_CHECK))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=side_workers()) as pool:
             futures = {(name, i): pool.submit(side, job, tree)
                        for name, job in jobs.items()
                        for i, tree in enumerate(trees_for.get(name, (base_tree, head_tree)))}
-            prepared = (pool.submit(prepare_crash_ratchet, repo, base, head, head_tree, trusted_scripts, Path(tmp))
+            prepared = (pool.submit(prepare_crash_ratchet, repo, base, head, head_tree, trusted_scripts, absolute(Path(tmp)))
                         if crash_layer else None)
             for name in jobs:
                 name_base, name_head = trees_for.get(name, (base_tree, head_tree))
-                _, base_out, base_s = futures[(name, 0)].result()
+                base_code, base_out, base_s = futures[(name, 0)].result()
                 head_code, head_out, head_s = futures[(name, 1)].result()
+                if name == SPAWN_OWNER_CHECK and head_code == 1 and crates:
+                    # A sparse tree can omit the unchanged #[cfg(test)] declaration of a reported
+                    # spawn, including a #[path] in a sibling module. Confirm the finding with each
+                    # affected crate's actual module declarations on both sides.
+                    roots = sorted({"/".join(path.split("/", 3)[:3]) for path in crates})
+                    sources = sorted({path for rev in (base, head) for root in roots
+                                      for path in ls_tree(repo, rev, root) if path.endswith(".rs")})
+                    name_base, name_head = build_trees(repo, base, head, sources, absolute(Path(tmp)) / "spawn-owner",
+                                                       trusted_scripts, index=False)
+                    sides = [pool.submit(side, jobs[name], tree) for tree in (name_base, name_head)]
+                    base_code, base_out, base_elapsed = sides[0].result()
+                    head_code, head_out, head_elapsed = sides[1].result()
+                    base_s += base_elapsed
+                    head_s += head_elapsed
                 if timings:
                     log(f"  {max(base_s, head_s):5.2f}s  {name}")
                 if BROKEN.search(head_out):
@@ -1874,10 +3838,24 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         + "\n".join(head_out.splitlines()[-5:]))
                 if os.environ.get("CMUX_PREPUSH_GATE_DEBUG"):
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
+                # One rule for every scanner, before any subtraction (Codex on #40880): a run outside the scanner's
+                # verdict codes, a signal, a crash or a timeout is no verdict. At the head it refuses; at the base it
+                # subtracts nothing, here or in the dependency check's stale-line diff.
+                codes = SCANNER_VERDICT_CODES.get(name, DEFAULT_VERDICT_CODES) if jobs[name][0] == "cmd" else None
+                stopped = no_verdict(head_code, head_out, codes)
+                base_stopped = no_verdict(base_code, base_out, codes)
+                if stopped:
+                    found.append((name, [NoVerdict(f"{name} {stopped} at the pushed head instead of judging it, so the "
+                                                   f"push is refused: "
+                                                   f"{' '.join(head_out.strip().splitlines()[-2:])[:300]}",
+                                                   outside_cause(stopped, base_stopped))]))
+                    continue
+                if base_stopped:
+                    base_out = ""
                 if name == DEPS_CHECK:
                     head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
                                                         full_package=name in trees_for, cmd=jobs[name][1],
-                                                        work=Path(tmp) / "deps-head", trusted_scripts=trusted_scripts)
+                                                        work=absolute(Path(tmp)) / "deps-head", trusted_scripts=trusted_scripts)
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
                 fresh = new_records(base_out, head_out, name_base, name_head)
@@ -1962,21 +3940,33 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     taken off and refuses (fails closed). A record without a file location in a check that also printed located
     ones describes them (`check-crash-safety: 1 violation(s)`): it is kept only when one of that check's located
     findings is."""
+    if own.base == own.head:
+        return []  # every pushed commit is already on the remote: the push adds nothing to judge
     found = gate(repo, own.base, own.head, only, timings, trusted_scripts, swiftformat_layer=swiftformat_layer,
                  highlights_layer=highlights_layer)
     if not own.before or not found:
         return found
-    changed = set(changed_files(repo, own.base, own.head)) | set(deleted_package_swift(repo, own.base, own.head))
-    changed |= {p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", own.base, own.head, "--",
-                               HIGHLIGHTS_DIR).decode().split("\0") if p}
+    # Every path the own range changes, added or deleted, in any folder: each restricted layer keeps only its own
+    # files from it. A list cut to SCOPES left tests/ and .github/ out, so the upstream runs of the redefinition and
+    # workflow layers read nothing, subtracted nothing, and blamed the push for upstream's debt (#41818 review, F1).
+    changed = {p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", own.base, own.head)
+               .decode("utf-8", "surrogateescape").split("\0") if p}
+    # Only the checks the own run found something in (CHECKS): no other check's findings are read below, and on
+    # 2026-11-21 the upstream run's other checks (whole-package trees among them) cost 293 s of a 798 s merge push.
+    wanted = {name for name, _ in found}
     before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed, swiftformat_layer=swiftformat_layer,
-                        highlights_layer=highlights_layer))
+                        highlights_layer=highlights_layer, checks=wanted))
               for b, a in own.before]
     push_range = sys.modules[PUSH_RANGE_MODULE]
     kept = []
     for name, fresh in found:
-        mine = push_range.less(fresh, [run.get(name, []) for run in before], key=finding_key)
-        if any(LOCATION.search(r) for r in fresh) and not any(LOCATION.search(r) for r in mine):
+        # A run of the check that gave no verdict over an upstream range takes nothing off: what it printed is not
+        # its findings. A NoVerdict of the push's own range is never taken off (its key matches nothing).
+        sides = [run.get(name, []) for run in before]
+        mine = push_range.less(fresh, [[] if any(isinstance(r, NoVerdict) for r in side) else side for side in sides],
+                               key=finding_key)
+        if (any(LOCATION.search(r) for r in fresh) and not any(LOCATION.search(r) for r in mine)
+                and not any(isinstance(r, NoVerdict) for r in mine)):
             mine = []
         if mine:
             kept.append((name, mine))
@@ -2068,7 +4058,7 @@ def guardrails(repo: Path, ranges: list, started) -> bool:
         return False
 
 
-# The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests;
+# The perf cron's unit tests (scripts/cmux-next/perf-cron.py) never run on CI (Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18;
 # the owner runs them), and the hook never runs them either: they are the push's own code. When a push changes the
 # cron or its tests, the gate names them and the command to run them (perf_cron_tests).
 PERF_CRON_PATHS = ("scripts/cmux-next/perf-cron", "scripts/cmux-next/tests/test_perf_cron")
@@ -2079,7 +4069,7 @@ def perf_cron_tests(repo: Path, ranges: list) -> None:
 
     They are that head's own code, and the hook never runs code the push controls (docs/contributor-verification.md,
     trust boundary: a pushed branch may be a contributor's). Running the reviewed copy of the tests would still import
-    the pushed perf-cron.py. CI does not run them either (no new CI tests), so the person runs them on code they
+    the pushed perf-cron.py. CI does not run them either (the 2026-10-23 no-new-CI rule, since lifted), so the person runs them on code they
     trust, with the command printed here. RANGES are push_range.OwnRange values: a path counts when it changes over
     the base and since the head of every range the push does not own. Never refuses the push."""
     for own in ranges:
@@ -2158,7 +4148,7 @@ def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
             i = nl + 1
             if len(header) < 3 or header[1] not in (b"blob", b"tree"):
                 continue
-            size = int(header[2])
+            size = parse_tool_int(header[2].decode(errors="replace"), "git cat-file size")
             theirs = out[i:i + size]
             i += size + 1
             if header[1] == b"tree":
@@ -2174,8 +4164,10 @@ def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
         if tracked.returncode == 0 and hook.is_file() and hook.read_bytes() != tracked.stdout:
             stale.append("pre-push (the hook)")
         if stale:
-            log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {ref}'s, so its "
-                f"rules may be old: run scripts/install-git-hooks.sh from a checkout at {ref} (rebase and fetch do not).")
+            shown = ref.removeprefix("refs/remotes/")
+            log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {shown}'s, so "
+                f"its rules may be old: run scripts/install-git-hooks.sh from a checkout at {shown} (rebase and fetch do "
+                "not).")
         return
 
 
@@ -2196,7 +4188,291 @@ dialogs, translucent theme tints on glass. A reviewed escape comment (`// concur
 Never --no-verify: CI names every commit that adds a violation (step "Pushed commits add no violations")."""
 
 
-def main(argv: list[str] | None = None) -> int:
+# ---------------------------------------------------------------- advisory (CI: named, never a gate)
+
+# The pull request's fast gates pass --advisory (scripts/ci/cmux_next_fast_gates.py, its existing "prepush gate").
+# The five layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
+# refused and nobody saw it. Here they run on the same range and each finding is a `::warning file=,line=` annotation
+# plus a row in the step summary. They never change the exit code: the step passes or fails exactly as it did
+# without them. It was built advisory under the 2026-10-23 "no new CI" rule (lifted 2026-11-18): no gate, no job
+# and no step, as fleet-test-compile.yml is ("It gates nothing"). The hook stays the gate.
+ADVISORY_ARCH = "arch ratchet"
+ADVISORY_GUARDRAILS = "guardrails line rules"
+ADVISORY_SWIFTFORMAT = "SwiftFormat"
+ADVISORY_PICTURES = "What's New pictures"
+ADVISORY_PORT_DRIFT = "port drift"
+ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES, ADVISORY_PORT_DRIFT)
+# The whole advisory pass, in its own process group (advisory_supervise): past it the group is killed and one
+# "timed out" warning is printed. CMUX_PREPUSH_ADVISORY_SECONDS sets it (a test's short deadline); it skips nothing.
+ADVISORY_SECONDS = 240.0
+ADVISORY_SECONDS_ENV = "CMUX_PREPUSH_ADVISORY_SECONDS"
+ADVISORY_ANNOTATIONS = 50  # GitHub shows at most this many annotations of a job; the summary has every count
+# A site under an arch ratchet refusal: `  path:line: text` (a count row) or `  path: text` (an escape site).
+ARCH_SITE = re.compile(r"^\s+(?P<path>[\w.+@/-]+\.\w+)(?::(?P<line>\d+))?: (?P<text>.*)$")
+
+
+class AdvisoryFinding:
+    __slots__ = ("layer", "path", "line", "title", "message")
+
+    def __init__(self, layer: str, path: str | None, line: int | None, title: str, message: str) -> None:
+        self.layer, self.path, self.line, self.title, self.message = layer, path, line, title, message
+
+
+def _workflow_data(text: str) -> str:
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _workflow_property(text: str) -> str:
+    return _workflow_data(text).replace(":", "%3A").replace(",", "%2C")
+
+
+def advisory_annotation(finding: AdvisoryFinding) -> str:
+    """The `::warning` workflow command for FINDING: file and line when it has them, the layer in its title."""
+    props = []
+    if finding.path:
+        props.append(f"file={_workflow_property(finding.path)}")
+        if finding.line:
+            props.append(f"line={finding.line}")
+    props.append(f"title={_workflow_property(f'prepush advisory ({finding.layer}) {finding.title}')}")
+    return f"::warning {','.join(props)}::{_workflow_data(finding.message)}"
+
+
+def _repo_path(repo: Path, path: str) -> str:
+    """PATH as a repository path (an annotation's file=): as given, or under the package when it is relative to it."""
+    for prefix in ("", PKG + "/", PKG + "/Sources/"):
+        if (repo / (prefix + path)).exists():
+            return prefix + path
+    return path
+
+
+def _load_script(repo: Path, name: str, filename: str):
+    script = repo / SCRIPTS / filename
+    spec = importlib.util.spec_from_file_location(name, script)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+# An arch ratchet note that says part of the push was not judged (a rule module or the ratchet failed, a row's map did
+# not parse): the layer is incomplete, never clean.
+ARCH_DIAGNOSTIC = re.compile(r"^arch-ratchet: (WARNING: |.*\bnot judged\b)")
+
+
+def advisory_arch(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    """(findings, diagnostics): the arch ratchet's refusals for RANGES, one finding per named site (or one for a
+    refusal that names none), and its notes that say something was not judged."""
+    module = _load_script(repo, "cmux_next_arch_ratchet", "arch-ratchet.py")
+    refusals, notes = module.push_refusals(repo, ranges)
+    diagnostics = [str(note) for note in notes if ARCH_DIAGNOSTIC.match(str(note))]
+    found = []
+    for row, text in refusals:
+        lines = text.splitlines()
+        title = re.sub(r"^arch-ratchet: ", "", lines[0]).strip() if lines else f"[{row}]"
+        sites = [m for m in (ARCH_SITE.match(line) for line in lines[1:]) if m]
+        for m in sites:
+            found.append(AdvisoryFinding(ADVISORY_ARCH, _repo_path(repo, m.group("path")),
+                                         parse_tool_int(m.group("line"), "arch advisory line") if m.group("line") else None,
+                                         f"[{row}]",
+                                         f"{title}: {m.group('text').strip()}"))
+        if not sites:
+            found.append(AdvisoryFinding(ADVISORY_ARCH, None, None, f"[{row}]", text))
+    return found, diagnostics
+
+
+def advisory_guardrails(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    """(findings, diagnostics): guardrails.py's line rules (and its Ghostty pin) for RANGES, one finding per refused
+    line, and check_own's own failure warnings (kind "guardrails": a rule that raised and was not applied)."""
+    module = load_guardrails(repo, None)
+    if module is None:
+        raise RuntimeError(f"{SCRIPTS}/guardrails.py is missing")
+    found, diagnostics = [], []
+    for own in module.load_push_range().as_own_ranges(repo, ranges):
+        refusals, warnings = module.check_own(repo, own.base, own.head, own.before)
+        diagnostics += [text for kind, text in warnings if kind == "guardrails" and text not in diagnostics]
+        for rule, hits in refusals:
+            for hit in hits:
+                found.append(AdvisoryFinding(ADVISORY_GUARDRAILS, hit.path, hit.number or None, f"[{rule.id}]",
+                                             f"{rule.title}: {hit.text.strip()[:140]}. Do: {rule.fix}"))
+        try:
+            pin = module.ghostty_pin_problem(repo, own.base, own.head, own.before)
+        except Exception as error:  # noqa: BLE001 - as run_push: the pin check failing is a diagnostic
+            diagnostics.append(module.check_failure("ghostty-pin", error))
+            pin = None
+        if pin:
+            found.append(AdvisoryFinding(ADVISORY_GUARDRAILS, None, None, "[ghostty-pin]", pin))
+    return found, diagnostics
+
+
+def _record_findings(layer: str, repo: Path, found: list[tuple[str, list[str]]]) -> list[AdvisoryFinding]:
+    out = []
+    for name, records_ in found:
+        for record in records_:
+            first = str(record).splitlines()[0] if str(record) else ""
+            at = LOCATION.match(first)
+            if at:
+                path, line = at.group("path"), parse_tool_int(at.group("line"), "advisory finding line")
+            else:
+                path, line = (first.partition(": ")[0] or None), None
+            out.append(AdvisoryFinding(layer, _repo_path(repo, path) if path else None, line, name, str(record)))
+    return out
+
+
+def advisory_swiftformat(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str], str | None]:
+    """(findings, the reason the layer was skipped or None). Skipped, not installed, when the runner has no binary:
+    the rule above forbids an install step."""
+    if not any(p.startswith(SWIFT_SCOPE) and p.endswith(".swift")
+               for own in ranges for p in changed_files(repo, own.base, own.head)):
+        return [], [], "no Swift file changed"
+    repo = absolute(repo)
+    lock = repo / SCRIPTS / "lint-tools.lock"
+    try:
+        binary = ensure_tool(lock, "swiftformat")
+        probe = subprocess.run([str(absolute(binary)), "--version"], capture_output=True, text=True, timeout=loaded_timeout(30),
+                               stdin=subprocess.DEVNULL)
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - no binary for this runner: say so, never fail
+        return [], [], f"no SwiftFormat binary on this runner ({type(error).__name__}: {error})"
+    if probe.returncode != 0:
+        return [], [], f"the pinned SwiftFormat does not run on this runner: {(probe.stderr or probe.stdout).strip()[:200]}"
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"swiftformat"}, False, None, swiftformat_layer=True)
+    return _record_findings(ADVISORY_SWIFTFORMAT, repo, found), [], None
+
+
+def advisory_pictures(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"pictures"}, False, None)
+    return _record_findings(ADVISORY_PICTURES, repo, found), []
+
+
+def advisory_port_drift(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"port-drift"}, False, None)
+    return _record_findings(ADVISORY_PORT_DRIFT, repo, found), []
+
+
+def _summary(summary: str | None, rows: list[tuple[str, str]]) -> None:
+    if not summary:
+        return
+    lines = ["### prepush advisory (hook-only checks, never a gate)", "",
+             "Run on CI only to show what a push that skipped the pre-push hook adds; the step's result is "
+             "unchanged by them.", "", "| check | result |", "| --- | --- |"]
+    lines += [f"| {name} | {result.replace('|', '/')} |" for name, result in rows]
+    try:
+        with open(summary, "a", encoding="utf-8") as stream:
+            stream.write("\n".join(lines) + "\n\n")
+    except OSError as error:
+        print(f"prepush-gate: advisory: could not write the step summary ({error})", flush=True)
+
+
+def advisory_run(repo: Path, ranges: list, summary: str | None) -> None:
+    """The advisory child (--advisory-only): run the hook-only layers on RANGES one after the other, print each
+    finding as a `::warning`, each internal failure diagnostic as a `::warning` too, and the summary table.
+
+    A layer whose checker reports it did not judge everything (a rule that raised, a ratchet note that says "not
+    judged") or that raised itself is "incomplete", never "clean"."""
+    rows: list[tuple[str, str]] = []
+    findings: list[AdvisoryFinding] = []
+    diagnostics: list[tuple[str, str]] = []
+    layers = ((ADVISORY_ARCH, advisory_arch), (ADVISORY_GUARDRAILS, advisory_guardrails),
+              (ADVISORY_SWIFTFORMAT, advisory_swiftformat), (ADVISORY_PICTURES, advisory_pictures),
+              (ADVISORY_PORT_DRIFT, advisory_port_drift))
+    for name, fn in layers:
+        t0 = time.monotonic()
+        try:
+            got = fn(repo, ranges)
+        except (Exception, SystemExit) as error:  # noqa: BLE001 - advisory: report it, never fail the gate
+            text = f"did not run ({type(error).__name__}: {str(error)[:300]})"
+            diagnostics.append((name, text))
+            rows.append((name, f"incomplete: {text}"))
+            continue
+        found, notes, skipped = (got + (None,))[:3]
+        if skipped:
+            rows.append((name, f"skipped: {skipped}"))
+            continue
+        findings.extend(found)
+        diagnostics += [(name, note) for note in notes]
+        took = f" ({time.monotonic() - t0:.1f}s)"
+        if notes:
+            rows.append((name, f"incomplete: {len(found)} finding(s), {len(notes)} check(s) did not run{took}"))
+        else:
+            rows.append((name, (f"{len(found)} finding(s)" if found else "clean") + took))
+    print("prepush-gate: advisory, hook-only checks on this range (they never fail this step): "
+          + "; ".join(f"{name}: {result}" for name, result in rows), flush=True)
+    for name, text in diagnostics:
+        print(f"::warning title={_workflow_property(f'prepush advisory ({name}) incomplete')}::{_workflow_data(text)}",
+              flush=True)
+    for finding in findings[:ADVISORY_ANNOTATIONS]:
+        print(advisory_annotation(finding), flush=True)
+    if len(findings) > ADVISORY_ANNOTATIONS:
+        print(f"prepush-gate: advisory: {len(findings) - ADVISORY_ANNOTATIONS} more finding(s) not annotated", flush=True)
+    _summary(summary, rows)
+
+
+def advisory_seconds() -> float:
+    raw = os.environ.get(ADVISORY_SECONDS_ENV, "").strip()
+    try:
+        return float(raw) if raw else ADVISORY_SECONDS
+    except ValueError:
+        return ADVISORY_SECONDS
+
+
+def advisory_start(repo: Path, base: str | None, head: str):
+    """Start the advisory child (this script, --advisory-only) in its own process group, or None when it cannot
+    start. Its own session, so advisory_finish can kill everything it started (git, the arch checks' workers)."""
+    repo = absolute(repo)
+    cmd = [sys.executable, "-I", str(Path(__file__).resolve()), "--advisory-only", "--repo", str(repo), "--head", head]
+    if base:
+        cmd += ["--base", base]
+    sys.stdout.flush()
+    try:
+        return subprocess.Popen(cmd, cwd=repo, start_new_session=True, stdin=subprocess.DEVNULL), time.monotonic()
+    except OSError as error:
+        print(f"::warning title=prepush advisory did not start::{_workflow_data(str(error))}", flush=True)
+        return None
+
+
+def advisory_finish(started, summary: str | None, seconds: float) -> None:
+    """Wait for the advisory child until SECONDS after it started. Past that: SIGTERM then SIGKILL to its whole
+    process group, reap it, and print one "timed out" warning. Returns nothing: the gate's exit code never depends
+    on the child (Codex review of #40811: a stalled child joined at interpreter exit ran into the gate's watchdog)."""
+    if started is None:
+        return
+    process, t0 = started
+    try:
+        code = process.wait(timeout=max(0.0, seconds - (time.monotonic() - t0)))
+    except subprocess.TimeoutExpired:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(process.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            try:
+                process.wait(timeout=GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)  # members that outlived the leader
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            process.wait(timeout=GRACE_SECONDS + 5)
+        except subprocess.TimeoutExpired:
+            pass
+        safe_print(f"::warning title=prepush advisory timed out::the hook-only checks gave no result in {seconds:g}s and "
+                   "were stopped; this step's result is unchanged. Run the pre-push hook (or prepush-gate.py) locally.",
+                   flush=True)
+        _summary(summary, [(name, f"incomplete: timed out after {seconds:g}s") for name in ADVISORY_LAYERS])
+        return
+    if code != 0:
+        safe_print(f"::warning title=prepush advisory incomplete::the advisory pass exited {code}; this step's result is "
+                   "unchanged.", flush=True)
+
+
+def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=None)
     parser.add_argument("--base")
@@ -2210,18 +4486,30 @@ def main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows")
+                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
+                                       "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
+                                       "settings-export-keys,main-twin,job-bounds,reusable-perms,generated-files,generated-fresh,xcstrings")
     parser.add_argument("--timings", action="store_true")
+    parser.add_argument("--defer-ci-layers", action="store_true",
+                        help="the hook on a loaded host: leave the checks the PR's fast-gates job runs (scanners, "
+                             "ast-grep, SwiftLint) to it, for a push of a non-integration branch (deferred_ci_layers)")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
+    parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
+    parser.add_argument("--advisory", action="store_true",
+                        help="CI (the fast gates): also run the hook-only layers (arch ratchet, guardrails line rules, "
+                             "SwiftFormat, What's New pictures) and print each finding as a ::warning; never changes "
+                             "the exit code")
     args = parser.parse_args(argv)
-    repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
+    repo = absolute(Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip()))
     only = set(args.only.split(",")) if args.only else None
     started = time.monotonic()
     # The handle keeps the installed checks copy this run reads in use until main returns (claim_trusted_scripts).
-    trusted_scripts, _in_use = (claim_trusted_scripts(Path(args.trusted_scripts_dir)) if args.trusted_scripts_dir
+    trusted_scripts, _in_use = (claim_trusted_scripts(absolute(Path(args.trusted_scripts_dir))) if args.trusted_scripts_dir
                                 else (None, None))
     if args.pre_push and (trusted_scripts is None or not trusted_scripts.is_dir()):
         raise SystemExit("prepush-gate: --pre-push requires the installed --trusted-scripts-dir snapshot")
+    global HOOK_RUN
+    HOOK_RUN = hook_run(args.pre_push, trusted_scripts)
 
     if args.commits and only == {"sidebar"}:
         # The sidebar sweep: one pass over the range (per commit already: each commit is judged on its own).
@@ -2238,11 +4526,11 @@ def main(argv: list[str] | None = None) -> int:
         if fresh:
             print_findings([(SIDEBAR_CHECK, fresh)], "prepush-gate: sidebar commits without the owner's record:")
             print(f"::error title=Sidebar look owner::{len(fresh)} commit(s) change the sidebar's drawing code without "
-                  "a Sidebar-Look: trailer or an entry in plans/cmux-next/sidebar-owner.md")
+                  f"a Sidebar-Look: trailer or an entry under {SIDEBAR_ENTRIES}")
         for sha, finding in inherited:
             # The whole finding (one line); % escaped, as a workflow command reads %0A as a new line.
             text = (f"{finding} This commit is on the base, not in this pull request: the owner logs {sha[:11]} in "
-                    f"{SIDEBAR_NOTE}.").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                    f"an entry under {SIDEBAR_ENTRIES}.").replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
             print(f"::warning title=Sidebar look owner (base commit)::{text}")
         print(f"prepush-gate: sidebar sweep {base[:11]}..{tip[:11]}, {len(fresh)} finding(s)"
               + (f", {len(inherited)} on base commits (warnings)" if inherited else "")
@@ -2275,18 +4563,40 @@ def main(argv: list[str] | None = None) -> int:
             pushed_lines = sys.stdin.read().splitlines()
             ranges, errors = push_range.pushed_ranges(repo, pushed_lines, args.remote)
         else:
+            # A run by hand fetches the shared base first, as a push does (push_range.manual_range); an installed
+            # copy older than it has only own_range.
+            manual = getattr(push_range, "manual_range", None) or push_range.own_range
             ranges, errors = [push_range.given_range(repo, args.base, args.head) if args.base
-                              else push_range.own_range(repo, args.head)], []
+                              else manual(repo, args.head)], []
     except ValueError as error:  # a git call failed (a commit gone between two reads)
         ranges, errors = [], [str(error)]
     if errors:
-        # Refused on purpose: with no bound on the pushed commits the gate cannot tell what the push adds.
+        # With no bound on the pushed commits the gate cannot tell what the push adds. That is this clone's state (an
+        # unfetched or unreadable base), not the push's diff, so it warns and lets the push through (Leo 2026-11-22:
+        # a gate refuses only for the pusher's own diff); CI still names a commit that adds a violation.
         for error in errors:
             print(f"prepush-gate: cannot tell which commits are this push's own: {error}")
-        print("prepush-gate: push refused; nothing was checked. Fix the clone as said above and push again.")
-        return 1
+        if not HOOK_RUN:
+            print("prepush-gate: push refused; nothing was checked. Fix the clone as said above and push again.")
+            return 1
+        print("prepush-gate: WARNING: nothing was checked, and the push goes through UNCHECKED (the reason above is "
+              "this clone's, not the push's diff). Fix the clone as said above; say so in your report.")
+        return 0
+    if args.advisory_only:
+        advisory_run(repo, ranges, os.environ.get("GITHUB_STEP_SUMMARY"))
+        return 0
+    global DEFERRED_CHECKS
+    if args.defer_ci_layers and args.pre_push and only is None and not os.environ.get("GITHUB_ACTIONS"):
+        DEFERRED_CHECKS = deferred_ci_layers(pushed_lines)
+        if DEFERRED_CHECKS:
+            log("prepush-gate: this host is loaded (load average at one runnable process per core or more): the "
+                "scanners, ast-grep and SwiftLint are left to the pull request's fast-gates CI job, which runs them "
+                "with the same refusal; every other check runs here.")
     for own in ranges:
         log(f"prepush-gate: judging {own.describe()}")
+    # Next to the gate, in its own process group; joined (or killed at its deadline) after the gate's own checks.
+    advised = (advisory_start(repo, args.base, args.head) if args.advisory and only is None and not args.pre_push
+               else None)
     # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
     local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
     started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
@@ -2298,6 +4608,7 @@ def main(argv: list[str] | None = None) -> int:
         # The highlights run where SwiftFormat runs: the hook and a plain local run, never CI or a merge-time gate.
         found_any += gate_own(repo, own, only, args.timings, trusted_scripts, swiftformat_layer,
                               highlights_layer=swiftformat_layer)
+    advisory_finish(advised, os.environ.get("GITHUB_STEP_SUMMARY"), advisory_seconds())
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
     guarded = False
@@ -2319,6 +4630,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  compile trailer")
     elapsed = time.monotonic() - started
+    # A check that gave no verdict for a reason outside the push's diff warns and lets the push through; a finding in
+    # the push's own change, and a no verdict the push's change caused, still refuse.
+    found_any, warned = own_refusals(found_any, HOOK_RUN)
+    for line in warned:
+        print(line)
     if not found_any:
         if guarded:
             print(f"prepush-gate: push refused by the guardrails or the compile trailer ({elapsed:.1f}s)")
@@ -2336,6 +4652,9 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == SIDEBAR_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {SIDEBAR_CHECK}. Amend the commit with a "
               "`Sidebar-Look:` trailer (and the note for a visual change); the sidebar owner keeps the look.")
+    elif skip and any(name == CHROME_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CHROME_CHECK}. The chrome layer keeps its "
+              "colour unless Leo asks, quoted in a `Chrome-Look-OK: Leo <date> \"<his words>\"` commit trailer.")
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
@@ -2359,16 +4678,46 @@ def main(argv: list[str] | None = None) -> int:
             print(PICTURES_BEFORE_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
+    if any(name == NEW_VERSIONS_CHECK for name, _ in found_any):
+        print(NEW_VERSIONS_HINT)
+    if any(name == SETTINGS_KEYS_CHECK for name, _ in found_any):
+        print(SETTINGS_KEYS_HINT)
+    if any(name == XCSTRINGS_CHECK for name, _ in found_any):
+        print(XCSTRINGS_HINT)
+    if any(name == FALLBACKS_CHECK for name, _ in found_any):
+        print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):
         print(CRASH_RATCHET_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
         print(WORKFLOW_HINT)
+    if any(name == REDEFINITION_CHECK for name, _ in found_any):
+        print(REDEFINITION_HINT)
     print(HOW_TO_FIX)
     print(f"prepush-gate: push refused ({elapsed:.1f}s)")
     return 1
 
 
-GATE_LIMIT_SECONDS = 600.0  # a whole gate takes under a minute; a hang (a786, a796, a808: 28-30 min) refuses here
+def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except ToolOutputNoVerdict as error:
+        if not HOOK_RUN:
+            print(f"prepush-gate: no verdict: {error}")
+            return 1
+        # A tool's output this gate cannot read (ps, a checker's count) is this machine's, not the push's diff.
+        print(f"prepush-gate: WARNING: no verdict: {error}. The push goes through UNCHECKED: the cause is outside "
+              "its diff; say so in your report.")
+        return 0
+    except CannotDecide:
+        if not HOOK_RUN:
+            raise  # a SystemExit with its message: exit 1, as before
+        error = sys.exc_info()[1]
+        print(f"{error.code}\nprepush-gate: WARNING: the gate could not judge this push for a reason outside its "
+              "diff (above); the push goes through UNCHECKED. Fix it as said; say so in your report.")
+        return 0
+
+
+GATE_LIMIT_SECONDS = 600.0  # a whole gate takes under a minute; a hang (a786, a796, a808: 28-30 min) stops here and warns
 
 
 def _descendants(pid: int) -> list[int]:
@@ -2381,7 +4730,7 @@ def _descendants(pid: int) -> list[int]:
     for row in rows.splitlines():
         parts = row.split()
         if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-            kids[int(parts[1])].append(int(parts[0]))
+            kids[parse_tool_int(parts[1], "process parent PID")].append(parse_tool_int(parts[0], "process PID"))
     out, todo = [], [pid]
     while todo:
         for kid in kids.get(todo.pop(), []):
@@ -2425,34 +4774,305 @@ def stop(pids: list[int], grace: float = GRACE_SECONDS) -> None:
 
 
 def start_watchdog(limit: float) -> None:
-    """Past LIMIT seconds, print every thread's stack, stop the processes this gate started, and refuse the push.
-
-    A hung gate blocks the push anyway, so refusing loosens no check; the stacks say where it hung."""
+    """Past LIMIT seconds, print every thread's stack, stop the processes this gate started, and let the push through
+    with a warning: a gate that did not finish reached no verdict, and the cause (load, a hang) is not the push's
+    diff (Leo 2026-11-22). The stacks say where it hung."""
     import faulthandler
     import threading
 
     def fire() -> None:
-        sys.stderr.write(f"prepush-gate: the gate ran past its {limit:g}s limit (CMUX_NEXT_GATE_LIMIT_SECONDS); "
-                         "push refused. Where each thread was:\n")
+        if not HOOK_RUN:
+            sys.stderr.write(f"prepush-gate: the gate ran past its {limit:g}s limit (CMUX_NEXT_GATE_LIMIT_SECONDS); "
+                             "push refused. A Mac too loaded to finish it pushes through an idle one: "
+                             "scripts/cmux-next/push-from-host.sh <branch>. Where each thread was:\n")
+            sys.stderr.flush()
+            faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
+            stop(_descendants(os.getpid()))
+            remove_live_scratch()
+            sys.stdout.flush()
+            os._exit(1)
+        sys.stderr.write(f"prepush-gate: WARNING: the gate ran past its {limit:g}s limit "
+                         "(CMUX_NEXT_GATE_LIMIT_SECONDS), which is this machine's load or a hang, not the push's "
+                         "diff: the push goes through UNCHECKED; say so in your report. Where each thread was:\n")
         sys.stderr.flush()
         faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
         stop(_descendants(os.getpid()))
+        remove_live_scratch()
         sys.stdout.flush()
-        os._exit(1)
+        os._exit(0)
 
     timer = threading.Timer(limit, fire)
     timer.daemon = True
     timer.start()
 
 
+GATE_LIMIT_MAX_SECONDS = 3600.0  # the most a loaded Mac's gate gets; past it the push goes through another Mac
+
+
+def loaded_limit(base: float, load: float, cpus: int) -> float:
+    """BASE on a Mac with a free core, and BASE times the runnable processes per core on a loaded one, up to
+    GATE_LIMIT_MAX_SECONDS. The limit is there to refuse a hang, and a check that shares each core with LOAD/CPUS
+    others is slow, not hung: on 2026-11-10 (load average 300-770 on 18 cores) every push's gate ran to 600 s and
+    was refused with nothing wrong in it, while the same push's gate took 8 s on an idle Mac."""
+    if cpus <= 0 or load <= cpus:
+        return base
+    return max(base, min(base * load / cpus, GATE_LIMIT_MAX_SECONDS))
+
+
+def loaded_timeout(seconds: float) -> float:
+    """One check's SECONDS for this host's load (loaded_limit), so a check refuses a hang, not a busy host: on
+    2026-11-17 a 2-core lane VM at load 26 took 133 s of wall time for the single-host fallback checker's 30 s of
+    CPU, past run()'s fixed 120 s, and refused three pushes in a row with nothing wrong in them."""
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
+        return seconds
+    return loaded_limit(seconds, load, os.cpu_count() or 1)
+
+
 def gate_limit() -> float:
+    """CMUX_NEXT_GATE_LIMIT_SECONDS as given (a set limit is never scaled), else GATE_LIMIT_SECONDS for this load."""
     raw = os.environ.get("CMUX_NEXT_GATE_LIMIT_SECONDS", "").strip()
     try:
-        return float(raw) if raw else GATE_LIMIT_SECONDS
+        if raw:
+            return float(raw)
     except ValueError:
+        pass
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
         return GATE_LIMIT_SECONDS
+    return loaded_limit(GATE_LIMIT_SECONDS, load, os.cpu_count() or 1)
+
+
+# The gate's scratch: the base and head trees it checks out (about 200 MB a run) in the temp dir. A `with
+# TemporaryDirectory` removed it only on a clean return, so every run the watchdog ended (os._exit), the hook's
+# limit stopped (SIGTERM, then SIGKILL) or a terminal closed (SIGHUP) left its copy: 25 of them, 5.1 GB, on one
+# Linux host on 2026-11-23, the oldest four days old, with nothing that ever removed them. Now each run removes its
+# own on every exit it can see (return, exception, SIGTERM, SIGHUP, the watchdog), and each start sweeps what a run
+# it could not see (SIGKILL, a crash) left: handbook a-finished-builds-cache-outlives-it and
+# killed-launch-leaves-its-copy.
+SCRATCH_PREFIX = "cmux-prepush-"
+SCRATCH_NAME = re.compile(r"cmux-prepush-(?:highlights-)?[a-z0-9_]{8}\Z")  # mkdtemp's names for this gate's prefixes only
+SCRATCH_OWNER = ".cmux-prepush-owner"  # inside each scratch dir: {"pid", "start"} of the run that made it
+# A dir with no owner file (made before this change) is swept by age: older than twice the longest a gate can run
+# (GATE_LIMIT_MAX_SECONDS, the watchdog's ceiling on the most loaded host; a normal gate takes under a minute), and
+# on Linux only when no process has its cwd, an open file or its path in its command line under it. Without /proc
+# (macOS) the age is the only evidence, so the bound is three times longer.
+SCRATCH_SWEEP_AGE_SECONDS = 2 * GATE_LIMIT_MAX_SECONDS
+SCRATCH_SWEEP_AGE_NO_PROC_SECONDS = 6 * GATE_LIMIT_MAX_SECONDS
+SCRATCH_SWEEP_OFF = "CMUX_NEXT_PREPUSH_SCRATCH_SWEEP"  # "0" turns the start-up sweep off; delete on finish stays
+_LIVE_SCRATCH: list[str] = []
+_SCRATCH_PID = os.getpid()  # the gate's own pid: a forked child never removes its scratch
+
+
+def _process_start(pid: int) -> str | None:
+    """PID's start time in clock ticks since boot (Linux /proc/PID/stat field 22), else None: with the pid it tells
+    the run that wrote an owner file from a later process that reuses its pid."""
+    try:
+        line = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    fields = line[line.rfind(")") + 2:].split()
+    return fields[19] if len(fields) > 19 else None
+
+
+def _owner_alive(owner: dict) -> bool:
+    pid = owner.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # another account's live process: alive
+    except OSError:
+        return True  # cannot tell: keep it
+    start = owner.get("start")
+    return start is None or _process_start(pid) in (None, start)
+
+
+def _remove_scratch(path: str) -> bool:
+    """Remove the scratch dir PATH without following a link: a link is never removed through, and rmtree never
+    descends one (its fd-based walk). True when it is gone."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    if not stat.S_ISDIR(st.st_mode):
+        return False
+    shutil.rmtree(path, ignore_errors=True)
+    return not os.path.lexists(path)
+
+
+@contextlib.contextmanager
+def scratch_dir(prefix: str = SCRATCH_PREFIX):
+    """A scratch dir in the temp dir that this run removes however it ends: on return or an exception here, on
+    SIGTERM or SIGHUP (remove_live_scratch from the handler) and at the watchdog's exit. Its owner file lets the
+    next run's sweep tell a live run's dir from a dead one's."""
+    path = tempfile.mkdtemp(prefix=prefix)
+    _LIVE_SCRATCH.append(path)
+    try:
+        try:
+            Path(path, SCRATCH_OWNER).write_text(json.dumps({"pid": os.getpid(), "start": _process_start(os.getpid())}))
+        except OSError:
+            pass  # no owner file: the sweep then judges it by age and holders, as an old one
+        yield path
+    finally:
+        try:
+            _LIVE_SCRATCH.remove(path)
+        except ValueError:
+            pass
+        _remove_scratch(path)
+
+
+def remove_live_scratch() -> None:
+    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step). Only the process
+    that made them removes them: a forked child (the crash ratchet's scan pool, which `Pool.terminate` ends with
+    SIGTERM) inherits this list and the handler, and once deleted the gate's base and head trees mid-scan, so every
+    Rust push big enough for the pool died with FileNotFoundError."""
+    if os.getpid() != _SCRATCH_PID:
+        return
+    for path in list(_LIVE_SCRATCH):
+        try:
+            _remove_scratch(path)
+        except Exception:  # noqa: BLE001 (an exit path: never raise)
+            pass
+
+
+def _proc_holders(paths: list[str], proc: str = "/proc") -> set[str] | None:
+    """The PATHS some live process holds: its cwd, its root or an open file under one, or the path in its command
+    line. None when there is no /proc to read (macOS)."""
+    try:
+        pids = [p for p in os.listdir(proc) if p.isdigit()]
+    except OSError:
+        return None
+    if not pids:
+        return None
+    me = str(os.getpid())
+    held: set[str] = set()
+
+    def under(target: str) -> None:
+        for path in paths:
+            if target == path or target.startswith(path + "/"):
+                held.add(path)
+
+    for pid in pids:
+        if pid == me:
+            continue
+        base = f"{proc}/{pid}"
+        links = [f"{base}/cwd", f"{base}/root"]
+        try:
+            links += [f"{base}/fd/{fd}" for fd in os.listdir(f"{base}/fd")]
+        except OSError:
+            pass
+        for link in links:
+            try:
+                under(os.readlink(link))
+            except OSError:
+                continue
+        try:
+            argv = Path(base, "cmdline").read_bytes().decode(errors="replace").split("\0")
+        except OSError:
+            continue
+        for arg in argv:
+            for path in paths:
+                if path in arg:
+                    held.add(path)
+    return held
+
+
+def sweep_scratch(root: str | None = None, now: float | None = None, proc: str = "/proc") -> list[str]:
+    """Remove the scratch dirs of ended gate runs directly in ROOT (the temp dir): a dir whose owner file names a
+    process that is gone, or one with no owner file older than the bound that no process holds. Kept: a live
+    owner's, a held one, a young one, a link, anything not a real dir of this account. Returns what it removed."""
+    root = os.path.realpath(root or tempfile.gettempdir())
+    now = time.time() if now is None else now
+    uid = os.getuid()
+    candidates: list[tuple[str, dict | None, float]] = []
+    with os.scandir(root) as entries:
+        for entry in entries:
+            if not SCRATCH_NAME.match(entry.name) or entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                continue
+            path = os.path.join(root, entry.name)
+            if path in _LIVE_SCRATCH:
+                continue
+            try:
+                st = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if st.st_uid != uid:
+                continue
+            owner = None
+            try:
+                with open(os.path.join(path, SCRATCH_OWNER), "rb", opener=lambda p, f: os.open(p, f | os.O_NOFOLLOW)) as fh:
+                    loaded = json.loads(fh.read(4096))
+                owner = loaded if isinstance(loaded, dict) else {}
+            except (OSError, ValueError):
+                owner = None
+            if owner is not None and _owner_alive(owner):
+                continue  # the run that made it is still going
+            newest = st.st_mtime  # the dir and its top entries (base, head, materials): what a run touches as it works
+            try:
+                with os.scandir(path) as inner:
+                    for child in inner:
+                        try:
+                            newest = max(newest, child.stat(follow_symlinks=False).st_mtime)
+                        except OSError:
+                            pass
+            except OSError:
+                continue
+            candidates.append((path, owner, now - newest))
+    if not candidates:
+        return []
+    holders = _proc_holders([path for path, _, _ in candidates], proc)
+    removed = []
+    for path, owner, age in candidates:
+        if holders is not None and path in holders:
+            continue
+        if owner is None:
+            bound = SCRATCH_SWEEP_AGE_SECONDS if holders is not None else SCRATCH_SWEEP_AGE_NO_PROC_SECONDS
+            if age < bound:
+                continue
+        if _remove_scratch(path):
+            removed.append(path)
+    return removed
+
+
+def sweep_scratch_safely() -> None:
+    """sweep_scratch for a push: one line either way, and never an exception into the push."""
+    if os.environ.get(SCRATCH_SWEEP_OFF, "").strip() == "0":
+        return
+    try:
+        removed = sweep_scratch()
+    except Exception as error:  # noqa: BLE001 (a failed sweep never stops a push)
+        safe_print(f"prepush-gate: scratch sweep failed ({type(error).__name__}: {error}); the push goes on",
+                   file=sys.stderr)
+        return
+    if removed:
+        safe_print(f"prepush-gate: removed {len(removed)} scratch dir(s) of ended gate runs from "
+                   f"{os.path.dirname(removed[0])}", file=sys.stderr)
+
+
+def remove_scratch_on_signals(signums=(signal.SIGTERM, signal.SIGHUP)) -> None:
+    """On SIGNUMS: remove this run's scratch, then die of the same signal (the caller sees what it saw before)."""
+    def handler(signum, frame):
+        remove_live_scratch()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for signum in signums:
+        try:
+            signal.signal(signum, handler)
+        except (OSError, ValueError):
+            pass
 
 
 if __name__ == "__main__":
     start_watchdog(gate_limit())
+    remove_scratch_on_signals()
+    sweep_scratch_safely()
     sys.exit(main())

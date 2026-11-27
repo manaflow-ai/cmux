@@ -21,12 +21,12 @@ enum AgentHistoryPage {
         if pane.openAgentTab(seed: nil, newTab: (page, handler)) { NewTabPage.fillPaletteActions(services) }
     }
 
-    /// The strip title of tab `key` when it shows agent history, else nil.
-    static func title(_ key: String, _ services: AppServices) -> String? {
-        services.agentTabs.newTabPage(key)?.page.history == true ? Strings.agentHistory : nil
+    /// The strip title of tab `key` when it shows agent history, else nil. A tab's name passes its `machine`: a bare key lists every agent tab (NIGHTLY 85b099928a8a).
+    static func title(_ key: String, machine: String? = nil, _ services: AppServices) -> String? {
+        services.agentTabs.newTabPage(key, machine: machine)?.page.history == true ? Strings.agentHistory : nil
     }
 }
 
 extension Strings {
-    static var agentHistory: String { String(localized: "tab.agentHistory", defaultValue: "History", bundle: .module) }
+    static var agentHistory: String { String(localized: "tab.agentHistory", defaultValue: "History", bundle: .module.inAppLanguage) }
 }

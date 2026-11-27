@@ -1,4 +1,6 @@
+import Darwin
 public import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// Where the Chief Settings panel reads and writes the engine of the brain
@@ -13,12 +15,50 @@ public nonisolated protocol HomeChiefEngineSource: Sendable {
     /// one engine of its own, and the card hides the Harness row).
     var choosesHarness: Bool { get }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot
-    /// Sets (nil: clears) any of harness, model, effort, speed and the reaction classifier fields in one brain write; the snapshot after.
+    /// Sets (nil: clears) any of harness, model, effort, speed, the reaction classifier fields and the computer in one brain write; the snapshot after.
     func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
+    /// The Chief's automations, oldest first (`chief.automation.list`).
+    func automations() async throws(HomeChiefEngineError) -> [ChiefAutomation]
+    /// Pauses, resumes, deletes or runs one automation (`chief.automation.update`); the list after.
+    func updateAutomation(_ id: String, _ action: ChiefAutomationAction) async throws(HomeChiefEngineError) -> [ChiefAutomation]
 }
 
 extension HomeChiefEngineSource {
     public nonisolated var choosesHarness: Bool { true }
+
+    /// The Chief's automations (issue 25573), oldest first; a brain with none to show (a hosted
+    /// cloud Chief, whose jobs are its own `chief-auto`) answers `unsupported`.
+    public nonisolated func automations() async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        throw .unsupported
+    }
+
+    /// Pauses, resumes, deletes or runs one automation; the list after the change.
+    public nonisolated func updateAutomation(_ id: String, _ action: ChiefAutomationAction) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        throw .unsupported
+    }
+}
+
+/// `chief.automation.list|update` on the daemon in front of a brain, for the local and the
+/// paired-server brain alike.
+nonisolated enum HomeChiefAutomationCalls {
+    static func list(on connection: DaemonConnection?, chief: String?) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        guard let connection else { throw .unreachable }
+        do {
+            return try await ChiefControlClient(connection).chiefAutomations(chief: chief)
+        } catch {
+            throw HomeChiefEngineError(error)
+        }
+    }
+
+    static func update(_ id: String, _ action: ChiefAutomationAction, on connection: DaemonConnection?,
+                       chief: String?) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        guard let connection else { throw .unreachable }
+        do {
+            return try await ChiefControlClient(connection).updateChiefAutomation(id, action, chief: chief)
+        } catch {
+            throw HomeChiefEngineError(error)
+        }
+    }
 }
 
 /// This Mac's brain. It reads its mux home's files (engine.json, profile,
@@ -62,13 +102,91 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
         return snapshot.offering(report)
     }
 
+    public func automations() async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        guard let connection = await connection() else { throw .localUnreachable }
+        return try await HomeChiefAutomationCalls.list(on: connection, chief: chief)
+    }
+
+    public func updateAutomation(_ id: String, _ action: ChiefAutomationAction) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        guard let connection = await connection() else { throw .localUnreachable }
+        return try await HomeChiefAutomationCalls.update(id, action, on: connection, chief: chief)
+    }
+
     public func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+        // The daemon's operation catalog has no `computer` field yet: this one goes to the brain's tools socket,
+        // the same line the daemon would forward (chief_control.rs tool_line).
+        if fields.count == 1, let computer = fields["computer"] {
+            switch await Self.setComputer(computer ?? "default", socket: files.muxHome.appendingPathComponent("optchat/tools.sock").path) {
+            case .some(nil): return try await read()
+            case .some(let refusal?): throw .other(refusal)
+            case nil: throw await startBrain(true) ? .localStarting : .localUnreachable
+            }
+        }
         guard let connection = await connection() else { throw .localUnreachable }
         do {
             return files.snapshot().offering(try await HomeChiefEngineSet.send(fields, on: connection, chief: chief))
         } catch .unreachable {
-            throw await startBrain(true) ? .localStarting : .localUnreachable
+            // A brain that was not running is started here, and the same set (idempotent) goes again once it answers,
+            // instead of asking the person to try again (Leo, 2026-11-22: "vacuous decisions like that should be just
+            // done"). Only a brain still silent past the shared connection bound is reported.
+            guard await startBrain(true) else { throw .localUnreachable }
+            return try await setOnceStarted(fields)
         }
+    }
+
+    /// Sends `fields` again, spaced by a jittered backoff, until the starting brain answers or the shared connection
+    /// bound passes.
+    private func setOnceStarted(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+        var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(2), jitter: 0.3)
+        let deadline = ContinuousClock.now + QuietHold.connectionDelay
+        while ContinuousClock.now < deadline {
+            // concurrency-allow: Backoff.wait is an async clock sleep (no thread blocks), a few attempts within the 10 s connection bound after a person's set.
+            do { try await backoff.wait(owner: "HomeChiefLocalEngine.setOnceStarted") } catch { break }
+            guard let connection = await connection() else { continue }
+            do {
+                return files.snapshot().offering(try await HomeChiefEngineSet.send(fields, on: connection, chief: chief))
+            } catch .unreachable {
+                continue
+            }
+        }
+        throw .localStarting
+    }
+}
+
+extension HomeChiefLocalEngine {
+    /// One `engine set computer` line to the brain, off the main thread. Nil: the brain did not answer;
+    /// `.some(nil)`: it took the value; `.some(text)`: its refusal.
+    @concurrent
+    static func setComputer(_ computer: String, socket path: String) async -> String?? {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        var noSigPipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        var timeout = timeval(tv_sec: 15, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8)
+        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: bytes) }
+        let connected = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        guard connected == 0, var line = try? JSONSerialization.data(withJSONObject: ["tool": "engine", "action": "set", "computer": computer]) else { return nil }
+        line.append(0x0A)
+        guard line.withUnsafeBytes({ Darwin.write(fd, $0.baseAddress, $0.count) }) == line.count else { return nil }
+        var reply = Data()
+        var chunk = [UInt8](repeating: 0, count: 65_536)
+        while !reply.contains(0x0A) {
+            let count = Darwin.read(fd, &chunk, chunk.count)
+            guard count > 0 else { break }
+            reply.append(contentsOf: chunk[0..<count])
+        }
+        guard let answer = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any] else { return nil }
+        guard let error = answer["error"] as? [String: Any] else { return .some(nil) }
+        return .some(error["message"] as? String ?? "The Chief did not take this computer.")
     }
 }
 
@@ -123,6 +241,14 @@ public nonisolated struct HomeChiefRemoteEngine: HomeChiefEngineSource {
     public func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         guard let connection = await connection() else { throw .unreachable }
         return snapshot(try await HomeChiefEngineSet.send(fields, on: connection))
+    }
+
+    public func automations() async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        try await HomeChiefAutomationCalls.list(on: await connection(), chief: nil)
+    }
+
+    public func updateAutomation(_ id: String, _ action: ChiefAutomationAction) async throws(HomeChiefEngineError) -> [ChiefAutomation] {
+        try await HomeChiefAutomationCalls.update(id, action, on: await connection(), chief: nil)
     }
 
     private func snapshot(_ report: ChiefEngineReport) -> HomeChiefSnapshot {

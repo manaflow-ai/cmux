@@ -29,9 +29,10 @@ import Testing
         var cancels = 0
     }
 
-    /// An updater for `identity` with the channel's default (`optIn` nil) or the given
-    /// `updates.downloadAutomatically`; downloads, installs and cancels are counted.
-    static func make(_ identity: UpdateBuildIdentity, optIn: Bool? = nil) -> (UpdaterService, Effects) {
+    /// An updater for `identity` with the given `updates.downloadAutomatically` (off by default:
+    /// these tests are about the asks, which the nightly ring's default skips) or the channel's
+    /// default (`optIn` nil); downloads, installs and cancels are counted.
+    static func make(_ identity: UpdateBuildIdentity, optIn: Bool? = false) -> (UpdaterService, Effects) {
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
                                      defaults: UserDefaults(testSuiteName: "UpdateAsksBeforeInstallTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
@@ -54,8 +55,8 @@ import Testing
     /// update by itself, and the staged update still waits for Restart to Update.
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
     func everyChannelDownloadsByDefaultAndAsksBeforeTheRelaunch(identity: UpdateBuildIdentity) async throws {
-        #expect(identity.track.downloadsAutomaticallyByDefault, "\(identity.track) asks before it downloads by default")
-        let (updater, effects) = Self.make(identity)
+        #expect(identity.track.downloadsAutomaticallyByDefault, "\(identity.track) does not download by default")
+        let (updater, effects) = Self.make(identity, optIn: nil)
         #expect(updater.automaticUpdates && updater.downloadsFoundUpdates,
                 "\(identity.track) (tip \(identity.isTipBuild)) does not download found updates by default")
         updater.debugIndicatorPhase = .downloading(.starting)
@@ -66,6 +67,25 @@ import Testing
         updater.installClicked()
         #expect(await eventually { effects.installs == 1 }, "\(identity.track): Restart to Update did not install")
         #expect(updater.updateClicks == 1, "\(identity.track): the update took \(updater.updateClicks) clicks")
+    }
+
+    /// On the nightly ring's default a found update stages with no click, and nothing relaunches
+    /// until Restart to Update, the one click.
+    @Test func aNightlyStagesByItselfAndRestartToUpdateIsTheOneClick() async throws {
+        let (updater, effects) = Self.make(Self.nightly, optIn: nil)
+        #expect(updater.identity.track == .nightlyNext)
+        updater.debugIndicatorPhase = .checking
+        updater.debugIndicatorPhase = .downloading(.starting)
+        updater.debugIndicatorPhase = .ready(version: "2.0.0")
+        // The gate decides as the phase moves (`syncFlowPhase` runs in the setter): an install
+        // starts only from its install request, so with none the staged update waits for a click.
+        #expect(!updater.flow.installRequested, "the nightly asked to install without a click")
+        #expect(updater.availableButton == nil, "the nightly asked before it downloaded")
+        #expect(effects.installs == 0, "the nightly relaunched without a click")
+        let ready = try #require(updater.readyCard, "the staged nightly shows no Restart to Update")
+        #expect(ready.buttonTitle == UpdaterStrings.restartToUpdate && !ready.isInstalling)
+        updater.installClicked()
+        #expect(await eventually { effects.installs == 1 }, "Restart to Update did not install")
     }
 
     /// Leo 2026-11-09, on a NIGHTLY update: "that update, it wasn't just the one-click automatic

@@ -1,19 +1,32 @@
 // An opened edit inside the transcript: a card per changed file with its name, the lines added
-// and removed, Wrap lines and copy, and the change on @pierre/diffs: its first lines under a fade
-// with Show all N lines when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
+// and removed, Wrap lines and copy, and the change on @pierre/diffs, scrolling in an eight-line
+// box when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
 // hanging indent; code keeps its lines whole, its right edge fading while more lies past it. The
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { cornerAction } from "./cornerActions";
-import { lazy, Suspense, useContext, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import {
+  lazy,
+  Suspense,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
-import { PreviewMore, WrapButton } from "./BlockParts";
+import { WrapButton } from "./BlockParts";
 import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
+import { useMoreBelowOn } from "./moreBelow";
 import { EditDiffLoading } from "./EditDiffLoading";
+import { EDIT_DIFF_VARS } from "./editDiffBox";
 import { useDiffPainted } from "./editDiffLoadingModel";
 import { loadEditDiffHunks } from "./editDiffModel";
 const EditDiffHunks = lazy(() => loadEditDiffHunks().then((module) => ({ default: module.EditDiffHunks })));
@@ -51,6 +64,13 @@ type EditDiffProps = {
   reveal?: number;
   /** Never cut to a preview (an edit a permission ask is about). */
   whole?: boolean;
+  /** More corner actions after Wrap and copy (the edited-files card's Open in Changes). */
+  actions?: ReactNode;
+  /** The name its header shows, when not the file's own (the edited-files card's repo-relative path). */
+  label?: string;
+  /** Drawn inside a card of its own (the edited-files card): no ring, corner, fill or margin, so
+   *  the header and diff sit directly on that card instead of in a second box (conversation.css). */
+  flat?: boolean;
 };
 
 export function EditDiff(props: EditDiffProps) {
@@ -62,6 +82,9 @@ export function EditDiffFrame({
   file,
   reveal = 0,
   whole = false,
+  actions,
+  label,
+  flat = false,
   hunks: Hunks,
 }: EditDiffProps & {
   hunks: ComponentType<{ file: TurnFile; patches: string[]; wrap: boolean }>;
@@ -69,7 +92,7 @@ export function EditDiffFrame({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const patches = useMemo(() => file.edits.map((edit) => editPatch(file, edit)), [file]);
-  const name = file.path.split("/").pop() || file.path;
+  const name = label || file.path.split("/").pop() || file.path;
   const kind = fileBlockKind(file.path);
   const [wrap] = useBlockWrap(kind);
   const found = useFindInFile(file);
@@ -82,10 +105,21 @@ export function EditDiffFrame({
   const body = useSidewaysRef<HTMLDivElement>();
   const hunks = useRef<HTMLDivElement>(null);
   const painted = useDiffPainted(hunks);
+  useMoreBelowOn(body, painted);
   return (
-    <div className="cv-edit-diff" data-wrap={wrap}>
+    <div
+      className="cv-edit-diff"
+      data-wrap={wrap}
+      data-flat={flat || undefined}
+      style={EDIT_DIFF_VARS as CSSProperties}
+    >
       <div className="cv-edit-diff__header">
-        <span className="cv-edit-diff__name" data-path={file.path}>
+        <span
+          className="cv-edit-diff__name"
+          data-path={file.path}
+          // tooltip-allow: a long path is cut to the header; its whole path is the tooltip
+          title={label}
+        >
           {name}
         </span>
         <span className="cv-edit-diff__add">+{file.additions}</span>
@@ -104,6 +138,7 @@ export function EditDiffFrame({
         >
           <Copy />
         </button>
+        {actions}
       </div>
       <div ref={body} className="cv-edit-diff__body" data-preview={preview.attribute}>
         {/* The placeholder holds the body's height until Pierre has drawn every edit: the renderer's
@@ -118,7 +153,6 @@ export function EditDiffFrame({
           {painted ? null : <EditDiffLoading file={file} wrap={wrap} />}
         </div>
       </div>
-      <PreviewMore preview={preview} />
     </div>
   );
 }

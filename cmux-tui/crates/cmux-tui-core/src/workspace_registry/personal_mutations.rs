@@ -34,6 +34,11 @@ pub fn new_profile_id() -> String {
     format!("prof_{}", new_uuid_v4().replace('-', ""))
 }
 
+/// How long a session record belongs to the machine (`transport.machine`)
+/// that last wrote it: within it, another machine's put of the same session
+/// id is refused (`ensure_one_machine_holds`).
+pub(crate) const SESSION_MACHINE_HOLD_MS: i64 = 10 * 60 * 1000;
+
 fn qualified(session_id: &str, workspace_key: &str) -> String {
     format!("{session_id}/{workspace_key}")
 }
@@ -264,6 +269,8 @@ impl WorkspaceRegistry {
                     "UPDATE personal_groups SET profile_id = ?2 WHERE profile_id = ?1",
                     params![id, target],
                 )?;
+                // The sidebar document's pins and groups of the space move in this commit too.
+                crate::state::sidebar_doc_sync::move_room_items(tx, id, target)?;
                 Vec::new()
             }
             None => {
@@ -419,6 +426,7 @@ impl WorkspaceRegistry {
         if let Some(room) = follow_with {
             anyhow::ensure!(read_profile(tx, room)?.is_some(), "unknown room {room}");
         }
+        let now = i64::try_from(unix_epoch_ms()?)?;
         if let Some(record) = existing {
             // Absent optional fields preserve their stored values. Compare
             // parsed JSON, so object key order cannot cause a write either.
@@ -429,8 +437,8 @@ impl WorkspaceRegistry {
             {
                 return Ok((record, false));
             }
+            Self::ensure_one_machine_holds(session, &record, machine_name, transport, now)?;
         }
-        let now = i64::try_from(unix_epoch_ms()?)?;
         tx.execute(
             "INSERT INTO sessions(session_id, machine_name, session_name, transport_json, last_seen_ms, capabilities_json)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6)
@@ -459,6 +467,48 @@ impl WorkspaceRegistry {
             &Self::session_put_fact(&record, created, capabilities_changed),
         )?;
         Ok((record, created))
+    }
+
+    /// Refuses a put that moves a session id another machine wrote within
+    /// [`SESSION_MACHINE_HOLD_MS`] to a different `transport.machine`. Two
+    /// machines that answer with one registry id are copies (VMs forked from
+    /// one snapshot, `host_identity`); the app put each one's record under the
+    /// shared id in turn, and each put bumped the personal revision that
+    /// started its next registration pass: for twelve Freestyle lane VMs that
+    /// was 5.57 million `personal.session.put` rows in two days (2026-11-02/03).
+    /// The refusal is a read, so it starts no pass; the app shows it once and
+    /// does not send the same record again. A machine that really took the
+    /// id over (the old one went away) is recorded once the hold has passed.
+    fn ensure_one_machine_holds(
+        session: &str,
+        record: &PersonalSession,
+        machine_name: Option<&str>,
+        transport: &Value,
+        now: i64,
+    ) -> anyhow::Result<()> {
+        fn machine(transport: &Value) -> Option<&str> {
+            transport.get("machine").and_then(Value::as_str)
+        }
+        let (Some(held), Some(putting)) = (machine(&record.transport), machine(transport)) else {
+            return Ok(());
+        };
+        if held == putting {
+            return Ok(());
+        }
+        let age = record
+            .last_seen_ms
+            .and_then(|seen| i64::try_from(seen).ok())
+            .map(|seen| now.saturating_sub(seen));
+        anyhow::ensure!(
+            age.is_none_or(|age| age >= SESSION_MACHINE_HOLD_MS),
+            "bad request: session {session} belongs to machine {held} ({}), recorded {} ms ago; \
+             machine {putting} ({}) answers with the same session id, so one of them is a copy \
+             of the other and must mint its own registry id",
+            record.machine_name.as_deref().unwrap_or("unnamed"),
+            age.unwrap_or_default(),
+            machine_name.unwrap_or("unnamed"),
+        );
+        Ok(())
     }
 
     /// The `personal.session.put` fact. The `sessions` row holds the
@@ -924,6 +974,35 @@ impl WorkspaceRegistry {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         let output = Self::pin_workspace_in(&tx, session, key, profile)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    /// Pins `to_key` to the room `from_key` is pinned to, on `session`, when
+    /// `from_key` has a pin and `to_key` has none. A tab or tab group moved
+    /// to a new workspace stays in its space this way; an unpinned source
+    /// leaves the new workspace following its session like the source
+    /// (https://github.com/manaflow-ai/cmux/issues/42754).
+    pub fn inherit_workspace_pin(
+        &mut self,
+        session: &str,
+        from_key: &str,
+        to_key: &str,
+    ) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
+        let pin_of = |key: &str| {
+            tx.query_row(
+                "SELECT profile_id FROM profile_pins WHERE session_id = ?1 AND workspace_key = ?2",
+                params![session, key],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+        };
+        let (Some(profile), None) = (pin_of(from_key)?, pin_of(to_key)?) else {
+            return Ok(false);
+        };
+        let output = Self::pin_workspace_in(&tx, session, to_key, &profile)?;
         tx.commit()?;
         Ok(output)
     }

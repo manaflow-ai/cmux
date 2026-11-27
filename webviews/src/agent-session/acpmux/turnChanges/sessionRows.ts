@@ -2,7 +2,8 @@
 // (`agentPane.editedFiles.scope` session): the card at the latest edit covers every edit of the
 // session. The pane provides them, the same array until an edit row changes, so a card's memos
 // survive the snapshots of a long chat.
-import { createContext } from "react";
+import { keptPrefix } from "../conversation/prefixFlatMap";
+import { createContext, useSyncExternalStore } from "react";
 import { isEditCard, type AcpmuxRow } from "../model";
 
 export const SessionEditsContext = createContext<readonly AcpmuxRow[] | undefined>(undefined);
@@ -15,9 +16,7 @@ export type SessionEdits = { rows: readonly AcpmuxRow[]; at: number[]; edits: re
 /// The edit rows of `rows`. Rows before the first that differs from `previous.rows` (by object)
 /// keep their result, and `edits` stays `previous.edits` when they are the same rows.
 export function sessionEdits(rows: readonly AcpmuxRow[], previous?: SessionEdits): SessionEdits {
-  let from = 0;
-  if (previous)
-    while (from < rows.length && from < previous.rows.length && rows[from] === previous.rows[from]) from += 1;
+  const from = previous ? keptPrefix(previous.rows, rows) : 0;
   let keep = 0;
   if (previous) while (keep < previous.at.length && previous.at[keep]! < from) keep += 1;
   const at = previous ? previous.at.slice(0, keep) : [];
@@ -44,3 +43,28 @@ export const isEditRow = isEditCard;
 
 /// The session's folder, so a tool row names a file in it by its path from there. The pane provides it.
 export const SessionCwdContext = createContext<string | undefined>(undefined);
+
+/// The session's git branch (the snapshot summary's), for the Transcript Work Log's changes card
+/// (EditedFilesCard.tsx). A module store the pane sets once per change, not a context: the card is
+/// deep inside the transcript's providers, and one value per page is all it needs.
+let branch: string | undefined;
+const branchListeners = new Set<() => void>();
+
+export function setSessionBranch(next: string | undefined): void {
+  if (next === branch) return;
+  branch = next;
+  for (const listener of branchListeners) listener();
+}
+
+function subscribeBranch(listener: () => void) {
+  branchListeners.add(listener);
+  return () => void branchListeners.delete(listener);
+}
+
+const readBranch = () => branch;
+
+/// The session's branch; the same read serves a server render (renderToStaticMarkup in tests and
+/// galleries), which throws on a store with no server snapshot.
+export function useSessionBranch(): string | undefined {
+  return useSyncExternalStore(subscribeBranch, readBranch, readBranch);
+}

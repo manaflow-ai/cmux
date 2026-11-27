@@ -8,12 +8,24 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 
-	<!-- What leaves the device to a cmux service and is kept: the account
-	     (Stack sign-in: email, name, user id) and the device registry
-	     (cmux-mobile-api: a generated device id). Messages, terminal bytes,
-	     photos and audio go to the user's own Mac over the end-to-end
-	     encrypted link and are not collected. No crash or analytics SDK.
-	     Keep in lockstep with the App Store Connect privacy label. -->
+	<!-- What leaves the device to a cmux service or a model provider and is
+	     kept: the account (Stack sign-in: email, name, user id), the device
+	     registry (cmux-mobile-api: a generated device id, the device name, the
+	     push token), a Cloud Chief's conversation and messages to teammates:
+	     their messages, the photos attached to them (ChiefCloudBackend,
+	     /v1/home/attachments) and invitees' emails and phone numbers (New
+	     Message). Cloud Chief is answered by Anthropic's Claude. Chief Calls and
+	     agent voice mode send microphone audio and Chief messages from the
+	     phone to OpenAI with the user's key (RealtimeCallsAPI). StoreKit
+	     transactions go to cmux.com (billing). Prompts for an agent on the
+	     user's own Mac go over the end-to-end encrypted link to that Mac, whose
+	     agent sends them to Anthropic or OpenAI; terminal bytes, photos and
+	     audio for it are not collected by cmux. Voice notes become text on the
+	     phone; composer dictation falls back to Apple's speech service when the
+	     device cannot recognize locally. Connectivity records stay in an
+	     on-device journal (sent only by Copy Logs). No crash or analytics SDK.
+	     Keep in lockstep with the App Store Connect privacy label (cmuxterm-hq
+	     docs/handbook/ios-app-store-connect-answers.md). -->
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
 		<dict>
@@ -64,6 +76,67 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhoneNumber</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeAudioData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePurchaseHistory</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
 	</array>
 
 	<!-- Required-reason APIs, first-party use only. -->
@@ -76,6 +149,8 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>
+				<!-- 1C8F.1: the push preferences in the App Group defaults, shared with the notification extensions. -->
+				<string>1C8F.1</string>
 			</array>
 		</dict>
 		<dict>
@@ -87,6 +162,17 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- Artifact previews check free space before a download writes the
+			     file (CmuxMobileArtifacts PreviewStorage,
+			     volumeAvailableCapacityForImportantUsage). -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>E174.1</string>
 			</array>
 		</dict>
 		<dict>

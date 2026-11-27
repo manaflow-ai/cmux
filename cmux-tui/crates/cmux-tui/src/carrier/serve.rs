@@ -60,17 +60,26 @@
 //!   `dial`'s format: stderr gets none. So do the `carrier.phases` lines:
 //!   one per dial attempt, and one `phase=stream` line for each connection
 //!   carried on the held session.
+//! - A quiet socket, `<path>.quiet`, is claimed beside it the same way
+//!   (0600, its own `.lock`) when that path fits a Unix socket address: a
+//!   connection there rides the held session, and with none it reads the
+//!   machine's state first and is closed having written nothing (no stderr
+//!   line, one `carrier.quiet` line in the connect log) while the machine is
+//!   paused, instead of dialing a carrier that would start it
+//!   ([`super::serve_quiet`]). Otherwise it is served as a main-socket
+//!   connection is. A quiet socket that cannot be had is skipped (one
+//!   connect-log line) and serve goes on with the main one.
 //! - It exits 0 when stdin ends (whoever spawned it holds the other end)
 //!   or on SIGTERM or SIGINT, and 6 if accepting fails for good. Every exit
 //!   after the bind removes the socket; the session is closed on the way
 //!   out.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use cmux_remote::crypto::StaticIdentity;
-use cmux_remote::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
+use cmux_remote::unix_socket::OwnedUnixListener;
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
 use tokio::net::UnixStream;
 use tokio::signal::unix::{Signal, SignalKind, signal};
@@ -84,6 +93,7 @@ use super::contract::{
     self, BAD_REQUEST, MAX_STDIN_LINE, PhaseTimes, PhasesOf, SOCKET, SOCKET_EXIT, StdinLine,
 };
 use super::held::{self, Slot};
+use super::serve_quiet::{self, Asleep, Look};
 use super::{STDIO_SHUTDOWN_TIMEOUT, ServeArgs, client, reply, route_log};
 
 /// Connections served at once.
@@ -109,6 +119,8 @@ struct Shared {
     log: Arc<dyn Fn(String) + Send + Sync>,
     /// The ssh backup carrier's pieces, for every dial.
     ssh: Arc<super::ssh::SshSetup>,
+    /// Whether the machine was last read asleep, for quiet connections.
+    asleep: Asleep,
 }
 
 /// `cmux carrier serve …`: the exit code.
@@ -132,6 +144,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     let ssh = Arc::new(super::ssh::SshSetup::from_env(dial.wg_hub.clone()));
     let shared = Arc::new(Shared {
         ssh,
+        asleep: Asleep::new(serve_quiet::recheck_time()),
         session: Slot::new(idle_time(), who.clone()),
         machine: dial.machine,
         deadline: dial.deadline,
@@ -160,11 +173,13 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
         Ok(listener) => listener,
         Err(error) => return super::usage(&error.to_string()),
     };
+    let mut quiet = bind_quiet(&socket, &shared).await;
     reply(&contract::serving_line(&socket.to_string_lossy()));
     let (stop, stopped) = watch::channel(false);
     let permits = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let mut tasks = JoinSet::new();
-    let mut backoff = UnixAcceptBackoff::new();
+    let mut backoff = cmux_remote::unix_socket::accept_backoff();
+    let mut quiet_backoff = cmux_remote::unix_socket::accept_backoff();
     let ended = ended(shared.clone(), terminate, interrupt);
     tokio::pin!(ended);
     let code = loop {
@@ -179,11 +194,11 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
                     let deadline = Instant::now() + shared.deadline;
                     // One past the cap is closed at once.
                     if let Ok(permit) = permits.clone().try_acquire_owned() {
-                        let task = connection(stream, deadline, shared.clone(), stopped.clone(), permit);
+                        let task = connection(stream, deadline, shared.clone(), stopped.clone(), permit, false);
                         tasks.spawn(task);
                     }
                 }
-                Err(error) => match backoff.retry_delay(&error) {
+                Err(error) => match cmux_tui_core::backoff::accept_retry_delay(&mut backoff, &error) {
                     Some(delay) => tokio::time::sleep(delay).await,
                     None => {
                         reply(&contract::failure_line(SOCKET, Some(&error.to_string())));
@@ -191,8 +206,32 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
                     }
                 },
             },
+            accepted = accept_on(quiet.as_ref()) => match accepted {
+                Ok(stream) => {
+                    quiet_backoff.reset();
+                    let deadline = Instant::now() + shared.deadline;
+                    if let Ok(permit) = permits.clone().try_acquire_owned() {
+                        let task = connection(stream, deadline, shared.clone(), stopped.clone(), permit, true);
+                        tasks.spawn(task);
+                    }
+                }
+                // The quiet socket failing for good ends it alone: the main
+                // socket keeps serving.
+                Err(error) => match cmux_tui_core::backoff::accept_retry_delay(&mut quiet_backoff, &error) {
+                    Some(delay) => tokio::time::sleep(delay).await,
+                    None => {
+                        if let Some(gone) = quiet.take() {
+                            let _ = gone.cleanup().unlink();
+                        }
+                        (shared.log)(serve_quiet::skipped_line(&shared.machine, "accept"));
+                    }
+                },
+            },
         }
     };
+    if let Some(quiet) = &quiet {
+        let _ = quiet.cleanup().unlink();
+    }
     let _ = listener.cleanup().unlink();
     let _ = stop.send(true);
     let _ =
@@ -201,6 +240,31 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
     tasks.abort_all();
     let _ = tokio::time::timeout(DRAIN_TIMEOUT, shared.session.close()).await;
     code
+}
+
+/// The quiet socket beside `socket`, claimed as the main one is; `None`
+/// (with one connect-log line) when its path does not fit or it cannot be
+/// claimed.
+async fn bind_quiet(socket: &Path, shared: &Shared) -> Option<OwnedUnixListener> {
+    let Some(path) = serve_quiet::quiet_path(socket) else {
+        (shared.log)(serve_quiet::skipped_line(&shared.machine, "too_long"));
+        return None;
+    };
+    match OwnedUnixListener::bind(path).await {
+        Ok(listener) => Some(listener),
+        Err(_) => {
+            (shared.log)(serve_quiet::skipped_line(&shared.machine, "claim"));
+            None
+        }
+    }
+}
+
+/// The next connection on the quiet socket; never, without one.
+async fn accept_on(listener: Option<&OwnedUnixListener>) -> std::io::Result<UnixStream> {
+    match listener {
+        Some(listener) => listener.listener().accept().await.map(|(stream, _)| stream),
+        None => std::future::pending().await,
+    }
 }
 
 /// How long a session with no stream stays open: [`held::DEFAULT_IDLE`],
@@ -287,6 +351,7 @@ async fn connection(
     shared: Arc<Shared>,
     mut stopped: watch::Receiver<bool>,
     _permit: OwnedSemaphorePermit,
+    quiet: bool,
 ) {
     let accepted = Instant::now();
     let plan = client::DialPlan {
@@ -298,16 +363,40 @@ async fn connection(
         log: shared.log.clone(),
         phases: shared.log.clone(),
         fresh_sessions: Default::default(),
+        progress: None,
         ssh: shared.ssh.clone(),
         ssh_refusal: super::ssh::SshRefusal::default(),
+        drill: false,
     };
     let plan = &plan;
+    // A quiet connection's dial, when no session is held, first asks
+    // whether the machine sleeps; its word on a refusal lands here.
+    let hushed = std::sync::Mutex::new(None);
+    let (hushed_ref, shared_ref) = (&hushed, &*shared);
+    let dial = move || async move {
+        if quiet && let Some(refusal) = quiet_look(shared_ref).await {
+            *hushed_ref.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(refusal);
+            return Err(contract::Failure::fatal(contract::Step::Ticket, "the machine is asleep"));
+        }
+        client::dial(plan).await
+    };
     let outcome = tokio::select! {
-        outcome = shared.session.stream(deadline, move || client::dial(plan)) => outcome,
+        outcome = shared.session.stream(deadline, dial) => outcome,
         _ = stopped.wait_for(|stopped| *stopped) => return,
     };
+    let refusal = hushed.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    if outcome.is_err()
+        && let Some((seen, cached)) = refusal
+    {
+        // Closed having written nothing: no stderr line, no dial.
+        (shared.log)(serve_quiet::refusal_line(&shared.machine, seen, cached, accepted.elapsed()));
+        return;
+    }
     let held::Stream { mux, vmk, lease, dialed, opened } = match outcome {
-        Ok(stream) => stream,
+        Ok(stream) => {
+            shared.asleep.clear();
+            stream
+        }
         Err(held::Refused { failure, dialed, opened }) => {
             if !dialed {
                 // No dial attempt logged this one: the held session's. Its
@@ -346,4 +435,18 @@ async fn connection(
         _ = stopped.wait_for(|stopped| *stopped) => {}
     }
     lease.end().await;
+}
+
+/// A quiet connection with no session to ride: `Some((seen, cached))` when
+/// it is closed instead of dialing (the machine sleeps, or its state could
+/// not be read), `None` when it dials. Runs under the slot's lock (it is
+/// the slot's dial), so quiet connections that arrive together share one
+/// read.
+async fn quiet_look(shared: &Shared) -> Option<(serve_quiet::Seen, bool)> {
+    if let Look::Cached(seen) = shared.asleep.look(Instant::now()) {
+        return Some((seen, true));
+    }
+    let status = shared.source.machine_status(&shared.machine).await;
+    let status = status.as_deref().map_err(|_| ());
+    shared.asleep.saw(Instant::now(), status).map(|seen| (seen, false))
 }

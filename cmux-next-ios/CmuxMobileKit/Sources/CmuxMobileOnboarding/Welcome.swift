@@ -20,35 +20,32 @@ public struct LaunchMarkView: View {
         // screen as iOS centers the launch image, not in the safe area.
         CmuxLogoMark(chevronHeight: 72)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { LaunchMarks.shared.markNextFrame("first_frame") }
     }
 }
 
-/// Signed-out welcome (onboarding design spec, section 2), composed like
-/// Claude's: the cmux lockup at the top, an illustration and one serif line in
-/// the middle, the sign-in rows and legal line at the bottom. On a cold launch
-/// it plays a ~4 s intro on one clock: the launch mark glides into the lockup
-/// while the text and buttons come up from 35% (usable at once), then the
-/// illustration draws itself. Afterwards it rests; one idle event plays 4 s
-/// later, then nothing moves. At accessibility text sizes the art goes, the
-/// labels wrap, and the page scrolls when it has to.
+/// Signed-out welcome: the cmux wordmark and one gray line in the middle
+/// (`WelcomeGlide`), the sign-in rows (system glass) and the legal line at the
+/// bottom. On a cold launch it plays a 2.4 s intro on one clock: the launch
+/// mark dissolves while the buttons come up from 35% (usable at once), and
+/// the wordmark's cursor blinks, types "cmux" and flies home as the chevron.
+/// Afterwards nothing moves. At accessibility text sizes the labels wrap and
+/// the page scrolls when it has to.
 public struct WelcomeView: View {
     let auth: CmuxMobileAuthModel
     let initialEmail: String?
     @State private var showsEmail = false
-    /// The intro has started (the lockup slot is measured).
+    /// The intro has started (the scene is active).
     @State private var started: Bool
-    /// The timeline runs only while something moves.
+    /// The timeline runs while the intro plays. Only `runClock` writes it: a
+    /// second writer (the prototype picker's entrances) once let the intro's
+    /// end stop a reveal mid-way, sometimes on a blank frame.
     @State private var animating = true
-    @State private var idleStart: Date?
-    @State private var lockupMark: CGRect = .zero
     /// The sign-in icons grow with their labels (18 pt at the default size,
     /// capped at 28 pt so a two-line label still fits beside it).
     @ScaledMetric(relativeTo: .headline) private var scaledIcon: CGFloat = 18
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
-    /// The lockup's chevron grows with the wordmark (capped).
-    @ScaledMetric(relativeTo: .title2) private var scaledLockupMark: CGFloat = 22
 
     /// `playsLaunchIntro`: the welcome replaces the launch screen (cold launch);
     /// false after sign-out, where the root crossfades it in, settled.
@@ -61,16 +58,13 @@ public struct WelcomeView: View {
         let clock = WelcomeIntroClock.shared
         if !playsLaunchIntro, clock.t == nil { clock.t = .infinity }
         _started = State(initialValue: clock.t != nil)
-        _lockupMark = State(initialValue: clock.lockupMark)
     }
 
-    private var lockupMarkSize: CGFloat { min(scaledLockupMark, 48) }
     private static let launchMarkSize: CGFloat = 72
 
     public var body: some View {
         TimelineView(.animation(paused: !animating)) { context in
-            let t = WelcomeIntroClock.shared.time(at: context.date)
-            content(t: t, idle: idleTime(at: context.date))
+            content(t: WelcomeIntroClock.shared.time(at: context.date))
         }
         .sheet(isPresented: $showsEmail) {
             EmailSignInSheet(auth: auth, initialEmail: initialEmail)
@@ -89,62 +83,51 @@ public struct WelcomeView: View {
         #endif
     }
 
-    private func content(t rawT: Double, idle: Double?) -> some View {
+    private func content(t rawT: Double) -> some View {
         typealias E = IntroEase
         // Reduce Motion: everything crossfades into its settled state.
         let fade = reduceMotion ? E.seg(rawT, 0, 0.35) : 1
         let t = reduceMotion ? .infinity : rawT
-        // The headline, buttons and legal line are at 35% on the first frame
+        // The buttons and legal line are at 35% on the first frame
         // and reach 100% together in 0.22 s: no stagger, no rise.
         // Until the intro starts, the welcome is the launch screen: the 72 pt
         // mark alone (iOS is still crossfading its launch screen into it).
-        let introStarted = (WelcomeIntroClock.shared.t ?? -1) >= 0
+        var introStarted = (WelcomeIntroClock.shared.t ?? -1) >= 0
+        #if DEBUG
+        // A frozen intro (verification) shows the controls at the frozen time.
+        if let frozen = WelcomeIntroClock.debugFreeze { introStarted = frozen >= 0 }
+        #endif
         let controls = !introStarted ? 0 : reduceMotion ? fade : 0.35 + 0.65 * E.out(E.seg(t, 0, 0.22))
-        let large = dynamicTypeSize.isAccessibilitySize
         return ZStack {
             theme.colors.bg.color.ignoresSafeArea()
             ViewThatFits(in: .vertical) {
-                // Fits: the hero centers in the space between the lockup and
-                // the buttons.
-                column(t: t, idle: idle, fade: fade, controls: controls, showsArt: !large, fills: true)
+                // Fits: the wordmark centers in the space above the buttons.
+                column(t: t, fade: fade, controls: controls, fills: true)
                 // Larger text: the same column, scrolling.
                 ScrollView {
-                    column(t: t, idle: idle, fade: fade, controls: controls, showsArt: false, fills: false)
+                    column(t: t, fade: fade, controls: controls, fills: false)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
             launchMark(t: rawT)
         }
+        .onChange(of: scenePhase, initial: true) { _, _ in startIntroIfReady() }
     }
 
-    private func column(t: Double, idle: Double?, fade: Double, controls: Double, showsArt: Bool, fills: Bool) -> some View {
+    private func column(t: Double, fade: Double, controls: Double, fills: Bool) -> some View {
         VStack(spacing: 0) {
-            lockup(t: t)
-                .opacity(fade)
-                .padding(.top, 8)
             if fills { Spacer(minLength: 24) }
-            VStack(spacing: 32) {
-                if showsArt {
-                    WelcomeArt(t: t, idle: reduceMotion ? nil : idle)
-                        .opacity(fade)
-                }
-                Text("Your Macs, in your pocket.")
-                    .font(theme.type.welcomeTitle)
-                    .foregroundStyle(theme.colors.label)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(showsArt ? 2 : nil)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, theme.metrics.sideMargin)
-                    .opacity(controls)
-                    .accessibilityAddTraits(.isHeader)
-            }
-            // Optical center: a little above the middle of the free space.
-            .offset(y: fills ? -16 : 0)
-            .padding(.vertical, fills ? 0 : 32)
+            WelcomeGlide(t: t)
+                .opacity(fade)
+                // Optical center: a little above the middle of the free space.
+                .offset(y: fills ? -16 : 0)
+                .padding(.vertical, fills ? 0 : 32)
             if fills { Spacer(minLength: 72) }
             buttons
                 .opacity(controls)
                 .overlay(alignment: .top) { errorLine }
+                // A phone's width: an unfolded foldable keeps them centered, not 750 pt wide.
+                .frame(maxWidth: 440)
                 .padding(.horizontal, theme.metrics.sideMargin)
             legal
                 .opacity(controls)
@@ -153,62 +136,27 @@ public struct WelcomeView: View {
         }
     }
 
-    // MARK: Lockup
-
-    /// The chevron slot (drawn by `launchMark`) and the "cmux" wordmark.
-    private func lockup(t: Double) -> some View {
-        typealias E = IntroEase
-        let word = E.outQuint(E.seg(t, 0.15, 0.5))
-        return HStack(spacing: 7) {
-            Color.clear
-                .frame(width: lockupMarkSize, height: lockupMarkSize)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
-                    lockupMark = rect
-                    WelcomeIntroClock.shared.lockupMark = rect
-                    startIntroIfReady()
-                }
-                .onChange(of: scenePhase, initial: true) { _, _ in startIntroIfReady() }
-            Text(verbatim: "cmux")
-                .font(theme.type.welcomeWordmark)
-                .foregroundStyle(theme.colors.label)
-                .opacity(word)
-                .offset(x: -8 * (1 - word))
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "cmux"))
-    }
-
     /// The launch screen's mark (72 pt, centered, the app icon's gradient) on
-    /// the first frame, gliding into the lockup slot. It stays the lockup's
-    /// chevron afterwards, so nothing is swapped.
+    /// the first frame. It dissolves where it is (shrinking a little) while
+    /// the wordmark's cursor starts to blink; Reduce Motion crossfades it out.
     private func launchMark(t: Double) -> some View {
         typealias E = IntroEase
         return GeometryReader { proxy in
             let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-            let target = CGPoint(x: lockupMark.midX, y: lockupMark.midY)
-            let glide = reduceMotion ? 1 : E.outQuint(E.seg(t, 0, 0.45))
-            let size = E.lerp(Self.launchMarkSize, lockupMark.width > 0 ? lockupMark.width : lockupMarkSize, glide)
-            // Reduce Motion: the launch mark crossfades into the lockup's.
-            let fade = reduceMotion ? E.seg(t, 0, 0.35) : 1
-            ZStack {
-                if reduceMotion {
-                    CmuxLogoMark(chevronHeight: Self.launchMarkSize)
-                        .position(center)
-                        .opacity(1 - fade)
-                }
-                CmuxLogoMark(chevronHeight: size)
-                    .position(lockupMark == .zero ? center : E.lerp(center, target, glide))
-                    .opacity(fade)
-            }
+            let dissolve = reduceMotion ? E.seg(t, 0, 0.35) : E.out(E.seg(t, 0, 0.3))
+            CmuxLogoMark(chevronHeight: Self.launchMarkSize)
+                .scaleEffect(reduceMotion ? 1 : 1 - 0.12 * dissolve)
+                .position(center)
+                .opacity(1 - dissolve)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    /// Starts the intro clock once the lockup slot is measured and the scene
-    /// is active, at `-launchCrossfade`: on a cold launch iOS crossfades its
-    /// launch screen into the app's first frames (about 0.25 s, and it is
+    /// Starts the intro clock once the scene is active, at `-launchCrossfade`:
+    /// on a cold launch iOS crossfades its launch screen into the app's first
+    /// frames (about 0.25 s, and it is
     /// still running when the scene turns active, measured at 60 fps). While
     /// the clock is below 0 the welcome draws exactly the launch screen (the
     /// 72 pt mark alone), so that crossfade shows one chevron; the intro
@@ -216,7 +164,7 @@ public struct WelcomeView: View {
     /// intro's own frame clock (it advances with rendered frames), not a sleep.
     private func startIntroIfReady() {
         let clock = WelcomeIntroClock.shared
-        if clock.t == nil, clock.lockupMark.width > 0, scenePhase == .active {
+        if clock.t == nil, scenePhase == .active {
             clock.t = -(WelcomeIntroClock.launchCrossfade + WelcomeIntroClock.debugHold)
             // When the launch mark starts moving (launch timing checks).
             welcomeLog.info("intro started")
@@ -224,39 +172,25 @@ public struct WelcomeView: View {
         if !started, clock.t != nil { started = true }
     }
 
-    /// Seconds into the idle event, or nil outside it.
-    private func idleTime(at date: Date) -> Double? {
-        #if DEBUG
-        if let frozen = WelcomeIntroClock.debugPulseFreeze { return frozen }
-        #endif
-        guard let idleStart else { return nil }
-        let u = date.timeIntervalSince(idleStart)
-        return u < WelcomeArt.idleDuration ? u : nil
-    }
-
-    /// Stops the timeline when the intro settles, then wakes it once for the
-    /// idle event 4 s later; after that the welcome is still. These are
-    /// intentional, bounded pauses on the clock the intro already runs on,
-    /// not synchronization.
+    /// Stops the timeline when the intro settles; after that the welcome is
+    /// still. The wait is on the clock the intro already runs on, not
+    /// synchronization.
     private func runClock() async {
         guard started else { return }
         let clock = ContinuousClock()
-        let end = reduceMotion ? 0.4 : WelcomeArt.introDuration + 0.05
+        let end = reduceMotion ? 0.4 : WelcomeGlide.entranceDuration + 0.05
         while let t = WelcomeIntroClock.shared.t, t < end {
             try? await clock.sleep(for: .seconds(end - t))
             guard !Task.isCancelled else { return }
         }
         animating = false
+        // Settled for good: the paused timeline's last time could sit in a
+        // blank moment of the reveal (Reduce Motion stops at 0.4 s, in the
+        // cursor's off gap), and turning Reduce Motion off would then redraw
+        // it there with nothing to move it on.
+        WelcomeIntroClock.shared.t = .infinity
         WelcomeIntroClock.shared.logFramePacing()
         openRequestedEmail()
-        guard !reduceMotion, !WelcomeIntroClock.shared.idlePlayed else { return }
-        try? await clock.sleep(for: .seconds(4))
-        guard !Task.isCancelled else { return }
-        WelcomeIntroClock.shared.idlePlayed = true
-        idleStart = .now
-        animating = true
-        try? await clock.sleep(for: .seconds(WelcomeArt.idleDuration + 0.05))
-        animating = false
     }
 
     /// DEBUG verification opens the sheet the way a tap would.
@@ -271,26 +205,28 @@ public struct WelcomeView: View {
     private var buttons: some View {
         let apple = BuildCapabilities.current.appleSignIn
         let icon = min(scaledIcon, 28)
-        return VStack(spacing: theme.metrics.ctaWelcomeGap) {
-            if apple {
-                ProviderButton(title: "Continue with Apple", isPrimary: true, isBusy: auth.busyProvider == .apple) {
-                    Image(systemName: "apple.logo").font(.system(size: icon + 1, weight: .medium))
-                } action: { signIn(.apple) }
-            }
-            ProviderButton(title: "Continue with Google", isPrimary: !apple, isBusy: auth.busyProvider == .google) {
-                Image("GoogleLogo", bundle: .module).resizable().frame(width: icon, height: icon)
-            } action: { signIn(.google) }
-            ProviderButton(title: "Continue with GitHub", isPrimary: false, isBusy: auth.busyProvider == .github) {
-                Image("GitHubLogo", bundle: .module).renderingMode(.template).resizable().frame(width: icon, height: icon)
-            } action: { signIn(.github) }
-            ProviderButton(title: "Continue with email", isPrimary: false, isBusy: false) {
-                Image(systemName: "envelope").font(.system(size: icon - 1, weight: .medium))
-            } action: {
-                auth.errorMessage = nil
-                showsEmail = true
+        // One container so the rows' glass samples together; spacing 0 keeps them apart.
+        return GlassEffectContainer(spacing: 0) {
+            VStack(spacing: theme.metrics.ctaWelcomeGap) {
+                if apple {
+                    ProviderButton(title: "Continue with Apple", isPrimary: true, isBusy: auth.busyProvider == .apple, signInBusy: auth.isBusy) {
+                        Image(systemName: "apple.logo").font(.system(size: icon + 1, weight: .medium))
+                    } action: { signIn(.apple) }
+                }
+                ProviderButton(title: "Continue with Google", isPrimary: !apple, isBusy: auth.busyProvider == .google, signInBusy: auth.isBusy) {
+                    Image("GoogleLogo", bundle: .module).resizable().frame(width: icon, height: icon)
+                } action: { signIn(.google) }
+                ProviderButton(title: "Continue with GitHub", isPrimary: false, isBusy: auth.busyProvider == .github, signInBusy: auth.isBusy) {
+                    Image("GitHubLogo", bundle: .module).renderingMode(.template).resizable().frame(width: icon, height: icon)
+                } action: { signIn(.github) }
+                ProviderButton(title: "Continue with email", isPrimary: false, isBusy: false, signInBusy: auth.isBusy) {
+                    Image(systemName: "envelope").font(.system(size: icon - 1, weight: .medium))
+                } action: {
+                    auth.errorMessage = nil
+                    showsEmail = true
+                }
             }
         }
-        .disabled(auth.isBusy)
     }
 
     private func signIn(_ provider: CmuxMobileAuthModel.Provider) {
@@ -339,8 +275,7 @@ public struct WelcomeView: View {
     }()
 }
 
-/// When this process's welcome intro started (it plays once per cold launch),
-/// and where the lockup's chevron sits.
+/// When this process's welcome intro started (it plays once per cold launch).
 /// It advances with rendered frames, each step capped at 1/30 s, so a stalled
 /// main thread (first launch, font loading) pauses the intro instead of
 /// skipping part of it.
@@ -349,12 +284,9 @@ private final class WelcomeIntroClock {
     static let shared = WelcomeIntroClock()
     /// Seconds of intro shown; nil until it starts, `.infinity` when settled.
     var t: Double?
-    var lockupMark: CGRect = .zero
     /// How long the welcome holds the launch screen's frame before the intro
     /// starts: iOS's launch-screen crossfade (about 0.25 s) plus a margin.
     static let launchCrossfade: Double = 0.3
-    /// The one idle event has played (it never repeats in this process).
-    var idlePlayed = false
     private var lastFrame: Date?
 
     #if DEBUG
@@ -384,12 +316,6 @@ private final class WelcomeIntroClock {
         guard let i = arguments.firstIndex(of: "-cmux-mobile-intro-freeze"), i + 1 < arguments.count else { return nil }
         return Double(arguments[i + 1])
     }()
-    /// `-cmux-mobile-pulse-freeze <s>` (verification): hold the idle pulse at that time.
-    static let debugPulseFreeze: Double? = {
-        let arguments = ProcessInfo.processInfo.arguments
-        guard let i = arguments.firstIndex(of: "-cmux-mobile-pulse-freeze"), i + 1 < arguments.count else { return nil }
-        return Double(arguments[i + 1])
-    }()
     #else
     static let debugHold: Double = 0
     func logFramePacing() {}
@@ -404,7 +330,7 @@ private final class WelcomeIntroClock {
             let step = date.timeIntervalSince(lastFrame)
             t += min(max(step, 0), 1.0 / 30)
             #if DEBUG
-            if step > 0, t > 0, t < WelcomeArt.introDuration { frameSteps.append(step) }
+            if step > 0, t > 0, t < WelcomeGlide.entranceDuration { frameSteps.append(step) }
             #endif
         }
         lastFrame = date
@@ -435,17 +361,22 @@ struct CmuxLogoMark: View {
     }
 }
 
-/// A welcome sign-in row: at least 50 pt, growing with Dynamic Type, its
-/// label wrapping centered with the icon on the first line. The first row is
-/// solid `accent`; the others are `surface` in dark and white with a hairline
-/// in light. Busy shows a spinner in place of the icon.
+/// A welcome sign-in row: a system glass button, full width, growing with
+/// Dynamic Type, its label wrapping centered with the icon on the first
+/// line. The first row is prominent glass tinted solid (black or white, as
+/// Sign in with Apple), the others clear glass. The system glass styles own
+/// the touch: a held row stays lit and stretches toward a dragging finger,
+/// and dragging off cancels. Busy shows a spinner in place of the icon;
+/// while any sign-in runs, the other rows are disabled.
 private struct ProviderButton<Icon: View>: View {
     let title: LocalizedStringKey
     let isPrimary: Bool
     let isBusy: Bool
+    /// A sign-in is running (this row's or another's).
+    let signInBusy: Bool
     @ViewBuilder let icon: () -> Icon
     let action: () -> Void
-    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// Half the `cta` cap height: centers the icon on the first line.
     @ScaledMetric(relativeTo: .headline) private var iconLift: CGFloat = 6
     /// The icon's slot: 22 pt, growing with the label like the icon (capped).
@@ -465,35 +396,49 @@ private struct ProviderButton<Icon: View>: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .font(theme.type.cta)
+            .foregroundStyle(isPrimary ? theme.colors.neutralOnAccent : theme.colors.label)
+            // Accessibility sizes: a little less side room, for the larger icon.
+            .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 0 : 4)
+            .frame(maxWidth: .infinity)
         }
-        .buttonStyle(ProviderStyle(isPrimary: isPrimary))
-        .opacity(isEnabled || isBusy ? 1 : 0.5)
+        .modifier(ProviderGlass(isPrimary: isPrimary))
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        // One plain button element, framed by this row's layout. The
+        // prominent glass style's own element reported its frame unconverted
+        // in the iPhone app's scaled window on iPad (VoiceOver's focus ring and
+        // XCUITest read (20, -29.5, 350, 217.5) for a row drawn at about
+        // (232, 528, 568, 354), App Review gate run 45632944865).
+        // The represented button carries the busy state itself: hit testing
+        // does not reach VoiceOver or XCUITest, so a busy row read as an
+        // enabled button (App Review gate run 45090966438, finding F1).
+        .accessibilityRepresentation { Button(title, action: action).disabled(signInBusy || isBusy) }
+        // The busy row keeps its look (spinner, full colour) but takes no
+        // second tap; the others are disabled until the sign-in ends.
+        .disabled(signInBusy && !isBusy)
+        .allowsHitTesting(!isBusy)
     }
 }
 
-private struct ProviderStyle: ButtonStyle {
+/// The rows' system glass. Sign-in buttons stay black or white whatever
+/// accent the user picked. The clear rows take the faint `fill` tint where
+/// the system offers a tinted glass button (iOS 26.1): over the welcome's
+/// flat page there is nothing behind the glass to bend, and untinted it all
+/// but vanishes on white.
+private struct ProviderGlass: ViewModifier {
     let isPrimary: Bool
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: theme.metrics.ctaWelcomeHeight / 2, style: .continuous)
-        let outlined = !isPrimary && colorScheme == .light
-        // Sign-in buttons stay black or white whatever accent the user picked
-        // (Sign in with Apple's own colours).
-        configuration.label
-            .font(theme.type.cta)
-            .foregroundStyle(isPrimary ? theme.colors.neutralOnAccent : theme.colors.label)
-            // Accessibility sizes: a little less side padding, room for the larger icon.
-            .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 20)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: theme.metrics.ctaWelcomeHeight)
-            .background(isPrimary ? AnyShapeStyle(theme.colors.neutralAccent) : (outlined ? AnyShapeStyle(theme.colors.bg) : AnyShapeStyle(theme.colors.surface)), in: shape)
-            .overlay { if outlined { shape.strokeBorder(theme.colors.separator, lineWidth: 1) } }
-            .contentShape(shape)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: configuration.isPressed)
+    func body(content: Content) -> some View {
+        if isPrimary {
+            content
+                .buttonStyle(.glassProminent)
+                .tint(theme.colors.neutralAccent.color)
+        } else if #available(iOS 26.1, *) {
+            content.buttonStyle(GlassButtonStyle(.regular.tint(theme.colors.fill.color)))
+        } else {
+            content.buttonStyle(.glass)
+        }
     }
 }
 #endif

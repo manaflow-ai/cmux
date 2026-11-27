@@ -128,6 +128,18 @@ async fn a_page_says_it_holds_to_the_log_end_only_when_it_reads_there() {
     let newest = a.request(method::MUX_ATTACH, ask(method::MUX_ATTACH, json!({})).1).await.unwrap();
     assert_eq!(newest["hasMore"], true);
     assert_eq!(newest["pageThrough"], json!(last));
+    // So does the app's tail-first ask, whose beforeSeq is a sentinel past the end, with or
+    // without its cursor: no confirming read is needed.
+    for extra in [
+        json!({"beforeSeq": 9007199254740991u64}),
+        json!({"afterSeq": 1, "beforeSeq": 9007199254740991u64}),
+    ] {
+        for m in [method::MUX_EVENTS, method::MUX_ATTACH] {
+            let params = ask(m, extra.clone()).1;
+            let page = a.request(m, params.clone()).await.unwrap();
+            assert_eq!(page["pageThrough"], json!(last), "{m} {params}: {page}");
+        }
+    }
     for (m, params) in [
         ask(method::MUX_EVENTS, json!({"afterSeq": 0, "limit": 10_000})),
         ask(method::MUX_ATTACH, json!({"afterSeq": 0, "limit": 10_000})),
@@ -183,6 +195,126 @@ async fn live_updates_keep_agent_meta_and_event_stream_nests_them() {
     assert!(
         evs.iter().all(|e| e["dir"] != "out" && e["kind"] != "response" && e["kind"] != "turn_end")
     );
+}
+
+#[tokio::test]
+async fn reply_chunks_carry_one_segment_per_run_of_text() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "segments").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-segments", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-segments", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let chunks: Vec<(String, String)> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| {
+            (
+                e.msg["params"]["update"]["content"]["text"].as_str().unwrap().to_owned(),
+                e.msg["params"]["_meta"]["acpmux"]["segment"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("no segment on {}", e.msg))
+                    .to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(chunks.len(), 14, "{chunks:?}");
+    let (first, second) = chunks.split_at(7);
+    let turns: Vec<&str> =
+        find(&events, "turn_started").iter().map(|e| e.msg["turnId"].as_str().unwrap()).collect();
+    for (turn, run) in [(turns[0], first), (turns[1], second)] {
+        let seg = |i: usize| run[i].1.as_str();
+        // One message is one segment across a background task's note, a subagent's spawn and
+        // update, a plumbing call and a usage tick: the pane keeps it one row over them.
+        for i in 1..5 {
+            assert_eq!(seg(0), seg(i), "{run:?}");
+        }
+        // A chunk with no messageId after it is the next; a thought and a tool call the person
+        // sees end it, where the pane cuts the row, so the chunk after them is a third.
+        assert_ne!(seg(4), seg(5), "{run:?}");
+        assert_ne!(seg(5), seg(6), "{run:?}");
+        assert!(seg(0).starts_with(&format!("{turn}.")), "{run:?} of turn {turn}");
+        // Numbered within the turn, after this daemon run's mark.
+        assert!(
+            seg(0).ends_with(".1") && seg(5).ends_with(".2") && seg(6).ends_with(".3"),
+            "{run:?}"
+        );
+    }
+    // Every turn's segments are its own.
+    assert!(first.iter().all(|(_, a)| second.iter().all(|(_, b)| a != b)));
+}
+
+/// TodoWrite calls and plans are never logged (`todo_tools.rs`), so none cuts a reply: every
+/// chunk of a turn's one message is one segment.
+#[tokio::test]
+async fn todo_calls_and_plans_are_never_logged_nor_cut_a_reply() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "checklist").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    assert!(find(&events, "plan").is_empty());
+    assert!(find(&events, "tool_call").is_empty());
+    let segs: Vec<String> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| e.msg["params"]["_meta"]["acpmux"]["segment"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(segs.len(), 14, "{segs:?}");
+    for run in segs.chunks(7) {
+        assert!(run.iter().all(|s| s == &run[0]), "{run:?}");
+    }
+    assert_ne!(segs[0], segs[7], "each turn's segment is its own: {segs:?}");
+}
+
+/// A usage tick, a call's update and a plan between two reply chunks carry no turn, and none
+/// starts one: the message stays one segment, as the pane keeps it one row (#41540 review F1).
+#[tokio::test]
+async fn reply_segment_survives_ticks_between_chunks() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "checklist-ticks").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist-ticks", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist-ticks", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let segs: Vec<String> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| e.msg["params"]["_meta"]["acpmux"]["segment"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(segs.len(), 4, "{segs:?}");
+    for run in segs.chunks(2) {
+        assert_eq!(run[0], run[1], "{run:?}");
+        assert!(run[0].ends_with(".1"), "one reply segment in the turn: {run:?}");
+    }
+    assert_ne!(segs[0], segs[2], "each turn's segment is its own: {segs:?}");
+}
+
+/// A DeepSeek Harness todo call and its result are dropped before the log (`todo_tools.rs`): no
+/// row, no plan, and no cut in the reply, and a page of the log starting anywhere reads the same
+/// segment ids (#41540 review F2).
+#[tokio::test]
+async fn dropped_todo_calls_keep_the_reply_segment_across_pages() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "dsh-todo").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-dsh-todo", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    assert!(find(&events, "tool_call").is_empty());
+    assert!(find(&events, "tool_call_update").is_empty());
+    assert!(find(&events, "plan").is_empty());
+    let chunks: Vec<(u64, String)> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| {
+            (e.seq, e.msg["params"]["_meta"]["acpmux"]["segment"].as_str().unwrap().to_owned())
+        })
+        .collect();
+    assert_eq!(chunks.len(), 5, "{chunks:?}");
+    assert!(chunks.iter().all(|(_, s)| s == &chunks[0].1), "{chunks:?}");
+    for (start, _) in &chunks {
+        let page = hub.events(&id, start.saturating_sub(1), 1000).unwrap();
+        for e in find(&page, "agent_message_chunk") {
+            let whole = &chunks.iter().find(|(seq, _)| *seq == e.seq).unwrap().1;
+            assert_eq!(
+                e.msg["params"]["_meta"]["acpmux"]["segment"].as_str(),
+                Some(whole.as_str())
+            );
+        }
+    }
 }
 
 #[tokio::test]
@@ -376,8 +508,11 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     assert_eq!(r.msg["errorText"], "Selected model is at capacity.");
     assert_eq!(r.msg["errorCode"], json!({"serverOverloaded": {}}));
     assert_eq!(r.msg["errorSource"], "codex");
+    // The log keeps `failed`; the row of a turn acpmux holds for capacity reads `capacity` (#54477).
+    // The session row reads `capacity` while acpmux holds that turn to retry it (#54477,
+    // `hub/auto_resume.rs` `row_last_turn`); the turn's own result above stays `failed`.
     let summary = hub.session_summary(&hub.resolve("errs").unwrap());
-    assert_eq!(summary["lastTurn"]["status"], "failed");
+    assert_eq!(summary["lastTurn"]["status"], "capacity");
     assert_eq!(summary["lastTurn"]["turnId"], r.msg["turnId"]);
 
     // A clean turn has no error fields.
@@ -785,7 +920,18 @@ async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
             .unwrap();
         let expected =
             read["events"].as_array().unwrap().iter().rev().find(|e| starts_turn(e)).cloned();
-        assert_eq!(page["turnOpener"], expected.unwrap(), "limit {limit}: {page}");
+        assert_eq!(page["turnOpener"], expected.clone().unwrap(), "limit {limit}: {page}");
+        let warmed = a
+            .request(
+                method::MUX_EVENTS,
+                json!({
+                    "sessionId": id, "beforeSeq": 9007199254740991u64, "limit": limit,
+                    "kinds": ["transcript"], "turnOpener": true,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(warmed["turnOpener"], expected.unwrap(), "read-ahead: {warmed}");
     }
     // The page that starts with the prompt itself needs none.
     let at_prompt = a.request(method::MUX_ATTACH, attach(inside as u64 + 1)).await.unwrap();
@@ -802,9 +948,11 @@ async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
 async fn an_attach_page_whose_records_together_pass_one_message_still_opens() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "large-open").await;
-    // The fake agent echoes the prompt as one answer chunk of the same size; acpmux's
-    // `user_message` holds the prompt's text twice (`text`, and its `inlineParts` text part).
-    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(11 << 20), None)).await.unwrap();
+    // The fake agent echoes the prompt as one answer chunk of the same size, and acpmux's
+    // `user_message` holds a plain text prompt once, so a prompt of three fifths of the limit
+    // makes two records that each fit one message and together do not.
+    let body = acpmux::rpc::MAX_MESSAGE_BYTES * 3 / 5;
+    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(body), None)).await.unwrap();
     let session = hub.resolve("large-open").unwrap();
     let records = hub.events(&session.id, 0, 10_000).unwrap();
     let size = |msg: &Value| serde_json::to_string(msg).unwrap().len();

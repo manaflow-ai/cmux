@@ -12,18 +12,24 @@ import java.util.Objects;
 
 /** Immutable title-changed event. Protocol v5; streams: subscribe. */
 public final class TitleChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    private final Field<String> activity;
     private final UInt64 surface;
+    private final Field<String> text;
     private final Field<String> title;
 
     private TitleChangedEvent(Builder builder) {
+        this.activity = builder.activity;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
+        this.text = builder.text;
         this.title = builder.title;
     }
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<String> activity() { return activity; }
     public UInt64 surface() { return surface; }
+    public Field<String> text() { return text; }
     public Field<String> title() { return title; }
     @Override public String event() { return "title-changed"; }
 
@@ -31,8 +37,16 @@ public final class TitleChangedEvent implements WireValue, DeltaStreamEvent, Pro
         Map<String, Object> object = Wire.object(value, "TitleChangedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "title-changed", "TitleChangedEvent.event");
+        Object rawActivity = Wire.optional(object, "activity");
+        if (!Wire.isMissing(rawActivity)) {
+            builder.activity(rawActivity == null ? null : Wire.string(rawActivity, "TitleChangedEvent.activity"));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "TitleChangedEvent.surface"));
+        Object rawText = Wire.optional(object, "text");
+        if (!Wire.isMissing(rawText)) {
+            builder.text(Wire.string(rawText, "TitleChangedEvent.text"));
+        }
         Object rawTitle = Wire.optional(object, "title");
         if (!Wire.isMissing(rawTitle)) {
             builder.title(Wire.string(rawTitle, "TitleChangedEvent.title"));
@@ -44,7 +58,9 @@ public final class TitleChangedEvent implements WireValue, DeltaStreamEvent, Pro
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "title-changed");
+        Wire.put(object, "activity", activity);
         Wire.put(object, "surface", surface);
+        Wire.put(object, "text", text);
         Wire.put(object, "title", title);
         return Collections.unmodifiableMap(object);
     }
@@ -52,23 +68,33 @@ public final class TitleChangedEvent implements WireValue, DeltaStreamEvent, Pro
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof TitleChangedEvent that)) return false;
-        return Objects.equals(surface, that.surface) && Objects.equals(title, that.title);
+        return Objects.equals(activity, that.activity) && Objects.equals(surface, that.surface) && Objects.equals(text, that.text) && Objects.equals(title, that.title);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(surface, title); }
+    public int hashCode() { return Objects.hash(activity, surface, text, title); }
 
     @Override
     public String toString() { return "TitleChangedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<String> activity = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
+        private Field<String> text = Field.omitted();
         private Field<String> title = Field.omitted();
 
+        public Builder activity(String value) {
+            this.activity = Field.ofNullable(value);
+            return this;
+        }
         public Builder surface(UInt64 value) {
             this.surface = value;
             this.surfaceSet = true;
+            return this;
+        }
+        public Builder text(String value) {
+            this.text = Field.of(value);
             return this;
         }
         public Builder title(String value) {

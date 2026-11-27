@@ -73,6 +73,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from bench_cli_storm import MAX_PTY_LIMIT, daemon_socket, ptys_in_use  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 # Validity of a phase. A storm that applied less than 90% of an asked rate (over the person's window, or in any one
 # second of it), or had more than 1% of its ops refused, is not the asked load.
@@ -88,10 +89,11 @@ STORM_START_DEADLINE_S = 20.0
 STORM_DRAIN_DEADLINE_S = 30.0
 # perf-signposts.py stops `log stream` (up to 10 s) and joins its reader (up to 10 s) after SIGINT.
 SIGNPOSTS_STOP_DEADLINE_S = 30.0
-# The probe column reported as key_to_contents_ms: the first `setContents:` on a terminal IOSurfaceLayer after the
-# echo's parse (TypingFrameProbe). It is not bound to the typed surface and is set before Core Animation commits that
-# run-loop turn: work later in the same turn (the storm's snapshot and sidebar work) is not in it, so it is not a
-# committed frame and is never compared with the 10 ms target. A surface-bound mark at the CA commit after contents
+# The probe column reported as key_to_contents_ms: the first frame Ghostty's present callback reports on the layer
+# the echo's output lane names, after the echo's parse (TerminalPresents). A frame at the shown size is marked after
+# its own off-main commit; a frame shown on main is marked before main's commit that run-loop turn: work later in the
+# same turn (the storm's snapshot and sidebar work) is not in it, so it is not a committed frame and is never compared
+# with the 10 ms target. A surface-bound mark at the CA commit after contents
 # needs the probe change (TypingLatencyProbe); debug.frames' missed vsyncs and main-thread busy are the frame evidence.
 KEY_COLUMN = "contents_ms"
 SESSION_SHAPE = {"light": "light", "stress": "STRESS-busy-elsewhere"}
@@ -758,10 +760,32 @@ class Session:
             raise self.builder.StressShapeError(f"the typed pane {last['id']} has no terminal tab")
         self.stress.action("tab.focus", target=f"tab:{tab['id']}")
         self.action("terminal.sendText", {"text": "exec /bin/zsh -f\r"}, focus=False)
-        time.sleep(1)  # bench script: the prompt draws
         self.measured, self.typed_pane, self.typed_tab = measured, last["id"], tab["id"]
         self.typed_surface = tab.get("surface")
+        self.wait_prompt()
         return measured
+
+    def read_screen(self, surface):
+        """The daemon's read-screen text of `surface`, or None."""
+        connection = Connection(self.daemon_path, daemon_frame, 4)
+        try:
+            reply = connection.wait_reply(connection.send("read-screen", {"surface": int(surface)}, keep=True), 15)
+        finally:
+            connection.close()
+        return ((reply or {}).get("data") or {}).get("text") if (reply or {}).get("ok") is True else None
+
+    def wait_prompt(self):
+        """Until the typed tab's `zsh -f` prompt is drawn: a line after the exec line that ends in its % (or #)."""
+        if self.typed_surface is None:
+            return
+        self.daemon_path = daemon_socket(os.path.join(self.app.app, "Contents/Resources/bin/cmux-tui"), self.app.tag)
+
+        def prompted():
+            lines = [line.rstrip() for line in (self.read_screen(self.typed_surface) or "").splitlines() if line.strip()]
+            return bool(lines) and "exec /bin/zsh -f" not in lines[-1] and lines[-1].endswith(("%", "#")) \
+                and any("exec /bin/zsh -f" in line for line in lines)
+        if not wait_until(prompted, "the typed tab's zsh -f prompt", timeout=15, interval=0.1, raise_on_timeout=False):
+            note(f"{self.name}: the typed tab's zsh -f prompt never showed in 15 s; going on")
 
     def prepare_background(self, measured):
         """Two panes and a spare tab in each of --background workspaces that no window shows (daemon commands); waits
@@ -1021,7 +1045,17 @@ class Session:
                                     "--category", "action", "--allow-loss", "--require-input-age", "--save", save, "--json"],
                                    stdout=subprocess.PIPE, stderr=log, text=True)
         log.close()
-        time.sleep(1)  # bench script: `log stream` attaches before the first key
+        # `log stream` attached before the first key: perf-signposts says so on stderr (the log file).
+        log_path = os.path.join(OUT, self.name, f"signposts-{phase}.log")
+
+        def attached():
+            if process.poll() is not None:
+                return "exited"
+            with open(log_path) as f:
+                return "perf-signposts: recording" in f.read()
+        if wait_until(attached, "perf-signposts attaching `log stream`", timeout=30, interval=0.05,
+                      raise_on_timeout=False) is None:
+            print(f"note: perf-signposts did not report attached in 30 s ({phase})", flush=True)
         return process
 
     @staticmethod
@@ -1102,7 +1136,7 @@ class Session:
             if worker:
                 rest = opts.seconds - (time.perf_counter() - started)
                 if rest > 0:
-                    time.sleep(rest)  # bench script: the storm runs its full length
+                    time.sleep(rest)  # sleep-ok: the storm runs its full --seconds window
             elapsed = time.perf_counter() - started
             frames = self.rpc("debug.frames", {"action": "stop"}, timeout=20)
             hangs = self.rpc("debug.hangs", {"limit": 12}, timeout=20)
@@ -1166,7 +1200,9 @@ class Session:
             note(f"{self.name}: launch failed: {error}")
             return
         try:
-            time.sleep(3)  # bench script: launch work settles
+            # Launch work settles: the snapshot's topology reads the same several times in a row.
+            wait_stable(self.topology, f"{self.name}: the app after launch", timeout=30, interval=0.2, reads=5,
+                        raise_on_timeout=False)
             methods = (self.rpc("system.capabilities") or {}).get("methods") or []
             missing = [m for m in ("action.run", "action.batch", "snapshot.get", "debug.key", "debug.frames") if m not in methods]
             if missing:

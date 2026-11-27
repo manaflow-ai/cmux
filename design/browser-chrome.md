@@ -9,14 +9,17 @@ windows.
 - `webviews/src/browser-chrome/ui/BrowserToolbar.tsx` (toolbar strip, omnibar, chip, star,
   extension and trailing buttons, progress line), `toolbarModel.ts` (metrics, commands, layout and
   chip rules), `SuggestionDropdown.tsx` (suggestion card), `browserChrome.css`.
-- `webviews/src/browser-chrome/page-info/PageInfoBubble.tsx` (the bubble), `model.ts` (model,
-  commands, permission rules), `pageInfo.css`; the windows the bubble opens:
+- The Page Info bubble is AppKit, not React (`plans/cmux-next/language-layers.md`: a bubble on a
+  native control is native chrome): `CmuxNextBrowser/PageInfo/UI/PageInfoPages*.swift` (the pages),
+  `PageInfoRowView`, `PageInfoHeaderView`, `PageInfoToggle`, `PageInfoController` (state, keys, the
+  popup). The windows the bubble opens are React, in `webviews/src/browser-chrome/page-info/`:
+  `model.ts` (the site, permission kinds, defaults and icons),
   `SiteSettingsWindow.tsx`, `SiteDataWindow.tsx`, `CertificateViewer.tsx` (with `certificate.ts`,
   the viewer's words), `windows.ts` (their wire), `pageInfoWindows.css`.
 - Strings: `Localizable.xcstrings` next to each, copied with every locale from the native
   `CmuxNextBrowser/Resources/Localizable.xcstrings` (toolbar) and `PageInfo.xcstrings` (Page Info,
   chip); `scripts/pages/gen-strings.mjs` writes `generated/strings.json`.
-- Gallery: `browser-chrome.toolbar`, `browser-chrome.suggestions`, `browser-chrome.page-info`,
+- Gallery: `browser-chrome.toolbar`, `browser-chrome.suggestions`,
   `browser-chrome.page-info.site-settings`, `.site-data`, `.certificate` (area Browser chrome,
   Experimental until the React chrome ships). Each has a Look option.
 - The Import Cookies card (its own section below): gallery `browser-chrome.cookie-import`, same area, with a Look option.
@@ -45,7 +48,20 @@ Left to right in the toolbar row:
 3. **Pinned extension actions** (each the extension's icon and badge), then the Extensions
    button. Shown on Chromium tabs only.
 4. **Trailing buttons**, only the pinned ones with something to show, in catalog order: Media,
-   Zoom, Bookmarks, Downloads, Design Mode, Profile, Theme, DevTools, then More (always).
+   Zoom, Bookmarks, Downloads, Design Mode, Theme, DevTools, Profile, then More (always). Profile
+   is pinned by default and draws the tab's profile as its avatar (its letter or icon on its
+   color); a press opens the profile menu. The profile is never inside the address bar.
+   An incognito tab's button is the incognito disc: the incognito glyph on the primary-text
+   plate (dark on a light theme), never the plain person glyph; its menu's header names
+   Incognito and when its data goes. Every header has its reason line, the built-in default's
+   too ("Default for all workspaces"). (cmuxterm-hq RFD 0125, D1 and D2.)
+   The profile menu is a flat list (`BrowserProfileMenuStyle.list`). Behind the default-off
+   experiment Browser Profile Card it opens as Helium's and Chrome's (`.card`): a card with
+   the profile's large avatar, its name and why the tab has it; one quiet "Signed in as …" row
+   (Accounts) while signed in to cmux; the other profiles, each with its avatar; New Browser
+   Profile, New Incognito Window, Manage Browser Profiles; Customize Profile (the profile's own
+   rows); Import from Browser and the Web Store. The cmux account itself stays in the sidebar's
+   profile control.
 5. **Progress line**, 2 pt, at the row's bottom edge, the focus ring gray at 80%.
 
 The suggestion card hangs from the bar. Page Info is a popup anchored at the chip.
@@ -68,18 +84,20 @@ The suggestion card hangs from the bar. Page Info is a popup anchored at the chi
 | suggestion card | the bar's width, rows inset 4, 2 above each row, 4 at the end, row radius 4 | `rowSideInset`, `rowGap`, `cardBottomPadding` |
 | suggestion row | glyph 16 on the chip's center, text on the address text's column | `SuggestionRowView` |
 | Page Info card | 320 wide, padding 6, radius 8 | `bubbleWidth`, `inset / 2` |
-| Page Info row | 28 (42 with subtitle), inset 6, icon column 26, glyph 16, 2 between rows | `PageInfoStyle` (former) |
+| Page Info row | 28 (42 with subtitle), inset 6, icon column 26, glyph 16, 2 between rows | `PageInfoStyle` |
 | Page Info text | title 12 emphasized, body 12, captions 10.5 (web: the 11 caption step) | `Typography` |
-| Page Info switch | 28 x 16, the text color when on | `PageInfoToggle` (former) |
-| header buttons | 24 square, glyph 14 | `PageInfoIconButton` (former) |
+| Page Info switch | 28 x 16, the text color when on | `PageInfoToggle` |
+| header buttons | 24 square, glyph 14 | `PageInfoIconButton` |
 | Page Info windows | fixed width (site settings 460, site data 440, certificate 520), inset 18, height fits the page up to 640 | `PageInfoWebWindow` |
 
 Comfortable density (34 pt bar and buttons, 15 pt text) is not drawn yet; the numbers live in
-`TOOLBAR_METRICS` and the `--pi-*` block, so it is one change in each.
+`TOOLBAR_METRICS`, so it is one change.
 
 ## States
 
 - **Idle.** The bar is a tonal fill over the toolbar (fg at 7%), a lift on hover (10%).
+  The site-info chip and the star always show (#50986). The tab's profile is never inside the
+  bar, at rest or focused: it is the toolbar's profile button, at the toolbar's right.
 - **Focused / editing.** No fill, a 2 pt neutral ring, the full URL, the chip's label hidden and
   its icon describing the input (search, or the highlighted suggestion's kind). Focus changes the
   look in the press's own frame; only hover eases.
@@ -107,18 +125,27 @@ fade as they close.
 
 ## Page Info
 
+The bubble is AppKit: `PageInfoController` builds the current page from the model
+(`PageInfoPages`) into a native glass card (`PageInfoCardView`) in the shared popup host, so it
+opens in the same frame as the click, with the size its rows need. A React page drew it from
+#37369 until it was taken back; what that page added is kept (the site name's cut, the last cookie
+counts, the back arrow in a right-to-left layout).
+
 Pages, each one card, swapped in place:
 
 - **Main.** The site (host and port, or the file path), then the connection row (chevron), the
   permissions this site has (switch each, the row opens that permission's page), Reset
   permission(s), the reload notice, Cookies and site data (chevron), Site settings (external
-  mark), About this page (public web pages). Non-web pages show a single identity line.
+  mark), About this page (public web pages). Non-web pages show a single identity line. A site
+  name wider than the header is cut in its middle, so its end (the registrable domain and port)
+  always shows (`PageInfoSite.fittedName`); the whole name is its tooltip.
 - **Security.** Back, title and site; the long summary; the details paragraph (plus the identity
   line and the engine's reason on a certificate error); Turn on warnings when the user proceeded
   past a warning ("For all sites in this profile" on Chromium); the certificate row.
 - **Cookies.** The description, the third-party line when the engine blocks them, Manage
   on-device site data with "Cookies from this site: N · Sites with data: N"; Loading while the
-  numbers come.
+  numbers come. A site this pane read before opens on its last numbers until the new ones arrive
+  (`PageInfoSiteDataMemory`: memory only, 32 sites); Manage forgets them.
 - **One permission.** Its switch, its choices as a radio group (Ask, Allow, Block with the
   default marked), Manage.
 
@@ -177,10 +204,10 @@ not a banner).
   line before it cuts a word. The answers follow at the trailing edge as one group. In a narrow
   pane, or with longer labels, the group wraps under the line, still at the trailing edge.
 - **Answers.** These use the toast's grammar (toasts.css): clear text with the hover fill only
-  under the pointer. Don't Show Again is in the secondary ink, Import… is bold in the ink, and the
-  close button (×, labelled and titled Not Now) is last. No key hints: the card never takes focus,
+  under the pointer. Never for Chrome is in the secondary ink, Import… is bold in the ink, and
+  one Not now button dismisses it for 30 days. No key hints: the card never takes focus,
   so Return and Escape stay the page's.
-- **Copy.** The title is the only line. The detail ("Stay signed in to your sites. Nothing leaves
+- **Copy.** The title is the only line: "Import sign-ins from Google Chrome" for Chrome. The detail ("Stay signed in to your sites. Nothing leaves
   this Mac.") and the Keep in sync checkbox are gone. Keep in sync is
   Settings > Browser > Import (`browser.import.cookieSync`, on by default), and Import uses
   that setting.
@@ -196,6 +223,30 @@ not a banner).
 
   Any answer fades it out and the chrome answers the host. After cookies came over by any path
   (this card, File > Import from Browser, Import Cookies from Browser) it never shows again.
+
+## Bookmarks bar
+
+The strip under the toolbar that shows the Bookmarks Bar folder's items. It is native AppKit
+(`CmuxNextBookmarks/UI/BookmarksBarView.swift`, `BookmarkBarItemView.swift`, `BookmarkFolderMenu.swift`,
+`BookmarksBarView+Drag.swift`), filled by the app through `BookmarksBarSource`
+(`BookmarksBarHostSource` over the app's `BookmarksBarHost`, the same model path as the star and the manager page).
+
+- **Hosting.** Each browser tab's chrome holds one bar view as its accessory bar (height
+  `controlHeight + space2`). The bar paints no fill: the chrome gives the accessory band the toolbar's
+  fill, so the toolbar and the bar read as one band. No glass (the toolbar has none). A bar off its
+  window rebuilds when it is shown again.
+- **Layout (Standard density, pt).** Items `controlHeight` tall, `space1` apart, from the pane chrome
+  inset; a small icon and the title in the body step; widest item `tabMaxWidth * 0.8`. What does not fit
+  goes behind the chevron; Other Bookmarks keeps the trailing end when it has anything.
+- **States.** No fill at rest, the gray hover fill fading at the quick motion step, the pressed fill
+  at once. Empty bar with Other Bookmarks: the caption hint in the faint ink. A drop shows a 2 pt
+  line between items.
+- **Menus.** Folders, the chevron and Other Bookmarks open a native `NSMenu` (a submenu fills when it
+  opens) with Open All past one link and "(empty)" for none. Right-click is the registry's Bookmark or
+  Bookmarks Bar menu.
+- **Clicks.** Click opens in the tab, Cmd-click or the middle button in a background tab, Shift or
+  Cmd-Shift in a new tab. Drag an item to reorder it (pasteboard type `com.cmuxterm.bookmark-id`);
+  drop a link to bookmark it there.
 
 ## Keyboard
 
@@ -214,11 +265,10 @@ not a banner).
 | --- | --- | --- |
 | omnibar | flat (today), outlined (hairline, no fill), capsule (fully round) | **flat** |
 | suggestions | joined (today), floating (separate glass popup), two-line (title over URL) | **joined** |
-| Page Info | parity (today), grouped (inset cards per group), dense (one-line rows) | **parity** |
 | Site settings | parity (today), grouped (inset cards), segmented (choices on the row) | **parity** |
 | On-device site data | parity (today), grouped (this site / third parties headed), compact (one line) | **parity** |
 | Certificate viewer | list (Details shows every field's value), tabs (today: pick a field), sheet (no tabs) | **list** |
-| Import Cookies card | toast (one row: the line, Don't Show Again and Import as text, the close button as Not Now), buttons (one row of ghost, subtle and accent buttons), stacked (the line, then a row of buttons) | **toast** |
+| Import Cookies card | toast (one row: the line, Never for Chrome and Import as text, one Not now button), buttons (one row of ghost, subtle and accent buttons), stacked (the line, then a row of buttons) | **toast** |
 
 - **Flat** keeps the bar a field you can find at a glance on any wallpaper or theme, and its fill
   is what the joined card continues. Outlined reads lighter but loses the bar on busy pages and
@@ -228,10 +278,8 @@ not a banner).
   through, and opaque, so page text never shows under the rows. Floating is what other popups do,
   but here it breaks the column and puts glass over a page the user is reading. Two-line fits long
   titles at the cost of half as many rows in view.
-- **Parity** matches the native bubble row for row, so the move to React changes nothing a user
-  sees. Grouped reads well but grows the card by a third; dense hides the "Can ask to …" sentences
-  that explain what a switch does.
-- **Site settings and site data stay at parity** for the same reason. Segmented choices save a
+- **Site settings and site data stay at parity** with the native windows they replaced, so the
+  move to React changes nothing a user sees. Segmented choices save a
   click but make every row three buttons wide and crowd the window's fixed width; the grouped site
   data list only helps once many third parties stored data, and compact rows cut the domain short.
 - **List** for the certificate viewer: the native Details tab hid each value behind picking its
@@ -240,6 +288,6 @@ not a banner).
   General summary under a long scroll.
 - **Split** reads in order: what this is, then the quiet way out on the left and the two real
   answers together on the right, so the eye lands on Import last. Trailing puts three
-  same-height targets side by side, which makes Don't Show Again look like a third button of
+  same-height targets side by side, which makes Never for Chrome look like a third button of
   equal weight. Inline saves a row in wide panes but squeezes the text in the narrow ones the
   browser pane often is.

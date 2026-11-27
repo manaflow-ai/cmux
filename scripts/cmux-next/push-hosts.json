@@ -1,0 +1,7 @@
+{
+  "about": "push-from-host.sh's fallback registry, read only when CMUX_FLEET_REGISTRY is unset and ~/Projects/leo-workspace/machines/fleet-registry.json does not exist (2026-11-16: no Mac had it, so every push stopped and agents hand-pushed). Fleet Mac builders only; never a personal machine. Same format as the fleet registry. Tried in order: cmux-lawrence (the always-on fleet controller mini, ~/fun/cmux) follows cmux-lawrence-2 because on 2026-11-18 cmux-lawrence-2 reset every SSH connection and, as the only host, blocked every landing. The push uses the caller's gh token and the gate downloads its pinned lint tools, so a host needs only the clone.",
+  "machines": {
+    "cmux-lawrence-2": {"roles": ["mac-build"], "approval": "manaflow-fleet"},
+    "cmux-lawrence": {"roles": ["mac-build"], "approval": "manaflow-fleet"}
+  }
+}

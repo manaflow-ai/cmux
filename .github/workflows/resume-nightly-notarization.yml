@@ -40,6 +40,10 @@ concurrency:
   group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   resume:
     environment: release
@@ -62,6 +66,11 @@ jobs:
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
 
       - name: Set up Node for recovered DMG packaging
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -157,18 +166,6 @@ jobs:
             printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
           done < "$RUNNER_TEMP/recovery.env"
 
-      # Only a recovered Computer Use helper needs a keychain before the wait:
-      # the helper re-seals the app. notarize-nightly-dmg.sh deletes it after
-      # the outer DMG signature. The DMG around the stapled app is signed with
-      # a keychain that resume-stapled-app-notarization.sh makes just before
-      # that signature.
-      - name: Import signing certificate for recovered DMG
-        if: env.RECOVERY_KIND == 'computer-use-helper'
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: ./scripts/ci/signing-keychain.sh create
-
       # The step limit leaves the job time to stage the outer submission below.
       - name: Wait, staple, and validate exact submitted DMG
         id: wait-staple
@@ -186,36 +183,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p verified
-          if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
-            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
-            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
-            NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
-            CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
-            CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
-            CMUX_OUTER_NOTARY_WAIT_TIMEOUT=25m \
-            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=20m \
-            ./scripts/ci/resume-helper-notarization.sh \
-              "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
-              "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$outer_state"
-          else
-            # A state with stapled_app=true (an outer continuation artifact)
-            # is only continued; any other one gets the DMG around its stapled app.
-            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
-            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
-            NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
-            CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
-            CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
-            CMUX_NOTARY_WAIT_TIMEOUT=2m \
-            CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
-            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
-            ./scripts/ci/resume-stapled-app-notarization.sh \
-              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
-              "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$outer_state"
-          fi
+          # A state with stapled_app=true (an outer continuation artifact)
+          # is only continued; any other one gets the DMG around its stapled app.
+          outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+          CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+          NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
+          CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
+          CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
+          CMUX_NOTARY_WAIT_TIMEOUT=2m \
+          CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+          CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
+          ./scripts/ci/resume-stapled-app-notarization.sh \
+            "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+            "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$outer_state"
 
       # A submission still at Apple after the bounded waits is kept for the
       # next manual run (artifact_run_id = this run): the DMG around the
-      # stapled app when it exists, else a recovered helper's outer DMG.
+      # stapled app when it exists.
       - name: Prepare outer DMG recovery after bounded wait
         id: prepare-outer
         if: always() && steps.wait-staple.outcome == 'failure'
@@ -223,10 +207,6 @@ jobs:
           set -euo pipefail
           outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
           require=(--require-stapled-app)
-          if [ ! -s "$outer_state" ] && [ "${RECOVERY_KIND:-dmg}" = computer-use-helper ]; then
-            outer_state="$outer_state.first"
-            require=()
-          fi
           if [ ! -s "$outer_state" ]; then
             if grep -Fxq 'stapled_app=true' "${STATE_FILE:-/dev/null}"; then
               # A continued stapled-app DMG that is still pending before its
@@ -255,7 +235,7 @@ jobs:
           path: outer-recovery-staging/*
           compression-level: 0
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Upload verified recovery artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -265,7 +245,7 @@ jobs:
             recovery
             verified
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7
 
       - name: Cleanup keychain
         if: always()

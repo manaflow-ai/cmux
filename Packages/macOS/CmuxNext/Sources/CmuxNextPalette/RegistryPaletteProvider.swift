@@ -1,7 +1,10 @@
 import AppKit
 public import CmuxNextActions
 
-/// Every catalog action available in the current context.
+/// Every catalog action that can run in the current context. A bound row that cannot run here (no
+/// target for it, a chat that lacks the control, an action switched off) is not listed and no
+/// search finds it; a CLI or MCP run of the action still gets the reason (Leo 2026-11-17: "just...
+/// stop showijg the toggle on gui").
 ///
 /// Bound actions run through the registry. Actions whose descriptor takes
 /// text get inline text entry. `effectOverrides` lets the palette serve an
@@ -77,6 +80,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
         /// The catalog as the pass started; each action's state is read when its turn comes.
         private let entries: [ActionEntry]
         private var next = 0
+        /// Catalog actions whose state this pass read so far.
+        var readCount: Int { next }
         private var items: [PaletteItem] = []
         private var tiers: [PaletteTier] = []
         private var listed: [RegistryPaletteRows.Listed] = []
@@ -109,13 +114,15 @@ public final class RegistryPaletteProvider: PaletteProvider {
             let registry = provider.registry
             let descriptor = entry.descriptor
             let actionID = descriptor.id
-            guard descriptor.isPaletteVisible, !provider.hiddenIDs.contains(actionID), registry.isAvailable(actionID) else { return }
+            guard descriptor.isPaletteVisible, !provider.hiddenIDs.contains(actionID),
+                  registry.isAvailable(actionID, in: provider.paletteContext(for: descriptor)) else { return }
             // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
             // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
             // its page. Declining there (nothing to rename) falls back to the action itself.
             let overridden = provider.effectOverrides[actionID] != nil
             guard entry.isBound || overridden || provider.includeUnbound else { return }
             let face = provider.face(of: entry, overridden: overridden, unbound: unbound)
+            guard face.isEnabled || !entry.isBound else { return }
             if !descriptor.isDebugOnly && (entry.isBound || overridden) { eligible.insert(actionID) }
             listed.append(RegistryPaletteRows.Listed(id: actionID, face: face))
             tiers.append(descriptor.paletteTier)
@@ -143,13 +150,14 @@ public final class RegistryPaletteProvider: PaletteProvider {
         }
     }
 
-    /// What `entry`'s row shows now: its title, why it cannot run, its shortcut.
+    /// What `entry`'s row shows now: its title, whether it runs, its shortcut.
     private func face(of entry: ActionEntry, overridden: Bool, unbound: String) -> RegistryPaletteRows.Face {
         let descriptor = entry.descriptor
         let action = registry.action(for: descriptor.id)
-        // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
-        let paletteReason = overridden ? nil : action?.paletteUnavailableReason?()
-        let runs = overridden || (registry.canPerform(descriptor.id) && paletteReason == nil)
+        // A row whose run would refuse for the focused object (a chat control that chat lacks) cannot run here.
+        let collectsTarget = descriptor.paletteTarget != nil
+        let paletteReason = overridden || collectsTarget ? nil : action?.paletteUnavailableReason?()
+        let runs = overridden || (registry.canPerform(descriptor.id, in: paletteContext(for: descriptor)) && paletteReason == nil)
         // A row a person can run past its reason (Sign In, then the action: ``ActionRecovery``) stays enabled.
         let recovery = runs || paletteReason != nil ? nil : registry.personRecovery(for: descriptor.id)
         let isEnabled = runs || recovery != nil
@@ -161,9 +169,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
                                                             symbol: descriptor.symbol, isOn: isOn)
         return RegistryPaletteRows.Face(
             title: shown.title,
-            // A disabled row says why (Chromium without a CEF runtime); one that runs, what it does when
-            // its title alone does not (``ActionDescriptor/hint``).
-            subtitle: recovery?.note ?? (isEnabled ? descriptor.hint : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
+            // What the row does when its title alone does not say (``ActionDescriptor/hint``); a hint that only
+            // says the title again is narration and goes.
+            subtitle: recovery?.note ?? (isEnabled ? descriptor.hint.flatMap { $0.restatesTitle(shown.title) ? nil : $0 } : nil),
             accessory: entry.isBound || overridden ? nil : unbound,
             symbol: shown.symbol,
             isOn: isOn,
@@ -176,6 +184,12 @@ public final class RegistryPaletteProvider: PaletteProvider {
             overridden: overridden,
             editsShortcut: editShortcut != nil
         )
+    }
+
+    /// A subject picker can supply the context implied by that target kind.
+    /// Feature, sign-in and other availability predicates still run normally.
+    private func paletteContext(for descriptor: ActionDescriptor) -> ActionContext {
+        registry.context.union(ActionContext.implied(byTargetKind: descriptor.paletteTarget))
     }
 
     /// The localized command titles a built row uses, read once per open that builds any row.
@@ -205,7 +219,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
             isEnabled: face.isEnabled,
             primary: PaletteCommand(
                 id: "run",
-                title: descriptor.arguments.contains(where: \.palettePrompts) ? labels.open : labels.runCommand,
+                title: descriptor.paletteTarget != nil || descriptor.arguments.contains(where: \.palettePrompts) ? labels.open : labels.runCommand,
                 symbol: "return",
                 effect: effect
             ),
@@ -232,8 +246,12 @@ public final class RegistryPaletteProvider: PaletteProvider {
         item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
         item.ball = PaletteGroupColor.ball(forAction: actionID)
         item.suggestedRank = descriptor.paletteSuggestionRank
-        item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
+        item.aliases = ActionDescriptor.paletteAliases[actionID] ?? []
+        item.keywords += item.aliases
         item.rankBias = Self.rankBias(for: descriptor.paletteTier)
+        // Read only for the row the preview pane shows (`experiments.palettePreview`).
+        let (name, keycaps, category, hint) = (descriptor.title, face.keycaps, descriptor.category, descriptor.hint)
+        item.facts = { PaletteFacts.command(name: name, keycaps: keycaps, category: category.title, description: hint) }
         return item
     }
 
@@ -243,13 +261,18 @@ public final class RegistryPaletteProvider: PaletteProvider {
     private static func defaultEffect(for descriptor: ActionDescriptor, registry: ActionRegistry,
                                       context: RegistryPaletteRows.RunContext, flipsInPlace: Bool = false) -> PaletteEffect {
         let id = descriptor.id
-        guard descriptor.arguments.contains(where: \.palettePrompts) else {
+        guard descriptor.paletteTarget != nil || descriptor.arguments.contains(where: \.palettePrompts) else {
             // A setting's on/off row flips in place: the palette stays open and the row reads its new state.
             if flipsInPlace { return .performKeepingOpen { registry.perform(id, invocation: ActionInvocation()) } }
             return .perform { registry.perform(id, invocation: ActionInvocation()) }
         }
         return .deferred {
-            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: context.targets, captured: context.capturedTargets,
+            // Sign in before reading the account's inventory. The recovery
+            // returns to collection once it has the signed-in machine list.
+            if registry.personRecovery(for: id) != nil {
+                return .perform { registry.perform(id, invocation: ActionInvocation()) }
+            }
+            return PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: context.targets, captured: context.capturedTargets,
                                 preview: context.argumentPreview, swatches: context.argumentSwatches,
                                 creators: context.targetCreators)
                 .effect(collected: ActionInvocation())
@@ -266,7 +289,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
     }
 
     static func primaryTitle(for descriptor: ActionDescriptor) -> String {
-        descriptor.arguments.contains(where: \.palettePrompts) ? PaletteStrings.open : PaletteStrings.runCommand
+        descriptor.paletteTarget != nil || descriptor.arguments.contains(where: \.palettePrompts) ? PaletteStrings.open : PaletteStrings.runCommand
     }
 
     /// The section for a catalog category.

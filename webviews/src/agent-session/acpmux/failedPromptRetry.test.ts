@@ -5,6 +5,8 @@
 // "Not sent. Press Retry to send it." with no reason, so Retry, refused the same way, looked dead.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
+import { resetKeptTailsForTests } from "./tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -18,7 +20,11 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
+  // Closing each pane kept its chat's tail for the next client; a later file's chat would open
+  // from it instead of reading the mock daemon.
+  resetKeptTailsForTests();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -151,7 +157,7 @@ test("a failed send says one plain sentence by its cause, and keeps the raw erro
     expect(trust?.delivery?.reason).toBe("trust.pending");
     expect(trust?.delivery?.error).toBe("trust.pending: answer the trust question for the folder first");
     const bug = shown("and the tests");
-    expect(bug?.error).toBe("Not sent because of an error in the agent pane.");
+    expect(bug?.error).toBe("Not sent. Try again.");
     expect(bug?.delivery?.code).toBe("transport.intent_invalid");
     // No code in the words the bubble shows.
     for (const row of [trust, bug]) expect(row?.error).not.toMatch(/trust\.pending|transport\.|:\s*The /);
@@ -280,6 +286,25 @@ test("a failed prompt removed or edited after a switch cleared it stays gone aft
     for (const again of replays) again();
     await settled();
     expect(pane.prompts).toEqual(["remove me", "edit me"]);
+  } finally {
+    pane.client.close?.();
+  }
+});
+
+// CMUX-682: Computer Use can stop being ready while a send's files upload, after the composer's check.
+// The client asks `sendHold` again at dispatch: a held prompt never reaches acpmux and fails with the
+// reason, its Retry intact; with nothing held it goes.
+test("a prompt held at dispatch never reaches acpmux and says why", async () => {
+  const pane = await paneWith(() => undefined);
+  try {
+    pane.client.sendHold = (text) => (text.includes("@computer-use") ? "Computer Use is not set up" : undefined);
+    await pane.client.send("open Notes with @computer-use").catch(() => undefined);
+    expect(pane.prompts).toEqual([]);
+    const bubble = pane.rows().find((row) => row.kind === "user" && row.text === "open Notes with @computer-use");
+    expect(bubble?.failed).toBe(true);
+    expect(bubble?.error).toContain("Computer Use is not set up");
+    await pane.client.send("plain words").catch(() => undefined);
+    expect(pane.prompts).toEqual(["plain words"]);
   } finally {
     pane.client.close?.();
   }

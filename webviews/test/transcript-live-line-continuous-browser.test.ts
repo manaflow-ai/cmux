@@ -10,14 +10,16 @@
 // this hangs on for a bit too much"), the line reads "Thinking" the moment a call completes, in the
 // same element, instead of holding the finished step.
 //
-// Before: the line went "Running grep 0s" (a clock that started again at each call) to "Thinking
-// 15s" under the call's own "Ran grep …" row.
+// The live line goes "grep 0s" (a clock that started again at each call) to "Thinking 15s" under
+// the call's own "Ran grep …" row, with no running-state word (Leo, 2026-11-23: "running" doesn't
+// need text).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -54,6 +56,8 @@ await requireBrowserLane("transcript-live-line-continuous-browser.test.ts", asyn
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
     await installPaintedFrames(page);
+    // The clock on the line, which this file reads at every frame.
+    await pinArms(page, CLOCK_ON_LINE);
     // The shimmer runs: no Reduce Motion.
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
@@ -184,9 +188,9 @@ await requireBrowserLane("transcript-live-line-continuous-browser.test.ts", asyn
     const all = (step: string) => trace.filter((row) => row.step === step);
     const last = (step: string) => all(step).at(-1)!.text;
     expect(last("thinking")).toStartWith("Thinking");
-    expect(last("grep running")).toStartWith("Running grep");
+    expect(last("grep running")).toStartWith("grep");
     for (const step of ["grep done", "thought", "sed done"])
       for (const row of all(step)) expect(row.text).toStartWith("Thinking");
-    expect(last("sed running")).toStartWith("Running sed");
+    expect(last("sed running")).toStartWith("sed");
   });
 });

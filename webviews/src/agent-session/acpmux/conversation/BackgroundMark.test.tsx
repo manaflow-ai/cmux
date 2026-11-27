@@ -1,7 +1,9 @@
 // l10n-allow-file: test fixture commands, not shipped UI.
 // A shell call that went on in the background shows how it stands on its own "Ran" row, in a "Ran
-// N commands" group (CommandRow) or alone (ToolRow): the running mark while it runs there, then a
-// check with its time, "Failed" or "Stopped". A background task's end whose call is not in the
+// N commands" group (CommandRow) or alone (ToolRow): the running mark while it runs there, then
+// nothing in sight once it ends, no check, time, "Failed" or "Stopped" (Lawrence and Lucas, 2026-11-11
+// standup: Codex marks no command as passed or failed, no time on hover); "Failed" stays for screen
+// readers only. A background task's end whose call is not in the
 // transcript is one line naming the command in a few words, never the raw `export PATH=…` text
 // (Leo 2026-10-20). A click opens that line in place, never a terminal (Leo 2026-10-21: it
 // replaced the whole window with an empty terminal); only its Open in terminal opens one.
@@ -16,6 +18,7 @@ import { SubagentNavContext } from "../subagents/subagentGroupModel";
 import {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,
+  prefetchBackgroundTaskOutput,
   readBackgroundTaskOutput,
   tailLines,
   type BackgroundTaskOutputReader,
@@ -23,6 +26,7 @@ import {
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { CommandRow } from "./CommandRow";
 import { ToolRow } from "./ToolRow";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -41,7 +45,7 @@ function installDom(): HTMLElement {
     "localStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -59,6 +63,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -98,7 +103,26 @@ for (const [name, Row] of [
   ["CommandRow", CommandRow],
   ["ToolRow", ToolRow],
 ] as const) {
-  test(`${name}: running in the background shimmers its words, with no mark at the edge and no time`, async () => {
+  for (const [title, command, description] of [
+    ["Bash", "timeout 30 acpmux session inbox session-id", "Read the three non-notice inbox threads"],
+    ["exec_command", "git status --short", "Check the worktree before merging"],
+  ] as const) {
+    for (const status of ["in_progress", "completed"]) {
+      test(`${name}: opening a ${status} ${title} row reveals its full command`, async () => {
+        const item = call();
+        item.tool = { ...item.tool!, title, command, status, description };
+        const container = await render(<Row item={item} />);
+        const label = container.querySelector('button[aria-expanded="false"]')!;
+        expect(label.textContent).toContain(description);
+        expect(container.textContent).not.toContain(command);
+        await click(label);
+        expect(label.getAttribute("aria-expanded")).toBe("true");
+        expect(container.querySelector(".cv-shell__command")?.textContent).toBe(`$ ${command}`);
+      });
+    }
+  }
+
+  test(`${name}: running in the background shimmers its words, with no mark at the edge and no hover time`, async () => {
     const container = await render(<Row item={call({ state: "running" })} />);
     const mark = container.querySelector(".cv-command__bg-state")!;
     expect(mark.getAttribute("title")).toBe(translate("tools.background.running"));
@@ -112,26 +136,26 @@ for (const [name, Row] of [
     expect(container.querySelector(".cv-command__time")).toBeNull();
   });
 
-  test(`${name}: finished in the background is a check with the shell's whole run time`, async () => {
+  test(`${name}: finished in the background draws no check and no time`, async () => {
     const container = await render(<Row item={call({ state: "completed", endedAt: STARTED + 6_100 })} />);
     expect(container.querySelector(".cv-command__bg-state")).toBeNull();
     expect(container.querySelector(".cv-row-shimmer")).toBeNull();
-    expect(container.querySelector(".cv-command__ok")).not.toBeNull();
-    // Its time runs to the shell's end, not the launch's 200ms.
-    expect(container.querySelector(".cv-command__time")!.textContent).toBe(translate("duration.s", { n: "6.1" }));
+    expect(container.querySelector(".cv-command__ok")).toBeNull();
+    expect(container.querySelector(".cv-command__time")).toBeNull();
   });
 
-  test(`${name}: failed and stopped say so, a stop with the agent's reason on hover`, async () => {
+  test(`${name}: a failed call has an accessible mark and a stopped call names its state inline`, async () => {
     const failed = await render(<Row item={call({ state: "failed", endedAt: STARTED + 1_000 })} />);
+    // Clipped away on screen (conversation.css `.cv-tool .cv-command__failed`), read aloud.
     expect(failed.querySelector(".cv-command__failed")!.textContent).toBe(translate("tools.failed"));
     await act(async () => root!.unmount());
     root = undefined;
     const stopped = await render(
       <Row item={call({ state: "stopped", reason: "Stopped by the agent", endedAt: STARTED + 1_000 })} />,
     );
-    const label = stopped.querySelector(".cv-command__stopped")!;
-    expect(label.textContent).toBe(translate("bgTask.state.stopped"));
-    expect(label.getAttribute("title")).toBe("Stopped by the agent");
+    expect(stopped.querySelector(".cv-command__stopped")).toBeNull();
+    expect(stopped.querySelector('[title="Stopped by the agent"]')).toBeNull();
+    expect(stopped.textContent).toContain(` · ${translate("bgTask.state.stopped")}`);
   });
 }
 
@@ -140,36 +164,46 @@ test("a command that never went to the background draws as before", async () => 
   expect(container.querySelector(".cv-tool__meta")).toBeNull();
 });
 
-test("a background task's end without its call keeps the raw command visible", async () => {
-  const command =
-    'export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"; B=~/Projects/leo-workspace; cmux browser open https://example.com';
+test("an unrecognized background command is shown as code when no description was supplied", async () => {
+  const command = "./opaque-tool --quiet";
   const container = await render(<BackgroundTaskNote task={{ toolCallId: "bg9", command, state: "completed" }} />);
   const note = container.querySelector(".cv-bgtask")!;
-  expect(note.textContent).toContain(command);
-  expect(note.textContent).toContain(translate("bgTask.completedLead"));
-  // No tooltip: the whole command is one click away, in the opened note.
-  expect(note.getAttribute("title")).toBeNull();
+  expect(note.querySelector("code")?.textContent).toBe(command);
+  expect(note.textContent).toBe(`${command} · ${translate("bgTask.state.completed")}`);
 });
 
-// Leo, 2026-11-05, on a note reading "Background command completed hold": "what are you even holding
-// for?". An agent's Monitor named "hold" reads as the tray reads it, what it does, then its name.
-test("a background task an agent named reads as what it does, then its name", async () => {
+test("an explicit description stays prose and wins over a recognized background command", async () => {
+  const command = "sleep 840; echo t";
   const container = await render(
-    <BackgroundTaskNote
-      task={{ toolCallId: "bg-hold", command: "sleep 840; echo t", description: "hold", state: "completed" }}
-    />,
+    <BackgroundTaskNote task={{ toolCallId: "bg9", command, description: "Wait for the build", state: "completed" }} />,
   );
-  const named = container.querySelector<HTMLElement>(".cv-bgtask__title")!;
-  expect(named.textContent).toBe("Waiting 14m · hold");
-  expect(named.title).toBe("sleep 840; echo t");
-  expect(container.querySelector(".cv-bgtask__command")).toBeNull();
+  const note = container.querySelector("button.cv-bgtask")!;
+  expect(note.querySelector("span.cv-bgtask__title")?.textContent).toBe("Wait for the build");
+  expect(note.textContent).toBe("Wait for the build · Finished");
+  expect(note.querySelector("code")).toBeNull();
+  await click(note);
+  expect(container.querySelector("code.cv-bgtask__raw-command")?.textContent).toBe(command);
+});
+
+test("a description-only completion stays prose throughout disclosure", async () => {
+  const task: AcpmuxBackgroundTask = {
+    toolCallId: "bg-description",
+    command: "",
+    description: "Create worktree for lane",
+    state: "completed",
+  };
+  const container = await render(<BackgroundTaskNote task={task} />);
+  const note = container.querySelector("button.cv-bgtask")!;
+  expect(note.textContent).toBe("Create worktree for lane · Finished");
+  await click(note);
+  expect(container.querySelector("code")).toBeNull();
 });
 
 test("a background task names and links its owner, and keeps its duration in the details", async () => {
   const opened: string[] = [];
   const task: AcpmuxBackgroundTask = {
     toolCallId: "bg-owner",
-    command: "sleep 299; echo t",
+    command: "sleep 299",
     ownerId: "chat/helper-1",
     ownerTitle: "Cut create overhead",
     startedAt: STARTED,
@@ -184,12 +218,14 @@ test("a background task names and links its owner, and keeps its duration in the
   const owner = container.querySelector<HTMLElement>('.cv-bgtask__owner[role="link"]')!;
   expect(owner.textContent).toBe("Cut create overhead");
   expect(owner.dataset.deeplink).toBe("#subagent:chat/helper-1");
-  expect(container.textContent).toContain("sleep 299; echo t");
+  expect(container.querySelector(".cv-bgtask__title")?.textContent).toContain("Waiting");
+  expect(container.textContent).not.toContain(task.command);
   await click(owner);
   expect(opened).toEqual(["chat/helper-1"]);
   expect(container.querySelector("button.cv-bgtask")?.getAttribute("aria-expanded")).toBe("false");
   await click(container.querySelector("button.cv-bgtask")!);
   expect(container.textContent).toContain("6s");
+  expect(container.textContent).toContain(task.command);
 });
 
 test("a background task without an owner title does not show the owner id", async () => {
@@ -435,6 +471,121 @@ test("a known process id wins over a reused tool call id", async () => {
   };
   const output = await readBackgroundTaskOutput(reader, "bg", "s1/old");
   expect(output.output).toBe("s1/old");
+});
+
+test("a finished task is read once; a read that failed or found it running is read again", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const lists: string[] = [];
+  let state = "running";
+  let fail = false;
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s1",
+    source: {
+      listProcesses: async () => {
+        lists.push(state);
+        if (fail) throw new Error("daemon away");
+        return { processes: [{ id: "s1/p", toolCallId: "bg", harness: "claude", state, exitCode: 0 }] };
+      },
+      tailProcess: async () => ({ data: bytes(`done\n`), fromByte: 0 }),
+    },
+  };
+  // Asked twice at once: one read.
+  const [first, again] = await Promise.all([
+    prefetchBackgroundTaskOutput(reader, "bg"),
+    prefetchBackgroundTaskOutput(reader, "bg"),
+  ]);
+  expect(first).toBe(again);
+  expect(first.running).toBe(true);
+  // Running when read: its end may not be written yet, so the next ask reads again.
+  state = "exited";
+  expect((await prefetchBackgroundTaskOutput(reader, "bg")).running).toBeUndefined();
+  // Ended: kept.
+  await prefetchBackgroundTaskOutput(reader, "bg");
+  expect(lists).toEqual(["running", "exited"]);
+  // A failed read answers empty and is not kept.
+  fail = true;
+  expect(await prefetchBackgroundTaskOutput(reader, "other")).toEqual({ unread: true });
+  fail = false;
+  await prefetchBackgroundTaskOutput(reader, "other");
+  expect(lists).toEqual(["running", "exited", "exited", "exited"]);
+});
+
+test("a click after a read-ahead that found the task still running reads again and opens the final output", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  let state = "running";
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s-race",
+    source: {
+      listProcesses: async () => ({
+        processes: [{ id: "s-race/p", toolCallId: "bg-race", harness: "claude", state, exitCode: 0 }],
+      }),
+      tailProcess: async () => ({
+        data: bytes(state === "running" ? "partial\n" : "partial\nall done\n"),
+        fromByte: 0,
+      }),
+    },
+  };
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-race", command: "cargo test", state: "completed" }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  // Focus reads ahead (as a hover does), and that read finds the task still running.
+  await act(async () => (container.querySelector("button.cv-bgtask") as HTMLElement).focus());
+  await settle();
+  state = "exited";
+  await click(container.querySelector("button.cv-bgtask")!);
+  await settle();
+  expect(container.querySelector(".cv-shell__output")!.textContent).toContain("all done");
+});
+
+test("a click after a read-ahead that failed reads again and opens the output", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  let away = true;
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s-away",
+    source: {
+      listProcesses: async () => {
+        if (away) throw new Error("daemon away");
+        return {
+          processes: [{ id: "s-away/p", toolCallId: "bg-away", harness: "claude", state: "exited", exitCode: 0 }],
+        };
+      },
+      tailProcess: async () => ({ data: bytes("back again\n"), fromByte: 0 }),
+    },
+  };
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-away", command: "make", state: "completed" }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  await act(async () => (container.querySelector("button.cv-bgtask") as HTMLElement).focus());
+  await settle();
+  away = false;
+  await click(container.querySelector("button.cv-bgtask")!);
+  await settle();
+  expect(container.querySelector(".cv-shell__output")!.textContent).toContain("back again");
+});
+
+test("a drag across the note's line does not open it", async () => {
+  const { reader } = registry([]);
+  const container = await render(
+    <BackgroundTaskOutputContext.Provider value={reader}>
+      <BackgroundTaskNote task={{ toolCallId: "bg-drag", command: "make", state: "completed" }} />
+    </BackgroundTaskOutputContext.Provider>,
+  );
+  const line = container.querySelector("button.cv-bgtask")!;
+  await settle();
+  await act(async () => {
+    line.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 10, clientY: 10 }));
+    line.dispatchEvent(
+      new window.MouseEvent("click", { bubbles: true, button: 0, detail: 1, clientX: 30, clientY: 10 }),
+    );
+  });
+  // Let the read the press asked for answer (an unguarded click would open the note then).
+  await settle();
+  await settle();
+  expect(line.getAttribute("aria-expanded")).toBe("false");
 });
 
 test("a live tail keeps the last lines and removes terminal control escapes", () => {

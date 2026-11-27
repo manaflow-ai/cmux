@@ -15,8 +15,16 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("live_mode", ROOT / "scripts/live-code/live-mode.py")
@@ -227,6 +235,96 @@ class LiveModeTests(unittest.TestCase):
         source.write_text("two")
         os.utime(source, ns=(first[rel][0] + 10**9, first[rel][0] + 10**9))
         self.assertNotEqual(live_mode.swift_sources(tree, stale)[rel][1], "remembered")
+
+    def test_a_file_event_rescans_only_the_paths_it_names(self):
+        tree = Path(self.dir) / "tree"
+        base = tree / live_mode.SOURCES / "CmuxNextApp"
+        base.mkdir(parents=True)
+        (base / "A.swift").write_text("one")
+        (base / "B.swift").write_text("one")
+        seen = live_mode.swift_sources(tree)
+        a, b = (str((base / n).relative_to(tree)) for n in ("A.swift", "B.swift"))
+        for name in ("A.swift", "B.swift"):
+            (base / name).write_text("two")
+            os.utime(base / name, ns=(seen[a][0] + 10**9,) * 2)
+        (base / "notes.txt").write_text("x")
+        now = live_mode.rescanned(tree, seen, [str(base / "A.swift"), str(base / "notes.txt"), "/elsewhere/C.swift"])
+        self.assertEqual(live_mode.changed_sources(seen, now), ([a], []))  # B changed too, but no event named it
+        (base / "A.swift").unlink()
+        self.assertNotIn(a, live_mode.rescanned(tree, now, [str(base / "A.swift")]))
+
+    def test_the_watcher_patches_a_save_its_file_event_names_with_no_poll(self):
+        tree = Path(self.dir) / "tree"
+        source = tree / live_mode.SOURCES / "CmuxNextApp/A.swift"
+        source.parent.mkdir(parents=True)
+        source.write_text("one")
+        root = live_mode.cache_root("mine")
+        entry = root / "entry"
+        entry.mkdir(parents=True)
+        live_mode.save_sources(entry / "sources.json", live_mode.swift_sources(tree))
+        live_mode.save_sources(root / "watch-baseline.json", live_mode.swift_sources(tree))
+        app = self.bundle("live.app")
+        live_mode.write_state(root, {"mode": "live", "app": str(app), "binary": live_mode.binary_id(app),
+                                     "tree": str(tree), "entry": str(entry)})
+        rel = str(source.relative_to(tree))
+        waits, patched = [], []
+        test = self
+
+        class Events:
+            def wait(self, timeout, settle=0.0):
+                waits.append(timeout)
+                if len(waits) == 1:
+                    source.write_text("two")
+                    os.utime(source, ns=(source.stat().st_mtime_ns + 10**9,) * 2)
+                    return time.time(), {str(source)}
+                if len(waits) == 2:
+                    return None, set()  # nothing in `timeout`: no scan
+                live_mode.write_state(root, {**live_mode.read_state(root), "mode": "off"})
+                return None, set()
+
+        def apply_edits(tree_, entry_, files):
+            patched.append(files)
+            return {"files": files, "exit": 0, "seconds": 0.1,
+                    "output": "patch.py: /live/patch-1-2.dylib lookup_s=0.001 compile_s=0.90 link_s=0.20 "
+                              "place_s=0.001 total_s=1.20 started=100.000 files=1"}
+
+        saved = live_mode.file_events, live_mode.apply_edits, live_mode.swift_sources
+        live_mode.file_events = lambda folder: Events()
+        live_mode.apply_edits = apply_edits
+        scans = []
+        live_mode.swift_sources = lambda *a: scans.append(a) or saved[2](*a)
+        try:
+            args = type("Args", (), {"tag": "mine", "tree": tree})()
+            self.assertEqual(live_mode.watch(args), 0)
+        finally:
+            live_mode.file_events, live_mode.apply_edits, live_mode.swift_sources = saved
+        test.assertEqual(len(scans), 1)  # the first pass (saves since the baseline); the event's save is rescanned alone
+        self.assertEqual(patched, [[rel]])
+        self.assertEqual(waits[1], 0.05)  # a patch waiting for the app's applied line is checked often
+
+    def test_a_save_s_phases_join_the_app_s_applied_line(self):
+        log = Path(self.dir) / "live-code.log"
+        log.write_text("old line\n")
+        phases = live_mode.Phases(Path(self.dir) / "phases.jsonl", log=log)
+        seen = {"S/A.swift": (int(99.5 * 1e9), "h")}
+        phases.add(["S/A.swift"], None, seen, 100.0, 100.01, {
+            "exit": 0, "seconds": 1.3,
+            "output": "patch.py: /live/patch-7-1.dylib lookup_s=0.002 compile_s=0.90 link_s=0.25 place_s=0.001 "
+                      "total_s=1.20 started=100.050 files=1"})
+        self.assertFalse((Path(self.dir) / "phases.jsonl").exists())
+        with open(log, "a") as f:
+            f.write("applied patch-7-1.dylib functions=3 load_ms=12 at=101.300\n")
+        phases.settle()
+        row = json.loads((Path(self.dir) / "phases.jsonl").read_text())
+        self.assertEqual((row["saved_to_heard_s"], row["compile_s"], row["link_s"], row["load_ms"]), (0.5, 0.9, 0.25, 12))
+        self.assertEqual((row["placed_at"], row["placed_to_applied_s"], row["saved_to_applied_s"]), (101.25, 0.05, 1.8))
+        self.assertEqual(phases.wait_s(), live_mode.POLL_S)
+
+    def test_without_file_events_the_watcher_scans_every_poll(self):
+        if sys.platform == "darwin":
+            self.skipTest("macOS has FSEvents")
+        events = live_mode.file_events(self.dir)
+        self.assertIsInstance(events, live_mode.PollEvents)
 
     def test_a_save_after_the_start_snapshot_patches_from_the_watch_baseline(self):
         tree = Path(self.dir) / "tree"

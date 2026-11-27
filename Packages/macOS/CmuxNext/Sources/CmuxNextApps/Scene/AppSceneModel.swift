@@ -14,7 +14,7 @@ extension AppSceneInteraction {
     public func reload() {}
 }
 
-/// The observable mirror of one mounted contribution, for `AppSceneView`.
+/// The observable mirror of one mounted contribution, for `AppSceneHostingView`.
 /// Written only by the supervisor's scene stream for the mount (`apps-scene`);
 /// hover and press stay in the views.
 @MainActor
@@ -35,6 +35,9 @@ public final class AppSceneModel {
     /// Why the app's last saved script did not load while this view kept drawing the script before
     /// it (`apps-reload-failed`); nil once a scene of a script that loaded replaces it.
     public var reloadFailure: String?
+    /// Why a widget's last render threw while its view keeps the last good scene (`apps-widget-health`
+    /// stale); nil once a render answers again. The tile dims and says it retries; it never blanks.
+    public var staleReason: String?
     /// Counts applied batches and resets, so an AppKit renderer can tell in `layout()` whether the
     /// scene changed since it last drew, without comparing scenes.
     @ObservationIgnored public private(set) var revision = 0
@@ -74,6 +77,14 @@ public final class AppSceneModel {
     }
 
     func send(_ node: String, _ event: String, _ payload: AppJSON = .object([:])) {
+        // A TextField's edit, submit and cancel carry the text it shows: the mirror takes it, as the
+        // app host does (it sends the app's value back only when it differs from that text). So an
+        // app that clears its draft after a submit clears the field, also when its draft was empty
+        // all along, and an update of another prop leaves the typed text alone.
+        if event == "edit" || event == "submit" || event == "cancel", let text = payload["text"]?.stringValue,
+           let current = scene.nodes[node], current.props["text"]?.stringValue != text {
+            _ = scene.apply([.update(id: node, props: ["text": .string(text)])])
+        }
         interaction?.dispatch(node: node, event: event, payload: payload)
     }
 }

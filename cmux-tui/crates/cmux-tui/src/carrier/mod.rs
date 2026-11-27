@@ -32,13 +32,43 @@
 //!   file (never to stderr): how long the attempt spent on the ticket, the
 //!   relay, the park, the handshake and the mux open
 //!   ([`contract::phases_line`]).
+//! - A relay attempt whose first link stays parked for 8 s looks at the
+//!   machine over the Cloud exec route and, when its software predates the
+//!   self-update (it never registers on the relay), has it adopt the signed
+//!   channel's build once, inside the same deadline ([`adopt`],
+//!   cmuxterm-hq#7086). That writes one `carrier.adopt machine=<vm_id>
+//!   outcome=<code> ms=<n>` line to the connect log, never to stderr.
+//! - With `CMUX_CARRIER_PROGRESS=1`, progress lines
+//!   (`{"progress":{"stage","text","eta_ms","deadline_ms"}}`) come before the
+//!   reply line, about once a second: the step the dial waits on and how
+//!   long is left ([`progress`]). Without it the reply line stays first.
 //! - `--service desktop` carries the machine's desktop instead: raw
 //!   `cmux.rd/1` bytes on stdin and stdout, through cmux-remote's
 //!   `local-socket` to `/run/cmux-rd/desktop.sock`. The daemon opens it only
 //!   for the machine owner's grant (`vmk: "owner"`); its refusal is
 //!   `error_code` `service_refused`.
+//! - While the machine is paused, the session sends nothing until the
+//!   caller does: an idle session (nothing sent for 10 s,
+//!   `CMUX_CARRIER_IDLE_LOOK_MS` overrides it) reads the machine's state with
+//!   the read that wakes nothing before each heartbeat or redial, and holds
+//!   both while it reads `paused` or `pausing`. The caller's next byte goes
+//!   out as before and wakes the machine ([`sleep_gate`]).
+//! - `--service acpmux` carries the machine's acpmux: newline JSON-RPC
+//!   (`initialize`, `session/new`, `session/prompt`, `_acpmux/attach`, ...)
+//!   on stdin and stdout, one message per line both ways, through
+//!   cmux-remote's `acpmux` service to `ACPMUX_HOME/run/carrier.sock`
+//!   ([`cmux_remote::acpmux_bridge`]; the daemon names the person to acpmux
+//!   from the carrier grant). Stdout gets whole lines only. The daemon's
+//!   refusal (`acpmux.no_grant`, `acpmux.not_granted`, no acpmux there) is
+//!   `error_code` `service_refused`. The session's resume keeps the carrier
+//!   up across a drop, but the acpmux stream rides its Tunnel lane, which
+//!   is never replayed: a resume ends the stream, the dial writes
+//!   `cloud.acpmux machine=<vm_id> outcome=stream_lost detail=<code>` on
+//!   stderr and exits 7. Lines acknowledged before the drop are delivered
+//!   once; lines in flight may be lost, never duplicated. The client redials
+//!   and re-attaches (`_acpmux/attach`), acpmux's own resume.
 //! - Exit codes: 0 ok, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
-//!   6 service_refused, 64 bad usage.
+//!   6 service_refused, 7 acpmux stream lost after connecting, 64 bad usage.
 //!
 //! One deadline (default 180 s) covers the ticket, the relay, the park and
 //! the handshake. The ticket and grant come from cmux-platform
@@ -72,17 +102,26 @@
 //! `cmux carrier key --public` prints this device's carrier Noise static
 //! public key on stdout as one line of unpadded base64url (32 bytes, 43
 //! characters), the `carrier.noise_key` a create request carries, and exits
-//! 0. The key is the one dial and serve use: on a Mac the login Keychain
-//! item `com.cmuxterm.app.next.carrier-noise-key` (account `device`), made
-//! the same way when it does not exist yet. Nothing private is printed.
-//! Elsewhere no key lasts past one dial, so it prints nothing on stdout and
-//! writes dial's failure line (`handshake`, exit 5), as it does when the
-//! Keychain refuses. Any other arguments are `bad_request`, exit 64.
+//! 0. The key is the one dial and serve use: on a Mac, for a Team-signed
+//! build, the login Keychain item `com.cmuxterm.app.next.carrier-noise-key`
+//! (account `device`, read with prompts off), and for a build with no Team
+//! ID (an ad-hoc DEV build) the 0600 file
+//! `~/Library/Application Support/cmux-next/builds/<build key>/carrier/noise-key`
+//! ([`noise_key`]); either is made the same way when it does not exist yet.
+//! Nothing private is printed. Elsewhere no key lasts past one dial, so it
+//! prints nothing on stdout and writes dial's failure line (`handshake`,
+//! exit 5), as it does when the store refuses. Any other arguments are
+//! `bad_request`, exit 64.
 //!
 //! `cmux carrier serve --machine <vm_id> --socket <path>` takes the same
 //! flags and environment and serves the same stream on a Unix socket: one
 //! session per machine, dialed by the first accepted connection, and a mux
 //! control stream on it for each connection ([`serve`]).
+//!
+//! `cmux carrier supervise --machine <vm_id> --socket <path>` runs one app
+//! session's `carrier serve` child for its whole life (launch, token
+//! refresh, park, stop, the account fence) as one state machine
+//! ([`serve_machine`]), talking to the app in JSON lines ([`supervise`]).
 //!
 //! `cmux carrier capabilities [--json] [--wg-hub PATH]` prints one JSON
 //! object on stdout and exits 0: the routes this device can carry a Cloud
@@ -110,21 +149,33 @@
 //! after its phases line, naming the ssh route's state and the carrier that
 //! carried it ([`contract::routes_line`]).
 
+mod adopt;
 mod answer;
 mod client;
 mod contract;
 pub(crate) mod drill;
+pub(crate) mod drill_dial;
 pub(crate) mod fault;
 mod held;
 mod noise_key;
+mod progress;
 mod rd_link;
 mod route_log;
 mod secrets;
 mod serve;
+mod serve_machine;
+mod serve_policy;
+mod serve_quiet;
+mod sleep_gate;
 mod source;
 mod ssh;
+mod state_root;
+mod supervise;
+mod supervise_wire;
 pub(crate) mod tunnel;
 mod tunnel_cli;
+pub(crate) mod tunnel_keeper;
+pub(crate) mod workspace;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -175,9 +226,16 @@ pub(crate) enum DialService {
     /// `local-socket` to [`cmux_remote::bridge::CLOUD_DESKTOP_SOCKET`],
     /// which the daemon opens only for the machine owner's grant.
     Desktop,
+    /// The machine's acpmux: newline JSON-RPC on cmux-remote's `acpmux`
+    /// service, which the daemon bridges to acpmux's carrier socket.
+    Acpmux,
 }
 
-/// `dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL]
+/// Exit code of an acpmux dial whose stream ended with an error after the
+/// ok reply (a resume reset it): the client redials and re-attaches.
+const ACPMUX_STREAM_LOST: i32 = 7;
+
+/// `dial --machine vm_… [--service mux|desktop|acpmux] [--deadline-ms N] [--cloud-api URL]
 /// [--cloud-token-file PATH] [--team team_…] [--answer-fd N] [--wg-hub PATH]`, each once,
 /// nothing else.
 pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
@@ -229,6 +287,7 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
     let service = match service.as_deref() {
         None | Some("mux") => DialService::Mux,
         Some("desktop") => DialService::Desktop,
+        Some("acpmux") => DialService::Acpmux,
         Some(_) => return None,
     };
     let deadline = match deadline {
@@ -353,23 +412,34 @@ fn jitter(ceiling: Duration) -> Duration {
     cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
 }
 
-/// Opens the machine's desktop stream on the dialed session by `deadline`.
-/// The daemon's refusal is [`contract::Step::Service`] (exit 6); a session
-/// that drops or stalls before the daemon answers is the carrier's
-/// ([`contract::Step::Relay`]), never a refusal.
-async fn open_desktop(
+/// Opens the stream `service` carries (the desktop or acpmux) on the dialed
+/// session by `deadline`. The daemon's refusal is
+/// [`contract::Step::Service`] (exit 6); a session that drops or stalls
+/// before the daemon answers is the carrier's ([`contract::Step::Relay`]),
+/// never a refusal.
+async fn open_service(
     multiplexer: &Arc<cmux_remote::service::ServiceMultiplexer>,
+    service: DialService,
     deadline: tokio::time::Instant,
 ) -> Result<Arc<cmux_remote::service::ServiceStream>, Failure> {
     use cmux_remote::bridge::{CLOUD_DESKTOP_SOCKET, open_local_socket};
-    match tokio::time::timeout_at(deadline, open_local_socket(multiplexer, CLOUD_DESKTOP_SOCKET))
-        .await
-    {
+    let (opened, name) = match service {
+        DialService::Acpmux => (
+            tokio::time::timeout_at(deadline, cmux_remote::acpmux_bridge::open(multiplexer)).await,
+            "acpmux",
+        ),
+        _ => (
+            tokio::time::timeout_at(deadline, open_local_socket(multiplexer, CLOUD_DESKTOP_SOCKET))
+                .await,
+            "the desktop",
+        ),
+    };
+    match opened {
         Ok(Ok(stream)) => Ok(stream),
-        Ok(Err(error)) => Err(desktop_failure(error, multiplexer.session_unavailable())),
+        Ok(Err(error)) => Err(open_failure(error, multiplexer.session_unavailable(), name)),
         Err(_) => Err(Failure::fatal(
             contract::Step::Relay,
-            "the desktop did not open before the deadline",
+            format!("{name} did not open before the deadline"),
         )),
     }
 }
@@ -379,7 +449,11 @@ async fn open_desktop(
 /// the multiplexer's reader saw it, or the error itself says so) is dialed
 /// fresh; anything else ended
 /// the session, which is the carrier's.
-fn desktop_failure(error: cmux_remote::bridge::BridgeError, session_unavailable: bool) -> Failure {
+fn open_failure(
+    error: cmux_remote::bridge::BridgeError,
+    session_unavailable: bool,
+    name: &str,
+) -> Failure {
     use cmux_remote::bridge::BridgeError;
     if let BridgeError::Rejected(why) = error {
         return Failure::fatal(contract::Step::Service, why);
@@ -388,7 +462,7 @@ fn desktop_failure(error: cmux_remote::bridge::BridgeError, session_unavailable:
     // send (or a heartbeat) met its typed end first.
     let gone = session_unavailable
         || matches!(&error, BridgeError::Service(service) if service.is_session_unavailable());
-    let detail = format!("the session ended before the desktop opened: {error}");
+    let detail = format!("the session ended before {name} opened: {error}");
     // The session host restarted after the session's first stream opened
     // and no longer has it: the dial opens a fresh one.
     if gone {
@@ -491,6 +565,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
         return serve::run(args);
     }
+    if args.first().is_some_and(|verb| verb == "supervise") {
+        return supervise::run(args);
+    }
     if args.first().is_some_and(|verb| verb == "secrets") {
         return secrets::run(args);
     }
@@ -505,7 +582,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     let Some(args) = parse(args) else {
         return usage(
-            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N] [--wg-hub PATH]",
+            "usage: cmux carrier dial --machine vm_… [--service mux|desktop|acpmux] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N] [--wg-hub PATH]",
         );
     };
     let (args, source, identity) = match prepare(args) {
@@ -525,11 +602,23 @@ pub(crate) fn run(args: &[String]) -> i32 {
         let (lines, mut queued) = tokio::sync::mpsc::unbounded_channel::<String>();
         let connect_log = route_log::default_path();
         let phases_log = connect_log.clone();
+        let deadline = tokio::time::Instant::now() + args.deadline;
+        // Progress lines go out before the reply line, so only for a caller
+        // that asked for them (`CMUX_CARRIER_PROGRESS=1`).
+        let progress = std::env::var(progress::ENV).is_ok_and(|v| v == "1").then(|| {
+            progress::Reporter::new(
+                progress::Expected::read(connect_log.as_deref()),
+                deadline,
+                args.service == DialService::Desktop,
+                reply,
+            )
+        });
+        let ticker = progress.as_ref().map(progress::Reporter::spawn);
         let plan = client::DialPlan {
             machine: args.machine.clone(),
             source,
             identity,
-            deadline: tokio::time::Instant::now() + args.deadline,
+            deadline,
             prefetched,
             log: Arc::new(move |line| {
                 if let Some(path) = &connect_log {
@@ -543,19 +632,26 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 }
             }),
             fresh_sessions: contract::FreshSessions::default(),
+            progress: progress.clone(),
             ssh: Arc::new(ssh::SshSetup::from_env(args.wg_hub.clone())),
             ssh_refusal: ssh::SshRefusal::default(),
+            drill: false,
         };
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
         // open stays inside the dial's one deadline. A session the host lost
         // before the desktop opened is dialed fresh, from the same budget
         // as the dial's own fresh sessions (`MAX_FRESH_SESSIONS` in all).
-        let (dialed, desktop) = loop {
+        let (dialed, opened) = loop {
             let dialed = client::dial(&plan).await;
             match (dialed, args.service) {
-                (Ok(dialed), DialService::Desktop) => {
-                    match open_desktop(&dialed.multiplexer, plan.deadline).await {
+                (Ok(dialed), service @ (DialService::Desktop | DialService::Acpmux)) => {
+                    if let Some(progress) = &progress
+                        && service == DialService::Desktop
+                    {
+                        progress.desktop();
+                    }
+                    match open_service(&dialed.multiplexer, service, plan.deadline).await {
                         Ok(stream) => break (Ok(dialed), Some(stream)),
                         Err(failure) => {
                             dialed.multiplexer.shutdown().await;
@@ -570,6 +666,13 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 (dialed, _) => break (dialed, None),
             }
         };
+        // No progress line after the reply line.
+        if let Some(progress) = &progress {
+            progress.stop();
+        }
+        if let Some(ticker) = ticker {
+            ticker.abort();
+        }
         let code = match &dialed {
             Ok(dialed) => {
                 reply(&contract::connected_line(dialed.vmk));
@@ -588,7 +691,27 @@ pub(crate) fn run(args: &[String]) -> i32 {
             }
         });
         let client::Dialed { connection, multiplexer, mux, rd_link, .. } = dialed;
-        let _ = match desktop {
+        let mut code = 0;
+        let _ = match opened {
+            Some(stream) if args.service == DialService::Acpmux => {
+                mux.close().await;
+                let pumped = cmux_remote::acpmux_bridge::pump_lines(
+                    stream,
+                    tokio::io::stdin(),
+                    tokio::io::stdout(),
+                )
+                .await;
+                if let Err(error) = &pumped {
+                    code = ACPMUX_STREAM_LOST;
+                    let detail = contract::detail_code(&error.to_string())
+                        .unwrap_or_else(|| "stream_ended".to_owned());
+                    reply(&format!(
+                        "cloud.acpmux machine={} outcome=stream_lost detail={detail}\n",
+                        args.machine
+                    ));
+                }
+                pumped
+            }
             Some(stream) => {
                 mux.close().await;
                 // The datagram link only when the platform turned it on and
@@ -630,7 +753,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         multiplexer.shutdown().await;
         let _ = connection.close().await;
         writer.abort();
-        0
+        code
     });
     runtime.shutdown_timeout(STDIO_SHUTDOWN_TIMEOUT);
     code
@@ -640,3 +763,5 @@ pub(crate) fn run(args: &[String]) -> i32 {
 mod argv_contract_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod ticket_cache_tests;

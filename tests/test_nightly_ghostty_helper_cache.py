@@ -16,15 +16,20 @@ restored and then rebuilt into the same key.
 from __future__ import annotations
 
 import importlib.util
+import io
+import os
 import re
 import struct
+import subprocess
 import tempfile
+import urllib.error
 import unittest
 from pathlib import Path
 import sys
 from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
+import workflow_jobs  # noqa: E402
 
 import yaml
 
@@ -180,26 +185,94 @@ class FindTests(unittest.TestCase):
                 self.assertEqual(found is not None, key_of_a == "same")
 
 
+class InputKeyTests(unittest.TestCase):
+    """The key comes from git ls-tree, not the contents API (REST core budget, 403 in run 45776501690)."""
+
+    def test_git_key_equals_api_key_and_spends_no_rest_call(self):
+        import os
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            git = lambda *args, **kw: subprocess.run(["git", "-C", tmp, *args], check=True, capture_output=True,
+                                                    text=True, **kw).stdout.strip()
+            git("init", "-q")
+            (Path(tmp) / "scripts").mkdir()
+            for path in reuse.INPUT_FILES:
+                (Path(tmp) / path).write_text(f"echo {path}\n")
+            gitlink = "1" * 40
+            git("update-index", "--add", "--cacheinfo", f"160000,{gitlink},ghostty")
+            git("add", *reuse.INPUT_FILES)
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t"}
+            git("commit", "-qm", "inputs", env=env)
+            sha = git("rev-parse", "HEAD")
+            blobs = {path: git("rev-parse", f"HEAD:{path}") for path in reuse.INPUT_FILES}
+            api = {f"/repos/{REPO}/contents/ghostty?ref={sha}": {"type": "submodule", "sha": gitlink}}
+            for path, oid in blobs.items():
+                api[f"/repos/{REPO}/contents/{path}?ref={sha}"] = {"type": "file", "sha": oid}
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(reuse.download, "api_json", side_effect=AssertionError("REST call")):
+                    from_git = reuse.input_key(REPO, sha, "token")
+                with mock.patch.object(reuse, "git_tree_ids", return_value=None), \
+                        mock.patch.object(reuse.download, "api_json", side_effect=lambda path, token: api[path]):
+                    from_api = reuse.input_key(REPO, sha, "token")
+            finally:
+                os.chdir(cwd)
+            self.assertEqual(from_git, from_api)
+
+
 class WorkflowTests(unittest.TestCase):
     def test_helper_never_takes_a_hosted_mac_and_skips_compile_on_hit(self):
         jobs = yaml.safe_load(nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text()))["jobs"]
         helper = jobs["build-nightly-ghostty-cli-helper"]
         self.assertIn("resolve-nightly-ghostty-cli-helper", helper["needs"])
-        runs_on = helper["runs-on"].split("!= 'manaflow-ai' && 'macos-26' ||", 1)[1]
-        self.assertNotIn("macos-15", helper["runs-on"])
-        self.assertNotIn("'macos-26'", runs_on)
+        cells = workflow_jobs.runs_on_cells(helper)
+        self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
+        for cell in cells:
+            runs_on = cell.split("!= 'manaflow-ai' && 'macos-26' ||", 1)[1]
+            self.assertNotIn("macos-15", cell)
+            self.assertNotIn("'macos-26'", runs_on)
         for name in ("Key the Ghostty CLI helper cache", "Cache the Ghostty CLI helper",
                      "Build Ghostty CLI helper", "Strip the Ghostty CLI helper", "Upload Ghostty CLI helper"):
             step = next(s for s in helper["steps"] if s.get("name") == name)
             self.assertIn("needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'", step["if"])
         lookup = jobs["resolve-nightly-ghostty-cli-helper"]
-        self.assertEqual(lookup["if"], helper["if"])
+        # The build adds only conjuncts to the lookup's gate: !cancelled() and its needs' success, so a timed-out
+        # continue-on-error pick-nightly-build-runner cannot skip it (2026-11-12).
+        self.assertTrue(helper["if"].endswith(f"&& {lookup['if']}"), helper["if"])
+        self.assertTrue(helper["if"].startswith("!cancelled() && "), helper["if"])
+        self.assertIn("needs.resolve-nightly-ghostty-cli-helper.result == 'success'", helper["if"])
         # Every step that can fail is a miss, and a hit needs this run's own artifact.
         for step in lookup["steps"]:
+            # The token step runs only on a Mac (runner.os == 'macOS'); this job runs on Linux, so it never runs here.
+            if step.get("if") == "runner.os == 'macOS'" and step["name"].startswith("Give git this job's token"):
+                continue
             if "Record" not in step["name"]:
                 self.assertTrue(step.get("continue-on-error"), step["name"])
                 self.assertIn("timeout-minutes", step, step["name"])
         self.assertEqual(lookup["outputs"]["hit"], "${{ steps.upload.outcome == 'success' && 'true' || 'false' }}")
+
+class MainTests(unittest.TestCase):
+    """Any failure to ask GitHub is a miss: hit=false in GITHUB_OUTPUT and exit 0, so the helper is built."""
+
+    def run_main(self, error):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "out"
+            argv = ["reuse", "--build-sha", B, "--archs", "arm64", "--out", str(Path(temp) / "helper")]
+            env = {"GITHUB_REPOSITORY": REPO, "GH_TOKEN": "token", "GITHUB_OUTPUT": str(output)}
+            with mock.patch.object(sys, "argv", argv), mock.patch.dict(os.environ, env), \
+                    mock.patch.object(reuse, "find", side_effect=error), \
+                    mock.patch("sys.stdout", new_callable=io.StringIO):
+                self.assertIn(reuse.main(), (None, 0))
+            return output.read_text()
+
+    def test_an_api_failure_is_a_clean_miss(self):
+        for error in (urllib.error.HTTPError("https://api.github.com/x", 403, "rate limited", {}, None),
+                      urllib.error.URLError("timed out"), TimeoutError("read timed out"),
+                      SystemExit("ghostty is not a submodule at " + B), ValueError("bad json")):
+            with self.subTest(error=repr(error)):
+                self.assertIn("hit=false\n", self.run_main(error))
 
 
 if __name__ == "__main__":

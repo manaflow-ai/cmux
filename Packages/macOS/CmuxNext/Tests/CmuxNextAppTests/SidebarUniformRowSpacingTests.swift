@@ -213,7 +213,7 @@ struct SidebarUniformRowSpacingTests {
         init() {
             let pinned = LayoutSection(id: SidebarLayoutDocument.pinnedSectionID, showsTitle: false, region: .top, look: .builtIn,
                                        items: SidebarUniformRowSpacingTests.pins.enumerated().map { index, id in
-                                           LayoutItem(id: id, ref: .workspace("pinned-\(index)"))
+                                           LayoutItem(id: id, ref: .workspace("pinned-\(index)"), label: "Pinned \(index)")
                                        })
             model = SidebarModel(sections: [SidebarUniformRowSpacingTests.pinnedBlock(), SidebarUniformRowSpacingTests.machine()],
                                  activeWorkspaceID: nil)
@@ -260,6 +260,8 @@ struct SidebarUniformRowSpacingTests {
         #expect(spacing > 0)
         let lastPin = h.inList(try h.pinnedRow(Self.pins[1]))
         let header = try #require(h.list.displayed.row(for: .group(Self.group)), "no group header")
+        // The row under the pins is the group's header: no list heading sits between them
+        // (https://github.com/manaflow-ai/cmux/issues/42373). The gap is the row spacing.
         #expect(abs(header.y - lastPin.maxY - spacing) < 0.5,
                 "under the pins: \(header.y - lastPin.maxY) pt, the row spacing is \(spacing) pt")
         let (w2, w3, w4) = try (h.inList(h.workspaceRow("w2")), h.inList(h.workspaceRow("w3")), h.inList(h.workspaceRow("w4")))
@@ -267,31 +269,22 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(w4.minY - w3.maxY - spacing) < 0.5)
     }
 
-    @Test(arguments: SidebarDensity.allCases) func thePinStartsOnAnUnpinnedRowsIconColumn(_ density: SidebarDensity) throws {
+    @Test(arguments: SidebarDensity.allCases) func aPinnedRowDrawsNoPinAndTakesAnUnpinnedRowsHeight(_ density: SidebarDensity) throws {
         let (saved, savedMotion) = (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride)
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
         defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
-        let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
-        let pin = h.list.convert(ink, from: pinned)
+        // A pinned row leads as an unpinned one, with no pin (Leo 2026-11-23, ask c-b5d3e0efb6: "it puts a symbol at
+        // the left"), a missing workspace's too.
+        #expect(pinned.pinInkFrame == nil, "the pinned workspace row draws a pin")
         let pinnedFrame = h.inList(pinned)
         let unpinned = try h.workspaceRow("w3")
-        // An unpinned row's leading slot: its icon, or where its title starts without one.
-        let content = h.list.convert(unpinned.icon.frame, from: unpinned)
         let unpinnedFrame = h.inList(unpinned)
-        // The pin's ink centers in the icon column that starts where an unpinned row's icon column (or its text-only
-        // title) starts, the row inset (https://github.com/manaflow-ai/cmux/issues/38061).
-        let columnMid = content.minX + SidebarStyle.iconColumnBox / 2
-        #expect(abs(pin.midX - columnMid) < 0.5, "the pin's ink centers at \(pin.midX), the icon column at \(columnMid)")
-        #expect(abs((pin.midY - pinnedFrame.midY) - (content.midY - unpinnedFrame.midY)) < 0.5,
-                "the pin sits \(pin.midY - pinnedFrame.midY) pt off its row's middle, an unpinned row's content \(content.midY - unpinnedFrame.midY) pt")
         // A pinned row takes the band's row: an unpinned row's height, except at Expanded, where it is Comfortable's
         // (Lawrence 2026-11-04, pinned rows were too short; 9353f4addd2).
         #expect(abs(pinnedFrame.height - SidebarRowTokens.current.band.rowHeight) < 0.01)
         if density != .expanded { #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01) }
-        // The pinned row's title still starts after its pin.
-        #expect(h.list.convert(pinned.titleFrame, from: pinned).minX >= pin.maxX)
     }
 }

@@ -20,21 +20,23 @@ extension PaneContentView {
         paintPaneBackdrop()
     }
 
-    /// What this pane draws now.
+    /// What this pane draws now; the theme's pane art (`appearance.paneArt.*`) for its place (`artIndex`) included.
     var paneBackdropPlan: PaneBackdropPlan {
         let scope = paneScope
         let backdrop = WindowBackdrop(scope.tokens, reduceTransparency: ReduceTransparency.shared.isEnabled, art: scope.backdropArt,
                                       selection: scope.backdropSelection, tuning: scope.appearanceTuning,
                                       tintOpacity: scope.backdropTintOpacity)
         return PaneBackdropPlan.resolve(mode: DesignSettings.shared.paneBackgrounds, own: backdropState.pin, tint: backdropState.tint,
-                                        backdrop: backdrop, inheritedHasArt: scope.parent?.backdropSelection != nil)
+                                        backdrop: backdrop, inheritedHasArt: scope.parent?.backdropSelection != nil,
+                                        themeArt: DesignSettings.shared.flourishes.paneArt(at: backdropState.artIndex))
     }
 
     /// Applies ``paneBackdropPlan``: the art view under everything, the tint wash over it.
     func paintPaneBackdrop() {
         // The common case (one shared background, nothing of its own, nothing drawn yet) costs nothing.
         let state = backdropState
-        if DesignSettings.shared.paneBackgrounds == .shared, !state.hasOwnValues, !state.hasViews { return }
+        if DesignSettings.shared.paneBackgrounds == .shared, DesignSettings.shared.flourishes.paneArt.isEmpty, !state.hasOwnValues,
+           !state.hasViews { return }
         let plan = paneBackdropPlan
         let surface = performWithTheme { Palette.surfaceBackground }
         if let art = plan.art {
@@ -63,7 +65,7 @@ extension PaneContentView {
         if backdropState.pin != .inherit {
             let paints = WindowBackdrop(paneScope.tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                                         selection: paneScope.backdropSelection).panesPaintBackground
-            contentHost.layer?.backgroundColor = paints ? surface.cgColor : nil
+            contentHost.restingGround = paints ? surface.cgColor : nil
         }
     }
 
@@ -72,6 +74,7 @@ extension PaneContentView {
         view.autoresizingMask = [.width, .height]
         addSubview(view, positioned: .below, relativeTo: subviews.first)
         backdropState.artView = view
+        wallpaperBadge?.add(view) // a live wallpaper's badge shows the signed-in account
         return view
     }
 
@@ -100,10 +103,7 @@ extension PaneContentView {
     func themeDidChange() {
         needsLayout = true
         // In scope: its workspace's picture decides, not the app's (#28867: a black pane behind the chat).
-        performWithTheme {
-            let paints = WindowBackdrop.current(themeTokens).panesPaintBackground
-            contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
-        }
+        contentHost.restingGround = performWithTheme { WindowBackdrop.current(themeTokens).panesPaintBackground ? Palette.surfaceBackground.cgColor : nil }
         paintStrip()
         paintPaneBackdrop()
     }

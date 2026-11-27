@@ -167,6 +167,10 @@ fn geometry_commit_scroll_replaces_a_deferred_output_scroll() {
     let pty = surface.as_pty().unwrap();
 
     pty.frame_requests.defer_scroll(OUTPUT_OFFSET, false);
+    {
+        let _term = pty.term.lock().unwrap();
+        broadcast_render_scroll_locked(pty, (RESIZE_OFFSET, false));
+    }
     pty.publish_geometry_commit(pty_surface::GeometryCommit {
         changed: true,
         scroll: Some((RESIZE_OFFSET, false)),
@@ -186,6 +190,55 @@ fn geometry_commit_scroll_replaces_a_deferred_output_scroll() {
         vec![RESIZE_OFFSET],
         "the resize's position is the last one published; the deferred output position is dropped"
     );
+}
+
+/// Parsing precedes a person's scroll, but the reader's publication runs
+/// afterward. The event bus must never restore the parser's older position.
+#[test]
+fn delayed_output_publication_keeps_the_persons_scroll_position() {
+    let mux = Mux::new_for_test("render-scroll-stale-output", SurfaceOptions::default());
+    let events = mux.subscribe();
+    let surface = Surface::spawn_for_test(
+        1,
+        SurfaceOptions { cols: 80, rows: 4, ..SurfaceOptions::default() },
+        Arc::downgrade(&mux),
+    )
+    .unwrap();
+    let pty = surface.as_pty().unwrap();
+    let mut parser = local_output::LocalOutput::new(
+        Arc::default(),
+        Arc::default(),
+        Default::default(),
+        #[cfg(unix)]
+        None,
+        #[cfg(unix)]
+        None,
+        #[cfg(unix)]
+        None,
+    );
+    let output = (1..=100).map(|row| format!("row-{row:03}\r\n")).collect::<String>();
+    parser
+        .read(pty, |buffer| {
+            buffer[..output.len()].copy_from_slice(output.as_bytes());
+            Ok(output.len())
+        })
+        .unwrap();
+    let pending = parser.take_pending();
+    surface.scroll_delta(-12).unwrap();
+    let held = surface.with_terminal(|term| terminal_scroll_position(term)).unwrap();
+    assert!(!held.1, "the person must be reading scrollback");
+    let viewport = surface.with_terminal(|term| term.viewport_text().unwrap()).unwrap();
+
+    parser.publisher().publish(&surface, pending);
+    pty.frame_requests.flush_scroll(&mux, surface.id);
+    let positions: Vec<_> = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            MuxEvent::ScrollChanged { offset, at_bottom, .. } => Some((offset, at_bottom)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(positions, vec![held], "delayed output must not publish a stale bottom position");
+    assert_eq!(surface.with_terminal(|term| term.viewport_text().unwrap()).unwrap(), viewport);
 }
 
 #[test]
@@ -221,6 +274,35 @@ fn dropped_idle_render_attachments_remove_their_taps_immediately() {
             "an idle closed attachment remained registered until later output"
         );
     }
+}
+
+#[test]
+fn the_last_render_viewer_leaving_frees_frame_state_and_a_reattach_rebuilds_it() {
+    let mux = Mux::new_for_test("render-release", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    surface
+        .with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b[1;31mhello\x1b[0m world\r\n\x1b[4msecond\x1b[0m line");
+        })
+        .unwrap();
+    let first = surface.attach_render_stream().unwrap();
+    let initial = format!("{:?}", first.initial);
+    let second = surface.attach_render_stream().unwrap();
+    drop(first);
+    assert!(pty.render.lock().unwrap().latest.is_some(), "a viewer remains: keep its state");
+    drop(second);
+    {
+        let render = pty.render.lock().unwrap();
+        assert!(render.latest.is_none(), "a hidden terminal kept its last frame");
+        assert!(render.final_initial.is_none() && render.initial_graphics.is_none());
+        assert_eq!(render.built_generation, 0);
+    }
+    // The next viewer gets the frame it would have got from the kept state.
+    let again = surface.attach_render_stream().unwrap();
+    assert_eq!(format!("{:?}", again.initial), initial);
+    assert_eq!(pty.render.lock().unwrap().taps.len(), 1);
 }
 
 #[test]

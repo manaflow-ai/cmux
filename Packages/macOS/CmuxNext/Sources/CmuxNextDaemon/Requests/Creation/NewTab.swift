@@ -39,6 +39,9 @@ public struct SpawnOptions: Sendable, Hashable {
     /// Client-minted public id of the split a `split` makes (`split-client-split-id-v1`); only
     /// `split` sends it. Dropped by `DaemonConnection` for a daemon without the capability.
     public var splitID: String?
+    /// The split the new pane wraps whole (`split-around-v1`, Insert New at a divider); only `split` sends it,
+    /// and only to a daemon that serves it (the caller checks).
+    public var around: SplitID?
 
     public init(cwd: String? = nil, size: CellSize? = nil, argv: [String]? = nil, command: String? = nil, name: String? = nil,
                 env: [String: String]? = nil, workspace: WorkspaceKey? = nil, keep: Bool? = nil) {
@@ -67,7 +70,7 @@ public struct SpawnOptions: Sendable, Hashable {
     enum CodingKeys: String, CodingKey {
         case cwd, cols, rows, argv, command, name, env, keep, terminalID
         case shellArgs = "shell_args"
-        case paneID, tabID, splitID
+        case paneID, tabID, splitID, around
     }
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -84,6 +87,7 @@ public struct SpawnOptions: Sendable, Hashable {
         try c.encodeIfPresent(paneID, forKey: .paneID)
         try c.encodeIfPresent(splitID, forKey: .splitID)
         try c.encodeIfPresent(tabID, forKey: .tabID)
+        try c.encodeIfPresent(around, forKey: .around)
     }
 }
 

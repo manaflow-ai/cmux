@@ -1,0 +1,344 @@
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+import Testing
+@testable import CmuxMobileBilling
+
+@Suite struct BillingWireTests {
+    @Test func decodesAccountTokenResponse() throws {
+        let json = Data("""
+        {
+          "appAccountToken": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": true,
+          "reason": null,
+          "currentPlan": { "planId": "free", "source": "none" },
+          "products": [
+            { "productId": "com.cmux.app.pro.monthly", "planId": "pro" },
+            { "productId": "com.cmux.app.max.monthly", "planId": "MAX" }
+          ]
+        }
+        """.utf8)
+        let account = try JSONDecoder().decode(BillingAccount.self, from: json)
+        #expect(account.appAccountToken == BillingFixtures.token)
+        #expect(account.eligible)
+        #expect(account.reason == nil)
+        #expect(account.currentPlan == BillingCurrentPlan(planID: .free, source: .none))
+        #expect(account.products.map(\.planID) == [.pro, .max])
+    }
+
+    /// The production answer to a TestFlight or dev build (msg: "i cant see
+    /// plans in the plan section"): no products, so the screen must still
+    /// describe the paid plans.
+    @Test func ineligibleAccountStillListsPaidPlans() throws {
+        let json = Data("""
+        {
+          "appAccountToken": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": false,
+          "reason": "purchases_unavailable",
+          "currentPlan": { "planId": "pro", "source": "none" },
+          "products": []
+        }
+        """.utf8)
+        let account = try JSONDecoder().decode(BillingAccount.self, from: json)
+        #expect(account.reason == .purchasesUnavailable)
+        #expect(account.catalogPlanIDs == [.pro, .max])
+    }
+
+    @Test func catalogAddsGoOnlyWhenCurrentOrOnSale() {
+        func account(current: BillingPlanID, products: [BillingProductReference] = []) -> BillingAccount {
+            BillingAccount(
+                appAccountToken: BillingFixtures.token,
+                eligible: false,
+                reason: .teamBilling,
+                currentPlan: BillingCurrentPlan(planID: current, source: .none),
+                products: products
+            )
+        }
+        #expect(account(current: .free).catalogPlanIDs == [.pro, .max])
+        #expect(account(current: .go).catalogPlanIDs == [.go, .pro, .max])
+        #expect(account(current: BillingPlanID(rawValue: "team")).catalogPlanIDs == [.pro, .max])
+        #expect(account(
+            current: .free,
+            products: [BillingProductReference(productID: "com.cmux.app.go.monthly", planID: .go)]
+        ).catalogPlanIDs == [.go, .pro, .max])
+    }
+
+    @Test func decodesIneligibleResponseWithoutProducts() throws {
+        let json = Data("""
+        {
+          "appAccountToken": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": false,
+          "reason": "team_billing",
+          "currentPlan": { "planId": "pro", "source": "stripe", "manageUrl": "https://cmux.com/billing" }
+        }
+        """.utf8)
+        let account = try JSONDecoder().decode(BillingAccount.self, from: json)
+        #expect(account.reason == .teamBilling)
+        #expect(account.currentPlan.source == .stripe)
+        #expect(account.products.isEmpty)
+    }
+
+    @Test func decodesPurchasesUnavailableReason() throws {
+        let json = Data("""
+        {
+          "appAccountToken": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": false,
+          "reason": "purchases_unavailable",
+          "currentPlan": { "planId": "free", "source": "none" },
+          "products": []
+        }
+        """.utf8)
+        let account = try JSONDecoder().decode(BillingAccount.self, from: json)
+        #expect(account.reason == .purchasesUnavailable)
+        #expect(account.products.isEmpty)
+    }
+
+    @Test func requestCarriesStoreKitEnvironmentWhenKnown() async throws {
+        let sandbox = HTTPBillingAPI(
+            baseURL: "https://cmux.example",
+            bundleID: "dev.cmux.app.beta",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            storeKitEnvironment: { "Sandbox" },
+            session: URLSession(configuration: .ephemeral)
+        )
+        let request = try await sandbox.makeRequest(path: "/api/billing/apple/account-token", body: Data("{}".utf8))
+        #expect(request.value(forHTTPHeaderField: "x-cmux-storekit-environment") == "Sandbox")
+
+        let unknown = HTTPBillingAPI(
+            baseURL: "https://cmux.example",
+            bundleID: "dev.cmux.app.beta",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            session: URLSession(configuration: .ephemeral)
+        )
+        let bare = try await unknown.makeRequest(path: "/api/billing/apple/account-token", body: Data("{}".utf8))
+        #expect(bare.value(forHTTPHeaderField: "x-cmux-storekit-environment") == nil)
+    }
+
+    @Test func requestCarriesStackAuthAndBundleHeaders() async throws {
+        let api = HTTPBillingAPI(
+            baseURL: "https://cmux.example/",
+            bundleID: "com.cmux.app",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            session: URLSession(configuration: .ephemeral)
+        )
+        let request = try await api.makeRequest(path: "/api/billing/apple/transactions", body: Data("{}".utf8))
+        #expect(request.url?.absoluteString == "https://cmux.example/api/billing/apple/transactions")
+        #expect(request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer access")
+        #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
+        #expect(request.value(forHTTPHeaderField: "x-cmux-bundle-id") == "com.cmux.app")
+    }
+
+    /// New-user journeys, 2026-11-23: a failed web renewal was invisible on
+    /// the iPhone. Its read is `GET /api/billing/plan`, the Mac's.
+    @Test func paymentPastDueIsAGetOfThePlanRoute() async throws {
+        let api = HTTPBillingAPI(
+            baseURL: "https://cmux.example",
+            bundleID: "com.cmux.app",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            session: URLSession(configuration: .ephemeral)
+        )
+        let request = try await api.makeRequest(path: "/api/billing/plan", method: "GET", body: nil)
+        #expect(request.url?.absoluteString == "https://cmux.example/api/billing/plan")
+        #expect(request.httpMethod == "GET")
+        #expect(request.httpBody == nil)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer access")
+        #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "refresh")
+
+        let pastDue = StubURLProtocol.api(host: "past-due.example", status: 200, body: #"{"isPro":true,"paymentPastDue":true}"#)
+        #expect(try await pastDue.paymentPastDue())
+        let older = StubURLProtocol.api(host: "older.example", status: 200, body: #"{"isPro":true}"#)
+        #expect(try await !older.paymentPastDue())
+        let refused = StubURLProtocol.api(host: "refused.example", status: 503, body: "")
+        await #expect(throws: BillingAPIError.rejected(statusCode: 503)) {
+            _ = try await refused.paymentPastDue()
+        }
+    }
+
+    @Test func onlyAJSONTrueOfPaymentPastDueIsAFailedPayment() {
+        let read = { (text: String) in HTTPBillingAPI.paymentPastDue(planReply: Data(text.utf8)) }
+        #expect(read(#"{"isPro":true,"paymentPastDue":true}"#))
+        #expect(!read(#"{"isPro":true,"paymentPastDue":false}"#))
+        #expect(!read(#"{"isPro":true}"#))
+        #expect(!read(#"{"paymentPastDue":"true"}"#))
+        #expect(!read(#"{"paymentPastDue":null}"#))
+        #expect(!read("not json"))
+        #expect(!read(""))
+    }
+
+    @Test func signedOutRequestIsNotBuilt() async throws {
+        let api = HTTPBillingAPI(
+            baseURL: "https://cmux.example",
+            bundleID: "com.cmux.app",
+            credentials: { nil },
+            session: URLSession(configuration: .ephemeral)
+        )
+        await #expect(throws: BillingAPIError.notSignedIn) {
+            _ = try await api.makeRequest(path: "/api/billing/apple/account-token", body: Data())
+        }
+    }
+
+    @Test func failureClassificationMapsAPIAndStoreErrors() {
+        #expect(BillingFailure(BillingAPIError.transport) == .network)
+        #expect(BillingFailure(BillingAPIError.rejected(statusCode: 409)) == .server(statusCode: 409))
+        #expect(BillingFailure(BillingAPIError.accountMismatch) == .accountMismatch)
+        #expect(BillingFailure(StoreKitClientError.purchasesNotAllowed) == .purchasesNotAllowed)
+        #expect(BillingFailure.server(statusCode: 503).analyticsReason == "server_503")
+        #expect(BillingFailure.accountMismatch.analyticsReason == "account_mismatch")
+    }
+
+    @Test func onlyClientErrorsThatRetryingCannotFixArePermanent() {
+        for status in [400, 403, 404, 409, 422] {
+            #expect(BillingFailure.server(statusCode: status).isPermanentRejection, "status \(status)")
+        }
+        for status in [401, 408, 429, 500, 503] {
+            #expect(!BillingFailure.server(statusCode: status).isPermanentRejection, "status \(status)")
+        }
+        #expect(BillingFailure.accountMismatch.isPermanentRejection)
+        #expect(!BillingFailure.network.isPermanentRejection)
+        #expect(!BillingFailure.notSignedIn.isPermanentRejection)
+    }
+
+    @Test func platformRequestsUseVersionedRoutesAndSnakeCaseWithoutRefreshToken() async throws {
+        let api = HTTPBillingAPI(
+            baseURL: "https://platform.example/",
+            bundleID: "dev.cmux.app.internal",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            storeKitEnvironment: { "Sandbox" },
+            session: URLSession(configuration: .ephemeral),
+            backend: .platform
+        )
+        let account = try await api.accountTokenRequest()
+        #expect(account.url?.absoluteString == "https://platform.example/v1/billing/apple/account-token")
+        #expect(account.value(forHTTPHeaderField: "Authorization") == "Bearer access")
+        #expect(account.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == nil)
+        let body = try JSONDecoder().decode([String: String].self, from: #require(account.httpBody))
+        #expect(body == ["bundle_id": "dev.cmux.app.internal", "environment": "Sandbox"])
+        let transaction = try await api.transactionRequest(signedTransactionInfo: "signed-purchase")
+        #expect(transaction.url?.path == "/v1/billing/apple/transactions")
+        let submitted = try JSONDecoder().decode([String: String].self, from: #require(transaction.httpBody))
+        #expect(submitted == ["signed_transaction_info": "signed-purchase"])
+    }
+
+    @Test func platformAccountMapsCurrentPlanAndPreservesNextProductIDs() async throws {
+        let api = StubURLProtocol.api(host: "platform-account.example", status: 200, body: #"""
+        {
+          "app_account_token": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": true, "reason": null,
+          "current": { "plan_id": "next_pro", "status": "active", "expires_at": 1800000000000 },
+          "products": [{ "product_id": "com.cmux.app.next_pro.monthly", "plan_id": "next_pro", "billing_period": "monthly" }]
+        }
+        """#, backend: .platform)
+        let account = try await api.accountToken()
+        #expect(account.appAccountToken == BillingFixtures.token)
+        #expect(account.currentPlan == BillingCurrentPlan(planID: BillingPlanID(rawValue: "next_pro"), source: .apple))
+        #expect(account.catalogPlanIDs == [.nextPlus, .nextPro, .nextMax])
+        #expect(account.products == [BillingProductReference(
+            productID: "com.cmux.app.next_pro.monthly", planID: BillingPlanID(rawValue: "next_pro"), billingPeriod: .monthly
+        )])
+    }
+
+    @Test func platformUnavailableAccountHasNoGrant() async throws {
+        let api = StubURLProtocol.api(host: "platform-unavailable.example", status: 200, body: #"""
+        {
+          "app_account_token": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": false, "reason": "purchases_unavailable",
+          "current": { "plan_id": null }, "products": []
+        }
+        """#, backend: .platform)
+        let account = try await api.accountToken()
+        #expect(!account.eligible)
+        #expect(account.reason == .purchasesUnavailable)
+        #expect(account.currentPlan == BillingCurrentPlan(planID: .free, source: .none))
+        #expect(account.catalogPlanIDs == [.nextPlus, .nextPro, .nextMax])
+    }
+
+    @Test func platformFreeAccountKeepsNextCatalogWithoutProducts() async throws {
+        let api = StubURLProtocol.api(host: "platform-free.example", status: 200, body: #"""
+        {
+          "app_account_token": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": true, "reason": null,
+          "current": { "plan_id": null }, "products": []
+        }
+        """#, backend: .platform)
+        let account = try await api.accountToken()
+        #expect(account.eligible)
+        #expect(account.catalogPlanIDs == [.nextPlus, .nextPro, .nextMax])
+    }
+
+    @Test func platformReceiptConvertsEpochMillisecondsAndHonorsGrant() async throws {
+        let active = StubURLProtocol.api(host: "platform-active.example", status: 200, body:
+            #"{"plan_id":"next_pro","status":"active","expires_at":1800000000000,"grants":true}"#, backend: .platform)
+        let receipt = try await active.submitTransaction(signedTransactionInfo: "jws")
+        #expect(receipt.planID == BillingPlanID(rawValue: "next_pro"))
+        #expect(receipt.expiresAt == "2027-01-15T08:00:00Z")
+        let sandbox = StubURLProtocol.api(host: "platform-nongrant.example", status: 200, body:
+            #"{"plan_id":"next_pro","status":"active","expires_at":null,"grants":false}"#, backend: .platform)
+        let ungranted = try await sandbox.submitTransaction(signedTransactionInfo: "jws")
+        #expect(ungranted.planID == .free)
+        #expect(ungranted.expiresAt == nil)
+    }
+
+    @Test func platformMismatchIsPermanentAndUnavailableRemainsRetryable() async throws {
+        let mismatch = StubURLProtocol.api(host: "platform-mismatch.example", status: 403, body:
+            #"{"code":"appstore.account_mismatch","message":"different account"}"#, backend: .platform)
+        await #expect(throws: BillingAPIError.accountMismatch) {
+            _ = try await mismatch.submitTransaction(signedTransactionInfo: "jws")
+        }
+        let unavailable = StubURLProtocol.api(host: "platform-retry.example", status: 503, body:
+            #"{"code":"appstore.unavailable","message":"retry"}"#, backend: .platform)
+        await #expect(throws: BillingAPIError.rejected(statusCode: 503)) {
+            _ = try await unavailable.submitTransaction(signedTransactionInfo: "jws")
+        }
+    }
+
+    @Test func accountMismatchBodyIsDistinguishedFromOther403s() async throws {
+        let mismatch = StubURLProtocol.api(host: "mismatch.example", status: 403, body: #"{"error":"account_mismatch"}"#)
+        await #expect(throws: BillingAPIError.accountMismatch) {
+            _ = try await mismatch.submitTransaction(signedTransactionInfo: "jws")
+        }
+        let forbidden = StubURLProtocol.api(host: "forbidden.example", status: 403, body: "<html>denied</html>")
+        await #expect(throws: BillingAPIError.rejected(statusCode: 403)) {
+            _ = try await forbidden.submitTransaction(signedTransactionInfo: "jws")
+        }
+    }
+}
+
+/// Answers every request to a host with a fixed status and body.
+final class StubURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var responses: [String: (Int, Data)] = [:]
+
+    /// An API whose requests to `host` get `status` and `body`.
+    static func api(host: String, status: Int, body: String, backend: HTTPBillingAPI.Backend = .classic) -> HTTPBillingAPI {
+        lock.withLock { responses[host] = (status, Data(body.utf8)) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        return HTTPBillingAPI(
+            baseURL: "https://\(host)",
+            bundleID: "com.cmux.app",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            session: URLSession(configuration: configuration),
+            backend: backend
+        )
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url, let host = url.host,
+              let (status, body) = Self.lock.withLock({ Self.responses[host] }),
+              let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)
+        else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}

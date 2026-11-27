@@ -27,6 +27,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/inboxThreadRead";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { clockTime } from "../src/agent-session/acpmux/clock";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -64,6 +65,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -281,15 +283,15 @@ test("an opened thread of hundreds draws its newest page, and earlier messages o
   }
 });
 
-test("an unverified sender keeps its marker and no self-declared words in the opened thread", async () => {
+test("an unverified sender draws no mark and no self-declared words in the opened thread", async () => {
   const notice = threadOf("from:vm/lane", [
     { promptId: "u1", from: "vm/lane", text: "first", unverified: true },
     { promptId: "u2", from: "vm/lane", text: "second", unverified: true },
   ]);
   const container = await render(<InboxNoticeCard rowId="row-unverified" notice={notice} onOpen={() => undefined} />);
-  expect(container.querySelector(".cv-unverified")).not.toBeNull();
+  expect(container.querySelector(".cv-unverified")).toBeNull();
   await click(container.querySelector("button.cv-inbox__more"));
-  expect(container.querySelector(".cv-unverified")).not.toBeNull();
+  expect(container.querySelector(".cv-unverified")).toBeNull();
   expect(container.innerHTML).not.toContain("self-declared");
 });
 

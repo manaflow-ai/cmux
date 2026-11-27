@@ -33,7 +33,7 @@ use cmux_cloud_api::session::{
     redact, valid_machine,
 };
 
-const USAGE: &str = "usage: cmux machine access new --target machine:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux machine access exec --target machine:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
+const USAGE: &str = "usage: cmux vm access new --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]\n       cmux vm access exec --target vm:VM_ID [--ttl SECONDS] [--timeout-ms MS] -- COMMAND...\n  both take --cloud-api URL (or CMUX_CLOUD_API_URL), --cloud-token-file PATH (or CMUX_CLOUD_ACCESS_TOKEN) and --team TEAM_ID";
 const API_ENV: &str = "CMUX_CLOUD_API_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const EXEC_TIMEOUT_DEFAULT_MS: u64 = 30_000;
@@ -78,6 +78,12 @@ pub(super) fn run_words(global: &super::GlobalArgs, rest: &[String]) -> i32 {
         Ok(command) => command,
         Err(error) => return fail("usage.invalid", &error.0, 2),
     };
+    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.trim().is_empty());
+    if let Some(words) = app_exec(&command, env)
+        && super::app::connect_command(global).is_ok()
+    {
+        return super::vm_short::exec_here(global, "cloud exec", &words);
+    }
     let resolved = resolve(&command, |key| std::env::var(key).ok());
     let (api, credential) = match resolved {
         Ok(pair) => pair,
@@ -119,7 +125,7 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         let ttl_error = || UsageError::new("--ttl takes whole seconds from 60 to 900");
         match name {
             "--target" => {
-                command.machine = value.strip_prefix("machine:").unwrap_or(&value).to_owned();
+                command.machine = super::vm_words::bare_id(&value).to_owned();
             }
             "--ttl" => command.ttl = Some(value.parse().map_err(|_| ttl_error())?),
             "--cloud-api" => command.api = Some(value),
@@ -158,6 +164,27 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
     Ok(command)
 }
 
+/// `access exec` with no cmux API or credential given (no flag, no environment): the words of the app's `cloud exec`,
+/// which runs the command on the machine with the app's own sign-in, as `cmux vm exec` does. `None` for `access new`:
+/// the app has no action that mints a client session, so `new` still needs `--cloud-api` and a credential.
+pub(super) fn app_exec(
+    command: &Command,
+    env: impl Fn(&str) -> Option<String>,
+) -> Option<Vec<String>> {
+    let Verb::Exec { command: line, .. } = &command.verb else { return None };
+    let named =
+        command.api.is_some() || command.credential_file.is_some() || command.team.is_some();
+    if named || env(API_ENV).is_some() || super::api_tokens::env_credential(&env).is_some() {
+        return None;
+    }
+    Some(vec![
+        "--target".to_owned(),
+        format!("machine:{}", command.machine),
+        "--command".to_owned(),
+        line.clone(),
+    ])
+}
+
 /// The cmux API origin and the caller's credential, from the flags or the environment.
 pub(super) fn resolve(
     command: &Command,
@@ -173,8 +200,10 @@ pub(super) fn resolve(
         // The error names neither the path nor the file's contents (a pasted secret could be in either).
         Some(path) => std::fs::read_to_string(path)
             .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?,
-        None => env(TOKEN_ENV).ok_or_else(|| {
-            format!("give your cmux credential with --cloud-token-file PATH or {TOKEN_ENV}")
+        None => super::api_tokens::env_credential(&env).ok_or_else(|| {
+            format!(
+                "give your cmux credential with --cloud-token-file PATH, {TOKEN_ENV} or CMUX_TOKEN"
+            )
         })?,
     };
     let credential = credential.trim().to_owned();
@@ -197,7 +226,8 @@ pub(super) fn run(
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::cli::cloud_client_session")
+        .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -321,7 +351,7 @@ fn print_exec(
 /// `POST {api}/v1/cloud/machines/{machine}/exec` (cmux-platform MachineGuest.ts):
 /// `{command, timeoutMs}` -> `{exitCode, stdout, stderr}`, as the work user. A refusal answers
 /// `{ok: false, error: {code}}`; only a code from `cmux_cloud_api::session::known_code` is printed.
-async fn exec_route(
+pub(super) async fn exec_route(
     client: &reqwest::Client,
     scope: &Scope,
     credential: &str,
@@ -366,7 +396,7 @@ async fn exec_route(
     Ok(ExecAnswer { exit_code, stdout: text("stdout")?, stderr: text("stderr")? })
 }
 
-async fn exec(
+pub(super) async fn exec(
     client: &reqwest::Client,
     session: &Session,
     command: &str,
@@ -377,14 +407,30 @@ async fn exec(
         session.api_base_url.trim_end_matches('/'),
         session.vm_id
     );
+    let budget = Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15));
+    let deadline = tokio::time::Instant::now() + budget;
     let response = client
         .post(url)
         .header(IDENTITY_HEADER, &session.token)
-        .timeout(Duration::from_millis(timeout_ms).saturating_add(Duration::from_secs(15)))
+        // Held open past about 120 s, the provider's edge cuts the call while the command runs on.
+        .header(cmux_cloud_api::background::AFTER_HEADER, cmux_cloud_api::background::AFTER_SECS)
+        .timeout(budget)
         .json(&json!({ "command": command, "linuxUser": session.linux_user, "timeoutMs": timeout_ms }))
         .send()
         .await
         .map_err(|e| format!("the machine did not answer: {}", e.without_url()))?;
+    let identity = (IDENTITY_HEADER, session.token.as_str());
+    let response = cmux_cloud_api::background::settle(
+        client,
+        &session.api_base_url,
+        identity,
+        response,
+        deadline,
+    )
+    .await
+    .map_err(|cmux_cloud_api::background::Lost| {
+        "the machine did not answer in time; the command may have run".to_owned()
+    })?;
     let status = response.status();
     let body: Option<Value> = response.json().await.ok();
     if !status.is_success() {

@@ -126,3 +126,44 @@ fn bodies_perf() {
         assert_eq!((differ, fields), (0, 0), "{dir}");
     }
 }
+
+/// acpmux's outbound copies of a prompt keep no long body: the ACP request keeps its id, its
+/// `_meta` and each block's type and `_meta`; Claude Code's stdin line keeps its type and session.
+/// A short prompt, a control request and other kinds are as sent (cmuxterm-hq#9263).
+#[test]
+fn a_prompts_outbound_copies_leave_out_its_long_bodies() {
+    let long = "x".repeat(PROMPT_BODY_KEPT_UNDER);
+    let mut request = json!({"jsonrpc": "2.0", "id": 4, "method": "session/prompt", "params": {
+        "sessionId": "s", "_meta": {"acpmux": {"promptId": "p1"}},
+        "prompt": [{"type": "text", "text": long, "_meta": {"cmux": {"pasted": true}}},
+                   {"type": "text", "text": "short"}]}});
+    leave_out_prompt_bodies("session/prompt", &mut request);
+    assert_eq!(
+        request,
+        json!({"jsonrpc": "2.0", "id": 4, "method": "session/prompt", "params": {
+            "sessionId": "s", "_meta": {"acpmux": {"promptId": "p1"}},
+            "prompt": [{"type": "text", "_meta": {"cmux": {"pasted": true}}},
+                       {"type": "text", "text": "short"}]},
+            "_acpmux": {"bodiesLeftOut": PROMPT_BODY_KEPT_UNDER + 2 + 4}})
+    );
+    let mut stdin = json!({"type": "user", "session_id": "cc-1",
+        "message": {"role": "user", "content": [{"type": "text", "text": long}]}});
+    leave_out_prompt_bodies("claude.stdin", &mut stdin);
+    assert_eq!(stdin["message"]["content"], json!([{"type": "text"}]));
+    assert_eq!(stdin["session_id"], "cc-1");
+    let mut text_stdin = json!({"type": "user", "message": {"role": "user", "content": long}});
+    leave_out_prompt_bodies("claude.stdin", &mut text_stdin);
+    assert_eq!(text_stdin["message"]["content"], "");
+    for (kind, line) in [
+        ("claude.stdin", json!({"type": "user", "message": {"content": "/compact"}})),
+        (
+            "claude.stdin",
+            json!({"type": "control_request", "request": {"subtype": "interrupt", "text": long}}),
+        ),
+        ("session/new", json!({"params": {"prompt": [{"type": "text", "text": long}]}})),
+    ] {
+        let mut same = line.clone();
+        leave_out_prompt_bodies(kind, &mut same);
+        assert_eq!(same, line, "{kind}");
+    }
+}

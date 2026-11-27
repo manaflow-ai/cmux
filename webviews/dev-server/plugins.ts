@@ -6,7 +6,7 @@
 //   /markdown?file=   the markdown editor (markdown-page.html, src/pages/markdown) on a repo file
 //   /markdown/viewer?file=  the classic markdown viewer shell (Resources/markdown-viewer/shell.html)
 //   /editor?file=     the code editor (editor-page.html, src/pages/editor) on any file in the home folder
-//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it);
+//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html);
 //                     POST /__dev-host/read answers its git and file-search reads (agentGitHost.ts)
 //   /history/ /apps/ /settings/ ...  React pages (every src/pages/<page>/main.tsx); `?mock` uses the page's in-memory provider
 //   /gallery/         every component and page in named fixture states (src/gallery, galleryHost.ts)
@@ -78,6 +78,8 @@ import {
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
 import { perfLintOnSave } from "./perfLint";
+import { refreshNow } from "./refreshNow";
+import { tailwindOnNewClasses } from "./tailwindOnNewClasses";
 import { devEntrySrc } from "./devEntrySrc";
 import { liveRecoveryScript } from "./liveRecovery";
 import { viteCacheDir } from "./viteCacheDir.mjs";
@@ -105,6 +107,8 @@ export function cmuxDevServer(): Plugin[] {
     editorHost(),
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
+    tailwindOnNewClasses(),
+    refreshNow(),
     perfLintOnSave(),
   ];
 }
@@ -346,7 +350,7 @@ const indexPage = `<!doctype html>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>
 <li><a href="/debug-settings/?mock">/debug-settings/?mock</a>: Debug Settings page against the in-page mock tunables</li>
 <li><a href="/gallery/">/gallery/</a>: every component and page in named fixture states, with locale, theme, font, scale and width controls</li>
-<li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL); <a href="/agent-pane/prototype.html?mock">prototype.html</a></li>
+<li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL)</li>
 </ul>
 </body></html>`;
 
@@ -364,7 +368,6 @@ const devEntries = [
   "src/diff/dev.ts",
   "src/diff-worker.ts",
   "src/agent-session/acpmux/dev.tsx",
-  "src/agent-session/acpmux/prototype/dev.tsx",
   "src/markdown-viewer/devHost.ts",
   "src/pages/markdown/devBridge.ts",
   "src/pages/markdown/main.tsx",
@@ -389,8 +392,8 @@ function devServerShell(): Plugin {
         // One dependency cache per server. A cache shared with another server on the same
         // node_modules (vite.config.acpmux-pane.mjs, another slot) is re-optimized under it, and
         // open pages then fail to load modules and requests mid-load. The webviews test runner
-        // names one of its own (CMUX_VITE_CACHE_DIR), a copy of a warm one, for fresh browsers
-        // only, so its modules skip the no-cache revalidation below.
+        // names one of its own (CMUX_VITE_CACHE_DIR), a copy of a warm one. Long-lived local
+        // workbenches can also use one; those modules need the same revalidation below.
         cacheDir: viteCacheDir ?? `node_modules/${dependencyCacheName(config.server?.port ?? DEV_SERVER_PORT)}`,
         // Every surface's entry, so the first scan finds all dependencies instead of a page
         // discovering one late and triggering an optimizer reload.
@@ -404,25 +407,27 @@ function devServerShell(): Plugin {
       };
     },
     configureServer(server) {
-      const cacheName = dependencyCacheName(server.config.server.port ?? DEV_SERVER_PORT);
+      revalidateDependencyCache(server);
       server.middlewares.use((request, response, next) => {
         const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
         if (pathname === "/" || pathname === "/index.html") return send(response, 200, "text/html", indexPage);
-        // Vite serves optimized dependencies as `immutable` for a year, keyed by a `?v=` hash
-        // of the lockfile and config only. When the set of optimized dependencies changes (a
-        // source file starts importing one directly), the hash stays and the chunks inside are
-        // renamed, so a long-lived WebView (the cmux browser pane) keeps old modules that import
-        // chunks that no longer exist: "Importing a module script failed", then "Load failed".
-        // Revalidating them by ETag costs a 304 per module and never serves a stale graph.
-        if (isDependencyCacheRequest(pathname, cacheName)) {
-          const setHeader = response.setHeader.bind(response);
-          response.setHeader = (name, value) =>
-            setHeader(name, name.toLowerCase() === "cache-control" ? "no-cache" : value);
-        }
         next();
       });
     },
   };
+}
+
+// Long-lived WebViews must revalidate optimized dependency graphs after Vite rebuilds them.
+function revalidateDependencyCache(server: ViteDevServer): void {
+  server.middlewares.use((request, response, next) => {
+    const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (isDependencyCacheRequest(pathname, server.config.cacheDir, server.config.root)) {
+      const setHeader = response.setHeader.bind(response);
+      response.setHeader = (name, value) =>
+        setHeader(name, name.toLowerCase() === "cache-control" ? "no-cache" : value);
+    }
+    next();
+  });
 }
 
 /// /agent-pane/<page>.html serves src/agent-session/acpmux/<page>.html (index.html for the
@@ -463,6 +468,7 @@ export function agentPaneHost(): Plugin {
       return paneModule ? [...modules, paneModule] : undefined;
     },
     configureServer(server) {
+      if (server.config.root === paneDir) revalidateDependencyCache(server);
       // The pane's repository reads (dev-host/host.ts): git.status, git.diff, git.checkpoint.diff
       // and file.search, read only and confined to the slot's folder (agentGitHost.ts).
       server.middlewares.use(async (request, response, next) => {

@@ -12,22 +12,27 @@ import {
   orderedByMarks,
 } from "../attachments";
 import { ContextMenu } from "../../../ui/ContextMenu";
-import { FileDoc, ImageIcon, PlayTriangle } from "../conversation/icons";
+import { ImageIcon, PlayTriangle } from "../conversation/icons";
 import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, PendingChip, UploadProgress, useStillUploading } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
+import { localDraftShape, useDraftRatio } from "./draftMediaShape";
+import { videoShapeStyle } from "./videoShape";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
 import { PastedTextChip } from "./PastedTextChip";
 import { UIPickChip } from "./UIPickChip";
+import { BrowserPickChip } from "./BrowserPickChip";
+import { isBrowserPick } from "./browserPickModel";
 import { isUIPick } from "./uiPickModel";
 import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { TILE_SHAPE_EVENT } from "./fieldGrowthEvent";
 import { chipRef } from "../conversation/sendMorph";
 
 type Options = {
@@ -41,7 +46,6 @@ type Options = {
   pending: readonly PendingAttachment[];
   /// A pending chip's cancel (attachmentIntake.tsx).
   cancel(id: string): void;
-  retry(id: string): void;
   /// A cancelled loading chip's file read again under its id (attachmentIntake.tsx `revive`).
   revive(id: string): boolean;
   expand(id: string): void;
@@ -52,8 +56,9 @@ type Options = {
   placing(): boolean;
   /// A Codex chat: a PDF's chip says it goes as a file (attachmentIntake.tsx PdfAttachmentChip).
   codex?: boolean;
-  /// Why a staged image's original failed to upload, by id: its chip in the text shows Retry, as the
-  /// strip's does (attachmentIntake.tsx `originalFailures`).
+  /// Why a staged image's original failed to upload, by id: it is uploaded again on its own, and its
+  /// chip in the text says so once that lasts, as the strip's does (attachmentIntake.tsx
+  /// `originalFailures`).
   originalFailures?: Readonly<Record<string, string>>;
 };
 
@@ -66,14 +71,18 @@ export function useInlineAttachments(options: Options) {
   const removed = useRef(new Map<string, ComposerAttachment>());
   /// Placeholders this composer placed in the text, until each is a chip or gone.
   const placed = useRef(new Set<string>());
+  /// The placed placeholders a committed render has drawn as loading since they were placed. Only
+  /// these can have ended: one placed in the task of its paste is in no render's `pending` yet, so
+  /// a late effect of an earlier render (the last chip's arrival, run after the next paste) never
+  /// takes it for one that became no chip and removes its node (composer-attach-no-jump: a second
+  /// paste right after the first lost its place at the caret).
+  const drawnLoading = useRef(new Set<string>());
+  const markPlaced = (id: string) => {
+    placed.current.add(id);
+    drawnLoading.current.delete(id);
+  };
   /// Placeholders whose node an edit took out while they loaded: an undo brings each back loading.
   const cancelled = useRef(new Set<string>());
-  /// Attachments that stay in the strip (a chip with no place kept as a file, pastedChips.ts
-  /// `keepAsFile`): never placed in the text, so no undo there can take one out. Kept across a
-  /// change of scope, as the attachment itself is (a chat's kept chips come back with its draft):
-  /// cleared there, the next `ready()` would put the file in the prompt (review of #37516). An id
-  /// leaves when it is sent.
-  const stripOnly = useRef(new Set<string>());
   /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
   /// attachment to draw, so they leave the text again. One the host puts back (a refusal, Edit on a
   /// failed prompt) is the composer's again.
@@ -112,11 +121,19 @@ export function useInlineAttachments(options: Options) {
   // A placeholder that ended as no chip of its id (an image that went as a link to its file) leaves
   // the text; one that became its chip is the chip's.
   useEffect(() => {
-    const { attachments, pending, field } = live.current;
+    const { field } = live.current;
+    // This render's own lists: the effect may run after a later paste placed a new placeholder.
+    const { pending, attachments } = options;
     for (const id of placed.current) {
-      if (pending.some((chip) => chip.id === id)) continue;
+      if (pending.some((chip) => chip.id === id)) {
+        drawnLoading.current.add(id);
+        continue;
+      }
+      const chip = attachments.some((attachment) => attachment.id === id);
+      if (!chip && !drawnLoading.current.has(id)) continue;
       placed.current.delete(id);
-      if (!attachments.some((attachment) => attachment.id === id)) field.current?.removeInline(id);
+      drawnLoading.current.delete(id);
+      if (!chip) field.current?.removeInline(id);
     }
   }, [options.pending, options.attachments]);
 
@@ -150,49 +167,57 @@ export function useInlineAttachments(options: Options) {
     sentIds.current.has(id) && !live.current.attachmentsRef.current.some((attachment) => attachment.id === id);
 
   const [api] = useState(() => ({
-    /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
-    /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`). `strip`:
-    /// they stay in the strip.
-    place(chips: readonly PendingAttachment[], kind: DroppedKind | undefined, strip = false) {
+    /// The person's paste or drop made `chips`: each goes in at the caret, images, videos, files,
+    /// screenshots and pasted text alike, so the prompt reads text, image, text, file as written
+    /// (attachmentIntake.tsx `place`). One placement rule for every kind: nothing here reads what a
+    /// chip is (test/composer-attachment-placement-one-rule.test.tsx guards it). Where the caret
+    /// cannot take them (a code block), or `start` (a chip with no caret of its own: a Pasted text
+    /// chip kept as a file where it had no node), they go at the start of the prompt instead, never
+    /// into the strip above the text.
+    place(chips: readonly PendingAttachment[], kind: DroppedKind | undefined, start = false) {
       const { placing, field } = live.current;
       const ids = chips.map((chip) => chip.id);
-      if (strip) {
-        for (const id of ids) stripOnly.current.add(id);
-        return;
-      }
       if (!ids.length) return;
       if (!placing() || !field.current?.inlineIds()) {
         for (const id of ids) deferred.current.add(id);
         return;
       }
-      for (const id of ids) placed.current.add(id);
+      for (const id of ids) markPlaced(id);
       // A paste takes the selection's place, as pasted text would; a drop or a pick replaces nothing.
-      if (!field.current?.insertInline(ids, kind === "paste")) for (const id of ids) placed.current.delete(id);
+      const went =
+        (!start && field.current?.insertInline(ids, kind === "paste")) ||
+        field.current?.insertInline(ids, false, "start");
+      if (!went) for (const id of ids) placed.current.delete(id);
     },
     ready() {
       const { attachments, pending, field, placing } = live.current;
       if (!placing()) return;
       const marks = new Set(placedIn(field.current?.value() ?? seen.current));
-      // A read that ended while its placeholder showed in the strip (a paste in a code block, a
-      // node a value from outside took away) lands where it showed: never put in at the caret then,
-      // between the words typed while it loaded (Leo, 2026-11-09: "when it actually loads, it gets
-      // smashed in between text that you were typing").
-      for (const chip of attachments)
-        if (loading.current.has(chip.id) && !marks.has(chip.id) && !deferred.current.has(chip.id))
-          stripOnly.current.add(chip.id);
-      const fresh = attachments.filter(
-        (chip) => !marks.has(chip.id) && !removed.current.has(chip.id) && !stripOnly.current.has(chip.id),
-      );
+      const fresh = attachments.filter((chip) => !marks.has(chip.id) && !removed.current.has(chip.id));
+      // A read that ended while its placeholder had no node (a value from outside took it away, as a
+      // chat's draft read or a carried prompt does while a slow read such as a video's runs) goes at
+      // the start of the prompt: never put in at the caret then, between the words typed while it
+      // loaded (Leo, 2026-11-09: "when it actually loads, it gets smashed in between text that you
+      // were typing"), and never left in the strip above the text, where it stayed for good before
+      // (Leo, 2026-11-09: "This one went above the whole thing. It's in, like, the special attachment
+      // zone. But we didn't say to do that.").
+      const orphans = fresh
+        .filter((chip) => loading.current.has(chip.id) && !deferred.current.has(chip.id))
+        .map((chip) => chip.id);
+      const added = fresh.map((chip) => chip.id).filter((id) => !orphans.includes(id));
       // Placeholders that waited for the text to take them go in now, still loading.
       const waiting = field.current?.inlineIds()
         ? pending.filter((chip) => deferred.current.has(chip.id) && !marks.has(chip.id)).map((chip) => chip.id)
         : [];
       for (const id of deferred.current)
         if (waiting.includes(id) || !pending.some((chip) => chip.id === id)) deferred.current.delete(id);
-      const ids = [...fresh.map((chip) => chip.id), ...waiting];
+      if (orphans.length) field.current?.insertInline(orphans, false, "start");
+      const ids = [...added, ...waiting];
       if (!ids.length) return;
-      for (const id of waiting) placed.current.add(id);
-      if (!field.current?.insertInline(ids)) for (const id of waiting) placed.current.delete(id);
+      for (const id of waiting) markPlaced(id);
+      // At the caret, or where it cannot take them (a code block) at the start of the prompt.
+      if (!field.current?.insertInline(ids) && !field.current?.insertInline(ids, false, "start"))
+        for (const id of waiting) placed.current.delete(id);
     },
     /// The prompt changed by an edit (MarkdownField `onChange`), to `markdown`.
     edited(markdown: string) {
@@ -221,7 +246,7 @@ export function useInlineAttachments(options: Options) {
       // file is not kept leaves the text, never an empty atom.
       for (const id of came) {
         if (!cancelled.current.delete(id) || sourceFor(id)) continue;
-        if (live.current.revive(id)) placed.current.add(id);
+        if (live.current.revive(id)) markPlaced(id);
         else queueMicrotask(() => live.current.field.current?.removeInline(id));
       }
       for (const attachment of attachmentsRef.current) if (gone.has(attachment.id)) keep(attachment);
@@ -270,7 +295,6 @@ export function useInlineAttachments(options: Options) {
       for (const id of ids) {
         removed.current.delete(id);
         placed.current.delete(id);
-        stripOnly.current.delete(id);
         sentIds.current.add(id);
       }
       clearing.current = true;
@@ -278,10 +302,8 @@ export function useInlineAttachments(options: Options) {
         clearing.current = false;
       });
     },
-    /// A failed chip's Retry and a pasted chip's open, stable across renders so the chips keep still
-    /// while the person types (InlineChip is memoized).
-    retry: (id: string) => live.current.retry(id),
-    /// A pasted chip opened: kept first, so an undo that brings its node back brings its text too.
+    /// A pasted chip opened, stable across renders so the chips keep still while the person types
+    /// (InlineChip is memoized): kept first, so an undo that brings its node back brings its text too.
     expand: (id: string) => {
       const attachment = live.current.attachmentsRef.current.find((each) => each.id === id);
       if (attachment) keep(attachment);
@@ -334,6 +356,30 @@ export function useInlineAttachments(options: Options) {
     if (now) api.ready();
   });
 
+  // Each tile's shape as its render draws it: one that changed (or is new) tells the field to move to
+  // its new height in this commit (fieldGrowth.ts TILE_SHAPE_EVENT), before the frame lays out.
+  const shapes = useRef(new Map<string, string>());
+  useLayoutEffect(() => {
+    let changed: HTMLElement | undefined;
+    const next = new Map<string, string>();
+    for (const [id, dom] of views) {
+      const pending = options.pending.find((chip) => chip.id === id);
+      const ready = options.attachments.some((attachment) => attachment.id === id);
+      const size = pending?.size ? `${pending.size.width}x${pending.size.height}` : "";
+      const shape = `${ready}|${pending ? `${pending.sizing ?? false}|${pending.failed ?? ""}|${size}` : "none"}`;
+      next.set(id, shape);
+      const before = shapes.current.get(id);
+      // A tile new to this render counts too: an edit that swaps a node (a placeholder's for its
+      // attachment's) has the field follow before this render draws the new tile.
+      if (before !== shape) changed = dom;
+    }
+    shapes.current = next;
+    if (!changed) return;
+    // The tile's own window builds the event, so a tile in another document (a test's DOM) can carry it.
+    const Custom = changed.ownerDocument.defaultView?.CustomEvent ?? CustomEvent;
+    changed.dispatchEvent(new Custom(TILE_SHAPE_EVENT, { bubbles: true }));
+  }, [views, options.pending, options.attachments]);
+
   const chips = [...views].map(([id, dom]) =>
     createPortal(
       <InlineChip
@@ -342,7 +388,6 @@ export function useInlineAttachments(options: Options) {
         pending={options.pending.find((chip) => chip.id === id)}
         onRemove={api.remove}
         onCancel={api.cancel}
-        onRetry={api.retry}
         onExpand={api.expand}
         {...(options.keepFile ? { onKeepFile: api.keepFile } : {})}
         codex={options.codex ?? false}
@@ -357,7 +402,8 @@ export function useInlineAttachments(options: Options) {
 
 /// An attachment as the text shows it: the strip's own chip (attachmentIntake.tsx AttachmentChip), with
 /// its preview, open, play and × (which takes it out of the prompt); a file still being read spins
-/// (its × cancels it); one that could not be read says why, with Retry. Memoized: a keystroke
+/// (its × cancels it), and keeps spinning while a failed upload is asked again on its own; one that
+/// could not be read says why. Memoized: a keystroke
 /// re-renders the composer, never a chip whose attachment did not change.
 const InlineChip = memo(function InlineChip({
   id,
@@ -365,7 +411,6 @@ const InlineChip = memo(function InlineChip({
   pending,
   onRemove,
   onCancel,
-  onRetry,
   onExpand,
   onKeepFile,
   codex,
@@ -376,7 +421,6 @@ const InlineChip = memo(function InlineChip({
   pending: PendingAttachment | undefined;
   onRemove(id: string): void;
   onCancel(id: string): void;
-  onRetry(id: string): void;
   onExpand(id: string): void;
   onKeepFile?(id: string): void;
   codex: boolean;
@@ -385,13 +429,32 @@ const InlineChip = memo(function InlineChip({
   const t = useT();
   const language = usePaneLanguage();
   const look = usePasteLoadingLook();
+  // A loading tile whose upload is asked again on its own: its quiet words once that lasts.
+  const still = useStillUploading(
+    pending ?? {},
+    pending?.image ? imageLabel(t, { name: pending.name }) : (pending?.name ?? ""),
+  );
+  const ratio = useDraftRatio(attachment?.[localDraftShape] ?? pending?.[localDraftShape]);
   /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
   /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
-  const loaded = useRef(false);
-  if (pending && !pending.failed) loaded.current = true;
+  // Sticky state set in render (not a ref read in render): it flips once, the first time it holds.
+  const [loaded, setLoaded] = useState(false);
+  // Only a tile that showed (not one held unseen for its size or picture) has a dim to come up from.
+  if (!loaded && pending && !pending.resolvingPath && !pending.failed && !pending.sizing && ratio !== 0)
+    setLoaded(true);
+  /// Whether its loading tile already showed its own picture: the chip then just stays, with no
+  /// second coming up (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
+  const [pictured, setPictured] = useState(false);
+  if (!pictured && pending?.preview && pending.image && !pending.failed) setPictured(true);
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
-  if (!attachment && !pending) return null;
+  if ((!attachment && !pending) || ratio === 0) return null;
+  if (!attachment && pending && ((!pending.image && !pending.video) || pending.resolvingPath))
+    return (
+      <span className="acpmux-md-inline-chip" data-chip="strip">
+        <PendingChip chip={pending} onCancel={onCancel} />
+      </span>
+    );
   const name = imageLabel(t, { name: attachment?.name ?? pending?.name, ...keptThumb(id) });
   const remove = (
     <button
@@ -411,29 +474,25 @@ const InlineChip = memo(function InlineChip({
         {...(pending!.failed ? {} : { "data-paste-look": look })}
         // A loading image is the shape its thumbnail will be (its header's size), so the picture
         // arriving moves nothing.
-        {...(!pending!.failed && pending!.image && pending!.size
-          ? { "data-sized": "", style: imageShape(pending!.size) }
+        {...(!pending!.failed && pending!.image && (ratio || pending!.size)
+          ? { "data-sized": "", style: imageShape(ratio ? { width: ratio, height: 1 } : pending!.size) }
           : {})}
+        // A video is the box its chip, poster and sent tile keep (videoShape.ts), loading or failed.
+        {...(pending!.video ? { "data-video-shape": "", style: videoShapeStyle(ratio ?? pending!.videoShape) } : {})}
         {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
+        {...(!pending!.failed && pending!.image && pending!.preview ? { "data-instant": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
-        /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}
+        {...(still ? { "data-still-trying": "" } : {})}
+        /* tooltip-allow: the tile is cut to its size; the tooltip has why it failed or is still trying */
+        title={pending!.failed ?? still}
       >
         {pending!.failed ? (
           <>
             {pending!.image ? (
               <ImageIcon size={14} className="acpmux-attachment-failed-icon" />
-            ) : pending!.video ? (
-              <PlayTriangle size={14} className="acpmux-attachment-failed-icon" />
             ) : (
-              <FileDoc size={14} className="acpmux-attachment-failed-icon" />
-            )}
-            {pending!.retryable && (
-              <RetryButton
-                className="acpmux-attachment-retry acpmux-md-inline-retry"
-                reason={pending!.failed}
-                onRetry={() => onRetry(id)}
-              />
+              <PlayTriangle size={14} className="acpmux-attachment-failed-icon" />
             )}
           </>
         ) : (
@@ -485,6 +544,16 @@ const InlineChip = memo(function InlineChip({
       </ContextMenu>
     );
   }
+  // A browser pick: its number and comment, opening its whole card in place (BrowserPickChip.tsx).
+  if (attachment.kind === "text" && attachment.text !== undefined && isBrowserPick(attachment))
+    return (
+      <ContextMenu
+        className="acpmux-attachment-menu"
+        items={[{ id: "remove", label: t("composer.removeAttachment", { name }), onSelect: () => onRemove(id) }]}
+      >
+        <BrowserPickChip host="inline" name={attachment.name} text={attachment.text} remove={remove} />
+      </ContextMenu>
+    );
   // An inspector pick: the element and a snippet of its text, opening its whole report in place
   // (UIPickChip.tsx). Its right-click menu removes it, as the strip's does.
   if (attachment.kind === "text" && attachment.text !== undefined && isUIPick(attachment))
@@ -504,13 +573,13 @@ const InlineChip = memo(function InlineChip({
       data-state="ready"
       data-chip="strip"
       ref={chipRef(id)}
-      {...(loaded.current ? { "data-loaded": "" } : {})}
+      {...(loaded && !pictured ? { "data-loaded": "" } : {})}
     >
       <AttachmentChip
         attachment={attachment}
         codex={codex}
         onRemove={onRemove}
-        {...(originalFailed ? { onRetry, originalFailed } : {})}
+        {...(originalFailed ? { originalFailed } : {})}
       />
     </span>
   );

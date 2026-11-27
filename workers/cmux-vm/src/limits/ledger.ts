@@ -16,6 +16,7 @@ import { SnapshotId, VmId } from "../lib/ids.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
 import { Reservation, type LedgerStorage } from "./storage.ts";
 import { meshCreation, type MeshCreationCommand, type MeshCreationResult } from "./mesh-creation.ts";
+import { admitAgentSlot, bindAgentCreation, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
 export type { LedgerStorage } from "./storage.ts";
 
 /** The subset of Durable Object storage the ledger uses. Values come back untyped and are checked on read. */
@@ -102,6 +103,11 @@ export const IdempotencyRecord = Schema.Struct({
 
 export type IdempotencyRecord = typeof IdempotencyRecord.Type;
 
+export const RetainedCreationSlot = Schema.Struct({ key: Schema.String, vmId: Schema.String, startedMs: Schema.Number, cancelRequested: Schema.Boolean });
+export type RetainedCreationSlot = typeof RetainedCreationSlot.Type;
+const isRetainedSlot = Schema.is(Schema.Struct({ ...Reservation.fields, vmCreation: Schema.optional(Schema.Unknown) }));
+const isSlotLink = Schema.is(Schema.Struct({ key: Schema.String, vmId: Schema.String }));
+
 
 const isBucket = Schema.is(Bucket);
 const isRecord = Schema.is(IdempotencyRecord);
@@ -126,6 +132,9 @@ const isReservation = Schema.is(Reservation);
 
 const Lock = Schema.Struct({ holder: Schema.String, untilMs: Schema.Number });
 const isLock = Schema.is(Lock);
+/** A mesh's apply coverage: `wanted` counts the changes that need an apply, `applied` is the highest one an apply has read. */
+const Coverage = Schema.Struct({ wanted: Schema.Number, applied: Schema.Number });
+const isCoverage = Schema.is(Coverage);
 
 /** A stored value of the wrong shape (from an older version) reads as absent. */
 const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | undefined => (guard(value) ? value : undefined);
@@ -145,14 +154,45 @@ export const RESERVATION_TTL_MS = 5 * 60 * 1000;
  * twice the 120 s create timeout plus provider propagation. Only then may it be resent or its cancellation settle.
  */
 export const CREATE_SEND_GRACE_MS = 10 * 60 * 1000;
+/**
+ * After this long, a send whose outcome was never learned may be sent again under the same slug, once the caller's
+ * exact-slug read answered 404. The provider refuses a second VM at a slug ("409 CONFLICT: that slug is already used by
+ * another VM in your account"; nothing here passes `reassignSlug`), so a resend can never make a second VM: either the
+ * first send made nothing and this one creates it, or it answers 409 and the read after it adopts the first send's VM.
+ * It is the 120 s create timeout plus 30 s, so no two of this key's sends are open at once, and it sits well inside the
+ * platform's 5-minute create retry window (cmux-platform `CREATE_RETRY_WINDOW_MS`). Before this, the resend waited the
+ * whole CREATE_SEND_GRACE_MS: one provider timeout failed every retry of that create (staging vm_9fca061251a7f47ec504,
+ * 2026-11-26: 1 timed-out send, then 7 refused retries and cloud.provider.unavailable). Settling a cancellation as
+ * "nothing was made" still waits CREATE_SEND_GRACE_MS: no provider answer backs that one.
+ */
+export const CREATE_RESEND_AFTER_MS = 150 * 1000;
 type Dispatch = { readonly state: "ready" | "sent" | "rejected"; readonly at?: number | undefined };
-const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) =>
-  dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= CREATE_SEND_GRACE_MS);
+const sentAgo = (dispatch: Dispatch, nowMs: number | undefined, ms: number) =>
+  dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= ms);
+const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) => sentAgo(dispatch, nowMs, CREATE_SEND_GRACE_MS);
+const sendResendable = (dispatch: Dispatch, nowMs: number | undefined) => sentAgo(dispatch, nowMs, CREATE_RESEND_AFTER_MS);
+
+/**
+ * Takes lock `key` for `holder` inside the caller's transaction. Every read-modify-write of a lock or a coverage key runs
+ * in one ledger transaction: a Durable Object's input gate already kept two calls from interleaving between the read
+ * and the write, but the in-memory ledger has no gate, and there 50 concurrent writers all took one lock.
+ */
+const takeLock = async (storage: LedgerStorage, key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean> => {
+  const storageKey = `lock:${key}`;
+  const held = checked(isLock, await storage.get(storageKey));
+  if (held !== undefined && held.untilMs > nowMs && held.holder !== holder) return false;
+  await storage.put(storageKey, { holder, untilMs: nowMs + leaseMs });
+  return true;
+};
 
 export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
 
   meshCreation(command: MeshCreationCommand, nowMs: number): Promise<MeshCreationResult> { return meshCreation(this.storage, command, nowMs); }
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return admitAgentSlot(this.storage, agent, limit, ownedVmIds, nowMs, slotId); }
+  settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return settleAgentSlot(this.storage, agent, slotId, outcome, nowMs); }
+  bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return bindAgentCreation(this.storage, agent, creationKey, vmId, nowMs); }
+  forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return forgetAgentVm(this.storage, vmId, creationKey); }
 
   snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult> { return snapshotCapture(this.storage, command, nowMs); }
 
@@ -185,14 +225,14 @@ export class TenantLedger {
 
   /**
    * One potentially allocating provider send at a time. An unknown outcome reopens this gate only after
-   * CREATE_SEND_GRACE_MS, and the caller sends only after its exact-slug lookup found nothing.
+   * CREATE_RESEND_AFTER_MS, and the caller sends only after its exact-slug lookup found nothing.
    */
   async beginCreateSend(key: string, vmId: string, token: string, nowMs?: number): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
       const record = readRecord(await storage.get(`idem:${key}`));
       if (record === undefined) return false;
       const p = record.progress;
-      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendSettled(p.dispatch, nowMs)) return false;
+      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendResendable(p.dispatch, nowMs)) return false;
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token, ...(nowMs === undefined ? {} : { at: nowMs }) } } });
       return true;
     });
@@ -432,18 +472,92 @@ export class TenantLedger {
    * that died blocks the next one.
    */
   async lock(key: string, holder: string, leaseMs: number, nowMs: number): Promise<boolean> {
-    const storageKey = `lock:${key}`;
-    const held = checked(isLock, await this.storage.get(storageKey));
-    if (held !== undefined && held.untilMs > nowMs && held.holder !== holder) return false;
-    await this.storage.put(storageKey, { holder, untilMs: nowMs + leaseMs });
-    return true;
+    return this.storage.transaction((storage) => takeLock(storage, key, holder, leaseMs, nowMs));
+  }
+
+  /**
+   * Takes lock `key` as `lock` does, unless coverage `coverageKey` has applied
+   * `need` already: then it answers "covered" and takes nothing, so a writer
+   * whose change another writer's apply already covered leaves the queue.
+   */
+  async lockUnlessCovered(key: string, holder: string, leaseMs: number, nowMs: number, coverageKey: string, need: number): Promise<"taken" | "busy" | "covered"> {
+    return this.storage.transaction(async (storage) => {
+      const coverage = checked(isCoverage, await storage.get(`coverage:${coverageKey}`));
+      if (coverage !== undefined && coverage.applied >= need) return "covered";
+      return (await takeLock(storage, key, holder, leaseMs, nowMs)) ? "taken" : "busy";
+    });
+  }
+
+  /** Counts one more change that needs an apply; answers its number. */
+  async coverageWant(key: string): Promise<number> {
+    // One transaction from the read to the write: two wants that interleaved there would share one number, and the
+    // attach left with it could be answered by an apply that never read its member row (#41517 review F1).
+    return this.storage.transaction(async (storage) => {
+      const storageKey = `coverage:${key}`;
+      const coverage = checked(isCoverage, await storage.get(storageKey)) ?? { wanted: 0, applied: 0 };
+      const wanted = coverage.wanted + 1;
+      await storage.put(storageKey, { ...coverage, wanted });
+      return wanted;
+    });
+  }
+
+  /** The number of the latest change: an apply that reads state after this answer covers every change up to it. */
+  async coverageWanted(key: string): Promise<number> {
+    return checked(isCoverage, await this.storage.get(`coverage:${key}`))?.wanted ?? 0;
+  }
+
+  /** Records that an apply covering every change up to `upTo` has landed; `applied` only grows. */
+  async coverageApplied(key: string, upTo: number): Promise<void> {
+    // In one transaction too: a want that landed between this read and write would be overwritten and lost.
+    await this.storage.transaction(async (storage) => {
+      const storageKey = `coverage:${key}`;
+      const coverage = checked(isCoverage, await storage.get(storageKey)) ?? { wanted: 0, applied: 0 };
+      if (upTo <= coverage.applied) return;
+      await storage.put(storageKey, { wanted: Math.max(coverage.wanted, upTo), applied: upTo });
+    });
   }
 
   /** Releases the lock when `holder` still holds it. */
   async unlock(key: string, holder: string): Promise<void> {
-    const storageKey = `lock:${key}`;
-    const held = checked(isLock, await this.storage.get(storageKey));
-    if (held !== undefined && held.holder === holder) await this.storage.delete(storageKey);
+    await this.storage.transaction(async (storage) => {
+      const storageKey = `lock:${key}`;
+      const held = checked(isLock, await storage.get(storageKey));
+      if (held !== undefined && held.holder === holder) await storage.delete(storageKey);
+    });
+  }
+
+  /**
+   * Read only: the unfinished creates `createdBy` started that still hold a retained VM slot, oldest first, at most
+   * `limit`. Nothing else ever frees a slot whose request died after its send began, so a caller that can prove the
+   * create is over (a CI principal past its run cap) cancels them through the ordinary verified cancellation.
+   */
+  async retainedCreations(createdBy: string, limit: number): Promise<ReadonlyArray<RetainedCreationSlot>> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 64) throw new Error("invalid retained creation page");
+    const slots = new Set<string>();
+    const links = new Map<string, string>();
+    for (const [key, value] of await this.storage.list({ prefix: "reserve:" })) {
+      if (!isRetainedSlot(value) || value.kind !== "vm" || value.retained !== true) continue;
+      slots.add(key.slice("reserve:".length));
+      if (isSlotLink(value.vmCreation)) links.set(key.slice("reserve:".length), value.vmCreation.key);
+    }
+    if (slots.size === 0) return [];
+    // Slots retained before they carried their link: find their intents in one bounded page.
+    const keys = new Set(links.values());
+    if (links.size < slots.size) {
+      for (const [key, value] of await this.storage.list({ prefix: "idem:", limit: 256 })) {
+        const p = readRecord(value)?.progress;
+        if (p?.phase === "creating" && slots.has(p.reservationId)) keys.add(key.slice("idem:".length));
+      }
+    }
+    const found: RetainedCreationSlot[] = [];
+    for (const key of keys) {
+      const p = readRecord(await this.storage.get(`idem:${key}`))?.progress;
+      if (p?.phase !== "creating" || !slots.has(p.reservationId) || p.createdBy !== createdBy || p.intent === undefined || p.dispatch === undefined) continue;
+      const startedMs = p.dispatch.at ?? Date.parse(p.intent.createdAt);
+      if (!Number.isFinite(startedMs)) continue;
+      found.push({ key, vmId: p.vmId, startedMs, cancelRequested: p.cancelRequested === true });
+    }
+    return found.sort((a, b) => a.startedMs - b.startedMs).slice(0, limit);
   }
 
   /** Bounded, read-only scan. Cursors are domain-separated digests of random server handles. */

@@ -28,6 +28,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 type Span = { left: number; right: number; bottom?: number };
 type Control = {
@@ -43,14 +44,22 @@ type Row = { bar: Span; content: Span; controls: Control[] };
 
 await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
   /** Runs in the page: each visible control of the row and what it draws. */
-  function measure(selector: string): Row {
+  function measure({
+    selector,
+    MODEL_PICKER,
+    PLUS_PICKER,
+  }: {
+    selector: string;
+    MODEL_PICKER: string;
+    PLUS_PICKER: string;
+  }): Row {
     const bar = document.querySelector<HTMLElement>(selector)!;
     const barRect = bar.getBoundingClientRect();
     const barBottom = barRect.bottom;
     const style = getComputedStyle(bar);
     const named: [string, string][] = [
-      ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
-      ["model", ".acpmux-model .acpmux-picker-button"],
+      ["plus", PLUS_PICKER],
+      ["model", MODEL_PICKER],
       ["mode", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
       ["mic", ".acpmux-mic"],
@@ -81,8 +90,14 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         const walk = (node: Node) => {
           if (node instanceof SVGSVGElement) {
             if (shown(node)) {
+              // The drawn box: a provider mark draws inside padding at a line glyph's ink (composerLocation.css).
               const box = node.getBoundingClientRect();
-              parts.push({ kind: "icon", left: box.left, right: box.right });
+              const style = getComputedStyle(node);
+              parts.push({
+                kind: "icon",
+                left: box.left + (parseFloat(style.paddingLeft) || 0),
+                right: box.right - (parseFloat(style.paddingRight) || 0),
+              });
             }
             return;
           }
@@ -177,8 +192,8 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
     // Let the row's fit pass (composerRowFit.ts) settle after the typed text.
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     // The box's own controls lay out in the box itself (the bar draws no box of its own).
-    const inner = await page.evaluate(measure, ".acpmux-composer-box");
-    const foot = await page.evaluate(measure, ".acpmux-composer-foot");
+    const inner = await page.evaluate(measure, { selector: ".acpmux-composer-box", MODEL_PICKER, PLUS_PICKER });
+    const foot = await page.evaluate(measure, { selector: ".acpmux-composer-foot", MODEL_PICKER, PLUS_PICKER });
     await page.close();
     return { inner, foot };
   };

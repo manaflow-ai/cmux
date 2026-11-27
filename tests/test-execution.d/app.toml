@@ -6,6 +6,16 @@ path = "tests/test_app_crate_licenses.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_ffi_linux.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_app_ffi_linux.py"
+
+[[test]]
+path = "tests/test_app_ffi_release_linux_route.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_app_ffi_release_linux_route.py yourself after changing the workflow steps it reads."
+
+[[test]]
 path = "tests/test_app_ffi_release_workflow.py"
 lane = "linux-guard"
 
@@ -19,4 +29,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_app_symbol_map.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_token_steps.py"
 lane = "linux-guard"

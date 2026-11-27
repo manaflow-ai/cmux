@@ -1,0 +1,27 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-paper-look",
+  "description": "A whole cmux look built only from public surfaces: a theme file for color, settings for type and spacing, a stylesheet of cmux.agentPane.style/1 tokens for the prompt bubble and cards, and a customize view for the sidebar's hover card and rows. Remove it and everything you had comes back.",
+  "created_ms": 0,
+  "settings": {
+    "appearance.themeFile": "paper",
+    "agentPane.display.font.preset": "serif",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.7,
+    "agentPane.display.width": 720,
+    "sidebar.density": "comfortable",
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.lastActivity": false
+  },
+  "files": {
+    "agent-pane/theme.css": "/* Paper's chat: a soft, rounded prompt in a warm tint, no hairline, and cards like a ruled page.\n   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so\n   nothing in the transcript moves when this applies or reloads. Every color is made from the\n   theme's own (--agent-text, --agent-accent), so the stylesheet reads over a dark theme as well as\n   a light one; Paper's theme file picks the paper and the sepia accent that warms the rest. */\n:root {\n  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 16%, transparent);\n  --cv-user-bubble-radius: 18px;\n  --cv-code-edge-fade: 32px;\n  --cv-card-fill: color-mix(in srgb, var(--agent-accent) 7%, transparent);\n  --cv-card-ring: color-mix(in srgb, var(--agent-accent) 20%, transparent);\n  --cv-text-muted: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 85%, var(--agent-accent)) 84%, transparent);\n  --cv-text-dim: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 85%, var(--agent-accent)) 74%, transparent);\n  --cv-link: color-mix(in srgb, var(--agent-accent) 70%, var(--agent-text));\n  --agent-link: color-mix(in srgb, var(--agent-accent) 70%, var(--agent-text));\n}\n",
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": { \"en\": \"Paper sidebar\" },\n  \"version\": \"1.0.0\",\n  \"description\": \"Paper's hover card and sidebar rows: the task in full, medium names and an arc while work runs.\",\n  \"engines\": { \"cmux\": \"^2.0\" },\n  \"repository\": \"https://github.com/local/customize\",\n  \"runtime\": { \"main\": \"main.js\" },\n  \"implements\": {\n    \"cmux.hovercard/1\": { \"export\": \"renderCard\" },\n    \"cmux.sidebar.rows/1\": { \"export\": \"decorateRows\" }\n  },\n  \"scopes\": { \"workspace:read\": \"Name the rows to decorate.\" },\n  \"activation\": [\"onInterface:cmux.hovercard/1\", \"onInterface:cmux.sidebar.rows/1\"],\n  \"files\": [\"main.js\"]\n}\n",
+    "customize/main.js": "// Paper's sidebar: a reading card with the task in full, and rows that stay calm.\n// Public surfaces only: cmux.hovercard/1 and cmux.sidebar.rows/1 (docs/cmux-next/sidebar-customization.md).\n\nconst FIELDS = [\"needsInput\", \"task\", \"lastReply\", \"agent\", \"folder\"]\n\nfunction renderCard(ctx) {\n  const card = ctx.card\n  const facts = FIELDS.flatMap((kind) => card.facts.filter((fact) => fact.kind === kind))\n  return VStack({ spacing: 6 }, [\n    Text(card.title).font(\"headline\").lineLimit(2),\n    card.status ? Text(card.status).secondary() : null,\n    ...facts.map((fact) => Text(fact.text).lineLimit(fact.kind === \"task\" || fact.kind === \"lastReply\" ? 4 : 1)),\n  ])\n}\n\n// Rows: medium names, and the arc as the loading indicator.\nfunction decorateRows() {\n  const workspaces = cmux.live(\"workspace.list\", {})\n  return VStack([\n    ForEach({ items: () => workspaces() ?? [], key: (w) => w.id }, (w) =>\n      Group({ title: () => w().name, weight: () => \"medium\", indicator: () => \"arc\" }, []),\n    ),\n  ])\n}\n\nglobalThis.__cmuxAppExports = { renderCard, decorateRows }\n",
+    "themes/paper.json": "// Paper: warm off-white paper, ink-brown text and a sepia accent. No wallpaper; a soft sidebar a\n// shade darker than the page.\n{\n  \"name\": \"Paper\",\n  \"description\": \"Warm paper, ink text, a sepia accent and a soft sidebar.\",\n\n  \"appearance.theme\": \"Builtin Light\",\n  // The window, sidebar and pages take that theme too, over an App Theme of your own.\n  \"appearance.appTheme\": \"followTerminal\",\n  \"colors\": { \"background\": \"#faf8f3\", \"foreground\": \"#2d2a26\", \"selection\": \"#e8e1d3\", \"accent\": \"#8a5a2b\" },\n  \"appearance.accent\": \"theme\",\n\n  \"appearance.background\": \"none\",\n  \"appearance.borders\": \"none\",\n  \"appearance.chromeStyle\": \"flat\",\n\n  \"appearance.sidebarSurface\": \"separate\",\n  \"appearance.surfaces.sidebar.color\": \"#f9f5ec\",\n  \"appearance.surfaces.sidebar.opacity\": 1,\n  \"appearance.surfaces.agentPane.color\": \"#faf8f3\",\n  \"appearance.surfaces.agentPane.opacity\": 1,\n  \"sidebar.sectionLook\": \"quiet\",\n  \"appearance.statusIndicator.style\": \"arc\",\n\n  \"appearance.density\": \"comfortable\"\n}\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/paper-look",
+    "name": "Paper",
+    "source": "looks/paper"
+  }
+}

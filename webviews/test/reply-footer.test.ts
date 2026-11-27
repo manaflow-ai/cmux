@@ -1,5 +1,8 @@
-// A reply's footer: its buttons first, on the prose's left edge, and its time after them, shown on
-// hover; the finished chat's last reply keeps its buttons in sight at rest.
+// A reply's footer: its buttons, on the prose's left edge, then its age; the whole row hidden at rest
+// and shown while the pointer is on the turn, as Claude Code desktop's (Leo, 2026-11-22: "claude
+// hides buttons until you hover over the relevant area of a turn response ... and you hover and you
+// get the timing ... i think we go with claude code here. idk when we decided to always show all
+// buttons always. let's not"). Showing it moves nothing: its line is kept at rest.
 //
 // Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 // should always just be there left aligned"; "i should be able to see the copy buttons on your
@@ -9,10 +12,9 @@
 // In gallery entry agent-pane.transcript-row-alignment, light and dark:
 // - `footer` (the pointer on the first turn's footer): every footer's first element is its button
 //   group, and its first glyph's box (the 16px icon box, design/grid.md 5.5) starts on the prose's
-//   left edge, for a turn whose time and tokens are known (they go in the time's tooltip) and for
-//   one without them;
-// - `finished` (a finished chat, no pointer): the last reply's buttons show at rest, its time is
-//   hidden; pointed at, the time shows after the last button and the buttons do not move.
+//   left edge, and every footer draws its age after its buttons;
+// - `finished` (a finished chat): at rest every footer's row is hidden, the last one's too; pointed
+//   at, the row and its age show, and neither the buttons nor any transcript row moves.
 //
 // CMUX_REPLY_FOOTER_ARTIFACT_DIR=DIR (or fast-checks' FAST_CHECKS_OUT) also writes 2x stills of the
 // last reply and its footer, at rest and pointed at, in each theme.
@@ -135,17 +137,13 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await page.locator(".acpmux-turnSummary .cv-turn-action-group").first().waitFor();
         const measured = await footers(page);
         console.log(`REPLY_FOOTER ${theme.file} footer ${JSON.stringify(measured)}`);
-        // The first turn's footer knows its time and tokens; the folded turn's footer does not, and its
-        // time's tooltip is the exact date and time, so every reply's time hovers (Leo, 2026-11-08: "for
-        // when things are yours, sometimes it's like I can't hover onto yours").
-        const withStats = measured.filter((footer) => footer.detail?.includes("Worked for"));
-        const without = measured.filter((footer) => !footer.detail?.includes("Worked for"));
-        expect(withStats.length, "a footer with the turn's time and tokens").toBeGreaterThan(0);
-        expect(without.length, "a footer without them").toBeGreaterThan(0);
-        for (const footer of measured) expect(footer.detail).toMatch(/\b20\d\d\b/);
-        // The time on its own line, then one token count per row (turnTokensModel.ts `replyTimeDetail`).
-        for (const footer of withStats)
-          expect(footer.detail).toMatch(/Worked for 5s\nOutput .+\nInput .+\u00a0uncached · .+\u00a0cached/);
+        // Every footer's age comes after its buttons (Leo, 2026-11-22: "you hover and you get the
+        // timing ["4 minutes ago" next to copy/fork/pin/speaker]").
+        expect(measured.length).toBeGreaterThan(1);
+        for (const footer of measured) {
+          expect(footer.time).toBeDefined();
+          expect(footer.time!.left).toBeGreaterThanOrEqual(footer.lastButtonRight - TOLERANCE);
+        }
         for (const footer of measured) {
           expect(footer.first).toContain("cv-turn-action-group");
           expect(footer.glyph).toBeDefined();
@@ -153,8 +151,6 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
             Math.abs(footer.glyph!),
             `first glyph at ${footer.glyph}px, not on the prose's edge`,
           ).toBeLessThanOrEqual(TOLERANCE);
-          // The time comes after the last button.
-          expect(footer.time!.left).toBeGreaterThanOrEqual(footer.lastButtonRight - TOLERANCE);
         }
         expect(await page.locator(".cv-turn-summary").count()).toBe(0);
       } finally {
@@ -162,7 +158,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
       }
     });
 
-    test(`a finished chat's last reply shows its buttons at rest and its time on hover (${theme.name})`, async () => {
+    test(`a reply's row is hidden at rest and shows with its age on hover, moving nothing (${theme.name})`, async () => {
       const page = await open("finished", theme.name);
       try {
         const last = ".acpmux-turnSummary.acpmux-row--final-footer";
@@ -173,43 +169,63 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         await still(page, `${theme.file}-rest`);
         expect(rest, "the chat's last footer").toBeDefined();
         expect(rest!.buttons.length).toBeGreaterThan(0);
-        expect(rest!.actionsOpacity).toBe(1);
-        expect(rest!.time!.opacity).toBe(0);
+        // Hidden at rest, the chat's last turn too (Claude's; Codex keeps its latest shown).
+        expect(rest!.actionsOpacity).toBe(0);
+        expect(rest!.time).toBeDefined();
         expect(Math.abs(rest!.glyph!)).toBeLessThanOrEqual(TOLERANCE);
-        await page.hover(`${last} .cv-turn-action-group`);
+        // Every transcript row's box at rest: hovering must not move or resize any of them.
+        const boxes = () =>
+          page.evaluate(() =>
+            [...document.querySelectorAll<HTMLElement>("article.acpmux-row")].map((row) => {
+              const box = row.getBoundingClientRect();
+              return [Math.round(box.top * 2) / 2, Math.round(box.height * 2) / 2];
+            }),
+          );
+        const restBoxes = await boxes();
+        // Pointing at the reply's text (the turn's response area), not the row itself, reveals it.
+        const replies = page.locator(".acpmux-row.acpmux-assistant");
+        await replies.nth((await replies.count()) - 1).hover();
         await page.waitForFunction(
-          (selector) => getComputedStyle(document.querySelector(`${selector} .cv-turn-time`)!).opacity === "1",
+          (selector) => getComputedStyle(document.querySelector(`${selector} .cv-turn-actions`)!).opacity === "1",
           last,
-          { timeout: 10_000 },
         );
         const [hover] = await footers(page, last);
         console.log(`REPLY_FOOTER ${theme.file} hover ${JSON.stringify(hover)}`);
         await still(page, `${theme.file}-hover`);
-        expect(hover!.time!.opacity).toBe(1);
+        expect(hover!.actionsOpacity).toBe(1);
+        expect(hover!.time?.opacity).toBe(1);
         expect(hover!.time!.left).toBeGreaterThanOrEqual(hover!.lastButtonRight - TOLERANCE);
         expect(hover!.buttons).toEqual(rest!.buttons);
-        // Earlier footers with a reply show their buttons at rest too, as ChatGPT's (Leo, 2026-11-04:
-        // "the thing always showing at hte bottom"); their time still waits for the pointer.
+        expect(await boxes(), "no transcript row moves when the row shows").toEqual(restBoxes);
+        // Keyboard focus inside the turn shows the row too, its age included.
         await page.mouse.move(1, 1);
+        // A key earns :focus-visible (src/ui/focusModality.ts), then focus lands in the row.
+        await page.keyboard.press("Shift");
+        await page.locator(`${last} .cv-turn-action-group .cv-iconbtn`).first().focus();
+        const [focused] = await footers(page, last);
+        expect(focused!.actionsOpacity).toBe(1);
+        expect(focused!.time?.opacity).toBe(1);
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        // Earlier footers are hidden at rest too.
         const earlier = await footers(
           page,
           ".acpmux-turnSummary:not(.acpmux-row--final-footer):not(:has(.cv-turn-actions--empty))",
         );
         expect(earlier.length).toBeGreaterThan(0);
         for (const footer of earlier) {
-          expect(footer.actionsOpacity).toBe(1);
+          expect(footer.actionsOpacity).toBe(0);
           expect(footer.time?.opacity ?? 0).toBe(0);
         }
       } finally {
         await page.close();
       }
     });
-    // Leo, 2026-11-02: "this spacing would be good + the latest copy buttons auto showing when the
-    // turn is done like chatgpt". Whether the last turn ended on a reply (`finished`) or on a run of
-    // commands (`finished-work`), its row shows at rest, one --grid-gap-footer under the turn's last
-    // line, and is its 32 line alone: no blank band between the turn's last line and the buttons.
+    // Whether the last turn ended on a reply (`finished`) or on a run of commands (`finished-work`),
+    // its row (hidden at rest since Leo, 2026-11-22, its line kept) sits one --grid-gap-footer under
+    // the turn's last line, and is its 32 line alone: no blank band between the turn's last line and
+    // the buttons.
     for (const variant of ["finished", "finished-work"]) {
-      test(`a finished chat's last turn shows its row at rest, 8 under its last line (${variant}, ${theme.name})`, async () => {
+      test(`a finished chat's last turn keeps its row's line, 8 under its last line (${variant}, ${theme.name})`, async () => {
         const page = await open(variant, theme.name);
         try {
           const last = ".acpmux-turnSummary.acpmux-row--final-footer";
@@ -218,7 +234,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
           const [rest] = await footers(page, last);
           expect(rest, "the chat's last footer has a row").toBeDefined();
           expect(rest!.buttons.length).toBeGreaterThan(0);
-          expect(rest!.actionsOpacity).toBe(1);
+          expect(rest!.actionsOpacity).toBe(0);
           expect(Math.abs(rest!.glyph!)).toBeLessThanOrEqual(TOLERANCE);
           const geometry = await page.evaluate((selector) => {
             const length = (name: string) => {
@@ -259,39 +275,13 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         }
       });
     }
-    // A stopped turn's Continue is a labelled button: the footer's 32 squares are its icon buttons
-    // only, so its word is never clipped to one (#31690's review).
-    test(`a stopped turn's Continue keeps its label's width (${theme.name})`, async () => {
+    test(`a stopped turn resumes from the composer, with no footer Continue (${theme.name})`, async () => {
       const page = await open("turn-stopped", theme.name, "agent-pane.transcript");
       try {
-        const button = page.locator(".cv-turn-continue").first();
+        const button = page.locator('.acpmux-composer button[aria-label="Resume"]');
         await button.waitFor({ timeout: 10_000 });
-        const fit = await button.evaluate((el) => ({
-          width: el.getBoundingClientRect().width,
-          height: el.getBoundingClientRect().height,
-          scroll: el.scrollWidth,
-          client: el.clientWidth,
-          glyph: el.querySelector("svg")?.getBoundingClientRect().width ?? 0,
-          fontSize: getComputedStyle(el).fontSize,
-          captionSize: (() => {
-            const probe = document.createElement("span");
-            probe.style.fontSize = "var(--text-caption)";
-            document.body.append(probe);
-            const size = getComputedStyle(probe).fontSize;
-            probe.remove();
-            return size;
-          })(),
-          paddingInline: `${getComputedStyle(el).paddingLeft} ${getComputedStyle(el).paddingRight}`,
-          title: el.getAttribute("title"),
-        }));
-        console.log(`REPLY_FOOTER ${theme.file} continue ${JSON.stringify(fit)}`);
-        expect(fit.width).toBeGreaterThan(40);
-        expect(Math.abs(fit.height - 24)).toBeLessThanOrEqual(TOLERANCE);
-        expect(fit.scroll).toBeLessThanOrEqual(fit.client + 1);
-        expect(fit.glyph).toBeLessThan(20);
-        expect(fit.fontSize).toBe(fit.captionSize);
-        expect(fit.paddingInline).toBe("2px 2px");
-        expect(fit.title).toBeNull();
+        expect(await page.locator(".cv-turn-continue").count()).toBe(0);
+        expect(await button.locator('[data-icon="media.play"]').count()).toBe(1);
         await still(page, `${theme.file}-stopped-after`);
       } finally {
         await page.close();
@@ -302,7 +292,8 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
       test(`captures the stopped footer gallery arm (${variant}, ${theme.name})`, async () => {
         const page = await open(variant, theme.name, "agent-pane.stopped-turn");
         try {
-          await page.locator(".cv-turn-continue").waitFor({ timeout: 10_000 });
+          await page.locator('.acpmux-composer button[aria-label="Resume"]').waitFor({ timeout: 10_000 });
+          expect(await page.locator(".cv-turn-continue").count()).toBe(0);
           await still(page, `${theme.file}-${variant}`);
         } finally {
           await page.close();

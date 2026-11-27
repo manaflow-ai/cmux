@@ -135,20 +135,15 @@ impl Surface {
                         broadcast_render_scroll_locked(pty, after);
                     }
                     let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                    let _ = pty.build_frame_locked(&mut term, generation, false);
+                    let _ = pty.build_frame_locked(&mut term, generation, true);
                     (before != after).then_some(after)
                 }
             };
             drop(term);
-            if let Some((offset, at_bottom)) = scroll_changed
+            if scroll_changed.is_some()
                 && let Some(mux) = pty.mux.upgrade()
             {
-                pty.frame_requests.publish_scroll_now(
-                    &mux,
-                    pty.event_surface_id,
-                    offset,
-                    at_bottom,
-                );
+                pty.frame_requests.flush_scroll(&mux, pty.event_surface_id);
             }
             // What the person cleared never comes back: the journal records
             // the clear, and a holder gets the cleared screen as the

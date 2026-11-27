@@ -10,15 +10,18 @@
 // The last round's page stays open, and every surface of an engine then sits through one shared IDLE_MS window
 // (each page counts its own wakeups; Chromium's task time is per page's renderer).
 // Rows (bench/perfRow.ts): ui.<surface>[.webkit].settled, .settle_after_paint (open: first paint to settled),
-// .cls, .idle_wakeups, and Chromium's .idle_cpu_ms.
+// .cls, .idle_wakeups, and Chromium's .idle_cpu_ms; then one `UI-STABILITY {json}` line per engine: the surfaces that
+// shift (cls over 0.001), the worst cls and the slowest settle, the surface set's one number.
 //   bun bench/ui-stability.bench.ts [rounds=3] [--only surface,surface]
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, webkit, type Browser, type CDPSession, type Page } from "playwright";
+import { chromium, webkit } from "./browsers";
+import type { Browser, CDPSession, Page } from "playwright";
 import { perfRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, median, settledAt, IDLE_MS, type Idle } from "./stability";
+import { sharedBuildDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const onlyAt = argv.indexOf("--only");
@@ -154,16 +157,21 @@ async function round(
 }
 
 try {
-  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "ui-stability-gallery-"));
-  releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
-  const builtAt = performance.now();
-  // `gallery:build` (package.json): the generated strings, then the static gallery.
-  const strings = Bun.spawnSync(["node", "scripts/pages/gen-strings.mjs"], { cwd: webviews, stdout: "ignore" });
-  if (strings.exitCode !== 0) throw new Error(`gen-strings exited ${strings.exitCode}: ${strings.stderr.toString()}`);
-  process.env.CMUX_GALLERY_OUT_DIR = out;
-  const { build } = await import("vite");
-  await build({ root: webviews, configFile: path.join(webviews, "vite.config.gallery.ts"), logLevel: "error" });
-  console.log(`ui-stability: gallery built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+  // Under bench/web-ui-suite.ts, the suite's one gallery build of the run (bench/support/sharedBuilds.ts).
+  const shared = sharedBuildDir("gallery");
+  const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "ui-stability-gallery-"));
+  if (shared) console.log(`ui-stability: the suite's gallery build (${shared})`);
+  else {
+    releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+    const builtAt = performance.now();
+    // `gallery:build` (package.json): the generated strings, then the static gallery.
+    const strings = Bun.spawnSync(["node", "scripts/pages/gen-strings.mjs"], { cwd: webviews, stdout: "ignore" });
+    if (strings.exitCode !== 0) throw new Error(`gen-strings exited ${strings.exitCode}: ${strings.stderr.toString()}`);
+    process.env.CMUX_GALLERY_OUT_DIR = out;
+    const { build } = await import("vite");
+    await build({ root: webviews, configFile: path.join(webviews, "vite.config.gallery.ts"), logLevel: "error" });
+    console.log(`ui-stability: gallery built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
+  }
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -248,6 +256,29 @@ try {
           version: 3,
         });
     }
+    // One line per engine a reader (NOW, a PR body) can take as the surface set's number: which surfaces moved
+    // something a person sees (cls over the 0.001 rounding floor), the worst one, and the slowest to hold still.
+    const rows = kept.map(({ surface, rounds }) => ({
+      surface: surface.name,
+      cls: Math.round(median(rounds.map((r) => r.cls)) * 1e4) / 1e4,
+      settled: Math.round(median(rounds.map((r) => r.settled))),
+    }));
+    const none = { surface: "", cls: 0, settled: 0 };
+    const worstCls = rows.reduce((worst, row) => (row.cls > worst.cls ? row : worst), none);
+    const slowest = rows.reduce((worst, row) => (row.settled > worst.settled ? row : worst), none);
+    console.log(
+      `UI-STABILITY ${JSON.stringify({
+        engine,
+        rounds: ROUNDS,
+        surfaces: rows.length,
+        failed: surfaces.length - rows.length,
+        shifting: rows.filter((row) => row.cls > 0.001).map((row) => row.surface),
+        worst_cls: worstCls.cls,
+        worst_cls_surface: worstCls.surface || null,
+        slowest_settled_ms: slowest.settled,
+        slowest_surface: slowest.surface || null,
+      })}`,
+    );
     for (const { page } of kept) await page.context().close();
   }
   if (failed) process.exitCode = 1;

@@ -45,13 +45,15 @@ export function previewPolicy(nonce: string | undefined): string {
 }
 
 /// The frame's own script, the first to run in it: it reports the document's height to the parent
-/// whenever it changes (ResizeObserver coalesces, so there is no timer, and it goes with the frame),
+/// whenever it changes (ResizeObserver coalesces, so there is no timer, and it goes with the frame;
+/// a height equal to the last one sent is not sent again: a pane drag changes the document's width,
+/// firing the observer every frame, while its height moves only when the text rewraps),
 /// and keeps the frame on its document: every link click is refused, and a `#fragment` scrolls to its
 /// target here (in srcdoc a `#x` resolves against the parent page, so following it would leave). With
 /// `inertDocument` that leaves no way for markup without script to navigate the frame; a frame that
 /// leaves its document anyway is torn down by the parent (InlinePreview.tsx counts its loads), since
 /// the policy is the document's and a page the frame navigated to would run without it.
-const REPORTER = `(()=>{const post=()=>parent.postMessage({type:"${INLINE_PREVIEW_SIZE}",height:Math.ceil(document.documentElement.scrollHeight)},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);addEventListener("click",(event)=>{const link=event.target instanceof Element&&event.target.closest("a,area");if(!link)return;event.preventDefault();const href=link.getAttribute("href")||"";if(href.length>1&&href.startsWith("#")){const id=decodeURIComponent(href.slice(1));(document.getElementById(id)||document.getElementsByName(id)[0])?.scrollIntoView();}},true);})();`;
+const REPORTER = `(()=>{let last=-1;const post=()=>{const height=Math.ceil(document.documentElement.scrollHeight);if(height===last)return;last=height;parent.postMessage({type:"${INLINE_PREVIEW_SIZE}",height},"*");};new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);addEventListener("click",(event)=>{const link=event.target instanceof Element&&event.target.closest("a,area");if(!link)return;event.preventDefault();const href=link.getAttribute("href")||"";if(href.length>1&&href.startsWith("#")){const id=decodeURIComponent(href.slice(1));(document.getElementById(id)||document.getElementsByName(id)[0])?.scrollIntoView();}},true);})();`;
 
 /// A link attribute and its value; the character before it keeps it an attribute boundary (text that
 /// merely reads `href=` is renamed too, which only changes what the preview shows).
@@ -122,6 +124,54 @@ export function inlinePreviewHtml(kind: "html" | "svg", code: string): string {
       ? `<style>body{display:flex;justify-content:center}svg{max-width:100%;height:auto}</style>${code}`
       : code,
   );
+}
+
+/// The root `<svg>` tag's attributes, as written.
+const SVG_ROOT = /<svg\b([^>]*)>/i;
+/// The body's margin in the frame (renderBase.ts BASE: `margin:12px 14px`) around the image.
+const FRAME_INSET_BLOCK = 24;
+const FRAME_INSET_INLINE = 28;
+
+function svgAttribute(tag: string, name: string): string | undefined {
+  const match = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i").exec(tag);
+  return match ? (match[1] ?? match[2] ?? match[3]) : undefined;
+}
+
+/// A root size attribute: px (bare or `px`), "fill" when absent or 100% (the image takes the frame's
+/// width), nil for any other unit (em, %, …), whose drawn size the card cannot know.
+function svgLength(value: string | undefined): number | "fill" | undefined {
+  if (value === undefined || /^\s*100%\s*$/.test(value)) return "fill";
+  const match = /^\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*$/i.exec(value);
+  return match ? Number(match[1]) : undefined;
+}
+
+/// The height an SVG preview's frame draws at, as CSS, before the frame has reported it: the image is
+/// drawn as `inlinePreviewHtml` lays it out (its own width, at most the frame's less the body's
+/// margin, and the height its viewBox, or its width and height, give that width), plus the body's
+/// margin, in [min, max]. The card holds it from its first frame, so the frame's report lands on the
+/// height already drawn and nothing under or over the card moves (the matrix's
+/// agent-pane.artifact-panel#svg). `100cqw` is the card's width (`.cv-inline-preview` is the size
+/// container). Nil when the root's size is in a unit the card cannot resolve, or it has no aspect.
+export function svgPreviewHeight(code: string, min: number, max: number): string | undefined {
+  const tag = SVG_ROOT.exec(code)?.[1];
+  if (tag === undefined) return undefined;
+  const width = svgLength(svgAttribute(tag, "width"));
+  const height = svgLength(svgAttribute(tag, "height"));
+  if (width === undefined) return undefined;
+  const box = svgAttribute(tag, "viewBox")
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  const ratio =
+    box?.length === 4 && box[2]! > 0 && box[3]! > 0
+      ? box[3]! / box[2]!
+      : typeof width === "number" && typeof height === "number" && width > 0
+        ? height / width
+        : undefined;
+  if (!ratio || !Number.isFinite(ratio)) return undefined;
+  const room = `100cqw - ${FRAME_INSET_INLINE}px`;
+  const drawn = width === "fill" ? `(${room})` : `min(${width}px, ${room})`;
+  return `clamp(${min}px, round(${drawn} * ${ratio} + ${FRAME_INSET_BLOCK}px, 1px), ${max}px)`;
 }
 
 /// The `srcdoc` of an inline preview (the gallery, which has no native frame; a srcdoc frame takes

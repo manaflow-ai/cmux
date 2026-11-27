@@ -32,7 +32,9 @@ Persistent sessions run bounded journal maintenance in the background. After
 4,096 new records it creates a checkpoint, then seals at most eight 1,024-record
 segments per 30-second tick. Segment preparation is outside the SQLite writer
 transaction. New registries enable incremental auto-vacuum, and older
-registries migrate to it once when they next open. No retention policy deletes
+registries migrate to it once when they next open. Maintenance keeps up to
+64 MiB of free pages in the registry for new rows and returns what is free
+over that to the file system, 1 MiB per tick. No retention policy deletes
 sealed history automatically.
 
 Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
@@ -378,7 +380,7 @@ Padding shrinks the PTY size accordingly and never pads a pane below one content
 | `status_bar.screens_style` | `"block"`, `"pill"`, or `"slant"` | `"block"` | Cap glyphs around the active screen chip |
 | `status_bar.screens_plus.label` / `.action` / `.menu` | as `tabs.plus` | `" + "` / new screen / `[]` | The screens strip's `+` button |
 
-Text segments interpolate `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and `{user}`; unknown braces stay literal. `run` segments are the tmux `#()` equivalent: each is executed on its own interval with a five-second runtime bound, so a battery, git, or clock widget is one script. At most 8 segments per side. Transient status messages keep priority over the session label.
+Text segments interpolate `{session}`, `{workspace}`, `{screen}`, `{screens}`, `{title}`, and `{user}`; unknown braces stay literal. `run` segments are the tmux `#()` equivalent: each is executed on its own interval with a five-second runtime bound, so a battery, git, or clock widget is one script. Any number of segments per side. Transient status messages keep priority over the session label.
 
 ```json
 {

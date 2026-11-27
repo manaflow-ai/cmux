@@ -5,6 +5,7 @@ import { HoverGroup, HoverIntent } from "./hoverIntent";
 import { installTooltips, tooltipPosition, tooltipWidth, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./titleTooltips";
 import { UI_TOOLTIP_GAP } from "./tooltipTokens";
 import { setPopupInsetTop } from "./popupInset";
+import { announceHoverSurface } from "./hoverSurface";
 
 test("full labels stay content-sized and bounded even on wide truncated rows", () => {
   for (const width of [140, 600, 900]) {
@@ -137,7 +138,7 @@ test("rows passing under a scroll do not flash their tooltips; the row under the
 });
 
 // Leo, 2026-10-14: tooltips showed at once on every control the pointer passed. They wait the hover
-// delay (450 ms, ui/hoverIntent.ts) before the first, then show at once for a neighbor while the
+// delay (250 ms, ui/hoverIntent.ts) before the first, then show at once for a neighbor while the
 // group is warm, and cool 500 ms after the last one hid. A control whose own text says the tooltip
 // shows none (#20375). The timers run on a clock the test moves.
 class FakeClock {
@@ -189,10 +190,10 @@ test("the first tooltip waits the hover delay; a neighbor's then shows at once u
   const { buttons, text } = toolbar(clock);
   await hover(buttons[0]);
   expect(text()).toBeNull();
-  clock.advance(300);
+  clock.advance(150);
   await hover(buttons[0]);
   expect(text()).toBeNull();
-  clock.advance(200);
+  clock.advance(100);
   await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
   expect(text()).toBe("Back");
   // Warm: straight to the neighbor, its tooltip at once.
@@ -315,9 +316,10 @@ test("a top-side tooltip (a message's time) sits above its element, below only w
   const view = { width: 800, height: 600 };
   const size = { width: 140, height: 22 };
   const time = { left: 100, top: 300, width: 80, height: 24 };
-  // Centered on the time, on the compact 4px grid gap above it (as Claude's), and above by default.
+  // Centered on the time, on the compact 4px grid gap above it (as Claude's). Every other tooltip
+  // sits below its control, as the native one does (Lawrence 2026-11-20: one tooltip everywhere).
   expect(tooltipPosition(time, size, view, "top")).toEqual({ left: 70, top: 274 });
-  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 274 });
+  expect(tooltipPosition(time, size, view)).toEqual({ left: 70, top: 328 });
   // At the pane's top edge: below.
   expect(tooltipPosition({ ...time, top: 10 }, size, view, "top")).toEqual({ left: 70, top: 38 });
   const scaled = tooltipPosition(time, size, view, "top", 1.5);
@@ -326,7 +328,7 @@ test("a top-side tooltip (a message's time) sits above its element, below only w
   expect(UI_TOOLTIP_EDGE).toBe(UI_TOOLTIP_GAP);
   expect(UI_TOOLTIP_MAX_WIDTH).toBe(320);
   const positioned = tooltipPosition(time, size, view);
-  expect(time.top - (positioned.top + size.height)).toBe(UI_TOOLTIP_GAP);
+  expect(positioned.top - (time.top + time.height)).toBe(UI_TOOLTIP_GAP);
 });
 
 test("a tooltip stays inside its region: above when it fits there, else below, else the window's edges", () => {
@@ -460,4 +462,130 @@ test("a tooltip already open when the Find bar opens goes away", async () => {
   } finally {
     setPopupInsetTop(0, "findBar");
   }
+});
+
+// Lucas 2026-11-11: a model menu row's cut name shows in full at once, not after the hover delay.
+test("a data-tooltip-instant element shows its tooltip with no hover delay", async () => {
+  const clock = new FakeClock();
+  const doc = page(
+    `<button id="cold" title="Back"></button><span id="name" title="DeepSeek V4.1 Flash" data-tooltip-instant=""></span>`,
+    {
+      clock,
+    },
+  );
+  for (const id of ["cold", "name"]) {
+    doc.getElementById(id)!.getBoundingClientRect = () => ({ left: 10, top: 10, width: 24, height: 24 }) as DOMRect;
+  }
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  const text = () => (tip().hidden ? null : (tip().querySelector(".ui-tooltip-text")?.textContent ?? null));
+  // A cold group: a plain title waits; the instant one shows on the next frame, with no time passing.
+  await hover(doc.getElementById("cold")!);
+  expect(text()).toBeNull();
+  await leave(doc.getElementById("cold")!);
+  await hover(doc.getElementById("name")!);
+  expect(text()).toBe("DeepSeek V4.1 Flash");
+});
+
+// Lucas 2026-11-11: a model name the row's star draws over shows in full at once, though the row does not cut it.
+test("a data-tooltip-force element shows its tooltip even when its text is in full view", async () => {
+  const doc = page(
+    `<span id="name" title="Sonnet" data-tooltip-instant="" data-tooltip-force="">Sonnet</span><span id="plain" title="Opus" data-tooltip-instant="">Opus</span>`,
+  );
+  for (const id of ["name", "plain"]) {
+    doc.getElementById(id)!.getBoundingClientRect = () => ({ left: 10, top: 10, width: 40, height: 20 }) as DOMRect;
+  }
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  const text = () => (tip().hidden ? null : (tip().querySelector(".ui-tooltip-text")?.textContent ?? null));
+  // Its own text in full view and no force: no tooltip.
+  await hover(doc.getElementById("plain")!);
+  expect(text()).toBeNull();
+  await leave(doc.getElementById("plain")!);
+  await hover(doc.getElementById("name")!);
+  expect(text()).toBe("Sonnet");
+});
+
+test("a control whose own text says the tooltip still shows it when it names a key", async () => {
+  // Fleet check 2026-11-20: a chat with one agent option reads "Verbosity: Terse" on its Options
+  // chip and in its tooltip, so the label rule hid the tooltip and its ⌃⌥⌘G never showed. The key
+  // is what the tooltip adds (test/tooltip-rules.ts lets a labeled control carry one).
+  const doc = page(
+    `<button id="options" title="Verbosity: Terse" data-tooltip-shortcut="⌃⌥⌘G" data-tooltip-instant="">Verbosity: Terse</button>`,
+  );
+  doc.getElementById("options")!.getBoundingClientRect = () =>
+    ({ left: 10, top: 10, width: 120, height: 24 }) as DOMRect;
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  await hover(doc.getElementById("options")!);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(tip().hidden).toBe(false);
+  expect(tip().querySelector(".ui-tooltip-hint")?.textContent).toBe("⌃⌥⌘G");
+});
+
+// One hover surface at a time under the One hover look (experiments.hoverLook = one,
+// ui/hoverSurface.ts; Leo, 2026-11-22, softened: "multiple styles for hover previews"). A "Subagent
+// disconnected" row's sentence carries a title, and the subagent's chip inside it opens a hover card:
+// the pointer got both at once.
+test("under the One look a hover card opening takes the title tooltip away, and none shows while a card is open", async () => {
+  const doc = page(`<span id="line" title="Subagent disconnected: Fix the build · 0s">Subagent disconnected</span>`);
+  doc.documentElement.setAttribute("data-hover-look", "one");
+  const line = doc.getElementById("line")!;
+  line.getBoundingClientRect = () => ({ left: 10, top: 10, width: 300, height: 20 }) as DOMRect;
+  await hover(line);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  expect(tip.hidden).toBe(false);
+
+  // The chip's card opens (ui/Tooltip.tsx announces it): the title tooltip goes at once.
+  const card = doc.createElement("div");
+  card.className = "ui-tooltip ui-card ui-glass";
+  card.getBoundingClientRect = () => ({ left: 10, top: 40, width: 240, height: 60 }) as DOMRect;
+  doc.body.append(card);
+  announceHoverSurface(card);
+  expect(tip.hidden).toBe(true);
+
+  // While the card is open, hovering another title draws no second hover beside it.
+  const other = doc.createElement("span");
+  other.title = "Another line";
+  other.getBoundingClientRect = () => ({ left: 10, top: 120, width: 100, height: 20 }) as DOMRect;
+  doc.body.append(other);
+  await leave(line, other);
+  await hover(other);
+  expect(tip.hidden).toBe(true);
+
+  // Once the card closes, the next hover shows its title tooltip again.
+  card.remove();
+  await leave(other, line);
+  await hover(line);
+  expect(tip.hidden).toBe(false);
+  expect(tip.textContent).toBe("Subagent disconnected: Fix the build · 0s");
+});
+
+test("a closing or undrawn hover card does not hold the title tooltip back", async () => {
+  const doc = page(`<span id="line" title="Waiting 37s">Waiting</span>`);
+  doc.documentElement.setAttribute("data-hover-look", "one");
+  const line = doc.getElementById("line")!;
+  line.getBoundingClientRect = () => ({ left: 10, top: 10, width: 120, height: 20 }) as DOMRect;
+  const closing = doc.createElement("div");
+  closing.className = "ui-tooltip ui-card";
+  closing.setAttribute("data-ending-style", "");
+  closing.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 50 }) as DOMRect;
+  const undrawn = doc.createElement("div");
+  undrawn.className = "ui-tooltip";
+  undrawn.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0 }) as DOMRect;
+  doc.body.append(closing, undrawn);
+  await hover(line);
+  expect(doc.querySelector<HTMLElement>(".ui-title-tooltip")!.hidden).toBe(false);
+});
+
+test("with the One look off, a title tooltip shows beside an open hover card as before", async () => {
+  const doc = page(`<span id="line" title="Subagent disconnected: Fix the build · 0s">Subagent disconnected</span>`);
+  const line = doc.getElementById("line")!;
+  line.getBoundingClientRect = () => ({ left: 10, top: 10, width: 300, height: 20 }) as DOMRect;
+  const card = doc.createElement("div");
+  card.className = "ui-tooltip ui-card ui-glass";
+  card.getBoundingClientRect = () => ({ left: 10, top: 40, width: 240, height: 60 }) as DOMRect;
+  doc.body.append(card);
+  await hover(line);
+  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  expect(tip.hidden).toBe(false);
+  announceHoverSurface(card);
+  expect(tip.hidden).toBe(false);
 });

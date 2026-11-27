@@ -19,8 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
-#[path = "support/private_state.rs"]
-mod private_state;
+use crate::private_state;
 
 struct HeadlessServer {
     child: Child,
@@ -816,7 +815,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert_success(&remote_help);
     let remote_help = String::from_utf8(remote_help.stdout).unwrap();
     assert!(
-        remote_help.contains("USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]"),
+        remote_help.contains("USAGE: cmux remote connect|ssh|exec|cp|forward|rpc [OPTIONS]"),
         "{remote_help}"
     );
     assert!(remote_help.contains("cmux remote enroll <ACTION> [OPTIONS]"), "{remote_help}");
@@ -844,7 +843,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert!(typo_help.contains("cmux remote connect"), "{typo_help}");
 
     let unknown_remote_action = lifecycle_cli(&["remote", "frobnicate"]);
-    assert_eq!(unknown_remote_action.status.code(), Some(1));
+    assert_eq!(unknown_remote_action.status.code(), Some(2));
     let error = String::from_utf8(unknown_remote_action.stderr).unwrap();
     assert!(error.contains("unknown remote action \"frobnicate\""), "{error}");
 
@@ -3041,6 +3040,14 @@ mod session_shutdown;
 mod apps_store;
 
 #[cfg(unix)]
+#[path = "cli/apps_external_server.rs"]
+mod apps_external_server;
+
+#[cfg(unix)]
+#[path = "cli/apps_store_sections.rs"]
+mod apps_store_sections;
+
+#[cfg(unix)]
 #[path = "cli/stop_start_lock.rs"]
 mod stop_start_lock;
 
@@ -3765,6 +3772,9 @@ mod closed_ids;
 #[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
+#[cfg(unix)]
+#[path = "cli/cloud_runs_app_route.rs"]
+mod cloud_runs_app_route;
 #[path = "cli/command_history.rs"]
 mod command_history;
 #[cfg(unix)]
@@ -3779,6 +3789,9 @@ mod conversation_person_credentials;
 #[cfg(unix)]
 #[path = "cli/conversation_runs.rs"]
 mod conversation_runs;
+#[cfg(unix)]
+#[path = "cli/conversation_scheduled.rs"]
+mod conversation_scheduled;
 #[cfg(unix)]
 #[path = "cli/conversation_thread_objects.rs"]
 mod conversation_thread_objects;
@@ -3801,11 +3814,16 @@ mod feed_local;
 mod frontend_browser_status;
 #[path = "cli/git_branches.rs"]
 mod git_branches;
+#[path = "cli/git_review.rs"]
+mod git_review;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[cfg(unix)]
 #[path = "cli/home_inbox.rs"]
 mod home_inbox;
+#[cfg(unix)]
+#[path = "cli/hub.rs"]
+mod hub;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]

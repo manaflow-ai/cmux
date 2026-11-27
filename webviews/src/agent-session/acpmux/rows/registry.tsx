@@ -3,11 +3,17 @@ import { QUESTION_RECORD } from "../question/record";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { TASK_LINE } from "../conversation/taskLineKind";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
-import { ACTIVITY_LINE, DATE, NEXT_STEP, RENDER, THINKING, WORKED, WORKING } from "../conversation/turns";
+import { DATE, NEXT_STEP, RENDER, THINKING, WALKTHROUGH, WORKED, WORKING } from "../conversation/turns";
 import { SHELL_ROW } from "../shell/shellRuns";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { SubagentEmptyRow } from "../subagents/SubagentEmptyRow";
-import { SUBAGENT_DONE, SUBAGENT_EMPTY, SUBAGENT_OF, SUBAGENT_ROW, WORKFLOW_CARD } from "../subagents/subagentRows";
+import {
+  SUBAGENT_DONE,
+  SUBAGENT_EMPTY,
+  SUBAGENT_ROW,
+  SUBAGENT_STARTED,
+  WORKFLOW_CARD,
+} from "../subagents/subagentRows";
 import { ShellRow } from "../shell/ShellRow";
 import { type BtwRow as InlineBtwRow } from "../aside/btwNotes";
 import { BtwAside } from "../aside/BtwAside";
@@ -24,18 +30,19 @@ import { MessageRunRow } from "./MessageRunRow";
 import { DateRow } from "./DateRow";
 import { ThinkingRow } from "./ThinkingRow";
 import { WorkingRow } from "./WorkingRow";
-import { ActivityLineRow } from "./ActivityLineRow";
 import { NextStepRow } from "./NextStepRow";
+import { WalkthroughRow } from "./WalkthroughRow";
 import { ReadOnlyNextStepRow } from "./ReadOnlyNextStepRow";
 import { RenderRow } from "./RenderRow";
 import { SummaryRow } from "./SummaryRow";
-import { PlanRow } from "./PlanRow";
 import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
 import { ReadOnlyRecapRow, ReadOnlySinceRow, RecapRow, SinceRow } from "./RecapRow";
 import { MemoryOfferRow } from "./MemoryOfferRow";
 import { MEMORY_OFFER } from "../conversation/memoryInbox";
+import { PromptCoachRow } from "./PromptCoachRow";
+import { PROMPT_COACH } from "../conversation/promptCoach";
 import { PresetApprovalRow } from "./PresetApprovalRow";
 import { PRESET_APPROVAL } from "../conversation/presetApproval";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
@@ -48,8 +55,8 @@ import { PermissionRecordRow } from "./PermissionRecordRow";
 import { SubagentGroupRow } from "./SubagentGroupRow";
 import { SubagentRow } from "./SubagentRow";
 import { SubagentDoneRow } from "./SubagentDoneRow";
+import { SubagentStartedRow } from "./SubagentStartedRow";
 import { WorkflowCardRow } from "./WorkflowCardRow";
-import { SubagentOfPillRow } from "./SubagentOfPillRow";
 import { EditedFilesRow } from "./EditedFilesRow";
 import { PendingMessagesRow } from "./PendingMessagesRow";
 import { LaneNoticeBatchRow } from "./LaneNoticeBatchRow";
@@ -76,19 +83,19 @@ export const defaultRegistry: NativeRegistry = {
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
-  [ACTIVITY_LINE]: ActivityLineRow,
   [NEXT_STEP]: NextStepRow,
+  [WALKTHROUGH]: WalkthroughRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
-  plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
   recap: RecapRow,
   [SINCE_DIVIDER]: SinceRow,
   [MEMORY_OFFER]: MemoryOfferRow,
+  [PROMPT_COACH]: PromptCoachRow,
   [PRESET_APPROVAL]: PresetApprovalRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
@@ -109,7 +116,7 @@ export const defaultRegistry: NativeRegistry = {
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
   [SUBAGENT_DONE]: SubagentDoneRow,
-  [SUBAGENT_OF]: SubagentOfPillRow,
+  [SUBAGENT_STARTED]: SubagentStartedRow,
   [SUBAGENT_EMPTY]: SubagentEmptyRow,
   [WORKFLOW_CARD]: WorkflowCardRow,
 };
@@ -130,7 +137,9 @@ export const readOnlyRegistry: NativeRegistry = {
   [SINCE_DIVIDER]: ReadOnlySinceRow,
   // An offer to write the owner's instructions file is the owner's own.
   [MEMORY_OFFER]: NoRow,
-  // So is approving one of the owner's presets.
+  // How the owner could have prompted better is feedback for the owner, not for a guest.
+  [PROMPT_COACH]: NoRow,
+  // Approving one of the owner's presets is the owner's too.
   [PRESET_APPROVAL]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,

@@ -41,13 +41,6 @@ impl Value {
             _ => None,
         }
     }
-
-    pub fn as_array(&self) -> Option<&[Value]> {
-        match self {
-            Value::Array(items) => Some(items),
-            _ => None,
-        }
-    }
 }
 
 pub fn parse(text: &str) -> Result<Value, String> {

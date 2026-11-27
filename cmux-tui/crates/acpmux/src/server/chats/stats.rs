@@ -27,5 +27,17 @@ pub(super) async fn handle(
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
         .map_err(|e| RpcError::internal(format!("stats: {e}")))?;
-    serde_json::to_value(summary).map_err(|e| RpcError::internal(e.to_string()))
+    let mut reply = serde_json::to_value(summary).map_err(|e| RpcError::internal(e.to_string()))?;
+    // The person's opt-in usage patterns on this machine (cmux-usage-patterns), for the Stats
+    // page's Usage Patterns section: `enabled` false and empty counts until they turn it on.
+    let patterns = tokio::task::spawn_blocking(cmux_usage_patterns::read)
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    if let Value::Object(fields) = &mut reply {
+        fields.insert(
+            "usagePatterns".into(),
+            serde_json::to_value(patterns).map_err(|e| RpcError::internal(e.to_string()))?,
+        );
+    }
+    Ok(reply)
 }

@@ -52,7 +52,6 @@
 pub mod accounts;
 #[cfg(target_os = "linux")]
 pub mod accounts_linux;
-pub mod b64;
 pub mod cert;
 pub mod cli;
 pub mod enroll;

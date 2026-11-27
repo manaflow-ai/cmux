@@ -135,6 +135,20 @@ pub struct NotificationPoster {
     pub executable: String,
 }
 
+impl NotificationPoster {
+    /// The poster of a terminal whose PTY child is `pid`: `group` finds the foreground
+    /// process-group leader of `pid`, `executable` names a process. One group lookup, so the PID
+    /// and the executable always name the same program even while the foreground changes.
+    pub(crate) fn of_terminal(
+        pid: u32,
+        group: impl Fn(u32) -> Option<u32>,
+        executable: impl Fn(u32) -> Option<String>,
+    ) -> Option<Self> {
+        let leader = group(pid)?;
+        Some(Self { pid: leader, executable: executable(leader)? })
+    }
+}
+
 /// What the daemon remembers about a ledger row it posted in this run
 /// (memory only): the `notification` event's number and the poster.
 #[derive(Debug, Clone, PartialEq, Eq)]

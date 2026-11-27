@@ -180,21 +180,16 @@ test("the check answer names the toggle's state and reason", () => {
   expect(summaryText({ text: "" })).toBeNull();
 });
 
-test("the toggle is a pill button where it fits and a menu row everywhere, off with its reason", () => {
+test("the toggle is a menu row at every width, never a pill button, off with its reason", () => {
   const state = {
     options: { collapsed: false, layout: "auto" as const, wordWrap: false },
     filesVisible: false,
     optionsOpen: false,
     findOpen: false,
   };
+  expect(toolbarPillButtons(state).map((button) => button.id)).not.toContain("plainEnglish");
   const ready = { kind: "ready" } as const;
-  const ids = (menuOnly: boolean) =>
-    toolbarPillButtons(state, { on: false, availability: ready, menuOnly }).map((button) => button.id);
-  expect(ids(false)).toContain("plainEnglish");
-  // A narrow viewer: the pill keeps its old width.
-  expect(ids(true)).not.toContain("plainEnglish");
-  expect(toolbarPillButtons(state).map((button) => button.id)).toEqual(ids(true));
-  expect(plainEnglishMenuItem({ on: true, availability: ready, menuOnly: true })).toMatchObject({
+  expect(plainEnglishMenuItem({ on: true, availability: ready })).toMatchObject({
     id: "plain-english",
     checked: true,
     available: true,

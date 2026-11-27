@@ -280,7 +280,7 @@ async fn deny_all_and_deny_rules_still_deny_in_full_access() {
         .await
         .unwrap();
     let err = c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap_err();
-    assert!(err.contains("cannot be enforced"), "{err}");
+    assert!(err.contains("policy=approve-all`"), "{err}");
     assert!(
         autos(&hub, &id).iter().all(|a| a.get("fullAccess").is_none()),
         "{:?}",
@@ -322,6 +322,25 @@ async fn only_a_full_access_mode_cmux_set_approves() {
     let rid =
         c.send(method::SESSION_PROMPT, prompt(&id, "drift-ask: bypassPermissions", None)).await;
     asks_the_person(&mut c, &hub, &id, rid).await;
+}
+
+/// A chat in the full-access mode its profile's new chats start in, whose harness left it and came
+/// back on its own (cmux's mark on it is gone), answers its guards unasked: the person's start
+/// level already lets the chat move there without them. Leo, 2026-11-23, on a subagent's safety
+/// check that asked him in a chat in Bypass permissions: "i also dont know why you asked me this".
+/// A narrower mode the person picked still holds (`only_a_full_access_mode_cmux_set_approves`).
+#[tokio::test]
+async fn the_start_levels_full_access_approves_after_the_harness_left_and_came_back() {
+    let (hub, mut c) = claude_hub().await;
+    let id = chat_in(&mut c, "bypassPermissions").await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "drift-ask: default", None)).await;
+    asks_the_person(&mut c, &hub, &id, rid).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "drift-ask: bypassPermissions", None))
+        .await
+        .unwrap();
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], "chose yes");
+    assert_eq!(autos(&hub, &id)[0]["fullAccess"], "bypassPermissions");
 }
 
 #[tokio::test]

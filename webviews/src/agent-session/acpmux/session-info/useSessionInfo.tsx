@@ -21,6 +21,8 @@ import type { StartedSession } from "../started/startedSessions";
 import { headerStatus, visibleChanges } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { type AccessGrant } from "./EnvironmentSection";
+import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
+
 import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
 import {
@@ -43,12 +45,11 @@ import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } fr
 import { chatOutputs, type OutputFile } from "./chatOutputs";
 import { producedLinks, type ProducedLink } from "./producedLinks";
 import { type ProcessRegistry, type SessionInfoProcess } from "./processes";
-import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
-import { NativeSessionInfo } from "./native/NativeSessionInfo";
+import { LazyNativeSessionInfo } from "./native/LazyNativeSessionInfo";
 import {
   FLOAT_MARGIN,
   pushes,
@@ -74,14 +75,16 @@ import {
 import { MemoSessionInfoPanel, MemoSessionInfoSections } from "./SessionInfo";
 import { subagentsIn } from "../subagents/subagentRows";
 import type { Subagent } from "../subagents/subagentFold";
+import type { ResumeActions } from "../subagents/ResumeControl";
 import { useCountedRender } from "../perfRender";
 import { useStableProps } from "../stableProps";
 import { COMPUTER_USE_PREVIEW_RESERVE, useComputerUsePreview } from "../computerUse/computerUsePreview";
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
+import type { ReadCarried, ResolveCarried } from "./carriedSectionModel";
 import { useStepAside } from "./stepAside";
 import { usageEntries } from "./usageEntries";
 import { chatPlace } from "../chatMachine";
-import { useAlsoHere } from "./alsoHereSectionModel";
+import { agentSideRowsOf } from "./agentSide";
 
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
@@ -214,6 +217,7 @@ export function useSessionInfo({
   grants,
   onOpenOutput,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -238,7 +242,10 @@ export function useSessionInfo({
   beside,
   wide = false,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   remoteControl,
+  cloud,
   onCompact,
   onViewPrompt,
   onOpenChat,
@@ -273,6 +280,7 @@ export function useSessionInfo({
   /// Opens a file's diff (App.tsx openOutput: beside the chat, else in place).
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   /// Opens a web address in the browser beside the chat (a server's port, a pull request).
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
@@ -290,6 +298,8 @@ export function useSessionInfo({
     /// The tool calls the chat's open asks are about (SubagentStatusList.tsx `pendingToolCalls`).
     asks: ReadonlySet<string>;
     onOpen: (id: string) => void;
+    /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx): the chat's `resumeAgent`.
+    resume?: ResumeActions;
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
@@ -319,8 +329,14 @@ export function useSessionInfo({
   split?: boolean;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): reads `_acpmux/agent_home`, and sends
+  /// `_acpmux/agent_home_resolve` on the click. The chat's own panel only (not Quick Chat).
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
+  cloud?: SessionInfoCloudControl;
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
   /// Context's View Prompt: opens the Context screen (context/ContextScreen.tsx); unset for a chat
@@ -381,18 +397,46 @@ export function useSessionInfo({
   // starts closed since Leo, 2026-11-07: sessionInfoState.ts.) A pane with no room for it beside a readable chat
   // (sessionInfoFits) holds it closed until the person opens it there (`asked`); opened, it is a
   // popover (SessionInfoPresence). One already showing as the pane narrows (a split opens beside it)
-  // stays, as a popover; and once the pane has room again, the chat's own open choice shows.
+  // stays, as a popover.
+  // A resize never opens it (Leo, 2026-11-10: "It's the resizing of the window itself, potentially...
+  // Like the size of the window itself being resized or whatever. Maybe making a new workspace."):
+  // once a narrow pane held it closed (`held`), it stays closed when the pane gets room again, and
+  // anything that put it aside for now (`suppressed`: a popover's click-away, Find's bar, a diff split)
+  // keeps it aside however wide the pane gets. Only the person brings it back (`asked`). A resize never
+  // closes one that shows either: narrower, it stays as a popover; shorter, too (SessionInfoPresence);
+  // and where Find's bar then has no room, the bar steps aside. The chat's saved open choice is kept as
+  // it was: a resize changes nothing saved.
   const narrow = useNarrowPane(shell, on, beside);
   const roomyShown = sessionInfoShown({ on, open, suppressed: suppressed || stepAside.aside, covered });
   const [narrowWas, setNarrowWas] = useState(narrow);
+  // The chats this pane held closed, kept while the page lives: switching to another chat and back
+  // does not bring a held panel back either. The person's open (`ask`) lets it go.
+  const [heldChats, setHeldChats] = useState<ReadonlySet<string>>(NO_HELD_CHATS);
+  const heldKey = paneSession ?? "";
+  const held = heldChats.has(heldKey);
+  // Shown at a width: asked for, or saved open where it has room and no narrow pane held it.
+  const shownAt = (isNarrow: boolean | undefined) => roomyShown && (asked || (!isNarrow && !held));
+  // Narrowed while it showed: it stays (the first measure is a start, not a narrowing). One held
+  // closed is not showing, so narrowing again leaves it closed.
+  const keeps = narrow === true && narrowWas === false && shownAt(false);
   if (narrowWas !== narrow) {
     setNarrowWas(narrow);
-    // Narrowed while it showed: it stays (the first measure is a start, not a narrowing).
-    if (narrow && narrowWas === false && roomyShown) setAsked(true);
-    // Room again: a popover's click-away or a cramped moment no longer holds it.
-    if (!narrow && narrowWas) setSuppressed(false);
+    if (keeps) setAsked(true);
   }
-  const shown = roomyShown && !(narrow && !asked);
+  // Held only where it would show: one aside for a view its row opened, covered, closed, or kept as
+  // the pane narrowed is not.
+  if (narrow && !asked && !keeps && !held && roomyShown) setHeldChats(new Set(heldChats).add(heldKey));
+  const shown = shownAt(narrow);
+  // The person opens it here (the toggle, the palette, a running line's count).
+  const ask = useCallback(() => {
+    setAsked(true);
+    setHeldChats((chats) => {
+      if (!chats.has(heldKey)) return chats;
+      const next = new Set(chats);
+      next.delete(heldKey);
+      return next;
+    });
+  }, [heldKey]);
   // What the panel lists of the rows, read here as the pane renders, and what else it is handed,
   // each the same value while it holds the same things: the panel (SessionInfoPresence, memoized)
   // renders when what it shows changed, not on every pane render (bench/delta-renders.bench.ts).
@@ -410,10 +454,21 @@ export function useSessionInfo({
   const openSubagent = useStableCallback(subagents?.onOpen);
   const subagentViews = subagents?.views;
   const subagentAsks = subagents?.asks;
+  // Resume keeps one identity while the chat's capabilities do: the chat's `resumeAgent` is made
+  // again with its turn actions, and the panel draws only when what it is handed changes.
+  const resumeAgent = useStableCallback(subagents?.resume?.resumeAgent);
+  const resumeCapabilities = subagents?.resume?.retryCapabilities;
   const steadySubagents = useMemo(
     () =>
-      subagentAsks && openSubagent ? { views: subagentViews, asks: subagentAsks, onOpen: openSubagent } : undefined,
-    [subagentViews, subagentAsks, openSubagent],
+      subagentAsks && openSubagent
+        ? {
+            views: subagentViews,
+            asks: subagentAsks,
+            onOpen: openSubagent,
+            ...(resumeAgent && { resume: { resumeAgent, retryCapabilities: resumeCapabilities } }),
+          }
+        : undefined,
+    [subagentViews, subagentAsks, openSubagent, resumeAgent, resumeCapabilities],
   );
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: SessionInfoSectionId; at: number }>();
@@ -421,6 +476,7 @@ export function useSessionInfo({
   const openedOutputAt = useRef(0);
   const stableOnOpenOutput = useStableCallback(onOpenOutput);
   const stableOnOpenSourceFile = useStableCallback(onOpenSourceFile);
+  const stableOnRemoveFolder = useStableCallback(onRemoveFolder);
   const stableOnOpenUrl = useStableCallback(onOpenUrl);
   const stableOnOpenImage = useStableCallback(onOpenImage);
   const stableReadPromptImage = useStableCallback(readPromptImage);
@@ -461,15 +517,15 @@ export function useSessionInfo({
       uncover.current?.();
       setSuppressed(false);
       backFromAside();
-      setAsked(true);
+      ask();
       setSessionInfoOpen(true);
     });
-  }, [on, label, onBeforeOpen, backFromAside]);
+  }, [on, label, onBeforeOpen, backFromAside, ask]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
   // popup in the page takes it (they listen on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
   // that stops the turn (escapeStop.ts), which an Esc claimed here never reaches. An open popover,
-  // menu or dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
+  // menu or dialog takes Esc first: they listen on the document too, but after this.
   useEffect(() => {
     if (!shown) return;
     const escape = (event: KeyboardEvent) => {
@@ -498,7 +554,7 @@ export function useSessionInfo({
       bringBack?.();
       setSuppressed(false);
       backFromAside();
-      setAsked(true);
+      ask();
       setSessionInfoOpen(true);
     }
   };
@@ -507,7 +563,7 @@ export function useSessionInfo({
     bringBack?.();
     setSuppressed(false);
     backFromAside();
-    setAsked(true);
+    ask();
     setSessionInfoSection(section, true);
     setSessionInfoOpen(true);
     setRevealed({ section, at: Date.now() });
@@ -547,6 +603,7 @@ export function useSessionInfo({
         onRevealed={clearRevealed}
         onStopProcess={stableOnStopProcess}
         onOpenSourceFile={subagent?.agent.host ? undefined : stableOnOpenSourceFile}
+        onRemoveFolder={subagent?.agent.host ? undefined : stableOnRemoveFolder}
         onOpenOutput={openOutput}
         onOpenUrl={stableOnOpenUrl}
         onOpenImage={stableOnOpenImage}
@@ -557,7 +614,10 @@ export function useSessionInfo({
         onOpenChanges={subagent ? undefined : stableOnOpenChanges}
         onSaveEnvironment={stableOnSaveEnvironment}
         onReconnectMcp={stableOnReconnectMcp}
+        readCarried={subagent ? undefined : readCarried}
+        onResolveCarried={subagent ? undefined : onResolveCarried}
         remoteControl={remoteControl}
+        cloud={cloud}
         onCompact={stableOnCompact}
         onViewPrompt={stableOnViewPrompt}
         onOpenChat={stableOnOpenChat}
@@ -584,7 +644,6 @@ export type SessionInfoLists = {
   /// The pull requests, issues and commits the chat produced (producedLinks.ts).
   readonly produced: readonly ProducedLink[];
   readonly outputFiles: OutputFile[];
-  readonly scopedPlan: SessionInfoPlan | undefined;
   readonly artifacts: number;
   readonly documents: readonly OutputArtifact[];
   readonly agents: readonly Subagent[];
@@ -638,13 +697,6 @@ function useSessionInfoLists({
   // same files, so the sections need not read the rows for it.
   const outputFiles = useSameValue(
     useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
-  );
-  const scopedWorking = scopedAgent?.state === "running";
-  const scopedPlan = useSameValue(
-    useMemo(
-      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
-      [drawn, scopedAgent, rows, scopedWorking],
-    ),
   );
   // The chat's gallery, kept while it holds the same items (sameValue: each item's kind, key, source and
   // render call), so a replaced image or render with the same count is a new gallery, and a streamed
@@ -713,7 +765,6 @@ function useSessionInfoLists({
       links,
       produced,
       outputFiles,
-      scopedPlan,
       artifacts,
       documents,
       agents,
@@ -729,7 +780,6 @@ function useSessionInfoLists({
       links,
       produced,
       outputFiles,
-      scopedPlan,
       artifacts,
       documents,
       agents,
@@ -790,6 +840,9 @@ const closeSessionInfo = () => {
   setSessionInfoOpen(false);
 };
 
+/// No chat held closed yet (a stable value).
+const NO_HELD_CHATS: ReadonlySet<string> = new Set();
+
 /// No files made (a stable value, so the sections' memo holds).
 const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
 /// No gallery items (a stable value, so the gallery rows hold while the panel is hidden).
@@ -829,6 +882,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onStopProcess,
   onOpenOutput,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -837,7 +891,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges,
   onSaveEnvironment,
   onReconnectMcp,
+  readCarried,
+  onResolveCarried,
   remoteControl,
+  cloud,
   onCompact,
   onViewPrompt,
   onOpenChat,
@@ -882,6 +939,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     views: Record<string, AcpmuxRow[]> | undefined;
     asks: ReadonlySet<string>;
     onOpen: (id: string) => void;
+    /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx): the chat's `resumeAgent`.
+    resume?: ResumeActions;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
@@ -896,6 +955,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onStopProcess?: (id: string) => Promise<unknown>;
   onOpenOutput?: (path: string) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
@@ -907,7 +967,12 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onOpenChanges?: () => void;
   onSaveEnvironment?: () => Promise<unknown>;
   onReconnectMcp?: (server: string) => Promise<unknown>;
+  /// Carried memory (CarriedSection.tsx): `_acpmux/agent_home` and `_acpmux/agent_home_resolve`.
+  readCarried?: ReadCarried;
+  onResolveCarried?: ResolveCarried;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
+  cloud?: SessionInfoCloudControl;
   onCompact?: () => void;
   onViewPrompt?: () => void;
   onOpenChat?: (sessionId: string) => void;
@@ -979,9 +1044,18 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // holds it in useSessionInfo before it draws.
   // Only a short pane's popover: a narrow pane's is held or kept by useSessionInfo, whose observer can
   // run after this one (a panel showing as the pane narrows must stay, as a popover).
+  // Only as it first draws: one already showing as the window gets shorter stays, as a popover (a
+  // resize never closes it; Leo, 2026-11-10).
+  const drawnRoomy = useRef(false);
   useLayoutEffect(() => {
-    if (!drawn || paneWidth <= 0) return;
-    if (!asked && sessionInfoPopover(paneHeight, overChat)) onSuppress();
+    if (!drawn) {
+      drawnRoomy.current = false;
+      return;
+    }
+    if (paneWidth <= 0) return;
+    const short = sessionInfoPopover(paneHeight, overChat);
+    if (!short) drawnRoomy.current = true;
+    else if (!asked && !drawnRoomy.current) onSuppress();
   }, [drawn, paneWidth, paneHeight, overChat, asked, onSuppress]);
   useEffect(() => {
     const doc = shell?.ownerDocument;
@@ -1060,13 +1134,13 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   useEffect(() => {
     if (!shell || !drawn || !cramped) return;
     const away = () => onSuppress();
-    if (shell.querySelector(".acpmux-find__bar")) {
-      if (asked) shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(FIND_HIDE_EVENT));
-      else onSuppress();
-    }
+    // Cramped with both showing (the toggle opened it over the bar, or the window got narrower): the
+    // bar steps aside, never the panel, since a resize never closes it (Leo, 2026-11-10).
+    if (shell.querySelector(".acpmux-find__bar"))
+      shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(FIND_HIDE_EVENT));
     shell.addEventListener(FIND_OPEN_EVENT, away);
     return () => shell.removeEventListener(FIND_OPEN_EVENT, away);
-  }, [shell, drawn, cramped, asked, onSuppress]);
+  }, [shell, drawn, cramped, onSuppress]);
   // The slide's end: the column's own transition, else the panel's (a slide that moved nothing).
   useEffect(() => {
     const main = shell?.querySelector<HTMLElement>(":scope > .acpmux-main");
@@ -1106,7 +1180,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     links,
     produced,
     outputFiles,
-    scopedPlan,
     artifacts,
     documents,
     agents,
@@ -1150,17 +1223,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rowCount, push, overflow, native]);
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
-  // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
-  // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
-  // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
-  // subagent's panel gets the parent's snapshot, so it never reads that one: its plan comes from its
-  // own live rows (useSessionInfoLists `scopedPlan`), so a step ticked in place shows here at once.
-  const live = snapshot.progress;
-  const livePlan = useMemo<SessionInfoPlan | undefined>(
-    () => (live ? { entries: live.plan, ended: Boolean(live.ended), done: live.completed } : undefined),
-    [live],
-  );
-  const plan = scope?.agent ? scopedPlan : drawn ? livePlan : undefined;
   const views = subagents?.views;
   const asks = subagents?.asks;
   // Environment's Changes: the folder's git changes, read as the panel shows and at each turn's end.
@@ -1175,16 +1237,17 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // The rest of what the sections take from the snapshot and the App, kept the same way.
   // What the sections draw of the other chats acpmux lists, not the list itself: the list is new each
   // time any chat anywhere changes (its status, its indicator, its time), which drew every section
-  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) and Also
-  // working here's (useAlsoHere) keep their identity until what they draw changes.
+  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) keep their
+  // identity until what they draw changes.
   const everyChat = drawn && !scope ? snapshot.sessions : undefined;
   const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
-  const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
   // Where the chat runs beyond its summary (its route and listed peer), for Environment's machine row.
   const place = useSameValue(chatPlace(snapshot));
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
+  // What waits on the agent's side (agentSide.ts): the chat's, never a subagent scope's.
+  const agentSide = scope ? undefined : agentSideRowsOf(t, snapshot.surge, snapshot.queue);
   // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
   // steps aside for it as for the folder and Changes, and is back once that pane closes (Lucas,
   // 2026-11-06: "clicking on a subagent will close the session info summary menu, like how it does for
@@ -1292,7 +1355,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
             }}
           />
         )}
-        <NativeSessionInfo
+        <LazyNativeSessionInfo
           key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
           shown={drawn && !gallery}
           width={panelWidth}
@@ -1306,7 +1369,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           backLabel={scope ? subagentBackLabel(t, scope.parent) : undefined}
           summary={summary}
           usage={usage}
-          plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
           place={place}
@@ -1325,10 +1387,12 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           processes={processes ?? []}
           listed={registry?.listed ?? false}
           transcriptTasks={transcriptTasks ?? []}
+          agentSide={agentSide}
           sessions={scope ? [] : (sessions?.list ?? [])}
           workflows={scope ? [] : (workflows?.list ?? [])}
           agent={scope?.agent}
           onOpenSubagent={subagents?.onOpen}
+          resumeSubagent={subagents?.resume}
           onOpenSession={sessions?.onOpen}
           allSessions={scope ? undefined : snapshot.sessions}
           onOpenChat={onOpenChat}
@@ -1339,11 +1403,13 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onStopProcess={onStopProcess}
           onOpenOutput={onOpenOutput}
           onOpenSourceFile={onOpenSourceFile}
+          onRemoveFolder={onRemoveFolder}
           onOpenUrl={onOpenUrl}
           onOpenDocument={onOpenDocument}
           onOpenArtifacts={rowCount > 0 ? () => setGallery(true) : undefined}
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
+          cloud={scope ? undefined : cloud}
           onCompact={scope ? undefined : onCompact}
           onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
@@ -1400,15 +1466,16 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         rows={sectionRows}
         outputFiles={outputFiles}
         produced={produced}
-        plan={plan}
         toolCalls={toolCalls}
         agents={agents}
         waiting={waiting}
         onOpenSubagent={onOpenSubagent}
+        resumeSubagent={subagents?.resume}
         statuses={statuses}
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
+        agentSide={agentSide}
         // The chats the chat's agent started are the chat's.
         sessions={startedList}
         workflows={workflowList}
@@ -1417,7 +1484,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenSession={onOpenSession}
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
         usageSessions={usageSessions}
-        alsoHere={alsoHereRows}
         onOpenChat={onOpenChat}
         onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={setRunningLimit}
@@ -1427,6 +1493,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         sections={sections}
         onSection={setSessionInfoSection}
         onOpenSourceFile={onOpenSourceFile}
+        onRemoveFolder={onRemoveFolder}
         onOpenUrl={onOpenUrl}
         onOpenImage={onOpenImage}
         readPromptImage={readPromptImage}
@@ -1437,7 +1504,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
         onReconnectMcp={onReconnectMcp}
+        // Carried memory is the chat's own, never a subagent's.
+        readCarried={scope ? undefined : readCarried}
+        onResolveCarried={scope ? undefined : onResolveCarried}
         remoteControl={scope ? undefined : remoteControl}
+        cloud={scope ? undefined : cloud}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
         onViewPrompt={scope ? undefined : onViewPrompt}

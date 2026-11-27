@@ -1,9 +1,12 @@
 //! `acpmux desktop link | unlink | status`: give the Claude desktop app, Claude Code (its own
-//! CLI and Claude desktop's Code tab) and Codex (its desktop app and CLI) this machine's acpmux
-//! MCP server, so a chat there reaches every session, machine and Cloud machine acpmux reaches.
+//! CLI and Claude desktop's Code tab), Codex (its desktop app and CLI), OpenCode, Gemini CLI,
+//! Qwen Code and pi this machine's acpmux tools, so a chat there reaches every session, machine
+//! and Cloud machine acpmux reaches: list the agents, message one by name, read its reply.
 //! Leo, 2026-11-09: "even if somebody say still wants to keep using [the Codex desktop app] and/or claude
 //! desktop, to be always saying "yeah i want to keep using cmux-next :) they give a good
-//! transport between everybody :)"".
+//! transport between everybody :)""; and on Claude Code's own cross-session messaging, "we
+//! should offer it for codex too! ... ppl care somewhat about pi and opencode and stuff like qwen
+//! and deepseek and glm" (Qwen, DeepSeek and GLM models run in OpenCode, pi or Qwen Code).
 //!
 //! Each app gets one MCP server entry named [`SERVER_KEY`] in its own user-scope config:
 //!
@@ -15,14 +18,28 @@
 //! - Codex: `[mcp_servers.cmux]` in `$CODEX_HOME/config.toml` (`~/.codex`), which the Codex
 //!   desktop app and CLI share, edited with `toml_edit` so comments and order stay, under the
 //!   lock every cmux writer of it takes (`cmux_tui_platform::codex_config_lock`).
+//! - OpenCode: `mcp.cmux` in `$XDG_CONFIG_HOME/opencode/opencode.json` (`~/.config`, on macOS
+//!   too), a `local` server whose `command` is one array and whose env is `environment`.
+//!   OpenCode merges that file with an `opencode.jsonc` beside it, so a person's JSONC stays theirs.
+//! - Gemini CLI and Qwen Code (a Gemini CLI fork): `mcpServers` in `<GEMINI_CLI_HOME or
+//!   ~>/.gemini/settings.json` and
+//!   `~/.qwen/settings.json`, without Claude's `type`.
+//! - pi, which has no MCP by design: a `cmux` skill (`<PI_CODING_AGENT_DIR or
+//!   ~/.pi/agent>/skills/cmux/SKILL.md`) that runs the same requests through this acpmux CLI
+//!   (`ls`, `send --no-wait --from pi`, `last`, `wait`), with [`GUEST_ENV`] set so the daemon
+//!   takes them for a guest's. The file is ours while it carries the line [`PI_MARK`].
 //!
 //! The entry runs this acpmux binary as `acpmux acpmux-mcp` with [`GUEST_ENV`] set to the app's
 //! id: the server's guest mode (`acpmux_mcp_guest.rs`), which lists the tools that make sense
-//! outside an acpmux chat and none inside one (an acpmux session gets its own `cmux` server,
-//! which replaces this entry by name anyway). [`GUEST_ENV`] is also what makes an entry ours:
+//! outside an acpmux chat and none inside one. An agent cmux starts gets its own `cmux` server
+//! (`agent_tools::cmux_server`): Claude Code's `--mcp-config` replaces this entry by name, but
+//! Codex merges the two key by key, so that server always sends [`GUEST_ENV`] empty and cmux's
+//! `mcp serve` drops it before it starts a folded server. [`GUEST_ENV`] is also what makes an entry ours:
 //! unlink removes only an entry that carries it, and link never replaces one that does not.
-//! Nothing is linked unless a person runs `link` (or presses the Settings row); no default
-//! changes.
+//! Nothing is linked unless a person runs `link` (or presses the Settings row). Claude Code's
+//! tool-less inbox relay ([`ensure_inbox_relay`]) is added by acpmux itself only when the person
+//! turned on [`RELAY_SETTING`] (off by default), so messages acpmux delivers into a chat it did
+//! not start are not held.
 
 use std::path::{Path, PathBuf};
 
@@ -38,6 +55,7 @@ pub const GUEST_ENV: &str = "ACPMUX_MCP_GUEST";
 /// The server subcommand the entry runs.
 const SERVER_ARG: &str = "acpmux-mcp";
 /// The longest a `claude mcp` call may take.
+// timeout: a local `claude mcp` add/remove call that sets up the desktop link; it carries no message and a hang is reported, not retried silently
 const CLAUDE_CLI_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// An app this command links.
@@ -46,10 +64,22 @@ pub enum App {
     ClaudeDesktop,
     ClaudeCode,
     Codex,
+    OpenCode,
+    GeminiCli,
+    QwenCode,
+    Pi,
 }
 
 impl App {
-    pub const ALL: [App; 3] = [App::ClaudeDesktop, App::ClaudeCode, App::Codex];
+    pub const ALL: [App; 7] = [
+        App::ClaudeDesktop,
+        App::ClaudeCode,
+        App::Codex,
+        App::OpenCode,
+        App::GeminiCli,
+        App::QwenCode,
+        App::Pi,
+    ];
 
     /// The id the CLI takes and the entry's [`GUEST_ENV`] carries.
     pub fn id(self) -> &'static str {
@@ -57,6 +87,10 @@ impl App {
             App::ClaudeDesktop => "claude-desktop",
             App::ClaudeCode => "claude-code",
             App::Codex => "codex",
+            App::OpenCode => "opencode",
+            App::GeminiCli => "gemini",
+            App::QwenCode => "qwen",
+            App::Pi => "pi",
         }
     }
 
@@ -66,6 +100,10 @@ impl App {
             App::ClaudeDesktop => "Claude desktop",
             App::ClaudeCode => "Claude Code",
             App::Codex => "Codex desktop and CLI",
+            App::OpenCode => "OpenCode",
+            App::GeminiCli => "Gemini CLI",
+            App::QwenCode => "Qwen Code",
+            App::Pi => "pi",
         }
     }
 
@@ -79,6 +117,10 @@ impl App {
             App::ClaudeDesktop => "quit and reopen Claude desktop",
             App::ClaudeCode => "new Claude Code sessions have it",
             App::Codex => "new Codex threads have it; restart the Codex app if it is open",
+            App::OpenCode => "new OpenCode sessions have it",
+            App::GeminiCli => "new Gemini CLI sessions have it",
+            App::QwenCode => "new Qwen Code sessions have it",
+            App::Pi => "new pi sessions have the cmux skill",
         }
     }
 }
@@ -93,8 +135,12 @@ pub struct Env {
     pub claude_config_dir: Option<PathBuf>,
     /// `CODEX_HOME`, when set.
     pub codex_home: Option<PathBuf>,
-    /// `XDG_CONFIG_HOME`, when set (Linux only).
+    /// `XDG_CONFIG_HOME`, when set (Claude desktop reads it on Linux only, OpenCode everywhere).
     pub xdg_config_home: Option<PathBuf>,
+    /// `PI_CODING_AGENT_DIR`, when set.
+    pub pi_dir: Option<PathBuf>,
+    /// `GEMINI_CLI_HOME`, when set: Gemini CLI's home in place of the person's.
+    pub gemini_home: Option<PathBuf>,
     /// The acpmux binary the entry runs.
     pub exe: PathBuf,
     /// Its arguments: the binary's prefix (`acp` in the cmux binary) and `acpmux-mcp`.
@@ -124,6 +170,8 @@ impl Env {
             claude_config_dir: var("CLAUDE_CONFIG_DIR"),
             codex_home: var("CODEX_HOME"),
             xdg_config_home: var("XDG_CONFIG_HOME"),
+            pi_dir: var("PI_CODING_AGENT_DIR"),
+            gemini_home: var("GEMINI_CLI_HOME"),
             args: me.args_lossy(&[SERVER_ARG]),
             exe: me.exe,
             acpmux_home,
@@ -144,15 +192,29 @@ impl Env {
                 .clone()
                 .unwrap_or_else(|| self.home.join(".codex"))
                 .join("config.toml"),
+            App::OpenCode => self.xdg_config().join("opencode/opencode.json"),
+            App::GeminiCli => {
+                self.gemini_home.as_ref().unwrap_or(&self.home).join(".gemini/settings.json")
+            }
+            App::QwenCode => self.home.join(".qwen/settings.json"),
+            App::Pi => self.pi_agent_dir().join("skills/cmux/SKILL.md"),
         }
+    }
+
+    fn xdg_config(&self) -> PathBuf {
+        self.xdg_config_home.clone().unwrap_or_else(|| self.home.join(".config"))
     }
 
     fn claude_desktop_dir(&self) -> PathBuf {
         if cfg!(target_os = "macos") {
             self.home.join("Library/Application Support/Claude")
         } else {
-            self.xdg_config_home.clone().unwrap_or_else(|| self.home.join(".config")).join("Claude")
+            self.xdg_config().join("Claude")
         }
+    }
+
+    fn pi_agent_dir(&self) -> PathBuf {
+        self.pi_dir.clone().unwrap_or_else(|| self.home.join(".pi/agent"))
     }
 
     /// Whether the app is on this machine: its config folder is there (Claude Code: its CLI or
@@ -161,7 +223,10 @@ impl Env {
         match app {
             App::ClaudeDesktop => self.claude_desktop_dir().is_dir(),
             App::ClaudeCode => self.claude_cli.is_some() || self.config_path(app).is_file(),
-            App::Codex => self.config_path(app).parent().is_some_and(Path::is_dir),
+            App::Codex | App::OpenCode | App::GeminiCli | App::QwenCode => {
+                self.config_path(app).parent().is_some_and(Path::is_dir)
+            }
+            App::Pi => self.pi_agent_dir().is_dir(),
         }
     }
 
@@ -174,7 +239,8 @@ impl Env {
         env
     }
 
-    /// The entry for `app`, as the JSON both Claude configs take.
+    /// The entry for `app`, as the JSON both Claude configs take: the shape every other app's
+    /// entry is read back into ([`canonical`]).
     pub fn entry_json(&self, app: App) -> Value {
         let env: serde_json::Map<String, Value> =
             self.entry_env(app).into_iter().map(|(k, v)| (k.to_owned(), json!(v))).collect();
@@ -185,6 +251,101 @@ impl Env {
             "env": env,
         })
     }
+
+    /// The entry as `app`'s own config spells it.
+    fn native_entry(&self, app: App) -> Value {
+        let entry = self.entry_json(app);
+        let field = |key: &str| entry.get(key).cloned().unwrap_or(Value::Null);
+        match app {
+            App::GeminiCli | App::QwenCode => {
+                json!({"command": field("command"), "args": field("args"), "env": field("env")})
+            }
+            App::OpenCode => {
+                let mut command = vec![field("command")];
+                command.extend(field("args").as_array().cloned().unwrap_or_default());
+                json!({
+                    "type": "local",
+                    "command": command,
+                    "environment": field("env"),
+                    "enabled": true,
+                })
+            }
+            _ => entry,
+        }
+    }
+
+    /// pi's `cmux` skill: the acpmux CLI, as a guest, for what the MCP tools do elsewhere.
+    pub fn pi_skill(&self) -> String {
+        use crate::harness_health::channel::quote;
+        let mut cli: Vec<String> = self
+            .entry_env(App::Pi)
+            .into_iter()
+            .map(|(k, v)| format!("{k}={}", quote(&v)))
+            .collect();
+        cli.push(quote(&self.exe.to_string_lossy()));
+        cli.extend(self.args.iter().filter(|a| *a != SERVER_ARG).map(|a| quote(a)));
+        let cli = cli.join(" ");
+        [
+            "---",
+            "name: cmux",
+            "description: Reach other coding agents through cmux (Claude Code, Codex, OpenCode, Gemini CLI, pi and the rest, on this machine and its paired and Cloud machines) - list them, message one by name, read its reply, wait until it is done. Use when the task names another agent or session, or needs one to answer or do something.",
+            "---",
+            PI_MARK,
+            "",
+            "# Reaching other agents through cmux",
+            "",
+            "cmux wrote this skill (`acpmux desktop link`; `acpmux desktop unlink --app pi` removes it).",
+            "Run these in a shell, where `cmux-agents` stands for:",
+            "",
+            &format!("    {cli}"),
+            "",
+            "- List the agent sessions, newest first: `cmux-agents ls` (add words to filter by name or title).",
+            "- Message one by name, id or host/name: `cmux-agents send --no-wait --from pi -- NAME 'TEXT'`.",
+            "  It arrives in that chat as pi's message, never as the person's, and does not wait. Make the",
+            "  text self-contained and say how to answer you.",
+            "- Read its last reply: `cmux-agents last NAME`.",
+            "- Learn when it is done instead of polling: `cmux-agents wait NAME --timeout 1800` returns when",
+            "  its turn ends or it asks for permission (exit 0 done, 2 permission, 3 timeout).",
+            "",
+        ]
+        .join("\n")
+    }
+}
+
+/// An entry as `app`'s config holds it, in the shape of [`Env::entry_json`].
+fn canonical(app: App, entry: &Value) -> Value {
+    match app {
+        App::OpenCode => {
+            let command =
+                entry.get("command").and_then(Value::as_array).cloned().unwrap_or_default();
+            let mut v = json!({
+                "command": command.first().cloned().unwrap_or(Value::Null),
+                "args": command.get(1..).unwrap_or_default(),
+            });
+            if let Some(env) = entry.get("environment") {
+                v.set("env", env.clone());
+            }
+            v
+        }
+        _ => entry.clone(),
+    }
+}
+
+/// The key of `app`'s MCP servers in its JSON config.
+fn servers_key(app: App) -> &'static str {
+    match app {
+        App::OpenCode => "mcp",
+        _ => SERVERS_KEY,
+    }
+}
+
+/// The line that marks pi's skill as one cmux wrote: a whole line of its own, so a person's skill
+/// that only mentions [`GUEST_ENV`] is never taken for cmux's.
+const PI_MARK: &str = "<!-- cmux: written by acpmux desktop link (ACPMUX_MCP_GUEST=pi) -->";
+
+/// Whether a skill's text is one cmux wrote: it has [`PI_MARK`] as a line.
+fn pi_ours(text: &str) -> bool {
+    text.lines().any(|line| line == PI_MARK)
 }
 
 /// An app's entry as found.
@@ -239,6 +400,24 @@ impl Row {
         }
         v
     }
+
+    /// Whether `verb` (`link`, `unlink`) failed for this app: it could not write, or (an
+    /// `unlink`) could not read the config, so it cannot say the entry is gone. A dry run's
+    /// "would ..." and a foreign entry left alone on purpose are not failures.
+    pub fn failed(&self, verb: &str) -> bool {
+        if self.note.as_deref().is_some_and(|n| n.starts_with("would ")) {
+            return false;
+        }
+        match verb {
+            "link" => matches!(self.state, State::NotLinked | State::Stale),
+            // `status` names a config it could not read as not linked, with the reason as the note.
+            "unlink" => {
+                matches!(self.state, State::Linked | State::Stale)
+                    || (self.state == State::NotLinked && self.note.is_some())
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The state of `app`'s entry, read only.
@@ -246,6 +425,17 @@ pub fn status(env: &Env, app: App) -> Row {
     let config = env.config_path(app);
     let state = if !env.installed(app) {
         State::NotInstalled
+    } else if app == App::Pi {
+        match std::fs::read_to_string(&config) {
+            Ok(text) if text == env.pi_skill() => State::Linked,
+            Ok(text) if pi_ours(&text) => State::Stale,
+            Ok(_) => State::Foreign,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => State::NotLinked,
+            Err(e) => {
+                let note = Some(format!("reading {}: {e}", config.display()));
+                return Row { app, state: State::NotLinked, config, note };
+            }
+        }
     } else {
         match read_entry(env, app) {
             Ok(entry) => classify(env, app, entry.as_ref()),
@@ -301,8 +491,9 @@ impl std::error::Error for ForeignEntry {}
 
 /// The note of a row whose entry is not ours.
 fn foreign_note(config: &Path) -> String {
+    let what = if config.ends_with("SKILL.md") { "a skill" } else { "a server" };
     format!(
-        "a server named {SERVER_KEY} that cmux did not write is in {}; left alone",
+        "{what} named {SERVER_KEY} that cmux did not write is in {}; left alone",
         config.display()
     )
 }
@@ -363,14 +554,17 @@ fn read_entry(env: &Env, app: App) -> Result<Option<Value>> {
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
     match app {
-        App::ClaudeDesktop | App::ClaudeCode => {
+        App::ClaudeDesktop | App::ClaudeCode | App::OpenCode | App::GeminiCli | App::QwenCode => {
             if text.trim().is_empty() {
                 return Ok(None);
             }
             let doc: Value = serde_json::from_str(&text)
                 .with_context(|| format!("{} is not JSON", path.display()))?;
-            Ok(doc.pointer(&format!("/{SERVERS_KEY}/{SERVER_KEY}")).cloned())
+            let entry = doc.pointer(&format!("/{}/{SERVER_KEY}", servers_key(app)));
+            Ok(entry.map(|e| canonical(app, e)))
         }
+        // `status` reads pi's skill itself; it has no entry.
+        App::Pi => Ok(None),
         App::Codex => {
             let doc: toml::Table =
                 toml::from_str(&text).with_context(|| format!("{} is not TOML", path.display()))?;
@@ -385,7 +579,15 @@ fn read_entry(env: &Env, app: App) -> Result<Option<Value>> {
 
 fn write_entry(env: &Env, app: App, replace: bool) -> Result<()> {
     match app {
-        App::ClaudeDesktop => edit_json(&env.config_path(app), link_json(env, app)),
+        App::ClaudeDesktop | App::OpenCode | App::GeminiCli | App::QwenCode => {
+            edit_json(&env.config_path(app), servers_key(app), link_json(env, app))
+        }
+        App::Pi => edit_file(&env.config_path(app), None, |text| {
+            if !text.is_empty() && !pi_ours(text) {
+                return Err(ForeignEntry.into());
+            }
+            Ok(env.pi_skill())
+        }),
         App::ClaudeCode => {
             // `claude mcp` edits the file itself, so this is checked just before it runs.
             refuse_foreign_claude_code(env)?;
@@ -401,7 +603,44 @@ fn write_entry(env: &Env, app: App, replace: bool) -> Result<()> {
 
 fn remove_entry(env: &Env, app: App) -> Result<()> {
     match app {
-        App::ClaudeDesktop => edit_json(&env.config_path(app), unlink_json),
+        App::ClaudeDesktop | App::OpenCode | App::GeminiCli | App::QwenCode => {
+            edit_json(&env.config_path(app), servers_key(app), unlink_json(app))
+        }
+        App::Pi => {
+            let path = env.config_path(app);
+            // Move the skill aside first and judge the file that moved, so a skill another writer
+            // puts there while this runs is the one judged, never one deleted unread.
+            let aside = path.with_file_name(format!("SKILL.md.cmux-unlink-{}", std::process::id()));
+            match crate::home_fs::rename(&path, &aside) {
+                Ok(()) => {}
+                // Already gone: nothing to remove.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(e) => return Err(e).with_context(|| format!("moving {}", path.display())),
+            }
+            let ours = std::fs::read_to_string(&aside).is_ok_and(|text| pi_ours(&text));
+            if !ours {
+                // Put it back without replacing a file written there since: a hard link fails
+                // when the name is taken, and then the moved file stays beside it, named.
+                return match crate::home_fs::hard_link(&aside, &path) {
+                    Ok(()) => {
+                        let _ = crate::home_fs::remove_file(&aside);
+                        Err(ForeignEntry.into())
+                    }
+                    Err(e) => Err(anyhow!(
+                        "{} is not cmux's and a new one took its place; it is kept as {}: {e}",
+                        path.display(),
+                        aside.display()
+                    )),
+                };
+            }
+            crate::home_fs::remove_file(&aside)
+                .with_context(|| format!("removing {}", aside.display()))?;
+            // The skill's own folder, when nothing else is in it.
+            if let Some(dir) = path.parent() {
+                let _ = crate::home_fs::remove_dir(dir);
+            }
+            Ok(())
+        }
         App::ClaudeCode => {
             refuse_foreign_claude_code(env)?;
             claude_cli(env, &["mcp", "remove", "--scope", "user", SERVER_KEY])
@@ -418,25 +657,27 @@ fn refuse_foreign_claude_code(env: &Env) -> Result<()> {
     }
 }
 
-/// Link's change of Claude desktop's `mcpServers`, as found in the text of this round: our entry
-/// in, unless one named [`SERVER_KEY`] there is not ours.
+/// Link's change of a JSON config's servers (`mcpServers`, OpenCode's `mcp`), as found in the
+/// text of this round: our entry in, unless one named [`SERVER_KEY`] there is not ours.
 fn link_json(env: &Env, app: App) -> impl Fn(&mut Ordered<Value>) -> Result<()> + '_ {
     move |servers: &mut Ordered<Value>| {
-        if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(entry)) {
+        if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(&canonical(app, entry))) {
             return Err(ForeignEntry.into());
         }
-        servers.insert(SERVER_KEY, env.entry_json(app));
+        servers.insert(SERVER_KEY, env.native_entry(app));
         Ok(())
     }
 }
 
 /// Unlink's: our entry out; one that is not ours stays, refused.
-fn unlink_json(servers: &mut Ordered<Value>) -> Result<()> {
-    if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(entry)) {
-        return Err(ForeignEntry.into());
+fn unlink_json(app: App) -> impl Fn(&mut Ordered<Value>) -> Result<()> {
+    move |servers: &mut Ordered<Value>| {
+        if servers.get(SERVER_KEY).is_some_and(|entry| !ours_json(&canonical(app, entry))) {
+            return Err(ForeignEntry.into());
+        }
+        servers.remove(SERVER_KEY);
+        Ok(())
     }
-    servers.remove(SERVER_KEY);
-    Ok(())
 }
 
 /// The same for Codex's `[mcp_servers]`.
@@ -470,16 +711,21 @@ fn unlink_toml(servers: &mut toml_edit::Table) -> Result<()> {
     Ok(())
 }
 
-/// Read `path` as JSON (none or empty: `{}`), change its `mcpServers`, and write it back whole
-/// ([`edit_file`]). The top level and `mcpServers` keep the person's key order (serde_json's own
-/// map would sort them).
-fn edit_json(path: &Path, change: impl Fn(&mut Ordered<Value>) -> Result<()>) -> Result<()> {
-    edit_file(path, None, |text| render_json(path, text, &change))
+/// Read `path` as JSON (none or empty: `{}`), change its servers under `key`, and write it back
+/// whole ([`edit_file`]). The top level and the servers keep the person's key order (serde_json's
+/// own map would sort them).
+fn edit_json(
+    path: &Path,
+    key: &str,
+    change: impl Fn(&mut Ordered<Value>) -> Result<()>,
+) -> Result<()> {
+    edit_file(path, None, |text| render_json(path, key, text, &change))
 }
 
-/// `text` with `change` made to its `mcpServers`; `change` refuses what it must not touch.
+/// `text` with `change` made to its servers under `key`; `change` refuses what it must not touch.
 fn render_json(
     path: &Path,
+    key: &str,
     text: &str,
     change: &impl Fn(&mut Ordered<Value>) -> Result<()>,
 ) -> Result<String> {
@@ -489,16 +735,14 @@ fn render_json(
     let Some(top) = doc.as_object() else {
         bail!("{} is not a JSON object", path.display());
     };
-    if top.get(SERVERS_KEY).is_some_and(|s| !s.is_object()) {
-        bail!("{SERVERS_KEY} in {} is not an object", path.display());
+    if top.get(key).is_some_and(|s| !s.is_object()) {
+        bail!("{key} in {} is not an object", path.display());
     }
-    let top: Ordered<Value> = serde_json::from_str(text)?;
-    #[derive(serde::Deserialize)]
-    struct Servers {
-        #[serde(rename = "mcpServers")]
-        servers: Option<Ordered<Value>>,
-    }
-    let mut servers = serde_json::from_str::<Servers>(text)?.servers.unwrap_or(Ordered(Vec::new()));
+    let top: Ordered<Box<serde_json::value::RawValue>> = serde_json::from_str(text)?;
+    let mut servers = match top.get(key) {
+        Some(raw) => serde_json::from_str::<Ordered<Value>>(raw.get())?,
+        None => Ordered(Vec::new()),
+    };
     change(&mut servers)?;
     #[derive(serde::Serialize)]
     #[serde(untagged)]
@@ -511,22 +755,22 @@ fn render_json(
         .0
         .into_iter()
         .map(|(k, v)| {
-            let node = match servers.take_if(|_| k == SERVERS_KEY) {
+            let node = match servers.take_if(|_| k == key) {
                 Some(s) => Node::Servers(s),
-                None => Node::Plain(v),
+                None => Node::Plain(serde_json::from_str(v.get())?),
             };
-            (k, node)
+            Ok((k, node))
         })
-        .collect();
+        .collect::<Result<_>>()?;
     if let Some(s) = servers {
-        out.push((SERVERS_KEY.to_owned(), Node::Servers(s)));
+        out.push((key.to_owned(), Node::Servers(s)));
     }
     let mut out = serde_json::to_string_pretty(&Ordered(out))?;
     out.push('\n');
     Ok(out)
 }
 
-/// The key of Claude's MCP servers.
+/// The key of the MCP servers of Claude's, Gemini CLI's and Qwen Code's configs.
 const SERVERS_KEY: &str = "mcpServers";
 
 /// A JSON object read and written in its own key order.
@@ -629,7 +873,7 @@ fn claude_cli(env: &Env, args: &[&str]) -> Result<()> {
         command.env("PATH", path);
     }
     let deadline = tokio::time::Instant::now().checked_add(CLAUDE_CLI_WAIT);
-    let done = crate::cli::bounded_child::wait(command.spawn()?, None, deadline, "claude mcp")?;
+    let done = crate::bounded_child::wait(command.spawn()?, None, deadline, "claude mcp")?;
     if !done.status.success() {
         let err = String::from_utf8_lossy(&done.stderr);
         let out = String::from_utf8_lossy(&done.stdout);
@@ -648,6 +892,129 @@ pub fn apps(named: Option<&str>) -> Result<Vec<App>> {
             anyhow!("no app {id}: one of {}, or all", App::ALL.map(App::id).join(", "))
         }),
     }
+}
+
+/// The tool-less inbox relay's entry name in Claude Code's user config.
+pub const RELAY_KEY: &str = crate::claude_inbox_relay::SERVER_NAME;
+
+/// What [`ensure_inbox_relay`] found or did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RelaySetup {
+    /// Claude Code or its CLI is not on this machine.
+    NotInstalled,
+    /// A relay already starts with every new Claude Code session: the guest `cmux` entry link
+    /// writes, or a [`RELAY_KEY`] entry.
+    Present,
+    /// The [`RELAY_KEY`] entry was added.
+    Added,
+}
+
+/// The [`RELAY_KEY`] entry: this acpmux binary as `acpmux inbox-relay`, on the same daemon home.
+pub fn relay_entry(env: &Env) -> Value {
+    let mut args = env.args.clone();
+    if args.last().map(String::as_str) == Some(SERVER_ARG) {
+        args.pop();
+    }
+    args.push("inbox-relay".to_owned());
+    let mut vars = serde_json::Map::new();
+    if let Some(home) = &env.acpmux_home {
+        vars.insert("ACPMUX_HOME".to_owned(), json!(home.to_string_lossy()));
+    }
+    json!({"type": "stdio", "command": env.exe.to_string_lossy(), "args": args, "env": vars})
+}
+
+/// Makes every new Claude Code session on this machine run an inbox relay
+/// (`claude_inbox_relay.rs`), so acpmux's deliveries into it come from its own child and run
+/// instead of waiting as "Held message from another session". Leo, 2026-11-20: "sometimes you
+/// guys litearlly dont announce your permissions apparently which f***s it up": the relay rode
+/// only on `acpmux desktop link`, which a person had to run. Adds only the tool-less
+/// [`RELAY_KEY`] server, through Claude Code's own CLI; a person's `cmux` entry or an existing
+/// relay entry is left alone, and `claude mcp remove --scope user cmux-inbox` takes it out.
+pub fn ensure_inbox_relay(env: &Env) -> Result<RelaySetup> {
+    if env.claude_cli.is_none() || !env.installed(App::ClaudeCode) {
+        return Ok(RelaySetup::NotInstalled);
+    }
+    let path = env.config_path(App::ClaudeCode);
+    let doc: Value = match std::fs::read_to_string(&path) {
+        Ok(text) if !text.trim().is_empty() => serde_json::from_str(&text)
+            .with_context(|| format!("{} is not JSON", path.display()))?,
+        Ok(_) => Value::Null,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Value::Null,
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    let servers = doc.get(SERVERS_KEY);
+    let linked = servers.and_then(|s| s.get(SERVER_KEY)).is_some_and(ours_json);
+    if linked || servers.and_then(|s| s.get(RELAY_KEY)).is_some() {
+        return Ok(RelaySetup::Present);
+    }
+    let entry = relay_entry(env).to_string();
+    claude_cli(env, &["mcp", "add-json", "--scope", "user", RELAY_KEY, &entry])?;
+    Ok(RelaySetup::Added)
+}
+
+/// The settings key that lets acpmux add the inbox relay to Claude Code by itself. Off (the
+/// default): acpmux never edits Claude Code's config unasked, and a relay-less delivery logs
+/// once how to add it ([`RELAY_HINT`]).
+pub const RELAY_SETTING: &str = "agents.claudeCodeInboxRelay";
+/// What a relay-less delivery logs, once per daemon, while [`RELAY_SETTING`] is off.
+pub const RELAY_HINT: &str = "inbox relay: this Claude Code chat runs none, so Claude Code may hold acpmux's \
+     message; run `acpmux desktop link --app claude-code` or turn on agents.claudeCodeInboxRelay";
+
+/// Whether the settings text turns [`RELAY_SETTING`] on: only a literal `true` does.
+pub fn relay_setting_on(settings: &crate::user_settings::Settings) -> bool {
+    match settings {
+        crate::user_settings::Settings::Parsed(doc) => {
+            crate::user_settings::value(doc, RELAY_SETTING)
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        }
+        crate::user_settings::Settings::Missing | crate::user_settings::Settings::Unreadable(_) => {
+            false
+        }
+    }
+}
+
+/// [`ensure_inbox_relay`] once per daemon, off the delivery's path: what
+/// `claude_peers::deliver` calls when a session it delivers to runs no relay. It edits Claude
+/// Code's config only when [`RELAY_SETTING`] is on (read at each such delivery until it is), and
+/// only for the default acpmux home, so a test daemon (a home of its own) never edits a person's
+/// Claude config. Off, it logs [`RELAY_HINT`] once.
+pub fn ensure_inbox_relay_once() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    static HINTED: std::sync::Once = std::sync::Once::new();
+    if cfg!(test) || ONCE.is_completed() || crate::config::home() != crate::config::default_home() {
+        return;
+    }
+    // The settings file is read at most once a minute, not on every relay-less delivery: this
+    // runs on the async delivery path, and a person who turns the setting on waits a minute.
+    static LAST_READ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let last = LAST_READ.load(std::sync::atomic::Ordering::Relaxed);
+    if last != 0 && now.saturating_sub(last) < 60 {
+        return;
+    }
+    LAST_READ.store(now.max(1), std::sync::atomic::Ordering::Relaxed);
+    if !relay_setting_on(&crate::user_settings::read()) {
+        HINTED.call_once(|| tracing::info!("{RELAY_HINT}"));
+        return;
+    }
+    ONCE.call_once(|| {
+        static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+        let scope = SCOPE.get_or_init(|| cmux_scope::Scope::new("inbox relay setup"));
+        let _task = scope.spawn_named("inbox relay setup", async {
+            let setup = || Env::current().and_then(|env| ensure_inbox_relay(&env));
+            match tokio::task::spawn_blocking(setup).await {
+                Ok(Ok(RelaySetup::Added)) => tracing::info!(
+                    "inbox relay: added {RELAY_KEY} to Claude Code's user config; new sessions run it"
+                ),
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => tracing::warn!(error = %e, "inbox relay: could not add it to Claude Code"),
+                Err(e) => tracing::warn!(error = %e, "inbox relay: its setup task ended"),
+            }
+        });
+    });
 }
 
 // Every edit of an app's config goes through it (`desktop_link_write.rs`).

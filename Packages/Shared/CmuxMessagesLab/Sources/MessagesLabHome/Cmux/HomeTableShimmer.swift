@@ -29,7 +29,7 @@ final class HomeTableShimmer {
                   !(payload.table.loading ?? [:]).isEmpty else { continue }
             let body = RowDraw.bodyRect(spec).offsetBy(dx: cell.rowSnap.x, dy: cell.rowSnap.y)
             let grid = HomeTableGrid(payload.table, available: body.width)
-            for slot in grid.pictureRects(at: body.origin) where slot.loading {
+            for slot in grid.pictureRects(at: grid.cardOrigin(body.origin)) where slot.loading {
                 wanted.updateValue((cell, slot.rect), forKey: "\(p.ref.messageId):\(p.ref.partIndex):\(slot.source)") // crash program: dictionary write
             }
         }
@@ -68,7 +68,7 @@ final class HomeTableShimmer {
     /// A skeleton block (the card's own fill under the bitmap's skeleton colour) with the light band in it.
     private static func make() -> CALayer {
         let block = CALayer()
-        block.cornerRadius = 8
+        block.cornerRadius = HomeCardDraw.pictureRadius
         block.masksToBounds = true
         block.addSublayer(CALayer())
         let band = CAGradientLayer()

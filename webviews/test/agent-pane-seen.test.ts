@@ -6,6 +6,9 @@
 // - The chat attaches with `visible` from the page's visibility.
 // - Hiding the page (a tab in a background workspace, an occluded window) sends
 //   `_acpmux/view` visible false; showing it again sends true.
+// - A reader who steps away (no pointer move, wheel, key or focus for the idle time, attention.ts)
+//   leaves attendance: `_acpmux/view` stays visible but sends attending false; their next move
+//   sends attending true.
 // - acpmux handles each request on its own task, so a view sent while the attach is in flight
 //   could overtake it and be refused; the pane sends it once the attach is answered.
 //
@@ -124,7 +127,7 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
     sent
       .slice(from)
       .filter((m) => m.method === "_acpmux/view")
-      .map((m) => ({ sessionId: m.params.sessionId, visible: m.params.visible }));
+      .map((m) => ({ sessionId: m.params.sessionId, visible: m.params.visible, attending: m.params.attending }));
 
   /// Waits until `done` holds, checked as the daemon hears each message; fails naming `what` after `ms`.
   function until(done: () => boolean, what: string, ms = 10_000): Promise<void> {
@@ -171,8 +174,9 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
   /// Waits until the pane has sent `count` `_acpmux/view` requests.
   const sentViews = (count: number) => until(() => views().length >= count, `${count} views`);
 
-  async function openPane(): Promise<Page> {
+  async function openPane(before?: (page: Page) => Promise<void>): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await before?.(page);
     // Keeps the page's sockets, so a test can send a marker down the pane's own connection.
     await page.addInitScript(() => {
       const sockets: WebSocket[] = [];
@@ -205,11 +209,38 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
         await sentViews(2);
         await settled();
         expect(views()).toEqual([
-          { sessionId: SESSION, visible: false },
-          { sessionId: SESSION, visible: true },
+          { sessionId: SESSION, visible: false, attending: false },
+          { sessionId: SESSION, visible: true, attending: true },
         ]);
       } finally {
         await page.close();
+      }
+    }, 120_000);
+
+    test("a reader who steps away leaves attendance, and their next move restores it", async () => {
+      const from = sent.length;
+      const pane = await openPane((p) => p.clock.install());
+      try {
+        await until(
+          () => sent.slice(from).some((m) => m.method === "_acpmux/attach" && m.params.visible === true),
+          "the attach",
+          ATTACH_MS,
+        );
+        await caughtUp(pane);
+        expect(views(from)).toEqual([]);
+        // Nobody touched the page for the idle time (attention.ts ATTENTION_IDLE_MS).
+        await pane.clock.fastForward(2 * 60_000 + 1000);
+        await until(() => views(from).length >= 1, "the away view");
+        await pane.mouse.move(200, 200);
+        await pane.mouse.move(240, 260);
+        await until(() => views(from).length >= 2, "the return view");
+        await settled();
+        expect(views(from)).toEqual([
+          { sessionId: SESSION, visible: true, attending: false },
+          { sessionId: SESSION, visible: true, attending: true },
+        ]);
+      } finally {
+        await pane.close();
       }
     }, 120_000);
 
@@ -229,7 +260,33 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
         releaseAttach!();
         await until(() => views(from).length >= 1, "the view");
         await settled();
-        expect(views(from)).toEqual([{ sessionId: SESSION, visible: false }]);
+        expect(views(from)).toEqual([{ sessionId: SESSION, visible: false, attending: false }]);
+      } finally {
+        holdAttach = false;
+        await page.close();
+      }
+    }, 120_000);
+
+    test("a reader who leaves and comes back while the attach is out still tells acpmux both", async () => {
+      const from = sent.length;
+      holdAttach = true;
+      releaseAttach = undefined;
+      const page = await openPane();
+      try {
+        await until(() => releaseAttach !== undefined, "the attach", ATTACH_MS);
+        // Away and back before acpmux answered the attach: each view keeps what the page was then.
+        await setVisibility(page, "hidden");
+        await setVisibility(page, "visible");
+        await caughtUp(page);
+        expect(views(from)).toEqual([]);
+        holdAttach = false;
+        releaseAttach!();
+        await until(() => views(from).length >= 2, "both views");
+        await settled();
+        expect(views(from)).toEqual([
+          { sessionId: SESSION, visible: false, attending: false },
+          { sessionId: SESSION, visible: true, attending: true },
+        ]);
       } finally {
         holdAttach = false;
         await page.close();

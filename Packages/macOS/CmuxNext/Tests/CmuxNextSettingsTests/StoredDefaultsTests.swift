@@ -13,11 +13,12 @@ import Testing
     let home = FileManager.default.temporaryDirectory.appending(path: "cn-stored-defaults-\(UUID().uuidString)")
     var url: URL { home.appending(path: "cmux-next.json") }
 
-    func controller(_ text: String, managed: ManagedPreferences = ManagedPreferences()) async throws -> SettingsController {
+    func controller(_ text: String, managed: ManagedPreferences = ManagedPreferences(), sidebarLooks: URL? = SidebarLookPreset.bundledFolder) async throws -> SettingsController {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try Data(text.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(managed), managedWatchFiles: [])
+        settings.sidebarLooksFolder = sidebarLooks
         await settings.reload()
         return settings
     }
@@ -27,6 +28,47 @@ import Testing
         let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         return defaults
+    }
+
+    @Test(arguments: ["claude", "codex", "studio"])
+    func automaticFollowsTheSidebarLookUntilItIsAnOverride(_ look: String) async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let looks = home.appending(path: "sidebar-looks")
+        try FileManager.default.createDirectory(at: looks, withIntermediateDirectories: true)
+        try Data(#"{ "sidebar.groupHeader.background": "sections" }"#.utf8).write(to: looks.appending(path: "\(look).json"))
+        let settings = try await controller(#"{ "sidebar": { "groupHeader": { "background": "folder" } } }"#, sidebarLooks: looks)
+        let path = SidebarSectionsSetting.groupHeaderBackgroundPath
+        let row = try #require(SettingsSchema.descriptor(for: path))
+
+        try await settings.setSetting(row, to: .string("auto"), by: .user)
+        #expect(try await settings.file.value(at: path) == nil)
+        #expect(!settings.isCustomized(row))
+        try await settings.setSetting(at: SidebarLookPreset.configPath, to: .string(look), by: .user)
+        #expect(settings.snapshot.sidebarSections.groupHeaderBackground == .sections)
+
+        try await settings.setSetting(row, to: .string("auto"), by: .user)
+        #expect(settings.snapshot.sidebarSections.groupHeaderBackground == .auto)
+        #expect(try await settings.file.value(at: path) == .string("auto"))
+        #expect(settings.isCustomized(row))
+
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.kept[row.id] == .string("auto"))
+        #expect(try await settings.file.value(at: path) == .string("auto"))
+
+        try await settings.setSetting(row, to: nil, by: .user)
+        #expect(try await settings.file.value(at: path) == nil)
+        #expect(try await settings.file.value(at: SidebarLookPreset.configPath) == .string(look))
+        #expect(settings.snapshot.sidebarSections.groupHeaderBackground == .sections)
+        #expect(!settings.isCustomized(row))
+    }
+
+    @Test func launchKeepsAutomaticFromAnOlderSettingsFile() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "sidebar": { "groupHeader": { "background": "auto" } } }"#)
+        let path = SidebarSectionsSetting.groupHeaderBackgroundPath
+        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
+        #expect(report.kept[path.joined(separator: ".")] == .string("auto"))
+        #expect(try await settings.file.value(at: path) == .string("auto"))
     }
 
     @Test func writingTheDefaultStoresNothing() async throws {
@@ -174,6 +216,10 @@ import Testing
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("flat-sidebar-line"))
     }
 
+    /// The toggle `updates.automatic` replaced (Leo 2026-11-22: "maybe too many settings and bullshit that
+    /// can be consolidated"); files written before still carry it, and it still answers for the choice.
+    static let oldDownloadPath = ["updates", "downloadAutomatically"]
+
     /// cmux-next.json is one file for every build on the Mac (NIGHTLY, RC, each tagged DEV build), and
     /// each build has its own UserDefaults. The pass runs once per file: a build that launches later
     /// on the same file leaves the person's pick of a former default alone. It ran once per build, so
@@ -193,7 +239,7 @@ import Testing
         #expect(try await nightly.file.value(at: UpdatesSettings.installOnQuitPath) == .bool(true))
 
         // A DEV build launches on the same file with its own UserDefaults.
-        let dev = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let dev = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                      managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await dev.reload()
         let devMarker = try marker()
@@ -214,19 +260,72 @@ import Testing
         #expect(try await settings.file.value(at: UpdatesSettings.installOnQuitPath) == .bool(true))
     }
 
-    /// Automatic Updates is an opt-in (off on every channel since Leo 2026-10-27), so a stored `true`
-    /// is the person's pick, never a stale copy: the pass keeps it on a file it has not seen yet
-    /// (a new install's first launch, an older cmux-next.json copied in). Lawrence 2026-11-08: "i keep
-    /// enabling auto updates but it keeps getting toggled off": each fresh build's pass dropped it
-    /// as a copy of the former default `true`, and the running NIGHTLY turned automatic downloads off.
-    @Test func thePassKeepsAutomaticUpdatesTurnedOn() async throws {
+    /// Automatic Updates was an opt-in from Leo 2026-10-27 to 2026-11-07, so a stored `true` was the
+    /// person's pick (Lawrence 2026-11-08: "i keep enabling auto updates but it keeps getting toggled
+    /// off"). It is on by default again (Leo 2026-11-07: "Yeah, let's do that, man"), so a stored
+    /// `true` is a copy of the default and goes, Automatic Updates stays on, and a stored `false`
+    /// (never a default since the flip) is the person's pick and stays.
+    @Test func thePassKeepsAutomaticUpdatesOn() async throws {
         defer { try? FileManager.default.removeItem(at: home) }
-        let settings = try await controller(#"{ "updates": { "downloadAutomatically": true } }"#)
+        let on = try await controller(#"{ "updates": { "downloadAutomatically": true } }"#)
+        _ = try #require(try await on.forgetStoredDefaults(marker: try marker()))
+        #expect(on.snapshot.updates.downloadAutomatically)
+    }
 
-        let report = try #require(try await settings.forgetStoredDefaults(marker: try marker()))
-        #expect(report.dropped[UpdatesSettings.downloadAutomaticallyPath.joined(separator: ".")] == nil)
-        #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
+    /// The other half: a person who turned Automatic Updates off keeps it off through the pass.
+    @Test func thePassKeepsAutomaticUpdatesTurnedOff() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let off = try await controller(#"{ "updates": { "downloadAutomatically": false } }"#)
+        let report = try #require(try await off.forgetStoredDefaults(marker: try marker()))
+        #expect(report.dropped[Self.oldDownloadPath.joined(separator: ".")] == nil)
+        #expect(try await off.file.value(at: Self.oldDownloadPath) == .bool(false))
+        #expect(!off.snapshot.updates.downloadAutomatically)
+        #expect(off.snapshot.updates.automatic == .notify, "the retired toggle's off reads as Notify Only")
+    }
+
+    /// Writes the record an earlier build's pass left beside the file, with `dropped`.
+    func forgottenRecord(dropped: [String: JSONValue]) throws {
+        let record: JSONValue = .object(["dropped": .object(dropped), "kept": .object([:]), "before": .string("")])
+        try Data(record.prettyText().utf8).write(to: home.appending(path: "cmux-next.json.defaults-forgotten.json"))
+    }
+
+    /// A Mac whose earlier build's pass dropped Automatic Updates (`true`, then wrongly a former
+    /// default) gets it back at the next launch: Leo 2026-11-09, "that update, it wasn't just the
+    /// one-click automatic thing". A former default it dropped stays dropped.
+    @Test func aLaunchPutsBackAutomaticUpdatesThePassDropped() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "workspaces": { "newPlacement": "bottom" } }"#)
+        try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true), "diff.layout": .string("unified")])
+
+        await settings.runLaunchMigrations(marker: try marker())
+        // On by default since Leo 2026-11-07, so the dropped `true` is the default: Automatic Updates
+        // is on and the key stays unset, following the default.
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == nil)
         #expect(settings.snapshot.updates.downloadAutomatically)
+        #expect(try await settings.file.value(at: ["diff", "layout"]) == nil)
+        #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))
+    }
+
+    /// The put-back runs once per file, and a key set since the drop keeps its value.
+    @Test func thePutBackRunsOnceAndKeepsALaterPick() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "updates": { "downloadAutomatically": false } }"#)
+        try forgottenRecord(dropped: ["updates.downloadAutomatically": .bool(true)])
+
+        #expect(try await settings.restoreWronglyForgottenDefaults() == [])
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == .bool(false))
+
+        try await settings.file.remove(Self.oldDownloadPath)
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil, "once per file")
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == nil)
+    }
+
+    /// With no record beside the file (the pass never dropped anything), nothing is put back.
+    @Test func noRecordNoPutBack() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await settings.restoreWronglyForgottenDefaults() == nil)
+        #expect(try await settings.file.value(at: Self.oldDownloadPath) == nil)
     }
 
     /// A null the first builds of this change stored for a default write goes once; a set value stays.
@@ -250,7 +349,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try Data(#"{ "appearance": { "chromeStyle": "card", "theme": "Nord" }, "diff": { "layout": null } }"#.utf8).write(to: url)
-        let file = CmuxConfigFile(url: url)
+        let file = CmuxConfigFile(url: url, writer: TestSettingsWriter())
 
         let (removed, before) = try await file.removeUnchanged([
             (path: ["appearance", "chromeStyle"], value: .string(ChromeStyleSetting.fallback.rawValue)),

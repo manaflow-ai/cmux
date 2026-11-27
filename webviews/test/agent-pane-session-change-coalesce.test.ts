@@ -12,6 +12,8 @@
 import { afterAll, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { settleReact } from "./support/domTeardown";
+import { keptTail, rememberTail, resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -30,14 +32,18 @@ beforeAll(() => {
   Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
 });
 
-afterAll(() => {
+afterAll(async () => {
   AcpmuxDirectClient.scheduleFrame = savedSchedule;
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
 });
 
 beforeEach(() => {
+  // Each test is a fresh page: its chat starts at seq 1, so a tail an earlier test's client kept of
+  // the same chat id would stand in front of it (session ids are never reused in the app).
+  resetKeptTailsForTests();
   frames = [];
   AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
 });
@@ -99,6 +105,10 @@ const transcript = Array.from({ length: 400 }, (_, i) => {
 });
 
 class FakeAcpmux {
+  sessions = Array.from({ length: SESSIONS }, (_, n) => summary(n + 1));
+  watches = 0;
+  /// `_acpmux/watch {enabled: false}`: a hidden pane's pause, answered `{}` as acpmux does.
+  pauses = 0;
   readyState = 0;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -113,11 +123,15 @@ class FakeAcpmux {
   send(raw: string): void {
     const message = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, unknown> };
     if (message.id === undefined) return;
-    const result =
-      message.method === "initialize"
+    const pause = message.method === "_acpmux/watch" && message.params?.enabled === false;
+    if (pause) this.pauses += 1;
+    else if (message.method === "_acpmux/watch") this.watches += 1;
+    const result = pause
+      ? {}
+      : message.method === "initialize"
         ? { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } }
         : message.method === "_acpmux/watch"
-          ? { sessions: Array.from({ length: SESSIONS }, (_, n) => summary(n + 1)) }
+          ? { sessions: this.sessions }
           : message.method === "_acpmux/attach"
             ? { session: summary(1), lastSeq: transcript.length, events: transcript, hasMore: false }
             : message.method === "_acpmux/events"
@@ -133,9 +147,15 @@ class FakeAcpmux {
   }
 }
 
-async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectClient; snapshots: () => number }> {
+async function openPane(hiddenTurnListener?: Parameters<typeof AcpmuxDirectClient.connect>[7]): Promise<{
+  socket: FakeAcpmux;
+  client: AcpmuxDirectClient;
+  snapshots: () => number;
+  latest: () => any;
+}> {
   const socket = new FakeAcpmux();
   let count = 0;
+  let latest: any;
   const client = await AcpmuxDirectClient.connect(
     {
       protocolVersion: 1,
@@ -145,17 +165,24 @@ async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectCli
       sessionId: SELECTED,
     },
     (message: any) => {
-      if (message?.type === "snapshot") count += 1;
+      if (message?.type === "snapshot") {
+        count += 1;
+        latest = message;
+      }
     },
     undefined,
     () => socket as unknown as WebSocket,
+    undefined,
+    undefined,
+    undefined,
+    hiddenTurnListener,
   );
   await client.select(SELECTED);
   for (let i = 0; i < 5; i++) {
     await new Promise((resolve) => setTimeout(resolve, 0));
     flushFrames();
   }
-  return { socket, client, snapshots: () => count };
+  return { socket, client, snapshots: () => count, latest: () => latest };
 }
 
 /// One change of each of `chats` other running chats, as acpmux sends them.
@@ -171,6 +198,73 @@ function burst(socket: FakeAcpmux, chats: number, round: number): void {
     });
   }
 }
+
+test("hidden purges discard cached history and read-ahead state without a snapshot", async () => {
+  const { socket, client, snapshots } = await openPane();
+  const internal = client as any;
+  const child = id(2);
+  try {
+    rememberTail(
+      child,
+      {
+        events: [],
+        summary: summary(2),
+        turnOpener: undefined,
+        historyExhausted: true,
+        queue: [],
+        configSeq: 0,
+        usageFromSeq: 0,
+      },
+      true,
+      false,
+    );
+    internal.readAheadAt.set(child, 1);
+    internal.readAheadSeq.set(child, 1);
+    internal.readAheadQueue.push(child);
+    setVisibility("hidden");
+    flushFrames();
+    const before = snapshots();
+    socket.notify("_acpmux/session_changed", { kind: "purged", session: { sessionId: child } });
+    flushFrames();
+    expect(keptTail(child)).toBeUndefined();
+    expect(internal.readAheadAt.has(child)).toBe(false);
+    expect(internal.readAheadSeq.has(child)).toBe(false);
+    expect(internal.readAheadQueue).not.toContain(child);
+    expect(snapshots()).toBe(before);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+test("an offered child changes state while hidden without publishing a snapshot", async () => {
+  const { socket, client, snapshots } = await openPane();
+  const internal = client as any;
+  try {
+    internal.addOffer(
+      { offerId: "hidden-child", title: "Child task", outcome: "accepted", childSessionId: id(2), childStatus: "idle" },
+      1,
+    );
+    setVisibility("hidden");
+    flushFrames();
+    const before = snapshots();
+    socket.notify("_acpmux/session_changed", { kind: "updated", session: summary(2, "running") });
+    flushFrames();
+    expect(internal.rows.get("offer-hidden-child").offers[0].childStatus).toBe("running");
+    expect(internal.offerChildren.attached.has(id(2))).toBe(true);
+    socket.notify("_acpmux/session_changed", { kind: "updated", session: summary(2, "idle") });
+    flushFrames();
+    expect(internal.rows.get("offer-hidden-child").offers[0].childStatus).toBe("idle");
+    expect(internal.offerChildren.attached.has(id(2))).toBe(false);
+    expect(snapshots()).toBe(before);
+    setVisibility("visible");
+    flushFrames();
+    expect(snapshots()).toBeGreaterThan(before);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
 
 test("a burst of other chats' changes draws the pane once, in the next frame", async () => {
   const { socket, client, snapshots } = await openPane();
@@ -222,6 +316,58 @@ test("another chat's summary sent again unchanged draws nothing", async () => {
   }
 });
 
+// Running chats change their times and latest words on each event, and each change drew every shown
+// pane at most twice a second (Leo, 2026-11-25: "the app speed on idle and on load we need to be
+// better"). With the pane's live readers listening (App.tsx `otherChatsLive`), a change of only those
+// fields of a chat outside the shown chat's tree goes to them and draws nothing; anything else draws.
+test("other chats that only ran on reach the pane's live readers and draw nothing", async () => {
+  const { socket, client, snapshots, latest } = await openPane();
+  jest.useFakeTimers();
+  try {
+    let draw = false;
+    const heard: number[] = [];
+    client.onOtherChatsLive((sessions) => {
+      heard.push(sessions.find((entry) => entry.sessionId === id(5))?.updatedAt ?? 0);
+      return draw;
+    });
+    const tick = (chat: number, at: number, extra: Record<string, unknown> = {}) => {
+      socket.notify("_acpmux/session_changed", {
+        sessionId: id(chat),
+        session: { ...summary(chat), updatedAt: at, ...extra },
+        kind: "updated",
+        seq: 10,
+      });
+      flushFrames();
+      jest.advanceTimersByTime(1000);
+      flushFrames();
+    };
+    const before = snapshots();
+    for (let round = 0; round < 10; round++) tick(5, 3_000_000 + round);
+    expect(snapshots() - before).toBe(0);
+    expect(heard.at(-1)).toBe(3_000_009);
+    // The next snapshot carries the newest list.
+    tick(6, 3_100_000, { title: "Renamed" });
+    expect(snapshots() - before).toBe(1);
+    expect(latest().sessions.find((entry: any) => entry.sessionId === id(5)).updatedAt).toBe(3_000_009);
+    // A status change draws, as does a tick the pane's readers show.
+    tick(7, 3_200_000, { status: "running" });
+    expect(snapshots() - before).toBe(2);
+    draw = true;
+    tick(5, 3_300_000);
+    expect(snapshots() - before).toBe(3);
+    draw = false;
+    // A chat the shown one started, at any depth, draws: its sub-session cards read its words.
+    tick(8, 3_400_000, { spawnedBy: SELECTED, status: "running" });
+    tick(9, 3_400_000, { spawnedBy: id(8) });
+    const drawn = snapshots();
+    tick(9, 3_500_000, { spawnedBy: id(8) });
+    expect(snapshots()).toBe(drawn + 1);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
 test("a hidden pane draws other chats' changes only when it shows again", async () => {
   const { socket, client, snapshots } = await openPane();
   try {
@@ -242,6 +388,92 @@ test("a hidden pane draws other chats' changes only when it shows again", async 
   }
 });
 
+test("showing a hidden pane refreshes discarded summaries on its existing connection", async () => {
+  const { socket, client, snapshots, latest } = await openPane();
+  try {
+    const watches = socket.watches;
+    const before = snapshots();
+    setVisibility("hidden");
+    socket.sessions[1] = { ...summary(2, "running"), title: "Renamed while hidden" };
+    socket.notify("_acpmux/session_changed", {
+      sessionId: id(2),
+      session: socket.sessions[1],
+      kind: "renamed",
+      seq: 401,
+    });
+    flushFrames();
+    expect(snapshots()).toBe(before);
+    expect(socket.watches).toBe(watches);
+    // Hidden, it turned its list watch off: acpmux sends it no other chat's change until it shows.
+    expect(socket.pauses).toBe(1);
+    setVisibility("visible");
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      flushFrames();
+    }
+    expect(socket.watches).toBe(watches + 1);
+    expect(latest().sessions.find((session: { sessionId: string }) => session.sessionId === id(2))?.title).toBe(
+      "Renamed while hidden",
+    );
+    setVisibility("visible");
+    expect(socket.watches).toBe(watches + 1);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+// Every page of the app hears every chat's change: with 100 chats open each busy chat cost every
+// hidden page a frame decoded, logged and dropped (Leo, 2026-11-25: "the goal is infinity chats").
+// Hidden, the page pauses its watch once, and the many changes that still come (from an acpmux
+// that ignores the pause) neither send another request nor draw; shown, it reads the list once.
+test("a hidden pane pauses its list watch once and reads the list once when shown", async () => {
+  const { socket, client, snapshots } = await openPane();
+  try {
+    const watches = socket.watches;
+    setVisibility("hidden");
+    expect(socket.pauses).toBe(1);
+    expect((client as any).sessionPages.paused).toBe(true);
+    const before = snapshots();
+    for (let round = 0; round < 10; round++) {
+      burst(socket, 30, round);
+      flushFrames();
+    }
+    expect(socket.pauses).toBe(1);
+    expect(socket.watches).toBe(watches);
+    expect(snapshots()).toBe(before);
+    setVisibility("visible");
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      flushFrames();
+    }
+    expect(socket.watches).toBe(watches + 1);
+    expect((client as any).sessionPages.paused).toBe(false);
+    // Hidden again: paused again.
+    setVisibility("hidden");
+    expect(socket.pauses).toBe(2);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+test("a hidden pane with an offered child keeps its list watch on", async () => {
+  const { socket, client } = await openPane();
+  try {
+    (client as any).addOffer(
+      { offerId: "kept-child", title: "Child task", outcome: "accepted", childSessionId: id(2), childStatus: "idle" },
+      1,
+    );
+    setVisibility("hidden");
+    burst(socket, 5, 0);
+    expect(socket.pauses).toBe(0);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
 test("a hidden pane still draws a change to its own chat", async () => {
   const { socket, client, snapshots } = await openPane();
   jest.useFakeTimers();
@@ -256,9 +488,12 @@ test("a hidden pane still draws a change to its own chat", async () => {
       recordKind: "renamed",
       seq: 401,
     });
-    // Not in a frame (a hidden page draws none) but within 50 ms.
+    // Hidden pages do no snapshot work while another chat is shown.
     flushFrames();
     jest.advanceTimersByTime(50);
+    expect(snapshots() - before).toBe(0);
+    setVisibility("visible");
+    flushFrames();
     expect(snapshots() - before).toBe(1);
   } finally {
     jest.useRealTimers();
@@ -290,9 +525,8 @@ function chunk(socket: FakeAcpmux, seq: number): void {
   });
 }
 
-// A hidden page leaves its reply's text growing for when it shows, the bulk of a running chat's
-// events. Everything else still draws within 50 ms, and a turn starting or ending at once, since the
-// page's effects act on them while hidden (App.tsx `pane.tabState`, a subagent's own pane).
+// A hidden page leaves its reply and turn state for when it shows. It does no snapshot work while
+// hidden, so the renderer stays available to the page the reader is scrolling.
 test("a hidden pane draws its chat's turns and new replies, not its reply's text growing", async () => {
   const { socket, client, snapshots } = await openPane();
   jest.useFakeTimers();
@@ -303,18 +537,18 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
     // The fixture's transcript ends inside a turn: it ends, then the next one starts.
     record(socket, 401, "turn_end");
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(1);
+    expect(snapshots() - before).toBe(0);
     record(socket, 402, "turn_started");
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(2);
-    // The reply's first text is a new row: it draws. The 59 chunks that grow it wait.
+    expect(snapshots() - before).toBe(0);
+    // The reply's first text and the 59 chunks wait for the page to show.
     chunk(socket, 403);
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(3);
+    expect(snapshots() - before).toBe(0);
     for (let seq = 404; seq < 462; seq++) chunk(socket, seq);
     jest.advanceTimersByTime(10_000);
-    expect(snapshots() - before).toBe(3);
-    // A tool call (a subagent's start among them, which opens its own pane) draws within 50 ms.
+    expect(snapshots() - before).toBe(0);
+    // A tool call (a subagent's start among them, which opens its own pane) waits too.
     socket.notify("_acpmux/event", {
       sessionId: SELECTED,
       seq: 462,
@@ -330,21 +564,35 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
       },
     });
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(4);
-    record(socket, 463, "turn_end");
+    expect(snapshots() - before).toBe(0);
+    // Its progress waits for the show, as the text does: they draw a hidden tab nothing.
+    for (const [index, status] of ["in_progress", "in_progress", "completed"].entries())
+      socket.notify("_acpmux/event", {
+        sessionId: SELECTED,
+        seq: 470 + index,
+        at: 470 + index,
+        dir: "in",
+        kind: "tool_call_update",
+        msg: {
+          method: "session/update",
+          params: { sessionId: SELECTED, update: { sessionUpdate: "tool_call_update", toolCallId: "read-1", status } },
+        },
+      });
+    jest.advanceTimersByTime(10_000);
+    expect(snapshots() - before).toBe(0);
+    record(socket, 473, "turn_end");
     jest.advanceTimersByTime(50);
-    expect(snapshots() - before).toBe(5);
-    // A turn that starts and ends at once still draws both: the header refreshes on the end.
-    record(socket, 464, "turn_started");
-    record(socket, 465, "turn_end");
-    expect(snapshots() - before).toBe(7);
-    // Nothing waits for the show: those snapshots carried the stream too.
+    expect(snapshots() - before).toBe(0);
+    // A turn that starts and ends at once is coalesced into the wake snapshot.
+    record(socket, 474, "turn_started");
+    record(socket, 475, "turn_end");
+    expect(snapshots() - before).toBe(0);
     setVisibility("visible");
     flushFrames();
-    expect(snapshots() - before).toBe(7);
-    chunk(socket, 466);
+    expect(snapshots() - before).toBe(1);
+    chunk(socket, 476);
     flushFrames();
-    expect(snapshots() - before).toBe(8);
+    expect(snapshots() - before).toBe(2);
   } finally {
     jest.useRealTimers();
     client.close();
@@ -352,8 +600,76 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
   }
 });
 
-// A client waits for one frame at a time, however many snapshots a hidden page draws at once
-// meanwhile, and a closed client's wait goes: a hidden page that reconnects keeps no closed client.
+test("hidden checkpoints see a delayed idle summary and ignore a late result", async () => {
+  const states: { isWorking: boolean; completedSeq?: number }[] = [];
+  const { socket, client, snapshots } = await openPane((state) => states.push(state));
+  try {
+    setVisibility("hidden");
+    const before = snapshots();
+    socket.notify("_acpmux/session_changed", {
+      sessionId: SELECTED,
+      session: summary(1, "running"),
+      kind: "updated",
+      seq: 401,
+    });
+    record(socket, 402, "turn_result");
+    expect(states.at(-1)).toMatchObject({ isWorking: true, completedSeq: 402 });
+    socket.notify("_acpmux/session_changed", {
+      sessionId: SELECTED,
+      session: summary(1, "idle"),
+      kind: "updated",
+      seq: 403,
+    });
+    expect(states.at(-1)?.isWorking).toBe(false);
+    const event = (seq: number, kind: string, turnId: string) =>
+      socket.notify("_acpmux/event", {
+        sessionId: SELECTED,
+        seq,
+        at: seq,
+        dir: "mux",
+        kind,
+        msg: { turnId },
+      });
+    event(404, "turn_started", "new-turn");
+    const count = states.length;
+    event(405, "turn_result", "old-turn");
+    expect(states).toHaveLength(count);
+    expect(snapshots()).toBe(before);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+test("an entirely hidden turn preserves completion when both visible snapshots are idle", async () => {
+  const states: { isWorking: boolean; completedSeq?: number }[] = [];
+  const { socket, client, snapshots, latest } = await openPane((state) => states.push(state));
+  try {
+    record(socket, 401, "turn_end");
+    flushFrames();
+    const ended = latest().turnsEnded;
+    const before = snapshots();
+    expect(latest().isWorking).toBe(false);
+    setVisibility("hidden");
+    record(socket, 402, "turn_started");
+    record(socket, 403, "turn_end");
+    record(socket, 404, "turn_result");
+    flushFrames();
+    expect(snapshots()).toBe(before);
+    expect(states.map((state) => state.isWorking)).toEqual([true, false, false]);
+    expect(states.at(-1)?.completedSeq).toBe(404);
+    setVisibility("visible");
+    flushFrames();
+    expect(latest().isWorking).toBe(false);
+    expect(latest().turnsEnded).toBe(ended + 1);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+// Hidden updates schedule no frames; a visible return schedules one, and closing a hidden client
+// leaves no pending callback behind.
 test("a hidden pane asks for one frame at a time and cancels it on close", async () => {
   let latest: any;
   const socket = new FakeAcpmux();
@@ -387,8 +703,7 @@ test("a hidden pane asks for one frame at a time and cancels it on close", async
   try {
     setVisibility("hidden");
     const ended = latest.turnsEnded ?? 0;
-    // Each turn's start and end draws at once, and its reply's first text within 50 ms; the text
-    // growing after it waits for one frame, the same one for every turn.
+    // A hidden page does no frame scheduling. All ten turns publish in one frame on return.
     for (let turn = 0; turn < 10; turn++) {
       const seq = 401 + turn * 4;
       record(socket, seq, "turn_end");
@@ -397,11 +712,14 @@ test("a hidden pane asks for one frame at a time and cancels it on close", async
       jest.advanceTimersByTime(50);
       chunk(socket, seq + 3);
     }
+    expect(asked).toBe(0);
+    setVisibility("visible");
     expect(asked).toBe(1);
-    // Ten ends, counted even where React would draw a start and its end as one render.
+    flushFrames();
+    // All completion boundaries survive without publishing intermediate snapshots.
     expect(latest.turnsEnded - ended).toBe(10);
     client.close();
-    expect(cancelled).toBe(1);
+    expect(cancelled).toBe(0);
   } finally {
     jest.useRealTimers();
     client.close();
@@ -467,6 +785,103 @@ test("a streamed chunk's frame is parsed once", async () => {
     expect(parses).toBe(frames);
   } finally {
     JSON.parse = parse;
+    client.close();
+  }
+});
+
+// A shown chat redrew its whole pane for every frame in which any other chat changed, though the pane
+// draws nothing of them while the person reads its transcript (Lawrence, 2026-11-18: scrolling a short
+// chat dropped frames in an app with many workspaces and much history; Leo: "it's just redrawing the
+// same thing a lot, even when there's very little stuff visible"). Each of those snapshots walks the
+// whole session list in App.tsx, so its cost grows with history: 12,000 chats on Leo's Mac, about 5
+// changes a second. Other chats' changes now draw at most once every OTHER_CHATS_DRAW_MS, and none
+// while the person scrolls; the pane's own chat still draws in the next frame.
+test("other chats' changes draw a shown chat at most twice a second", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    // A change every 50 ms for 2 s, each in its own frame: 40 frames with a change.
+    for (let round = 0; round < 40; round++) {
+      burst(socket, 1, round);
+      flushFrames();
+      jest.advanceTimersByTime(50);
+      flushFrames();
+    }
+    jest.advanceTimersByTime(500);
+    flushFrames();
+    const drawn = snapshots() - before;
+    expect(drawn).toBeGreaterThanOrEqual(4);
+    expect(drawn).toBeLessThanOrEqual(5);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
+test("other chats' changes wait while the person scrolls; the pane's own chat does not", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    // 1.5 s of scrolling, a wheel tick every 16 ms, while other chats change.
+    for (let tick = 0; tick < 94; tick++) {
+      window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+      if (tick % 5 === 0) burst(socket, 3, tick);
+      jest.advanceTimersByTime(16);
+      flushFrames();
+    }
+    expect(snapshots() - before).toBe(0);
+    // The pane's own chat draws in the next frame, scroll or not.
+    window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+    socket.notify("_acpmux/session_changed", {
+      sessionId: SELECTED,
+      session: { ...summary(1), title: "Renamed" },
+      kind: "renamed",
+      seq: 40,
+    });
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+    // That snapshot carried the list: the wait has nothing left, and the scroll's end draws nothing more.
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    expect(snapshots() - before).toBe(1);
+    // A change after the scroll ends draws.
+    burst(socket, 1, 99);
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    expect(snapshots() - before).toBe(2);
+  } finally {
+    jest.useRealTimers();
+    client.close();
+  }
+});
+
+// A page that keeps scrolling itself (a smooth scroll elsewhere in it) never rests: other chats'
+// changes wait at most 2 s for it, not for ever.
+test("a scroll that never rests holds other chats' changes at most 2 s", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    jest.advanceTimersByTime(1000);
+    flushFrames();
+    const before = snapshots();
+    burst(socket, 1, 0);
+    let drawnAt: number | undefined;
+    for (let tick = 0; tick < 250 && drawnAt === undefined; tick++) {
+      window.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 4 }));
+      jest.advanceTimersByTime(16);
+      flushFrames();
+      if (snapshots() > before) drawnAt = (tick + 1) * 16;
+    }
+    expect(drawnAt).toBeGreaterThanOrEqual(1900);
+    expect(drawnAt).toBeLessThanOrEqual(2100);
+  } finally {
+    jest.useRealTimers();
     client.close();
   }
 });

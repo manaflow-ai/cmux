@@ -67,7 +67,7 @@ fn entries(store: &dyn Store) -> Vec<Entry> {
 }
 
 fn entry(seq: u64, role: Role, text: &str) -> Entry {
-    Entry { seq, at: seq, role, text: text.into() }
+    Entry { seq, at: seq, role, steer: false, text: text.into() }
 }
 
 /// The first search writes the copy; the second reads it, not the segment: a segment whose bytes
@@ -142,7 +142,7 @@ fn a_copy_of_a_replaced_segment_is_made_again() {
     store.append("c", &prompt(1, "old words")).unwrap();
     store.flush().unwrap();
     assert_eq!(entries(&store), vec![entry(1, Role::User, "old words")]);
-    let (_, path) = store.segments("c").unwrap().pop().unwrap();
+    let (_, path) = store.segments("c").unwrap().last().unwrap().clone();
     let mut line = serde_json::to_vec(&prompt(1, "new words, longer than the old")).unwrap();
     line.push(b'\n');
     let next = path.with_extension("tmp");
@@ -181,5 +181,180 @@ fn every_segment_gives_its_messages_once_in_order() {
     assert_eq!(first.len(), 80);
     assert_eq!(first, entries(&memory));
     assert_eq!(entries(&store), first, "read again from the copies");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// Fill the current segment with non-message events so the next record rolls over.
+fn rollover(store: &LocalStore, seq: &mut u64) {
+    for _ in 0..9 {
+        *seq += 1;
+        store.append("c", &noise(*seq)).unwrap();
+    }
+    store.flush().unwrap();
+}
+
+#[test]
+fn rollover_search_joins_words_and_returns_a_reply_only_once() {
+    let root = root();
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    let mut seq = 1;
+    store.append("c", &chunk(seq, "m", "shared alpha ")).unwrap();
+    rollover(&store, &mut seq);
+    seq += 1;
+    store.append("c", &chunk(seq, "m", "beta shared")).unwrap();
+    store.flush().unwrap();
+    assert_eq!(store.segments("c").unwrap().len(), 2);
+    for query in ["alpha beta", "shared", "alpha beta", "shared"] {
+        let query = crate::session_search::Query::from_params(&json!({"query": query})).unwrap();
+        let result = crate::session_search::search(&store, "c", &query).unwrap();
+        assert_eq!(result["entries"], 1);
+        assert_eq!(result["hits"].as_array().unwrap().len(), 1);
+        assert_eq!(result["hits"][0]["seq"], 1);
+        assert_eq!(result["hits"][0]["at"], 1);
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn rollover_carries_through_noise_and_cached_appends_without_rereading_history() {
+    let root = root();
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    let mut seq = 1;
+    store.append("c", &chunk(seq, "m", "alpha ")).unwrap();
+    rollover(&store, &mut seq);
+    rollover(&store, &mut seq);
+    seq += 1;
+    store.append("c", &chunk(seq, "m", "beta ")).unwrap();
+    store.flush().unwrap();
+    assert!(store.segments("c").unwrap().len() >= 3);
+    assert_eq!(entries(&store), vec![entry(1, Role::Assistant, "alpha beta ")]);
+    // Same file and length: only the cached projection can supply these words now.
+    for (_, path) in store.segments("c").unwrap() {
+        let len = std::fs::metadata(&path).unwrap().len();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .write_all(&vec![b' '; usize::try_from(len).unwrap()])
+            .unwrap();
+    }
+    seq += 1;
+    store.append("c", &chunk(seq, "m", "gamma")).unwrap();
+    store.flush().unwrap();
+    let want = vec![entry(1, Role::Assistant, "alpha beta gamma")];
+    assert_eq!(entries(&store), want);
+    assert_eq!(entries(&store), want);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn rollover_keeps_real_message_boundaries_even_when_ids_repeat() {
+    for kind in ["user_message", "tool_call", "turn_started", "turn_result", "new_id"] {
+        let root = root();
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        let memory = memory();
+        let first = chunk(1, "m", "alpha ");
+        store.append("c", &first).unwrap();
+        memory.append("c", &first).unwrap();
+        let mut seq = 1;
+        rollover(&store, &mut seq);
+        seq += 1;
+        let mut boundary = prompt(seq, "next");
+        boundary.kind = kind.into();
+        if kind == "tool_call" {
+            boundary.dir = "in".into();
+            boundary.msg = json!({"params": {"update": {"title": "read"}}});
+        }
+        let last = chunk(seq + 1, if kind == "new_id" { "other" } else { "m" }, "beta");
+        for record in [boundary, last] {
+            store.append("c", &record).unwrap();
+            memory.append("c", &record).unwrap();
+        }
+        store.flush().unwrap();
+        for _ in 0..2 {
+            assert_eq!(entries(&store), entries(&memory), "boundary {kind}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[test]
+fn rollover_rebuilds_cached_successors_when_the_predecessor_changes_or_disappears() {
+    let root = root();
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    let mut seq = 1;
+    store.append("c", &chunk(seq, "m", "old ")).unwrap();
+    rollover(&store, &mut seq);
+    seq += 1;
+    let last_seq = seq;
+    store.append("c", &chunk(seq, "m", "tail")).unwrap();
+    store.flush().unwrap();
+    assert_eq!(entries(&store), vec![entry(1, Role::Assistant, "old tail")]);
+    let path = store.segments("c").unwrap()[0].1.clone();
+    let replacement = path.with_extension("replacement");
+    let mut bytes = serde_json::to_vec(&chunk(1, "m", "new ")).unwrap();
+    bytes.push(b'\n');
+    std::fs::write(&replacement, bytes).unwrap();
+    std::fs::rename(&replacement, &path).unwrap();
+    for _ in 0..2 {
+        assert_eq!(entries(&store), vec![entry(1, Role::Assistant, "new tail")]);
+    }
+    std::fs::remove_file(&path).unwrap();
+    for _ in 0..2 {
+        assert_eq!(entries(&store), vec![entry(last_seq, Role::Assistant, "tail")]);
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn rollover_preserves_the_message_text_cap_and_utf8_boundary() {
+    let root = root();
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    let memory = memory();
+    let first = chunk(1, "m", &"x".repeat(crate::session_search::MAX_TEXT - 1));
+    let last = chunk(2, "m", "é tail");
+    for record in [first, last] {
+        store.append("c", &record).unwrap();
+        memory.append("c", &record).unwrap();
+    }
+    store.flush().unwrap();
+    assert_eq!(store.segments("c").unwrap().len(), 2);
+    for _ in 0..2 {
+        assert_eq!(entries(&store), entries(&memory));
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn rollover_rebuilds_old_or_damaged_copies() {
+    let root = root();
+    let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+    let mut seq = 1;
+    store.append("c", &chunk(seq, "m", "alpha ")).unwrap();
+    rollover(&store, &mut seq);
+    seq += 1;
+    store.append("c", &chunk(seq, "m", "beta")).unwrap();
+    store.flush().unwrap();
+    let want = vec![entry(1, Role::Assistant, "alpha beta")];
+    assert_eq!(entries(&store), want);
+    for damage in [false, true] {
+        for (index, _) in store.segments("c").unwrap() {
+            let path = store.text_index_path("c", index);
+            let bytes = std::fs::read(&path).unwrap();
+            let end = bytes.iter().position(|b| *b == b'\n').unwrap();
+            let mut header: serde_json::Value = serde_json::from_slice(&bytes[..end]).unwrap();
+            if damage {
+                header["incomingHash"] = json!(0);
+            } else {
+                header["schema"] = json!("acpmux.search-index.v1");
+                header.as_object_mut().unwrap().remove("incomingHash");
+            }
+            let mut broken = serde_json::to_vec(&header).unwrap();
+            broken.extend_from_slice(&bytes[end..]);
+            std::fs::write(path, broken).unwrap();
+        }
+        assert_eq!(entries(&store), want);
+        assert_eq!(entries(&store), want);
+    }
     let _ = std::fs::remove_dir_all(&root);
 }

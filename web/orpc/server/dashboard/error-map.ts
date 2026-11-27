@@ -56,6 +56,7 @@ export const TEAM_ERROR_CODES = [
   "link_not_found",
   "link_invalid",
   "team_has_active_subscription",
+  "team_has_cloud_grant",
   "service_unavailable",
 ] as const satisfies readonly TeamErrorCode[];
 

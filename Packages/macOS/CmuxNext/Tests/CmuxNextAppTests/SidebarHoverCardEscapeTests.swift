@@ -10,7 +10,8 @@ import CmuxNextWakeupsTestSupport
 /// follows the row from row to row; it touches the sidebar's edge. The escape slot beside the
 /// row's upper half (#22473, Leo 2026-10-20 "trapped by the preview") is a Debug Settings layout
 /// now, covered by `HoverCardEscapeGeometryTests`. A pointer heading into the card keeps it, one
-/// going down past the row lets it go, and leaving both the row and the card dismisses it.
+/// going down past the row lets it go, and leaving both the row and the card dismisses it after
+/// the leave grace (the card lingers, #39684).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarHoverCardEscapeTests {
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, [SidebarRow]) {
         _ = NSApplication.shared
@@ -143,14 +144,19 @@ import CmuxNextWakeupsTestSupport
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 
-    /// Off the row and off the card (past the card's far edge): the card goes on that move.
-    @Test func leavingBothTheRowAndTheCardDismissesTheCard() async throws {
+    /// Off the row and off the card (past the card's far edge): the card lingers on that move
+    /// (Leo 2026-11-07, #39684: "I don't want it to disappear as quickly as other ones would") and
+    /// goes once its leave grace ends with the pointer still off both.
+    @Test func leavingBothTheRowAndTheCardDismissesTheCardAfterTheLeaveGrace() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         defer { window.closeAfterTest(); coordinator.panel?.closeAfterTest() }
         let (_, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
+        let shown = try #require(coordinator.machine.shownTarget)
         coordinator.pointerMoved(to: CGPoint(x: card.midX, y: card.midY))
         coordinator.pointerMoved(to: CGPoint(x: card.maxX + 40, y: card.midY))
+        #expect(coordinator.isShowing(shown.id), "the card went (\(coordinator.machine.phase)) on the move off it, with no leave grace")
+        try await WorkspaceHoverCardScrollTests.waitOutLeaveGrace(coordinator, clock)
         #expect(coordinator.machine.shownTarget == nil, "the card stayed (\(coordinator.machine.phase)) off the row and the card")
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }

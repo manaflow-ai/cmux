@@ -1837,6 +1837,923 @@
         }
       }
     },
+    "remote.port.forwarded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forwarded port %1$d of %2$@ to %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إعادة توجيه المنفذ %1$d من %2$@ إلى %3$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d na %2$@ je proslijeđen na %3$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d på %2$@ videresendt til %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d von %2$@ an %3$@ weitergeleitet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puerto %1$d de %2$@ reenviado a %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d de %2$@ redirigé vers %3$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porta %1$d di %2$@ inoltrata a %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ のポート %1$d を %3$@ に転送しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបញ្ជូនបន្តច្រក %1$d នៃ %2$@ ទៅ %3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@의 포트 %1$d을(를) %3$@(으)로 포워딩했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d på %2$@ videresendt til %3$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekierowano port %1$d z %2$@ na %3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porta %1$d de %2$@ encaminhada para %3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порт %1$d с %2$@ перенаправлен на %3$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งต่อพอร์ต %1$d ของ %2$@ ไปที่ %3$@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ üzerindeki %1$d bağlantı noktası %3$@ adresine yönlendirildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порт %1$d з %2$@ переадресовано на %3$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã chuyển tiếp cổng %1$d của %2$@ tới %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 %2$@ 的端口 %1$d 转发到 %3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已將 %2$@ 的連接埠 %1$d 轉發至 %3$@"
+          }
+        }
+      }
+    },
+    "remote.port.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No ports are forwarded from %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد منافذ معاد توجيهها من %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan port nije proslijeđen s %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen porte videresendes fra %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von %@ werden keine Ports weitergeleitet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay puertos reenviados desde %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun port n’est redirigé depuis %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna porta inoltrata da %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から転送中のポートはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានច្រកណាត្រូវបានបញ្ជូនបន្តពី %@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 포워딩 중인 포트가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen porter videresendes fra %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żadne porty nie są przekierowane z %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma porta encaminhada de %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С %@ не перенаправлен ни один порт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีพอร์ตที่ส่งต่อจาก %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerinden yönlendirilen bağlantı noktası yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "З %@ не переадресовано жодного порту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có cổng nào được chuyển tiếp từ %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有从 %@ 转发的端口。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有從 %@ 轉發的連接埠。"
+          }
+        }
+      }
+    },
+    "remote.port.notForwarded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d of %2$@ is not forwarded."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المنفذ %1$d من %2$@ غير معاد توجيهه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d na %2$@ nije proslijeđen."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d på %2$@ videresendes ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d von %2$@ wird nicht weitergeleitet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El puerto %1$d de %2$@ no está reenviado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le port %1$d de %2$@ n’est pas redirigé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La porta %1$d di %2$@ non è inoltrata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ のポート %1$d は転送されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ច្រក %1$d នៃ %2$@ មិនត្រូវបានបញ្ជូនបន្តទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@의 포트 %1$d은(는) 포워딩되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d på %2$@ videresendes ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$d z %2$@ nie jest przekierowany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A porta %1$d de %2$@ não está encaminhada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порт %1$d с %2$@ не перенаправлен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พอร์ต %1$d ของ %2$@ ไม่ได้ส่งต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ üzerindeki %1$d bağlantı noktası yönlendirilmiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порт %1$d з %2$@ не переадресовано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cổng %1$d của %2$@ không được chuyển tiếp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 的端口 %1$d 未被转发。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 的連接埠 %1$d 未被轉發。"
+          }
+        }
+      }
+    },
+    "remote.port.closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped forwarding port %1$d of %2$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف إعادة توجيه المنفذ %1$d من %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosljeđivanje porta %1$d na %2$@ je zaustavljeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videresendelse af port %1$d på %2$@ er stoppet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterleitung von Port %1$d von %2$@ beendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se dejó de reenviar el puerto %1$d de %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redirection du port %1$d de %2$@ arrêtée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inoltro della porta %1$d di %2$@ interrotto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ のポート %1$d の転送を停止しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបញ្ឈប់ការបញ្ជូនបន្តច្រក %1$d នៃ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@의 포트 %1$d 포워딩을 중지했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sluttet å videresende port %1$d på %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymano przekierowanie portu %1$d z %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O encaminhamento da porta %1$d de %2$@ foi interrompido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенаправление порта %1$d с %2$@ остановлено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดส่งต่อพอร์ต %1$d ของ %2$@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ üzerindeki %1$d bağlantı noktasının yönlendirilmesi durduruldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переадресацію порту %1$d з %2$@ зупинено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã ngừng chuyển tiếp cổng %1$d của %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止转发 %2$@ 的端口 %1$d。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止轉發 %2$@ 的連接埠 %1$d。"
+          }
+        }
+      }
+    },
+    "remote.port.needsPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass --port N, a port from 1 to 65535."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر --port N، وهو منفذ من 1 إلى 65535."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedi --port N, port od 1 do 65535."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv --port N, en port fra 1 til 65535."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib mit --port N einen Port von 1 bis 65535 an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica --port N, un puerto de 1 a 65535."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez --port N, un port de 1 à 65535."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa --port N, una porta da 1 a 65535."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--port N に 1 から 65535 のポートを指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមបញ្ជូន --port N ដែលជាច្រកពី 1 ដល់ 65535។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--port N으로 1에서 65535 사이의 포트를 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi --port N, en port fra 1 til 65535."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj --port N, port od 1 do 65535."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe --port N, uma porta de 1 a 65535."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите --port N, порт от 1 до 65535."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่ง --port N ซึ่งเป็นพอร์ตตั้งแต่ 1 ถึง 65535"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--port N verin; 1 ile 65535 arasında bir bağlantı noktası."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть --port N, порт від 1 до 65535."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy truyền --port N, một cổng từ 1 đến 65535."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请传入 --port N，端口范围为 1 到 65535。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請傳入 --port N，連接埠範圍為 1 至 65535。"
+          }
+        }
+      }
+    },
+    "remote.port.noAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link to %@ did not answer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يستجب الاتصال بـ %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza prema %@ nije odgovorila."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen til %@ svarede ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zu %@ hat nicht geantwortet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace con %@ no respondió."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liaison avec %@ n’a pas répondu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il collegamento con %@ non ha risposto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ へのリンクが応答しませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណភ្ជាប់ទៅ %@ មិនបានឆ្លើយតបទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@와(과)의 링크가 응답하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koblingen til %@ svarte ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie z %@ nie odpowiedziało."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão com %@ não respondeu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Связь с %@ не ответила."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์ไปยัง %@ ไม่ตอบสนอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bağlantısı yanıt vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зв’язок із %@ не відповів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liên kết tới %@ không phản hồi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 %@ 的链接没有响应。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與 %@ 的連結沒有回應。"
+          }
+        }
+      }
+    },
+    "remote.switch.noHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No host is chosen. Pass --target machine:<id>."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم اختيار مضيف. مرّر --target machine:<id>."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan host nije odabran. Proslijedi --target machine:<id>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen vært er valgt. Angiv --target machine:<id>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Host ausgewählt. Gib --target machine:<id> an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha elegido ningún host. Indica --target machine:<id>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun hôte choisi. Indiquez --target machine:<id>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun host scelto. Passa --target machine:<id>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストが選択されていません。--target machine:<id> を指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់បានជ្រើសម៉ាស៊ីនមេទេ។ សូមបញ្ជូន --target machine:<id>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택된 호스트가 없습니다. --target machine:<id>를 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen vert er valgt. Angi --target machine:<id>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie wybrano hosta. Podaj --target machine:<id>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum host escolhido. Passe --target machine:<id>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост не выбран. Укажите --target machine:<id>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้เลือกโฮสต์ ส่ง --target machine:<id>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçili ana makine yok. --target machine:<id> verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост не вибрано. Вкажіть --target machine:<id>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa chọn máy chủ. Hãy truyền --target machine:<id>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未选择主机。请传入 --target machine:<id>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未選擇主機。請傳入 --target machine:<id>。"
+          }
+        }
+      }
+    },
     "remote.failed.noMachine": {
       "extractionState": "manual",
       "localizations": {
@@ -5243,268 +6160,6 @@
         }
       }
     },
-    "remote.status.authFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH sign-in failed: %@ Check your key or agent, then choose Reconnect Machine."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "فشل تسجيل الدخول عبر SSH: %@ تحقّق من المفتاح أو الوكيل ثم اختر إعادة الاتصال بالجهاز."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH prijava nije uspjela: %@ Provjerite ključ ili agent, pa odaberite Ponovo poveži mašinu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-login mislykkedes: %@ Tjek din nøgle eller agent, og vælg derefter Genforbind maskine."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-Anmeldung fehlgeschlagen: %@ Prüfe deinen Schlüssel oder Agent und wähle dann „Maschine erneut verbinden“."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Falló el inicio de sesión SSH: %@ Revisa tu clave o agente y elige Reconectar máquina."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Échec de la connexion SSH : %@ Vérifiez votre clé ou votre agent, puis choisissez Reconnecter la machine."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Accesso SSH non riuscito: %@ Controlla la chiave o l’agente, poi scegli Riconnetti macchina."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH のサインインに失敗しました: %@ キーまたはエージェントを確認してから「マシンに再接続」を選んでください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការចូល SSH បានបរាជ័យ៖ %@ ពិនិត្យកូនសោ ឬ agent រួចជ្រើស ភ្ជាប់ម៉ាស៊ីនឡើងវិញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH 로그인 실패: %@ 키 또는 에이전트를 확인한 뒤 머신 다시 연결을 선택하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-pålogging mislyktes: %@ Sjekk nøkkelen eller agenten, og velg deretter Koble til maskin på nytt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Logowanie SSH nie powiodło się: %@ Sprawdź klucz lub agenta, a potem wybierz Połącz ponownie z maszyną."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O login SSH falhou: %@ Verifique sua chave ou agente e escolha Reconectar máquina."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вход по SSH не удался: %@ Проверьте ключ или агент, затем выберите «Переподключить машину»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลงชื่อเข้าใช้ SSH ไม่สำเร็จ: %@ ตรวจคีย์หรือเอเจนต์ แล้วเลือก เชื่อมต่อเครื่องอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH oturum açma başarısız: %@ Anahtarınızı veya ajanınızı denetleyin, sonra Makineye yeniden bağlan’ı seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вхід через SSH не вдався: %@ Перевірте ключ або агент, потім виберіть «Перепід’єднати машину»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đăng nhập SSH thất bại: %@ Kiểm tra khóa hoặc agent rồi chọn Kết nối lại máy."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH 登录失败：%@ 请检查你的密钥或代理，然后选择“重新连接机器”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH 登入失敗：%@ 請檢查你的金鑰或代理程式，然後選擇「重新連線機器」。"
-          }
-        }
-      }
-    },
-    "remote.status.hostKey": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The host key is not trusted: %1$@ Run ssh %2$@ in a terminal to check it. cmux never skips host key checks."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مفتاح المضيف غير موثوق: %1$@ شغّل ssh %2$@ في طرفية للتحقق منه. لا يتخطى cmux فحص مفتاح المضيف أبدًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ključ hosta nije pouzdan: %1$@ Pokrenite ssh %2$@ u terminalu da ga provjerite. cmux nikad ne preskače provjeru ključa hosta."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Værtsnøglen er ikke betroet: %1$@ Kør ssh %2$@ i en terminal for at kontrollere den. cmux springer aldrig kontrol af værtsnøgler over."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dem Host-Schlüssel wird nicht vertraut: %1$@ Führe ssh %2$@ in einem Terminal aus, um ihn zu prüfen. cmux überspringt die Host-Schlüssel-Prüfung nie."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La clave del host no es de confianza: %1$@ Ejecuta ssh %2$@ en una terminal para comprobarla. cmux nunca omite la comprobación de claves de host."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La clé d’hôte n’est pas approuvée : %1$@ Exécutez ssh %2$@ dans un terminal pour la vérifier. cmux ne saute jamais la vérification des clés d’hôte."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La chiave dell’host non è attendibile: %1$@ Esegui ssh %2$@ in un terminale per verificarla. cmux non salta mai il controllo delle chiavi host."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ホストキーが信頼されていません: %1$@ ターミナルで ssh %2$@ を実行して確認してください。cmux がホストキーの確認を省くことはありません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កូនសោម៉ាស៊ីនមិនត្រូវបានទុកចិត្តទេ៖ %1$@ រត់ ssh %2$@ ក្នុង terminal ដើម្បីពិនិត្យវា។ cmux មិនដែលរំលងការពិនិត្យកូនសោម៉ាស៊ីនទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "호스트 키를 신뢰할 수 없습니다: %1$@ 터미널에서 ssh %2$@를 실행해 확인하세요. cmux는 호스트 키 확인을 건너뛰지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vertsnøkkelen er ikke klarert: %1$@ Kjør ssh %2$@ i en terminal for å sjekke den. cmux hopper aldri over kontroll av vertsnøkler."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Klucz hosta nie jest zaufany: %1$@ Uruchom ssh %2$@ w terminalu, aby go sprawdzić. cmux nigdy nie pomija sprawdzania kluczy hosta."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A chave do host não é confiável: %1$@ Rode ssh %2$@ em um terminal para conferi-la. O cmux nunca pula a verificação de chaves de host."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ключ хоста не доверенный: %1$@ Выполните ssh %2$@ в терминале, чтобы проверить его. cmux никогда не пропускает проверку ключей хоста."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่เชื่อถือคีย์โฮสต์: %1$@ เรียก ssh %2$@ ในเทอร์มินัลเพื่อตรวจสอบ cmux ไม่เคยข้ามการตรวจคีย์โฮสต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ana makine anahtarına güvenilmiyor: %1$@ Denetlemek için bir terminalde ssh %2$@ çalıştırın. cmux ana makine anahtarı denetimini asla atlamaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ключ хоста не довірений: %1$@ Виконайте ssh %2$@ у терміналі, щоб перевірити його. cmux ніколи не пропускає перевірку ключів хоста."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khóa máy chủ không được tin cậy: %1$@ Chạy ssh %2$@ trong terminal để kiểm tra. cmux không bao giờ bỏ qua kiểm tra khóa máy chủ."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主机密钥不受信任：%1$@ 请在终端中运行 ssh %2$@ 进行核对。cmux 从不跳过主机密钥检查。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主機金鑰不受信任：%1$@ 請在終端機中執行 ssh %2$@ 進行核對。cmux 從不略過主機金鑰檢查。"
-          }
-        }
-      }
-    },
     "remote.status.installing": {
       "extractionState": "manual",
       "localizations": {
@@ -6029,137 +6684,6 @@
         }
       }
     },
-    "remote.status.unreachable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cannot reach the machine: %@ cmux tries again when the network changes."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّر الوصول إلى الجهاز: %@ سيحاول cmux مجددًا عند تغيّر الشبكة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mašina nije dostupna: %@ cmux pokušava ponovo kada se mreža promijeni."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinen kan ikke nås: %@ cmux prøver igen, når netværket ændres."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Maschine ist nicht erreichbar: %@ cmux versucht es erneut, wenn sich das Netzwerk ändert."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se puede acceder a la máquina: %@ cmux lo reintenta cuando cambia la red."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Machine injoignable : %@ cmux réessaie quand le réseau change."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile raggiungere la macchina: %@ cmux riprova quando cambia la rete."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "マシンに到達できません: %@ ネットワークが変わると cmux が再試行します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចទៅដល់ម៉ាស៊ីនបានទេ៖ %@ cmux ព្យាយាមម្ដងទៀតនៅពេលបណ្ដាញផ្លាស់ប្ដូរ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "머신에 연결할 수 없습니다: %@ 네트워크가 바뀌면 cmux가 다시 시도합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Maskinen kan ikke nås: %@ cmux prøver igjen når nettverket endres."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie można połączyć się z maszyną: %@ cmux spróbuje ponownie po zmianie sieci."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não é possível alcançar a máquina: %@ O cmux tenta de novo quando a rede muda."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Машина недоступна: %@ cmux повторит попытку при смене сети."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เข้าถึงเครื่องไม่ได้: %@ cmux จะลองอีกครั้งเมื่อเครือข่ายเปลี่ยน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Makineye ulaşılamıyor: %@ cmux ağ değiştiğinde yeniden dener."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Машина недоступна: %@ cmux спробує знову, коли зміниться мережа."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể kết nối tới máy: %@ cmux sẽ thử lại khi mạng thay đổi."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法访问该机器：%@ 网络变化时 cmux 会重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法連到該機器：%@ 網路變化時 cmux 會重試。"
-          }
-        }
-      }
-    },
     "remote.unavailable.noClient": {
       "extractionState": "manual",
       "localizations": {
@@ -6287,137 +6811,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "缺少內建的 cmux-tui，因此無法連線 SSH 機器。"
-          }
-        }
-      }
-    },
-    "remote.terminal.reconnecting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reconnecting to %@…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "جارٍ إعادة الاتصال بـ %@…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponovno povezivanje na %@…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Genopretter forbindelse til %@…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Verbindung zu %@ wird wiederhergestellt…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconectando con %@…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconnexion à %@…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riconnessione a %@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ に再接続しています…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កំពុងភ្ជាប់ឡើងវិញទៅ %@…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@에 다시 연결하는 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kobler til %@ igjen…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponowne łączenie z %@…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconectando a %@…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторное подключение к %@…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "กำลังเชื่อมต่อกับ %@ อีกครั้ง…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ ile yeniden bağlanılıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторне підключення до %@…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đang kết nối lại với %@…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在重新连接 %@…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在重新連線 %@…"
           }
         }
       }
@@ -8780,137 +9173,6 @@
         }
       }
     },
-    "remote.machineBrowser.retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة المحاولة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokušaj ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erneut versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reintentar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Réessayer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riprova"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ព្យាយាមម្ដងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 시도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tentar novamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeniden dene"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thử lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重試"
-          }
-        }
-      }
-    },
     "remote.machineBrowser.thisMac": {
       "extractionState": "manual",
       "localizations": {
@@ -9441,127 +9703,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux on %@ is too old for browser tabs. Update it, then try again."
+            "value": "cmux on %@ is too old for browser tabs. Once it is updated there, this tab opens."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إصدار cmux على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه، ثم أعد المحاولة."
+            "state": "translated",
+            "value": "إصدار cmux على %@ قديم جدًا لعلامات تبويب المتصفح. بعد تحديثه هناك، تُفتح علامة التبويب هذه."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
+            "state": "translated",
+            "value": "cmux na %@ je prestar za kartice preglednika. Kada se tamo ažurira, ova kartica se otvara."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
+            "state": "translated",
+            "value": "cmux på %@ er for gammel til browserfaner. Når den er opdateret der, åbner denne fane."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
+            "state": "translated",
+            "value": "cmux auf %@ ist zu alt für Browser-Tabs. Sobald es dort aktualisiert ist, öffnet sich dieser Tab."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux en %@ es demasiado antiguo para pestañas del navegador. Actualízalo y vuelve a intentarlo."
+            "state": "translated",
+            "value": "cmux en %@ es demasiado antiguo para pestañas del navegador. Cuando se actualice allí, esta pestaña se abre."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
+            "state": "translated",
+            "value": "cmux sur %@ est trop ancien pour les onglets de navigateur. Une fois mis à jour là-bas, cet onglet s’ouvre."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
+            "state": "translated",
+            "value": "cmux su %@ è troppo vecchio per le schede del browser. Una volta aggiornato lì, questa scheda si apre."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の cmux はブラウザタブには古すぎます。アップデートしてから再試行してください。"
+            "value": "%@ の cmux はブラウザタブには古すぎます。そちらでアップデートされると、このタブが開きます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ អាប់ដេតវា រួចព្យាយាមម្តងទៀត។"
+            "state": "translated",
+            "value": "cmux នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ នៅពេលវាត្រូវបានអាប់ដេតនៅទីនោះ ផ្ទាំងនេះនឹងបើក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@의 cmux는 브라우저 탭을 쓰기에 너무 오래되었습니다. 업데이트한 다음 다시 시도하세요."
+            "state": "translated",
+            "value": "%@의 cmux는 브라우저 탭을 쓰기에 너무 오래되었습니다. 그곳에서 업데이트되면 이 탭이 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
+            "state": "translated",
+            "value": "cmux på %@ er for gammel for nettleserfaner. Når den er oppdatert der, åpnes denne fanen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux na %@ jest za stary na karty przeglądarki. Zaktualizuj go, a potem spróbuj ponownie."
+            "state": "translated",
+            "value": "cmux na %@ jest za stary na karty przeglądarki. Gdy zostanie tam zaktualizowany, ta karta się otworzy."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux em %@ é antigo demais para abas do navegador. Atualize-o e tente de novo."
+            "state": "translated",
+            "value": "O cmux em %@ é antigo demais para abas do navegador. Quando for atualizado lá, esta aba abre."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
+            "state": "translated",
+            "value": "cmux на %@ слишком старый для вкладок браузера. Когда его там обновят, эта вкладка откроется."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
+            "state": "translated",
+            "value": "cmux บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ เมื่ออัปเดตที่นั่นแล้ว แท็บนี้จะเปิดขึ้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ üzerindeki cmux tarayıcı sekmeleri için çok eski. Güncelleyin, sonra yeniden deneyin."
+            "state": "translated",
+            "value": "%@ üzerindeki cmux tarayıcı sekmeleri için çok eski. Orada güncellendiğinde bu sekme açılır."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux на %@ застарий для вкладок браузера. Оновіть його і спробуйте ще раз."
+            "state": "translated",
+            "value": "cmux на %@ застарий для вкладок браузера. Щойно його там оновлять, ця вкладка відкриється."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux trên %@ quá cũ cho thẻ trình duyệt. Hãy cập nhật rồi thử lại."
+            "state": "translated",
+            "value": "cmux trên %@ quá cũ cho thẻ trình duyệt. Khi được cập nhật ở đó, thẻ này sẽ mở."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 上的 cmux 太旧，无法使用浏览器标签页。请更新后重试。"
+            "state": "translated",
+            "value": "%@ 上的 cmux 太旧，无法使用浏览器标签页。在那里更新后，此标签页会打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 上的 cmux 太舊，無法使用瀏覽器分頁。請更新後再試。"
+            "state": "translated",
+            "value": "%@ 上的 cmux 太舊，無法使用瀏覽器分頁。在那裡更新後，此分頁會開啟。"
           }
         }
       }
@@ -11406,127 +11668,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home, conversation and app tabs cannot move to a workspace on another machine."
+            "value": "Chief, conversation and app tabs cannot move to a workspace on another machine."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن نقل علامات تبويب الصفحة الرئيسية والمحادثات والتطبيقات إلى مساحة عمل على جهاز آخر."
+            "value": "لا يمكن نقل علامات تبويب Chief والمحادثات والتطبيقات إلى مساحة عمل على جهاز آخر."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kartice Home, razgovora i aplikacija ne mogu se premjestiti u radni prostor na drugom računaru."
+            "value": "Kartice Chief, razgovora i aplikacija ne mogu se premjestiti u radni prostor na drugom računaru."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home-, samtale- og appfaner kan ikke flyttes til et arbejdsområde på en anden maskine."
+            "value": "Chief-, samtale- og appfaner kan ikke flyttes til et arbejdsområde på en anden maskine."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home-, Unterhaltungs- und App-Tabs können nicht in einen Arbeitsbereich auf einem anderen Gerät verschoben werden."
+            "value": "Chief-, Unterhaltungs- und App-Tabs können nicht in einen Arbeitsbereich auf einem anderen Gerät verschoben werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las pestañas de Home, de conversaciones y de apps no pueden moverse a un espacio de trabajo en otra máquina."
+            "value": "Las pestañas de Chief, de conversaciones y de apps no pueden moverse a un espacio de trabajo en otra máquina."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les onglets Home, de conversation et d’app ne peuvent pas être déplacés vers un espace de travail sur une autre machine."
+            "value": "Les onglets Chief, de conversation et d’app ne peuvent pas être déplacés vers un espace de travail sur une autre machine."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le schede Home, di conversazione e delle app non possono essere spostate in uno spazio di lavoro su un altro computer."
+            "value": "Le schede Chief, di conversazione e delle app non possono essere spostate in uno spazio di lavoro su un altro computer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホーム、会話、アプリのタブは別のマシンのワークスペースへ移動できません。"
+            "value": "Chief、会話、アプリのタブは別のマシンのワークスペースへ移動できません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំង Home ការសន្ទនា និងកម្មវិធី មិនអាចផ្លាស់ទីទៅកន្លែងធ្វើការលើម៉ាស៊ីនផ្សេងទៀតបានទេ។"
+            "value": "ផ្ទាំង Chief ការសន្ទនា និងកម្មវិធី មិនអាចផ្លាស់ទីទៅកន្លែងធ្វើការលើម៉ាស៊ីនផ្សេងទៀតបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈, 대화, 앱 탭은 다른 기기의 워크스페이스로 옮길 수 없습니다."
+            "value": "Chief, 대화, 앱 탭은 다른 기기의 워크스페이스로 옮길 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home-, samtale- og appfaner kan ikke flyttes til et arbeidsområde på en annen maskin."
+            "value": "Chief-, samtale- og appfaner kan ikke flyttes til et arbeidsområde på en annen maskin."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kart Home, rozmów i aplikacji nie można przenieść do obszaru roboczego na innym komputerze."
+            "value": "Kart Chief, rozmów i aplikacji nie można przenieść do obszaru roboczego na innym komputerze."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abas da Home, de conversas e de apps não podem ser movidas para um espaço de trabalho em outra máquina."
+            "value": "Abas da Chief, de conversas e de apps não podem ser movidas para um espaço de trabalho em outra máquina."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкладки Home, бесед и приложений нельзя переместить в рабочее пространство на другом компьютере."
+            "value": "Вкладки Chief, бесед и приложений нельзя переместить в рабочее пространство на другом компьютере."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ย้ายแท็บ Home แท็บการสนทนา และแท็บแอปไปยังพื้นที่ทำงานบนเครื่องอื่นไม่ได้"
+            "value": "ย้ายแท็บ Chief แท็บการสนทนา และแท็บแอปไปยังพื้นที่ทำงานบนเครื่องอื่นไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home, sohbet ve uygulama sekmeleri başka bir makinedeki çalışma alanına taşınamaz."
+            "value": "Chief, sohbet ve uygulama sekmeleri başka bir makinedeki çalışma alanına taşınamaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вкладки Home, розмов і застосунків не можна перемістити до робочого простору на іншому комп’ютері."
+            "value": "Вкладки Chief, розмов і застосунків не можна перемістити до робочого простору на іншому комп’ютері."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không thể chuyển tab Home, tab hội thoại và tab ứng dụng sang không gian làm việc trên máy khác."
+            "value": "Không thể chuyển tab Chief, tab hội thoại và tab ứng dụng sang không gian làm việc trên máy khác."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主页、对话和应用标签页无法移到另一台机器上的工作区。"
+            "value": "Chief、对话和应用标签页无法移到另一台机器上的工作区。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "首頁、對話和 App 分頁無法移到另一台機器上的工作區。"
+            "value": "Chief、對話和 App 分頁無法移到另一台機器上的工作區。"
           }
         }
       }
@@ -13099,6 +13361,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 上的 cmux 已停止。選擇「拷貝錯誤」以查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "remote.status.authFailed.plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH sign-in to %@ failed. Check your key or agent, then choose Reconnect Machine. Choose Copy Error for the details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل تسجيل الدخول عبر SSH إلى %@. تحقّق من المفتاح أو الوكيل ثم اختر إعادة الاتصال بالجهاز. اختر «نسخ الخطأ» للاطلاع على التفاصيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH prijava na %@ nije uspjela. Provjerite ključ ili agent, pa odaberite Ponovo poveži mašinu. Odaberite Kopiraj grešku za detalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-login på %@ mislykkedes. Tjek din nøgle eller agent, og vælg derefter Genforbind maskine. Vælg Kopiér fejl for detaljer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Anmeldung bei %@ ist fehlgeschlagen. Prüfe deinen Schlüssel oder Agent und wähle dann „Maschine erneut verbinden“. Wähle „Fehler kopieren“ für die Details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falló el inicio de sesión SSH en %@. Revisa tu clave o agente y elige Reconectar máquina. Elige Copiar error para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la connexion SSH à %@. Vérifiez votre clé ou votre agent, puis choisissez Reconnecter la machine. Choisissez Copier l’erreur pour les détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso SSH a %@ non riuscito. Controlla la chiave o l’agente, poi scegli Riconnetti macchina. Scegli Copia errore per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ への SSH サインインに失敗しました。キーまたはエージェントを確認してから「マシンに再接続」を選んでください。詳細は「エラーをコピー」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូល SSH ទៅ %@ បានបរាជ័យ។ ពិនិត្យកូនសោ ឬ agent រួចជ្រើស ភ្ជាប់ម៉ាស៊ីនឡើងវិញ។ ជ្រើស ចម្លងកំហុស ដើម្បីមើលព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 SSH 로그인하지 못했습니다. 키 또는 에이전트를 확인한 뒤 머신 다시 연결을 선택하세요. 자세한 내용은 오류 복사를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-pålogging til %@ mislyktes. Sjekk nøkkelen eller agenten, og velg deretter Koble til maskin på nytt. Velg Kopier feil for detaljer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logowanie SSH do %@ nie powiodło się. Sprawdź klucz lub agenta, a potem wybierz Połącz ponownie z maszyną. Wybierz Kopiuj błąd, aby zobaczyć szczegóły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O login SSH em %@ falhou. Verifique sua chave ou agente e escolha Reconectar máquina. Escolha Copiar erro para ver os detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход по SSH на %@ не удался. Проверьте ключ или агент, затем выберите «Переподключить машину». Выберите «Скопировать ошибку», чтобы увидеть подробности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ SSH ไปยัง %@ ไม่สำเร็จ ตรวจคีย์หรือเอเจนต์ แล้วเลือก เชื่อมต่อเครื่องอีกครั้ง เลือก คัดลอกข้อผิดพลาด เพื่อดูรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için SSH oturum açma başarısız oldu. Anahtarınızı veya ajanınızı denetleyin, sonra Makineye yeniden bağlan’ı seçin. Ayrıntılar için Hatayı Kopyala'yı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід через SSH на %@ не вдався. Перевірте ключ або агент, потім виберіть «Перепід’єднати машину». Виберіть «Скопіювати помилку», щоб побачити подробиці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập SSH vào %@ thất bại. Kiểm tra khóa hoặc agent rồi chọn Kết nối lại máy. Chọn Sao chép lỗi để xem chi tiết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 登录 %@ 失败。请检查你的密钥或代理，然后选择“重新连接机器”。选择“拷贝错误”以查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 登入 %@ 失敗。請檢查你的金鑰或代理程式，然後選擇「重新連線機器」。選擇「拷貝錯誤」以查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "remote.status.hostKey.plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host key of %1$@ is not trusted. Run ssh %2$@ in a terminal to check it. cmux never skips host key checks. Choose Copy Error for the details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح المضيف لـ %1$@ غير موثوق. شغّل ssh %2$@ في طرفية للتحقق منه. لا يتخطى cmux فحص مفتاح المضيف أبدًا. اختر «نسخ الخطأ» للاطلاع على التفاصيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ključ hosta za %1$@ nije pouzdan. Pokrenite ssh %2$@ u terminalu da ga provjerite. cmux nikad ne preskače provjeru ključa hosta. Odaberite Kopiraj grešku za detalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Værtsnøglen for %1$@ er ikke betroet. Kør ssh %2$@ i en terminal for at kontrollere den. cmux springer aldrig kontrol af værtsnøgler over. Vælg Kopiér fejl for detaljer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dem Host-Schlüssel von %1$@ wird nicht vertraut. Führe ssh %2$@ in einem Terminal aus, um ihn zu prüfen. cmux überspringt die Host-Schlüssel-Prüfung nie. Wähle „Fehler kopieren“ für die Details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La clave del host de %1$@ no es de confianza. Ejecuta ssh %2$@ en una terminal para comprobarla. cmux nunca omite la comprobación de claves de host. Elige Copiar error para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La clé d’hôte de %1$@ n’est pas approuvée. Exécutez ssh %2$@ dans un terminal pour la vérifier. cmux ne saute jamais la vérification des clés d’hôte. Choisissez Copier l’erreur pour les détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chiave host di %1$@ non è attendibile. Esegui ssh %2$@ in un terminale per verificarla. cmux non salta mai il controllo delle chiavi host. Scegli Copia errore per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のホストキーが信頼されていません。ターミナルで ssh %2$@ を実行して確認してください。cmux がホストキーの確認を省くことはありません。詳細は「エラーをコピー」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូនសោម៉ាស៊ីនរបស់ %1$@ មិនត្រូវបានទុកចិត្តទេ។ រត់ ssh %2$@ ក្នុង terminal ដើម្បីពិនិត្យវា។ cmux មិនដែលរំលងការពិនិត្យកូនសោម៉ាស៊ីនទេ។ ជ្រើស ចម្លងកំហុស ដើម្បីមើលព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 호스트 키를 신뢰할 수 없습니다. 터미널에서 ssh %2$@를 실행해 확인하세요. cmux는 호스트 키 확인을 건너뛰지 않습니다. 자세한 내용은 오류 복사를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertsnøkkelen til %1$@ er ikke klarert. Kjør ssh %2$@ i en terminal for å sjekke den. cmux hopper aldri over kontroll av vertsnøkler. Velg Kopier feil for detaljer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klucz hosta %1$@ nie jest zaufany. Uruchom ssh %2$@ w terminalu, aby go sprawdzić. cmux nigdy nie pomija sprawdzania kluczy hosta. Wybierz Kopiuj błąd, aby zobaczyć szczegóły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chave do host de %1$@ não é confiável. Rode ssh %2$@ em um terminal para conferi-la. O cmux nunca pula a verificação de chaves de host. Escolha Copiar erro para ver os detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ хоста %1$@ не доверенный. Выполните ssh %2$@ в терминале, чтобы проверить его. cmux никогда не пропускает проверку ключей хоста. Выберите «Скопировать ошибку», чтобы увидеть подробности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่เชื่อถือคีย์โฮสต์ของ %1$@ เรียก ssh %2$@ ในเทอร์มินัลเพื่อตรวจสอบ cmux ไม่เคยข้ามการตรวจคีย์โฮสต์ เลือก คัดลอกข้อผิดพลาด เพื่อดูรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ana makine anahtarına güvenilmiyor. Denetlemek için bir terminalde ssh %2$@ çalıştırın. cmux ana makine anahtarı denetimini asla atlamaz. Ayrıntılar için Hatayı Kopyala'yı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ хоста %1$@ не довірений. Виконайте ssh %2$@ у терміналі, щоб перевірити його. cmux ніколи не пропускає перевірку ключів хоста. Виберіть «Скопіювати помилку», щоб побачити подробиці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khóa máy chủ của %1$@ không được tin cậy. Chạy ssh %2$@ trong terminal để kiểm tra. cmux không bao giờ bỏ qua kiểm tra khóa máy chủ. Chọn Sao chép lỗi để xem chi tiết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的主机密钥不受信任。请在终端中运行 ssh %2$@ 进行核对。cmux 从不跳过主机密钥检查。选择“拷贝错误”以查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 的主機金鑰不受信任。請在終端機中執行 ssh %2$@ 進行核對。cmux 從不略過主機金鑰檢查。選擇「拷貝錯誤」以查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "remote.status.unreachable.plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot reach %@. It tries again when the network changes. Choose Copy Error for the details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux الوصول إلى %@. سيحاول مجددًا عند تغيّر الشبكة. اختر «نسخ الخطأ» للاطلاع على التفاصيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne može doći do %@. Pokušava ponovo kada se mreža promijeni. Odaberite Kopiraj grešku za detalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke nå %@. Den prøver igen, når netværket ændres. Vælg Kopiér fejl for detaljer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux erreicht %@ nicht. Es versucht es erneut, wenn sich das Netzwerk ändert. Wähle „Fehler kopieren“ für die Details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede acceder a %@. Lo reintenta cuando cambia la red. Elige Copiar error para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas joindre %@. Il réessaie quand le réseau change. Choisissez Copier l’erreur pour les détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non riesce a raggiungere %@. Riprova quando cambia la rete. Scegli Copia errore per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ に到達できません。ネットワークが変わると再試行します。詳細は「エラーをコピー」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចទៅដល់ %@ បានទេ។ វាព្យាយាមម្ដងទៀតនៅពេលបណ្ដាញផ្លាស់ប្ដូរ។ ជ្រើស ចម្លងកំហុស ដើម្បីមើលព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 연결할 수 없습니다. 네트워크가 바뀌면 다시 시도합니다. 자세한 내용은 오류 복사를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke nå %@. Den prøver igjen når nettverket endres. Velg Kopier feil for detaljer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie może połączyć się z %@. Spróbuje ponownie po zmianie sieci. Wybierz Kopiuj błąd, aby zobaczyć szczegóły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não consegue alcançar %@. Ele tenta de novo quando a rede muda. Escolha Copiar erro para ver os detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не может связаться с %@. Он повторит попытку при смене сети. Выберите «Скопировать ошибку», чтобы увидеть подробности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux เข้าถึง %@ ไม่ได้ จะลองอีกครั้งเมื่อเครือข่ายเปลี่ยน เลือก คัดลอกข้อผิดพลาด เพื่อดูรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ makinesine ulaşamıyor. Ağ değiştiğinde yeniden dener. Ayrıntılar için Hatayı Kopyala'yı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не може зв’язатися з %@. Він спробує знову, коли зміниться мережа. Виберіть «Скопіювати помилку», щоб побачити подробиці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux không thể kết nối tới %@. Nó sẽ thử lại khi mạng thay đổi. Chọn Sao chép lỗi để xem chi tiết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法访问 %@。网络变化时会重试。选择“拷贝错误”以查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法連到 %@。網路變化時會重試。選擇「拷貝錯誤」以查看詳細資訊。"
           }
         }
       }

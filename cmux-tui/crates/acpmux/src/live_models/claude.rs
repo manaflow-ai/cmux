@@ -100,14 +100,20 @@ fn split_context(value: &str) -> (&str, bool) {
     }
 }
 
-/// The `--model` id: a family alias (`opus`) stays bare; a versioned value
-/// (`opus-5-5`) takes the `claude-` prefix, or the resolved model's id.
+/// The `--model` id: use the live resolved release when an alias names one,
+/// so an older catalog cannot map it to a previous release. Unresolved aliases stay bare.
 fn launch_id(value: &str, resolved: &str) -> String {
     let id = if value.is_empty() { resolved } else { value };
-    if id.is_empty() || id.starts_with("claude-") || !id.chars().any(|c| c.is_ascii_digit()) {
+    if id.is_empty() || id.starts_with("claude-") {
         return id.to_owned();
     }
-    if resolved.starts_with("claude-") { resolved.to_owned() } else { format!("claude-{id}") }
+    if resolved.starts_with("claude-") {
+        resolved.to_owned()
+    } else if !id.chars().any(|c| c.is_ascii_digit()) {
+        id.to_owned()
+    } else {
+        format!("claude-{id}")
+    }
 }
 
 fn row_model(row: &Value) -> Option<LiveModel> {
@@ -157,8 +163,8 @@ fn row_model(row: &Value) -> Option<LiveModel> {
 }
 
 /// The display name, else the description's first part (`Opus 5.5 · ...`),
-/// else the id. A description that extends the name (`Opus` -> `Opus 5.5`)
-/// is the better name.
+/// else the id, without a leading `Claude ` vendor word. A description that
+/// extends the name (`Opus` -> `Opus 5.5`) is the better name.
 fn name(row: &Value, id: &str) -> String {
     let display = text(row, "displayName").unwrap_or("");
     let head =
@@ -167,5 +173,8 @@ fn name(row: &Value, id: &str) -> String {
         && head.len() > display.len()
         && head.to_lowercase().starts_with(&display.to_lowercase());
     let picked = if extends || display.is_empty() { head } else { display };
+    // A gateway row names the vendor ("Claude Fable 5.2"); Claude Code's own rows and the
+    // picker's other rows do not, so the name is derived the same way for both.
+    let picked = picked.strip_prefix("Claude ").filter(|rest| !rest.is_empty()).unwrap_or(picked);
     if picked.is_empty() { id.to_owned() } else { picked.to_owned() }
 }

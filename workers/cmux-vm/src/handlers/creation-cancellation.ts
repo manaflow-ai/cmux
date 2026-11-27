@@ -1,5 +1,5 @@
 import { reconcileForkCapture } from "./fork-capture.ts";
-import { scopedCreationKey } from "../auth/idempotency-key.ts";
+import { scopedCreationKey, type CreationKey } from "../auth/idempotency-key.ts";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect } from "effect";
 import type { Principal } from "../domain/principal.ts";
@@ -14,7 +14,7 @@ import { withCaller } from "./common.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
 
 /** A prior cancellation is advanced only by verified identity, deletion and a durable tombstone. */
-export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: string) => Effect.gen(function* () {
+export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: CreationKey) => Effect.gen(function* () {
   const fork = yield* reconcileForkCapture(caller, scope, key);
   if (fork !== null) return fork;
   const status = yield* readVmCreation(caller, key);
@@ -35,6 +35,8 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
       // Nothing at the exact slug: settle only once no earlier send can still be allocating.
       if (found === null && allocation === "absent") {
         if (!(yield* limits.settleAbsentCancellation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(unavailable)))) return status;
+        // Nothing was made: an agent key's slot held for this create goes back.
+        yield* limits.forgetAgentVm(caller.value.tenantId, vm.value, retained.key).pipe(Effect.ignore);
         if (retained.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, retained.snapshotId);
         return yield* readVmCreation(caller, key);
       }
@@ -51,12 +53,15 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
       yield* store.markDeleted(caller.value.tenantId, "vm", vm.value, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(unavailable));
     }
     yield* limits.settleCancellation(caller.value.tenantId, retained.key, vm.value).pipe(Effect.mapError(unavailable));
+    // The cancelled VM is deleted: an agent key's slot held for it goes back (best effort; it lapses on its own).
+    yield* limits.forgetAgentVm(caller.value.tenantId, vm.value, retained.key).pipe(Effect.ignore);
     if (retained.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, retained.snapshotId);
     return yield* readVmCreation(caller, key);
   }));
 });
 
-export const cancelVmCreation = (key: string) => withCaller("vm:write", "write", (caller, scope) => Effect.gen(function* () {
+/** Cancels the caller's own pending creation: a fence first, then the verified cleanup of continueCancellation. */
+export const cancelCreationAs = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: CreationKey) => Effect.gen(function* () {
   const status = yield* readVmCreation(caller, key);
   if (status.state === "deleted") return status;
   if (status.state === "cancelling" || status.state === "cancelled") return yield* continueCancellation(caller, scope, key);
@@ -78,4 +83,6 @@ export const cancelVmCreation = (key: string) => withCaller("vm:write", "write",
 
   }));
   return yield* continueCancellation(caller, scope, key);
-})).pipe(Effect.uninterruptible);
+});
+
+export const cancelVmCreation = (key: string) => withCaller("vm:write", "write", (caller, scope) => cancelCreationAs(caller, scope, key)).pipe(Effect.uninterruptible);

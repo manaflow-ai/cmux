@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.diagnostics.hangReports.help",
-            "text": "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
+            "text": "Nightly builds send daily hang stacks and timings, never your files, URLs or text."
           },
           "summary": {
             "key": "settings.diagnostics.hangReports.summary",
@@ -39,6 +39,117 @@
             "report"
           ],
           "swift_owner": "HangReportsSetting"
+        }
+      ]
+    },
+    {
+      "name": "usagePatterns",
+      "section": "home",
+      "group": {
+        "key": "settings.group.usagePatterns",
+        "text": "Usage Patterns"
+      },
+      "note": "Settings > Privacy and Security > Usage Patterns: opt-in local counters of how the person uses cmux (cmux-tui/crates/cmux-usage-patterns). Leo 2026-11-07: \"could we opt in to tracking usage patterns? at least for myself\". Off by default; nothing leaves the machine.",
+      "rows": [
+        {
+          "key": "diagnostics.usagePatterns",
+          "note": "Whether the daemons on this machine count how cmux is used: commands and operations by name, split directions, connections, agent chats per harness, prompts, tokens, distinct paired machines, by day and hour, and the registry names of packages agents' shell calls install (acpmux hub/tool_installs.rs; the Cloud image's package list is chosen from them). Counts and identifiers only, never prompts, terminal text, addresses, file paths or names. Stored locally; `cmux usage-patterns` and the Agent Stats page show them. Agents may not change it (privacy).",
+          "title": {
+            "key": "settings.diagnostics.usagePatterns",
+            "text": "Record Usage Patterns"
+          },
+          "help": {
+            "key": "settings.diagnostics.usagePatterns.help",
+            "text": "Counts how you use cmux on this Mac. Nothing you type is recorded; nothing is sent."
+          },
+          "summary": {
+            "key": "settings.diagnostics.usagePatterns.summary",
+            "text": "Stays on this computer. Counts only, no text."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "usage",
+            "patterns",
+            "stats",
+            "statistics",
+            "analytics",
+            "tracking",
+            "metrics",
+            "privacy",
+            "counts",
+            "habits"
+          ]
+        },
+        {
+          "key": "diagnostics.shareInstallCounts",
+          "note": "Leo 2026-11-05: \"Like just an option in settings, like, Hey, you can do this to improve CMux\". Whether this Mac and the person's Cloud machines send cmux the registry names and counts of packages agents' shell calls install (acpmux install_share.rs; cmux-platform /v1/install-counts), so the Cloud image bake pre-downloads the common ones. Off by default; a Cloud machine asks the platform for the person's choice, and the platform reports it to the person's Cloud machines as `usage_sharing` on the status report reply (cmux-platform installcounts/SharingReply.ts), which also gates their image additions list (cmux-host cloud/additions.rs). The row's help is its consent text: the settings page shows it with Turn On and Cancel before writing true (webviews settings/components/ConsentPrompt.tsx). Never prompts, commands, paths, project names or identity. Agents may not change it (privacy).",
+          "title": {
+            "key": "settings.diagnostics.shareInstallCounts",
+            "text": "Share Package Installs to Improve cmux"
+          },
+          "help": {
+            "key": "settings.diagnostics.shareInstallCounts.help",
+            "text": "Sends cmux the names of packages agents install and of tools you add to your Cloud machines, so new Cloud machines come with the common ones already downloaded. Names and counts only, never prompts, commands, file or project names, or anything that identifies you. Turning it off deletes your tool list."
+          },
+          "summary": {
+            "key": "settings.diagnostics.shareInstallCounts.summary",
+            "text": "Package names and counts only."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "share",
+            "improve",
+            "packages",
+            "installs",
+            "cloud",
+            "image",
+            "privacy",
+            "telemetry",
+            "analytics"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "anonymousTelemetry",
+      "section": "home",
+      "group": {
+        "key": "settings.group.anonymousTelemetry",
+        "text": "Crash Reports and Analytics"
+      },
+      "note": "Settings > Privacy and Security > Crash Reports and Analytics: the person's opt-in for crash reports and product analytics (off by default).",
+      "rows": [
+        {
+          "key": "app.sendAnonymousTelemetry",
+          "note": "Leo 2026-11-24: \"whatever we do, we need to make sure it's opt out by defautl i assume?\". Whether this Mac sends crash reports (Sentry, CmuxNextCrashReporting) and anonymous product analytics (optchat-chief analytics/consent.rs). Off: nothing is sent until the person turns it on. The person's own write is mirrored into the app's `sendAnonymousTelemetry` preference (AnonymousTelemetryConsent), which crash reporting reads at the next launch and Chief re-reads while it runs. The row's help is its consent text (webviews settings/components/ConsentPrompt.tsx). A managed `DisableTelemetry` keeps it off. Agents may not change it (privacy).",
+          "title": {
+            "key": "settings.app.sendAnonymousTelemetry",
+            "text": "Send Crash Reports and Analytics"
+          },
+          "help": {
+            "key": "settings.app.sendAnonymousTelemetry.help",
+            "text": "Sends cmux crash reports and anonymous usage events, so we can fix crashes and see which features are used. Stacks, app and macOS versions and event names only, never your prompts, files, paths, branches or text. Crash reports start at the next launch."
+          },
+          "summary": {
+            "key": "settings.app.sendAnonymousTelemetry.summary",
+            "text": "Off by default. No prompts, files or paths."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "crash",
+            "crashes",
+            "reports",
+            "analytics",
+            "telemetry",
+            "sentry",
+            "posthog",
+            "privacy",
+            "diagnostics",
+            "usage"
+          ]
         }
       ]
     }

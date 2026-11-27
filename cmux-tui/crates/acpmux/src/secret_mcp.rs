@@ -7,13 +7,11 @@
 
 use crate::client::Client;
 use crate::rpc::method;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::mpsc;
 
 pub const SERVER_NAME: &str = "cmux-secrets";
 /// The session the tools ask for, set in this server's own env.
@@ -34,31 +32,20 @@ pub fn protocol_version(params: &Value) -> &'static str {
         .unwrap_or(NEWEST_PROTOCOL_VERSION)
 }
 
-/// Lists `connect_mcp_server` only with this set to `1`: until the daemon runs an approved
-/// server (plans/cmux-next/mcp-connect-DESIGN.md step 2b), an approval connects nothing, so agents
-/// do not see the tool by default.
-pub const MCP_CONNECT_PREVIEW_ENV: &str = "CMUX_MCP_CONNECT_PREVIEW";
-
 /// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
 fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&Value::Null)
 }
 
 fn tools() -> Value {
-    let mut all = all_tools();
-    if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
-        && let Some(list) = all.as_array_mut()
-    {
-        list.retain(|t| *field(t, "name") != "connect_mcp_server");
-    }
-    all
+    all_tools()
 }
 
 fn all_tools() -> Value {
     json!([
         {
             "name": "request_secret",
-            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. The call waits until the user fills or declines the card (it closes after 15 minutes, or with your turn); inside a cmux_exec script it waits at most 10 minutes, so call it in a script of its own. Returns a one-use secretRef for this chat's folder, good for an hour: pass it to run_with_secret to run one command with the secret in an environment variable. Never ask for a secret in chat.",
+            "description": "Ask the user for a secret (an API key, a token, a password) on a private card in cmux. The user types it there; you never see the value. The call waits until the user fills or declines the card (it closes after 15 minutes, or with your turn); inside a cmux_exec script it waits at most 10 minutes, so call it in a script of its own. Returns a one-use secretRef for this chat's folder, good for an hour: pass it to run_with_secret to run one command with the secret in an environment variable. When the user also kept it as a key, keptAs names it: later commands get it with `cmux keys use NAME -- CMD`, without asking again. Never ask for a secret in chat.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -111,18 +98,27 @@ fn all_tools() -> Value {
     ])
 }
 
+/// The secret server for the session in its env, its calls on `daemon`'s connection.
+pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
+        SERVER_NAME,
+        SESSION_ENV,
+        tools(),
+        None,
+        daemon,
+        |daemon, session, params| async move { call(&daemon, &session, &params).await },
+    )
+}
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
-    serve(SERVER_NAME, SESSION_ENV, tools(), None, |daemon, session, params| async move {
-        call(&daemon, &session, &params).await
-    })
-    .await
+    crate::tools_mcp::serve_one(served).await
 }
 
 /// An MCP stdio server for one agent session (the one in `session_env`):
-/// `tools/call` is `call(daemon, session, params)` on a new daemon
-/// connection, and `instructions` the MCP `instructions` it gives at
-/// `initialize`. `offer_mcp.rs` and `subsession_mcp.rs` serve theirs with it too.
+/// `tools/call` is `call(daemon, session, params)` on the process's daemon
+/// connection (`tools_mcp::Daemon`), and `instructions` the MCP `instructions` it gives at
+/// `initialize`. The Cloud repository server (`cloud_repo_mcp.rs`) serves its with it.
 pub(crate) async fn serve<F, Fut>(
     name: &'static str,
     session_env: &str,
@@ -134,18 +130,9 @@ where
     F: Fn(Arc<Client>, String, Value) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Value> + Send + 'static,
 {
-    let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
-    // Each call connects anew, so a restarted daemon serves the next one.
-    serve_as(name, session, tools, instructions, move |session, params| {
-        let call = call.clone();
-        async move {
-            match crate::daemon::connect(false).await {
-                Ok(daemon) => call(daemon, session, params).await,
-                Err(e) => error_result(format!("{e:#}")),
-            }
-        }
-    })
-    .await
+    let daemon = Arc::default();
+    let served = crate::tools_mcp::served(name, session_env, tools, instructions, &daemon, call)?;
+    crate::tools_mcp::serve(vec![served]).await
 }
 
 /// [`serve`] for a session (or bridge address, `acpmux_mcp_bridge.rs`) given, not read from the
@@ -161,67 +148,18 @@ where
     F: Fn(String, Value) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Value> + Send + 'static,
 {
-    // Stdin may stay open after the agent died (`parent_watch.rs`).
-    crate::parent_watch::exit_with_parent();
-    let (tx, mut rx) = mpsc::channel::<Value>(64);
-    let writer = tokio::spawn(async move {
-        let mut out = tokio::io::stdout();
-        while let Some(message) = rx.recv().await {
-            let mut line = message.to_string();
-            line.push('\n');
-            if out.write_all(line.as_bytes()).await.is_err() || out.flush().await.is_err() {
-                break;
-            }
-        }
-    });
-    let mut lines = BufReader::new(tokio::io::stdin()).lines();
-    while let Some(line) = lines.next_line().await? {
-        let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
-        let Some(id) = message.get("id").cloned() else { continue }; // a notification
-        let verb = message["method"].as_str().unwrap_or_default().to_owned();
-        let reply = match verb.as_str() {
-            "initialize" => {
-                crate::sender_harness::note_mcp_client(&message["params"]);
-                let mut reply = json!({
-                    "protocolVersion": protocol_version(&message["params"]),
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
-                });
-                if let Some(text) = &instructions {
-                    reply.set("instructions", json!(text));
-                }
-                reply
-            }
-            "ping" => json!({}),
-            "tools/list" => json!({"tools": tools}),
-            "tools/call" => {
-                // A card waits on the person: the next request is read meanwhile.
-                let (tx, session, params, call) =
-                    (tx.clone(), session.clone(), message["params"].clone(), call.clone());
-                tokio::spawn(async move {
-                    let result = call(session, params).await;
-                    let _ = tx.send(response(&id, result)).await;
-                });
-                continue;
-            }
-            other => {
-                let error =
-                    json!({"code": -32601, "message": format!("method not found: {other}")});
-                let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "error": error})).await;
-                continue;
-            }
-        };
-        let _ = tx.send(response(&id, reply)).await;
-    }
-    // The agent closed the pipe: no one reads an answer still on its way, and
-    // ending here drops the calls' daemon connections with it.
-    drop(tx);
-    writer.abort();
-    Ok(())
-}
-
-fn response(id: &Value, result: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "result": result})
+    let call = crate::tools_mcp::boxed(call);
+    crate::tools_mcp::serve(vec![crate::tools_mcp::Served {
+        name,
+        session,
+        tools,
+        instructions,
+        call,
+        on_initialize: None,
+        list: None,
+        handle: None,
+    }])
+    .await
 }
 
 pub(crate) fn error_result(text: String) -> Value {
@@ -244,15 +182,6 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "host": field(&arguments, "host"), "timeoutSecs": field(&arguments, "timeoutSecs"),
             }),
         ),
-        Some("connect_mcp_server")
-            if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1") =>
-        {
-            return error_result(
-                "connect_mcp_server is not on yet: cmux cannot run an approved MCP server until its \
-                 sign-in and proxy land. Tell the user to add the server to the harness themselves."
-                    .to_owned(),
-            );
-        }
         Some("connect_mcp_server") => (
             method::MUX_MCP_CONNECT_REQUEST,
             json!({
@@ -311,15 +240,5 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn initialize_answers_a_version_we_speak() {
-        let version = |v: Value| protocol_version(&json!({"protocolVersion": v}));
-        assert_eq!(version(json!("2024-11-05")), "2024-11-05");
-        assert_eq!(version(json!("2099-01-01")), PROTOCOL_VERSIONS[0]);
-        assert_eq!(version(json!(7)), PROTOCOL_VERSIONS[0]);
-        assert_eq!(protocol_version(&Value::Null), PROTOCOL_VERSIONS[0]);
-    }
-}
+#[path = "secret_mcp_tests.rs"]
+mod tests;

@@ -420,7 +420,10 @@
     "signupPendingBody": "If you already have an account, sign in with the method you used before. If you just created an account, verify your email before signing in.",
     "genericTitle": "Sign-in could not be completed",
     "genericBody": "Please try again. If the problem continues, contact support.",
-    "backToSignIn": "Back to sign in"
+    "backToSignIn": "Back to sign in",
+    "chatgptLinkTitle": "Sign in once to connect ChatGPT",
+    "chatgptLinkBody": "This email already has a cmux account. Sign in with the method you used before, and ChatGPT will be connected to that account.",
+    "chatgptEmailUnverifiedBody": "The email on your ChatGPT account is not verified. Verify it with OpenAI, or sign in another way."
   },
   "cloudPublicationAccess": {
     "title": "You don't have access",
@@ -820,7 +823,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM, for $200/mo or $1,920/yr ($160/mo) when billed yearly."
+        "upsell": "Max includes Cloud VMs with no count cap, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM, for $200/mo or $1,920/yr ($160/mo) when billed yearly. Machines are metered beyond the included usage."
       },
       "teamPanel": {
         "notFound": "This team is not available. You may have left it, or it was deleted.",
@@ -889,17 +892,17 @@
           ],
           "pro": [
             "Cloud agents on Cloud VMs",
-            "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
+            "Cloud VMs with no count cap, metered beyond the included usage; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
             "The cmux iOS app"
           ],
           "max": [
-            "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
+            "Cloud VMs with no count cap, metered beyond the included usage; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
             "Larger machine sizes",
             "Everything in Pro"
           ],
           "team": [
             "Everything in Pro for every member",
-            "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
+            "Cloud VMs with no count cap for everyone on the team, metered beyond the included usage; the team's spending cap is the stop",
             "One invoice for the whole team",
             "Priority support"
           ]
@@ -944,7 +947,9 @@
         "cloud": "Open Cloud",
         "team": "Create a team",
         "banner": "You are on {plan} now.",
-        "bannerLink": "Plan & billing"
+        "bannerLink": "Plan & billing",
+        "introTitle": "Your $1 pass is on",
+        "introBody": "It runs for {days} days. {hours} Chief hours and {minutes} machine-minutes are released each week."
       },
       "appStore": {
         "title": "Billed through the App Store",
@@ -1850,7 +1855,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
+        "Cloud VMs with no count cap, metered beyond the included usage; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -1870,7 +1875,7 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
+        "Cloud VMs with no count cap, metered beyond the included usage; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
         "Unlimited workspaces and the iOS app"
       ],
       "annual": {
@@ -1882,7 +1887,7 @@
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
+        "Cloud VMs with no count cap for everyone on the team, metered beyond the included usage; the team's spending cap is the stop",
         "Centralized billing for your whole team",
         "Priority support"
       ]
@@ -1973,18 +1978,18 @@
         {
           "label": "Saved Cloud VMs, including paused machines",
           "free": "false",
-          "pro": "5",
-          "max": "5",
-          "team": "5 per paid seat",
+          "pro": "No cap",
+          "max": "No cap",
+          "team": "No cap",
           "enterprise": "Custom",
           "go": "1"
         },
         {
           "label": "Cloud VM resources",
           "free": "false",
-          "pro": "20 vCPUs and 40 GB RAM, shared",
-          "max": "80 vCPUs and 160 GB RAM, shared",
-          "team": "20 vCPUs and 40 GB RAM per paid seat, shared across the team",
+          "pro": "Metered beyond the included usage",
+          "max": "Metered beyond the included usage",
+          "team": "Metered beyond the included usage; the team's spending cap is the stop",
           "enterprise": "Custom",
           "go": "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk"
         },
@@ -2091,11 +2096,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro has no cap on how many Cloud VMs you keep: machines are metered beyond the included usage, and your spending cap is the stop. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team is optional: it puts everyone on one shared bill and one spending cap."
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one Pro or Team VM can use up to 16 GB RAM / 8 vCPU. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
+          "a": "Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. It includes everything in Pro and the larger Cloud VM sizes: 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB RAM / 32 vCPU on one VM. One Pro or Team VM can use up to 16 GB RAM / 8 vCPU. Pro, Team, and Max do not cap how many VMs you keep (Plus keeps one): machines are metered beyond the included usage, and the spending cap is the stop. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -2142,7 +2147,12 @@
     "priceMonthlyNote": "${amount}/mo when billed monthly",
     "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly",
     "manageInAppStore": "Manage in the App Store",
-    "resumePlan": "Resume {plan}"
+    "resumePlan": "Resume {plan}",
+    "cloudIntro": {
+      "intro_sold_out_today": "Today's $1 passes are gone. Try again tomorrow.",
+      "intro_sold_out": "The first $1 passes are gone.",
+      "intro_unavailable": "The $1 pass is not available for this account."
+    }
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
@@ -3795,7 +3805,7 @@
       "socketModeDesc": "Override access mode (cmuxOnly, allowAll, off). Also accepts cmux-only/cmux_only and allow-all/allow_all",
       "workspaceIdDesc": "Auto-set: current workspace ID",
       "surfaceIdDesc": "Auto-set: current surface ID",
-      "termProgramDesc": "Set to ghostty",
+      "termProgramDesc": "Set to cmux",
       "termDesc": "Set to xterm-ghostty",
       "envCallout": "Legacy CMUX_SOCKET_MODE values full and notifications are still accepted for compatibility.",
       "detectingCmux": "Detecting cmux",
@@ -4296,9 +4306,14 @@
       "base": "Base",
       "nextSection": "cmux-next",
       "nextGettingStarted": "Getting started",
+      "nextStart": "Start here",
       "nextUpdates": "Install and update",
       "nextHome": "Home and Chief",
       "nextAgents": "Agents and subagents",
+      "nextArchitecture": "How it fits together",
+      "nextAcpmux": "acpmux, the agent daemon",
+      "nextMachines": "Machines",
+      "nextVault": "Secrets and the vault",
       "nextOwnKeys": "Your own API keys",
       "nextAgentSpend": "Agent spend",
       "nextOpenModels": "Open-weight models",
@@ -4309,12 +4324,14 @@
       "nextShortcuts": "Keyboard shortcuts",
       "nextCli": "CLI and MCP reference",
       "nextMcp": "MCP server",
+      "nextApiVersions": "API versions",
       "nextSpaces": "Spaces and columns",
       "nextPalette": "Command palette",
       "nextRemote": "Remote machines and Tailscale",
+      "nextServer": "cmux server",
       "nextPlans": "Plans and credits",
       "nextSettings": "Settings reference",
-      "nextArchitecture": "Architecture",
+      "nextNetwork": "Network requirements",
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",
@@ -4544,14 +4561,14 @@
       "planMax": "Max",
       "sizesDefault": "New machines use 8 GB of memory when you do not choose a size. Run cmux vm ls --json to see the sizes that your plan allows.",
       "limitsTitle": "Plan limits",
-      "limitsDesc": "Your active machines share one pool of vCPUs and memory. Run one large machine or several small ones. Paused machines do not use the pool. Disk is set for each machine and is not pooled.",
+      "limitsDesc": "Pro, Team, and Max have no cap on how many machines you have; Plus keeps one machine. Beyond the included usage, running machines are metered per vCPU-hour and GB-hour, and saved and paused machines per GB-month of disk. The team's spending cap is the only stop: at the cap new starts are refused, and running machines pause after a warning, with nothing lost.",
       "limitsFree": "Free accounts cannot create machines.",
-      "limitsPaid": "Pro accounts can have up to 5 machines, including paused machines that share 20 vCPUs and 40 GB of memory.",
-      "limitsTeam": "Team accounts can have up to 5 machines, including paused machines for each paid seat. Each paid seat adds 20 vCPUs and 40 GB of memory to the team's pool.",
-      "limitsMax": "Max accounts can have up to 5 machines, including paused machines that share 80 vCPUs and 160 GB of memory. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
-      "limitsPoolFull": "If a new, resumed, resized, or forked machine would go over the pool, cmux refuses the request and shows how much of the pool is in use. Pause or delete a machine to free resources, or upgrade to Max.",
+      "limitsPaid": "Pro accounts can have any number of machines, each up to 16 GB and 8 vCPUs.",
+      "limitsTeam": "Team is optional: it puts everyone on one shared bill and one spending cap. Seats do not change how many machines anyone can have.",
+      "limitsMax": "Max accounts can have any number of machines. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
+      "limitsPoolFull": "At the spending cap, cmux refuses a new or resumed machine and says the team reached its cap. Raise the cap to start machines again; nothing is deleted.",
       "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",
-      "limitsPricing": "See the pricing page for current prices. There is no metering and no overage billing.",
+      "limitsPricing": "See the pricing page for current prices. Use beyond the included amount is metered.",
       "agentUpdatesTitle": "Keep coding agents up to date",
       "agentUpdatesDesc": "With this setting on, the machine updates Claude Code, Codex, OpenCode, pi, and agent-browser. It checks after the machine is created and each time you connect, at most once every 24 hours. The update runs detached, so it never blocks connecting.",
       "agentUpdatesSource": "Each tool comes from its official GitHub release and is verified against the release asset's sha256 digest. npm is not used. A release installs only after it has been public for 3 days, and an update never installs an older version. A running agent keeps the files it started with, and a failed update leaves the current version in place.",
@@ -5032,7 +5049,8 @@
       "darkArt": "Dark Art",
       "museumIcons": "Museum Icons",
       "calm": "Calm",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "East Asian Painting"
     }
   },
   "testimonials": {
@@ -7232,7 +7250,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus cmux iOS TestFlight access. One VM can use up to 16 GB RAM / 8 vCPU; 24 GB / 12 vCPU and 32 GB / 16 vCPU require Max.",
+    "body": "Pro includes Cloud VMs with no count cap, metered beyond the included usage, plus cmux iOS TestFlight access. One VM can use up to 16 GB RAM / 8 vCPU; 24 GB / 12 vCPU and 32 GB / 16 vCPU require Max.",
     "done": "Go to dashboard",
     "steps": {
       "iosApp": {
@@ -7394,7 +7412,9 @@
     "errorInvalidTotp": "That two-factor code isn't valid.",
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
-    "errorGeneric": "Something went wrong. Try again."
+    "errorGeneric": "Something went wrong. Try again.",
+    "errorRedirectNotAllowed": "This build's sign-in address isn't allowed on {backend}.",
+    "backendDevelopment": "the development backend"
   },
   "opsCloudVmHealth": {
     "eyebrow": "Staff · Operations",
@@ -7689,6 +7709,95 @@
           "a": "Included credits reset each month. Credits you buy last 12 months."
         }
       ]
+    },
+    "intro": {
+      "name": "The $1 pass",
+      "badge": "New to cmux Cloud",
+      "price": "{price}",
+      "period": "once, for {days} days",
+      "summary": "{price} for {days} days of your own always-on agent in the cloud, with its machines and your phone. It never renews on its own: at the end we ask, and you pay nothing more unless you say yes.",
+      "includedTitle": "What is inside",
+      "included": {
+        "chief": "One Chief, an always-on agent machine ({vcpu} vCPU / {gib} GiB), with {hours} awake hours",
+        "minutes": "{minutes} machine-minutes for other machines, on machines up to {vcpu} vCPU / {gib} GiB",
+        "minuteMeaning": "A machine-minute is one vCPU awake for one minute: {minutes} is {hours} hours of a {vcpu} vCPU machine",
+        "concurrent": "Up to {count} machines at once",
+        "login": "You bring your own Claude or Codex login",
+        "weekly": "Released weekly, {hours} Chief hours and {minutes} machine-minutes a week, so a pass lasts the month"
+      },
+      "renew": "Continue on Plus after {days} days",
+      "renewHint": "Unticked, the card is never charged again.",
+      "cta": "Get the {price} pass",
+      "afterTitle": "After {days} days",
+      "after": "We ask: Plus, Pro, or not now. If not now, machines pause, messages are held, and everything is kept {keepDays} days, with notices before anything is deleted.",
+      "who": "For individuals new to paid cmux Cloud, once per person and card. A limited number each day."
+    },
+    "proof": {
+      "title": "Measured on cmux Cloud",
+      "seconds": "{seconds} s",
+      "newMachine": "for a new machine to be running, the slowest of three runs",
+      "burst": "for {machines} machines asked for at once to all be ready",
+      "chatMove": "to move a chat to another machine and get its answer there, one run",
+      "note": "Test runs on our own accounts, not a promise. This pass includes up to {count} machines at once."
     }
+  },
+  "nextCloudPlans": {
+    "metaTitle": "cmux Cloud plans",
+    "metaDescription": "cmux Cloud plans: hours of your machine every month, and one price for each hour after.",
+    "previewBadge": "Preview",
+    "previewNote": "This page is not linked from the site yet.",
+    "title": "cmux Cloud plans",
+    "headline": "Close your laptop. Your agents keep working.",
+    "subhead": "With the Claude or ChatGPT plan you already have.",
+    "lede": "Every plan includes hours of your machine each month. Your machine has {vcpus} vCPUs and {memory} GB of memory, and it counts hours only while it is awake.",
+    "perMonth": "/mo",
+    "hours": "{hours} hours of your machine a month",
+    "machine": "{vcpus} vCPUs, {memory} GB memory",
+    "after": "Then {price} an hour",
+    "metering": "Billed by the second, shown by the minute",
+    "paused": "A paused machine uses no hours",
+    "models": "Model usage is not included.",
+    "cta": "Download cmux",
+    "table": {
+      "title": "Agents kept running and hours",
+      "note": "Each plan keeps this many agents running at once, on the hours it includes. Every hour after is {price}.",
+      "plan": "Plan",
+      "price": "Price",
+      "keptRunning": "Agents kept running at once",
+      "hours": "Hours of your machine a month"
+    },
+    "compare": {
+      "title": "How it compares",
+      "note": "A row appears here only once we have measured it.",
+      "columns": {
+        "server": "Your own server",
+        "planTab": "The cloud tab of your plan",
+        "cmux": "cmux Cloud"
+      },
+      "rows": {
+        "agentsAtOnce": {
+          "label": "Agents at once",
+          "server": "About four on a 2-core, 4 GB server",
+          "planTab": "Limits not published",
+          "cmux": "{machines} started together, all ready within {seconds} seconds"
+        },
+        "unusedMonth": {
+          "label": "Cost in a month you do not use it",
+          "server": "Its full price, even when switched off",
+          "planTab": "Included in the plan you pay for",
+          "cmux": "The plan's price; a paused agent uses none of its hours"
+        }
+      }
+    }
+  },
+  "connected": {
+    "title": "You're signed in to {app}",
+    "titleGeneric": "You're signed in",
+    "errorTitle": "Couldn't sign in to {app}",
+    "errorTitleGeneric": "Sign-in didn't finish",
+    "body": "Head back to cmux to keep going.",
+    "errorBody": "Go back to cmux and try again.",
+    "button": "Back to cmux",
+    "closeHint": "You can close this tab."
   }
 }

@@ -30,12 +30,12 @@ pub struct ChiefSettings {
     /// gets a `<show>` block for the Chief to open them in the subagent's
     /// workspace or a new one (`show.afterReport`, crate::show). Default true.
     pub show_after_report: bool,
-    /// Every subagent gets a sidebar workspace when it starts
+    /// Every subagent's workspace goes in the sidebar when it starts
     /// (`subagents.showWorkspaces`), whatever the Chief chose. Default false:
-    /// the Chief chooses per spawn (`spawn(sidebar)`, sidebar_choice.rs, a1018)
-    /// under the user's cmux-next.json rules (`chief.subagentSidebar*`); a
-    /// hidden one is reachable from its link in the Chief's replies, and
-    /// `control show ID` / `control hide ID` add or close one's workspace.
+    /// the Chief chooses per spawn (`spawn(sidebar)`, action_lifetime.rs)
+    /// between the sidebar and the collapsed "Chief's workspaces" group, under
+    /// the user's cmux-next.json rules (`chief.subagentSidebar*`);
+    /// `control show ID` / `control hide ID` move one between the two.
     pub show_subagent_workspaces: bool,
     /// The trace keeps whole texts (replies, tool arguments) for replaying
     /// real turns (`trace.full`). Default false.
@@ -65,8 +65,11 @@ pub struct ChiefSettings {
     pub trust_agents: bool,
     /// The acpmux sessions whose messages the owner trusts
     /// (`relay.trustedAgents`): exact names or one `*` glob each. Default
-    /// [`DEFAULT_TRUSTED_AGENTS`]; the `contact` session is trusted too.
+    /// none ([`DEFAULT_TRUSTED_AGENTS`]); the `contact` session is trusted too.
     pub trusted_agents: Vec<String>,
+    /// The MCP servers whose tools a trusted agent's turn may call through
+    /// `mcp` (`relay.mcpServers`, action `call` only). Default none.
+    pub relay_mcp_servers: Vec<String>,
 }
 
 /// `replies.thread`: when a Chief reply in its DM is threaded under the user
@@ -118,12 +121,16 @@ impl Default for ChiefSettings {
             cloud_delete_after_paused_days: 7,
             trust_agents: true,
             trusted_agents: default_trusted_agents(),
+            relay_mcp_servers: Vec::new(),
         }
     }
 }
 
-/// The owner's coordinator sessions, by the fleet's naming (`<name>-coord`).
-pub const DEFAULT_TRUSTED_AGENTS: [&str; 1] = ["*-coord"];
+/// No agent session is trusted until the owner names it (or sets `contact`):
+/// a session's name is not a credential, so no naming scheme is trusted by
+/// default (Leo 2026-11-26: "identify all the weird opinoinated fleet things
+/// we shipped into the app and remove them"; it was the fleet's `*-coord`).
+pub const DEFAULT_TRUSTED_AGENTS: [&str; 0] = [];
 
 fn default_trusted_agents() -> Vec<String> {
     DEFAULT_TRUSTED_AGENTS
@@ -137,6 +144,9 @@ pub const TRUST_AGENTS: &str = "relay.trustAgents";
 
 /// The key of `ChiefSettings::trusted_agents`.
 pub const TRUSTED_AGENTS: &str = "relay.trustedAgents";
+
+/// The key of `ChiefSettings::relay_mcp_servers`.
+pub const RELAY_MCP_SERVERS: &str = "relay.mcpServers";
 
 /// The key of `ChiefSettings::cache_ttl`.
 pub const CACHE_TTL: &str = "cache.ttl";
@@ -208,6 +218,18 @@ impl ChiefSettings {
                         .collect()
                 })
                 .unwrap_or_else(default_trusted_agents),
+            relay_mcp_servers: value["relay"]["mcpServers"]
+                .as_array()
+                .map(|names| {
+                    names
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|n| !n.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 
@@ -260,6 +282,7 @@ impl ChiefSettings {
         value["relay"] = json!({
             "trustAgents": self.trust_agents,
             "trustedAgents": self.trusted_agents,
+            "mcpServers": self.relay_mcp_servers,
         });
         value
     }
@@ -375,6 +398,30 @@ fn glob_matches(pattern: &str, name: &str) -> bool {
     }
 }
 
+/// A `relay.mcpServers` value: MCP server names (letters, digits, `_`, `-`,
+/// `.`), separated by commas or spaces; duplicates dropped.
+pub fn parse_mcp_servers(value: &str) -> Result<Vec<String>, String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in value
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+    {
+        if !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        {
+            return Err(format!(
+                "{RELAY_MCP_SERVERS}: {name:?} is not an MCP server name"
+            ));
+        }
+        if !out.iter().any(|n| n == name) {
+            out.push(name.to_owned());
+        }
+    }
+    Ok(out)
+}
+
 /// A `relay.trustedAgents` value: session names or `*` globs, separated by
 /// commas or spaces; empty clears the list (only the `contact` stays trusted).
 pub fn parse_trusted_agents(value: &str) -> Result<Vec<String>, String> {
@@ -428,12 +475,18 @@ mod trusted_agent_tests {
         assert_eq!(list, vec!["ops-coord".to_owned(), "lead-*".to_owned()]);
         assert!(parse_trusted_agents("*").is_err());
         assert!(parse_trusted_agents("a*b*").is_err());
+        assert_eq!(
+            parse_mcp_servers("tracker docs tracker").unwrap(),
+            vec!["tracker".to_owned(), "docs".to_owned()]
+        );
+        assert!(parse_mcp_servers("tracker;rm").is_err());
         assert_eq!(parse_trusted_agents("").unwrap(), Vec::<String>::new());
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("settings.json");
         let s = ChiefSettings {
             trust_agents: false,
             trusted_agents: list.clone(),
+            relay_mcp_servers: parse_mcp_servers("tracker, docs").unwrap(),
             ..ChiefSettings::default()
         };
         s.save(&file).unwrap();

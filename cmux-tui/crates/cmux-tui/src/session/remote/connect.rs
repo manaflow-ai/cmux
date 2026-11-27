@@ -97,6 +97,7 @@ impl RemoteSession {
             #[cfg(test)]
             retire_surface_test_marker: Mutex::new(None),
             tree: Mutex::new(RemoteTreeCache::default()),
+            held_tree: Mutex::new(held_tree::HeldTrees::default()),
             browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
@@ -245,6 +246,13 @@ impl RemoteSession {
         }
         if self.supports_capability(PLACEMENT_SHIFT_CAPABILITY) {
             negotiated.push(PLACEMENT_SHIFT_CAPABILITY);
+        }
+        // The sidebar's `session.events` stream resumes from the cursor it
+        // keeps whole (`sidebar_doc.rs`): with the live position in it, a
+        // resume gets only the terminals whose live facts changed after it,
+        // not every terminal that has one.
+        if self.supports_capability(cmux_tui_core::server::SESSION_LIVE_CURSOR_CAPABILITY) {
+            negotiated.push(cmux_tui_core::server::SESSION_LIVE_CURSOR_CAPABILITY);
         }
         // `restart` on the shutdown notice: reconnect after `daemon restart`,
         // exit after `daemon stop` (app/daemon_reconnect.rs).

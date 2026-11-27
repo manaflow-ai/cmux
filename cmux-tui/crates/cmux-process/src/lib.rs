@@ -28,20 +28,41 @@
 //! # Ok::<(), std::io::Error>(())
 //! ```
 //!
+//! Every child has an owner. A [`Child`] dropped while its child still runs
+//! ends it: SIGTERM to the child (to its whole process group when it leads
+//! one, as a child with no terminal does by default: [`Command::spawn`]),
+//! SIGKILL after [`DROP_GRACE`], and a reap, the wait on a thread of its own
+//! so the drop never blocks. That is where std differs: its dropped child
+//! runs on unowned, which is how a machine collects orphans by the thousand.
+//! A child that must outlive its handle (a daemon, a hold kept for a caller
+//! that exits) calls [`Child::detach`] with the reason, and is dropped as std
+//! drops one. Async tasks have the same rule in `cmux-scope`.
+//!
 //! Differences from `std::process::Command` on macOS: every signal starts at
 //! its default disposition with an empty signal mask (std keeps ignored
 //! signals ignored); there is no `pre_exec`, `uid` or `gid` ([`Command::new_session`]
 //! and [`Command::process_group`] cover what the daemon's hooks did); a
 //! descriptor other than 0-2 reaches the child only through
 //! [`Command::inherit_fd`].
+//!
+//! [`Command::spawn_owned`] starts a child that dies with this process
+//! (even by SIGKILL) and with its handle, its descendants too; a
+//! [`ChildGroup`] gives the same to a `std` or `tokio` command, and a
+//! [`GroupTether`] to a child that leads a group of its own.
 
 mod child;
 mod command;
+#[cfg(unix)]
+mod exec;
+mod group;
 #[cfg(target_vendor = "apple")]
 mod spawn_apple;
 mod stdio;
 
-pub use child::Child;
+pub use child::{Child, DROP_GRACE};
 pub use command::Command;
+#[cfg(unix)]
+pub use exec::exec_replace;
+pub use group::{ChildGroup, GRACE, GroupTether, OwnedChild};
 pub use std::process::{ExitStatus, Output};
 pub use stdio::Stdio;

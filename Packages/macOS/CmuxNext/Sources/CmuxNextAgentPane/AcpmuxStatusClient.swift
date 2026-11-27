@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextCompat
 import Foundation
 import Network
@@ -42,10 +43,11 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxStatus(result)
     }
 
-    /// The peers of the daemon's `_acpmux/status`. It waits for the answer however long a loaded
-    /// daemon takes (#28083); the caller's cancel ends the wait (a picker that closed).
-    @concurrent static func chatPeers(socketPath: String) async throws -> [AgentChatPeer] {
-        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: nil))
+    /// The peers of the daemon's `_acpmux/status`. It waits for the answer as long as a loaded
+    /// daemon takes (#28083), up to `deadline` (the caller's share of ``AcpmuxHost/lookupDeadline``),
+    /// then ``AgentPaneDeadlineExceeded``; the caller's cancel ends the wait sooner (a picker that closed).
+    @concurrent static func chatPeers(socketPath: String, deadline: Duration) async throws -> [AgentChatPeer] {
+        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: deadline))
     }
 
     /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
@@ -92,12 +94,30 @@ nonisolated enum AcpmuxStatusClient {
     /// running for the next daemon. With `endAgents` (Quit Everything) they end, except the
     /// agents of `keepSessions`. A daemon of another acpmux home on the socket belongs to
     /// another app or tag and is never stopped: `.otherHome`.
-    @concurrent static func shutdown(socketPath: String, home: URL, endAgents: Bool = false, keepSessions: [String] = [],
-                                     deadline: Duration = .seconds(2)) async throws {
+    /// `reason` names the trigger; the daemon logs it beside this app's executable, and the daily
+    /// count of the app's stops (leo-workspace tools/daemon_stops.py) sorts them by it. Required,
+    /// so no stop is added without saying why.
+    @concurrent static func shutdown(socketPath: String, home: URL, reason: String, endAgents: Bool = false,
+                                     keepSessions: [String] = [], deadline: Duration = .seconds(2)) async throws {
         let running = try await status(socketPath: socketPath, deadline: deadline)
         guard running.serves(home: home) else { throw Failure.otherHome(running.home ?? "") }
-        let params: [String: any Sendable] = endAgents ? ["endAgents": true, "keepSessions": keepSessions] : [:]
+        var params: [String: any Sendable] = endAgents ? ["endAgents": true, "keepSessions": keepSessions] : [:]
+        params["reason"] = "app: " + reason
         _ = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
+    }
+
+    /// `_acpmux/shutdown` with `swapIfReplaced` to the daemon of `home`, for one whose executable
+    /// an update replaced: an acpmux that has a build at its installed path swaps to it
+    /// make-before-break (`daemon/exe_swap.rs`) instead of stopping, and answers `swapping` (true
+    /// here): it serves until the new build takes the home, and serves on if it never does. One
+    /// from before the flag, or with no build to swap to, stops as ``shutdown`` asks (false).
+    @concurrent static func swapOrStop(socketPath: String, home: URL, reason: String,
+                                       deadline: Duration = .seconds(2)) async throws -> Bool {
+        let running = try await status(socketPath: socketPath, deadline: deadline)
+        guard running.serves(home: home) else { throw Failure.otherHome(running.home ?? "") }
+        let params: [String: any Sendable] = ["reason": "app: " + reason, "swapIfReplaced": true]
+        let result = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
+        return result["swapping"] as? Bool == true
     }
 
     /// `_acpmux/sessions`: a page of session summaries. Callers that need the
@@ -247,7 +267,7 @@ nonisolated enum AcpmuxStatusClient {
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                      deadline: Duration?, detailed: Bool = false, limit: Int = 1 << 20,
                      requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
-        let connection = NWConnection(to: try unixEndpoint(socketPath), using: .tcp)
+        let connection = CmuxEgress.connection(to: try unixEndpoint(socketPath), using: .tcp, site: "CmuxNextAgentPane.AcpmuxStatusClient")
         defer { connection.cancel() }
         let operation: @Sendable () async throws -> ResultBox = {
             ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),

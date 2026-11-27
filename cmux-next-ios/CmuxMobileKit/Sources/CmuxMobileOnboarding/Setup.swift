@@ -107,6 +107,7 @@ public struct SetupFlow: View {
                 theme.haptics.warning()
                 signOut()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("You can sign in again with this or another account.")
         }
@@ -230,6 +231,7 @@ private struct SetupSymbol: View {
         Image(systemName: name)
             .font(.system(size: 40, weight: .regular))
             .foregroundStyle(theme.colors.label)
+            .accessibilityHidden(true)
     }
 }
 
@@ -243,6 +245,7 @@ private struct ExplainerRow: View {
                 .font(.system(size: 17))
                 .frame(width: 22)
                 .foregroundStyle(theme.colors.label)
+                .accessibilityHidden(true)
             Text(text)
                 .font(theme.type.body)
                 .foregroundStyle(theme.colors.label)
@@ -253,7 +256,7 @@ private struct ExplainerRow: View {
 
 /// "Choose a space" (design spec, section 5): the title and Personal from the
 /// first frame, the account's teams under it (skeleton rows while they load,
-/// an inline retry if they can't), and "Create a team" once they're known.
+/// read again on their own if they can't), and "Create a team" once they're known.
 /// An empty list before the answer is "not loaded", never "no teams", so
 /// "Create a team" never shows as a placeholder.
 private struct TeamStep: View {
@@ -263,7 +266,12 @@ private struct TeamStep: View {
     let personal: () -> Void
     let create: () -> Void
     let next: () -> Void
-    @State private var isRetrying = false
+    /// A failed team list is read again on its own (no Retry): the skeleton rows stay through a
+    /// short failure; past the quiet bound the row says why, with no button.
+    @State private var autoRetry = AutoRetry()
+    /// A retry is out (the list reads "loading" meanwhile): it still counts as failed, and a
+    /// failure already on screen stays there instead of blinking back to the skeleton.
+    @State private var retrying = false
     /// "Create a team" arrives 0.1 s after the team rows (its own fade: a
     /// nested transition would not run inside the rows' insertion).
     @State private var showsCreate = false
@@ -272,10 +280,15 @@ private struct TeamStep: View {
 
     private var phase: Phase {
         switch auth.teamList.phase {
-        case .loading: .loading
-        case .failed: .failed
+        case .loading: retrying && autoRetry.isQuietLineShown ? .failed : .loading
+        case .failed: autoRetry.isQuietLineShown ? .failed : .loading
         case .loaded: .loaded
         }
+    }
+
+    private var teamsFailed: Bool {
+        if case .failed = auth.teamList.phase { return true }
+        return false
     }
 
     /// The account's teams, the personal space aside (it has its own row).
@@ -306,6 +319,7 @@ private struct TeamStep: View {
                             SkeletonList(rows: 2, leadingSquare: theme.metrics.teamAvatar, delay: .zero)
                                 .transition(.opacity)
                                 .accessibilityIdentifier("setup.teams.loading")
+                                .placeholderBound("onboarding.teams.skeleton", .milliseconds(2000))
                         case .failed:
                             failedRow
                                 .transition(.opacity)
@@ -313,13 +327,12 @@ private struct TeamStep: View {
                         case .loaded:
                             VStack(spacing: 0) {
                                 ForEach(teams) { team in
-                                    let presence = team.macDots()
+                                    let computer = ComputerDots.team(team)
                                     row(action: { pick(team) }) {
                                         SidebarTeamRow(
                                             name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
                                             transparent: team.appearance.isTransparent,
-                                            dots: presence.dots, overflow: presence.overflow,
-                                            onlineCount: team.listedMacs.filter(\.isOnline).count, isSelected: false
+                                            computer: computer.map { ($0.name, $0.isUp) }, isSelected: false
                                         )
                                     }
                                 }
@@ -334,6 +347,11 @@ private struct TeamStep: View {
                 }
                 .animation(theme.motion.smooth.animation.unlessReduceMotion, value: phase)
             }
+        }
+        .autoRetry(autoRetry, failing: teamsFailed || retrying) {
+            retrying = true
+            await auth.retryTeams()
+            retrying = false
         }
         .onChange(of: phase, initial: true) { _, phase in
             guard phase == .loaded else {
@@ -356,7 +374,7 @@ private struct TeamStep: View {
 
     private func row<Label: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
         Button(action: action, label: label)
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.horizontal, theme.metrics.selectedRowInset)
     }
 
@@ -420,29 +438,16 @@ private struct TeamStep: View {
     /// A failed team list doesn't block setup: Personal stays selectable.
     private var failedRow: some View {
         HStack(spacing: 12) {
-            Text("Couldn't load your teams.")
-                .font(theme.type.rowSubtitle)
-                .foregroundStyle(theme.colors.label2)
-            Spacer(minLength: 0)
-            if isRetrying {
-                CmuxSpinner().controlSize(.small)
-            } else {
-                Button("Retry", action: retry)
-                    .font(theme.type.rowSubtitle.weight(.semibold))
-                    .foregroundStyle(theme.colors.label)
-                    .frame(minHeight: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Couldn't load your teams.")
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+                AutoRetryQuietLine(autoRetry)
             }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, theme.metrics.sideMargin)
         .frame(minHeight: theme.metrics.teamRowHeight)
-    }
-
-    private func retry() {
-        isRetrying = true
-        Task {
-            await auth.retryTeams()
-            isRetrying = false
-        }
     }
 
     private func pickPersonal() {
@@ -478,8 +483,7 @@ private struct CreateTeamPage: View {
         SetupPage(symbol: "person.2", title: "Create your team") {
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Team name", text: $name)
-                    // Names are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .font(theme.type.body)
                     .cmuxMobileInputField()
@@ -626,18 +630,16 @@ private struct PairMacCTAStyle: ButtonStyle {
         let pressed = configuration.isPressed
         configuration.label
             .font(theme.type.cta)
-            .foregroundStyle(primary ? theme.colors.onAccent : theme.colors.label)
+            .foregroundStyle(primary ? theme.colors.neutralOnAccent : theme.colors.label)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, theme.metrics.ctaInlinePadding)
             // Grows with Dynamic Type instead of clipping its label.
             .padding(.vertical, 12)
             .frame(minHeight: CmuxMobileCapsuleSize.large.height)
-            .background(theme.colors.accent.color.opacity(primary ? 1 : 0), in: .capsule)
+            // Held: the pressed wash over the fill; the label never dims or shrinks.
+            .cmuxMobilePressFill(pressed, rest: AnyShapeStyle(theme.colors.neutralAccent.color.opacity(primary ? 1 : 0)), in: Capsule())
             .contentShape(.rect)
-            .opacity(pressed ? 0.85 : 1)
-            .scaleEffect(primary && pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 }
 

@@ -135,6 +135,23 @@ fn pull_requests_roll_up_with_the_repository_they_name() {
 }
 
 #[test]
+fn a_pull_requests_rollup_carries_its_cloud_compute_beside_model_spend() {
+    let l = mem();
+    let pr = "https://github.com/acme/widgets/pull/8";
+    let spend = |cost: f64, compute: f64| json!({"model": "claude-opus-5-5", "costUsd": cost, "computeCostUsd": compute});
+    turn(&l, "a", D0, 0, spend(1.0, 0.25), "claude", "claude");
+    l.note_pull_request("a", pr);
+    turn(&l, "a", D0 + 60_000, 0, spend(2.0, 0.5), "claude", "claude");
+    let reply = l.query(&all(D0, D0 + DAY - 1));
+    let prs = rollup(&reply, "pr");
+    assert_eq!(prs[0]["key"], pr);
+    // Model spend stays `costUsd`; compute is its own, so a task's cost is the two added.
+    assert_eq!(prs[0]["costUsd"], 3.0);
+    assert_eq!(prs[0]["computeCostUsd"], 0.75);
+    assert_eq!(reply.totals.compute_cost_usd, 0.75);
+}
+
+#[test]
 fn days_are_utc_and_a_range_takes_whole_days() {
     let l = mem();
     let cost = |c: f64| json!({"model": "claude-opus-5-5", "costUsd": c});
@@ -999,4 +1016,40 @@ fn a_deleted_chats_late_record_leaves_its_replacement_alone() {
     r(&l, &new, "turn_started", D0 + 81_000, json!({}));
     r(&l, &new, "turn_result", D0 + 90_000, json!({"costUsd": 1.0}));
     assert_eq!(l.query(&all(D0, D0)).totals.turns, 2);
+}
+
+/// A writer still busy past `close`'s bound is kept, and `wait_closed` returns only once it has
+/// written and ended: the daemon holds its home lock until then (Codex review of #42296, where
+/// `close` gave up on the writer and the lock went while it still wrote).
+#[test]
+fn a_writer_past_the_close_bound_is_waited_for_until_its_lines_are_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let l = std::sync::Arc::new(Ledger::open_with(
+        Some(dir.path().to_path_buf()),
+        COMPACT_BYTES,
+        "leo@test".into(),
+    ));
+    let done = json!({"status": "completed"});
+    turn(&l, "slow-disk", D0, 1, done, "claude", "anthropic");
+    // The seed's rewrite reads the state under its lock: held here, the writer is a slow one.
+    let held = l.lock();
+    l.send(Work::Seed);
+    assert!(!l.close(std::time::Duration::from_millis(50)), "the held writer ended");
+    let ended = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let waiter = {
+        let (l, ended) = (l.clone(), ended.clone());
+        std::thread::spawn(move || {
+            l.wait_closed();
+            ended.store(true, std::sync::atomic::Ordering::SeqCst);
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(
+        !ended.load(std::sync::atomic::Ordering::SeqCst),
+        "wait_closed returned while the writer still had its rewrite to write"
+    );
+    drop(held);
+    waiter.join().unwrap();
+    let text = std::fs::read_to_string(dir.path().join(super::store::FILE)).unwrap();
+    assert!(text.contains("slow-disk"), "the writer's lines are not on disk: {text}");
 }

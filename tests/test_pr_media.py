@@ -15,6 +15,13 @@ from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("pr_media", ROOT / "scripts/pr-media.py")
@@ -79,7 +86,7 @@ class Origin:
         api = mock.patch.object(MODULE, "API_RUNNER", self.api)
         api.start()
         case.addCleanup(api.stop)
-        subprocess.run(["git", "init", "-q", "--bare", str(self.bare)], check=True)
+        git_fixture_env.init_repo(self.bare, "--bare")
         git(self.bare, "config", "uploadpack.allowFilter", "true")
         git(self.bare, "config", "uploadpack.allowAnySHA1InWant", "true")
         self.writer = self.root / "writer"
@@ -682,6 +689,69 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(files["9/abc/next-tour/keep.png"], b"old 9/abc/next-tour/keep.png")
         self.assertEqual(origin.commits(), before + 1)
 
+    def test_an_upload_leaves_none_of_its_objects_in_the_cache_clone(self):
+        # Every upload used to stay in the clone (hash-object -w, never pruned): gigabytes a day on a busy
+        # host. Its blobs, trees and commit now live in a scratch object dir that goes with the push.
+        origin = Origin(self, existing=["12/shot.png"])
+        clone = origin.root / "cache" / "o_r.git"
+        MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
+
+        data = PNG + os.urandom(1 << 20)
+        with tempfile.TemporaryDirectory() as scratch:
+            big = written(scratch, "big.png", data)
+            MODULE.put_files("o/r", "pr-media", {"12/big.png": big, "13/big.png": big}, "m", checked=True)
+            MODULE.put_file("o/r", "pr-media", "12/again.png", big, "m", checked=True)
+        self.assertEqual(origin.files()["12/big.png"], data)
+        blob = origin.blob("12/big.png")
+        self.assertNothingWritten(clone, blob)
+        # The fetched trees are all that is packed: far under the one upload's size.
+        packed = sum(path.stat().st_size for path in (clone / "objects").rglob("*") if path.is_file())
+        self.assertLess(packed, len(data) // 4)
+        # The clone is still whole: every ref names an object it has, and the next read sees the upload.
+        for sha in git(clone, "for-each-ref", "--format=%(objectname)").split():
+            git(clone, "cat-file", "-e", f"{sha}^{{tree}}")
+        self.assertEqual(MODULE.existing_sha("o/r", "pr-media", "12/again.png"), blob)
+        MODULE._BRANCHES.clear()
+        self.assertEqual(MODULE.existing_sha("o/r", "pr-media", "13/big.png"), blob)
+
+    def test_a_killed_uploads_scratch_objects_are_removed_by_the_next_upload(self):
+        origin = Origin(self)
+        MODULE.require_branch("o/r", "pr-media")
+        MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
+        left = origin.root / "cache" / "o_r.git" / MODULE.WRITE_OBJECTS / "ab"
+        left.mkdir(parents=True)
+        (left / "cdef").write_bytes(b"x" * 4096)
+        with tempfile.TemporaryDirectory() as scratch:
+            MODULE.put_file("o/r", "pr-media", "7/mine.png", written(scratch, "mine.png", PNG), "m", checked=True)
+        self.assertEqual(origin.files()["7/mine.png"], PNG)
+        self.assertFalse(left.parent.exists())
+
+    def test_a_failed_upload_leaves_no_objects_either(self):
+        origin = Origin(self)
+        clone = origin.root / "cache" / "o_r.git"
+        MODULE.existing_sha("o/r", "pr-media", "12/shot.png")
+        real_git = MODULE.MediaBranch.git
+
+        def git_refusing(store, *args, **kwargs):
+            if args[0] == "push":
+                return SimpleNamespace(returncode=1, stdout="", stderr="! [remote rejected] hook declined")
+            return real_git(store, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.MediaBranch, "git", git_refusing), \
+                self.assertRaises(MODULE.MediaError):
+            MODULE.put_file("o/r", "pr-media", "7/mine.png", written(scratch, "mine.png", PNG), "m", checked=True)
+        uploaded = subprocess.run(["git", "hash-object", "--stdin"], input=PNG, capture_output=True, check=True)
+        self.assertNothingWritten(clone, uploaded.stdout.decode().strip())
+
+    def assertNothingWritten(self, clone, blob):
+        """No loose object (an upload's would be), no scratch dir, and the uploaded blob is not there."""
+        loose = [path for path in (clone / "objects").glob("[0-9a-f][0-9a-f]/*")]
+        self.assertEqual(loose, [])
+        self.assertFalse((clone / MODULE.WRITE_OBJECTS).exists())
+        missing = subprocess.run(["git", "-C", str(clone), "cat-file", "-e", blob],
+                                 env={**os.environ, "GIT_NO_LAZY_FETCH": "1"}, capture_output=True)
+        self.assertNotEqual(missing.returncode, 0)
+
     def test_a_write_that_lost_a_race_is_built_again_on_the_new_tip(self):
         # Two sessions uploading to the branch at once: the rejected push is the branch moving under us,
         # not a reason to lose the clip, nor to drop the other session's.
@@ -817,9 +887,9 @@ class UploadTests(unittest.TestCase):
         # Review of #28265: the token helper was appended after the host's own, and git stops at the first
         # helper that answers, so a cached account (one without push access, say) was used instead of GH_TOKEN.
         cached = '!f() { test "$1" = get || exit 0; echo username=cached; echo password=CACHED; }; f'
-        env = {"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CONFIG_NOSYSTEM": "1",
+        env = git_fixture_env.fixture_env({"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CONFIG_NOSYSTEM": "1",
                "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": "1",
-               "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": cached, "GH_TOKEN": "t0ken"}
+               "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": cached, "GH_TOKEN": "t0ken"})
         with mock.patch.dict(os.environ, env, clear=True):
             args = MODULE.credential_args()
             filled = subprocess.run(["git", *args, "credential", "fill"], input="url=https://github.com/o/r.git\n\n",
@@ -1215,8 +1285,8 @@ class PrivacyTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.scratch = temporary.name
         # A CI step inside .github/actions/pr-media-publish (PR_MEDIA_PUBLISH_GATE).
-        self.env = {"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
-                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"}
+        self.env = git_fixture_env.fixture_env({"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
+                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"})
         self.authors = {7: "bot-a", 8: "teammate"}
         self.ocr_calls = []
         self.lookups = []
@@ -1327,7 +1397,7 @@ class PrivacyTests(unittest.TestCase):
         self.assertIn("8/shot.png", err)
 
     def test_off_ci_a_hit_is_refused_too(self):
-        self.env = {"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'}
+        self.env = git_fixture_env.fixture_env({"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'})
         frame = written(self.scratch, "shot.png", PNG + b"TERM")
         gh = FakeGh()
         code, _, err = self.run_main(["--pr", "8", str(frame)], runner=gh)

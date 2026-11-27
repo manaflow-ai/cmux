@@ -23,6 +23,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var sideChat: Bool
     /// A prompt that was not sent: its row, for Retry.
     var retryRowId: String?
+    var sendPromptAgain: AgentPanePromptAgainMenu?
     /// The message's web links and images, for Open Link.
     var links: [URL]
     /// The pointer is on an image the page opens on click.
@@ -34,7 +35,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var part: AgentPaneMenuPart?
 
     init(text: String, rowId: String? = nil, sessionId: String? = nil, markdown: String? = nil, replyTime: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
-         links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil) {
+         links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil, sendPromptAgain: AgentPanePromptAgainMenu? = nil) {
         self.rowId = rowId
         self.sessionId = sessionId
         self.text = text
@@ -43,6 +44,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         self.forkSeq = forkSeq
         self.sideChat = sideChat
         self.retryRowId = retryRowId
+        self.sendPromptAgain = sendPromptAgain
         self.links = links
         self.opensImage = opensImage
         self.hasImage = hasImage ?? opensImage
@@ -62,7 +64,9 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
         hasImage = opensImage || ((object["image"] as? NSNumber)?.boolValue ?? false)
         part = AgentPaneMenuPart(report: object["part"])
-        guard !text.isEmpty || hasImage || part != nil else { return nil }
+        let resend = AgentPanePromptAgainMenu(report: object["sendPromptAgain"])
+        sendPromptAgain = resend?.sessionId == sessionId ? resend : nil
+        guard !text.isEmpty || hasImage || part != nil || sendPromptAgain != nil else { return nil }
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         replyTime = (object["replyTime"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -315,6 +319,7 @@ enum AgentPaneContextMenu {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.quoteInReply, symbol: "text.quote") { actions.quoteReply(quoted) })
             }
             if let row = target.retryRowId {
+                // retry-prompt-ok: re-sends a model turn (a paid request)
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry, symbol: "arrow.clockwise") { actions.retry(row) })
             }
             if target.isPrompt {
@@ -327,7 +332,7 @@ enum AgentPaneContextMenu {
                 })
             }
             if let seq = target.forkSeq {
-                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.triangle.branch") { actions.fork(seq) })
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere, symbol: "arrow.branch") { actions.fork(seq) })
                 // The chat menu's New side chat, through this turn (the page's `chat.side`).
                 if target.sideChat {
                     message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openInSideChat, symbol: "sidebar.right") {
@@ -343,12 +348,13 @@ enum AgentPaneContextMenu {
             // On a link, the part's Open Link stands for the message's.
             links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []
         }
+        if selection == nil, let resend = target?.sendPromptAgain {
+            message += resend.items(page: actions.page)
+        }
         // A reply's menu opens on its non-interactive date and time header (not a selection's).
         let header: [NSMenuItem]
         if target?.markdown != nil, let time = target?.replyTime {
-            let item = NSMenuItem(title: time, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            header = [item]
+            header = [AgentPaneMenuTimeHeader.item(time)]
         } else {
             header = []
         }
@@ -422,43 +428,43 @@ enum AgentPaneContextMenu {
 enum AgentPaneMenuStrings {
     /// The UI pointer picker's row; holding Option shows developer tools' Inspect Element instead.
     static var pointAtElement: String {
-        String(localized: "agentPane.menu.pointAtElement", defaultValue: "Point at Element…", bundle: .module)
+        String(localized: "agentPane.menu.pointAtElement", defaultValue: "Point at Element…", bundle: .localizedModule)
     }
 
     static var openImage: String {
-        String(localized: "agentPane.menu.openImage", defaultValue: "Open Image", bundle: .module)
+        String(localized: "agentPane.menu.openImage", defaultValue: "Open Image", bundle: .localizedModule)
     }
 
     static var copyFile: String {
-        String(localized: "agentPane.menu.copyFile", defaultValue: "Copy", bundle: .module)
+        String(localized: "agentPane.menu.copyFile", defaultValue: "Copy", bundle: .localizedModule)
     }
 
     static var saveAs: String {
-        String(localized: "agentPane.menu.saveAs", defaultValue: "Save As…", bundle: .module)
+        String(localized: "agentPane.menu.saveAs", defaultValue: "Save As…", bundle: .localizedModule)
     }
 
     static var copyImage: String {
-        String(localized: "agentPane.menu.copyImage", defaultValue: "Copy Image", bundle: .module)
+        String(localized: "agentPane.menu.copyImage", defaultValue: "Copy Image", bundle: .localizedModule)
     }
 
     static var saveImageAs: String {
-        String(localized: "agentPane.menu.saveImageAs", defaultValue: "Save Image As…", bundle: .module)
+        String(localized: "agentPane.menu.saveImageAs", defaultValue: "Save Image As…", bundle: .localizedModule)
     }
 
     static var quickLook: String {
-        String(localized: "agentPane.menu.quickLook", defaultValue: "Quick Look", bundle: .module)
+        String(localized: "agentPane.menu.quickLook", defaultValue: "Quick Look", bundle: .localizedModule)
     }
 
     static var showInFinder: String {
-        String(localized: "agentPane.menu.showInFinder", defaultValue: "Show in Finder", bundle: .module)
+        String(localized: "agentPane.menu.showInFinder", defaultValue: "Show in Finder", bundle: .localizedModule)
     }
 
     static var copyMessage: String {
-        String(localized: "agentPane.menu.copyMessage", defaultValue: "Copy message", bundle: .module)
+        String(localized: "agentPane.menu.copyMessage", defaultValue: "Copy message", bundle: .localizedModule)
     }
 
     static var copyMessageAsMarkdown: String {
-        String(localized: "agentPane.menu.copyMessageAsMarkdown", defaultValue: "Copy message as Markdown", bundle: .module)
+        String(localized: "agentPane.menu.copyMessageAsMarkdown", defaultValue: "Copy message as Markdown", bundle: .localizedModule)
     }
 
     /// Compatibility for callers that still refer to the old plain-text key.
@@ -467,83 +473,84 @@ enum AgentPaneMenuStrings {
     }
 
     static var retry: String {
-        String(localized: "agentPane.menu.retry", defaultValue: "Retry", bundle: .module)
+        // retry-prompt-ok: re-sends a model turn (a paid request)
+        String(localized: "agentPane.menu.retry", defaultValue: "Retry", bundle: .localizedModule)
     }
 
     static var editAndResend: String {
-        String(localized: "agentPane.menu.editAndResend", defaultValue: "Edit and Resend", bundle: .module)
+        String(localized: "agentPane.menu.editAndResend", defaultValue: "Edit and Resend", bundle: .localizedModule)
     }
 
     static var openLink: String {
-        String(localized: "agentPane.menu.openLink", defaultValue: "Open Link", bundle: .module)
+        String(localized: "agentPane.menu.openLink", defaultValue: "Open Link", bundle: .localizedModule)
     }
 
     static var copyLink: String {
-        String(localized: "agentPane.menu.copyLink", defaultValue: "Copy Link", bundle: .module)
+        String(localized: "agentPane.menu.copyLink", defaultValue: "Copy Link", bundle: .localizedModule)
     }
 
     static var copyCode: String {
-        String(localized: "agentPane.menu.copyCode", defaultValue: "Copy Code", bundle: .module)
+        String(localized: "agentPane.menu.copyCode", defaultValue: "Copy Code", bundle: .localizedModule)
     }
 
     static var copyCommand: String {
-        String(localized: "agentPane.menu.copyCommand", defaultValue: "Copy Command", bundle: .module)
+        String(localized: "agentPane.menu.copyCommand", defaultValue: "Copy Command", bundle: .localizedModule)
     }
 
     static var copyOutput: String {
-        String(localized: "agentPane.menu.copyOutput", defaultValue: "Copy Output", bundle: .module)
+        String(localized: "agentPane.menu.copyOutput", defaultValue: "Copy Output", bundle: .localizedModule)
     }
 
     static var open: String {
-        String(localized: "agentPane.menu.open", defaultValue: "Open", bundle: .module)
+        String(localized: "agentPane.menu.open", defaultValue: "Open", bundle: .localizedModule)
     }
 
     static var copyPath: String {
-        String(localized: "agentPane.menu.copyPath", defaultValue: "Copy Path", bundle: .module)
+        String(localized: "agentPane.menu.copyPath", defaultValue: "Copy Path", bundle: .localizedModule)
     }
 
     static var openLinks: String {
-        String(localized: "agentPane.menu.openLinks", defaultValue: "Open Links", bundle: .module)
+        String(localized: "agentPane.menu.openLinks", defaultValue: "Open Links", bundle: .localizedModule)
     }
 
     static var quoteInReply: String {
-        String(localized: "agentPane.menu.quoteInReply", defaultValue: "Quote in Reply", bundle: .module)
+        String(localized: "agentPane.menu.quoteInReply", defaultValue: "Quote in Reply", bundle: .localizedModule)
     }
 
     static var attachSelectionAsContext: String {
-        String(localized: "agentPane.menu.attachSelectionAsContext", defaultValue: "Attach selection as context", bundle: .module)
+        String(localized: "agentPane.menu.attachSelectionAsContext", defaultValue: "Attach selection as context", bundle: .localizedModule)
     }
 
     static var askAboutThis: String {
-        String(localized: "agentPane.menu.askAboutThis", defaultValue: "Ask About This", bundle: .module)
+        String(localized: "agentPane.menu.askAboutThis", defaultValue: "Ask About This", bundle: .localizedModule)
     }
 
     /// What Ask About This writes under the quote, for the person to send or change.
     static var askAboutThisPrompt: String {
-        String(localized: "agentPane.menu.askAboutThis.prompt", defaultValue: "Explain this.", bundle: .module)
+        String(localized: "agentPane.menu.askAboutThis.prompt", defaultValue: "Explain this.", bundle: .localizedModule)
     }
 
     static var searchTheWeb: String {
-        String(localized: "agentPane.menu.searchTheWeb", defaultValue: "Search the Web", bundle: .module)
+        String(localized: "agentPane.menu.searchTheWeb", defaultValue: "Search the Web", bundle: .localizedModule)
     }
 
     static var pinAsChapter: String {
-        String(localized: "agentPane.menu.pinAsChapter", defaultValue: "Pin as chapter", bundle: .module)
+        String(localized: "agentPane.menu.pinAsChapter", defaultValue: "Pin as chapter", bundle: .localizedModule)
     }
 
     static var forkFromHere: String {
-        String(localized: "agentPane.menu.forkFromHere", defaultValue: "Fork from Here", bundle: .module)
+        String(localized: "agentPane.menu.forkFromHere", defaultValue: "Fork from Here", bundle: .localizedModule)
     }
 
     static var openInSideChat: String {
-        String(localized: "agentPane.menu.openInSideChat", defaultValue: "Open in Side Chat", bundle: .module)
+        String(localized: "agentPane.menu.openInSideChat", defaultValue: "Open in Side Chat", bundle: .localizedModule)
     }
 
     static var openOnRight: String {
-        String(localized: "agentPane.menu.openOnRight", defaultValue: "Open on Right", bundle: .module)
+        String(localized: "agentPane.menu.openOnRight", defaultValue: "Open on Right", bundle: .localizedModule)
     }
 
     static var goToChat: String {
-        String(localized: "agentPane.menu.goToChat", defaultValue: "Go to Chat", bundle: .module)
+        String(localized: "agentPane.menu.goToChat", defaultValue: "Go to Chat", bundle: .localizedModule)
     }
 }

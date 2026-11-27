@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAuth
+import CmuxMobileBillingUI
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileRealtime
@@ -31,19 +32,34 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let callChief: (() -> Void)?
     /// Screen Sharing with the account's Macs (nil in mock mode: no row).
     let screenSharing: ScreenSharingService?
-    /// The account's Cloud page (Automations) and Connect GitHub (nil: no Cloud rows).
+    /// The account's Cloud pages (Cloud Machines, Automations) and Connect GitHub (nil: no Cloud rows).
     let cloudPages: SettingsCloudPages?
     private let callKeys = OpenAIKeyModel.shared
     private let callPreferences = VoiceCallPreferences.shared
     private let accentTheme = CmuxMobileAccentTheme.shared
+    @Bindable private var macTheme = CmuxMobileMacTheme.shared
+    @AppStorage(CmuxMobilePreferences.Key.tabCardMonograms) private var tabCardMonograms = CmuxMobilePreferences.defaultTabCardMonograms
     @State private var confirmsSignOut = false
     @State private var editingTeam: Team?
     /// One device list for the "Devices" count here and the Devices page.
-    @State private var deviceList = SettingsDeviceList()
+    @State private var deviceList: SettingsDeviceList
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Where a scrolled-to id lands. The ends pin to their edge; a section in
+    /// the middle is centered, since `.top` aligns its header with the top of
+    /// the scroll view, under the inline bar and the menu button (iOS release
+    /// bar read-back: "Settings: menu button clears section header").
+    static func anchor(_ target: String) -> UnitPoint {
+        switch target {
+        case "bottom": .bottom
+        case "top": .top
+        default: .center
+        }
+    }
+
     public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, cloudPages: SettingsCloudPages? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+        _deviceList = State(initialValue: SettingsDeviceList(cache: auth.apiBaseURL == nil ? nil : auth.lastKnownList(screen: "devices")))
         self.scrollRequest = scrollRequest
         self.callChief = callChief
         self.screenSharing = screenSharing
@@ -65,6 +81,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             ScrollViewReader { proxy in
             List {
                 accountSection.id("top")
+                // Plan: the current plan and the App Store plans screen; nothing
+                // when the root injected no billing model (mock, DEBUG, staging).
+                MobileSettingsPlanSection()
                 if let team = store.activeTeam {
                     Section {
                         NavigationLink(value: SettingsRoute.team) {
@@ -94,13 +113,27 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 if let cloudPages {
                     // The Mac's Automations and Artifacts pages and Connect GitHub, with this account's own sign-in.
                     Section {
+                        NavigationLink(value: SettingsRoute.cloudMachines) {
+                            SettingsLabel("Cloud Machines", symbol: "cloud")
+                        }
+                        .accessibilityIdentifier("settings.cloudMachines")
                         NavigationLink(value: SettingsRoute.automations) {
                             SettingsLabel("Automations", symbol: "clock.badge.checkmark")
                         }
                         .accessibilityIdentifier("settings.automations")
                         cloudPages.connectGitHub()
+                        // AutoCloud (the Mac's `cloud.autoCloud`), this phone's own choice.
+                        Toggle(isOn: $settings.cloudAutoMode) {
+                            SettingsLabel(verbatim: String(localized: "mobile.settings.cloudAutoMode", defaultValue: "AutoCloud", bundle: .module),
+                                          symbol: "arrow.triangle.2.circlepath")
+                        }
+                        .accessibilityIdentifier("settings.cloudAutoMode")
                     } header: {
                         Text("Cloud")
+                    } footer: {
+                        Text(String(localized: "mobile.settings.cloudAutoMode.footer",
+                                    defaultValue: "AutoCloud shows the chats that keep running in the Cloud when your Mac sleeps or goes offline.",
+                                    bundle: .module))
                     }
                 }
                 Section {
@@ -112,6 +145,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     NavigationLink(value: SettingsRoute.terminal) {
                         SettingsLabel("Terminal", symbol: "apple.terminal", value: "\(settings.terminalFontSize) pt")
                     }
+                    NavigationLink(value: SettingsRoute.browser) {
+                        SettingsLabel("Browser", symbol: "globe", value: settings.browserOpenDefault.shortTitle)
+                    }
+                    .accessibilityIdentifier("settings.browser.row")
                     NavigationLink(value: SettingsRoute.composer) {
                         SettingsLabel("Composer", symbol: "keyboard", value: settings.followUp.title)
                     }
@@ -120,6 +157,15 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Compact workspace list", symbol: "rectangle.grid.1x2")
                     }
                     .accessibilityIdentifier("settings.compactWorkspaceList")
+                    // The Mac's Needs You Look (`notifications.attention.mark`): a waiting workspace's
+                    // dot, or a gentle glow until it is opened. Badge by default (Leo, 2026-11-19).
+                    Picker(selection: $settings.attentionMark) {
+                        ForEach(AttentionMarkLook.allCases) { Text($0.title).tag($0) }
+                    } label: {
+                        SettingsLabel("Needs You look", symbol: "bell.badge")
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("settings.attentionMark")
                     NavigationLink(value: SettingsRoute.longPressMenus) {
                         SettingsLabel("Long-Press Menus", symbol: "contextualmenu.and.cursorarrow")
                     }
@@ -128,8 +174,15 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
+                    // ask-87d30da8e5: on (the default), the chrome, wallpaper, accent (until one is picked) and
+                    // terminals follow the Mac's theme; off, the phone's own stock look. Leo, 2026-11-22: "if you
+                    // want it different, then it's a toggle."
+                    Toggle(isOn: $macTheme.matchesMac) {
+                        SettingsLabel("Match Mac theme", symbol: "macbook.and.iphone")
+                    }
+                    .accessibilityIdentifier("settings.matchMacTheme")
                     NavigationLink(value: SettingsRoute.accentColor) {
-                        SettingsLabel("Accent color", symbol: "paintpalette", value: accentTheme.accent.title)
+                        SettingsLabel("Accent color", symbol: "paintpalette", value: AccentColorPage.title(accentTheme))
                     }
                     .accessibilityIdentifier("settings.accentColor")
                     Toggle(isOn: $settings.hapticsEnabled) {
@@ -156,6 +209,11 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     NavigationLink(value: SettingsRoute.transport) {
                         SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
                     }
+                    // Experiment (off by default): a tab card with no picture yet shows its site's letter.
+                    Toggle(isOn: $tabCardMonograms) {
+                        SettingsLabel("Site Monograms on Tab Cards", symbol: "textformat.alt")
+                    }
+                    .accessibilityIdentifier("settings.tabCardMonograms")
                 } header: {
                     Text("Advanced")
                 }
@@ -169,9 +227,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     LinkRow("Join the cmux Discord", symbol: "bubble.left.and.bubble.right", url: "https://discord.gg/xsgFEVrWCZ")
                     LinkRow("Follow @cmux on X", symbol: "at", url: "https://x.com/cmux")
                     LinkRow("cmux on GitHub", symbol: "chevron.left.forwardslash.chevron.right", url: "https://github.com/manaflow-ai/cmux")
-                    // The new-issue page, not the Mac's prefilled bug report form: that form requires a macOS
-                    // version, a Mac chip and an install method, none of which an iPhone report has.
-                    LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
+                    // The Mac's bug report form, marked so HQ counts the report (FeedbackFormLink); its macOS,
+                    // chip and install fields describe the paired Mac.
+                    LinkRow("Send feedback", symbol: "envelope", url: Self.feedbackURL)
                         .accessibilityIdentifier("settings.sendFeedback")
                     CopyLogsRow()
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
@@ -196,6 +254,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     .accessibilityIdentifier("settings.logout")
                     .confirmationDialog("Sign out of cmux?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
                         Button("Sign out", role: .destructive) { Task { await auth.signOut() } }
+                        Button("Cancel", role: .cancel) {}
                     }
                 } footer: {
                     VersionFooter().id("bottom")
@@ -203,7 +262,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             }
             .onChange(of: scrollRequest) { _, target in
                 guard let target else { return }
-                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { proxy.scrollTo(target, anchor: target == "bottom" ? .bottom : .top) }
+                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { proxy.scrollTo(target, anchor: Self.anchor(target)) }
             }
             .listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)
@@ -219,7 +278,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 TeamAppearanceEditor(team: team) { saveAppearance($0, team) }
             }
             // The count follows the account's Macs as discovery finds them.
-            .task(id: store.accountMacCount) { await deviceList.load(directory) }
+            .task(id: SettingsDeviceList.RefreshSource(directory: directory.map(ObjectIdentifier.init),
+                                                       macCount: store.accountMacCount)) { await deviceList.load(directory) }
             .onAppear { Task { notificationPermission = await NotificationPermission.current() } }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
@@ -232,8 +292,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 
     /// The Devices page's Mac rows, counted; no value until they load.
     private var devicesValue: String? {
-        SettingsDeviceRows.rootValue(service: deviceList.devices, hasService: directory != nil,
-                                     liveMacs: store.teams.flatMap(\.macs))
+        deviceList.macs(store: store, hasService: directory != nil).map { String($0.count) }
     }
 
     private var transportValue: String {
@@ -268,31 +327,49 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .account: AccountPage(auth: auth, directory: directory)
         case .team:
             if let team = store.activeTeam {
-                TeamPage(team: team, auth: auth, edit: { editingTeam = team }, invite: { inviteToTeam(team) })
+                TeamPage(team: team, auth: auth, cache: auth.lastKnownList(screen: "members", teamID: team.id),
+                         edit: { editingTeam = team }, invite: { inviteToTeam(team) })
+                    .id(team.id)
             }
         case .transport: TransportPage(settings: settings, store: store, relayAvailable: directory?.relayAvailable)
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
-        case .terminalSizing: TerminalSizingMacsPage(store: store)
-        case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
-        case .composer: ComposerPage(settings: settings)
+        case .terminalSizing: TerminalSizingMacsPage(store: store, accountID: auth.user?.id, directory: directory, list: deviceList)
+        case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, list: deviceList, peers: directory?.terminalSizingPeers, service: sizing)
+        case .composer: ComposerPage(settings: settings, voice: callPreferences)
+        case .browser: BrowserSettingsPage(settings: settings)
         case .accentColor: AccentColorPage(accents: accentTheme)
-        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs)
+        case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs,
+                                                       permission: notificationPermission)
         case .acknowledgements: AcknowledgementsPage()
         case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
         case .screenSharing:
             if let screenSharing { ScreenSharingPage(service: screenSharing) }
+        case .cloudMachines:
+            cloudPages?.machines()
         case .automations:
             cloudPages?.automations()
         case .longPressMenus:
             LongPressMenusPage()
         }
     }
+
+    /// Settings > Send feedback: the bug report form with HQ's report marker (FeedbackFormLink).
+    static var feedbackURL: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        return FeedbackFormLink.url(
+            appVersion: info["CFBundleShortVersionString"] as? String ?? "?",
+            build: info["CFBundleVersion"] as? String ?? "?",
+            osVersion: UIDevice.current.systemVersion
+        ).absoluteString
+    }
 }
 
 /// Pushed settings pages.
 public enum SettingsRoute: Hashable, Sendable {
     case account, team, transport, devices, terminal, composer, notifications, acknowledgements
+    /// Browser → Open New Pages: on this iPhone, streamed from the Mac, or Automatic.
+    case browser
     /// Chief Calls: the OpenAI API key, model and voice for live calls with Chief.
     case chiefCalls
     /// Terminal → Terminal Size When Shared, and one Mac's page under it.
@@ -302,6 +379,8 @@ public enum SettingsRoute: Hashable, Sendable {
     case screenSharing
     /// Appearance → Accent color: the one accent every chrome tint reads.
     case accentColor
+    /// Cloud → Cloud Machines (the account's Cloud machines).
+    case cloudMachines
     /// Cloud → Automations (the account's Cloud automations).
     case automations
     /// Long-Press Menus: the menu items the person hid.
@@ -314,8 +393,8 @@ public enum SettingsRoute: Hashable, Sendable {
             self = .devices
             return
         }
-        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
-                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .automations,
+        let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .browser, .notifications,
+                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .cloudMachines, .automations,
                                     .longPressMenus]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
@@ -510,7 +589,7 @@ struct AppearanceTiles: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
@@ -571,6 +650,12 @@ private struct DeveloperSection: View {
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
     @AppStorage(DeveloperOptions.slowApprovalKey) private var slowApproval = false
     @State private var launchedWithMock = DeveloperOptions.mockData
+    /// The Cloud service this launch uses and where it came from (the tag's `CMUX_NEXT_CLOUD_BACKEND`,
+    /// kept from an earlier launch, a rig's variable, or the build's own).
+    @State private var cloudBackend = CloudBackendOverride.cloudService(
+        environment: ProcessInfo.processInfo.environment,
+        infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileCloudAPIBase") as? String,
+        defaults: .standard, debug: true)
 
     var body: some View {
         let mock = DeveloperOptions.mockSwitch(stored: mockData)
@@ -602,6 +687,15 @@ private struct DeveloperSection: View {
                     .foregroundStyle(theme.colors.label3)
                     .lineLimit(1)
             }
+            HStack {
+                SettingsLabel("Cloud backend", symbol: "cloud")
+                Spacer()
+                Text(verbatim: cloudBackend?.label ?? "None")
+                    .foregroundStyle(theme.colors.label3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .accessibilityIdentifier("settings.developer.cloudBackend")
             if mockData != launchedWithMock || !launchDemo.isEmpty {
                 Button(role: .destructive) {
                     exit(0)

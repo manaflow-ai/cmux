@@ -18,11 +18,17 @@ public protocol RestingPlacement: NSView {
     /// gives it at the spring's start. A view that joins the content mid-spring (a split's new pane gets its
     /// terminal from the daemon's echo) asks for it here. Nil at rest or with no size change.
     var restContentSizeChange: CGSize? { get }
+    /// Whether its content waits for this view's own landing to hear the motion ended: on a spring, or held
+    /// until the landing's commit, by a view that tells its content when it lands. A settle from elsewhere (the
+    /// sidebar's slide landing, window-wide) skips it. False by default: a view that never tells its content
+    /// would leave it held for good.
+    var awaitsOwnLanding: Bool { get }
 }
 
 public extension RestingPlacement {
     var isOnLayoutSpring: Bool { restOffset != .zero }
     var restContentSizeChange: CGSize? { nil }
+    var awaitsOwnLanding: Bool { false }
 }
 
 public extension NSView {
@@ -131,6 +137,8 @@ public extension NSView {
     /// Tells every ``PaneMotionSettling`` view in this subtree (this view included) that its
     /// placement's spring landed.
     func notifyPaneMotionSettled() {
+        // A pane still on its own spring hears its own landing (a terminal released its hold mid-spring).
+        if let placement = self as? RestingPlacement, placement.awaitsOwnLanding { return }
         if let settling = self as? PaneMotionSettling { settling.paneMotionDidSettle() }
         for subview in subviews { subview.notifyPaneMotionSettled() }
     }

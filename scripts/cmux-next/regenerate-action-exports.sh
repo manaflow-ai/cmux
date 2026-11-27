@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regenerates the action exports (plans/cmux-next/action-surfaces.json,
-# actions.md and links.json) for the autofix bots, on a Mac runner, and copies
+# action-catalog.json, actions.md and links.json) for the autofix bots, on a Mac runner, and copies
 # the ones that changed into OUT at their repository paths: the --generated
 # DIR of scripts/cmux-next/base-autofix.sh, which copies them over the
 # checkout before it regenerates the docs shortcuts from the new catalog.
@@ -13,7 +13,11 @@
 # (the fleet's artifact store refuses one). A step returns one file, so a lane
 # without a Mac regenerates a pull request's exports with
 #   cmux-ci run --class light --script scripts/cmux-next/regenerate-action-exports.sh \
-#     --ref <pushed head> --key <key> --arg .build/exports --artifact .build/exports.patch
+#     --ref <pushed head> --key <key> --arg .build/exports --artifact .build/exports.patch \
+#     --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
+# (the --env pins the step's Xcode in the worker's own log; without it
+# lib/warm-swiftpm.sh still builds with the repository's pin via
+# select-ci-xcode.sh, never the host's default Xcode).
 #   cmux-ci artifact <step id> exports.patch
 #   git apply --allow-empty exports.patch   # no diff when nothing was stale
 #
@@ -23,12 +27,12 @@ set -euo pipefail
 # swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
 # shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
-cmux_next_require_fleet regenerate-action-exports.sh "swift test" "cmux-next PR autofix / action exports"
+cmux_next_require_fleet regenerate-action-exports.sh "swift test" "cmux-next PR autofix (advisory) / action exports"
 # shellcheck source-path=SCRIPTDIR source=lib/warm-swiftpm.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 out="$(mkdir -p "${1:?usage: $0 OUT}" && cd "$1" && pwd)"
 root="$(git rev-parse --show-toplevel)"
-exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
+exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/action-catalog.json plans/cmux-next/actions.md plans/cmux-next/links.json)
 
 cmux_next_warm_build "$root/Packages/macOS/CmuxNext"
 cd "$root/Packages/macOS/CmuxNext"
@@ -36,7 +40,7 @@ cd "$root/Packages/macOS/CmuxNext"
 # that fails for another reason still leaves them current; that failure is
 # the pull request's to fix, not the autofix's.
 status=0
-CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter 'ActionSurfaceParityTests|LinkExportTests' || status=$?
+CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter 'ActionSurfaceParityTests|ActionCatalogDumpTests|LinkExportTests' || status=$?
 (( status == 0 )) || echo "::warning::the action parity tests failed (exit $status); the exports were still regenerated"
 cd "$root"
 for file in "${exports[@]}"; do

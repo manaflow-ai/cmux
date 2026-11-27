@@ -19,6 +19,7 @@ import {
   teamAuditParams,
 } from "../src/agent-session/acpmux/teamAudit/teamAuditModel";
 import { experimentById } from "../src/experiments/registry";
+import { settleReact } from "./support/domTeardown";
 
 const NOW = Date.UTC(2026, 10, 9, 15, 30);
 
@@ -157,7 +158,8 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [name, value] of saved) {
     if (value === undefined) delete scope[name];
@@ -166,6 +168,20 @@ afterAll(() => {
 });
 
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+
+// Download CSV sits in the Export menu (#50343): the trigger is off until the picked answer shows,
+// and the item saves it.
+const exportMenu = () => host.querySelector<HTMLButtonElement>("[data-menu=team-export]")!;
+const csvItem = () =>
+  [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitem]")].find(
+    (item) => item.textContent?.trim() === "Download CSV",
+  );
+async function downloadCsv() {
+  await act(async () => exportMenu().click());
+  await settle();
+  await act(async () => csvItem()!.click());
+  await settle();
+}
 
 test("Team's table shows each row's measures, and Download CSV asks for the file and says where it went", async () => {
   const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
@@ -185,9 +201,7 @@ test("Team's table shows each row's measures, and Download CSV asks for the file
   expect(rows[0]![0]).toBe("user_a");
   expect(rows[0]).toContain("80%");
   expect(rows[1]).toContain("–");
-  const button = [...host.querySelectorAll("button")].find((each) => each.textContent === "Download CSV")!;
-  await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-  await settle();
+  await downloadCsv();
   expect(calls.at(-1)).toMatchObject({ format: "csv", groupBy: "person" });
   expect(host.textContent).toContain("/Users/a/Downloads/spend.csv");
   await act(async () => root.unmount());
@@ -220,6 +234,83 @@ test("switching the grouping keeps the last rows under their own heading until t
   await settle();
   expect(heading()).toBe("Day");
   expect(keys()).toEqual(["Mon, Nov 9"]);
+  await act(async () => root.unmount());
+});
+
+test("Download CSV waits for the picked grouping's reply, then saves that reply's own days and grouping", async () => {
+  const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
+  const calls: Record<string, unknown>[] = [];
+  let release: (value: unknown) => void = () => undefined;
+  const load = (params: Record<string, unknown>) => {
+    calls.push(params);
+    if (params.format === "csv") return Promise.resolve({ status: "saved", path: "/Users/a/Downloads/spend.csv" });
+    return params.groupBy === "day" ? new Promise((resolve) => (release = resolve)) : Promise.resolve(answer());
+  };
+  const root: Root = createRoot(host);
+  await act(async () => root.render(<TeamAuditScreen load={load} now={NOW} />));
+  await settle();
+  expect(exportMenu().disabled).toBe(false);
+  const trigger = host.querySelector<HTMLElement>(".cst-controls [aria-haspopup=menu]")!;
+  await act(async () => trigger.click());
+  await settle();
+  const day = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find(
+    (item) => item.textContent?.trim() === "Day",
+  )!;
+  await act(async () => day.click());
+  await settle();
+  // The person rows are still on screen while Day loads: Download would save the wrong table, so it waits.
+  expect(exportMenu().disabled).toBe(true);
+  await act(async () => exportMenu().click());
+  await settle();
+  expect(csvItem()).toBeUndefined();
+  expect(calls.some((call) => call.format === "csv")).toBe(false);
+  await act(async () =>
+    release(
+      answer({
+        groupBy: "day",
+        range: { since: "2026-10-12", until: "2026-11-08" },
+        rows: [{ ...totals(), key: "2026-11-08" }],
+      }),
+    ),
+  );
+  await settle();
+  expect(exportMenu().disabled).toBe(false);
+  await downloadCsv();
+  expect(calls.at(-1)).toEqual({ since: "2026-10-12", until: "2026-11-08", groupBy: "day", format: "csv" });
+  await act(async () => root.unmount());
+});
+
+test("a Download clicked with a new grouping, before its read starts, saves nothing", async () => {
+  const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
+  const calls: Record<string, unknown>[] = [];
+  const load = (params: Record<string, unknown>) => {
+    calls.push(params);
+    if (params.format === "csv") return Promise.resolve({ status: "saved", path: "/Users/a/Downloads/spend.csv" });
+    return params.groupBy === "day" ? new Promise(() => {}) : Promise.resolve(answer());
+  };
+  const root: Root = createRoot(host);
+  await act(async () => root.render(<TeamAuditScreen load={load} now={NOW} />));
+  await settle();
+  const trigger = host.querySelector<HTMLElement>(".cst-controls [aria-haspopup=menu]")!;
+  await act(async () => trigger.click());
+  await settle();
+  const day = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find(
+    (item) => item.textContent?.trim() === "Day",
+  )!;
+  expect(exportMenu().disabled).toBe(false);
+  await act(async () => exportMenu().click());
+  await settle();
+  const stale = csvItem()!;
+  expect(stale.isConnected && day.isConnected).toBe(true);
+  // One act: the pick and the click land before React renders or runs the read's effect, so the
+  // click goes to the handler of the render that still shows the person reply.
+  act(() => {
+    day.click();
+    stale.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  await settle();
+  expect(calls.filter((call) => call.format === "csv")).toEqual([]);
+  expect(exportMenu().disabled).toBe(true);
   await act(async () => root.unmount());
 });
 

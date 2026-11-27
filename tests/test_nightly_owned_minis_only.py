@@ -10,15 +10,18 @@ legacy-identity copies) on Linux.
 1. Each job's runs-on, evaluated for manaflow-ai over sampled attempts, refs, events and picker
    outputs, names a glaeda label (or a variable that holds one). Lawrence, 2026-11-04: "Never move a
    nightly job to Blacksmith, a GitHub-hosted runner or another mini". HOSTED_TAIL_JOBS are the only
-   exceptions, each with its reason, and this list may only shrink. Each one holds a release secret
+   exceptions, each with its reason, and this list may only shrink. CMUX_LINUX_JOBS, the secret-free Linux
+   controls, take our own persistent Linux pool (cmux-linux) instead. Each HOSTED_TAIL_JOBS job holds a release secret
    (so never the nightly mini's shared light runners) and runs only in the tail (run_tail: on nightly-next
-   the dispatched run outside the push group), so a hosted queue never holds the push group or the
-   feed: GitHub-hosted ubuntu-24.04 had 307 jobs queued, the oldest for 39 min, on 2026-11-08. On the
+   the dispatched run outside the push group), so a JIT VM's start never holds the push group or the
+   feed. On every attempt each takes the owned one-job JIT label cmux-gcp-nightly-jit-x64 (an ephemeral
+   GCP VM), never GitHub-hosted Ubuntu: hosted runners start nothing in manaflow-ai (Leo, 2026-11-21:
+   "the ci must flow"), and hosted ubuntu-24.04 had 307 jobs queued, the oldest for 39 min, on 2026-11-08. On the
    trusted signing runner each would hold the whole Mac (glaeda's exclusive class) for a long or
    wait-bound stretch while the next run builds and signs there. Every job in the push run, and every
    short secret job, takes the trusted signing runner instead. HOSTED_LOOP_JOBS is Leo's override for one
    loop-run job, the GitHub release upload (2026-11-08: "no. if this is still a good idea, we can still do it."):
-   it holds the release App key, so it runs on an ephemeral hosted VM, as publish-release-notes does with the
+   it holds the release App key, so it runs on an ephemeral one-job JIT VM, as publish-release-notes does with the
    same key, rather than holding the whole signing Mac; it never takes a mini or the whole-Mac claim.
 2. The Linux release-signer pool is gone: the jobs, the sign_pool input and the
    CI_NIGHTLY_NEXT_SIGN_POOL switch. The Mac signers sign every nightly.
@@ -33,10 +36,12 @@ legacy-identity copies) on Linux.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -49,6 +54,7 @@ from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import evaluate  # noqa: E402
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import JOBS, ROOT  # noqa: E402
+import workflow_jobs  # noqa: E402
 from test_nightly_never_blacksmith import manaflow_route as fork_free_route  # noqa: E402
 from test_ci_signing_owned_mac import CLAIM, CLAIM_GATE_ID, claim_gate_for, picker_ref_failures  # noqa: E402
 
@@ -57,37 +63,104 @@ import yaml  # noqa: E402
 WORKFLOW_TEXT = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
 RAW = yaml.safe_load(WORKFLOW_TEXT)
 
-# The only nightly.yml jobs on GitHub-hosted Ubuntu: secret jobs that run only in the tail, outside the push group,
-# whose whole-Mac hold on the trusted signing runner would be long or wait-bound. job -> why it stays hosted.
+# The owned one-job JIT label (an ephemeral GCP VM per job): every attempt of each job below. It replaced
+# GitHub-hosted ubuntu-24.04, which starts nothing in manaflow-ai (Leo, 2026-11-21: "the ci must flow").
+JIT_LABEL = "cmux-gcp-nightly-jit-x64"
+
+
+def hosted_route(name: str, attempt: object) -> str:
+    """The label an ephemeral (tail or loop) job resolves to on a manaflow-ai run: the JIT label on every attempt."""
+    del name, attempt
+    return JIT_LABEL
+
+
+# The only nightly.yml jobs off our minis: secret jobs that run only in the tail, outside the push group, whose
+# whole-Mac hold on the trusted signing runner would be long or wait-bound. They take JIT_LABEL, never a hosted or
+# Blacksmith runner. job -> why it stays off the minis.
 HOSTED_TAIL_JOBS = {
     "sentry-dsyms-nightly": "a Sentry upload of 10.8 and 19.7 min (runs 41471126151, 41466468306)",
     "sign-release-notes": "a span fetch that waits through API rate limits (70 min), and release-notes.py's "
                           "openssl pkeyutl -rawin, which macOS's LibreSSL lacks",
     "publish-release-notes": "up to 130 min of publish-lease and API rate-limit waits",
     "publish-nightly-reel": "an ffmpeg render of up to 90 min",
+    # Leo, 2026-11-25: "freeing up the Mac's from doing things that don't need Mac's asap". No secret, but a
+    # pull-requests: write token, so the one-job JIT VM rather than the shared persistent cmux-linux pool.
+    "published-in": "up to 300 min of paced PR comments through the API (7.5 s a write); compiles nothing",
 }
-# Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on GitHub-hosted
-# Ubuntu. job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
+# The post-feed dispatch jobs (#56483): a refused dispatch moves to cmux-bot's and the CI pools' installation hours at
+# once instead of sleeping out github.token's (run 45562645699 slept 18.4 and 12.9 min), so each mints those App
+# tokens. #56483 moved them off the mini to keep the keys off it; they take the one-job JIT VM, not the PR-shared
+# persistent Linux runners. They run in the push run too (after nightly-next-one or publish), so a slow JIT start
+# delays the push group's end: the stated cost, as for HOSTED_LOOP_JOBS. They hold only the dispatch keys. job -> why.
+HOSTED_DISPATCH_JOBS = {
+    "wake-nightly-next-tick": "asks main's nightly-next tick; a refused dispatch moves to another App's hour",
+    "dispatch-published-in": "asks for the post-publication run; a refused dispatch moves to another App's hour",
+}
+HOSTED_DISPATCH_SECRETS = {"CMUX_BOT_APP_KEY", "CMUX_CI_POOL_KEYS"}
+# Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on an ephemeral
+# VM (GitHub-hosted Ubuntu then, JIT_LABEL now). job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
 # runs 42547726872, 42552327203, 42555458535, 42563930397) kept the signer from the next sign; a hosted job queued
-# 2-89 s in the same runs' tails. It holds the push group as before, so a hosted queue like 2026-11-08's 39 min would
-# hold it too: the stated cost.
+# 2-89 s in the same runs' tails. It holds the push group as before, so a slow JIT VM start would hold it too: the
+# stated cost.
 HOSTED_LOOP_JOBS = {
     "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
-                                   "an ephemeral hosted VM; on the signer it held the whole Mac",
+                                   "an ephemeral JIT VM; on the signer it held the whole Mac",
 }
-# Jobs on our minis for nightly-next only. Every other track (classic, RC) goes GitHub-hosted through this
-# short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
+# The secret-free runner preflight ahead of decide left GitHub-hosted Ubuntu on 2026-11-18: the org-wide hosted
+# queue held it 1h25m+ (run 44207617943), and every nightly with it, while the nightly Macs were idle. It now runs on
+# decide's own route: the nightly-only pool, or in one-mini mode vars.CI_NIGHTLY_MINI with the rest of the run
+# (tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
+HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
+# Secret-free Linux controls on our own persistent Linux pool, cmux-linux: one label for every own-branch Linux job.
+HOSTED_DISPATCH_RUNS_ON = f"${{{{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || '{JIT_LABEL}' }}}}"
+# A fork takes GitHub-hosted Ubuntu.
+CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
+CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
+                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
+                   "check-nightly-app-store-shelf", "report-nightly-shelf-red", "published-build")
+# RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
+NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
+                       "published-build")
+NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
+# Jobs on our minis for nightly-next only. Every other track (classic, RC) goes to the JIT label (GitHub-hosted until
+# 2026-11-21) through this short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
 NIGHTLY_NEXT_ONLY_OWNED = {
     "republish-nightly-deltas": "classic and RC release uploads wait out the rate limit (360 min timeout)",
 }
-TRACK_HOSTED = "github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' ||"
+TRACK_HOSTED = f"github.ref != 'refs/heads/nightly-next' && '{JIT_LABEL}' ||"
+# Leo, 2026-11-10: "It's fine to sign on GitHub hosted tonight" (the only signer had no power). An operator switch:
+# vars.CI_NIGHTLY_MINI_PUBLISHER set to exactly ubuntu-24.04 (the value is unchanged) now sends the three Linux
+# publishers to the JIT label, since GitHub-hosted Ubuntu starts nothing in manaflow-ai; any other value, or unset,
+# leaves every route below as it was. The variable is compared, never used as the label. The hosted-macOS signer
+# switch (vars.CI_NIGHTLY_MINI_SIGNER == 'macos-26') is gone: hosted macOS starts nothing either. These tests check
+# the owned route behind the switch.
+_PUBLISHER_SWITCH = f"vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && '{JIT_LABEL}' || "
+HOSTED_SIGNING_SWITCHES = {
+    "publish-nightly": _PUBLISHER_SWITCH,
+    "keep-published-dsyms": _PUBLISHER_SWITCH,
+    "republish-nightly-deltas": _PUBLISHER_SWITCH,
+}
 
 
 def manaflow_route(name: str) -> str:
-    """The manaflow-ai route of a nightly-next run: past the fork and the other-track short-circuits."""
+    """The manaflow-ai route of a nightly-next run: past the fork, the other-track short-circuits and the
+    operator's hosted signing switch."""
     route = fork_free_route(name)
+    if name in HOSTED_SIGNING_SWITCHES:
+        route = route.replace(HOSTED_SIGNING_SWITCHES[name], "", 1)
     return route.replace(TRACK_HOSTED, "", 1) if name in NIGHTLY_NEXT_ONLY_OWNED else route
+
+
+def manaflow_routes(name: str) -> list[str] | None:
+    """manaflow_route of each matrix cell of the job's runs-on (`${{ matrix.pool }}` read as its values), or
+    None when a matrix value nothing resolves: a guard counts that job as off our minis, never as on them."""
+    routes = never_blacksmith.manaflow_routes(name)
+    if routes is None:
+        return None
+    if name in HOSTED_SIGNING_SWITCHES:
+        routes = [route.replace(HOSTED_SIGNING_SWITCHES[name], "", 1) for route in routes]
+    return [route.replace(TRACK_HOSTED, "", 1) for route in routes] if name in NIGHTLY_NEXT_ONLY_OWNED else routes
 
 
 # Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last three ran on
@@ -101,9 +174,10 @@ SIGNER = "glaeda-trusted-next-signing"
 SIGNER_POOL = ("launch-smoke-nightly", "signer-build", "signer-app", "signer-dmg-image", "signer-dmg",
                "legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg",
                "verify-nightly-identity-legacy-pool")
-RECOVERY = ("recover-nightly-next-notarization", "verify-recovered-nightly-next")
 # A label or variable that is not one of our minis: hosted, Blacksmith or fleet Linux.
 NOT_OURS = re.compile(r"ubuntu-|macos-\d|windows-|blacksmith|cmux-fleet-linux", re.IGNORECASE)
+# Off our minis: NOT_OURS, or the owned JIT VM that only the listed ephemeral jobs may take.
+OFF_THE_MINIS = re.compile(NOT_OURS.pattern + "|" + re.escape(JIT_LABEL), re.IGNORECASE)
 OWNED_PICK = ("needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && "
               "needs.find-nightly-next-recovery.outputs.sign_owned && "
               "fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned)")
@@ -126,29 +200,38 @@ class EveryJobOnOurMinis(unittest.TestCase):
         rng = random.Random(41751864551)
         failures = {}
         for name, job in JOBS.items():
-            if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or job.get("uses"):
+            if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
                 continue
-            runs_on = str(job.get("runs-on", ""))
-            if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
-                continue  # cmux_next_media_runner.py --idle-now: an idle owned session runner, else the job skips
-            if runs_on == "${{ matrix.pool }}":
-                bad = [p for p in job["strategy"]["matrix"]["pool"]
-                       if NOT_OURS.search(re.sub(r"github\.repository_owner != 'manaflow-ai' && '[^']*' \|\|", "", p))]
-                if bad:
-                    failures[name] = bad
+            if name in HOSTED_DISPATCH_JOBS:
+                if (workflow_jobs.runs_on_cells(job) != [HOSTED_DISPATCH_RUNS_ON]
+                        or not workflow_jobs.secret_names(job) <= HOSTED_DISPATCH_SECRETS):
+                    failures[name] = "a post-feed dispatch takes the one-job JIT VM and holds only the dispatch keys"
                 continue
-            if not runs_on.startswith("${{"):
-                if not runs_on or NOT_OURS.search(runs_on):
-                    failures[name] = runs_on
+            if name in CMUX_LINUX_JOBS:
+                expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON
+                if workflow_jobs.runs_on_cells(job) != [expected] or workflow_jobs.secret_names(job):
+                    failures[name] = "a cmux-linux control takes only cmux-linux and holds no secret"
                 continue
-            source = manaflow_route(name).removeprefix("${{").removesuffix("}}")
-            expression = parse_expression(source)
-            for _ in range(400):
-                context = sample(source, rng)
-                value = evaluate(expression, context)
-                if not value or NOT_OURS.search(str(value)) or not re.search(r"glaeda", str(value)):
-                    failures[name] = (value, {k: v for k, v in context.items() if v})
-                    break
+            # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
+            cells, routes = workflow_jobs.runs_on_cells(job), manaflow_routes(name)
+            if cells is None or routes is None:
+                failures[name] = "runs-on has a matrix value nothing resolves"
+                continue
+            for runs_on, route in zip(cells or [""], routes or [""]):
+                if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
+                    continue  # cmux_next_media_runner.py --idle-now: an idle owned session runner, else the job skips
+                if not runs_on.startswith("${{"):
+                    if not runs_on or OFF_THE_MINIS.search(runs_on):
+                        failures[name] = runs_on
+                    continue
+                source = route.removeprefix("${{").removesuffix("}}")
+                expression = parse_expression(source)
+                for _ in range(400):
+                    context = sample(source, rng)
+                    value = evaluate(expression, context)
+                    if not value or OFF_THE_MINIS.search(str(value)) or not re.search(r"glaeda", str(value)):
+                        failures[name] = (value, {k: v for k, v in context.items() if v})
+                        break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
 
     def test_other_tracks_keep_the_hosted_route(self) -> None:
@@ -156,26 +239,64 @@ class EveryJobOnOurMinis(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertTrue(fork_free_route(name).lstrip("${ ").startswith(TRACK_HOSTED),
                                 "a non-nightly-next track must not hold the signing Mac through its rate-limit waits")
+                # Off nightly-next it is the ephemeral JIT VM, never GitHub-hosted (which starts nothing here).
+                self.assertNotRegex(manaflow_route(name), NOT_OURS)  # the switch's compared value aside
+                self.assertNotIn("'ubuntu-24.04' ||", fork_free_route(name))
+
+    def test_the_hosted_signing_switch_is_only_on_the_signing_jobs(self) -> None:
+        for name in JOBS:
+            with self.subTest(job=name):
+                cells = workflow_jobs.runs_on_cells(JOBS[name])
+                self.assertIsNotNone(cells, "a runs-on matrix nothing resolves")
+                route = "\n".join(cells)
+                switches = route.count("CI_NIGHTLY_MINI_SIGNER") + route.count("CI_NIGHTLY_MINI_PUBLISHER")
+                self.assertEqual(switches, 1 if name in HOSTED_SIGNING_SWITCHES else 0)
+                if name in HOSTED_SIGNING_SWITCHES:
+                    self.assertIn(HOSTED_SIGNING_SWITCHES[name], route)
+        # The hosted-macOS signer switch is gone: no route reads it.
+        self.assertNotIn("CI_NIGHTLY_MINI_SIGNER", WORKFLOW_TEXT)
 
     def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
-        hosted = {name for name in JOBS if not JOBS[name].get("uses") and NOT_OURS.search(manaflow_route(name))}
-        self.assertEqual(hosted, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS),
-                         "a nightly job may not reach a GitHub-hosted runner")
-        for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
+        off = {name for name in JOBS if not JOBS[name].get("uses")
+               and ((routes := manaflow_routes(name)) is None or any(OFF_THE_MINIS.search(route) for route in routes))}
+        self.assertEqual(off, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_PREFLIGHT_JOBS)
+                         | set(HOSTED_DISPATCH_JOBS),
+                         "a nightly job may not leave our minis")
+        for name in sorted(off):
+            with self.subTest(job=name, ephemeral="jit-only"):
+                # Each listed job takes the owned one-job JIT VM on every attempt: never GitHub-hosted, never Blacksmith.
+                routes = manaflow_routes(name)
+                self.assertIsNotNone(routes)
+                for route in routes:
+                    self.assertNotRegex(route, NOT_OURS)
+                    self.assertIn(f"'{JIT_LABEL}'", route)
+        for name in HOSTED_PREFLIGHT_JOBS:
             with self.subTest(job=name):
-                self.assertIn("secrets.", json.dumps(JOBS[name]), "a hosted job without a secret moves to the light runners")
+                self.assertEqual(workflow_jobs.secret_names(JOBS[name]), set(), "the preflight holds no secret")
+                # issues: write only, for the nightly-next-failure notice (the job's GITHUB_TOKEN; no secret).
+                self.assertEqual(JOBS[name].get("permissions"), {"issues": "write"})
+        for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS, *HOSTED_DISPATCH_JOBS):
+            with self.subTest(job=name):
+                permissions = JOBS[name].get("permissions")
+                writes = isinstance(permissions, dict) and "write" in permissions.values()
+                self.assertTrue(workflow_jobs.secret_names(JOBS[name]) or writes,
+                                "a JIT job without a secret or a write token moves to the light runners")
 
     def test_the_hosted_loop_upload_never_reaches_a_mini(self) -> None:
-        # Leo's override covers this one job only, and only on a hosted VM: no variable, pick or one-mini mode may put
-        # the release App key on a mini without the whole-Mac claim, so its route is the literal hosted label.
+        # Leo's override covers this one job only, and only on an ephemeral VM: no variable, pick or one-mini mode may
+        # put the release App key on a mini without the whole-Mac claim, so its route is the literal JIT label on every
+        # attempt (the fork branch keeps GitHub-hosted Ubuntu).
         self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
         for name in HOSTED_LOOP_JOBS:
             job = JOBS[name]
+            resolved = workflow_jobs.resolve(job, name)
             with self.subTest(job=name):
-                self.assertEqual(str(job.get("runs-on")),
-                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
+                self.assertEqual(resolved.runs_on_cells,
+                                 ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                  f"'{JIT_LABEL}' }}}}"])
                 self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
-                self.assertIn("release-next", str(job.get("environment")))
+                self.assertIn("release-next", resolved.environments)
+                self.assertEqual(resolved.environments_unresolved, set())
                 self.assertNotIn("pick-nightly-sign-runner", json.dumps(job))
                 # It stays in the loop run, which the next decide reads (tests/test_nightly_next_tail_off_push_group).
                 self.assertIn("needs.published-build.outputs.cross_run != 'true'", str(job.get("if")))
@@ -184,8 +305,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertFalse(any(CLAIM in str(step.get("run", "")) for step in steps(name)))
 
     def test_a_hosted_job_runs_only_in_the_tail(self) -> None:
-        # The push run holds the push group until its last job ends: a hosted queue there delays the next build.
-        # A hosted job runs only when published-build says the tail runs here (run_tail), or after a job that does.
+        # The push run holds the push group until its last job ends: a JIT VM's start there delays the next build.
+        # A tail job runs only when published-build says the tail runs here (run_tail), or after a job that does.
         def tail_only(name: str, seen: frozenset = frozenset()) -> bool:
             condition = str(JOBS[name].get("if", ""))
             if "needs.published-build.outputs.run_tail == 'true'" in condition:
@@ -241,7 +362,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                              "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                              "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                              "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+                             "'glaeda-nightly-std-xcode-26.6' }}")
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)
@@ -264,7 +385,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 self.assertEqual(gate.get("id"), CLAIM_GATE_ID)
                 self.assertEqual(str(gate.get("run", "")).strip(), claim_gate_for("nightly.yml").strip())
                 self.assertFalse(set(gate) - {"name", "run", "shell", "id"})
-                first_secret = next(i for i, step in enumerate(job_steps) if "secrets." in json.dumps(step))
+                first_secret = next(i for i, step in enumerate(job_steps) if workflow_jobs.secret_names(step))
                 claim = next((i for i, step in enumerate(job_steps) if CLAIM in str(step.get("run", ""))), None)
                 # Second, before any checkout: the workspace an earlier job left is emptied on an owned Mac.
                 clean = job_steps[1]
@@ -273,7 +394,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 self.assertRegex(str(clean.get("run", "")), r'find "\$ws" -mindepth 1 -maxdepth 1 -exec rm -rf')
                 self.assertIsNotNone(claim)
                 self.assertLess(claim, first_secret)
-                self.assertFalse(JOBS[name].get("env") and "secrets." in json.dumps(JOBS[name]["env"]))
+                self.assertEqual(workflow_jobs.secret_names(JOBS[name].get("env") or {}), set())
 
     def test_credentials_are_wiped_after_the_job(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:
@@ -290,14 +411,25 @@ class OwnedWorkdirSteps(unittest.TestCase):
     """The clean and wipe steps, run: they empty the workspace (and the temp dir, but the runner's own) on an
     owned Mac, and touch nothing on an ephemeral runner."""
 
-    def run_step(self, step: dict, runner: str) -> tuple[set, set]:
+    # The owned-fleet marker the steps test besides the runner name. Fleet Linux hosts (the cmux-linux pool, lane
+    # VMs) carry it too, so the test points the step at a marker of its own instead of reading the host's: with the
+    # host's, "an ephemeral runner" emptied its workspace there and both tests went red (feat-cmux-next 82b21593).
+    FLEET_MARKER = "/Users/Shared/cmux-build-fleet"
+
+    def run_step(self, step: dict, runner: str, fleet: bool = False) -> tuple[set, set]:
         with tempfile.TemporaryDirectory() as temp:
             ws, tmp = Path(temp) / "ws", Path(temp) / "tmp"
             for directory in (ws / "nightly-out", ws / ".publish-tooling", tmp / "gh-app-token", tmp / "_runner_file_commands"):
                 directory.mkdir(parents=True)
             (ws / "appcast.xml").write_text("feed")
             (tmp / "gh-app-token" / "token").write_text("x")
-            subprocess.run(["/bin/bash", "-e", "-c", str(step["run"])], check=True,
+            marker = Path(temp) / "fleet-marker"
+            if fleet:
+                marker.mkdir()
+            run = str(step["run"])
+            self.assertIn(f"[ -d {self.FLEET_MARKER} ]", run)
+            run = run.replace(self.FLEET_MARKER, str(marker))
+            subprocess.run(["/bin/bash", "-e", "-c", run], check=True,
                            env={"PATH": "/usr/bin:/bin", "HOME": temp, "RUNNER_NAME": runner,
                                 "GITHUB_WORKSPACE": str(ws), "RUNNER_TEMP": str(tmp)})
             return {p.name for p in ws.iterdir()}, {p.name for p in tmp.iterdir()}
@@ -307,11 +439,14 @@ class OwnedWorkdirSteps(unittest.TestCase):
         self.assertEqual(self.run_step(clean, "glaeda-runner-cmux15-glaeda-nightly-only-3"),
                          (set(), {"gh-app-token", "_runner_file_commands"}))
         self.assertEqual(self.run_step(clean, "GitHub Actions 12")[0], {"nightly-out", ".publish-tooling", "appcast.xml"})
+        # A fleet Mac whose runner name is not glaeda's is owned by its marker.
+        self.assertEqual(self.run_step(clean, "GitHub Actions 12", fleet=True)[0], set())
 
     def test_wipe_removes_tokens_and_files_but_the_runners_own(self) -> None:
         wipe = steps("publish-nightly")[-1]
         self.assertEqual(self.run_step(wipe, "glaeda-runner-cmux7s-glaeda-nightly-only-4"), (set(), {"_runner_file_commands"}))
         self.assertEqual(self.run_step(wipe, "GitHub Actions 12")[1], {"gh-app-token", "_runner_file_commands"})
+        self.assertEqual(self.run_step(wipe, "GitHub Actions 12", fleet=True), (set(), {"_runner_file_commands"}))
 
 
 class RecoveryTakesAnOwnedPick(unittest.TestCase):
@@ -328,12 +463,19 @@ class RecoveryTakesAnOwnedPick(unittest.TestCase):
         self.assertEqual(picker_ref_failures("find-nightly-next-recovery", job), [])
 
     def test_recovery_jobs_read_the_pick(self) -> None:
-        for name in RECOVERY:
-            with self.subTest(job=name):
-                route = re.sub(r"\s+", " ", manaflow_route(name))
-                self.assertIn(OWNED_PICK, route)
-                self.assertNotIn("CI_SIDE_LANE_RUNNER", route)
-                self.assertNotIn("'glaeda-std-xcode-26.6'", route)
+        route = re.sub(r"\s+", " ", manaflow_route("recover-nightly-next-notarization"))
+        self.assertIn(OWNED_PICK, route)
+        self.assertNotIn("CI_SIDE_LANE_RUNNER", route)
+        self.assertNotIn("'glaeda-std-xcode-26.6'", route)
+
+    def test_recovered_verify_never_takes_the_signer_pin(self) -> None:
+        # glaeda admits only signing jobs on a signing mini: on the recovery signer's pin this secret-free job was
+        # refused ("untrusted: NEXT nightly needs its exact nightly.yml signing job", run 43224144950), so a build
+        # whose notarization outlasted 20 minutes never published (ask-2f54cdc7fc).
+        route = re.sub(r"\s+", " ", manaflow_route("verify-recovered-nightly-next"))
+        self.assertNotIn("sign_owned", route)
+        self.assertNotIn(SIGNER, route)
+        self.assertIn("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", route)
 
 
 def stub(directory: Path, name: str, body: str) -> None:
@@ -374,6 +516,64 @@ class ToolInstallersWorkOnAMac(unittest.TestCase):
         result, calls = self.run_script("scripts/ci/nightly-steps/ensure-gh.sh", ("gh",))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, "")
+
+    def run_pinned_gh(self, sha256: str | None) -> tuple[subprocess.CompletedProcess, str, str, Path]:
+        """ensure-gh.sh on a Linux x86_64 runner without gh: curl serves a local gh_<v>_linux_amd64.tar.gz.
+        Returns the result, the calls log, the GITHUB_PATH file's text and the RUNNER_TEMP dir (deleted after)."""
+        temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, temp, True)
+        bin_dir, log, gh_path = temp / "bin", temp / "calls.log", temp / "github_path"
+        bin_dir.mkdir()
+        for tool in ("bash", "cat", "chmod", "dirname", "mkdir", "grep", "tr", "head", "cut", "rm", "mv", "cp",
+                     "tar", "gzip", "sha256sum", "shasum", "perl"):
+            real = shutil.which(tool)
+            if real:
+                os.symlink(real, bin_dir / tool)
+        stub(bin_dir, "uname", 'case "$1" in -m) echo x86_64 ;; *) echo Linux ;; esac')
+        for tool in ("sudo", "apt-get", "dpkg", "brew"):
+            stub(bin_dir, tool, f'echo "{tool} $*" >> "{log}"; exit 1')
+        version = re.search(r"^GH_PIN_VERSION=(\S+)", (ROOT / "scripts/ci/nightly-steps/ensure-gh.sh").read_text(), re.M)[1]
+        name = f"gh_{version}_linux_amd64"
+        (temp / "src" / name / "bin").mkdir(parents=True)
+        stub(temp / "src" / name / "bin", "gh", 'echo "gh version test"')
+        archive = temp / f"{name}.tar.gz"
+        subprocess.run(["tar", "-czf", str(archive), "-C", str(temp / "src"), name], check=True)
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        stub(bin_dir, "curl", f'echo "curl $*" >> "{log}"\n'
+                              f'while [ $# -gt 0 ]; do [ "$1" = -o ] && cp "{archive}" "$2"; shift; done')
+        runner_temp = temp / "runner"
+        runner_temp.mkdir()
+        result = subprocess.run(["/bin/bash", str(ROOT / "scripts/ci/nightly-steps/ensure-gh.sh")],
+                                capture_output=True, text=True,
+                                env={"PATH": str(bin_dir), "HOME": str(temp), "RUNNER_TEMP": str(runner_temp),
+                                     "GITHUB_PATH": str(gh_path), "GH_PIN_URL": f"https://example.invalid/{name}.tar.gz",
+                                     "GH_PIN_SHA256": sha256 if sha256 is not None else digest})
+        return (result, log.read_text() if log.exists() else "",
+                gh_path.read_text() if gh_path.exists() else "", runner_temp)
+
+    def test_ensure_gh_takes_the_pinned_checksummed_release_first(self) -> None:
+        result, calls, github_path, runner_temp = self.run_pinned_gh(None)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("from the pinned, sha256-checked release", result.stdout)
+        self.assertIn("curl ", calls)
+        self.assertNotRegex(calls, r"brew|sudo|apt-get")
+        added = github_path.strip()
+        self.assertTrue(added.startswith(str(runner_temp)), github_path)
+        self.assertTrue(os.access(Path(added) / "gh", os.X_OK))
+
+    def test_ensure_gh_refuses_a_release_with_the_wrong_sha256(self) -> None:
+        result, calls, github_path, _ = self.run_pinned_gh("0" * 64)
+        self.assertIn("not the pinned", result.stdout)
+        self.assertEqual(github_path, "")
+        # It falls back to the old route (apt here; every stub refuses), then fails loudly.
+        self.assertIn("apt-get", calls)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=No GitHub CLI::", result.stdout)
+
+    def test_ensure_gh_pins_every_runner_platform(self) -> None:
+        script = (ROOT / "scripts/ci/nightly-steps/ensure-gh.sh").read_text()
+        for platform in ("Darwin/arm64", "Darwin/x86_64", "Linux/x86_64", "Linux/aarch64"):
+            self.assertRegex(script, re.escape(platform) + r"[^\n]*sum=[0-9a-f]{64}")
 
     def test_reel_ffmpeg_installs_with_brew(self) -> None:
         result, calls = self.run_script("scripts/ci/nightly-steps/reel-install-ffmpeg.sh", ())

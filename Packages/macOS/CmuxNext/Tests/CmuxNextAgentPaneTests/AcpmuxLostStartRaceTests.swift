@@ -68,7 +68,7 @@ struct AcpmuxLostStartRaceTests {
         /// Stops the winner and waits for it to exit (killing it if it outlives that), then
         /// removes the folders. Only the daemon this fixture's stand-in started is signalled.
         func remove(winner pid: Int32?) async {
-            _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: winnerHome, deadline: .seconds(10))
+            _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: winnerHome, reason: "test", deadline: .seconds(10))
             let pid = pid ?? (try? String(contentsOf: winnerHome.appendingPathComponent("daemon.pid"), encoding: .utf8))
                 .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             if let pid, pid > 0 {

@@ -9,6 +9,12 @@
 //!   receives the whole state.
 //! - [`close_focus`]: the focus successor of every close kind (pane, tab,
 //!   workspace).
+//! - [`close_selection::Openers`]: the one close-selection rule for tabs
+//!   and workspaces: who opened which item, and the item selected after a
+//!   close (Chromium's ranks and opener lifetime).
+//! - [`close_selection::windows::WindowCloseSelection`]: that rule's whole
+//!   state for the workspaces of every window (the creates a window waits
+//!   for, the window of each relation, the repairs, the pick).
 //! - [`close_aim::PaneCloseAim`]: which pane a Close Tab press is aimed at
 //!   after a close emptied a pane.
 //! - [`omnibar_memory::OmnibarFocusMemory`]: Chrome's per-tab address bar
@@ -16,8 +22,14 @@
 //! - [`invariants`]: the input invariants (model, transition, world).
 //! - [`type_ahead::TypeAheadQueue`]: keys typed before a page can take them.
 //! - [`child_window`]: what a window does when a child window becomes key.
+//! - [`escape_exit::EscapeExit`]: browser focus mode's Esc Esc exit.
+//! - [`work_context::WorkContextTrail`]: the terminals and chats focused
+//!   last, what new ones copy their folder and chat settings from.
 //! - [`agent_cursor_visibility::resolve`]: where an agent cursor for a
 //!   target tab draws (its page, an anchor in its window, or nowhere).
+//! - [`ui`]: the macOS focus UI's decisions (the no-activate keyboard
+//!   guard, the shortcut hint hold, the pane hint chips, the keyboard
+//!   guards), over the layout reducer's `focus_ui_*` ops.
 //! - [`input::InputRouter`]: the one input router: every window's focus and
 //!   every key's route, decided in the key's own call and fixed for the
 //!   key's life (handoff/rewrites/R-INPUT/DESIGN.md).
@@ -31,6 +43,8 @@ pub mod agent_cursor_visibility;
 pub mod child_window;
 pub mod close_aim;
 pub mod close_focus;
+pub mod close_selection;
+pub mod escape_exit;
 pub mod event;
 pub mod input;
 pub mod invariants;
@@ -39,5 +53,7 @@ pub mod reducer;
 pub mod state;
 pub mod topology;
 pub mod type_ahead;
+pub mod ui;
 pub mod window;
 pub mod wire;
+pub mod work_context;

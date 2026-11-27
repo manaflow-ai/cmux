@@ -1,12 +1,17 @@
 // Diff toolbar controls: the source menu pill, the jump-to-file palette, the
 // floating toolbar pill and its "..." options menu. State lives in App; the
 // models (what each control shows and does) are in toolbar-model.ts.
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { useInPlaceGlassBlur } from "./ui/glass/pageGlassBlur";
 import { useScrollEdges } from "./ui/scrollEdges";
+import { VirtualList } from "./ui/VirtualList";
+import { usePopupSettle } from "./ui/popupSettle";
 import "./ui/popupSurface.css";
 import type { DiffItem } from "./diff-stream";
+import { diffStatParts } from "./file-tree-stats";
 import { Icon, type IconName } from "./icons";
+import { sourcePillTooltip, viewedProgressSuffix } from "./viewed-files";
 import type { DiffViewerLabelResolver } from "./labels";
 import {
   jumpToFileRows,
@@ -48,7 +53,14 @@ function useAnchoredPopover(open: boolean, anchorRef: React.RefObject<HTMLElemen
       const fitted = Math.min(width, window.innerWidth - VIEWPORT_MARGIN * 2);
       const left = Math.max(VIEWPORT_MARGIN, Math.min(rect.left, window.innerWidth - fitted - VIEWPORT_MARGIN));
       const top = rect.bottom + POPOVER_GAP;
-      setStyle({ top, left, width: fitted, maxHeight: Math.max(120, window.innerHeight - top - VIEWPORT_MARGIN) });
+      const maxHeight = Math.max(120, window.innerHeight - top - VIEWPORT_MARGIN);
+      // Scrolling inside the popover reaches this capture listener too: the same place keeps the
+      // same style object, so the popover and its rows do not render again for it.
+      setStyle((previous) =>
+        previous?.top === top && previous.left === left && previous.width === fitted && previous.maxHeight === maxHeight
+          ? previous
+          : { top, left, width: fitted, maxHeight },
+      );
     };
     reposition();
     window.addEventListener("resize", reposition);
@@ -115,6 +127,8 @@ export function SourceMenu({
   label,
   model,
   onSelect,
+  progressLook = "tooltip",
+  viewedProgress = null,
 }: {
   /** Null while the diff is still loading: the counts keep their place but show no made-up +0 -0. */
   additions: number | null;
@@ -122,19 +136,21 @@ export function SourceMenu({
   label: DiffViewerLabelResolver;
   model: SourceMenuModel;
   onSelect: (target: SourceTarget) => void;
+  /** How the pill shows the review's progress (diff-viewer/viewedProgress.experiment.ts). */
+  progressLook?: "tooltip" | "suffix";
+  /** How many files are marked viewed; null while loading. */
+  viewedProgress?: { viewed: number; total: number } | null;
 }) {
   const [open, setOpen] = useState(false);
   const [committedOpen, setCommittedOpen] = useState(false);
   const submenuEdges = useScrollEdges();
-  const submenuRef = useCallback(
-    (node: HTMLElement | null) => {
-      submenuEdges(node);
-      focusFirstMenuItem(node);
-    },
-    [submenuEdges],
-  );
+  const submenuRef = usePopupSettle<HTMLElement>(focusFirstMenuItem);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const sourceMenuRef = usePopupSettle<HTMLDivElement>((node) => {
+    menuRef.current = node;
+    if (node && !node.contains(document.activeElement)) focusFirstMenuItem(node);
+  });
   const menuId = useId();
   const style = useAnchoredPopover(open, buttonRef, 230);
   const close = (refocus = true) => {
@@ -150,8 +166,17 @@ export function SourceMenu({
     if (!entry.checked) onSelect(entry.target);
   };
   const selectedText = model.selected ? entryText(model.selected) : label("diffTarget");
+  const stats = additions == null || deletions == null ? null : diffStatParts({ added: additions, deleted: deletions });
+  const tooltip = sourcePillTooltip({
+    source: selectedText,
+    stats,
+    progress: viewedProgress,
+    template: label("filesViewedProgress"),
+  });
+  const suffix = progressLook === "suffix" ? viewedProgressSuffix(viewedProgress) : null;
   return (
-    <div id="source-menu" className="source-pill">
+    // tooltip-allow: the review's progress ("3 of 30 files viewed"), which the pill does not show (hq #19495)
+    <div id="source-menu" className="source-pill" title={tooltip ?? undefined}>
       <button
         ref={buttonRef}
         id="source-menu-button"
@@ -177,19 +202,22 @@ export function SourceMenu({
           <span className="source-pill-additions">+0</span>
           <span className="source-pill-deletions">-0</span>
         </span>
-      ) : (
+      ) : stats ? (
+        // Only the counts that are not zero, as the file headers and the files list show them.
         <span className="source-pill-stats" aria-label={label("diffStats")}>
-          <span className="source-pill-additions">+{additions}</span>
-          <span className="source-pill-deletions">-{deletions}</span>
+          {stats.added ? <span className="source-pill-additions">{stats.added}</span> : null}
+          {stats.deleted ? <span className="source-pill-deletions">{stats.deleted}</span> : null}
         </span>
-      )}
+      ) : null}
+      {suffix ? (
+        <span className="source-pill-progress" aria-hidden="true">
+          · {suffix}
+        </span>
+      ) : null}
       {open && style
         ? createPortal(
             <div
-              ref={(node) => {
-                menuRef.current = node;
-                if (node && !node.contains(document.activeElement)) focusFirstMenuItem(node);
-              }}
+              ref={sourceMenuRef}
               id={menuId}
               className="toolbar-menu ui-popup ui-glass source-menu"
               role="menu"
@@ -233,7 +261,9 @@ export function SourceMenu({
                         {committedOpen ? (
                           <div
                             ref={submenuRef}
-                            className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-scroll-edge-fade"
+                            // The rows fade inside; the glass, rim and shadow stay whole (popupSurface.css).
+                            // one-material-allow: a submenu is a floating menu of its own beside its parent, not a control on the parent's glass; the parent's tree holds it for hover and focus
+                            className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-popup-scroll-shell"
                             role="menu"
                             tabIndex={-1}
                             aria-label={entryText(entry)}
@@ -249,26 +279,28 @@ export function SourceMenu({
                               event.stopPropagation();
                             }}
                           >
-                            {entry.children.length === 0 ? (
-                              <div
-                                className="menu-item toolbar-menu-item"
-                                role="menuitem"
-                                aria-disabled="true"
-                                tabIndex={-1}
-                              >
-                                <span className="menu-label">{label("sourceNoCommits")}</span>
-                              </div>
-                            ) : (
-                              entry.children.map((child) => (
-                                <SourceMenuRow
-                                  key={child.id}
-                                  entry={child}
-                                  label={label}
-                                  text={entryText(child)}
-                                  onChoose={() => choose(child)}
-                                />
-                              ))
-                            )}
+                            <div ref={submenuEdges} className="ui-popup-scroll ui-scroll-edge-fade">
+                              {entry.children.length === 0 ? (
+                                <div
+                                  className="menu-item toolbar-menu-item"
+                                  role="menuitem"
+                                  aria-disabled="true"
+                                  tabIndex={-1}
+                                >
+                                  <span className="menu-label">{label("sourceNoCommits")}</span>
+                                </div>
+                              ) : (
+                                entry.children.map((child) => (
+                                  <SourceMenuRow
+                                    key={child.id}
+                                    entry={child}
+                                    label={label}
+                                    text={entryText(child)}
+                                    onChoose={() => choose(child)}
+                                  />
+                                ))
+                              )}
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -342,8 +374,10 @@ export function JumpToFilePalette({
   const [highlight, setHighlight] = useState(0);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const paletteRef = useRef<HTMLDivElement | null>(null);
+  const settlePalette = usePopupSettle<HTMLDivElement>((node) => {
+    paletteRef.current = node;
+  });
   const listboxId = useId();
-  const listEdges = useScrollEdges();
   const style = useAnchoredPopover(open, buttonRef, 440);
   useDismissOnOutsidePress(open, [buttonRef, paletteRef], () => setOpen(false));
   if (items.length === 0) {
@@ -380,12 +414,12 @@ export function JumpToFilePalette({
           setOpen(true);
         }}
       >
-        <Icon name="chevronDown" />
+        <Icon name="files" />
       </button>
       {open && style
         ? createPortal(
             <div
-              ref={paletteRef}
+              ref={settlePalette}
               className="toolbar-menu ui-popup ui-glass jump-palette"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="dialog"
@@ -426,50 +460,61 @@ export function JumpToFilePalette({
                       "vertical",
                     );
                     if (next != null) {
+                      // The list scrolls the highlighted row into view (VirtualList's activeIndex).
                       event.preventDefault();
                       setHighlight(next);
-                      document.getElementById(`${listboxId}-${next}`)?.scrollIntoView({ block: "nearest" });
                     }
                   }}
                 />
               </div>
-              <div
-                ref={listEdges}
-                id={listboxId}
-                className="jump-palette-list ui-scroll-edge-fade"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="listbox"
-                aria-label={label("jumpToFile")}
-              >
-                {rows.length === 0 ? (
+              {rows.length === 0 ? (
+                <div
+                  id={listboxId}
+                  className="jump-palette-list"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="listbox"
+                  aria-label={label("jumpToFile")}
+                >
                   <div className="jump-palette-status">{label("jumpToFileNoMatches")}</div>
-                ) : (
-                  rows.map((row, index) => (
-                    <div
-                      key={row.id}
-                      id={`${listboxId}-${index}`}
-                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                      role="option"
-                      tabIndex={-1}
-                      aria-selected={index === active}
-                      className={index === active ? "jump-palette-row jump-palette-row-active" : "jump-palette-row"}
-                      onMouseMove={() => setHighlight(index)}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        jump(row.id);
-                      }}
-                    >
-                      <span className="jump-palette-name">{row.name}</span>
-                      {row.directory ? <span className="jump-palette-dir">{row.directory}</span> : null}
-                    </div>
-                  ))
-                )}
-                {hidden > 0 ? (
-                  <div className="jump-palette-status">
-                    {label("jumpToFileMore").replace("{count}", String(hidden))}
-                  </div>
-                ) : null}
-              </div>
+                </div>
+              ) : (
+                // Only the rows near the viewport are in the DOM, plus the highlighted one; the
+                // "N more" note is the last row when the palette caps the files.
+                <VirtualList
+                  id={listboxId}
+                  className="jump-palette-list"
+                  label={label("jumpToFile")}
+                  fade
+                  measureRows
+                  count={rows.length + (hidden > 0 ? 1 : 0)}
+                  estimateSize={estimateJumpRowSize}
+                  activeIndex={active}
+                  renderRow={(index, rowStyle, measure) => {
+                    const row = rows[index];
+                    return row ? (
+                      <JumpToFileRow
+                        key={row.id}
+                        id={row.id}
+                        name={row.name}
+                        directory={row.directory}
+                        index={index}
+                        // Every match, the ones past the cap too: the options' aria-setsize.
+                        count={rows.length + hidden}
+                        listboxId={listboxId}
+                        active={index === active}
+                        onHover={setHighlight}
+                        onJump={jump}
+                        style={rowStyle}
+                        measure={measure}
+                      />
+                    ) : (
+                      <div key="more" ref={measure} data-index={index} style={rowStyle} className="jump-palette-status">
+                        {label("jumpToFileMore").replace("{count}", String(hidden))}
+                      </div>
+                    );
+                  }}
+                />
+              )}
             </div>,
             document.body,
           )
@@ -477,6 +522,63 @@ export function JumpToFilePalette({
     </div>
   );
 }
+
+/** A row's height before it is measured. */
+function estimateJumpRowSize(): number {
+  return 28;
+}
+
+/** One windowed palette row: plain values and handlers that take the index or id, so a row renders
+    again only when its own file, highlight or place changes. */
+const JumpToFileRow = memo(function JumpToFileRow({
+  active,
+  count,
+  directory,
+  id,
+  index,
+  listboxId,
+  measure,
+  name,
+  onHover,
+  onJump,
+  style,
+}: {
+  active: boolean;
+  count: number;
+  directory: string;
+  id: string;
+  index: number;
+  listboxId: string;
+  measure?: (element: Element | null) => void;
+  name: string;
+  onHover: (index: number) => void;
+  onJump: (id: string) => void;
+  style: CSSProperties;
+}) {
+  return (
+    <div
+      ref={measure}
+      data-index={index}
+      style={style}
+      id={`${listboxId}-${index}`}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="option"
+      tabIndex={-1}
+      aria-selected={active}
+      aria-posinset={index + 1}
+      aria-setsize={count}
+      className={active ? "jump-palette-row jump-palette-row-active" : "jump-palette-row"}
+      onMouseMove={() => onHover(index)}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onJump(id);
+      }}
+    >
+      <span className="jump-palette-name">{name}</span>
+      {directory ? <span className="jump-palette-dir">{directory}</span> : null}
+    </div>
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Floating toolbar pill and its "..." menu
@@ -504,6 +606,16 @@ export function FloatingToolbar({
 }) {
   const [focusIndex, setFocusIndex] = useState(0);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
+  // Drawn in place, not portalled: it blurs the file list and diff under it itself (pageGlassBlur.ts).
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useInPlaceGlassBlur(menuRef, menuOpen);
+  // The menu also keeps the box it opened with (ui/popupSettle.ts), which forwards the node here.
+  const setMenu = usePopupSettle<HTMLDivElement>(
+    useCallback((node: HTMLDivElement | null) => {
+      menuRef.current = node;
+      focusFirstMenuItem(node);
+    }, []),
+  );
   const closeMenu = () => {
     onCloseMenu();
     document.getElementById("options-button")?.focus();
@@ -512,7 +624,7 @@ export function FloatingToolbar({
     <div id="diff-pill" className="diff-pill-anchor">
       {menuOpen ? (
         <div
-          ref={focusFirstMenuItem}
+          ref={setMenu}
           id="options-menu"
           className="toolbar-menu ui-popup ui-glass options-menu"
           role="menu"
@@ -603,12 +715,15 @@ function OverflowMenuRow({
 /** A plain options-menu row (for the view options under the main rows). */
 export function ViewMenuButton({
   checked,
+  detail,
   icon,
   id,
   label,
   onClick,
 }: {
   checked?: boolean;
+  /** Quiet text after the label ("3 of 30 viewed"). */
+  detail?: string | null;
   icon: IconName;
   id?: string;
   label: string;
@@ -621,10 +736,12 @@ export function ViewMenuButton({
       role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
       className="menu-item toolbar-menu-item"
       aria-checked={checked}
+      data-detail={detail ? "" : undefined}
       onClick={onClick}
     >
       <Icon name={icon} />
       <span className="menu-label">{label}</span>
+      {detail ? <span className="menu-detail">{detail}</span> : null}
       <span className="menu-check">{checked ? <Icon name="check" /> : null}</span>
     </button>
   );
@@ -646,6 +763,10 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const settleMenu = usePopupSettle<HTMLDivElement>((node) => {
+    menuRef.current = node;
+    focusFirstMenuItem(node);
+  });
   const menuId = useId();
   const style = useAnchoredPopover(open, buttonRef, 200);
   const close = (refocus = true) => {
@@ -674,10 +795,7 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
       {open && style
         ? createPortal(
             <div
-              ref={(node) => {
-                menuRef.current = node;
-                focusFirstMenuItem(node);
-              }}
+              ref={settleMenu}
               id={menuId}
               className="toolbar-menu ui-popup ui-glass file-header-menu"
               role="menu"

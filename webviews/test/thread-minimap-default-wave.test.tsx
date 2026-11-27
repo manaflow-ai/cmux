@@ -14,6 +14,7 @@ import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { threadMinimapLayout } from "../src/agent-session/acpmux/threadMinimap/layout.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "../src/agent-session/acpmux/threadMinimap/lit.experiment";
 import { experimentArm } from "../src/experiments/experiment";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -80,12 +81,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const document = dom.window.document;
@@ -153,6 +150,14 @@ async function render(arms?: Record<string, string>) {
   );
   const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
   expect(scroller).not.toBeNull();
+  // A cold open of a chat this long draws its history at rough heights and lays it out whole a frame and a task
+  // later (VirtualTranscript.tsx `coldOpenRoughAbove`); each reply-only turn's Worked for line (turns.ts
+  // `holdsHeader`, #51896) brought 30 turns to it. Each arm is read once laid out whole.
+  await act(async () => {
+    await nextFrame();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextFrame();
+  });
   await act(async () => {
     scroller.scrollTop = 900;
     scroller.dispatchEvent(new dom.window.Event("scroll"));

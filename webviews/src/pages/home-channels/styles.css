@@ -96,7 +96,7 @@ body,
 }
 .hc-tag {
   padding: 0 var(--ds-space-1);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
   line-height: 16px;
@@ -145,6 +145,11 @@ body,
   padding: var(--ds-space-2) var(--hc-gutter);
   color: var(--hc-danger);
   border-bottom: 1px solid var(--page-separator);
+}
+/* A failed Cloud inbox read: the list's own note line, in the page's error color. */
+.lg-list-empty.lg-cloud-error {
+  display: block;
+  color: var(--hc-danger);
 }
 .hc-error button {
   margin-inline-start: auto;
@@ -293,8 +298,13 @@ body,
   justify-content: center;
   padding-top: var(--grid-half-step);
 }
+/* Shown only on the row's hover and focus, and over the message's top right in the ledger layout
+   (ledger.css): it takes no clicks or selection from the text under it (CMUX-325). */
 .hc-msg-hover-time {
   opacity: 0;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
   transition: var(--cmux-hover-reveal-out-transition);
   font-size: var(--text-caption);
   line-height: 22px;
@@ -389,10 +399,8 @@ body,
 .hc-msg-toolbar {
   padding: var(--grid-half-step);
   gap: 0;
-  border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-popup);
-  background: var(--surface-popup);
-  box-shadow: var(--elevation-2);
+  --glass-elevation: var(--elevation-2);
 }
 .hc-tool.ui-toolbar-button,
 .hc-tool {
@@ -416,10 +424,11 @@ body,
 }
 /* The hover-actions experiment's "one" arm: More alone, framed as the card. */
 .hc-tool.hc-msg-more {
-  border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-popup);
-  background: var(--surface-popup);
-  box-shadow: var(--elevation-2);
+  --glass-elevation: var(--elevation-2);
+}
+.hc-tool.hc-msg-more:not(:hover, [aria-pressed="true"]) {
+  background: var(--glass-tint);
 }
 .hc-tool-glyph {
   display: inline-grid;
@@ -517,7 +526,7 @@ body,
   background: var(--hc-fill);
   transition: border-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
-.hc-composer:focus-within {
+.hc-composer:is(:focus-visible, :has(:focus-visible)) {
   border-color: var(--hc-line-strong);
 }
 .hc-composer.disabled {
@@ -584,6 +593,21 @@ body,
 :dir(rtl) .hc-send .hc-icon {
   transform: scaleX(-1);
 }
+/* Send Later as a segment on Send (SendLater.tsx `split`): one button in two halves. */
+.hc-send.hc-send-split.ui-toolbar-button {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+.hc-send.hc-send-later.ui-toolbar-button {
+  width: 20px;
+  /* The seam between Send's two halves is a hairline, not a spacing step. */
+  margin-inline-start: var(--cmux-hairline);
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+:dir(rtl) .hc-send.hc-send-later .hc-icon {
+  transform: none;
+}
 .hc-composer.hc-edit {
   margin: var(--ds-space-1) 0;
   background: var(--cmux-surface-solid, Canvas);
@@ -620,8 +644,8 @@ body,
   font: inherit;
   outline: none;
 }
-.hc-emoji-search:focus,
-.hc-link-field:focus {
+.hc-emoji-search:focus-visible,
+.hc-link-field:focus-visible {
   border-color: var(--hc-line-strong);
 }
 .hc-emoji-grid {
@@ -658,12 +682,28 @@ body,
 }
 .hc-pick.ui-popover {
   min-width: 220px;
+  /* A long name gives way (ellipsis) before the popover outgrows the page, and a long list scrolls
+     in the popover instead of running off the window. */
+  max-width: min(360px, calc(100vw - 2 * var(--ds-space-2)));
+  max-height: min(320px, var(--available-height, 320px));
+  overflow-y: auto;
   padding: var(--ds-space-1);
 }
 .hc-pick-list {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+/* The name takes the row's slack and ellipsizes; the avatar and the Chief tag keep their size. */
+.hc-pick-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-pick-row > :is(.hc-avatar, .hc-tag) {
+  flex: none;
 }
 .hc-pick-row {
   display: flex;
@@ -687,6 +727,80 @@ body,
 }
 .hc-link.ui-popover {
   padding: var(--ds-space-2);
+}
+/* Send Later's time picker. */
+.hc-later.ui-popover {
+  width: 280px;
+  padding: 4px;
+}
+.hc-later-title {
+  padding: 8px 8px 4px;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.hc-later-row {
+  justify-content: space-between;
+}
+.hc-later-when {
+  color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.hc-later-custom {
+  display: flex;
+  gap: 8px;
+  padding: 8px 4px 4px;
+  border-top: 1px solid var(--page-separator);
+  margin-top: 4px;
+}
+.hc-later-custom .hc-link-field {
+  flex: 1;
+  min-width: 0;
+}
+/* My scheduled messages above the composer (ScheduledStrip.tsx). */
+.hc-scheduled {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0 0 8px;
+  padding: 4px;
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-lg);
+  list-style: none;
+}
+.hc-scheduled-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--ds-radius-md);
+  color: var(--page-text-2);
+}
+.hc-scheduled-row:hover,
+.hc-scheduled-row:focus-within {
+  background: var(--page-hover);
+}
+.hc-scheduled-when {
+  flex: none;
+  color: var(--page-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hc-scheduled-row.failed .hc-scheduled-when {
+  color: var(--hc-danger);
+}
+.hc-scheduled-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-scheduled-row .hc-text-button {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
 }
 .hc-link form {
   display: flex;
@@ -734,15 +848,6 @@ body,
   height: 100%;
 }
 .hc-daemon > :last-child {
-  flex: 1;
-  min-height: 0;
-}
-/* The Home page's link router (homeLinks.ts): a plain box the page fills. */
-.hc-links {
-  display: flex;
-  flex-direction: column;
-}
-.hc-links > * {
   flex: 1;
   min-height: 0;
 }

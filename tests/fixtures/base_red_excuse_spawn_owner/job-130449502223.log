@@ -1,0 +1,30 @@
+﻿2026-11-11T09:52:24.0507847Z Current runner version: '2.338.2'
+2026-11-11T09:52:24.3830164Z ##[group]Run '/setup.sh'
+2026-11-11T09:52:24.6217610Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-11T09:52:51.3869329Z ##[group]Run base=()
+2026-11-11T09:52:54.2492430Z ##[group]Run scripts/ci/crash-ratchet-against-base.sh
+2026-11-11T09:53:24.4685641Z ##[group]Run base=()
+2026-11-11T09:53:24.4685928Z [36;1mbase=()[0m
+2026-11-11T09:53:24.4686147Z [36;1mif [[ "$EVENT_NAME" == pull_request ]]; then[0m
+2026-11-11T09:53:24.4686426Z [36;1m  base=(--base-ref HEAD^1)[0m
+2026-11-11T09:53:24.4686830Z [36;1melif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then[0m
+2026-11-11T09:53:24.4687235Z [36;1m  base=(--base-ref "$BEFORE")[0m
+2026-11-11T09:53:24.4687465Z [36;1mfi[0m
+2026-11-11T09:53:24.4687824Z [36;1mpython3 -I scripts/cmux-next/check-spawn-owner.py "$GITHUB_WORKSPACE" ${base[@]+"${base[@]}"}[0m
+2026-11-11T09:53:24.4708318Z shell: /usr/bin/bash -e {0}
+2026-11-11T09:53:24.4708495Z env:
+2026-11-11T09:53:24.4708628Z   CMUX_NEXT_STYLE_GUARDS: warn
+2026-11-11T09:53:24.4708849Z   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+2026-11-11T09:53:24.4709517Z   GITHUB_REPO_NAME: manaflow-ai/cmux
+2026-11-11T09:53:24.4709681Z   EVENT_NAME: pull_request
+2026-11-11T09:53:24.4709884Z   BEFORE: 33852f74afc78e85e3a865f2fb53e3864e632a52
+2026-11-11T09:53:24.4710122Z ##[endgroup]
+2026-11-11T09:53:25.5799497Z check-spawn-owner: cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs has 1 spawn line(s) with no owner (a new file).
+2026-11-11T09:53:25.5806350Z   cmux-tui/crates/acpmux/src/hub/remote_table_bench.rs:68: std::thread::spawn(move || {
+2026-11-11T09:53:25.5807646Z next: spawn the task with its owner's `Scope::spawn` / `spawn_named` / `spawn_until_cancelled` (cmux-scope; the owner closes it), or start the process with `cmux_process::Command` and keep its `Child` (it ends with its owner; `Child::detach(reason)` when it must outlive it).
+2026-11-11T09:53:25.5897593Z ##[error]Process completed with exit code 1.
+2026-11-11T09:53:25.6000228Z ##[group]Run base_ref=""
+2026-11-11T09:53:29.7031677Z ##[group]Run python3 tests/test_generated_files_guard.py
+2026-11-11T09:53:31.1607276Z ##[group]Run base_ref=""
+2026-11-11T09:53:33.3248202Z Post job cleanup.
+2026-11-11T09:53:33.4571654Z ##[group]Run '/job_completed.sh'

@@ -2,9 +2,11 @@
 // as a split divider does (Leo, 2026-11-09: "it opened up on the right split, but then it's like there's
 // this supposed divider-looking thing that I can't actually drag, and it just looks super awkward").
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { openDeclarations } from "../../../layout/motionContract";
 import { ArtifactPanel } from "./ArtifactPanel";
 
 let dom: JSDOM | undefined;
@@ -59,17 +61,23 @@ function render(node: React.ReactNode): Document {
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The page reads its width from the window, which JSDOM sizes at 1024.
+  Object.defineProperty(win, "innerWidth", { configurable: true, value: 1000 });
   root ??= createRoot(win.document.getElementById("root")!);
   act(() => root!.render(node));
   return win.document;
 }
 let frames: (() => void)[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
   dom?.window.localStorage.clear();
-  for (const [key, value] of saved) scope[key] = value;
+  await settleReact();
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
   dom?.window.close();
   dom = undefined;
@@ -106,4 +114,20 @@ test("the side panel a table opens in drags from its left edge, sizing everythin
   // On the shell, where the Background tasks column and the header's push read the width too.
   expect(shell.style.getPropertyValue("--acpmux-artifact-share")).toBe("60vw");
   expect(localStorage.getItem("cmux.agentPane.artifact.share")).toBe("60");
+});
+
+test("opening and closing the side panel declare the chat's resize beside it, one move of each box", () => {
+  const resizes = (by: string) =>
+    openDeclarations().filter((declaration) => declaration.event === "resize" && declaration.by === by);
+  const panel = (
+    <ArtifactPanel artifact={{ kind: "markdown", lang: "markdown", code: "# Notes" }} onClose={() => undefined} />
+  );
+  // What an earlier test opened or closed has lapsed by now.
+  openDeclarations(performance.now() + 1000);
+  render(<section className="acpmux-shell">{panel}</section>);
+  expect(resizes("side panel opens").map(({ scope, once }) => ({ scope, once }))).toEqual([
+    { scope: "all", once: true },
+  ]);
+  render(<section className="acpmux-shell" />);
+  expect(resizes("side panel closes")).toHaveLength(1);
 });

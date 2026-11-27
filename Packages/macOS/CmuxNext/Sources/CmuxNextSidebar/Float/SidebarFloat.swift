@@ -49,6 +49,11 @@ public final class SidebarFloat {
         reveal.isAllowed = { [weak self] in self?.isAllowed() ?? false }
         reveal.holdsOpen = { [weak self] in self?.isHeld ?? false }
         reveal.pointerInPanel = { [weak self] in self?.pointerInPanel ?? false }
+        reveal.isEdgePlaced = { [weak self] in self.map { $0.edgeZone.frame != .zero && $0.edgeZone.window != nil } ?? false }
+        // The hide's slide (not a float's slide out): the sidebar still on screen while hidden.
+        reveal.isSettling = { [container] in
+            container.model.isHidden && !container.model.isFloating && !container.isFloatOverlay && container.onScreenShare > 0
+        }
         container.onFloatOverlayChange = { [weak self] floating in self?.overlayDidChange(floating) }
     }
 
@@ -67,7 +72,9 @@ public final class SidebarFloat {
     /// Also applies a change that can start or end a float (``reconcile()``): every one of them (the
     /// setting, the sidebar's presentation, a page with the whole window) lays the root out.
     public func layout(in host: NSView, rowHeight: CGFloat, sidebarHidden: Bool, side: SidebarSide, cornerRadius: CGFloat) {
-        reveal.reconcile()
+        // The zones first, the reconcile after: placing the edge reads the pointer (its probe), so the reconcile
+        // knows whether the zone appeared under it and keeps the edge disarmed (`FloatingSidebarReveal`).
+        defer { reveal.reconcile() }
         let bounds = host.bounds, edgeWidth = FloatingSidebarReveal.edgeWidth
         let edge = sidebarHidden && reveal.canFloat
             ? CGRect(x: side == .left ? 0 : bounds.width - edgeWidth, y: 0, width: edgeWidth, height: max(0, bounds.height - rowHeight)) : .zero

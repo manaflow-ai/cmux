@@ -1,0 +1,11 @@
+# The spawn-owner ratchet's exact mode (check-spawn-owner.py --clippy -p CRATE), read through
+# CLIPPY_CONF_DIR only: a clippy.toml under cmux-tui would apply to every crate below it, nested
+# workspaces included, and disallowed_methods warns by default, so their `-D warnings` jobs would
+# go red on today's sites. The ratchet's baseline is what holds the line.
+disallowed-methods = [
+    { path = "tokio::task::spawn", reason = "a task with no owner: spawn it with its owner's cmux_scope::Scope::spawn (the owner's close cancels and joins it)", allow-invalid = true },
+    { path = "tokio::spawn", reason = "a task with no owner: spawn it with its owner's cmux_scope::Scope::spawn (the owner's close cancels and joins it)", allow-invalid = true },
+    { path = "std::thread::spawn", reason = "a thread with no owner: run the work as a task of its owner's cmux_scope::Scope, or join the thread where it is started", allow-invalid = true },
+    { path = "tokio::process::Command::spawn", reason = "a process with no owner: start it with cmux_process::Command and keep its Child (it ends with its owner)", allow-invalid = true },
+    { path = "std::process::Command::spawn", reason = "a process with no owner: start it with cmux_process::Command and keep its Child (it ends with its owner)", allow-invalid = true },
+]

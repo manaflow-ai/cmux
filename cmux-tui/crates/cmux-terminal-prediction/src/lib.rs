@@ -12,16 +12,20 @@
 //! - [`glyph`]: one predicted cell;
 //! - [`scanner`]: what each byte of remote output means for a prediction;
 //! - [`engine`]: what may be drawn, from keystrokes, output and presented frames;
+//! - `full_screen`: the same inside a full-screen application, confirmed by cell;
 //! - [`input`]: what a chunk of encoded input (the bytes Ghostty writes) was;
 //! - [`layout`]: which glyphs fit on the cursor row;
+//! - `row`: what the cursor row holds, for telling a known prompt;
 //! - [`ffi`]: the C ABI.
 
 pub mod config;
 pub mod engine;
 pub mod ffi;
+mod full_screen;
 pub mod glyph;
 pub mod input;
 pub mod layout;
+mod row;
 pub mod scanner;
 
 pub use config::PredictionConfiguration;

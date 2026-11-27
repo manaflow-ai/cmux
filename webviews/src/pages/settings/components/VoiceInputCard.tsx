@@ -5,7 +5,6 @@ import { useId } from "react";
 import { useSettingsState, useStore } from "../context";
 import { t } from "../strings";
 import { Switch } from "../editors/ToggleEditor";
-import { ResetSpacer } from "./ResetButton";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 export function VoiceInputCard() {
@@ -33,7 +32,6 @@ export function VoiceInputCard() {
                 labelId={labelId}
                 onToggle={(next) => void store.setVoiceInput(next)}
               />
-              <ResetSpacer />
             </div>
           </div>
         </div>

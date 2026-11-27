@@ -12,11 +12,16 @@ import textwrap
 import os
 import tempfile
 import time
+import importlib.util
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "xcodebuild_noninteractive.py"
+# tests/process_gone.py by path: `python3 -I` puts no script folder on sys.path.
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 PROMPT = "Press space to interact, D to debug, or any other key to quit"
 # xcodebuild prints this and relaunches the crashed app host, resuming the run.
 # Same string as RESTART_MARKER in scripts/ci/app_host_result_accounting.py.
@@ -28,23 +33,8 @@ RESTART_BUDGET_EXIT_CODE = 123
 STARTUP_HANG_EXIT_CODE = 122
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def _wait_for_exit(pid: int, seconds: float = 5.0) -> bool:
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        if not _pid_alive(pid):
-            return True
-        time.sleep(0.05)
-    return False
+    return process_gone.died(pid, within=seconds)
 
 
 def test_startup_deadline() -> None:
@@ -113,7 +103,7 @@ def test_sigterm_cleans_up_detached_test_descendant() -> None:
             if wrapper.poll() is None:
                 wrapper.kill()
                 wrapper.wait()
-            if helper is not None and _pid_alive(helper):
+            if helper is not None and process_gone.running(helper):
                 os.kill(helper, signal.SIGKILL)
 
 
@@ -459,16 +449,7 @@ def main() -> int:
             print(f"FAIL: expected SIGTERM to exit 124, got {wrapper.returncode}")
             return 1
         child_pid = int(pid_file.read_text())
-        alive_deadline = time.monotonic() + 6
-        child_alive = True
-        while time.monotonic() < alive_deadline:
-            try:
-                os.kill(child_pid, 0)
-            except ProcessLookupError:
-                child_alive = False
-                break
-            time.sleep(0.1)
-        if child_alive:
+        if not process_gone.died(child_pid, within=6):
             os.kill(child_pid, 9)
             print("FAIL: wrapped child survived the helper's SIGTERM")
             return 1

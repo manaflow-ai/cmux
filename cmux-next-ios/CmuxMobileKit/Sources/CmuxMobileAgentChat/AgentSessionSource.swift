@@ -20,12 +20,30 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
     /// The signed-in account that owns the Mac's artifact read. Empty for an
     /// unbound/standalone source, which then disables shared thumbnail caching.
     public var accountID: String
+    /// The acpmux session the chat shows when the tab itself names none: a terminal tab's chat
+    /// face (Toggle Terminal and Chat), a View Only chat of the session its agent runs.
+    public var acpmuxSessionID: String?
+
+    /// The harness as people name it ("Claude", "Codex", "OpenCode"), never a raw id: the
+    /// composer's model menu nests the models under it, as the Mac's does.
+    public var harnessDisplayName: String {
+        switch harness.lowercased() {
+        case "claude": "Claude"
+        case "claude-cr": "Claude (CodeRouter)"
+        case "codex": "Codex"
+        case "opencode": "OpenCode"
+        case "": "Agent"
+        default: harness.prefix(1).uppercased() + harness.dropFirst()
+        }
+    }
 
     public init(
         id: String, name: String, harness: String, agentName: String, cwd: String, workspaceTitle: String,
-        macName: String, branch: String? = nil, status: Status = .idle, macID: String = "", accountID: String = ""
+        macName: String, branch: String? = nil, status: Status = .idle, macID: String = "", accountID: String = "",
+        acpmuxSessionID: String? = nil
     ) {
         self.id = id
+        self.acpmuxSessionID = acpmuxSessionID
         self.macID = macID
         self.accountID = accountID
         self.name = name
@@ -90,18 +108,41 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// whole turns, oldest first, all older than what the chat shows. `hasEarlier`: older records
     /// are still on the Mac. An empty page is a read that failed or found no prompt yet.
     case earlierPage([AgentSessionEvent], hasEarlier: Bool)
+    /// A reattach after a long time away read the newest records first (tail-first): the
+    /// records between what the chat already had and them are still on the Mac. Sent in the
+    /// reattach's batch just before the newest records, whose first turn is `beforeTurnID`.
+    case gapOpened(beforeTurnID: String)
+    /// Records of that gap, oldest first, read in the background after the newest ones
+    /// showed: they go in before `beforeTurnID`, continuing the turn the chat had last.
+    /// `done`: the gap is filled.
+    case gapPage([AgentSessionEvent], done: Bool)
+    /// Whether the source is still reading the chat's history from the Mac (true) or has caught
+    /// up with it (false). While it reads, the chat shows what it already has (kept rows) or a
+    /// loading state, never the empty new-chat screen (``AgentChatStore/isLoadingHistory``).
+    case historyLoading(Bool)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
     /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`
     /// `_meta.acpmux.fullAccess`, read on each connection; false after acpmux refuses it).
     case fullAccess(Bool)
     case status(AgentSessionSummary.Status)
+    /// The session's footer facts (`composerStatus.facts` on its row, RFD 0130): a whole row's
+    /// (attach, the chat's own `session_changed`) or a census row's, which leaves out the facts
+    /// that repeat the row's fields (``AgentFooterFacts/updated(with:)``).
+    case footerFacts(AgentFooterFacts)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
     /// A prompt that never reached the agent (an attachment upload failed, the
     /// link was down): the composer gets the draft back with the reason.
     /// `promptID` is the prompt's acpmux id: sent again with it, the Mac runs it at most once.
     case promptNotSent(text: String, attachments: [AgentAttachment], promptID: String, reason: String)
+    /// A prompt's attachments are on their way to the Mac (``AgentUploadProgress``): the chat
+    /// shows the message at once, with how far its upload is, until the Mac's echo of it.
+    case promptUploading(promptID: String, AgentUploadProgress)
+    /// The prompts on their way that draw a row (the Rust outbox's `pending_sends`, shown ones
+    /// only), in send order, each with what the person can do to it: Stop and Delete always,
+    /// Send now when offered. A text prompt that goes at once never appears here.
+    case pendingSends([AgentPendingSend])
     /// `_meta.acpmux.subagents`: a subagent started or changed state.
     case subagent(AgentSubagentChange)
     /// An update from a subagent's own session (`_meta.acpmux.subagent`).
@@ -109,6 +150,17 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// Several records applied as one change (a replayed history), so no
     /// half-replayed state (a past turn still "Working") is ever on screen.
     case batch([AgentSessionEvent])
+}
+
+extension AgentSessionEvent {
+    /// The source's or link's state (still reading history, connected, what models and modes
+    /// the Mac offers), not a change to the chat's turns, ask or queue.
+    var isLinkState: Bool {
+        switch self {
+        case .historyLoading, .status, .fullAccess, .modelsAvailable, .modesAvailable, .earlierHistory: true
+        default: false
+        }
+    }
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:
@@ -141,6 +193,33 @@ public enum AgentClientIntent: Hashable, Sendable {
     case moveQueued(promptId: String, index: Int)
     /// Resume a paused queue (the Mac's Resume over its queue): `_acpmux/queue_edit {op: resume}`.
     case resumeQueue
+    /// Stop sending a message whose attachments are still uploading: it comes back to the composer.
+    case cancelSend(promptID: String)
+    /// Delete a message on its way: it is taken back (off the Mac's queue if it may be there)
+    /// and nothing comes back to the composer.
+    case deleteSend(promptID: String)
+    /// Send now: a message waiting on a retry goes at once (the outbox's `retry_now`).
+    case retrySend(promptID: String)
+}
+
+/// A message on its way that the chat draws a row for (``AgentSessionEvent/pendingSends(_:)``).
+public struct AgentPendingSend: Hashable, Sendable {
+    public var promptID: String
+    public var text: String
+    /// Not gone yet past the quiet threshold (the link, a backoff, a "not now").
+    public var waiting: Bool
+    /// Send now is offered.
+    public var canSendNow: Bool
+    /// Stopped after it may have reached the Mac: its removal is awaited.
+    public var stopping: Bool
+
+    public init(promptID: String, text: String, waiting: Bool, canSendNow: Bool, stopping: Bool) {
+        self.promptID = promptID
+        self.text = text
+        self.waiting = waiting
+        self.canSendNow = canSendNow
+        self.stopping = stopping
+    }
 }
 
 public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {
@@ -225,6 +304,10 @@ public protocol AgentSessionSource: AnyObject {
     var summary: AgentSessionSummary { get }
     /// Every record from the start of the session (history replay), then live records.
     func events() -> AsyncStream<AgentSessionEvent>
+    /// ``events()`` split into what the source already holds (a kept transcript read from
+    /// disk), which the store applies before the chat's first frame, and the stream of
+    /// everything after it. The head is not yielded again on the stream.
+    func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>)
     func send(_ intent: AgentClientIntent)
 
     // ACP parity (web UI acpmux/checkpoints and acpmux/handoff). Sources
@@ -252,6 +335,27 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The composer's attachments now, on every change: a source that uploads files at Send may
+    /// start them now, while the message is typed, and stop those taken off. Sources that send
+    /// nothing ahead do nothing.
+    func prestageAttachments(_ attachments: [AgentAttachment])
+    /// The whole record of a tool call output the Mac sent cut (``ACPToolOutputCut``), as the
+    /// update it made, or nil when the source can't read it (the person opens it again to retry).
+    func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate?
+    /// The source reads the chat's history before its first records arrive (a chat that exists
+    /// on the Mac): the chat opens on a loading state until ``AgentSessionEvent/historyLoading(_:)``
+    /// says it caught up, instead of the empty new-chat screen. Sources that hold the whole
+    /// history at once (mocks, an unbound tab) return false.
+    var loadsHistory: Bool { get }
+    /// The Mac is starting this chat now (a workspace this phone is creating): its loading
+    /// state says "Starting <agent>…", not "Loading chat…".
+    var isStarting: Bool { get }
+    /// This phone is sending the chat's first message (New Task): until it shows in the
+    /// transcript, the chat is still starting, never the empty new-chat prompt. Observable.
+    var awaitsFirstPrompt: Bool { get }
+    /// The source can't reach its Mac now (a dropped link): a chat still loading says it is
+    /// connecting, not starting. Observable.
+    var isOffline: Bool { get }
     /// The chat reached the oldest turn it shows: read the page before it, delivered as
     /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
     func loadEarlierHistory()
@@ -281,8 +385,17 @@ public protocol AgentSessionSource: AnyObject {
 }
 
 extension AgentSessionSource {
+    public func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        ([], events())
+    }
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
+    public func prestageAttachments(_ attachments: [AgentAttachment]) {}
+    public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }
     public func loadEarlierHistory() {}
+    public var loadsHistory: Bool { false }
+    public var isStarting: Bool { false }
+    public var awaitsFirstPrompt: Bool { false }
+    public var isOffline: Bool { false }
 }
 
 extension AgentSessionSource {
@@ -356,6 +469,45 @@ public final class DisconnectedAgentSource: AgentSessionSource {
     }
 }
 
+/// The chat of a workspace this phone is still creating (New Task, New Agent Chat): the Mac is
+/// starting its session, so the chat says "Starting <agent>…" (``isStarting``) and holds its
+/// composer's sends with why, until the workspace is listed and its real source replaces this.
+@MainActor
+public final class StartingAgentSource: AgentSessionSource {
+    public let summary: AgentSessionSummary
+    private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
+
+    public init(summary: AgentSessionSummary) {
+        self.summary = summary
+    }
+
+    /// Replaced by the chat's real source once its workspace is listed: its readers end.
+    isolated deinit {
+        for continuation in continuations { continuation.finish() }
+    }
+
+    public var loadsHistory: Bool { true }
+    public var isStarting: Bool { true }
+
+    public func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
+        continuations.append(continuation)
+        return stream
+    }
+
+    public func send(_ intent: AgentClientIntent) {
+        let reason = summary.harness.isEmpty ? "The chat is still starting. Send again in a moment."
+            : "\(summary.agentName) is still starting. Send again in a moment."
+        let event: AgentSessionEvent
+        if case .prompt(let text, let attachments, _, let promptID, _) = intent {
+            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason)
+        } else {
+            event = .clientError(reason)
+        }
+        for continuation in continuations { continuation.yield(event) }
+    }
+}
+
 /// An agent's ask to run one command as root (acpmux `elevation_request`): the exact argv sudo
 /// runs, the agent's reason, the machine, the time limit, and the nonce and daemon run the phone
 /// signs its Approve over (acpmux `Hub::card_answer_signed`).
@@ -398,4 +550,48 @@ public struct AgentSecretText: Hashable, Sendable, CustomStringConvertible, Cust
     public var description: String { "(secret)" }
     public var debugDescription: String { "(secret)" }
     public var customMirror: Mirror { Mirror(self, children: []) }
+}
+
+/// How far a sent message's attachment upload is: shown on the message while it goes.
+public struct AgentUploadProgress: Hashable, Sendable {
+    public enum Phase: String, Hashable, Sendable {
+        /// Opening the upload (or, after a drop, asking the Mac how far its copy is).
+        case opening
+        /// Streaming bytes.
+        case sending
+        /// Every byte went: the Mac is saving the file.
+        case saving
+        /// The link dropped: waiting for the Mac to come back, then it goes on from there.
+        case waitingForLink
+    }
+
+    /// The file going now.
+    public var name: String
+    public var sent: Int
+    public var total: Int
+    public var phase: Phase
+    /// Attempts so far (more than one after a drop).
+    public var attempt: Int
+
+    public init(name: String, sent: Int, total: Int, phase: Phase, attempt: Int = 1) {
+        self.name = name
+        self.sent = sent
+        self.total = total
+        self.phase = phase
+        self.attempt = attempt
+    }
+
+    public var fraction: Double { total > 0 ? min(1, Double(sent) / Double(total)) : 1 }
+
+    /// The line under the message: "Sending clip.mov · 42 of 100 MB", "Waiting for the Mac…".
+    public func text(macName: String) -> String {
+        let style = ByteCountFormatter.CountStyle.file
+        let of = "\(ByteCountFormatter.string(fromByteCount: Int64(sent), countStyle: style)) of \(ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: style))"
+        switch phase {
+        case .opening: return attempt > 1 ? "Resuming \(name) · \(of)" : "Sending \(name)…"
+        case .sending: return "Sending \(name) · \(of)"
+        case .saving: return "\(macName) is saving \(name)…"
+        case .waitingForLink: return "Waiting for \(macName) to resume \(name) · \(of)"
+        }
+    }
 }

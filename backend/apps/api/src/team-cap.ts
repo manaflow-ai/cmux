@@ -1,7 +1,7 @@
 import type { Meter } from "@cmux/protocol"
-import { billedLevelMicros, defaultTeamCapPools, overageModelMarkup, TEAM_CAP_NEAR_PERCENT, type UsagePriceSet } from "./billing-catalog.ts"
+import { billedLevelMicros, DEFAULT_TEAM_CAP_UNPAID_MAX_POOLS, defaultTeamCapPools, overageModelMarkup, TEAM_CAP_NEAR_PERCENT, type UsagePriceSet } from "./billing-catalog.ts"
 import { BILLABLE_METERS, BILLABLE_METERS_SQL, utcMonth } from "./domains/usage.ts"
-import { currentBillable, periodMarkupBp } from "./usage-billing-store.ts"
+import { currentBillable, hasPaidInvoice, periodMarkupBp } from "./usage-billing-store.ts"
 
 /**
  * The team spending cap (Leo 2026-11-09, cmuxterm-hq plans/team-plan/margins.md "Decided" and section 4), shared by
@@ -24,6 +24,11 @@ export interface TeamCap {
   readonly cap_usd: number | null
   /** The end of the period `spent_usd` counts (ms): the billing period's, else the next UTC month start. */
   readonly period_end: number
+  /**
+   * true: the admin's cap is above what the account may set before its first paid renewal invoice, so `cap_usd` is held
+   * at that limit (billing-catalog.ts teamCapUnpaidMaxPools x the pool) until the invoice is paid.
+   */
+  readonly raise_locked?: boolean
 }
 
 /** How long a period's spend row is kept after its end (the previous period's row, for a late read). */
@@ -66,9 +71,11 @@ const nextMonthStartMs = (now: number) => {
  * asking to reserve), at billed prices: the model overage above the pool x the period's pinned markup
  * (usage-billing-store.ts periodMarkupBp, billing-catalog.ts billedLevelMicros); at cost without a billable mark (no
  * overage is billed then); plus Cloud machine time at list when `machineTime`. `cap`: the admin's cap (usage.cap.set),
- * else under `set` v2 for a per-seat (Team) team whose seats the sync marked, twice the pool; else none.
+ * else under `set` v2 for any account the sync marked with a pool (a personal plan per team, a Team per seat), twice
+ * the pool; else none. The raise lock (v2, with a pool): until the account's first paid renewal invoice, the cap counts
+ * up to `unpaidMaxPools` x the pool, whatever the admin set (`raise_locked`).
  */
-export const teamCapState = (sql: SqlStorage, now: number, graceMs: number, machineTime: boolean, set: UsagePriceSet, adminCapUsd: number | null, extraMicros = 0): TeamCap & { readonly spent_micros: number; readonly cap_micros: number | null } => {
+export const teamCapState = (sql: SqlStorage, now: number, graceMs: number, machineTime: boolean, set: UsagePriceSet, adminCapUsd: number | null, extraMicros = 0, unpaidMaxPools = DEFAULT_TEAM_CAP_UNPAID_MAX_POOLS): TeamCap & { readonly spent_micros: number; readonly cap_micros: number | null } => {
   const mark = currentBillable(sql, now, graceMs)
   const inPeriod = mark?.period_start !== undefined
   const fromMs = inPeriod ? mark!.period_start! * 1000 : Date.parse(`${utcMonth(now)}-01T00:00:00Z`)
@@ -87,9 +94,14 @@ export const teamCapState = (sql: SqlStorage, now: number, graceMs: number, mach
   const bp = pool === null ? 10_000 : periodMarkupBp(sql, mark!.period_start!, Math.round(overageModelMarkup(set) * 10_000))
   const spent = pool === null ? models + machines : billedLevelMicros(models, machines, pool, bp / 10_000)
   const pools = defaultTeamCapPools(set)
-  const cap_usd = adminCapUsd !== null ? adminCapUsd : pools !== null && mark?.mode === "per_seat" && pool !== null ? (pools * pool) / 1_000_000 : null
+  const pooled = pools !== null && pool !== null && pool > 0
+  const asked = adminCapUsd !== null ? adminCapUsd : pooled ? (pools * pool) / 1_000_000 : null
+  // The raise lock: one indexed row read, only for a capped account with a pool under v2.
+  const lockUsd = asked !== null && pooled && !hasPaidInvoice(sql) ? (Math.max(pools, unpaidMaxPools) * pool) / 1_000_000 : null
+  const raise_locked = lockUsd !== null && asked! > lockUsd
+  const cap_usd = raise_locked ? lockUsd : asked
   if (cap_usd === null) return { state: "under", spent_usd: spent / 1_000_000, cap_usd: null, period_end, spent_micros: spent, cap_micros: null }
   const capMicros = Math.round(cap_usd * 1_000_000)
   const state = spent >= capMicros ? "at_cap" : spent * 100 >= capMicros * TEAM_CAP_NEAR_PERCENT ? "near" : "under"
-  return { state, spent_usd: spent / 1_000_000, cap_usd, period_end, spent_micros: spent, cap_micros: capMicros }
+  return { state, spent_usd: spent / 1_000_000, cap_usd, period_end, spent_micros: spent, cap_micros: capMicros, ...(raise_locked ? { raise_locked } : {}) }
 }

@@ -60,8 +60,11 @@ PATH_OWNERS = {
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
     ".github/runners.json": frozenset(("ci",)),
+    # check-single-host-fallbacks.py (advisory in CI) reads every workflow's runs-on against this declaration.
+    ".github/single-host-fallbacks.json": frozenset(("ci",)),
     ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
     ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
+    "cmux-next-ios/scripts/asc_ensure_signing.py": frozenset(("ci",)),
     "scripts/ci/resolve_runners.py": frozenset(("ci",)),
     # test_runner_routing_table.py imports the routing check and reads every
     # workflow's runs-on against .github/runners.json.
@@ -77,11 +80,7 @@ PATH_OWNERS = {
     ".github/workflows/ci-macos.yml": frozenset(GROUPS),
     ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
-    ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
-    ".github/workflows/cmux-next-pr-merge-tree.yml": frozenset(("ci",)),
     "scripts/ci/publish_pr_merge_tree.py": frozenset(("ci",)),
-    ".github/workflows/iroh-v2-production-drift.yml": frozenset(("ci",)),
-    "tests/test_iroh_drift_issue.py": frozenset(("ci",)),
     ".github/workflows/feature-flag-review-drift.yml": frozenset(("ci",)),
     "tests/test_feature_flag_review_drift_issue.py": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
@@ -91,6 +90,10 @@ PATH_OWNERS = {
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
+    # test_ios_app_review_gate.py loads the gate by path and reads the history.
+    "cmux-next-ios/scripts/app_review_gate.py": frozenset(("release-ios",)),
+    "cmux-next-ios/AppStoreReview/rejection-history.json": frozenset(("release-ios",)),
+    "cmux-next-ios/AppStoreReview/known-blockers.json": frozenset(("release-ios",)),
     # validate_test_execution_registry.py reads the recipe for the tests it runs.
     "scripts/verify-local.py": frozenset(("preflight", "ci")),
     # test_lint_feature_flags_scope.py reads its parser and registry discovery.
@@ -119,16 +122,11 @@ PATH_OWNERS = {
     "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
-    # test_ci_merge_receipt.py loads it by path and also reads its workflow
-    # and fixtures.
-    "scripts/ci/merge_receipt.py": frozenset(("ci",)),
-    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
     # The local merge-main resolver runs these trusted generators. The
     # resolver also backs the project-file merge driver below.
     "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
+    "scripts/merge-cargo-lock.py": frozenset(("ci",)),  # test_merge_cargo_lock.py
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
     # above and borrows union_pbxproj from the local resolver.
@@ -140,6 +138,7 @@ PATH_OWNERS = {
     "scripts/ci/merge_main.py": frozenset(("ci",)),
     "scripts/ci/last_green_base.py": frozenset(("ci",)),
     "scripts/ci/run_ci_guards.py": frozenset(("ci",)),
+    "scripts/ci/guard_step_inputs.py": frozenset(("ci",)),  # run_ci_guards.py --affected's selection
     "scripts/ci/guards-local.sh": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
@@ -178,10 +177,13 @@ PATH_OWNERS = {
     "scripts/swift_source_mask.py": frozenset(("preflight",)),
     # test_ci_reusable_workflow_permissions.py loads it; cmux.ci.guard runs that.
     "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
-    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
+    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution", "ci")),
+    "scripts/ci/package-test-lane/swift_suite_outcomes.py": frozenset(("ci",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     # run-swift-testing-suites.sh runs it.
     "scripts/ci/swift_package_submodules.py": frozenset(("app-host-execution",)),
+    # run-swift-testing-suites.sh runs it before the build.
+    "scripts/ci/swift_suite_names_precheck.py": frozenset(("app-host-execution",)),
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
@@ -232,7 +234,7 @@ def _determinism_scan(path: str) -> bool:
         return False
     if path.startswith(("tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
-    return path.startswith("Packages/") and "/Tests/" in path
+    return path.startswith(("Packages/", "cmux-next-ios/")) and "/Tests/" in path
 
 
 class GuardWorkflowError(ValueError):
@@ -423,6 +425,73 @@ def _workflow_path_owners() -> dict[str, frozenset[str]] | None:
         return None
 
 
+TEST_MODULE = re.compile(r"tests/([A-Za-z_][A-Za-z0-9_]*)\.py")
+
+
+@lru_cache(maxsize=4)
+def _test_importers(root: Path) -> dict[str, frozenset[str]]:
+    """Build the reverse import graph for the test modules under ``root`` once.
+
+    Route classification asks about several shared helpers in one invocation. Scanning every test
+    file for each helper made a single route decision take seconds on the full checkout. The graph
+    keeps the same line-oriented import matching while making the filesystem walk one-time per root.
+    """
+    importers: dict[str, set[str]] = {}
+    for candidate in sorted((root / "tests").glob("*.py")):
+        relative = f"tests/{candidate.name}"
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("from "):
+                match = re.match(r"from\s+([A-Za-z_][A-Za-z0-9_]*)\s+import\b", stripped)
+                if match:
+                    importers.setdefault(match.group(1), set()).add(relative)
+                continue
+            if not stripped.startswith("import "):
+                continue
+            # The old line-oriented matcher accepted trailing comments, including the
+            # ``# noqa`` comments used by most tests. Keep that behavior while indexing
+            # comma-separated imports in one pass.
+            for item in stripped[7:].split("#", 1)[0].split(","):
+                module = item.strip().split(" as ", 1)[0].split(".", 1)[0]
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", module):
+                    importers.setdefault(module, set()).add(relative)
+    return {module: frozenset(paths) for module, paths in importers.items()}
+
+
+def _importers(stem: str, root: Path) -> set[str]:
+    """tests/*.py files that import the sibling module `stem`, directly or through another
+    sibling module (tests/test_x.py imports job_lists_routing, which imports workflow_jobs)."""
+    found: set[str] = set()
+    pending = [stem]
+    graph = _test_importers(root)
+    while pending:
+        module = pending.pop()
+        for relative in graph.get(module, ()):
+            if relative in found:
+                continue
+            found.add(relative)
+            pending.append(Path(relative).stem)
+    return found
+
+
+def import_owners(path: str, derived: dict[str, frozenset[str]], root: Path | None = None) -> set[str]:
+    """Groups whose guard steps run a test that imports this tests/ module. A shared helper such
+    as tests/workflow_jobs.py is never run by a step itself, so without this an edit to it would
+    run none of the suites that read it."""
+    match = TEST_MODULE.fullmatch(path)
+    if match is None:
+        return set()
+    root = root or GUARD_WORKFLOW.parents[2]
+    owners: set[str] = set()
+    for importer in _importers(match.group(1), root):
+        owners.update(derived.get(importer, ()))
+    return owners
+
+
 def groups_for_path(path: str) -> tuple[str, ...] | None:
     """Return current observers for path, or None when ownership is unknown."""
     if path in ROUTING_POLICY_PATHS:
@@ -437,6 +506,7 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
         # A test registry area fragment is read like tests/test-execution.toml was.
         owners.update(PATH_OWNERS["tests/test-execution.toml"])
     owners.update(derived.get(path, ()))
+    owners.update(import_owners(path, derived))
     if _python_syntax_scan(path):
         # Syntax compilation is a cheap, deterministic check. Keep it out of
         # the serial preflight bucket, whose other steps install and exercise

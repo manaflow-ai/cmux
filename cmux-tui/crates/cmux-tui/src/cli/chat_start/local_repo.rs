@@ -46,22 +46,17 @@ pub(super) enum Ready {
 }
 
 /// `url` cloned into `dir` (an empty or missing folder), `reference` checked out when given; or
-/// the clone already in `dir` when its origin is `url`. Err: a `{code, message, details}` error.
+/// the clone already in `dir` when its origin is `url` (and it is at `reference`, when given).
+/// Err: a `{code, message, details}` error.
+///
+/// Nothing here deletes anything. git clones into the folder itself (its permissions, its inode,
+/// a symlink to it all stay), refuses one that is not empty, and on a failed clone removes only
+/// what it made. A checkout that fails leaves the clone on its default branch, and says so; a
+/// later start at that ref finds it is not there ([`reuse`]) and is refused, never let in on the
+/// wrong commit.
 pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
     if is_nonempty(dir) {
-        let origin = git(Some(dir), ["remote", "get-url", "origin"]).ok();
-        if origin.as_deref().is_some_and(|origin| same_remote(origin, url)) {
-            return Ok(Ready::Reused);
-        }
-        return Err(error(
-            "repo.dir_taken",
-            format!(
-                "{} already holds something other than a clone of {url}; give another folder \
-                 with --cwd DIR",
-                dir.display()
-            ),
-            json!({"dir": dir, "origin": origin}),
-        ));
+        return reuse(url, reference, dir);
     }
     if let Some(parent) = dir.parent() {
         std::fs::create_dir_all(parent).map_err(|err| {
@@ -79,15 +74,93 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
         error("repo.clone_failed", format!("git clone {url} failed: {said}"), json!({"url": url}))
     })?;
     if let Some(reference) = reference {
-        git(Some(dir), ["checkout", "--quiet", reference]).map_err(|said| {
-            error(
-                "repo.checkout_failed",
-                format!("cloned {url}, but git checkout {reference} failed: {said}"),
-                json!({"url": url, "ref": reference, "dir": dir}),
-            )
-        })?;
+        git(Some(dir), ["-c", "advice.detachedHead=false", "checkout", "--quiet", reference])
+            .map_err(|said| {
+                error(
+                    "repo.checkout_failed",
+                    format!(
+                        "cloned {url} into {}, but git checkout {reference} failed: {said}; the \
+                         clone stays there on its default branch",
+                        dir.display()
+                    ),
+                    json!({"url": url, "ref": reference, "dir": dir}),
+                )
+            })?;
     }
     Ok(Ready::Cloned)
+}
+
+/// The clone already in `dir`, when its origin is `url` and, with `reference`, its HEAD is that
+/// commit. Read only: nothing is fetched or checked out, so a chat's work there stays.
+fn reuse(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
+    // Only a folder with its own `.git` is asked: git would otherwise answer for a repository the
+    // folder sits in.
+    let origin = dir
+        .join(".git")
+        .exists()
+        .then(|| git(Some(dir), ["remote", "get-url", "origin"]).ok())
+        .flatten();
+    if !origin.as_deref().is_some_and(|origin| same_remote(origin, url)) {
+        return Err(error(
+            "repo.dir_taken",
+            format!(
+                "{} already holds something other than a clone of {url}; give another folder \
+                 with --cwd DIR",
+                dir.display()
+            ),
+            json!({"dir": dir, "origin": origin}),
+        ));
+    }
+    let Some(reference) = reference else { return Ok(Ready::Reused) };
+    let commit = |name: &str| git(Some(dir), ["rev-parse", "--verify", "--quiet", name]).ok();
+    let head = commit("HEAD^{commit}");
+    // A branch is where the chat's commits go: when checkout would pick a branch for `@REF`, the
+    // clone must be on `refs/heads/REF` (the full name, so a tag of that name cannot shorten it),
+    // never on another branch at the same commit. A tag or commit is decided by the commit alone.
+    let on_branch = || {
+        git(Some(dir), ["symbolic-ref", "--quiet", "HEAD"]).ok()
+            == Some(format!("refs/heads/{reference}"))
+    };
+    if let Some(Target { commit: target, branch }) = checkout_target(reference, commit)
+        && head.as_deref() == Some(target.as_str())
+        && (!branch || on_branch())
+    {
+        return Ok(Ready::Reused);
+    }
+    Err(error(
+        "repo.ref_mismatch",
+        format!(
+            "{} holds a clone of {url} that is not at {reference}; check {reference} out there, \
+             or give another folder with --cwd DIR",
+            dir.display()
+        ),
+        json!({"dir": dir, "ref": reference, "head": head}),
+    ))
+}
+
+/// The commit `git checkout REFERENCE` would check out, as `commit` (a `rev-parse`) reads it. git
+/// resolves the name and prefers a local branch of it, so a local branch comes first, then the
+/// name anywhere (a tag, a commit, a full ref), then the remote branch checkout would make a
+/// local branch from.
+pub(super) fn checkout_target(
+    reference: &str,
+    commit: impl Fn(&str) -> Option<String>,
+) -> Option<Target> {
+    [
+        (format!("refs/heads/{reference}^{{commit}}"), true),
+        (format!("{reference}^{{commit}}"), false),
+        (format!("refs/remotes/origin/{reference}^{{commit}}"), true),
+    ]
+    .into_iter()
+    .find_map(|(name, branch)| commit(&name).map(|commit| Target { commit, branch }))
+}
+
+/// What [`checkout_target`] found: the commit, and whether checkout puts HEAD on a branch for it
+/// (a local branch, or the one it makes from origin's) rather than detached at a tag or commit.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Target {
+    pub commit: String,
+    pub branch: bool,
 }
 
 /// Whether two remote URLs name one repository: equal once a trailing `/` and `.git` are dropped

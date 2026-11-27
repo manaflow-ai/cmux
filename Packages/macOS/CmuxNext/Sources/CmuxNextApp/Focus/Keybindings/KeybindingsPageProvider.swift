@@ -143,7 +143,7 @@ final class KeybindingsPageProvider: PageProvider {
                 for listener in changedListeners.values { listener([:]) }
             }
         } catch {
-            throw PageError(code: "cmux.keybindings.keymap_failed", message: String(describing: error))
+            throw PageError.failed(error, code: "cmux.keybindings.keymap_failed")
         }
         return ["path": .string(url.path)]
     }
@@ -195,7 +195,7 @@ final class KeybindingsPageProvider: PageProvider {
         // A held key's repeats are not more strokes (holding ⌥⌘0 a moment recorded ⌥⌘0 ⌥⌘0).
         guard !event.isARepeat else { return }
         guard var recorder,
-              let recorded = recorder.record(KeyRecorder.stroke(for: event), isEscape: KeyRecorder.isEscape(event),
+              let recorded = recorder.record(services.registry.stroke(for: event), isEscape: KeyRecorder.isEscape(event),
                                              isReturn: KeyRecorder.isReturn(event)) else { return }
         self.recorder = recorder
         if recorded.done || recorded.cancelled { stopRecording() }

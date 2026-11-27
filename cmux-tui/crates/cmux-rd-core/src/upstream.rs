@@ -31,7 +31,11 @@ pub const FEEDBACK_TIMEOUT_US: u64 = 500_000;
 pub const BURST_US: u64 = 100_000;
 /// The host asks for recovery in every feedback until it releases a
 /// keyframe. A request is honored again only once the host acknowledged the
-/// last independent frame or this long after it went out (it was lost).
+/// last independent frame or this long after it went out (it was lost), or
+/// twice the time an earlier keyframe took to be acknowledged when that is
+/// longer: on a path whose round trip passes this, a fixed retry asked for a
+/// new keyframe while the last one was still on its way, one per retry (an
+/// IDR storm).
 pub const KEYFRAME_RETRY_US: u64 = 300_000;
 
 /// Limits of one upstream stream.
@@ -97,6 +101,8 @@ pub struct UpstreamSender {
     last_heard_us: Option<u64>,
     /// The newest independent frame sent and when.
     last_independent: Option<(u32, u64)>,
+    /// How long the newest acknowledged independent frame took to be acknowledged.
+    keyframe_ack_us: Option<u64>,
     frames_sent: u64,
     frames_dropped: u64,
 }
@@ -125,6 +131,7 @@ impl UpstreamSender {
             last_refill_us: None,
             last_heard_us: None,
             last_independent: None,
+            keyframe_ack_us: None,
             frames_sent: 0,
             frames_dropped: 0,
         }
@@ -155,6 +162,7 @@ impl UpstreamSender {
     /// A path change resets the delay baseline and applies relay caps.
     pub fn set_path(&mut self, path: PathKind) {
         self.cc.on_path_changed(path);
+        self.loss_meter.reset_congestion_window();
     }
 
     /// Counters for the status line.
@@ -198,6 +206,7 @@ impl UpstreamSender {
         let body = FrameBody {
             t_capture_us,
             ref_frame: if independent { REF_NONE } else { self.last_sent.unwrap_or(REF_NONE) },
+            ltr_token: None,
             access_unit: access_unit.to_vec(),
         };
         let data_shards =
@@ -210,7 +219,7 @@ impl UpstreamSender {
         let mut bits = 0i64;
         for (i, d) in packets.datagrams.iter().enumerate() {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
-            self.cc.on_sent(seq, now_us);
+            self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
             bits = bits.saturating_add(d.len() as i64 * 8);
         }
@@ -248,14 +257,22 @@ impl UpstreamSender {
             return Err(UpstreamError::NotMine);
         }
         let fb = Feedback::decode(payload).map_err(UpstreamError::Invalid)?;
-        let settled = self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq));
+        let settled =
+            self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq), now_us);
         if let Some(lost) = settled {
             self.loss = 0.8 * self.loss + 0.2 * lost;
         }
-        self.cc.on_feedback(&fb.arrivals, settled.unwrap_or(0.0), now_us);
+        let congestion_loss = self.loss_meter.take_congestion_loss(now_us).unwrap_or(0.0);
+        self.cc.on_feedback(&fb.arrivals, congestion_loss, now_us);
         self.last_heard_us = Some(now_us);
         if fb.acked_frame > self.acked_frame && self.last_sent.is_some_and(|l| fb.acked_frame <= l)
         {
+            if let Some((frame, sent_us)) = self.last_independent
+                && self.acked_frame < frame
+                && fb.acked_frame >= frame
+            {
+                self.keyframe_ack_us = Some(now_us.saturating_sub(sent_us));
+            }
             self.acked_frame = fb.acked_frame;
             while let Some(entry) = self.history.first_entry() {
                 if *entry.key() > self.acked_frame {
@@ -267,8 +284,11 @@ impl UpstreamSender {
         }
         // Requests that predate the host's receipt of the last keyframe are
         // already answered.
+        let retry_us = self
+            .keyframe_ack_us
+            .map_or(KEYFRAME_RETRY_US, |ack| ack.saturating_mul(2).max(KEYFRAME_RETRY_US));
         let answered = self.last_independent.is_some_and(|(frame, sent_us)| {
-            fb.acked_frame < frame && now_us.saturating_sub(sent_us) < KEYFRAME_RETRY_US
+            fb.acked_frame < frame && now_us.saturating_sub(sent_us) < retry_us
         });
         if fb.need_recovery && !answered {
             self.keyframe_requested = true;
@@ -284,6 +304,9 @@ impl UpstreamSender {
                     return Ok(resends);
                 }
                 if let Some(d) = datagrams.get(usize::from(i)) {
+                    if let Ok((header, _)) = DatagramHeader::decode(d) {
+                        self.cc.on_retransmitted(header.transport_seq);
+                    }
                     self.budget_bits = self.budget_bits.saturating_sub(d.len() as i64 * 8);
                     resends.push(d.clone());
                 }

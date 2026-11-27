@@ -137,6 +137,33 @@ pub fn self_exe_for_spawn() -> io::Result<PathBuf> {
     }
 }
 
+/// Environment variable naming the runtime scope: the app launcher sets it on
+/// an owner whose HOME is not the account's own (a second, isolated app of
+/// the same user), so that owner's sockets and locks live in their own
+/// directory instead of the one every other app of the user shares. Unset,
+/// empty or malformed: the unscoped, historical directories.
+pub const RUNTIME_SCOPE_ENV: &str = "CMUX_TUI_RUNTIME_SCOPE";
+
+/// The runtime scope of this process (`CMUX_TUI_RUNTIME_SCOPE`), if valid.
+pub fn runtime_scope() -> Option<String> {
+    let value = std::env::var(RUNTIME_SCOPE_ENV).ok()?;
+    valid_runtime_scope(&value).then_some(value)
+}
+
+/// A scope is 1 to 16 lowercase hex digits, so it is one short path component.
+pub fn valid_runtime_scope(scope: &str) -> bool {
+    (1..=16).contains(&scope.len())
+        && scope.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// The `cmux-tui-<uid>` directory name, with `-<scope>` for a scoped owner.
+fn runtime_component(scope: Option<&str>) -> String {
+    match scope.filter(|scope| valid_runtime_scope(scope)) {
+        Some(scope) => format!("{}-{scope}", user_id_component()),
+        None => user_id_component(),
+    }
+}
+
 /// Runtime socket/pidfile directory for the current user.
 pub fn runtime_dir() -> PathBuf {
     runtime_dir_for_base(&runtime_base_dir())
@@ -145,7 +172,12 @@ pub fn runtime_dir() -> PathBuf {
 /// The runtime directory an owner started with `TMPDIR=base` (and no
 /// `XDG_RUNTIME_DIR`) uses, for a client whose own environment differs.
 pub fn runtime_dir_for_base(base: &Path) -> PathBuf {
-    base.join(format!("cmux-tui-{}", user_id_component()))
+    runtime_dir_for_base_scoped(base, runtime_scope().as_deref())
+}
+
+/// [`runtime_dir_for_base`] for an owner of the given runtime scope.
+pub fn runtime_dir_for_base_scoped(base: &Path, scope: Option<&str>) -> PathBuf {
+    base.join(format!("cmux-tui-{}", runtime_component(scope)))
 }
 
 /// Short, user-private runtime directory used when the preferred runtime
@@ -155,7 +187,13 @@ pub fn runtime_dir_for_base(base: &Path) -> PathBuf {
 /// fallback without first connecting to the server.
 #[cfg(unix)]
 pub fn fallback_runtime_dir() -> PathBuf {
-    PathBuf::from("/tmp").join(format!("cmux-tui-{}", user_id_component()))
+    fallback_runtime_dir_scoped(runtime_scope().as_deref())
+}
+
+/// [`fallback_runtime_dir`] for an owner of the given runtime scope.
+#[cfg(unix)]
+pub fn fallback_runtime_dir_scoped(scope: Option<&str>) -> PathBuf {
+    PathBuf::from("/tmp").join(format!("cmux-tui-{}", runtime_component(scope)))
 }
 
 /// Preferred root for socket paths that need a fixed-length digest leaf.
@@ -174,7 +212,12 @@ pub fn fallback_hashed_runtime_dir() -> PathBuf {
 /// Construct the digest root below an explicit runtime base. This keeps the
 /// path resolver testable without mutating process environment.
 pub fn hashed_runtime_dir_for_base(base: &Path) -> PathBuf {
-    base.join(format!("cmux-tui-hashed-{}", user_id_component()))
+    hashed_runtime_dir_for_base_scoped(base, runtime_scope().as_deref())
+}
+
+/// [`hashed_runtime_dir_for_base`] for an owner of the given runtime scope.
+pub fn hashed_runtime_dir_for_base_scoped(base: &Path, scope: Option<&str>) -> PathBuf {
+    base.join(format!("cmux-tui-hashed-{}", runtime_component(scope)))
 }
 
 /// Private root for compatibility paths produced from invalid session text.
@@ -493,11 +536,16 @@ pub fn config_path() -> Option<PathBuf> {
     config_dir().map(preferred_config_path)
 }
 
+/// cmux's folder under the config base: `cmux-next` on macOS, where `cmux`
+/// is cmux Classic's; `cmux` elsewhere.
+#[cfg(not(windows))]
+const CONFIG_DIR_NAME: &str = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+
 #[cfg(not(windows))]
 fn config_dir() -> Option<PathBuf> {
     env_path("XDG_CONFIG_HOME")
-        .map(|config_home| config_home.join("cmux"))
-        .or_else(|| home_dir().map(|home| home.join(".config").join("cmux")))
+        .map(|config_home| config_home.join(CONFIG_DIR_NAME))
+        .or_else(|| home_dir().map(|home| home.join(".config").join(CONFIG_DIR_NAME)))
 }
 
 #[cfg(windows)]
@@ -961,6 +1009,11 @@ pub fn foreground_leader(pid: u32) -> Option<u32> {
     foreground_process_group(pid)
 }
 
+/// The executable of process `pid` (the name [`foreground_process_name`] gives its group leader).
+pub fn process_executable(pid: u32) -> Option<String> {
+    process_name(pid)
+}
+
 /// Program name (basename only, never arguments) of the job a terminal runs
 /// in the foreground when that job is not the terminal's own PTY child
 /// `pid`: the program a shell started and waits for. `None` when the child
@@ -987,6 +1040,65 @@ pub fn foreground_job_name(pid: u32) -> Option<String> {
 pub fn shell_holds_foreground(pid: u32) -> bool {
     foreground_process_group(pid)
         .is_some_and(|leader| leader == pid || crate::kinfo_proc::login_session_shell(pid, leader))
+}
+
+/// Whether the shell of a terminal whose PTY child is `pid` runs any process of its own: a
+/// foreground job, a background job (`cmd &`), a suspended one (vim after ^Z), or a program its
+/// startup files left running. On macOS a terminal's PTY child can be login(1), whose one child
+/// is the shell: the shell's children are read then. `None` when it cannot be told (the process
+/// table did not answer, login(1) has no or several children, or the platform has no reader):
+/// a caller that would end the shell keeps it running then.
+pub fn shell_has_children(pid: u32) -> Option<bool> {
+    let children = child_pids(pid)?;
+    #[cfg(target_os = "macos")]
+    if crate::kinfo_proc::KinfoProc::read(pid).is_some_and(|child| child.command() == b"login") {
+        return match children.as_slice() {
+            [shell] => child_pids(*shell).map(|children| !children.is_empty()),
+            [] => None,
+            _ => Some(true),
+        };
+    }
+    Some(!children.is_empty())
+}
+
+/// The pids whose parent is `pid`; `None` when the kernel did not answer.
+#[cfg(target_os = "linux")]
+pub fn child_pids(pid: u32) -> Option<Vec<u32>> {
+    // A shell is one thread, so its main thread's list holds every child.
+    let children = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children")).ok()?;
+    Some(children.split_whitespace().filter_map(|child| child.parse::<u32>().ok()).collect())
+}
+
+/// The pids whose parent is `pid`; `None` when the kernel did not answer.
+#[cfg(target_os = "macos")]
+pub fn child_pids(pid: u32) -> Option<Vec<u32>> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
+    // SAFETY: a null buffer asks libproc for the size it needs.
+    let count = unsafe { libc::proc_listchildpids(pid, std::ptr::null_mut(), 0) };
+    let count = usize::try_from(count).ok()?;
+    if count == 0 {
+        return Some(Vec::new());
+    }
+    let mut children = vec![0 as libc::pid_t; count];
+    let bytes =
+        libc::c_int::try_from(children.len().saturating_mul(size_of::<libc::pid_t>())).ok()?;
+    // SAFETY: `children` owns a writable buffer of exactly `bytes` bytes.
+    let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
+    let written = usize::try_from(written).ok()?;
+    Some(
+        children
+            .into_iter()
+            .take(written.min(count))
+            .filter(|child| *child > 0)
+            .filter_map(|child| u32::try_from(child).ok())
+            .collect(),
+    )
+}
+
+/// The pids whose parent is `pid`; `None`: this platform has no reader.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+pub fn child_pids(_pid: u32) -> Option<Vec<u32>> {
+    None
 }
 
 #[cfg(target_os = "linux")]
@@ -1026,7 +1138,7 @@ fn process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the parenthesized command name are state(3) ppid(4)
     // pgrp(5) session(6) tty_nr(7) tpgid(8); tpgid is -1 without a
     // controlling terminal.

@@ -160,6 +160,30 @@ pub fn installed_zig_paths(version: &str) -> Vec<String> {
     vec![format!("/opt/zig-{version}/zig")]
 }
 
+/// The zigs the build tries, in order: `explicit` (``zig_program``'s pick), PATH's
+/// first `zig`, every other `zig` on PATH, then ``installed_zig_paths`` of the pin.
+///
+/// Every PATH entry, not only the first: a host that keeps an older Zig early on PATH
+/// (cmux10s's ~/.cargo/bin/zig, 0.16) hid setup-zig's pinned one further down.
+pub fn zig_candidates(
+    explicit: String,
+    path: Option<&std::ffi::OsStr>,
+    required: Option<&str>,
+) -> Vec<String> {
+    let mut candidates = vec![explicit, "zig".to_string()];
+    let exe = if cfg!(windows) { "zig.exe" } else { "zig" };
+    for dir in path.into_iter().flat_map(std::env::split_paths) {
+        let zig = dir.join(exe);
+        if zig.is_file() {
+            candidates.push(zig.display().to_string());
+        }
+    }
+    if let Some(required) = required {
+        candidates.extend(installed_zig_paths(required));
+    }
+    candidates
+}
+
 /// The zig the build runs: the first of `candidates` (``zig_program``'s pick,
 /// then PATH, then ``installed_zig_paths``) whose `zig version` serves
 /// `required`. With no pin, or when none serves it, the first candidate, which
@@ -196,232 +220,87 @@ pub fn select_zig(
     (first, None)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// The lock of our Zig package mirror, from the crate directory
+/// (scripts/ci/zig-packages.lock at the cmux repo root).
+pub const ZIG_PACKAGE_LOCK: &str = "../../../scripts/ci/zig-packages.lock";
 
-    fn scratch_tree(name: &str, files: &[&str]) -> PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("ghostty-vt-sys-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
-        for file in files {
-            let path = root.join(file);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, b"").unwrap();
-        }
-        root
-    }
+/// What Zig's HTTP client is pointed at when the mirror is the only source:
+/// it reads these proxies (std.http.Client.initDefaultProxies) and nothing
+/// listens on port 9, so any fetch Zig itself makes fails at once.
+pub const NO_ROUTE_PROXY: &str = "http://127.0.0.1:9";
+pub const PROXY_VARS: [&str; 6] =
+    ["http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
+/// Bypass lists Zig honors; mirror-only removes them so nothing routes around the proxy.
+pub const NO_PROXY_VARS: [&str; 2] = ["NO_PROXY", "no_proxy"];
 
-    #[test]
-    fn vt_source_missing_directory_names_the_submodule() {
-        let missing = std::env::temp_dir().join("ghostty-vt-sys-does-not-exist");
-        let error = resolve_vt_source(&missing).unwrap_err();
-        assert!(error.contains("git submodule update --init ghostty-next"), "{error}");
-    }
+/// One package of the mirror: its Zig package hash and the copy's URL.
+#[derive(Debug, PartialEq, Eq)]
+pub struct MirroredPackage {
+    pub hash: String,
+    pub url: String,
+}
 
-    #[test]
-    fn vt_source_empty_submodule_is_a_hard_error() {
-        let root = scratch_tree("empty", &[]);
-        let error = resolve_vt_source(&root).unwrap_err();
-        assert!(error.contains("missing build.zig"), "{error}");
-        assert!(error.contains("ghostty-next"), "{error}");
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn vt_source_without_snapshot_header_is_rejected() {
-        // The shape of the Mac app's `ghostty` fork: lib-vt without snapshot.h.
-        let root = scratch_tree("fork", &["build.zig", "include/ghostty/vt.h"]);
-        let error = resolve_vt_source(&root).unwrap_err();
-        assert!(error.contains("include/ghostty/vt/snapshot.h"), "{error}");
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn vt_source_zon_version_is_read_for_an_explicit_version_string() {
-        let root = scratch_tree("zon", &[]);
-        let zon = root.join("build.zig.zon");
-        std::fs::write(&zon, ".{\n    .name = .ghostty,\n    .version = \"1.3.2-dev\",\n}\n")
-            .unwrap();
-        assert_eq!(zon_version(&zon).as_deref(), Some("1.3.2-dev"));
-        std::fs::write(&zon, ".{ .name = .ghostty }\n").unwrap();
-        assert_eq!(zon_version(&zon), None);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn vt_source_complete_tree_resolves() {
-        let root = scratch_tree("complete", &REQUIRED_VT_SOURCE_FILES);
-        assert_eq!(resolve_vt_source(&root).unwrap(), root.canonicalize().unwrap());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn native_windows_gnu_keeps_the_explicit_gnu_abi() {
-        assert_eq!(
-            zig_target_arg("x86_64-pc-windows-gnu", "x86_64-pc-windows-gnu", "13.0").as_deref(),
-            Some("-Dtarget=x86_64-windows-gnu")
-        );
-    }
-
-    #[test]
-    fn native_linux_builds_keep_zigs_native_target() {
-        assert_eq!(
-            zig_target_arg("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "13.0"),
-            None
-        );
-        assert_eq!(zig_cpu_arg("x86_64-unknown-linux-gnu", None), None);
-    }
-
-    // On a macOS build host Ghostty's build replaces the macOS target with its
-    // generic macOS target at Ghostty's minimum. Every build host names that
-    // minimum, so the objects do not depend on where they were built.
-    #[test]
-    fn macos_builds_name_ghosttys_minimum_on_every_host() {
-        let cases = [
-            ("aarch64-apple-darwin", "aarch64-apple-darwin", "-Dtarget=aarch64-macos.13.0"),
-            ("x86_64-apple-darwin", "aarch64-apple-darwin", "-Dtarget=x86_64-macos.13.0"),
-            ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-macos.13.0"),
-            ("x86_64-apple-darwin", "x86_64-apple-darwin", "-Dtarget=x86_64-macos.13.0"),
-        ];
-        for (target, host, expected) in cases {
-            assert_eq!(
-                zig_target_arg(target, host, "13.0").as_deref(),
-                Some(expected),
-                "{target} on {host}"
-            );
-        }
-    }
-
-    #[test]
-    fn ghostty_macos_min_reads_the_macos_arm_of_os_version_min() {
-        let config = r#"
-pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
-    return switch (tag) {
-        .macos => .{ .semver = .{
-            .major = 13,
-            .minor = 0,
-            .patch = 0,
-        } },
-        .ios => .{ .semver = .{
-            .major = 14,
-            .minor = 0,
-            .patch = 0,
-        } },
-        else => null,
+/// The packages of scripts/ci/zig-packages.lock tagged `tag` (`vt`: what this
+/// crate's zig build fetches), at `<mirror><hash>.tar.gz`. Lines are
+/// `mirror PREFIX` and `HASH SHA256 TAGS UPSTREAM DEPS`; a line that starts
+/// with `#` is a comment.
+pub fn mirrored_packages(lock: &str, tag: &str) -> Vec<MirroredPackage> {
+    let lines: Vec<Vec<&str>> = lock
+        .lines()
+        .map(|line| line.split_whitespace().collect())
+        // A line that starts with # is a comment (a git+ URL's #commit is not).
+        .filter(|parts: &Vec<&str>| parts.first().is_some_and(|first| !first.starts_with('#')))
+        .collect();
+    let Some(mirror) = lines.iter().find_map(|parts| match parts.as_slice() {
+        ["mirror", prefix] => Some(*prefix),
+        _ => None,
+    }) else {
+        return Vec::new();
     };
+    lines
+        .iter()
+        .filter_map(|parts| match parts.as_slice() {
+            [hash, _sha, tags, _upstream, _deps] if tags.split(',').any(|t| t == tag) => {
+                Some(MirroredPackage {
+                    hash: (*hash).to_string(),
+                    url: format!("{mirror}{hash}.tar.gz"),
+                })
+            }
+            _ => None,
+        })
+        .collect()
 }
-"#;
-        assert_eq!(ghostty_macos_min(config).as_deref(), Some("13.0"));
-        assert_eq!(ghostty_macos_min("pub fn other() void {}\n"), None);
+
+/// Whether Zig may fetch only from our mirror: `CMUX_ZIG_MIRROR_ONLY` (1 or 0),
+/// else on in CI (`CI=true`), off elsewhere.
+pub fn mirror_only(setting: Option<&str>, ci: Option<&str>) -> bool {
+    match setting.map(str::trim) {
+        Some("1") | Some("true") => true,
+        Some("0") | Some("false") => false,
+        _ => ci.is_some_and(|ci| ci.trim().eq_ignore_ascii_case("true")),
     }
+}
 
-    #[test]
-    fn macos_builds_use_a_baseline_cpu_unless_overridden() {
-        assert_eq!(zig_cpu_arg("aarch64-apple-darwin", None).as_deref(), Some("-Dcpu=baseline"));
-        assert_eq!(zig_cpu_arg("x86_64-apple-darwin", None).as_deref(), Some("-Dcpu=baseline"));
-        assert_eq!(
-            zig_cpu_arg("aarch64-apple-darwin", Some("apple_m1")).as_deref(),
-            Some("-Dcpu=apple_m1")
-        );
-        assert_eq!(
-            zig_cpu_arg("x86_64-unknown-linux-gnu", Some("baseline")).as_deref(),
-            Some("-Dcpu=baseline")
-        );
-    }
-
-    #[test]
-    fn cross_targets_keep_their_explicit_zig_abi() {
-        let cases = [
-            ("x86_64-pc-windows-gnu", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-windows-gnu"),
-            ("x86_64-pc-windows-msvc", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-windows-msvc"),
-            (
-                "aarch64-pc-windows-msvc",
-                "x86_64-unknown-linux-gnu",
-                "-Dtarget=aarch64-windows-msvc",
-            ),
-            ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "-Dtarget=x86_64-linux-gnu"),
-            ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "-Dtarget=aarch64-linux-gnu"),
-            (
-                "x86_64-unknown-linux-musl",
-                "aarch64-unknown-linux-gnu",
-                "-Dtarget=x86_64-linux-musl",
-            ),
-            (
-                "aarch64-unknown-linux-musl",
-                "x86_64-unknown-linux-gnu",
-                "-Dtarget=aarch64-linux-musl",
-            ),
-        ];
-
-        for (target, host, expected) in cases {
-            assert_eq!(zig_target_arg(target, host, "13.0").as_deref(), Some(expected), "{target}");
+/// Zig's global cache directory from `zig env` (ZON: `.global_cache_dir = "..."`,
+/// or the JSON older Zigs print).
+pub fn zig_env_global_cache(output: &str) -> Option<PathBuf> {
+    let start = output.find("global_cache_dir")? + "global_cache_dir".len();
+    let rest = &output[start..];
+    // Past the key's own closing quote (JSON), the `=` or `:`, then the value's quote.
+    let sep = rest.find(['=', ':'])?;
+    let open = sep + rest[sep..].find('"')?;
+    let mut value = String::new();
+    let mut chars = rest[open + 1..].chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => value.push(chars.next()?),
+            '"' => return (!value.is_empty()).then(|| PathBuf::from(value)),
+            _ => value.push(c),
         }
     }
-
-    /// CI pins zig with `scripts/install-zig-ci.sh`, which publishes `CMUX_ZIG`.
-    /// A runner whose PATH holds an older zig first (glaeda-5: Zig 0.16 under
-    /// `~/.local/lib`, ahead of the pinned 0.17) must still build with the pin.
-    #[test]
-    fn the_pinned_zig_wins_over_path() {
-        let pinned = "/runner/_temp/zig-aarch64-macos-0.17.0/zig".to_string();
-        assert_eq!(zig_program(None, Some(pinned.clone())), pinned);
-        assert_eq!(zig_program(Some("/opt/zig".into()), Some(pinned.clone())), "/opt/zig");
-        assert_eq!(zig_program(Some(String::new()), Some(pinned.clone())), pinned);
-        assert_eq!(zig_program(None, Some(String::new())), "zig");
-        assert_eq!(zig_program(None, None), "zig");
-    }
-
-    #[test]
-    fn the_minimum_zig_comes_from_the_manifest() {
-        let root = scratch_tree("zon-minimum", &[]);
-        let zon = root.join("build.zig.zon");
-        std::fs::write(
-            &zon,
-            ".{\n    .version = \"1.3.0-dev\",\n    .minimum_zig_version = \"0.17.0\",\n}\n",
-        )
-        .unwrap();
-        assert_eq!(zon_minimum_zig(&zon).as_deref(), Some("0.17.0"));
-        std::fs::write(&zon, ".{ .version = \"1.3.0\" }\n").unwrap();
-        assert_eq!(zon_minimum_zig(&zon), None);
-    }
-
-    #[test]
-    fn a_zig_serves_its_own_series_only() {
-        assert!(zig_compatible("0.17.0", "0.17.0"));
-        assert!(zig_compatible("0.17.2", "0.17.0"));
-        assert!(!zig_compatible("0.16.0", "0.17.0"));
-        assert!(!zig_compatible("0.18.0", "0.17.0"));
-        assert!(!zig_compatible("0.17.0-dev.1+abc", "0.17.0"));
-    }
-
-    /// The Linux pool's baked recipe put /opt/zig-0.16.0 first on PATH after
-    /// ghostty-next moved to Zig 0.17 (hq#8178); its image held /opt/zig-0.17.0.
-    #[test]
-    fn the_trees_pin_wins_over_a_recipe_that_hands_over_an_older_zig() {
-        let versions = |path: &str| match path {
-            "zig" | "/opt/zig-0.16.0/zig" => Some("0.16.0".to_string()),
-            "/opt/zig-0.17.0/zig" => Some("0.17.0".to_string()),
-            _ => None,
-        };
-        let mut candidates = vec!["zig".to_string()];
-        candidates.extend(installed_zig_paths("0.17.0"));
-        let (zig, why) = select_zig(&candidates, Some("0.17.0"), versions);
-        assert_eq!(zig, "/opt/zig-0.17.0/zig");
-        assert!(why.unwrap().contains("0.17.0"));
-        // an explicit ZIG of the wrong series loses too; one of the right series wins with no warning
-        let explicit = vec!["/opt/zig-0.16.0/zig".to_string(), "/opt/zig-0.17.0/zig".to_string()];
-        assert_eq!(select_zig(&explicit, Some("0.17.0"), versions).0, "/opt/zig-0.17.0/zig");
-        assert_eq!(
-            select_zig(&explicit[1..], Some("0.17.0"), versions),
-            ("/opt/zig-0.17.0/zig".to_string(), None)
-        );
-        // nothing serves the pin, or there is no pin: the first, as before
-        assert_eq!(
-            select_zig(&candidates[..1], Some("0.17.0"), versions),
-            ("zig".to_string(), None)
-        );
-        assert_eq!(select_zig(&candidates, None, versions), ("zig".to_string(), None));
-    }
+    None
 }
+
+#[cfg(test)]
+#[path = "build_support_tests.rs"]
+mod tests;

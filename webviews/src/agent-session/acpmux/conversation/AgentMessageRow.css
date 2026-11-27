@@ -10,7 +10,7 @@
   margin: 0;
   gap: var(--grid-gap-inner);
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-row-font-size);
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }
@@ -70,8 +70,8 @@
   border-radius: 6px;
   line-height: 20px;
   font-size: var(--text-control);
-  color: var(--cv-text);
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 8%, transparent);
+  color: var(--cv-chip-ink);
+  background: var(--cv-chip-bg);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
   cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
@@ -188,13 +188,13 @@ button.cv-agentmsg__name:focus-visible {
 /* Keep today's card available as a gallery comparison; the selected surface is borderless. */
 :root[data-message-surfaces="bordered"] .cv-agentmsg__card {
   border-radius: 10px;
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 5%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px)
     color-mix(in srgb, var(--cv-fg, var(--cv-text)) 10%, transparent);
 }
 :root[data-message-surfaces="soft"] .cv-agentmsg__card {
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 3%, transparent);
+  background: var(--ds-surface-card);
 }
 /* What a caller adds under the card: a delivery line, its details. */
 .cv-agentmsg__under {
@@ -257,6 +257,20 @@ button.cv-agentmsg__name:focus-visible {
 .cv-disclosure > .cv-msgline__preview {
   margin-top: calc(-1 * var(--grid-gap-inner));
 }
+/* The space between the message's line and the card it opens (`.cv-agentmsg`'s gap) is the fold body's
+   own first item, not the flex gap over it, as a tool run's is (conversation.css, `.cv-tools > * + .cv-fold`).
+   The gap lies outside the height the fold animates: a close at the latest row stopped one gap short
+   for some frames and then jumped when the body was removed (transcript-details-toggle-steady-browser.test.ts,
+   "message card ... the clicked line stalled"). The body takes the gap back and holds the same space
+   inside its box, so the layout at rest is the same and the space folds away with the card. */
+.cv-agentmsg > * + .cv-fold {
+  margin-top: calc(-1 * var(--grid-gap-inner));
+}
+.cv-agentmsg > * + .cv-fold::before {
+  content: "";
+  display: block;
+  height: var(--grid-gap-inner);
+}
 
 /* One line, inline, at the transcript's text tone (messageLineLook.ts `single`, the default). Leo,
    2026-11-03, on the stacked rows: "i don't think these subtitles are as good as just doing it
@@ -311,7 +325,7 @@ button.cv-agentmsg__name:focus-visible {
 }
 .acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]):is(:hover, :focus-visible, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
 .acpmux-row .cv-received > .cv-disclosure__line:is(:hover, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
-.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], :has([data-popup-open])),
+.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], [data-popup-within]),
 .acpmux-row .cv-agentmsg__card {
   color: var(--cv-text);
 }
@@ -358,7 +372,7 @@ button.cv-agentmsg__name:focus-visible {
   margin-inline-start: var(--grid-icon-box);
   padding: var(--grid-cards-padding);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cv-text) 5%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 12%, transparent);
   white-space: normal;
   max-height: none;
@@ -380,7 +394,14 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg:is([data-look="card"], [data-look="corner"]) .cv-agentmsg__open > :not(.cv-agentmsg__card) {
   margin-inline-start: var(--grid-icon-box);
 }
-/* A sender acpmux could not verify (UnverifiedMark.tsx): a status-sized mark in the muted tone right
+/* A body that is a row, not words (a sent call with no text, AgentMessageRow `bare`): the row opens
+   bare under the line at the child step, as an opened group's rows do, never a row inside a card
+   (design/chat-row-anatomy.md: a row that holds rows opens them inline; one that holds content opens
+   one body). */
+.cv-agentmsg__bare {
+  min-width: 0;
+}
+/* A sender acpmux saw as a program (UnverifiedMark.tsx): a status-sized mark in the muted tone right
    after the name, never words in it. */
 .cv-unverified {
   display: inline-flex;
@@ -503,7 +524,7 @@ button.cv-agentmsg__name:focus-visible {
   opacity: 0;
 }
 .cv-sent-msg.look-hover .cv-agentmsg__open:hover .cv-sent__raw > .cv-received__more,
-.cv-sent-msg.look-hover .cv-agentmsg__open:has([data-popup-open]) .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-agentmsg__open[data-popup-within] .cv-sent__raw > .cv-received__more,
 .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {
   opacity: 1;
 }
@@ -512,7 +533,7 @@ button.cv-agentmsg__name:focus-visible {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-sent-msg.look-hover .cv-agentmsg__open:hover .cv-sent__raw > .cv-received__more,
-  .cv-sent-msg.look-hover .cv-agentmsg__open:has([data-popup-open]) .cv-sent__raw > .cv-received__more {
+  .cv-sent-msg.look-hover .cv-agentmsg__open[data-popup-within] .cv-sent__raw > .cv-received__more {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
   .cv-sent-msg.look-hover .cv-agentmsg__open:focus-within .cv-sent__raw > .cv-received__more {

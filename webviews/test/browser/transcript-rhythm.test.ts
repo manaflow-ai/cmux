@@ -1,3 +1,6 @@
+// The grid-rhythm cases test the `runs` arm of live-turn-work, not the shipped `line` arm: the tool rows
+// they measure are finished calls of a turn that still runs, which only `runs` draws
+// (support/liveTurnRuns.ts). The other cases take the shipped arms.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
@@ -9,8 +12,11 @@ import {
   TRANSCRIPT_BLOCK_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_FOOTER_GAP,
+  TRANSCRIPT_LIVE_STEP_GAP,
   gridLength,
 } from "../../src/agent-session/acpmux/transcriptGrid";
+import { pinLiveTurnRuns } from "../support/liveTurnRuns";
+import { CLOCK_ON_LINE, pinArms } from "../support/pinArms";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
 await requireBrowserLane("transcript-rhythm.test.ts", async () => {
@@ -47,6 +53,10 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
+        await pinLiveTurnRuns(page);
+        // The live line under the run, as the gaps below measure it; the clock over the work
+        // (liveTurnClock.experiment.ts `top`) is transcript-live-turn-clock.test.ts's.
+        await pinArms(page, CLOCK_ON_LINE);
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", {
             variant: "grid-rhythm",
@@ -74,9 +84,12 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             const group = rect(".acpmux-activity .cv-tools > .cv-tool");
             // The whole run: a running turn keeps its calls in sight under the group's line (cmux#38339).
             const run = rect(".acpmux-activity .cv-tools");
-            const live = rect(
-              ".acpmux-thinking .cv-worked, .acpmux-working .cv-worked, .acpmux-activityLine .cv-activity",
-            );
+            const live = rect(".acpmux-thinking .cv-worked, .acpmux-working .cv-worked");
+            // The live line's words are drawn in the live line's box at the top of its row, the footer's slot
+            // (transcriptGrid.ts TRANSCRIPT_LIVE_LINE_BOX, #48701): the rest of the slot is its row's room, so the
+            // composer gap is under the row, not under the words.
+            const liveEl = document.querySelector(".acpmux-thinking .cv-worked, .acpmux-working .cv-worked");
+            const liveRow = liveEl!.closest(".acpmux-row")!.getBoundingClientRect();
             const composer = rect(".acpmux-composer-box");
             // A received message's line leads with its sender's mark in the icon column
             // (AgentMessageRow.tsx, IncomingMessageCard.tsx ReceivedMark).
@@ -127,7 +140,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               // The live state keeps the scaled run gap below completed activity, its last row.
               liveUnderRun: live.top - run.bottom,
               inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
-              composerGap: composer.top - live.bottom,
+              composerGap: composer.top - liveRow.bottom,
               floating: Boolean(document.querySelector(".acpmux-main[data-dock=float]")),
               chevronCenters,
               firstInk,
@@ -153,9 +166,11 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
           // A run and the prose by it: the run gap (design/transcript-spacing.md rule 4).
           for (const gap of state.gaps)
             expect(Math.abs(gap - gridLength("gap-run") * scale), "run gap").toBeLessThanOrEqual(0.5);
-          expect(Math.abs(state.liveUnderRun - gridLength("gap-run") * scale), "live line run gap").toBeLessThanOrEqual(
-            0.5,
-          );
+          // The live line under a run: the gap over it is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_GAP.
+          expect(
+            Math.abs(state.liveUnderRun - TRANSCRIPT_LIVE_STEP_GAP * scale),
+            "live line gap under a run",
+          ).toBeLessThanOrEqual(0.5);
           expect(Math.abs(state.inner - 12 * scale), "paragraph gap").toBeLessThanOrEqual(0.5);
           // Over a floating stack the newest line rests the rest gap over it (model.ts REST_GAP, Leo
           // 2026-11-01: "more space between composer and latest messages"); docked in flow, the
@@ -221,9 +236,12 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
         try {
           const prompt = await rectOf(page, '[data-row-id="grid-prompt"] .cv-user__bubble');
           const indicator = await rectOf(page, ":is(.acpmux-thinking, .acpmux-working) .cv-worked");
+          // Its words sit at the top of its row, the footer's slot (TRANSCRIPT_LIVE_LINE_BOX, #48701); the gap below
+          // is under the row.
+          const indicatorRow = await rectOf(page, ".acpmux-row:is(.acpmux-thinking, .acpmux-working)");
           const composer = await rectOf(page, ".acpmux-composer-box");
           const above = indicator.top - prompt.bottom;
-          const below = composer.top - indicator.bottom;
+          const below = composer.top - indicatorRow.bottom;
           const floating = await page.evaluate(() => Boolean(document.querySelector(".acpmux-main[data-dock=float]")));
           console.log(`TRANSCRIPT_WAITING ${JSON.stringify({ width, theme, above, below })}`);
           await shot(page, `waiting-${theme}-${width}`);

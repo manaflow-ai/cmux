@@ -88,7 +88,8 @@ impl HostedReader {
         let title = crate::terminal_title::read(&replacement);
         let pwd = replacement.pwd();
         let mut scroll_changed = None;
-        // A resize replays the same title: announce it only when it moved.
+        // A resize replays the same title: announce it only when what a tab
+        // shows of it moved.
         let mut title_moved = false;
         let generation = pty.with_terminal_stream_update(|term| {
             let before = terminal_scroll_position(term);
@@ -97,7 +98,8 @@ impl HostedReader {
             *geometry = next_geometry;
             pty.journal_geometry(next_geometry);
             title_moved =
-                std::mem::replace(&mut *pty.title.lock().unwrap(), title.clone()) != title;
+                crate::terminal_title::store(&mut pty.title.lock().unwrap(), title.clone())
+                    .is_some();
             pty.record_directory(pwd);
             *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
             self.applied_color_overrides = colors;
@@ -111,7 +113,7 @@ impl HostedReader {
             // Both attach notifications are queued only
             // after the authoritative replay and complete
             // color state have replaced the old parser.
-            pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+            let frame = AttachFrame::ResizedWithColors {
                 cols,
                 rows,
                 replay: replay.into(),
@@ -121,7 +123,9 @@ impl HostedReader {
                 // Terminal hosts replay only at a
                 // parser boundary.
                 pending_sequence: Arc::from([]),
-            });
+                history_rows_omitted: None,
+            };
+            pty.broadcast_resized_locked(term, frame);
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         });
         drop(geometry);
@@ -133,8 +137,8 @@ impl HostedReader {
                 mux.emit_terminal_title(surface.id, title.into());
             }
             mux.emit_terminal_resized(surface.id, cols, rows, None);
-            if let Some((offset, at_bottom)) = scroll_changed {
-                pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
+            if scroll_changed.is_some() {
+                pty.frame_requests.flush_scroll(&mux, surface.id);
             }
         }
         Flow::Continue

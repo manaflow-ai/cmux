@@ -96,7 +96,7 @@ cli() {
 }
 launch_owned() {
   local app=$1 pid
-  pid="$(remote "set -e; test -x $(printf '%q' "$app/Contents/Resources/bin/cmux"); exe=\$(find $(printf '%q' "$app/Contents/MacOS") -maxdepth 1 -type f -perm -111 -print -quit); test -n \"\$exe\"; nohup env CMUX_NEXT_SHOWCASE=1 CMUX_TAG=$(printf '%q' "$TAG") CMUX_NEXT_SOCKET_MODE=automation \"\$exe\" --showcase >/tmp/cmux-next-capture-$TAG.log 2>&1 </dev/null & printf '%s' \$!")"
+  pid="$(remote "set -e; test -x $(printf '%q' "$app/Contents/Resources/bin/cmux"); exe=\$(find $(printf '%q' "$app/Contents/MacOS") -maxdepth 1 -type f -perm -111 -print -quit); test -n \"\$exe\"; nohup env CMUX_NEXT_SHOWCASE=1 CMUX_TAG=$(printf '%q' "$TAG") CMUX_NEXT_SOCKET_MODE=automation \"\$exe\" --showcase >$(printf '%q' "$RUN_ROOT/app-$TAG.log") 2>&1 </dev/null & printf '%s' \$!")"
   [[ "$pid" =~ ^[0-9]+$ ]] || die "could not identify the launched app PID"
   remote "test \"\$(ps -p $pid -o command=)\" = *$(printf '%q' "$app/Contents/MacOS/")*" || die "PID $pid is not the launched app"
   # The tagged CLI response is the app-owned readiness signal. It is also the

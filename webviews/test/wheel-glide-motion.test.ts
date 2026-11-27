@@ -1,6 +1,11 @@
 // l10n-allow-file: deterministic wheel and scroll-clock fixtures.
 import { expect, test } from "bun:test";
-import { installWheelGlide, isWheelNotch } from "../src/agent-session/acpmux/wheelGlide";
+import {
+  installWheelGlide,
+  isWheelNotch,
+  WHEEL_GLIDE_END_EVENT,
+  WHEEL_GLIDE_START_EVENT,
+} from "../src/agent-session/acpmux/wheelGlide";
 import { animateScroll, stopScroll } from "../src/agent-session/acpmux/threadMinimap/scrollMotion";
 import { JUMP_CURVE } from "../src/agent-session/acpmux/threadMinimap/model";
 
@@ -160,11 +165,43 @@ test("a deliberate wheel to the bottom lands at the streamed end, including shri
   }
 });
 
+/// The glide's start and end announcements, in order (streaming-parked-still.test.ts reads them).
+function announced(node: HTMLElement) {
+  const seen: string[] = [];
+  node.addEventListener(WHEEL_GLIDE_START_EVENT, () => seen.push("start"));
+  node.addEventListener(WHEEL_GLIDE_END_EVENT, () => seen.push("end"));
+  return seen;
+}
+
+test("a notch announces one start and, on its last step, one end; a notch mid-glide continues it", () => {
+  const f = fixture();
+  try {
+    const seen = announced(f.node);
+    f.wheel(5);
+    expect(seen).toEqual(["start"]);
+    f.tick();
+    f.wheel(5);
+    expect(seen).toEqual(["start"]);
+    f.tick();
+    expect(seen).toEqual(["start"]);
+    f.finish();
+    expect(seen).toEqual(["start", "end"]);
+    expect(f.node.scrollTop).toBe(1160);
+    // Equal reverse notches cancel the glide: it ends there.
+    f.wheel(5);
+    f.wheel(-5);
+    expect(seen).toEqual(["start", "end", "start", "end"]);
+  } finally {
+    f.restore();
+  }
+});
+
 test.each(["keydown", "pointerdown", "touchstart", "precise", "nested", "hidden", "pane", "switch", "remove"])(
   "%s cancels pending motion and leaves no later write",
   (reason) => {
     const f = fixture();
     try {
+      const seen = announced(f.node);
       f.wheel(-5);
       f.tick();
       const stopped = f.node.scrollTop;
@@ -187,6 +224,8 @@ test.each(["keydown", "pointerdown", "touchstart", "precise", "nested", "hidden"
       f.finish();
       expect(f.node.scrollTop).toBe(stopped);
       expect(f.pending.size).toBe(0);
+      // A cancelled glide ends too, once: the reader's scroll is not left reading as under way.
+      expect(seen).toEqual(["start", "end"]);
     } finally {
       f.restore();
     }

@@ -1189,266 +1189,134 @@
         }
       }
     },
-    "status.readFailedHint": {
-      "comment": "Second line of the palette row shown when a history read did not answer.",
+    "status.stillLoading": {
+      "comment": "Palette row shown under a History list that is not complete yet: the app reads the list again by itself.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يستجب cmux في الوقت المحدد. اضغط Return للمحاولة مرة أخرى."
+            "value": "جارٍ تحميل السجل…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux nije odgovorio na vrijeme. Pritisnite Return da pokušate ponovo."
+            "value": "Historija se još učitava…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux svarede ikke i tide. Tryk på Retur for at prøve igen."
+            "value": "Historikken indlæses stadig…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux hat nicht rechtzeitig geantwortet. Drücke den Zeilenschalter, um es erneut zu versuchen."
+            "value": "Verlauf wird noch geladen…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux did not answer in time. Press Return to try again."
+            "value": "Still loading history…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux no respondió a tiempo. Pulsa Retorno para volver a intentarlo."
+            "value": "El historial aún se está cargando…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux n’a pas répondu à temps. Appuyez sur Retour pour réessayer."
+            "value": "Chargement de l’historique en cours…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux non ha risposto in tempo. Premi Invio per riprovare."
+            "value": "Cronologia ancora in caricamento…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux が時間内に応答しませんでした。Return キーを押して再試行してください。"
+            "value": "履歴をまだ読み込んでいます…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux មិនបានឆ្លើយតបទាន់ពេលទេ។ ចុច Return ដើម្បីព្យាយាមម្តងទៀត។"
+            "value": "កំពុងផ្ទុកប្រវត្តិនៅឡើយ…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux가 제때 응답하지 않았습니다. Return 키를 눌러 다시 시도하세요."
+            "value": "기록을 아직 불러오는 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux svarte ikke i tide. Trykk Retur for å prøve igjen."
+            "value": "Historikken lastes fortsatt inn…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux nie odpowiedział na czas. Naciśnij Return, aby spróbować ponownie."
+            "value": "Historia nadal się wczytuje…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux não respondeu a tempo. Pressione Return para tentar novamente."
+            "value": "O histórico ainda está carregando…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не ответил вовремя. Нажмите Return, чтобы повторить попытку."
+            "value": "История ещё загружается…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ไม่ตอบกลับทันเวลา กด Return เพื่อลองอีกครั้ง"
+            "value": "กำลังโหลดประวัติอยู่…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux zamanında yanıt vermedi. Yeniden denemek için Return tuşuna basın."
+            "value": "Geçmiş hâlâ yükleniyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не відповів вчасно. Натисніть Return, щоб спробувати ще раз."
+            "value": "Історія ще завантажується…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux không phản hồi kịp. Nhấn Return để thử lại."
+            "value": "Vẫn đang tải lịch sử…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 未及时响应。按 Return 键重试。"
+            "value": "仍在加载历史记录…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 未及時回應。按 Return 鍵重試。"
-          }
-        }
-      }
-    },
-    "status.tryAgain": {
-      "comment": "Command of the palette row shown when a history read did not answer: reads the history again.",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إعادة المحاولة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokušaj ponovo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erneut versuchen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Try Again"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Reintentar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Réessayer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Riprova"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "再試行"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ព្យាយាមម្តងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다시 시도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prøv igjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Spróbuj ponownie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tentar novamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Повторить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeniden Dene"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Спробувати ще раз"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thử lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "重試"
+            "value": "仍在載入歷史記錄…"
           }
         }
       }

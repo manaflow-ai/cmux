@@ -8,6 +8,7 @@ pass, the old red-checks comment edited into the status comment, and no write fo
 import json
 import os
 import subprocess
+import tempfile
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +18,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "pr_red_checks_comment.py"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import pr_status  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 LEGACY = "<!-- cmux-red-checks -->"
 BOT = {"login": "github-actions[bot]"}
@@ -151,7 +159,13 @@ class FakeGitHub:
         if self.base_runs is not None:
             env["BASE_SHA"] = "b" * 40
         env.update(self.env)
-        out = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+        # The script fetches the merge ref into the repository it runs in (changed_files), and a fetch with
+        # --filter writes remote.<url>.promisor into that repository's config: a scratch repository takes it,
+        # never this checkout (whose config a worktree mirror shares).
+        with tempfile.TemporaryDirectory() as scratch:
+            subprocess.run(["git", "init", "-q", scratch], check=True)
+            out = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60,
+                                 cwd=scratch)
         self.server.shutdown()
         assert out.returncode == 0, out.stderr
         return self.writes
@@ -257,6 +271,27 @@ def test_a_new_failure_annotation_inside_a_shared_step_is_new():
     assert line.startswith(f"red: {name}; NEW: `red check: Motion tokens` is not red on the base bbbbbbbbbb;"), line
 
 
+def test_the_line_quotes_the_failing_steps_red_never_a_passing_steps_negative_case_stderr():
+    # cmux#40369 (feat-cmux-next runs 42820823641, 42820590433): the static checks job failed only in its page strings
+    # step, and base_red_excuse.py quoted the license step's expected stderr ("pinned license manifest digest
+    # changed"), printed by a passing negative-case test. This line is built from the failed steps' names and the
+    # job's failure annotations (`##[error]` lines), never from plain log text, so a passing step's stderr is never
+    # quoted or compared here (base_red_excuse.failed_steps_log keeps any step whose section has an `##[error]`).
+    # The name as GitHub reports it: its 101-character `name:` cut to 97 characters and "...".
+    name = "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page stri..."
+    licenses = "The nightly's Ghostty license checks pass on fixtures"
+    strings = "Every page's strings generate with no missing translation"
+    exit_line = {"annotation_level": "failure", "message": "Process completed with exit code 1."}
+    line = checks_line(FakeGitHub(
+        [run(name, "failure", id_=11)], [],
+        base_runs=[run(name, "failure", id_=21)],
+        steps={11: [ok(licenses), failed(strings)], 21: [ok(licenses), failed(strings)]},
+        annotations={11: [{"annotation_level": "failure", "message": "settings: 42 strings missing"}, exit_line],
+                     21: [{"annotation_level": "failure", "message": "home: 3 strings missing"}, exit_line]}))
+    assert line.startswith(f"red: {name}; NEW: `settings: 42 strings missing` is not red on the base bbbbbbbbbb;"), line
+    assert "digest" not in line and "license" not in line.lower(), line
+
+
 def test_a_base_that_is_green_makes_every_red_new():
     line = checks_line(FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[run(RAC, "success", id_=21)],
                                   steps={11: [failed("Test webviews")]}))
@@ -349,25 +384,25 @@ def test_an_unrelated_base_red_never_excuses_an_aggregate_whose_job_was_cancelle
     size = OWN_CHANGE_JOB
     fake = FakeGitHub(
         [run("web / react-apps-check", "failure", id_=11), run("web / Web status", "failure", id_=12),
-         run("web / react-doctor", "cancelled", id_=13), run(size, "failure", id_=14), run(RAC, "success", id_=15)], [],
+         run("web / react-apps-check (2)", "cancelled", id_=13), run(size, "failure", id_=14), run(RAC, "success", id_=15)], [],
         base_runs=[run(size, "failure", id_=24), run("web / react-apps-check", "success", id_=21)],
         steps={14: [failed("Check the app size")], 24: [failed("Check the app size")]})
     lines = checks_line(fake).splitlines()
     by = {line.split(";")[0]: line for line in lines}
     assert "does not block" in by[f"red: {size}"], lines
     assert by["red: web / react-apps-check"].endswith(
-        "a job it gathers ended without a verdict (web / react-doctor: cancelled); do not merge until green; see lane-rules"), lines
+        "a job it gathers ended without a verdict (web / react-apps-check (2): cancelled); do not merge until green; see lane-rules"), lines
     assert "a job it gathers is red on this change" in by["red: web / Web status"], lines
 
 
 def test_a_cancelled_job_blocks_its_aggregate_beside_base_reds():
     fake = FakeGitHub(
         [run("web / react-apps-check", "failure", id_=11), run(RAC, "failure", id_=12),
-         run("web / react-doctor", "cancelled", id_=13)], [],
+         run("web / react-apps-check (2)", "cancelled", id_=13)], [],
         base_runs=[run(RAC, "failure", id_=22)],
         steps={12: [failed("Fail on the eager JS budget")], 22: [failed("Fail on the eager JS budget")]})
     lines = checks_line(fake).splitlines()
-    assert "ended without a verdict (web / react-doctor: cancelled)" in lines[0], lines
+    assert "ended without a verdict (web / react-apps-check (2): cancelled)" in lines[0], lines
 
 
 # OWN_CHECKS_GREEN: the caller's tracked jobs passed. Three workflows call this on every push; with
@@ -418,6 +453,39 @@ def test_the_callers_pass_whether_their_own_checks_passed():
         assert job["with"]["own_checks_green"] == (
             "${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}"), workflow
 
+
+def test_one_writer_per_head_and_green_callers_start_no_runner():
+    """ci.yml's call (every pull request that changes more than prose) is the head's writer; a cmux-next.yml or
+    cmux-next-guards.yml call whose own checks passed starts no runner on a first attempt (2026-11-25 13Z..23Z:
+    about 7,800 calls and 10.7k runner-min across the callers, 0 real catches). A red call or a rerun still runs."""
+    import re
+    import yaml
+    reusable = yaml.safe_load((ROOT / ".github/workflows/pr-red-checks-comment.yml").read_text())
+    trigger = reusable.get("on", reusable.get(True))
+    assert trigger["workflow_call"]["inputs"]["writer"] == {**trigger["workflow_call"]["inputs"]["writer"],
+                                                           "type": "boolean", "default": False}
+    condition = reusable["jobs"]["comment"]["if"]
+
+    def runs(writer, own_green, attempt):
+        expr = condition.strip().removeprefix("${{").removesuffix("}}")
+        expr = (expr.replace("always()", "True").replace("!cancelled()", "True")
+                .replace("github.event_name == 'pull_request'", "True")
+                .replace("github.event.pull_request.base.ref == 'feat-cmux-next'", "True")
+                .replace("inputs.writer", repr(writer)).replace("inputs.own_checks_green", repr(own_green))
+                .replace("github.run_attempt != '1'", repr(attempt != 1)))
+        expr = re.sub(r"!(?=[A-Z(])", " not ", expr).replace("&&", " and ").replace("||", " or ")
+        return eval(expr, {"__builtins__": {}}, {})  # noqa: S307 - this repository's own workflow text
+
+    assert runs(True, True, 1)                     # the writer always runs
+    assert not runs(False, True, 1)                # a green caller on a first attempt starts no runner
+    assert runs(False, False, 1)                   # a red caller writes its red
+    assert runs(False, True, 2)                    # a rerun clears the red it fixed
+    writers = {}
+    for workflow in ("ci.yml", "cmux-next.yml", "cmux-next-guards.yml"):
+        job = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"]["pr-red-checks"]
+        writers[workflow] = job["with"].get("writer", False)
+    assert writers == {"ci.yml": True, "cmux-next.yml": False, "cmux-next-guards.yml": False}
+
 def test_a_call_for_a_superseded_head_writes_nothing():
     # A late call for an old head: its red is not the pull request's, and the current head's line stays.
     fake = FakeGitHub([run("web / react-apps-check", "failure")], [{"id": 5, "body": status(checks="web and size checks: green")}],
@@ -451,7 +519,10 @@ def test_the_head_is_read_with_git_not_the_api():
         remote = head_remote(tmp, sha)
         fake = FakeGitHub([run("web / react-apps-check", "failure")], [], env={"PR_HEAD_REMOTE": remote, "HEAD_SHA": sha[0]})
         writes = fake.run()
+        remotes = subprocess.run(["git", "config", "--get-regexp", r"^remote\."], cwd=Path(__file__).resolve().parents[1],
+                                 capture_output=True, text=True).stdout
     assert len(writes) == 1 and RED_LINE in writes[0][2], writes
+    assert remote not in remotes, "the fetch wrote its remote into this checkout's git config"
     assert "/repos/o/r/pulls/7" not in fake.gets, fake.gets
 
 
@@ -552,6 +623,17 @@ def test_a_null_step_or_annotation_leaves_that_run_to_rest():
     red.prefetch_details(gh, [{"id": i, "node_id": f"n{i}"} for i in (1, 2, 3)], query=lambda q, v: data)
     assert sorted(gh.details) == [3]
 
+def test_ci_and_cmux_next_call_only_after_their_tracked_job_ran():
+    # A call after a skipped tracked job has no red of its own to add; cmux-next-guards.yml's call on every
+    # head writes the `ran` line and clears an older head's red (about 12k runner-min a day, 11-25).
+    import yaml
+    for workflow, need in (("ci.yml", "web"), ("cmux-next.yml", "checks")):
+        job = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"]["pr-red-checks"]
+        assert job["needs"] == [need], workflow
+        assert f"needs.{need}.result != 'skipped'" in job["if"], workflow
+    guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())["jobs"]["pr-red-checks"]
+    assert "skipped" not in guards["if"]
+
 
 if __name__ == "__main__":
     import traceback
@@ -566,4 +648,5 @@ if __name__ == "__main__":
                 print("FAIL", _name)
                 traceback.print_exc(limit=1)
     sys.exit(1 if bad else 0)
+
 

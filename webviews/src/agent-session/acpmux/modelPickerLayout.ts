@@ -1,3 +1,4 @@
+import type { ChipFace } from "./chipFace";
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./composerPickerModel";
@@ -6,6 +7,7 @@ import type { QuickSetup, UsedLook } from "./quickModelMenuModel";
 import type { SetupPick } from "./harnessSetup";
 import type { PickerProfile } from "./pickerProfiles";
 import type { SessionAuth } from "./sessionAuth";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -32,6 +34,10 @@ export type ModelPickerProps = {
   switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
+  /// The chip's logo, name and effort as one value (chipFace.ts). When given, it is what the chip
+  /// draws (a switch to another harness still draws that harness); `label`, `detail` and
+  /// `detailShort` then only feed the menu.
+  face?: ChipFace;
   /// How much of the context window the chat has used ("42% of context used"), shown in the
   /// chip's tooltip: the controls row draws no context ring (hq#1957 item 15 compact row).
   usage?: string;
@@ -53,6 +59,7 @@ export type ModelPickerProps = {
     offLabel: string;
     lastOnValue?: string;
     values?: readonly string[];
+    choices?: readonly { value: string; name?: string }[];
     onPick(value: string): void;
   };
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
@@ -70,6 +77,9 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// That row's text when it is not Add harness…: with Cloud picked it opens Settings > Cloud
+  /// (cloudPickerEntries.ts), "Set up more for Cloud…".
+  addAgentLabel?: string;
   /// A pick of a model whose harness needs setting up here (not installed, or signed out): the
   /// composer installs it in place, signs it in and then starts the chat on the model
   /// (harnessSetup.ts). With it, the search finds those harnesses' models too; without it their
@@ -77,9 +87,6 @@ export type ModelPickerProps = {
   onSetUpPick?(pick: SetupRequest): void;
   /// What that setup is doing: the compact menu's setup strip.
   setup?: QuickSetup;
-  /// Set while the picker is mounted to a call that opens its menu (the compact one when `quick`
-  /// is set), whose rail switches harness: the footer's harness item opens it (ComposerHarness.tsx).
-  opener?: { current: (() => void) | undefined };
   /// The chat has started, so its harness is fixed, as in Claude Code (Leo 2026-10-19): the menu
   /// lists `harness`'s models alone, with search and More models, and no harness rail, Starred tab
   /// or Add harness…; the compact menu draws no rail either. A New Tab or a chat with no message
@@ -113,11 +120,16 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
+  /// With no Claude connection that serves Cloud, the Claude section's Connect row
+  /// (ClaudeConnectRow.tsx, claudeConnect.ts); the composer holds its dialog.
+  claudeConnect?: ClaudeConnectRowProps;
   /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo
   /// 2026-10-20: one model button); the full picker is its More models row. Without it (a picker
   /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
   /// effort) after the model and no chevron.
   quick?: QuickMenuExtras;
+  /** A manifest contributes presentation only. All choices and picks still come from this session. */
+  reasoningMenu?: "column" | "separate";
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a

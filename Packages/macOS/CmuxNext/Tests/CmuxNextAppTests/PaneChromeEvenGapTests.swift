@@ -27,6 +27,9 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenGapTests {
     /// Applies `style` the way a settings load does, with nothing else set.
     private func load(_ style: ChromeStyle?) {
+        // These sweeps check the tab pill's geometry in every style; the flush corner, the default over
+        // flat and default chrome, has its own (`CornerFlushTests`).
+        MainPaneGutterSuites.pinsCornerFlushOff(style != nil)
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
@@ -85,10 +88,13 @@ import Testing
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
         let chrome = BrowserChromeView(tab: tab)
+        chrome.meetsTabStrip = true // the pane's strip sits right above the toolbar
         chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()
-        let gap = PaneChromeMetrics.current.tabGap(scale: window.backingScaleFactor)
+        let strip = PaneChromeMetrics.current.tabGap(scale: window.backingScaleFactor)
+        // The omnibar row's own gap: the strip padding, Chrome's 6 at Default (`OmnibarStyle.rowGap`).
+        let gap = OmnibarStyle.rowGap(scale: window.backingScaleFactor, underStrip: true)
         let top = topLeft(chrome.bounds, in: chrome, window: window).minY
         let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
         let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
@@ -98,16 +104,16 @@ import Testing
         // The row's content is the taller of the bar and the toolbar buttons; the bar is centered
         // in it, so its space above equals its space below.
         let inset = (max(chrome.addressBar.bounds.height, chrome.reloadButton.bounds.height) - chrome.addressBar.bounds.height) / 2
-        let above = Metrics.paneBorder == .subtle ? bar.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : bar.minY - top + gap
+        let above = Metrics.paneBorder == .subtle ? bar.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : bar.minY - top + strip
         let below = page.minY - bar.maxY
         #expect(abs(above - (gap + inset)) <= 0.5, "\(style): \(above) pt above the omnibar, the gap is \(gap) + \(inset)")
         #expect(abs(below - (gap + inset)) <= 0.5, "\(style): \(below) pt below the omnibar, the gap is \(gap) + \(inset)")
         #expect(abs(above - below) <= 0.5, "\(style): \(above) pt above the omnibar, \(below) pt below")
     }
 
-    /// The toolbar buttons are Helium's size (`kToolbarButtonHeight` 28, a 20 pt icon in an 8 pt
-    /// rounded-square highlight; Lawrence 2026-10-20 "match Helium not Chrome"), the omnibar's own
-    /// height. The row's one gap runs from the tallest thing in it: the same above the buttons as
+    /// The toolbar buttons are the window's one chrome row (a sidebar row and a tab pill tall,
+    /// Lawrence 2026-11-09; Helium's 28 pt before), the omnibar's own height, in an 8 pt
+    /// rounded-square highlight. The row's one gap runs from the tallest thing in it: the same above the buttons as
     /// below them, and the omnibar sits on their center line.
     @Test(arguments: ChromeStyle.allCases)
     func theToolbarButtonsAreHeliumsSizeAndKeepTheRowsEvenGap(style: ChromeStyle) throws {
@@ -117,19 +123,26 @@ import Testing
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
         let chrome = BrowserChromeView(tab: tab)
+        chrome.meetsTabStrip = true // the pane's strip sits right above the toolbar
         chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         window.contentView = chrome
         chrome.layoutSubtreeIfNeeded()
-        let gap = PaneChromeMetrics.current.tabGap(scale: window.backingScaleFactor)
+        let strip = PaneChromeMetrics.current.tabGap(scale: window.backingScaleFactor)
+        // The omnibar row's own gap: the strip padding, Chrome's 6 at Default (`OmnibarStyle.rowGap`).
+        let gap = OmnibarStyle.rowGap(scale: window.backingScaleFactor, underStrip: true)
         let top = topLeft(chrome.bounds, in: chrome, window: window).minY
         let reload = topLeft(chrome.reloadButton.bounds, in: chrome.reloadButton, window: window)
         let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
         let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
-        #expect(reload.width == 28 && reload.height == 28, "\(style): the reload button is \(reload.size)")
+        // The toolbar buttons are the location bar's height (Helium's `kToolbarButtonHeight`), Compact's 28 at Default on
+        // its 34 pt bar (#44875: Compact's padding), centered in the row.
+        let row = OmnibarStyle.buttonSize(scale: window.backingScaleFactor)
+        #expect(reload.width == row && reload.height == row, "\(style): the reload button is \(reload.size), want \(row)")
+        let centering = (OmnibarStyle.rowContentHeight(scale: window.backingScaleFactor) - row) / 2
         #expect(abs(reload.midY - bar.midY) <= 0.5, "\(style): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
-        let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
+        let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + strip
         let below = page.minY - reload.maxY
-        #expect(abs(above - gap) <= 0.5, "\(style): \(above) pt above the buttons, the gap is \(gap)")
-        #expect(abs(below - gap) <= 0.5, "\(style): \(below) pt below the buttons, the gap is \(gap)")
+        #expect(abs(above - (gap + centering)) <= 0.5, "\(style): \(above) pt above the buttons, want the gap \(gap) + \(centering)")
+        #expect(abs(below - (gap + centering)) <= 0.5, "\(style): \(below) pt below the buttons, want the gap \(gap) + \(centering)")
     }
 }

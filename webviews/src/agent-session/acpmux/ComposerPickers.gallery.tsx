@@ -6,7 +6,8 @@ import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
 import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
-import { rememberFullAccess } from "./startMode";
+import { HarnessUpdatesContext } from "./harnessUpdateList";
+import { rememberFullAccess, rememberStartMode } from "./startMode";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -22,6 +23,10 @@ type Props = {
   accounts?: boolean;
   managed?: boolean;
   unlisted?: boolean;
+  codexRelease?: "available" | "updating" | "installed";
+  /// A new chat before its first send, whose acpmux on this Mac answers `start` for its start mode;
+  /// `cloud`: Cloud is picked as where it runs, so its first send starts it on a Cloud machine.
+  newChat?: { start: { modeId: string; name: string }; cloud?: boolean };
 };
 
 const directAccounts: ChatAccounts = {
@@ -193,12 +198,78 @@ const codexSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers({ claude, accounts, managed, unlisted }: Props) {
+function GalleryComposerPickers(props: Props) {
+  return props.newChat ? <GalleryNewChatPickers {...props.newChat} /> : <GalleryStartedPickers {...props} />;
+}
+
+/// The access chip names `mode` (not the bare word Mode).
+async function expectModeChip(ctx: Parameters<Play>[0], mode: string) {
+  const text = () => ctx.document.querySelector(".acpmux-mode .acpmux-mode-text")?.textContent?.trim();
+  await ctx.waitFor(() => text() === mode);
+}
+
+/// Opens a Cloud start's Mode menu: Claude Code's Cloud modes, Auto checked.
+const openCloudMode: Play = async (ctx) => {
+  await expectModeChip(ctx, "Auto");
+  await ctx.click({ role: "button", name: "Mode" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  const label = (item: Element | null) => item?.querySelector(".acpmux-menu-label")?.textContent?.trim();
+  const checked = label(ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]'));
+  if (checked !== "Auto") throw new Error(`the Cloud Mode menu checks ${checked}, not Auto`);
+  const labels = [...ctx.document.querySelectorAll('[role="menuitemradio"]')].map(label);
+  const expected = ["Auto", "Bypass permissions", "Manual"];
+  if (labels.length !== expected.length || expected.some((name) => !labels.includes(name)))
+    throw new Error(`the Cloud Mode menu lists ${labels.join(" | ")}, not ${expected.join(" | ")}`);
+};
+
+const NEW_CHAT_FOLDER = "/Users/gallery/cloud-proof";
+
+/// A new chat's rail before its first send: the access chip names the mode this Mac's acpmux would
+/// start it in, or, with Cloud picked, the mode the Cloud machine starts it in at the same level.
+function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) {
+  const [answered, setAnswered] = useState(false);
+  useEffect(() => {
+    rememberStartMode("claude-sr2", NEW_CHAT_FOLDER, start);
+    setAnswered(true);
+  }, [start]);
+  const snapshot: AcpmuxSnapshot = {
+    ...claudeSnapshot,
+    origin: "local",
+    summary: { sessionId: "", harness: "claude-sr2", turnCount: 0, cwd: NEW_CHAT_FOLDER },
+    ...(cloud ? { startsOnCloud: true as const } : {}),
+  };
+  return (
+    <ChatAccountsContext.Provider value={galleryAccounts}>
+      <div className="acpmux-composer-gallery-shell">
+        <div className="acpmux-composer-gallery-copy">
+          <strong>{cloud ? "New chat, Cloud picked" : "New chat on this Mac"}</strong>
+          <span>
+            {cloud ? "The Cloud machine starts it at your start level." : "acpmux on this Mac names the start mode."}
+          </span>
+        </div>
+        {answered && (
+          <ComposerPickers
+            snapshot={snapshot}
+            harnessesListed
+            onModel={() => undefined}
+            onMode={() => undefined}
+            onEffort={() => undefined}
+            showPlan
+            holdsStartMode={cloud === true}
+          />
+        )}
+      </div>
+    </ChatAccountsContext.Provider>
+  );
+}
+
+function GalleryStartedPickers({ claude, accounts, managed, unlisted, codexRelease }: Props) {
   // As an acpmux answer would set it; cleared again when the variant goes.
   useEffect(() => {
     rememberFullAccess(managed ? "managed" : undefined);
     return () => rememberFullAccess(undefined);
   }, [managed]);
+  const [release, setRelease] = useState(codexRelease);
   const initialSnapshot = claude ? claudeSnapshot : codexSnapshot;
   const [model, setModel] = useState(initialSnapshot.summary!.model!);
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
@@ -207,6 +278,32 @@ function GalleryComposerPickers({ claude, accounts, managed, unlisted }: Props) 
   const snapshot = useMemo<AcpmuxSnapshot>(
     () => ({
       ...initialSnapshot,
+      ...(release
+        ? {
+            catalog: initialSnapshot.catalog.map((h) =>
+              h.id !== "codex"
+                ? h
+                : {
+                    ...h,
+                    topModels: ["gpt-6.2-astra", ...h.models.map((m) => m.id)],
+                    models: [
+                      {
+                        id: "gpt-6.2-astra",
+                        name: "GPT-6.2 Astra",
+                        ...(release === "installed"
+                          ? {}
+                          : {
+                              codexUpdateVersion: "0.171.0",
+                              unavailable:
+                                "Included in Codex 0.171.0. Update Codex to check availability for this account.",
+                            }),
+                      },
+                      ...h.models,
+                    ],
+                  },
+            ),
+          }
+        : {}),
       summary: {
         ...initialSnapshot.summary!,
         model,
@@ -217,24 +314,24 @@ function GalleryComposerPickers({ claude, accounts, managed, unlisted }: Props) 
         })),
       },
     }),
-    [initialSnapshot, effort, fast, mode, model],
+    [initialSnapshot, effort, fast, mode, model, release],
   );
   // The model catalog's join, as the agent pane builds it, so Claude Code's aliases fold.
   const pickerCatalog = useMemo(
     () =>
-      claude || unlisted
+      claude || unlisted || release
         ? buildPickerCatalog({
             catalog: BUNDLED_MODEL_CATALOG,
             acpmux: unlisted ? [] : snapshot.catalog,
             provisional: unlisted,
             session: {
-              harness: "claude-sr2",
+              harness: snapshot.summary?.harness,
               model: snapshot.summary?.model,
               configOptions: snapshot.summary?.configOptions,
             },
           })
         : undefined,
-    [claude, snapshot, unlisted],
+    [claude, snapshot, unlisted, release],
   );
   const pickers = (
     <ComposerPickers
@@ -254,7 +351,27 @@ function GalleryComposerPickers({ claude, accounts, managed, unlisted }: Props) 
           <strong>Composer controls</strong>
           <span>One model button (model and effort), permission, and Plan controls share one quiet footer rail.</span>
         </div>
-        {pickers}
+        <HarnessUpdatesContext.Provider
+          value={
+            release && release !== "installed"
+              ? {
+                  rows: [
+                    {
+                      harness: "codex",
+                      agent: "Codex",
+                      version: "0.164.0",
+                      latest: "0.171.0",
+                      phase: release === "updating" ? "updating" : undefined,
+                      update: () => setRelease("installed"),
+                    },
+                  ],
+                  updateAll: () => setRelease("installed"),
+                }
+              : undefined
+          }
+        >
+          {pickers}
+        </HarnessUpdatesContext.Provider>
       </div>
     </ChatAccountsContext.Provider>
   );
@@ -494,6 +611,30 @@ export default componentEntry<Props>({
     ]),
   variants: {
     closed: { props: {} },
+    "new-chat-here": {
+      note: "A new chat on this Mac: the access chip names the mode this Mac's acpmux starts it in, Bypass permissions.",
+      props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" } } },
+      play: async (ctx) => expectModeChip(ctx, "Bypass permissions"),
+    },
+    "new-chat-cloud": {
+      note: 'The same new chat with Cloud picked: the person\'s own Cloud machine starts it at their start level, full access, which on Claude Code is its Auto, so the chip names Auto from the first frame, never Manual and never the bare word Mode (Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness").',
+      props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
+      play: async (ctx) => expectModeChip(ctx, "Auto"),
+    },
+    "new-chat-cloud-menu": {
+      note: "Its Mode menu: the modes a Cloud start runs in, Auto checked, with Manual and Bypass permissions; never Accept edits or Plan, which acpmux starts only on the person's own proof.",
+      props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
+      play: openCloudMode,
+    },
+    "new-chat-here-manual": {
+      note: "A new chat on this Mac whose acpmux starts chats asking (agents.defaultPermissionMode ask): the chip names Manual.",
+      props: { newChat: { start: { modeId: "default", name: "Manual" } } },
+    },
+    "new-chat-cloud-manual": {
+      note: "Cloud picked with that setting: Manual, the mode the Cloud machine starts it in.",
+      props: { newChat: { start: { modeId: "default", name: "Manual" }, cloud: true } },
+      play: async (ctx) => expectModeChip(ctx, "Manual"),
+    },
     "pill-rail": {
       note: "The 400 px Codex rail keeps model, effort and access quiet; its reported collaboration mode has no footer control.",
       props: {},
@@ -503,6 +644,9 @@ export default componentEntry<Props>({
       props: {},
       play: openModel,
     },
+    "codex-release-available": { props: { codexRelease: "available" }, play: morePicker },
+    "codex-release-updating": { props: { codexRelease: "updating" }, play: morePicker },
+    "codex-release-installed": { props: { codexRelease: "installed" }, play: morePicker },
     "model-more": {
       note: "More models opens the full picker with its search, the only way to it from the button.",
       props: {},

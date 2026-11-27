@@ -1,5 +1,6 @@
 {
   "title": "Chat Colors: one chat's bubble and text colors",
+  "settings": {"appearance": {"theme": "light:Soft Blue Light,dark:Soft Blue"}},
   "steps": [
     {"title": "Launch", "wait": 2, "shot": false},
     {"title": "The Home fixture conversation", "rpc": {"method": "debug.home_native_fixture.open", "params": {}}, "wait": 3, "shot": false},

@@ -118,7 +118,7 @@ const ALIASES: [(&str, &str); 7] = [
 static MODELS: std::sync::LazyLock<Vec<(String, String)>> = std::sync::LazyLock::new(|| {
     let mut models: Vec<(String, String)> =
         ALIASES.iter().map(|(id, name)| (id.to_string(), name.to_string())).collect();
-    let catalog = crate::catalog::schema::parse(crate::catalog::BUNDLED.as_bytes());
+    let catalog = crate::catalog::schema::parse(crate::catalog::BUNDLED.inflate().as_bytes());
     let releases =
         catalog.iter().flat_map(|catalog| &catalog.harnesses).filter(|h| h.id == "claude");
     for model in releases.flat_map(|harness| &harness.models) {
@@ -163,10 +163,18 @@ fn effort_value(effort: &str) -> &str {
 /// Claude Code alias: Claude Code sends it to the API as typed and every turn
 /// fails with "There's an issue with the selected model (opus-5-5)". It takes
 /// the prefix, as the live list's `launch_id` does. Bare aliases (`opus`,
-/// `opusplan`), full ids and other providers' names pass unchanged.
+/// `opusplan`), full ids and other providers' names pass unchanged. Any other spelling of a
+/// catalog id (`fable-5.2`, `Fable 5.2`) is that id (`model_catalog.rs`): Claude Code refused
+/// `fable-5.2` with `unrecognized_model`.
 pub fn model_id(value: &str) -> String {
     let value = value.trim();
-    let versioned = ["opus-", "sonnet-", "haiku-"].iter().any(|family| {
+    if let Some(found) = crate::model_catalog::bundled_harness("claude")
+        .and_then(|entry| crate::model_catalog::canonical_model(&entry, value).ok())
+        .filter(|c| c.changed())
+    {
+        return found.model;
+    }
+    let versioned = ["opus-", "sonnet-", "haiku-", "fable-"].iter().any(|family| {
         value
             .strip_prefix(family)
             .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
@@ -189,6 +197,14 @@ fn cli_effort(effort: &str) -> Option<&str> {
         "default" => None,
         level => Some(shown_level(level)),
     }
+}
+
+/// Whether a new chat's `effort` can go on its command line (`--effort`) instead of the live
+/// `apply_flag_settings` channel after `initialize` (`hub/lifecycle.rs` `effort_request`): a
+/// plain Reasoning level. "default" stays live (it clears an effort the person's settings set,
+/// which no flag does), as do Ultracode and the retired Ultrathink.
+pub fn takes_effort_at_spawn(effort: &str) -> bool {
+    effort != "default" && EFFORTS.iter().any(|(v, _)| *v == effort)
 }
 
 /// The `apply_flag_settings` settings for a session effort. Every level
@@ -292,6 +308,11 @@ mod elicitation_tests;
 #[cfg(test)]
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
+mod dedupe;
+pub(crate) use dedupe::enabled_with as dedupe_enabled_with;
+mod dedupe_shell;
+#[cfg(test)]
+mod dedupe_tests;
 mod foreground_work;
 #[cfg(test)]
 mod foreground_work_tests;
@@ -299,9 +320,11 @@ mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
 mod inbound;
+#[cfg(test)]
+mod initialize_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
-pub use logged_bodies::leave_out_bodies;
+pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
 // What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
 mod logged_init;
 pub use logged_init::{InitSections, LoggedInit};
@@ -311,6 +334,7 @@ mod live_name_tests;
 mod loops;
 #[cfg(test)]
 mod loops_tests;
+pub(crate) mod native_messaging;
 mod outbound;
 mod policy_gate;
 #[cfg(test)]
@@ -324,8 +348,20 @@ mod result_images;
 pub(crate) use result_images::result_images;
 #[cfg(test)]
 mod result_images_tests;
+// A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
+#[cfg(test)]
+mod queued_prompt_tests;
+pub mod resume_cut;
+#[cfg(test)]
+mod resume_cut_tests;
 #[cfg(test)]
 mod steer_now_tests;
+// A "success" result after Claude Code's own API error line is the turn's failure.
+mod api_error;
+#[cfg(test)]
+mod api_error_tests;
+// Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
+mod background_shells;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
 mod steer_batch;
 #[cfg(test)]
@@ -338,17 +374,17 @@ mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
-mod task_plan;
-#[cfg(test)]
-mod task_plan_tests;
 #[cfg(test)]
 mod tests;
 mod usage_limits;
 #[cfg(test)]
 mod usage_limits_tests;
 #[cfg(test)]
+mod workflow_shell_tests;
+#[cfg(test)]
 mod workflow_tests;
 mod workflows;
+use background_shells::{BackgroundShell, background_task_update, origin, shell_update};
 pub use usage_limits::{merge_usage_limits, usage_limit_reached};
 
 /// Longest failure text a failed subagent's end carries, in characters.
@@ -427,11 +463,13 @@ pub const STEER_NO_TURN: &str = "steer: no turn is running";
 /// (`MUX_STEER_WITHDRAW`, `steer_withdraw.rs`).
 pub const STEER_WITHDRAWN: &str = "steer: withdrawn before the agent read it";
 
-/// What the hub's request becomes: lines for claude's stdin, or an
-/// immediate ACP reply when claude need not be asked.
+/// What the hub's request becomes: lines for claude's stdin, an immediate ACP
+/// reply when claude need not be asked, or both: lines written, then answered
+/// at once without waiting on Claude Code's answer (`initialize`).
 pub enum Outbound {
     Lines(Vec<Value>),
     Reply(Message),
+    LinesThenReply(Vec<Value>, Message),
 }
 
 #[derive(Debug, Clone)]
@@ -439,6 +477,10 @@ pub struct SpawnPlan {
     pub program: String,
     pub args: Vec<String>,
 }
+
+/// Moves Claude Code's per-machine system prompt sections into the first user message, so
+/// every chat on every folder shares one cached system prompt (`spawn_plan`).
+pub const EXCLUDE_DYNAMIC_FLAG: &str = "--exclude-dynamic-system-prompt-sections";
 
 /// Build the claude command line. `resume` reopens an existing Claude
 /// session (or forks it); `fresh_id` pins the id of a brand-new one so acpmux
@@ -496,6 +538,16 @@ pub fn spawn_plan(
         args.push("--thinking-display".into());
         args.push("summarized".into());
     }
+    // Claude Code's default system prompt carries per-machine sections (cwd, env info, memory
+    // paths, git status), so two chats in two folders shared no cached system prompt: every new
+    // chat wrote its system prompt to the prompt cache again. This flag moves those sections into
+    // the first user message, after the shared prefix. Measured with one harness (two fresh
+    // `claude -p` chats in two repos, Claude Code 2.1.312): the second chat read 24,079 tokens
+    // from cache and wrote 7,795 without it, read 25,595 and wrote 6,048 with it (Leo,
+    // 2026-11-09: "if we're doing th eproper cutting edge stuff"). A profile may pin it itself.
+    if !profile.argv.iter().any(|a| a == EXCLUDE_DYNAMIC_FLAG) {
+        args.push(EXCLUDE_DYNAMIC_FLAG.into());
+    }
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
@@ -503,21 +555,53 @@ pub fn spawn_plan(
     }
     // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
-    let bypass = bypass_allowed(profile);
-    if bypass {
+    if bypass_allowed(profile) {
         args.push(ALLOW_BYPASS_FLAG.into());
+    }
+    if !argv_names_mode(&profile.argv) {
+        let mode = spawn_mode(profile, mode);
+        if !mode.is_empty() {
+            args.push("--permission-mode".into());
+            args.push(mode.into());
+        }
+    }
+    SpawnPlan { program, args }
+}
+
+/// The profile's argv passes `--permission-mode` itself (`--permission-mode X` or
+/// `--permission-mode=X`): `spawn_plan` then adds none.
+fn argv_names_mode(argv: &[String]) -> bool {
+    argv.iter().any(|a| a == "--permission-mode" || a.starts_with("--permission-mode="))
+}
+
+/// The `--permission-mode` value the profile's argv pins, if any.
+fn pinned_mode(argv: &[String]) -> Option<&str> {
+    argv.iter().enumerate().find_map(|(i, a)| match a.strip_prefix("--permission-mode") {
+        Some("") => argv.get(i + 1).map(String::as_str),
+        Some(rest) => rest.strip_prefix('='),
+        None => None,
+    })
+}
+
+/// The mode a Claude Code process that `spawn_plan` starts for `mode` runs in: the mode the
+/// profile's argv pins, else `mode`, with `bypassPermissions` moved to [`OWN_MODE`] when the
+/// process could not take it. The translator starts in this mode, so a chat's first answer
+/// (`session/new` is answered before Claude Code's `system/init`, which comes with the first
+/// turn) already tells the truth: a profile pinned to Manual showed Auto until then.
+pub fn spawn_mode<'a>(profile: &'a HarnessProfile, mode: &'a str) -> &'a str {
+    if let Some(pinned) = pinned_mode(&profile.argv) {
+        return pinned;
     }
     // A profile that passes a skip flag itself takes the mode as it is.
     let own_skip = profile
         .argv
         .iter()
         .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
-    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { OWN_MODE } else { mode };
-    if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
-        args.push("--permission-mode".into());
-        args.push(mode.into());
+    if mode == "bypassPermissions" && !bypass_allowed(profile) && !own_skip {
+        OWN_MODE
+    } else {
+        mode
     }
-    SpawnPlan { program, args }
 }
 
 /// Per-process translation state.
@@ -540,9 +624,14 @@ pub struct Translator {
     elicitations: Mutex<HashMap<String, elicitation::Form>>,
     /// The PreToolUse gate that holds the chat's permission policy (`policy_gate.rs`).
     gate: policy_gate::PolicyGate,
+    /// Harness magic `dedupe` (dedupe.rs).
+    dedupe: Arc<dedupe::Dedupe>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
+    pub(crate) stop_condition: AtomicBool,
+    /// Present only when this launch included cmux's local session plugin.
+    pub(crate) plugin_hook_home: std::sync::OnceLock<std::path::PathBuf>,
     mode: Mutex<String>,
     model: Mutex<String>,
     effort: Mutex<String>,
@@ -552,15 +641,28 @@ pub struct Translator {
     pub prompt_suggestions: AtomicBool,
     /// Whether this process asked Claude Code for prompt suggestions at `initialize`.
     suggestions_offered: AtomicBool,
+    /// Whether Claude Code's suggestions are paused now, as acpmux last told it
+    /// (`set_prompt_suggestions_paused`): the chat's pick, or a turn no person started.
+    suggestions_paused: AtomicBool,
     /// This chat's `RECAP_OPTION`: `default`, `on` or `off`.
     recap: Mutex<&'static str>,
     in_turn: AtomicBool,
     /// Claude Code wrote something for the prompt (an assistant line, a
     /// conversation reset): its result ends the turn, never startup noise.
     turn_output: AtomicBool,
+    /// The text of the turn's last assistant line when that line is Claude Code's own API
+    /// error (`is_api_error_message`, or a `<synthetic>` line saying "API Error: ..."), else
+    /// None. A result that follows it is the turn's failure even when Claude Code calls it a
+    /// success (`api_error.rs`): "API Error: Repeated 529 Overloaded errors" left chats idle
+    /// with no retry (Leo, 2026-11-24: "do they get stranded!?").
+    api_error: Mutex<Option<String>>,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// Claude Code queued the turn's prompt line behind a turn of its own (`command_lifecycle`
+    /// `queued` for the line's uuid) and has not started it yet: a model turn's result meanwhile
+    /// is that other turn's, never the prompt's (`queued_prompt_tests.rs`).
+    prompt_queued: AtomicBool,
     /// The `/rename` lines written and not yet answered, oldest first (`live_name.rs`).
     renaming: Mutex<std::collections::VecDeque<live_name::Rename>>,
     /// Prompts still unanswered when the next one went out: acpmux ended
@@ -591,8 +693,9 @@ pub struct Translator {
     step_stopped: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
     /// The skills Claude Code names in its system/init (`skills`, names
-    /// without "/"): their slash commands are tagged as skills.
-    skills: Mutex<Vec<String>>,
+    /// without "/"): their slash commands are tagged as skills. None until
+    /// the first system/init, which comes only with the first turn.
+    skills: Mutex<Option<Vec<String>>>,
     /// The `availableCommands` list last sent, so a turn's system/init that
     /// changes nothing sends no new one.
     sent_commands: Mutex<Option<Vec<Value>>>,
@@ -681,39 +784,12 @@ pub struct Translator {
     /// The plan usage limit windows Claude Code reported, newest each, by id
     /// (`usage_limits.rs`).
     usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
-    /// Claude Code's task list, from its TaskCreate and TaskUpdate calls
-    /// (`task_plan.rs`), sent whole as the turn's ACP plan.
-    task_plan: Mutex<task_plan::TaskPlan>,
     /// Claude Code's /loop: its tools' calls and the loops armed, the chat's goal (`loops.rs`).
     loops: Mutex<loops::Loops>,
 }
 
-/// A running shell: the session its Bash call ran in, its command, Claude's
-/// task id once a task event named it, and whether it runs in the background.
-#[derive(Debug, Clone)]
-struct BackgroundShell {
-    sid: String,
-    command: String,
-    /// What the Bash call says it does (its `description`): the tray names
-    /// the process by it (webviews `session-info/commandRules.ts`).
-    description: Option<String>,
-    task: Option<String>,
-    background: bool,
-    /// Started in the background (`run_in_background`), not moved there.
-    launched: bool,
-    /// The person asked for it to go to the background (`BACKGROUND_TASKS`):
-    /// once it moves, its origin is `user_backgrounded`.
-    asked: bool,
-    /// Its `running` update went out (`inbound.rs` `running`).
-    announced: bool,
-    /// The file Claude Code writes its output to (`output_file`), once a
-    /// task event named it.
-    output: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 enum Pending {
-    Initialize,
     NewOrLoad,
     Prompt,
     /// A setting change, applied to the cached value once claude accepts it.
@@ -763,19 +839,25 @@ impl Translator {
             inputs: Mutex::new(HashMap::new()),
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
+            dedupe: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
+            plugin_hook_home: Default::default(),
+            stop_condition: AtomicBool::new(false),
             mode: Mutex::new(mode.to_owned()),
             model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
             prompt_suggestions: AtomicBool::new(true),
             suggestions_offered: AtomicBool::new(false),
+            suggestions_paused: AtomicBool::new(false),
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
+            api_error: Mutex::new(None),
             prompt_echo: Mutex::new(None),
+            prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
@@ -786,7 +868,7 @@ impl Translator {
             cancelled: AtomicBool::new(false),
             step_stopped: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
-            skills: Mutex::new(Vec::new()),
+            skills: Mutex::new(None),
             sent_commands: Mutex::new(None),
             stdin_replies: Mutex::new(Vec::new()),
             subagents: Mutex::new(HashMap::new()),
@@ -795,7 +877,6 @@ impl Translator {
             failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
-            task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_end: AtomicU64::new(0),
@@ -924,7 +1005,8 @@ impl Translator {
     /// Whether Claude Code runs a subagent or a background shell: work an agent host whose
     /// daemon is gone keeps its harness for (`agent_host::OrphanExit`).
     pub async fn runs_background_work(&self) -> bool {
-        self.interrupt_ends_work().await
+        !self.subagents.lock().await.is_empty()
+            || self.background_shells.lock().await.values().any(|shell| shell.background)
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
@@ -933,27 +1015,43 @@ impl Translator {
 
     /// The `available_commands_update` for Claude's slash commands, an entry
     /// per command with `_meta.kind: "skill"` on a skill's (the pane's picker
-    /// labels it "Skill"). Without `always`, a list that is unchanged, or
-    /// empty before any was sent, sends nothing.
+    /// labels it "Skill", and lists it mid-prompt too). Without `always`, a
+    /// list that is unchanged, or empty before any was sent, sends nothing.
+    ///
+    /// Before the first system/init names the skills (a chat with no turn
+    /// yet, such as the New Tab's deferred one), a command that Claude Code's
+    /// `initialize` answer does not mark `builtin` is a skill: the person's,
+    /// a project's or a plugin's, when the answer marks any command at all
+    /// (an older Claude Code marks none, and gets no tags until its init).
+    /// Its bundled skills are `builtin`, so they are tagged once the init
+    /// names them.
     async fn commands_update(&self, always: bool) -> Option<Value> {
         let skills = self.skills.lock().await.clone();
-        let list: Vec<Value> = self
-            .slash_commands
-            .lock()
-            .await
+        let commands = self.slash_commands.lock().await;
+        // Only a Claude Code that marks its own commands `builtin` says which are skills before its
+        // init: an older one marks none, and then nothing is tagged until the init names the skills.
+        let marks_builtins = commands.iter().any(|c| c.get("builtin").is_some());
+        let list: Vec<Value> = commands
             .iter()
             .map(|c| {
                 let mut entry = json!({"name": c.get("name"), "description": c.get("description")});
                 let name = c.get("name").and_then(Value::as_str).unwrap_or("");
                 let name = name.strip_prefix('/').unwrap_or(name);
-                if !name.is_empty()
-                    && skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
-                {
+                let skill = match &skills {
+                    Some(skills) => {
+                        skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
+                    }
+                    None => {
+                        marks_builtins && c.get("builtin").and_then(Value::as_bool) != Some(true)
+                    }
+                };
+                if !name.is_empty() && skill {
                     entry.set("_meta", json!({"kind": "skill"}));
                 }
                 entry
             })
             .collect();
+        drop(commands);
         let mut sent = self.sent_commands.lock().await;
         let unchanged = match sent.as_ref() {
             Some(before) => *before == list,
@@ -1013,8 +1111,25 @@ impl Translator {
 /// its id and status): kind, title, input, and an edit's diffs and file. A live turn
 /// (`inbound.rs`) and an adopted chat's past turns (`adopt_tools.rs`) both draw calls from it.
 pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
+    // The transcript can describe a command in prose; permission requests still identify
+    // the command itself. Other tools keep the title identifying them (e.g. an MCP name)
+    // and carry any authored description alongside it in rawInput.
+    let title = match name {
+        "Bash" => input
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|description| !description.is_empty())
+            .map(str::to_owned),
+        "Grep" => input
+            .get("pattern")
+            .and_then(Value::as_str)
+            .filter(|pattern| !pattern.is_empty())
+            .map(|pattern| format!("Search for {pattern}")),
+        _ => None,
+    };
     let mut call = json!({
-        "title": tool_title(name, input),
+        "title": title.unwrap_or_else(|| tool_title(name, input)),
         "kind": tool_kind(name),
         "rawInput": input,
         "_meta": {"claude": {"tool": name}}

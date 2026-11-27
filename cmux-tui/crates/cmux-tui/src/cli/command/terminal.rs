@@ -261,7 +261,12 @@ pub(super) fn parse_terminal(
         }
         [selector, "close"] => {
             selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalClose, selectors, flags, Map::new())
+            let mut params = Map::new();
+            // Ends it only when nothing shows it (no tab, no keep mark, no attach stream).
+            if flags.boolean("if-unplaced") {
+                params.insert("if_unplaced".into(), Value::Bool(true));
+            }
+            request(ResourceOperation::TerminalClose, selectors, flags, params)
         }
         [selector, "keep", state] => {
             // `set-terminal-keep` resolves only exact terminal identities, so

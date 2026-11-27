@@ -1,99 +1,129 @@
-// The New Tab page's edit mode (Leo 2026-10-20, as editing an iPhone's home screen): right-click the
-// page and choose Edit New Tab, and its widgets wiggle. Drag one to move it, or focus it and press
-// Option-Up or Option-Down; its ✕ (or Delete) turns it off; Add Widgets opens a menu of the widgets,
-// where a row turns one on; Done or Escape ends it. Every edit is saved as
-// Settings would save it (`tabs.newTabWidgets.*`, pageWidgets.ts editNewTabWidgets). The wiggle is
-// motion: Reduce Motion and the animation switches (`data-agent-motion="off"`) keep the widgets still.
-import { type DragEvent, type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
+// One tile of the New Tab widget grid in edit mode (restored from 4f3b29a4073c^ WidgetEditing.tsx's
+// GridWidgetFrame): it jiggles (motion-gated in widgets.css), shows Apple's minus badge, picks its
+// size from a menu (or the corner, or size chips, per the edit look), takes a drag along the grid and
+// Option-Left or Option-Right, and closes with its minus or Delete. Every edit is the daemon's
+// (`apps.widgets.layout.edit`); this only reads the gesture.
+import { type KeyboardEvent, type ReactNode, useState } from "react";
+import type { WidgetSize } from "../../../apps/scene/widgetsClient";
+import { focusRoute } from "../../../ui/focusRoute";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
 import { Icon } from "../icons/Icon";
-import { droppedWidget, movedWidget, type MovableWidget, type PageWidget, type WidgetEdit } from "./pageWidgets";
 import { useNt } from "./strings";
-import { useWidgetName, useWidgetEditing } from "./widgetEditingModel";
-export type WidgetEditing = ReturnType<typeof useWidgetEditing>;
+import { droppedCell, movedCell } from "./widgetEditingModel";
 
-/// One widget on the page. Out of edit mode it is its content only; in edit mode it wiggles, takes
-/// a drag and the keyboard, and shows its ✕.
-export function WidgetFrame({
-  widget,
-  editing,
+/// How edit mode offers a resize: Apple's size menu (badge), a corner that steps to the next size
+/// (corner), or the sizes as chips under the tile (chips).
+export type WidgetEditLook = "badge" | "corner" | "chips";
+
+const GRID_DRAG_TYPE = "application/x-cmux-grid-widget";
+
+export function useSizeName(): (size: WidgetSize) => string {
+  const nt = useNt();
+  return (size) =>
+    size === "small"
+      ? nt("widgets.size.small")
+      : size === "medium"
+        ? nt("widgets.size.medium")
+        : nt("widgets.size.large");
+}
+
+export function GridWidgetFrame({
+  id,
+  label,
   order,
-  onEdit,
-  className,
+  size,
+  sizes,
+  look,
+  meter,
+  onRemove,
+  onMove,
+  onResize,
   children,
 }: {
-  widget: PageWidget;
-  editing: WidgetEditing;
-  /// The movable widgets shown, in order; a widget not in it (the headline) stays where it is.
-  order: readonly MovableWidget[];
-  onEdit?(edit: WidgetEdit): void;
-  className?: string;
+  id: string;
+  label: string;
+  /// Every tile of the grid, in order.
+  order: readonly string[];
+  size: WidgetSize;
+  /// The sizes the widget offers here.
+  sizes: readonly WidgetSize[];
+  look: WidgetEditLook;
+  /// The edit mode's meter line (refresh interval, ticks, held batches).
+  meter?: string | undefined;
+  onRemove(): void;
+  /// `instance` moved; `order` is the grid's order after it.
+  onMove(instance: string, order: string[]): void;
+  onResize(size: WidgetSize): void;
   children: ReactNode;
 }) {
-  const name = useWidgetName();
   const nt = useNt();
-  if (!editing.editing || !onEdit) return <div className={className}>{children}</div>;
-  const movable = (order as readonly PageWidget[]).includes(widget) ? (widget as MovableWidget) : undefined;
-  const { drag, setDrag } = editing;
-  const remove = () => onEdit({ edit: "remove", widget });
-  const move = (next: MovableWidget[]) => {
-    if (next.join() !== order.join()) onEdit({ edit: "order", order: next });
+  const sizeName = useSizeName();
+  const [drop, setDrop] = useState<"before" | "after">();
+  const [dragging, setDragging] = useState(false);
+  const move = (instance: string, next: string[]) => {
+    if (next.join("\n") !== order.join("\n")) onMove(instance, next);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
     if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
-      remove();
-    } else if (movable && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      onRemove();
+    } else if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
       event.preventDefault();
-      move(movedWidget(order, movable, event.key === "ArrowUp" ? -1 : 1));
-      // The move may draw the widget in another cards column (a new element): keep the keyboard on it.
+      move(id, movedCell(order, id, event.key === "ArrowLeft" ? -1 : 1));
+      // The move draws the tile in a new place: keep the keyboard on it.
       const page = event.currentTarget.ownerDocument;
       requestAnimationFrame(() =>
-        page.querySelector<HTMLElement>(`.nt-widget-frame[data-widget="${movable}"]`)?.focus(),
+        focusRoute(
+          page.querySelector<HTMLElement>(`.nt-widget-frame[data-cell="${CSS.escape(id)}"]`),
+          "person",
+          "the widget the person moved with Option-arrow keeps the keyboard",
+        ),
       );
     }
   };
-  const dragProps = movable
-    ? {
-        draggable: true,
-        onDragStart: (event: DragEvent<HTMLDivElement>) => {
-          event.dataTransfer.effectAllowed = "move";
-          // Not text/plain: a drop on the composer must not type the widget's name.
-          event.dataTransfer.setData("application/x-cmux-widget", movable);
-          setDrag({ widget: movable });
-        },
-        onDragOver: (event: DragEvent<HTMLDivElement>) => {
-          if (!drag) return;
-          event.preventDefault();
-          const box = event.currentTarget.getBoundingClientRect();
-          const after = event.clientY > box.top + box.height / 2;
-          if (drag.over !== movable || drag.after !== after) setDrag({ ...drag, over: movable, after });
-        },
-        onDrop: (event: DragEvent<HTMLDivElement>) => {
-          event.preventDefault();
-          if (drag) move(droppedWidget(order, drag.widget, movable, drag.after ?? false));
-          setDrag(undefined);
-        },
-        onDragEnd: () => setDrag(undefined),
-      }
-    : {};
+  const next = sizes[(sizes.indexOf(size) + 1) % sizes.length] ?? size;
+  const resizable = sizes.length > 1;
   return (
     <div
-      className={className ? `${className} nt-widget-frame` : "nt-widget-frame"}
+      className="nt-widget-frame"
       data-editing=""
-      data-widget={widget}
-      data-dragging={drag?.widget === widget || undefined}
-      data-drop={drag && drag.over === widget && drag.widget !== widget ? (drag.after ? "after" : "before") : undefined}
-      // A sortable item, as drag-and-drop lists name one: a button the screen reader calls a
-      // movable widget, with its keys (Option-Up, Option-Down, Delete) on it. Not a <button>: it
-      // holds the widget and its own ✕ button.
+      data-cell={id}
+      data-size={size}
+      data-dragging={dragging || undefined}
+      data-drop={drop}
+      // A sortable item, as drag-and-drop lists name one: a movable widget with its keys on it.
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="button" // ui-allow: a sortable item (dnd lists' pattern); no ui primitive moves items yet.
       tabIndex={0} // ui-allow: each edited widget is a Tab stop, so the keyboard can move and remove it.
-      aria-label={name(widget)}
-      aria-roledescription={nt("edit.widget")}
-      onKeyDown={onKeyDown} // ui-allow: Option-Up, Option-Down and Delete on the focused widget.
-      {...dragProps}
+      aria-label={label}
+      aria-roledescription={nt("widgets.widget")}
+      onKeyDown={onKeyDown} // ui-allow: Option-Left, Option-Right and Delete on the focused widget.
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        // Not text/plain: a drop on the composer must not type the widget's id.
+        event.dataTransfer.setData(GRID_DRAG_TYPE, id);
+        setDragging(true);
+      }}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(GRID_DRAG_TYPE)) return;
+        event.preventDefault();
+        const box = event.currentTarget.getBoundingClientRect();
+        const side = event.clientX > box.left + box.width / 2 ? "after" : "before";
+        if (side !== drop) setDrop(side);
+      }}
+      onDragLeave={() => setDrop(undefined)}
+      onDrop={(event) => {
+        event.preventDefault();
+        const held = event.dataTransfer.getData(GRID_DRAG_TYPE);
+        if (held) move(held, droppedCell(order, held, id, drop === "after"));
+        setDrop(undefined);
+      }}
+      onDragEnd={() => {
+        setDragging(false);
+        setDrop(undefined);
+      }}
     >
       <div className="nt-widget-content" inert>
         {children}
@@ -101,91 +131,64 @@ export function WidgetFrame({
       <button
         type="button"
         className="nt-widget-remove"
-        aria-label={nt("edit.remove", { name: name(widget) })}
-        title={nt("edit.remove", { name: name(widget) })}
-        onClick={remove}
+        aria-label={nt("widgets.remove", { name: label })}
+        title={nt("widgets.remove", { name: label })}
+        onClick={onRemove}
       >
-        <Icon name="action.close" size={12} />
+        <Icon name="action.remove" size={12} />
       </button>
-    </div>
-  );
-}
-
-/// The bar over the page while it is edited: Add Widgets and Done.
-export function WidgetEditBar({ editing, onEdit }: { editing: WidgetEditing; onEdit(edit: WidgetEdit): void }) {
-  const nt = useNt();
-  const widgetName = useWidgetName();
-  // The widget menu exists only while it is open: the page's Escape stands down for any open menu
-  // (useWidgetEditing), so a closed one left in the DOM kept Escape from ever ending edit mode.
-  const [adding, setAdding] = useState(false);
-  useEffect(() => {
-    if (!adding) return;
-    const listener = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      event.preventDefault();
-      setAdding(false);
-    };
-    // ui-allow: Escape closes the open widget menu first, wherever focus is; the next ends edit mode.
-    document.addEventListener("keydown", listener);
-    return () => document.removeEventListener("keydown", listener);
-  }, [adding]);
-  if (!editing.editing) return null;
-  return (
-    <div className="nt-edit-bar">
-      <details className="nt-edit-add" open={adding}>
-        <summary
-          className="nt-edit-button"
-          data-edit="add"
-          // The page owns the disclosure (the native toggle event comes a task late).
-          onClick={(event) => {
-            event.preventDefault();
-            setAdding((open) => !open);
-          }}
+      {resizable && look === "badge" && (
+        <div className="nt-widget-size-menu">
+          <Menu>
+            <MenuButton
+              className="nt-widget-size-button"
+              label={nt("widgets.size")}
+              title={nt("widgets.size")}
+              data-menu="widget-size"
+              aria-haspopup="menu"
+            >
+              <Icon name="action.more" size={12} />
+            </MenuButton>
+            <MenuPopup label={nt("widgets.size")} className="acpmux-quick-menu" align="end">
+              <MenuRadioGroup value={size} onValueChange={(value) => onResize(value as WidgetSize)}>
+                {sizes.map((option) => (
+                  <MenuRadioItem key={option} value={option} closeOnClick>
+                    {sizeName(option)}
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuPopup>
+          </Menu>
+        </div>
+      )}
+      {resizable && look === "corner" && (
+        <button
+          type="button"
+          className="nt-widget-corner"
+          aria-label={`${nt("widgets.size")}: ${sizeName(next)}`}
+          title={`${nt("widgets.size")}: ${sizeName(next)}`}
+          onClick={() => onResize(next)}
         >
-          <Icon name="action.add" size={12} />
-          <span>{nt("edit.add")}</span>
-        </summary>
-        {adding && (
-          <div className="nt-edit-add-menu" role="menu">
-            {(
-              [
-                "greeting",
-                "clock",
-                "timer",
-                "warmGreeting",
-                "quote",
-                "projects",
-                "actions",
-                "chats",
-                "styleDots",
-                "weather",
-                "machines",
-              ] as PageWidget[]
-            ).map((widget) => (
-              <button
-                key={widget}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setAdding(false);
-                  onEdit({ edit: "show", widget });
-                }}
-              >
-                {widgetName(widget)}
-              </button>
-            ))}
-          </div>
-        )}
-      </details>
-      <button
-        type="button"
-        className="nt-edit-button"
-        data-edit="done"
-        data-primary=""
-        onClick={() => editing.setEditing(false)}
-      >
-        {nt("edit.done")}
-      </button>
+          <span aria-hidden="true" />
+        </button>
+      )}
+      {resizable && look === "chips" && (
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        <div className="nt-widget-chips" role="group" aria-label={nt("widgets.size")}>
+          {sizes.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className="nt-widget-chip"
+              aria-pressed={option === size}
+              onClick={() => option !== size && onResize(option)}
+            >
+              {sizeName(option)}
+            </button>
+          ))}
+        </div>
+      )}
+      {meter && <output className="nt-widget-meter">{meter}</output>}
     </div>
   );
 }

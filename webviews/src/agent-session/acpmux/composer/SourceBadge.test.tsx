@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import type { AttachmentSource } from "../attachments";
 import { SourceBadge } from "./SourceBadge";
 import { ICON_RETRY_MS, resetSourceIcons, withSourceLabel } from "./sourceBadgeModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
 const chrome: AttachmentSource = { name: "Google Chrome", bundleId: "com.google.Chrome", site: "github.com" };
@@ -20,6 +21,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

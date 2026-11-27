@@ -83,10 +83,18 @@ struct MarkdownBlockMarker: ViewModifier {
     }
 }
 
+extension EnvironmentValues {
+    /// The view is being drawn once into a still picture (a tab card, `ImageRenderer`), which
+    /// draws any UIKit-backed view (a web view, a text view) as the system's yellow square with
+    /// a red prohibition sign. A view that would use one draws in SwiftUI instead when this is set.
+    @Entry public var drawsStillPicture = false
+}
+
 /// One block of a markdown document (a transcript draws a long answer block by block).
 public struct MarkdownBlockView: View {
     let block: MarkdownBlock
     let margin: CGFloat
+    @Environment(\.drawsStillPicture) private var still
 
     public init(block: MarkdownBlock, margin: CGFloat = 20) {
         self.block = block
@@ -96,15 +104,15 @@ public struct MarkdownBlockView: View {
     public var body: some View {
         switch block.kind {
         case .heading(let level, let text):
-            InlineText(source: text, font: headingFont(level))
+            InlineText(source: text, style: level == 1 ? .title3 : level == 2 ? .headline : .subheadline,
+                       weight: level == 2 ? nil : .bold)
                 .padding(.top, level <= 2 ? 6 : 2)
                 .accessibilityAddTraits(.isHeader)
         case .paragraph(let text):
-            if MarkdownInlineMath.contains(text) {
-                WebMarkdownView(markdown: text, style: .body)
+            if MarkdownInlineMath.contains(text), !still {
+                WebMarkdownView(markdown: text, style: .body, allowsTextSelection: true)
             } else {
                 InlineText(source: text)
-                    .textSelection(.enabled)
             }
         case .list(let list):
             MarkdownListView(list: list)
@@ -115,21 +123,20 @@ public struct MarkdownBlockView: View {
         case .quote(let text):
             HStack(spacing: 12) {
                 RoundedRectangle(cornerRadius: 1.5).fill(Color(uiColor: .separator)).frame(width: 3)
-                InlineText(source: text).foregroundStyle(.secondary)
+                InlineText(source: text, color: .secondaryLabel)
             }
             .fixedSize(horizontal: false, vertical: true)
         case .math(let tex):
-            WebMarkdownView(markdown: "$$\n\(tex)\n$$", style: .body)
+            if still {
+                // A still picture cannot hold the web view that typesets math (it would draw as
+                // the system's yellow "cannot draw" mark): the source, in the code face.
+                Text(tex).font(.callout.monospaced()).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                WebMarkdownView(markdown: "$$\n\(tex)\n$$", style: .body, allowsTextSelection: true)
+            }
         case .rule:
             Divider().padding(.vertical, 4)
-        }
-    }
-
-    private func headingFont(_ level: Int) -> Font {
-        switch level {
-        case 1: .title3.bold()
-        case 2: .headline
-        default: .subheadline.bold()
         }
     }
 }
@@ -164,10 +171,14 @@ struct MarkdownListView: View {
     }
 }
 
-/// SPEC 4.7: grid in a horizontal scroll view that bleeds to the screen edges.
+/// SPEC 4.7: grid in a horizontal scroll view that bleeds to the screen edges. A grid narrower
+/// than the column sits centered in it; a wider one scrolls sideways in its own box (Leo
+/// 2026-11-22: "i dont know why we dont simply center tables in our agent chats.").
 struct MarkdownTableView: View {
     let table: MarkdownTable
     let margin: CGFloat
+    /// The scroll area's width: the grid is at least this wide, its own content centered in it.
+    @State private var viewport: CGFloat = 0
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -187,12 +198,14 @@ struct MarkdownTableView: View {
                 }
             }
             .padding(.horizontal, margin - 12)
+            .frame(minWidth: viewport)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewport = $0 }
         .scrollIndicators(.hidden)
         .trailingOverflowFade()
         .padding(.horizontal, -margin)
-        .contextMenu {
-            Button("Copy Table", systemImage: "doc.on.doc") { UIPasteboard.general.string = table.plainText }
+        .selectionMenu { _ in
+            [SelectionMenu.action("Copy Table", "doc.on.doc") { UIPasteboard.general.string = table.plainText }]
         }
     }
 
@@ -202,7 +215,7 @@ struct MarkdownTableView: View {
         // and ran into the row separators. The layout reports the height at
         // the capped width instead.
         TableCellLayout(minWidth: 96 - 24, maxWidth: 260 - 24) {
-            InlineText(source: text, font: header ? .subheadline.weight(.semibold) : .subheadline)
+            InlineText(source: text, style: .subheadline, weight: header ? .semibold : nil)
                 .frame(maxWidth: .infinity, alignment: alignment(column))
         }
             .padding(.horizontal, 12)

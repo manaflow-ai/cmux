@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture labels, not shipped UI.
-// The chat menu's Transcript view (conversation/transcriptView.ts): Normal keeps today's defaults,
-// Thinking opens thoughts, Verbose also opens tool output; each chat keeps its own view, a chat
-// with none follows `agentPane.display.transcriptView`, and a row reads the view once per render
+// The chat menu's Transcript view (conversation/transcriptView.ts), the upper rungs of the detail
+// ladder (chatDetail.ts): Normal keeps today's defaults, Thinking opens thoughts, Verbose also opens
+// tool output; each chat keeps its own level (`cmux.acpmux.detail`), a chat with none follows
+// `agentPane.display.detail` (the old `agentPane.display.transcriptView` still reads), and a row reads the view once per render
 // from context, so a streamed update does no new work.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, memo } from "react";
@@ -20,9 +21,15 @@ import {
   setTranscriptView,
   transcriptViewOf,
 } from "../src/agent-session/acpmux/conversation/transcriptView";
-import { chatDisplayValues, setChatDisplay, TRANSCRIPT_VIEW_KEY } from "../src/agent-session/acpmux/chatDisplay";
+import {
+  chatDisplayValues,
+  DETAIL_KEY,
+  setChatDisplay,
+  TRANSCRIPT_VIEW_KEY,
+} from "../src/agent-session/acpmux/chatDisplay";
 import { transcriptViewRow } from "../src/agent-session/acpmux/header/transcriptViewRow";
 import { translate } from "../src/agent-session/acpmux/i18n";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -86,6 +93,7 @@ afterEach(async () => {
   resetTranscriptDisclosure();
   resetTranscriptViews();
   setChatDisplay({});
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -113,7 +121,7 @@ test("each chat keeps its own view; a chat with none follows the default setting
   act(() => setTranscriptView("chat-a", "verbose"));
   expect(transcriptViewOf("chat-a")).toBe("verbose");
   expect(transcriptViewOf("chat-b")).toBe("normal");
-  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.transcriptView")!)).toEqual({ "chat-a": "verbose" });
+  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.detail")!)).toEqual({ "chat-a": "verbose" });
   setChatDisplay({ [TRANSCRIPT_VIEW_KEY]: "thinking" });
   expect(transcriptViewOf("chat-b")).toBe("thinking");
   render("chat-b");
@@ -126,19 +134,19 @@ test("each chat keeps its own view; a chat with none follows the default setting
 test("Make … the default writes the setting and the chat follows it", () => {
   act(() => setTranscriptView("chat-a", "verbose"));
   act(() => makeTranscriptViewDefault("chat-a", "verbose"));
-  expect(chatDisplayValues()[TRANSCRIPT_VIEW_KEY]).toBe("verbose");
+  expect(chatDisplayValues()[DETAIL_KEY]).toBe("verbose");
   expect(transcriptViewOf("chat-a")).toBe("verbose");
   expect(transcriptViewOf("chat-z")).toBe("verbose");
   // Normal is the setting's default: making it the default removes the key.
   act(() => makeTranscriptViewDefault("chat-a", "normal"));
-  expect(TRANSCRIPT_VIEW_KEY in chatDisplayValues()).toBe(false);
+  expect(DETAIL_KEY in chatDisplayValues()).toBe(false);
 });
 
 test("the menu row checks the chat's view and offers Make … the default only off the default", () => {
   const row = transcriptViewRow("chat-a", translate)!;
   const children = row.children!;
   const checked = children.filter((child) => child.checked).map((child) => child.key);
-  expect(checked).toEqual(["transcriptView.normal"]);
+  expect(checked).toEqual(["detail.normal"]);
   const last = children.at(-1)!;
   expect(last.disabled).toBe(true);
   expect(last.separatorBefore).toBe(true);
@@ -158,7 +166,7 @@ test("a chat's own view that equals the default can still be cleared, so it foll
   // Enabled: it is the only way to drop the chat's own view and follow the setting again.
   expect(make.disabled).toBe(false);
   act(() => make.onSelect());
-  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.transcriptView") ?? "{}")).toEqual({});
+  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.detail") ?? "{}")).toEqual({});
   // The chat now follows a later default.
   act(() => setChatDisplay({ [TRANSCRIPT_VIEW_KEY]: "verbose" }));
   expect(transcriptViewOf("chat-a")).toBe("verbose");
@@ -198,23 +206,23 @@ test("a subagent's transcript and a replay follow their chat's view", () => {
 test("two panes' choices both survive: each write reads storage fresh, and a storage event refreshes", () => {
   act(() => setTranscriptView("chat-a", "thinking"));
   // Another pane (its own copy of the map) sets chat-b's view and writes storage.
-  const other = JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.transcriptView")!);
-  dom!.window.localStorage.setItem("cmux.acpmux.transcriptView", JSON.stringify({ ...other, "chat-b": "verbose" }));
+  const other = JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.detail")!);
+  dom!.window.localStorage.setItem("cmux.acpmux.detail", JSON.stringify({ ...other, "chat-b": "verbose" }));
   // This pane, before hearing of it, sets chat-c: chat-b's choice must stay.
   act(() => setTranscriptView("chat-c", "verbose"));
-  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.transcriptView")!)).toEqual({
+  expect(JSON.parse(dom!.window.localStorage.getItem("cmux.acpmux.detail")!)).toEqual({
     "chat-a": "thinking",
     "chat-b": "verbose",
     "chat-c": "verbose",
   });
   // A storage event from the other pane updates what this pane shows.
   dom!.window.localStorage.setItem(
-    "cmux.acpmux.transcriptView",
+    "cmux.acpmux.detail",
     JSON.stringify({ "chat-a": "thinking", "chat-b": "normal", "chat-c": "verbose" }),
   );
   // The store listens on the page's global (transcriptView.ts), where a storage event arrives.
   act(() => {
-    const event = Object.assign(new Event("storage"), { key: "cmux.acpmux.transcriptView" });
+    const event = Object.assign(new Event("storage"), { key: "cmux.acpmux.detail" });
     globalThis.dispatchEvent(event);
   });
   expect(transcriptViewOf("chat-b")).toBe("normal");

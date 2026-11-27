@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextAgentPane
 import Foundation
 import Testing
 import WebKit
@@ -32,12 +33,12 @@ struct DebugAgentPaneScriptTests {
         #expect(took.map { $0 < .seconds(7) } == true, "a page without the hook held the call \(String(describing: took)) on its own clock")
     }
 
-    /// `DebugAgentPane.script` as it runs, with the page's own time for it (`performance.now`).
+    /// `AgentPaneView.debugVerbScript` as it runs, with the page's own time for it (`performance.now`).
     private static var timed: String {
         """
         const started = performance.now();
         const answer = await (async () => {
-        \(DebugAgentPane.script)
+        \(AgentPaneView.debugVerbScript)
         })();
         return JSON.stringify({ answer, ms: performance.now() - started });
         """
@@ -69,5 +70,48 @@ struct DebugAgentPaneScriptTests {
             continuation?.resume(throwing: error)
             continuation = nil
         }
+    }
+}
+
+/// `debug.agent_pane {action: "answer_permission"}` answers the ask as the card's Allow once click
+/// does. Since cx-ocdz the relay lets a permission answer through only on a fresh click
+/// (`AgentPaneUserGestures.hasFreshAnswerGesture`), and the verb recorded a typing-class gesture:
+/// every scripted answer came back "Refused by the cmux host" (`transport.gesture_required`), on
+/// this Mac and on a Cloud machine alike (the cloud-ergo-start-chat capture, 2026-11-09).
+@MainActor
+struct DebugAgentPaneAnswerGestureTests {
+    @Test func answerPermissionRecordsTheClickAnAllowNeeds() {
+        let gestures = AgentPaneUserGestures()
+        DebugAgentPane.actAsUser("answer_permission", gestures: gestures)
+        #expect(gestures.hasFreshAnswerGesture, "a scripted Allow once has no click to answer with")
+    }
+
+    @Test func otherChatVerbsStillGiveNoAnswerClick() {
+        for verb in DebugAgentPane.userVerbs where verb != "answer_permission" {
+            let gestures = AgentPaneUserGestures()
+            DebugAgentPane.actAsUser(verb, gestures: gestures)
+            #expect(!gestures.hasFreshAnswerGesture, "\(verb) may answer a permission")
+        }
+    }
+}
+
+/// A page verb gets the `debug.agent_pane` deadline, not the page call's default. On a Chromium page
+/// the call is a DevTools `Runtime.evaluate`, cut at 5 s unless the caller names a timeout, so a
+/// 2800-row `seed_rows` on a fleet Mac (hq#15602) and a waited `fling` of up to ~25 s timed out
+/// at 5 s on every run, while the verb itself allows 60 s.
+@MainActor
+struct DebugAgentPaneVerbDeadlineTests {
+    @Test func aPageVerbRunsUnderTheVerbsDeadline() async throws {
+        var timeout: Duration?
+        var function: String?
+        _ = try await AgentPaneView.callDebugVerb("seedRows", args: [2800]) { _, arguments, given in
+            function = arguments["fn"] as? String
+            timeout = given
+            return nil
+        }
+        #expect(function == "seedRows")
+        let given = try #require(timeout, "the page call got no timeout: a Chromium page cuts it at 5 s")
+        #expect(given >= .seconds(30), "a page verb gets \(given), too short for a long seed or a waited fling")
+        #expect(given < DebugAgentPane.deadline, "the page call outlasts the verb: the verb's deadline answers, not the page")
     }
 }

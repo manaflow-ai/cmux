@@ -25,6 +25,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitCeiling = "ceiling"
+}
+
+wire_literal! {
     LitChief = "chief"
 }
 
@@ -58,6 +62,10 @@ wire_literal! {
 
 wire_literal! {
     LitEvent = "event"
+}
+
+wire_literal! {
+    LitFits = "fits"
 }
 
 wire_literal! {
@@ -105,6 +113,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitOver = "over"
+}
+
+wire_literal! {
     LitP256 = "P-256"
 }
 
@@ -117,6 +129,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitRunaway = "runaway"
+}
+
+wire_literal! {
     LitSlack = "slack"
 }
 
@@ -125,11 +141,27 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitSpare = "spare"
+}
+
+wire_literal! {
+    LitSpendCap = "spend_cap"
+}
+
+wire_literal! {
     LitSteps = "steps"
 }
 
 wire_literal! {
     LitText = "text"
+}
+
+wire_literal! {
+    LitTier = "tier"
+}
+
+wire_literal! {
+    LitUnused = "unused"
 }
 
 wire_literal! {

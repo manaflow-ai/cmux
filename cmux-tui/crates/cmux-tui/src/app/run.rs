@@ -25,7 +25,9 @@ use crate::app::frame_geometry::{
 };
 use crate::app::frontend_journal::FrontendJournalWorker;
 use crate::app::graphics::GraphicsSceneCache;
-use crate::app::host_input::{HostInputRuntime, read_crossterm_event};
+use crate::app::host_input::{
+    CROSSTERM_POLL_INTERVAL, HostInputRuntime, WAKEABLE_POLL_CAP, read_crossterm_event,
+};
 use crate::app::layout::{FocusTarget, SidebarLayout};
 use crate::app::machine_worker::{
     MachineActionWorker, ensure_initial_for_machine_ui, ensure_managed_workspace_guard,
@@ -37,8 +39,8 @@ use crate::app::pointer::deferred::{DeferredInputQueue, OuterCursorSpec, Pointer
 use crate::app::pointer::route::RenderedPointerFrame;
 use crate::app::selection::SelectionMode;
 use crate::app::terminal_guard::{
-    TerminalRestoreGuard, negotiate_host_keyboard_protocol, restore_terminal_unlocked,
-    terminal_restore_error, with_panic_stdout_lock,
+    TerminalRestoreGuard, negotiate_host_keyboard_protocol, restore_terminal_for_restart,
+    restore_terminal_unlocked, terminal_restore_error, with_panic_stdout_lock,
 };
 use crate::app::{
     APP_EVENT_CAPACITY, App, PaneFocusHistory, WorkspaceRailSelection, client_focus_identity,
@@ -159,6 +161,16 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     )?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
+    // The loop blocks with no timeout when nothing timed waits (idle_wait),
+    // so state it checks after each wait must wake it when set elsewhere.
+    if let Some(mux) = owner_mux.as_deref() {
+        let wake = tx.clone();
+        mux.set_daemon_shutdown_waker(move || {
+            let _ = wake.try_send(AppEvent::Wake);
+        });
+    }
+    #[cfg(unix)]
+    wake_on_shutdown_signal(tx.clone());
     let owner_reload_worker =
         owner_mux.as_deref().map(|mux| OwnerReloadWorker::spawn(mux, tx.clone())).transpose()?;
     let host_input = HostInputRuntime::new();
@@ -266,6 +278,20 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     // startup terminal probes so their replies cannot be consumed as key
     // input. Backpressure here must never block mutation completions.
     let input = host_input.producer(tx.clone());
+    // With the event reader's waker, shutdown wakes the reader's poll, so an
+    // idle reader waits for input with no timer of its own.
+    let poll_cap = match crossterm::event::poll_waker() {
+        Ok(waker) => {
+            host_input.set_reader_wake(move || {
+                let _ = waker.wake();
+            });
+            WAKEABLE_POLL_CAP
+        }
+        Err(error) => {
+            crate::client_log::warn("input", &format!("no input poll waker: {error}"));
+            CROSSTERM_POLL_INTERVAL
+        }
+    };
     if let Err(error) = host_input.spawn_reader("input", move || {
         for event in crate::ui::graphics::finish_startup_input(pending_input) {
             if !input.send(event) {
@@ -279,6 +305,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
             }
             let events = match read_crossterm_event(
                 graphics_responses.time_until_expiry(),
+                poll_cap,
                 crossterm::event::poll,
                 crossterm::event::read,
             ) {
@@ -332,7 +359,8 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         default_hook(info);
     }));
 
-    let backend = CrosstermBackend::new(std::io::stdout());
+    let backend =
+        CrosstermBackend::new(super::host_frame_writer::host_frame_writer(std::io::stdout()));
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
@@ -399,6 +427,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::new(),
+        synchronized_output: Default::default(),
         chrome_row_scratch: ReusableRowBuffer::default(),
         sidebar_kind_scratch: Vec::new(),
         rendered_terminal_sizes: HashMap::new(),
@@ -569,7 +598,23 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         owner.mark_server_lifecycle_ready();
     }
 
+    // The UI-loop hang watchdog (ui_watchdog): samples and reports a stalled turn, cancels a
+    // known wait past its bound, and past the restart bound hands the session to a fresh client,
+    // which only a client whose terminals live in a daemon may do.
+    let restore_for_restart = (app.session.remote && app.owner_mux.is_none()).then(|| {
+        let keyboard = terminal_restore.host_keyboard_protocol().clone();
+        Box::new(move || restore_terminal_for_restart(&keyboard)) as Box<dyn Fn() + Send + Sync>
+    });
+    let watchdog = crate::ui_watchdog::start_client(&app.session_label, restore_for_restart);
     let result = app.event_loop(&mut terminal, rx);
+    crate::ui_watchdog::stop_client();
+    drop(watchdog);
+    // A draw that failed partway leaves the rest of its frame in the frame
+    // buffer; let it go out now, on the alternate screen the restore leaves,
+    // not on the person's own screen when `terminal` drops at the end.
+    drop(terminal);
+    #[cfg(unix)]
+    SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     app.shutdown_runtime_components();
     let restore_result = terminal_restore.restore();
     match (result, restore_result) {
@@ -591,6 +636,33 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     Ok(outcome)
 }
 
+/// The running loop's sender for a termination signal's wake.
+#[cfg(unix)]
+static SIGNAL_WAKE: Mutex<Option<crossbeam_channel::Sender<AppEvent>>> = Mutex::new(None);
+
+/// A termination signal sets the shutdown flag the loop checks after each
+/// wait; this wakes the loop for it. One waiter serves every run of the loop
+/// in the process (a machine switch runs it again); it peeks, so other
+/// shutdown waiters still see the signal.
+#[cfg(unix)]
+fn wake_on_shutdown_signal(tx: crossbeam_channel::Sender<AppEvent>) {
+    static WAITER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    *SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(tx);
+    WAITER.get_or_init(|| {
+        let spawned = std::thread::Builder::new().name("tui-signal-wake".into()).spawn(|| {
+            crate::wait_for_shutdown_signal_peek();
+            if let Some(tx) =
+                SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+            {
+                let _ = tx.try_send(AppEvent::Wake);
+            }
+        });
+        if let Err(error) = spawned {
+            crate::client_log::warn("signals", &format!("no signal wake thread: {error}"));
+        }
+    });
+}
+
 pub(super) fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> String {
     let payload = info
         .payload()
@@ -605,8 +677,7 @@ pub(super) fn format_panic_diagnostic(info: &std::panic::PanicHookInfo<'_>) -> S
         .map(|location| location.to_string())
         .unwrap_or_else(|| "<unknown>".to_string());
     let mut diagnostic = format!("thread '{thread_name}' panicked at {location}:\n{payload}\n");
-    let backtrace = std::backtrace::Backtrace::capture();
-    if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+    if let Some(backtrace) = cmux_panic_log::backtrace::capture() {
         diagnostic.push_str(&format!("{backtrace}\n"));
     }
     diagnostic

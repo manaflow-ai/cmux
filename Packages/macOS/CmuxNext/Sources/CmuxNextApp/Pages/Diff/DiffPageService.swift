@@ -36,7 +36,7 @@ final class DiffPageService: InternalPageProvider {
         var source: DiffOpenSource
         /// The chat turn its Last turn scope shows (D2), from the chat that opened it.
         var turn: DiffTurn?
-        /// The chat on this Mac that opened it last: Send to agent's (``DiffTabChat``).
+        /// The chat that opened it last: Send to agent's (``DiffTabChat``).
         var chat: DiffTabChat?
         /// The chat's session host. A remote tab must retain this link for every page read.
         var gitLink: AgentPaneGitLink?
@@ -75,7 +75,7 @@ final class DiffPageService: InternalPageProvider {
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
     private var tabs: [String: Tab] = [:]
-    /// Send to agent's prompts (``DiffTabChat``), through this Mac's acpmux.
+    /// Send to agent's prompts (``DiffTabChat``) for a host without `diff.comments.send`.
     private let replies = AcpmuxReplySender()
     /// The diff tabs' open timeline (the instant-surfaces bench's `diff_right`).
     let timeline = DiffOpenTimeline()
@@ -126,13 +126,13 @@ final class DiffPageService: InternalPageProvider {
     /// it. Throws ``DiffOpenFailure/notRepository`` and opens nothing when the
     /// folder is in no repository.
     /// A chat's open names its `turn` (D1, D2): the tab offers it as Last turn, and with `source`
-    /// `.turn` (an edited-files card) opens on it, at its file.
+    /// `.turn` (an edited-files card) opens on it, at its file. The chat is read before any await (a switch can't take the Send).
     @discardableResult
     func open(folder: URL, source: DiffOpenSource = .default, turn: DiffTurn? = nil, in pane: PaneController,
               focus: Bool, on machine: DaemonService? = nil,
               created: (@MainActor (SurfaceID) -> Void)? = nil,
               failed: (@MainActor ((any Error)?) -> Void)? = nil) async throws(DiffOpenFailure) -> String {
-        let paneLink = machine.flatMap { $0.isLocal ? nil : services.agentGit.link(for: $0) }
+        let paneLink = machine.flatMap { $0.isLocal ? nil : services.agentGit.link(for: $0) }, session = pane.selectedTab?.agentSession?.session
         if let machine, let link = paneLink, readsOnPaneMachine(link, selected: pane.selectedTab) {
             // A Cloud workspace's folder (#25581): that machine's session host reads it.
             let repository: DiffRepository?
@@ -144,13 +144,12 @@ final class DiffPageService: InternalPageProvider {
             }
             guard let repository else { throw .notRepository }
             return open(repository: repository, source: source, turn: turn, gitLink: link, runtime: runtime(for: link),
-                        in: pane, focus: focus, on: machine, created: created, failed: failed)
+                        in: pane, focus: focus, on: machine, chat: DiffTabChat.of(session: session, on: link, replies: replies, environment: QuitAgents.environment(services)), created: created, failed: failed)
         }
         guard let link = gitLink(for: pane.selectedTab) else { throw .notRepository }
         let tabRuntime = runtime(for: link)
         guard let repository = await tabRuntime.repository(at: folder) else { throw .notRepository }
-        let chat = DiffTabChat.local(session: pane.selectedTab?.agentSession?.session, isLocal: link.isLocal, replies: replies,
-                                     environment: services.feed.acpmuxEnvironment)
+        let chat = DiffTabChat.of(session: session, on: link, replies: replies, environment: QuitAgents.environment(services))
         return open(repository: repository, source: source, turn: turn, gitLink: link, runtime: tabRuntime,
                     in: pane, focus: focus, chat: chat, created: created, failed: failed)
     }
@@ -432,7 +431,7 @@ final class DiffPageService: InternalPageProvider {
         provider.confirmRevert = { [weak page] prompt in await DiffPageService.confirmRevert(prompt, over: page) }
         page.fileDrop = provider.folderDrop(page: page)
         provider.timeline = timeline
-        provider.connect(chat: { [weak self] in self?.tabs[key]?.chat }, acpmux: { [weak self] in self?.services.feed.acpmuxEnvironment })
+        provider.connect(chat: { [weak self] in self?.tabs[key]?.chat }, acpmux: { [weak self] in self.flatMap { QuitAgents.environment($0.services) } })
         provider.startPreopen()
         tab.page = page
         tab.provider = provider

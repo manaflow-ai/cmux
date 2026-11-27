@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PresentationToggle, readPresentation } from "../src/pages/home-channels/presentation";
+import { DetailToggle, readDetail } from "../src/pages/home-channels/presentation";
 import { runBlocks } from "../src/pages/home-channels/runBlocks";
 import { HomeToolGroup } from "../src/pages/home-channels/HomeToolGroup";
 import { RunTranscript } from "../src/pages/home-channels/RunTranscript";
@@ -13,6 +13,7 @@ import type { HomeMessage, HomeRun, HomeRunStep } from "../src/pages/home-channe
 import table from "../src/pages/home-channels/generated/strings.json";
 import paneTable from "../src/pages/home-channels/generated/pane-strings.json";
 import { createStrings } from "../src/pages/shared/i18n";
+import { settleReact } from "./support/domTeardown";
 
 const strings = createStrings(table, ["en"]);
 let dom: JSDOM;
@@ -52,9 +53,10 @@ function installDom() {
   root = createRoot(container);
   return container;
 }
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
@@ -127,25 +129,31 @@ test("Home renders a grouped tool summary and keeps details behind it", async ()
   expect(container.querySelector(".cv-tool")).toBeTruthy();
 });
 
-test("the toggle defaults to Messages, persists per conversation, and restores on remount", async () => {
+test("the detail control defaults to Messages, persists per conversation, and restores on remount", async () => {
   const container = installDom();
   const render = (conversation: string) =>
-    act(async () => root!.render(<PresentationToggle conversation={conversation} strings={strings} />));
+    act(async () => root!.render(<DetailToggle conversation={conversation} strings={strings} />));
   const button = (name: string) =>
     [...container.querySelectorAll("button")].find((button) => button.textContent === name)!;
   await render("c1");
   expect(button("Messages").getAttribute("aria-pressed")).toBe("true");
-  await act(async () => button("Transcript").click());
-  expect(readPresentation("c1")).toBe("transcript");
+  expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+    "Messages",
+    "Normal",
+    "Thinking",
+    "Verbose",
+  ]);
+  await act(async () => button("Thinking").click());
+  expect(readDetail("c1")).toBe("thinking");
   await render("c2");
   expect(button("Messages").getAttribute("aria-pressed")).toBe("true");
   await act(async () => root!.unmount());
   root = createRoot(container);
   await render("c1");
-  expect(button("Transcript").getAttribute("aria-pressed")).toBe("true");
+  expect(button("Thinking").getAttribute("aria-pressed")).toBe("true");
   await act(async () => button("Messages").click());
-  expect(readPresentation("c1")).toBe("messages");
-  expect(readPresentation("c2")).toBe("messages");
+  expect(readDetail("c1")).toBe("messages");
+  expect(readDetail("c2")).toBe("messages");
 });
 
 test("inline steps load only while visible and the observer disconnects", async () => {
@@ -174,7 +182,7 @@ test("inline steps load only while visible and the observer disconnects", async 
   expect(disconnected).toBe(1);
 });
 
-test("Transcript places all steps above the reply and Messages restores the run card below", async () => {
+test("Normal places all steps above the reply and Messages restores the run card below", async () => {
   const container = installDom();
   const book = new RunBook();
   const reply: HomeMessage = {
@@ -189,10 +197,10 @@ test("Transcript places all steps above the reply and Messages restores the run 
     reactions: [],
   };
   book.setSteps(run, steps, true);
-  const render = (presentation: "messages" | "transcript") =>
+  const render = (detail: "messages" | "normal") =>
     act(async () =>
       root!.render(
-        <RunsContext.Provider value={{ book, strings, presentation, onLoad: () => {}, onOpen: () => {} }}>
+        <RunsContext.Provider value={{ book, strings, detail, onLoad: () => {}, onOpen: () => {} }}>
           <MessageRow
             message={reply}
             head={false}
@@ -205,7 +213,7 @@ test("Transcript places all steps above the reply and Messages restores the run 
         </RunsContext.Provider>,
       ),
     );
-  await render("transcript");
+  await render("normal");
   const transcript = container.querySelector(".lg-run-transcript")!;
   expect(transcript.textContent).toContain("progress");
   expect(transcript.textContent).toContain("reason");

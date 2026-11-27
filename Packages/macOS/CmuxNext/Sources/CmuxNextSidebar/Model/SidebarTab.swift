@@ -25,6 +25,9 @@ public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
         case .other: .placeholder
         }
     }
+
+    /// A terminal (local or remote): an agent running in it draws its mark on the rounded square.
+    public var isTerminal: Bool { self == .terminal || self == .remoteTerminal }
 }
 
 /// One of a workspace's tabs, as the sidebar knows it (its row's title, tab count and hover card).
@@ -38,6 +41,8 @@ public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
     public var brand: String?
     /// A browser tab's page favicon, drawn as is in the kind icon's place (cx-d0d.8).
     public var favicon: SidebarFavicon?
+    /// A cmux page's own icon (a Cloud desktop's cloud), drawn where a favicon goes; nil for a site and every other kind.
+    public var pageIcon: IconName?
     /// The tab's own merged status (its OSC 7501 records, agent turn, page load): the tab bar's dot.
     public var state: StatusIndicatorState = .idle
     /// The tab's folder, shortened as the row's is ("~", "~/src/cmux").

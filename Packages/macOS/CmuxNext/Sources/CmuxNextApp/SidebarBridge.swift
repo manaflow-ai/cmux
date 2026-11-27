@@ -18,7 +18,7 @@ import Observation
 /// intents into daemon commands (SidebarBridge+Intents). Selection is
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
-    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
+    let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel()); let machineSections = SidebarMachineSections()
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -26,8 +26,8 @@ final class SidebarBridge {
     /// The rows and selection observations, also run in the turn the window shows a workspace.
     private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView)
     private var widthObservation: Task<Void, Never>?
-    /// Item presentation for sidebar sections (SidebarBridge+Sections).
-    var sectionsObservation: Task<Void, Never>?
+    /// Item presentation for sidebar sections (SidebarBridge+Sections): its pass and the task that follows changes.
+    var sectionsPass: SidebarSectionsPass?
     /// The window's app sections (no All chats: it is on the New Tab page, cx-n0i9).
     private var appSections: SidebarAppSections?
     var cardsObservation: Task<Void, Never>?
@@ -50,12 +50,9 @@ final class SidebarBridge {
     let groupEditor = PersonalGroupEditorState()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
-    /// Each listed row's content, observed per row: a status change patches one row, not the sidebar (rows lane).
-    /// Its flushes run on the display frame, so a frame's row patches and its scroll update commit together.
-    let rowFeed: SidebarRowFeed = {
-        let frames = FrameBatcher(owner: "SidebarRows")
-        return SidebarRowFeed(schedule: { work in frames.scheduleFrame(work) })
-    }()
+    /// Each row's content, observed per row: a status change patches one row, not the sidebar (rows lane). Its flushes
+    /// run on the display frame (one commit with the scroll update); it keeps the rows of the window's other spaces.
+    let rowFeed: SidebarRowFeed
     let faceBuffers = SidebarFaceBatch() // the face rules' buffers its passes and band items reuse (`sections(faces:)`)
 
     static func driveMenuItem(_ services: AppServices) -> (CmuxNextSidebar.WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem? { // the agent's terminals from its tab's daemon
@@ -65,8 +62,11 @@ final class SidebarBridge {
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
+        let frames = FrameBatcher(owner: "SidebarRows") // `state.id` is read on each call: the launch window adopts a saved id
+        rowFeed = SidebarRowFeed(schedule: { frames.scheduleFrame($0) }, keeps: { [weak services, weak state] id in state.map { services?.windows.registry.value.lists(id.rawValue, in: $0.id) == true } ?? false })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
+        model.chatMoveTargets = { [weak self] id in self.map { ChatMoveDrop(host: $0.services).targets(of: id) } ?? [] }
         // Link rows draw the favicon at their item's icon address, from this app's favicons.
         model.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         // Loose rows come before every group unless the home session places
@@ -81,11 +81,10 @@ final class SidebarBridge {
         container.sidebarView.driveMenuItem = Self.driveMenuItem(services)
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
-        // The Chief dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21), in a band,
-        // a group or a machine list.
-        container.sidebarView.removesOnDragOut = { [weak model] id in
-            (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.ref == .builtIn(.chief)
-        }
+        model.agentSignatures = services.agentSignatures
+        wireSubagentOpen()
+        // An item dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21, 2026-11-22; `LayoutItem.comesOffOnDragOut`).
+        container.sidebarView.removesOnDragOut = { [weak model] id in (model?.layout.item(LayoutItemID(id)) ?? model?.listedItem(LayoutItemID(id)))?.comesOffOnDragOut == true }
         container.sidebarView.onDragOutRemove = { [weak services] id in
             _ = services?.registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: id), origin: .user))
         }
@@ -109,10 +108,11 @@ final class SidebarBridge {
             guard let found = services?.machines.workspace(id: id.rawValue) else { return [] }
             return timelines.entries(found.0, agents: found.1.store.agents, limit: limit)
         }
+        container.sidebarView.tabPictures = { [weak services] in await services?.previews.previewImage(for: .init($0.rawValue), maxPixelSize: $1) }; container.sidebarView.tabPicturesRefreshInterval = PanePictures.isEnabled ? .seconds(1) : .seconds(3)  // #51768
         // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
         container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()
-        let sections = SidebarAppSections(apps: services.apps)
+        let sections = SidebarAppSections(client: services.apps.client, isPresented: { [weak apps = services.apps] in apps?.client.presence.isPresented($0) == true }, team: { [weak services] in services?.cloudTeam.makeSectionView() })
         appSections = sections
         container.sidebarView.appSections = sections
         // Return or Escape in the inline rename field gives the keyboard
@@ -122,6 +122,10 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
+        machineSections.bind(host: services.hostsSidebar, visible: { [weak state] in state?.sidebarHidden == false },
+            socketPath: QuitAgents.environment(services)?.socketPath ?? services.agentLanes.socketPath,
+            displayName: { [weak services] peer in services?.machines.machineName(peer: peer) },
+            open: { [weak services] lane in guard let services else { return }; SidebarPriorityFeed.open(lane, services: services) })
         // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
@@ -133,9 +137,10 @@ final class SidebarBridge {
         sameTurn.cancel()
         rowFeed.reset()
         widthObservation?.cancel()
-        sectionsObservation?.cancel()
+        sectionsPass?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
+        machineSections.stop()
         container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
         container.sidebarView.updateSurfaces = nil // the update surface pages cancel their subscriptions (cx-urd.61.2)
     }
@@ -160,23 +165,22 @@ final class SidebarBridge {
         // And the New Tab pages (a chat lists as a chat) and the muted set.
         // The spaces and the current space come from the same observation
         // as the rows (cx-5k3r): a space switch reaches the sidebar as one
-        // change (new space and its rows together), so the sidebar runs
-        // one slide, not a slide of the old rows and then a row reload.
+        // change (new space and its rows together).
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
-        sameTurn.observe(listsRows: true, {
+        sameTurn.observe(listsRows: true, showsFirstRunAtOnce: seededProfiles == nil, {
             let (listed, launching, failed) = Self.passSections(services, window: windowState, feed: feed, faces: faces, rows: feed.laneRowSource(chiefAvatar: { [weak services] in SidebarChiefAvatar(home: services?.home.chiefFaces[$0]) }))
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
-            // The document projection these rows were built from (`SidebarRows.layoutCatchingUp`).
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines, doc: services.sidebarDoc), services.sidebarCustomization.rowDecorations,
-                     services.sidebarDoc.store?.shownChanges), launching, failed, SidebarSpaceBar.profiles(machines.local, window: windowState.id, windows: services.windows), SidebarProfileKey(windowState.profileID.rawValue),
+                     services.sidebarDoc.store?.shownChanges, services.settings?.snapshot.sidebarSections.projection ?? .defaults), launching, failed, SidebarSpaceBar.profiles(machines.local, window: windowState.id, windows: services.windows), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(services, window: windowState))
         }) { [weak self] value in
-            let ((sections, decorations, shownAt), launching, failed, profiles, active, shown) = value
+            let ((sections, decorations, shownAt, projection), launching, failed, profiles, active, shown) = value
             guard let self else { return }
+            self.model.sectionCustomization = projection
             self.showProfiles(profiles, active: active, launching: launching)
-            self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
-                      creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            BenchSpans.measure("sidebar.pass") { self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
+                                                           creating: PendingWorkspaceRows.shared.rows(in: windowState.id)) }
             // A grouped create this pass listed loose (and left out) joins its group now: the document's move draws it
             // there on the next pass, its first frame.
             for (id, group) in PendingWorkspaceRows.shared.groupJoins.takeDue(in: windowState.id) {
@@ -185,18 +189,25 @@ final class SidebarBridge {
             services.windows.retryDeferredPlacements() // before pending stand-ins are forgotten
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
             guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
-            PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
+            PendingWorkspaceRows.shared.forget(in: windowState.id, listed: SidebarRowSection.listed(PendingWorkspaceRows.shared.watchedIDs, in: sections),
                                                held: { machines.workspace(id: $0) != nil }) { id in
-                if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
+                if let owner = registry.value.owner(of: id), owner != windowState.id, !registry.value.isGuest(id, in: windowState.id) { return true }
                 guard let workspace = WindowProfiles.qualified(id, machines: machines), let membership = WindowProfiles.membership(machines) else { return false }
                 return PendingWorkspaceRows.shared.unpinned.contains(id) ? !membership.contains(workspace, in: windowState.profileID) : membership.pinned(workspace).map { $0 != windowState.profileID } ?? false // unpinned: its space no longer lists it
             }
         }
         PendingWorkspaceRows.shared.redraws.add(self) { [weak self] in
             guard let self, let id = self.state?.id else { return }
-            rows.show(creating: (PendingWorkspaceRows.shared.rows(in: id), NewWorkspacePlacements.home(services.machines)))
+            BenchSpans.measure("sidebar.pendingRow.show") { self.rows.show(creating: (PendingWorkspaceRows.shared.rows(in: id), NewWorkspacePlacements.home(services.machines))) }
             self.selectionHold.flush() // a selection waiting on the new row takes it in this turn, as `show` does
-            container.sidebarView.renderInFrame() // the model changed in this turn; the list draws the row in its frame
+            BenchSpans.measure("sidebar.pendingRow.render") { self.container.sidebarView.renderInFrame() } // the model changed in this turn; the list draws the row in its frame
+        }
+        // A chat moving to another machine: its row there, saying the step (``ChatMoves``); a row it shares stays put.
+        sameTurn.observe({ services.cloud.chatMoves.all.values.compactMap { move in
+            move.workspace.map { SidebarChatMove(workspace: WorkspaceID($0), machine: move.travels ? move.machine.map(MachineID.init) : nil, line: move.line, fraction: move.fraction) }
+        }.sorted { $0.workspace.rawValue < $1.workspace.rawValue } }) { [weak self] moves in
+            self?.rows.chatMoves = moves
+            self?.container.sidebarView.renderInFrame()
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.
         model.spaceSections = { [weak windowState, spaceCache] key in
@@ -221,7 +232,7 @@ final class SidebarBridge {
         // One selection: the shown page's top item, else the shown workspace.
         sameTurn.observe({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                           creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
-                                                          layout: SidebarRows.visibleLayout(layout.document, showAppStore: services.settings?.snapshot.previewFeatures == true), room: state.profileID.rawValue,
+                                                          layout: SidebarRows.visibleLayout(layout.document), room: state.profileID.rawValue,
                                                           refs: WorkspaceLayoutRefs(machines: machines), home: services.home.dockedHomeID(in: state),
                                                           channels: services.home.dockShowsChannels) }) { [weak self] selected in
             self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
@@ -240,13 +251,12 @@ final class SidebarBridge {
         let isLaunchWindow = windows.controllers.isEmpty && windows.restoresSession(state.id)
         let saved = services.sidebarSnapshots.launchDocument.snapshot(for: state.id, fallback: isLaunchWindow)
         seed = SidebarSeed(sections: saved?.sidebarSections ?? [], grace: seed.grace.rerunning(sameTurn), connecting: seed.connecting.rerunning(sameTurn))
-        // Collapsed sections: this window's view state, saved only in its sidebar snapshot.
-        model.collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
-        if let saved, !saved.profiles.isEmpty {
-            seededProfiles = (saved.sidebarProfiles, saved.sidebarActiveProfileID)
-            model.profiles = saved.sidebarProfiles
-            model.activeProfileID = saved.sidebarActiveProfileID
-        }
+        model.seedView(from: saved, documentShown: services.sidebarDoc.drag(room: state.profileID.rawValue) != nil)
+        let savedSpaces = saved.flatMap { $0.profiles.isEmpty ? nil : $0 }
+        if let savedSpaces { seededProfiles = (savedSpaces.sidebarProfiles, savedSpaces.sidebarActiveProfileID) }
+        // No saved spaces (each new window): the store's, by the rows pass's own function, so the first frame has the space bar. Not `seededProfiles`: the pass keeps those while a launch lists none.
+        model.profiles = savedSpaces?.sidebarProfiles ?? SidebarSpaceBar.profiles(services.machines.local, window: state.id, windows: windows)
+        model.activeProfileID = savedSpaces == nil ? SidebarProfileKey(state.profileID.rawValue) : savedSpaces?.sidebarActiveProfileID
         let shownAt = services.sidebarDoc.store?.shownChanges
         let (sections, launching, failed) = Self.passSections(services, window: state, pageFace: { _, _, _ in nil })
         show(sections, shownAt: shownAt, layout: SidebarRows.visibleLayout(services, window: state), launching: launching, failed: failed)
@@ -256,19 +266,20 @@ final class SidebarBridge {
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], shownAt: UInt64?, layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
                       creating: [PendingWorkspaceRows.Row] = []) {
-        var sections = seed.connecting.holdingConnectingLabels(seed.merge(live, launching: launching, failed: failed))
+        var sections = seed.connecting.holdingConnectingLabels(seed.merge(live, launching: launching, failed: failed, unloaded: Set(services.machines.daemons.lazy.filter { !$0.store.isLoaded }.map { MachineID($0.machineID) })))
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections, window: state?.id, windows: services.windows.connectingRowWindows(making: state?.id)) }
         let hadDocDrag = model.docDrag != nil
         model.docDrag = services.sidebarDoc.drag(room: state?.profileID.rawValue) // the document's drag half, nil keeps the older resolver
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
-        if model.layout != layout { model.layout = layout }
+        if !launching { model.awaitsDocument = false } // the launch ended without the document
+        if model.layout != layout { model.layout = layout; sectionsPass?.ensureValues() } // a new pin has its value in this turn
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
         let elsewhere = model.docDrag.flatMap { drag in drag.document?.shown?.bandGroupsNotListedHere(drag: drag) }
         rows.show(sections, shownAt: shownAt, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil),
-                  elsewhere: elsewhere, showAppStore: services.settings?.snapshot.previewFeatures == true)
+                  elsewhere: elsewhere)
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()
@@ -313,7 +324,7 @@ final class SidebarBridge {
             top: .make(layout, machines: machines, room: window.profileID.rawValue), pageFace: pageFace ?? services.sidebarPageFace,
             tabTitle: tabTitle(services), rows: rows, listing: feed?.listingSource, groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
             harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none }, faces: faces)
-        return (sections, launching && services.windows.restoresSession(window.id), failed) // a new window shows its own rows (#38128)
+        return (SidebarScreenActions(macs: services.macScreenPages.hub?.macScreenAvailability ?? [:], aliases: DaemonService.screenDeviceAliases(in: services.machines.daemons), sharing: services.macScreenPages.hub?.thisDevice?.macScreenShared ?? false).applying(to: sections), launching && services.windows.restoresSession(window.id), failed) // a new window shows its own rows (#38128)
     }
 
     /// The window's live sidebar, whether the app is still launching (its
@@ -457,6 +468,7 @@ final class SidebarBridge {
                 layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
             }
         case .layoutSection(let id): layoutSectionMenu(id)?.themeRows(in: container.themeScope.fullStrength)
+        case .background: withWidgetItems(SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength))?.themeRows(in: container.themeScope.fullStrength)
         default: SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength)
         }
     }

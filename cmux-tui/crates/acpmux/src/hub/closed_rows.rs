@@ -1,27 +1,22 @@
-//! Part of `Hub`; see `hub/mod.rs`. The closed rows' cached bytes, kept in list order between
-//! lists (Leo 2026-11-04: "never ... acceptable ... linear time growth degradation").
+//! Part of `Hub`; see `hub/mod.rs`. The closed rows' cached bytes, kept between lists (Leo
+//! 2026-11-04: "never ... acceptable ... linear time growth degradation").
 //!
 //! A closed row is serialized once and rebuilt only when its stamp moves (`SummaryStamp`) or a
-//! tag it reads expires. Each form (the list's, and the full one with tools) keeps its rows
-//! sorted as a list sends them, so one chat's change costs its own row's removal and insert: a
-//! list copies the rows' bytes in that order (`list_guard::Rows::finish_with`) and parses and
-//! sorts none of them. Before, each list parsed every closed row back and sorted every row:
-//! 38 ms after one chat's record at 3,000 sessions.
+//! tag it reads expires. A list page picks its rows from their keys first (`page_first.rs`) and
+//! copies a closed row's bytes as they are kept ([`Hub::own_row_text`]): one chat's change costs
+//! its own row's rebuild, and a page parses none of the others.
+//!
+//! The bytes kept are bounded ([`KEPT_BYTES`]), the least recently read form going first: a full
+//! form carries the chat's time breakdown and tools, and with eviction off (`evict.rs`) every
+//! closed chat's stayed. A fleet lane VM's daemon held 1,612 closed chats and about 2,100 rows'
+//! `timeBreakdown` text in a 4 GB heap (2026-11-26). A form let go is built again at its next read,
+//! as a moved stamp's is. `gauges.memory.closedRows` counts them.
 
-use super::list_guard::RowKey;
 use super::*;
-use std::cmp::Reverse;
-use std::collections::BTreeSet;
 
-/// Where a closed row sorts: as `list_guard::Rows::finish` sorts (newest first, then by
-/// `sessionId`, then by peer), then by the session's id, so no two rows tie.
-type RowOrder = (Reverse<u64>, String, Option<String>, String);
-
-/// A closed row as a list copies it: its bytes and its paging keys.
-pub(crate) struct ClosedRow {
-    pub(crate) bytes: Arc<str>,
-    pub(crate) key: Arc<RowKey>,
-}
+/// What every closed row's cached bytes hold together, at most. Past it the least recently read
+/// forms go ([`ClosedRows::evict`]).
+const KEPT_BYTES: usize = 64 << 20;
 
 /// One serialized form of a closed session's row.
 #[derive(Default)]
@@ -30,11 +25,8 @@ struct Form {
     /// When the first tag it read expires (0: none).
     next_expiry: u64,
     bytes: Arc<str>,
-    key: Arc<RowKey>,
-    /// Where it is in its form's order.
-    order: Option<RowOrder>,
-    /// The last walk (`Hub::own_rows_in_order`) that found it current.
-    seen: u64,
+    /// When it was last stored or read ([`ClosedRows::tick`]): the oldest goes first.
+    used: u64,
 }
 
 impl Form {
@@ -53,109 +45,130 @@ struct Entry {
 }
 
 impl Entry {
-    fn form(&self, with_tools: bool) -> &Form {
-        if with_tools { &self.full } else { &self.list }
-    }
-
     fn form_mut(&mut self, with_tools: bool) -> &mut Form {
         if with_tools { &mut self.full } else { &mut self.list }
     }
 }
 
-/// Every closed session's cached rows, and each form's rows in list order.
-#[derive(Default)]
+/// Every closed session's cached rows, at most [`KEPT_BYTES`] of them.
 pub(crate) struct ClosedRows {
     entries: HashMap<String, Entry>,
-    list_order: BTreeSet<RowOrder>,
-    full_order: BTreeSet<RowOrder>,
-    walks: u64,
+    /// Its bound: [`KEPT_BYTES`], less in a test of it.
+    cap: usize,
+    /// Every form's bytes together.
+    bytes: usize,
+    /// Forms kept (a session's list form and full form count apart).
+    forms: usize,
+    /// A clock of stores and reads, for which form was read longest ago.
+    tick: u64,
+}
+
+impl Default for ClosedRows {
+    fn default() -> Self {
+        Self::with_cap(KEPT_BYTES)
+    }
 }
 
 impl ClosedRows {
+    fn with_cap(cap: usize) -> Self {
+        Self { entries: HashMap::new(), cap, bytes: 0, forms: 0, tick: 0 }
+    }
+
     #[cfg(test)]
     pub(super) fn contains_key(&self, id: &str) -> bool {
         self.entries.contains_key(id)
     }
 
     /// Session `id`'s cached bytes in `with_tools`'s form, when built at `stamp` and no tag they
-    /// read expired by `now`; the walk `seen` found them current, if one did.
+    /// read expired by `now`.
     fn current(
         &mut self,
         id: &str,
         with_tools: bool,
         stamp: SummaryStamp,
         now: u64,
-        seen: Option<u64>,
     ) -> Option<Arc<str>> {
+        self.tick += 1;
         let cached = self.entries.get_mut(id)?.form_mut(with_tools);
         if !cached.current(stamp, now) {
             return None;
         }
-        if let Some(seen) = seen {
-            cached.seen = seen;
-        }
+        cached.used = self.tick;
         Some(cached.bytes.clone())
     }
 
-    /// Keeps `row` as session `id`'s `with_tools` form, built at `stamp`, and moves it to its
-    /// place in that form's order: one removal and one insert.
+    /// Keeps `row` as session `id`'s `with_tools` form, built at `stamp`.
     fn store(
         &mut self,
         id: String,
         with_tools: bool,
         (stamp, next_expiry): (SummaryStamp, u64),
         row: &Value,
-        seen: Option<u64>,
     ) {
-        let key = RowKey::of(row, 0);
-        let order = (
-            Reverse(key.updated_at),
-            key.session_id.clone().unwrap_or_default(),
-            key.peer.clone(),
-            id.clone(),
-        );
-        let cached = self.entries.entry(id).or_default().form_mut(with_tools);
-        let sorted = if with_tools { &mut self.full_order } else { &mut self.list_order };
-        if cached.order.as_ref() != Some(&order) {
-            if let Some(old) = cached.order.take() {
-                sorted.remove(&old);
-            }
-            sorted.insert(order.clone());
-            cached.order = Some(order);
+        self.tick += 1;
+        let bytes: Arc<str> = serde_json::to_string(row).unwrap_or_default().into();
+        let cached = self.entries.entry(id.clone()).or_default().form_mut(with_tools);
+        let (old, new) = (cached.bytes.len(), bytes.len());
+        self.forms = self.forms + usize::from(new > 0) - usize::from(old > 0);
+        self.bytes = self.bytes + new - old;
+        *cached = Form { stamp, next_expiry, bytes, used: self.tick };
+        if self.bytes > self.cap {
+            self.evict(&id, with_tools);
         }
-        cached.stamp = stamp;
-        cached.next_expiry = next_expiry;
-        cached.bytes = serde_json::to_string(row).unwrap_or_default().into();
-        cached.key = Arc::new(key);
-        // A row stored between a walk and its copy is still that walk's: kept, not unseen.
-        if let Some(seen) = seen {
-            cached.seen = seen;
-        }
+        self.publish();
     }
 
     fn remove(&mut self, id: &str) {
         if let Some(entry) = self.entries.remove(id) {
-            if let Some(order) = entry.list.order {
-                self.list_order.remove(&order);
+            for form in [entry.list, entry.full] {
+                self.bytes -= form.bytes.len();
+                self.forms -= usize::from(!form.bytes.is_empty());
             }
-            if let Some(order) = entry.full.order {
-                self.full_order.remove(&order);
-            }
+            self.publish();
         }
     }
 
-    /// The rows of `with_tools`'s form walk `walk` found current, in list order, save those of
-    /// `listed` (the sessions the walk listed live): a session listed once, as it is now.
-    fn in_order(&self, with_tools: bool, walk: u64, listed: &HashSet<String>) -> Vec<ClosedRow> {
-        let sorted = if with_tools { &self.full_order } else { &self.list_order };
-        sorted
+    /// Lets the least recently read forms go, but `keep`'s (the one just stored), until
+    /// three quarters of the bound is left, so a store over it evicts once a quarter of it, not
+    /// once a row.
+    fn evict(&mut self, keep: &str, keep_tools: bool) {
+        let mut oldest: Vec<(u64, String, bool)> = self
+            .entries
             .iter()
-            .filter_map(|(.., id)| {
-                let cached = self.entries.get(id)?.form(with_tools);
-                (cached.seen == walk && !listed.contains(id))
-                    .then(|| ClosedRow { bytes: cached.bytes.clone(), key: cached.key.clone() })
+            .flat_map(|(id, entry)| {
+                [(false, &entry.list), (true, &entry.full)]
+                    .into_iter()
+                    .filter(|(_, form)| !form.bytes.is_empty())
+                    .map(move |(tools, form)| (form.used, id.clone(), tools))
             })
-            .collect()
+            .filter(|(_, id, tools)| !(id == keep && *tools == keep_tools))
+            .collect();
+        oldest.sort_unstable_by_key(|(used, _, _)| *used);
+        let mut evicted = 0u64;
+        for (_, id, tools) in oldest {
+            if self.bytes <= self.cap / 4 * 3 {
+                break;
+            }
+            let Some(entry) = self.entries.get_mut(&id) else { continue };
+            let form = std::mem::take(entry.form_mut(tools));
+            self.bytes -= form.bytes.len();
+            self.forms -= 1;
+            evicted += 1;
+            if entry.list.bytes.is_empty() && entry.full.bytes.is_empty() {
+                self.entries.remove(&id);
+            }
+        }
+        crate::gauges::closed_rows().evicted(evicted);
+    }
+
+    /// Its size, to `gauges.memory.closedRows`.
+    fn publish(&self) {
+        crate::gauges::closed_rows().set(self.forms, self.bytes, self.cap);
+    }
+
+    #[cfg(test)]
+    pub(super) fn kept(&self) -> (usize, usize) {
+        (self.forms, self.bytes)
     }
 }
 
@@ -170,31 +183,43 @@ impl Hub {
     }
 
     pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
-        self.closed_summary_seen(session, with_tools, None).0
+        if let Some(bytes) = self.closed_row_bytes(session, with_tools)
+            && let Ok(row) = self.parse_cached_row(&bytes)
+        {
+            return row;
+        }
+        self.build_closed_summary(session, with_tools)
     }
 
-    /// [`Self::cached_closed_summary`], and whether the row is a closed one now cached; the walk
-    /// `seen` (`own_rows_in_order`) marks it so.
-    fn closed_summary_seen(
-        &self,
-        session: &Session,
-        with_tools: bool,
-        seen: Option<u64>,
-    ) -> (Value, bool) {
+    /// `session`'s row as a list page sends it, serialized: a closed one's cached bytes, not
+    /// parsed; a live one's kept bytes while its inputs are unchanged (`live_rows.rs`).
+    pub(crate) fn own_row_text(&self, session: &Session, with_tools: bool) -> Arc<str> {
+        if let Some(bytes) = self.closed_row_bytes(session, with_tools) {
+            return bytes;
+        }
+        if session.status() != SessionStatus::Closed {
+            return self.live_row_text(session, with_tools);
+        }
+        let row = self.build_closed_summary(session, with_tools);
+        serde_json::to_string(&row).unwrap_or_default().into()
+    }
+
+    /// A closed `session`'s cached bytes in `with_tools`'s form, when they are current.
+    fn closed_row_bytes(&self, session: &Session, with_tools: bool) -> Option<Arc<str>> {
+        if session.status() != SessionStatus::Closed {
+            return None;
+        }
+        let stamp = self.summary_stamp(session);
+        let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
+        cache.current(&session.id, with_tools, stamp, now_ms())
+    }
+
+    /// `session`'s row built now, and kept when it is closed.
+    fn build_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
         let id = session.id.clone();
         let now = now_ms();
         // Read before the row is built: a change while it builds leaves the cached bytes stale.
         let stamp = self.summary_stamp(session);
-        if session.status() == SessionStatus::Closed
-            && let Some(bytes) = self
-                .closed_summary_cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .current(&id, with_tools, stamp, now, seen)
-            && let Ok(row) = self.parse_cached_row(&bytes)
-        {
-            return (row, true);
-        }
         // Its own tags' and its parent's (whether the row folds under it, `Hub::spawned_by`):
         // a tag that expires changes the row with no event.
         let (own_expiry, parent) = session.read_meta(|m| {
@@ -215,18 +240,20 @@ impl Hub {
             self.session_list_summary(session)
         };
         if session.status() != SessionStatus::Closed {
-            return (row, false);
+            return row;
         }
         #[cfg(test)]
         self.closed_summary_builds.fetch_add(1, Ordering::SeqCst);
+        // Closed now: its live row is no longer read (`live_rows.rs`).
+        self.remove_live_row(&id);
         let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
         // A summary may have been built while purge was unregistering the session. Recheck
         // the tombstone while holding the cache lock so a late reader cannot recreate it.
         if session.purged.load(Ordering::SeqCst) {
-            return (row, false);
+            return row;
         }
-        cache.store(id, with_tools, (stamp, next_expiry), &row, seen);
-        (row, true)
+        cache.store(id, with_tools, (stamp, next_expiry), &row);
+        row
     }
 
     /// A closed row parsed back from its cached bytes.
@@ -238,78 +265,42 @@ impl Hub {
 
     pub(super) fn remove_cached_closed_summary(&self, id: &str) {
         self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
-    }
-
-    /// This daemon's own sessions for a list, in `with_tools`'s form: each live one's row to
-    /// `live` (built now, unsorted), and the closed ones' cached rows, returned in list order.
-    /// Only a closed row whose stamp moved is built again; none is parsed or sorted.
-    pub(crate) fn own_rows_in_order(
-        &self,
-        with_tools: bool,
-        mut live: impl FnMut(Value),
-    ) -> Vec<ClosedRow> {
-        // One walk at a time: each marks the rows it found current, and copies those.
-        let _one = self.closed_rows_walk.lock().unwrap_or_else(|e| e.into_inner());
-        let now = now_ms();
-        let sessions: Vec<(Arc<Session>, Option<SummaryStamp>)> = self
-            .sessions()
-            .into_iter()
-            .map(|session| {
-                let closed = session.status() == SessionStatus::Closed;
-                let stamp = closed.then(|| self.summary_stamp(&session));
-                (session, stamp)
-            })
-            .collect();
-        let mut rebuild = Vec::new();
-        let walk = {
-            let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
-            cache.walks += 1;
-            let walk = cache.walks;
-            for (session, stamp) in sessions {
-                let current = stamp.is_some_and(|stamp| {
-                    cache.current(&session.id, with_tools, stamp, now, Some(walk)).is_some()
-                });
-                if !current {
-                    rebuild.push(session);
-                }
-            }
-            walk
-        };
-        let mut listed = HashSet::new();
-        for session in rebuild {
-            // A live row, or a closed one that is cached and marked by this walk now. A session
-            // that went live meanwhile is listed with the row just built, and its cached row,
-            // whatever marked it, is not (review: a reopen during a list listed it twice).
-            let (row, cached) = self.closed_summary_seen(&session, with_tools, Some(walk));
-            if !cached {
-                live(row);
-                listed.insert(session.id.clone());
-            }
-        }
-        let cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
-        cache.in_order(with_tools, walk, &listed)
+        self.remove_live_row(id);
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod bound_tests {
     use super::*;
 
-    /// A session the walk listed live is never listed again from a cached row the same walk
-    /// marked (review: a chat reopened between the walk's status read and its rebuild was
-    /// listed twice in one list).
+    fn row(i: usize) -> Value {
+        json!({"sessionId": format!("s{i}"), "timeBreakdown": {"spans": "x".repeat(900)}})
+    }
+
+    /// However many closed chats are read, the bytes kept stay under the bound, the
+    /// one just stored and the ones read since stay, and a form let go reads as not current.
     #[test]
-    fn a_session_listed_live_is_not_listed_again_from_its_cached_row() {
-        let mut rows = ClosedRows::default();
-        let row = |id: &str, at: u64| json!({"sessionId": id, "updatedAt": at, "status": "closed"});
-        for (id, at) in [("a", 2), ("b", 1)] {
-            rows.store(id.into(), false, (SummaryStamp::default(), 0), &row(id, at), Some(7));
+    fn closed_rows_keep_at_most_their_bound() {
+        const CAP: usize = 64 << 10;
+        let mut rows = ClosedRows::with_cap(CAP);
+        let stamp = (SummaryStamp::default(), 0);
+        for i in 0..5_000 {
+            rows.store(format!("s{i}"), i % 2 == 0, stamp, &row(i));
+            if i >= 1 {
+                // A chat read now and then stays kept however many go by.
+                assert!(rows.current("s1", false, stamp.0, 0).is_some(), "s1 at {i}");
+            }
+            let (forms, bytes) = rows.kept();
+            assert!(bytes <= CAP, "{bytes} kept at {i}");
+            assert!(forms <= CAP / 900, "{forms} forms at {i}");
+            assert!(rows.current(&format!("s{i}"), i % 2 == 0, stamp.0, 0).is_some());
         }
-        let ids = |listed: &[&str]| -> Vec<Option<String>> {
-            let listed = listed.iter().map(|id| (*id).to_owned()).collect();
-            rows.in_order(false, 7, &listed).iter().map(|r| r.key.session_id.clone()).collect()
-        };
-        assert_eq!(ids(&[]), [Some("a".to_owned()), Some("b".to_owned())]);
-        assert_eq!(ids(&["a"]), [Some("b".to_owned())]);
+        assert!(rows.current("s3", false, stamp.0, 0).is_none(), "an old form is let go");
+        assert!(rows.entries.len() < 5_000 / 10, "{} entries", rows.entries.len());
+        for i in 0..5_000 {
+            rows.remove(&format!("s{i}"));
+        }
+        assert_eq!(rows.kept(), (0, 0));
+        assert!(rows.entries.is_empty());
     }
 }

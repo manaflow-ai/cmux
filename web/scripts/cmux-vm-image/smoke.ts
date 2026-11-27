@@ -24,30 +24,42 @@
  * DNS (dns.ts): cmux-dns-check --restart restarts systemd-resolved (and tailscaled when
  * installed), then needs the resolv.conf stub link and a public name resolving (a tailnet name too
  * when logged in to one).
+ * IPv6 routes (ipv6-route.ts): no block route over public IPv6 (a dead-IPv6 host's `unreachable 2000::/3`), an IPv6
+ * default route, and a route lookup for a public IPv6 address that names a device (RFD 0067 item 5).
  * The daemon handshake (identify.ts) must serve REQUIRED_IMAGE_CAPABILITIES and, with
  * --expect-capabilities, every listed capability; --team-vm also checks /srv/team.
  * The session host stays up 60 s after boot and after one forced rebind, with no legacy or migration
  * error (daemon-uptime.ts). No agent sign-in
  * (~/.claude/.credentials.json, ~/.codex/auth.json) or daemon identity comes from the image.
+ * With --agent-probe, one more clone is made the way a team in inference gateway mode makes its machines:
+ * with an inline edge rule (coderouter.cmux.internal steered to a platform origin). It must still resolve a
+ * public name and the API host, and its bind agent must reach the dev API (edge-rule-*). Production images
+ * cloud-native-auto-45ed727f-* (the first on Freestyle's new ubuntu-sm base, cmux#50583) passed every other
+ * check here while every gateway-mode create on them never bound (cmux#51612 rolled them back): no clone
+ * here carried a rule. The clone also prints its resolver state, which is the guest's own account of a
+ * failure (INFO edge-rule-guest).
  * Checks that need the bind agent are reported as PENDING.
  * Every clone is deleted whatever happens.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
-import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "../devbox-image-common";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/workUser";
+import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "./machine-commands";
 import { GUEST_DIR, TEAM_FILES_ROOT, teamVmDirsCommand, TMP_LEFTOVERS } from "./bake";
 import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths } from "./dev-tree";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
+import { ipv6RouteProblems, ipv6RouteSmokeCommand } from "./ipv6-route";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
-import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
+import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
+import { AGENT_TOOLS_BIN } from "./agent-tools";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI, SELF_UPDATE_OFF } from "./host-agent";
+import { API_ORIGINS, HOST_CLI, HOST_JOURNAL, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
+import { type CheckNote, type CheckResult, checkRegressionGate, LIVE_FAILING_FILE, liveBootImage, liveFailingLines } from "./harness-gate";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
@@ -201,7 +213,7 @@ const LISTEN_POLL = [
   "grep -qi ':0539 00000000000000000000000000000000:0000 0A' /proc/net/tcp6",
 ].join("; ");
 
-const IDENTITY_PROBE = [
+export const IDENTITY_PROBE = [
   `echo instance=$(${DEVBOX_INSTANCE_ID_COMMAND})`,
   "echo bound=$(cat /etc/cmux/daemon-instance-id 2>/dev/null)",
   "for i in $(seq 1 150); do [ -n \"$(find /etc/ssh -name ssh_host_ed25519_key.pub -newer /etc/cmux/daemon-instance-id 2>/dev/null)\" ] && break; sleep 0.2; done",
@@ -215,31 +227,242 @@ const IDENTITY_PROBE = [
   "echo urandom=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n')",
 ].join("; ");
 
-function kv(stdout: string): Record<string, string> {
+export function kv(stdout: string): Record<string, string> {
   return Object.fromEntries(stdout.trim().split("\n").filter((l) => l.includes("=")).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
 }
 
 type Clone = { vm: Vm; vmId: string; name: string };
-type Report = { checks: Record<string, { ok: boolean; detail: string }>; pending: readonly string[]; [key: string]: unknown };
+type Report = { checks: Record<string, { ok: boolean; detail: string; warned?: boolean }>; pending: readonly string[]; [key: string]: unknown };
 
 function check(report: Report, name: string, ok: boolean, detail: string): void {
   report.checks[name] = { ok, detail };
   console.log(`${ok ? "PASS" : "FAIL"} ${name}: ${detail.split("\n").slice(0, 6).join(" | ")}`);
 }
 
+/**
+ * The provider never finished this clone: its create call failed, its guest never answered an exec,
+ * or an exec call failed before the guest ran the command. That is the provider's latency or capacity,
+ * not the image's, so the smoke replaces the clone instead of failing the image on it.
+ */
+export class ProviderUnfinished extends Error {
+  constructor(readonly clone: Clone | undefined, reason: string) {
+    super(reason);
+  }
+}
+
+/**
+ * A restored guest answers its first exec 0.1 to 0.7 s after the create returns. Roll 43953739384's
+ * clone 3 took 13.8 s, then its daemon missed the 30 s listen poll but was ready at 145 s: the provider
+ * stalled that guest. Such a clone is replaced, and the replacement must pass; a clone that answered
+ * promptly and still has no daemon fails the image.
+ */
+export const PROVIDER_STALL_MS = 10_000;
+
+/** Why a clone whose daemon missed the listen poll is the provider's stall, or undefined when it is the image's. */
+export function providerStall(createApiMs: number, createToFirstExecMs: number, listenCode: number): string | undefined {
+  const firstExecAfterCreate = createToFirstExecMs - createApiMs;
+  if (listenCode === 0 || firstExecAfterCreate <= PROVIDER_STALL_MS) return undefined;
+  return `guest stalled: first exec ${firstExecAfterCreate} ms after the create returned, then no daemon listening in the 30 s poll`;
+}
+
+const providerUnfinished =(clone: Clone | undefined, step: string) => (error: unknown): never => {
+  throw new ProviderUnfinished(clone, `${step}: ${String(error).slice(0, 200)}`);
+};
+
 export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, name: string, snapshotId: string): Promise<{ clone: Clone; row: Record<string, number | string> }> {
-  const { vm, vmId, createMs, t0 } = await createVm(fs, ledger, { name, snapshotId });
+  const { vm, vmId, createMs, t0 } = await createVm(fs, ledger, { name, snapshotId }).catch(providerUnfinished(undefined, "create"));
   const clone = { vm, vmId, name };
-  const firstExecMs = await firstExec(vm, t0);
+  const firstExecMs = await firstExec(vm, t0).catch(providerUnfinished(clone, "first exec"));
   // A smoke clone measures the snapshot as baked: the marker goes down with the first command,
   // well before its updater's first check (30 s after cmux host run starts), which reads it
   // again right before it changes anything.
-  const listen = await run(vm, `mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF}; ${LISTEN_POLL}`, 60_000);
+  const listen = await run(vm, `mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF}; ${LISTEN_POLL}`, 60_000).catch(providerUnfinished(clone, "listen exec"));
   const listeningMs = Date.now() - t0;
-  const ready = await run(vm, devboxWaitForDaemonCommand(60), 90_000);
+  // The poll prints its wait before it judges; without that line the guest never ran it.
+  if (!/guest-wait-ms \d+/.test(listen.stdout)) throw new ProviderUnfinished(clone, `listen exec returned ${listen.code} without running: ${listen.stderr.slice(-200)}`);
+  const stall = providerStall(createMs, firstExecMs, listen.code);
+  if (stall) throw new ProviderUnfinished(clone, stall);
+  const ready = await run(vm, devboxWaitForDaemonCommand(60), 90_000).catch(providerUnfinished(clone, "ready exec"));
   const readyMs = Date.now() - t0;
   const guestWaitMs = Number(/guest-wait-ms (\d+)/.exec(listen.stdout)?.[1] ?? Number.NaN);
-  return { clone, row: { vmId, createApiMs: createMs, createToFirstExecMs: firstExecMs, createToListeningMs: listen.code === 0 ? listeningMs : -1, guestWaitMs, createToReadyMs: ready.code === 0 ? readyMs : -1 } };
+  // createTo* include the provider's create call; createDoneTo* start when it returned, the image's part.
+  return {
+    clone,
+    row: {
+      vmId,
+      createApiMs: createMs,
+      createToFirstExecMs: firstExecMs,
+      createToListeningMs: listen.code === 0 ? listeningMs : -1,
+      guestWaitMs,
+      createToReadyMs: ready.code === 0 ? readyMs : -1,
+      createDoneToFirstExecMs: firstExecMs - createMs,
+      createDoneToListeningMs: listen.code === 0 ? listeningMs - createMs : -1,
+      createDoneToReadyMs: ready.code === 0 ? readyMs - createMs : -1,
+    },
+  };
+}
+
+/** The domain a gateway-mode create steers (cmux-platform CoderouterEdge.ts), and where this smoke steers it. */
+export const EDGE_RULE_DOMAIN = "coderouter.cmux.internal";
+export const EDGE_RULE_DESTINATION = "cmux-platform-development.debussy.workers.dev";
+
+/** The create's rule, shaped as freestyleEdgeRules makes it; the header is a marker, never a credential. */
+export function edgeRuleCreateRules(): CreateTlsRule[] {
+  return [{
+    action: "allow",
+    domain: EDGE_RULE_DOMAIN,
+    source: {},
+    destination: { host: EDGE_RULE_DESTINATION, port: 443 },
+    transform: [{ headers: { "x-cmux-image-smoke": "edge-rule" } }],
+  }];
+}
+
+const API_HOST = new URL(API_ORIGINS.dev).host;
+
+/**
+ * The guest's resolver state on the edge-rule clone, one `key: value` line per fact (multi-line facts are
+ * folded with ` ; `): what it resolves, and what it resolves with. Waits up to 60 s for the provider's
+ * injection of the rule's host (/etc/hosts), which runs after the guest starts.
+ */
+export function edgeRuleGuestCommand(): string {
+  const fold = (cmd: string) => `{ ${cmd}; } 2>&1 | tr '\n' ';' | sed 's/;/ ; /g' | cut -c1-1500`;
+  const fact = (key: string, cmd: string) => `echo "${key}: $(${fold(cmd)})"`;
+  return [
+    `for i in $(seq 1 60); do grep -q ${sq(EDGE_RULE_DOMAIN)} /etc/hosts && break; sleep 1; done; echo "hosts-wait-s: $i"`,
+    fact("resolve-public", "timeout 10 getent hosts github.com || echo FAILED rc=$?"),
+    fact("resolve-api", `timeout 10 getent hosts ${sq(API_HOST)} || echo FAILED rc=$?`),
+    fact("resolve-edge", `timeout 10 getent hosts ${sq(EDGE_RULE_DOMAIN)} || echo FAILED rc=$?`),
+    fact("edge-https", `timeout 15 curl -sS -o /dev/null -w '%{http_code}' https://${EDGE_RULE_DOMAIN}/ || echo FAILED rc=$?`),
+    fact("api-https", `timeout 15 curl -sS -o /dev/null -w '%{http_code}' ${API_ORIGINS.dev}/ || echo FAILED rc=$?`),
+    fact("resolv.conf-link", "readlink -f /etc/resolv.conf"),
+    fact("resolv.conf", "grep -v '^#' /etc/resolv.conf"),
+    fact("resolved.conf.d", "for f in /etc/systemd/resolved.conf.d/* /run/systemd/resolved.conf.d/*; do [ -e \"$f\" ] && echo \"$f\" && grep -v '^#' \"$f\"; done"),
+    fact("resolvectl", "timeout 10 resolvectl status --no-pager | grep -E 'Link|Current DNS|DNS Servers|Fallback|DNSSEC|resolv.conf mode|Protocols'"),
+    fact("hosts", "grep -v '^#' /etc/hosts"),
+    fact("nsswitch-hosts", "grep '^hosts' /etc/nsswitch.conf"),
+    fact("routes", "ip -4 route; ip -6 route | head -5"),
+    fact("ca-store", "ls -la --time-style=+%s /etc/ssl/certs/ca-certificates.crt; ls /usr/local/share/ca-certificates"),
+    fact("resolved-journal", "journalctl -u systemd-resolved --no-pager -o cat -n 25"),
+    fact("networkd-journal", "journalctl -u systemd-networkd --no-pager -o cat -n 15"),
+    fact("host-journal", `${HOST_JOURNAL} -n 25`),
+  ].join("\n");
+}
+
+/** The facts edgeRuleGuestCommand printed, by key. */
+export function edgeRuleFacts(stdout: string): Record<string, string> {
+  const facts: Record<string, string> = {};
+  for (const line of stdout.split("\n")) {
+    const m = /^([a-z][a-z.-]*): ?(.*)$/.exec(line);
+    if (m && !(m[1] in facts)) facts[m[1]] = m[2].trim();
+  }
+  return facts;
+}
+
+/** What is wrong with the edge-rule clone's name resolution: a name that does not resolve. Empty when none. */
+export function edgeRuleResolveProblems(facts: Record<string, string>): string[] {
+  const problems: string[] = [];
+  for (const key of ["resolve-public", "resolve-api"]) {
+    const value = facts[key];
+    if (!value || /FAILED/.test(value) || !/\d+\.\d+\.\d+\.\d+|[0-9a-f]*:[0-9a-f:]+/i.test(value)) problems.push(`${key}: ${value || "no answer"}`);
+  }
+  return problems;
+}
+
+/**
+ * One clone made as a gateway-mode team makes its machines, with an inline edge rule: it must still resolve a
+ * public name and the API host, and its bind agent must reach the dev API. Prints the guest's resolver state.
+ * `control` runs the same clone on another snapshot (the live image) and records into its own report, under its
+ * own name and log prefix, so its lines never read as the candidate's.
+ */
+async function edgeRuleChecks(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, tag: string, snapshotId: string, report: Report, control?: { suffix: string; label: string }): Promise<void> {
+  const name = `cmuxnp-dev-vmimg-${tag}-smoke-${control?.suffix ?? "edge"}`;
+  const label = control?.label ?? "edge-rule-guest";
+  const record = control
+    ? (key: string, ok: boolean, detail: string) => {
+        report.checks[key] = { ok, detail };
+        console.log(`INFO ${label} ${key}: ${ok ? "pass" : "fail"}: ${detail.split("\n").slice(0, 3).join(" | ").slice(0, 400)}`);
+      }
+    : (key: string, ok: boolean, detail: string) => check(report, key, ok, detail);
+  const { vm, vmId, t0 } = await createVm(fs, ledger, { name, snapshotId, tlsRules: edgeRuleCreateRules() });
+  try {
+    const firstExecMs = await firstExec(vm, t0);
+    await run(vm, `mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF}`);
+    const guest = await run(vm, edgeRuleGuestCommand(), 180_000);
+    const facts = edgeRuleFacts(guest.stdout);
+    report.edgeRule = { vmId, firstExecMs, facts };
+    for (const [key, value] of Object.entries(facts)) console.log(`INFO ${label} ${key}: ${value}`);
+    const problems = edgeRuleResolveProblems(facts);
+    record("edge-rule-resolve", guest.code === 0 && problems.length === 0, problems.join("\n") || `${facts["resolve-public"]} | ${facts["resolve-api"]} | edge ${facts["resolve-edge"]} ${facts["edge-https"]}`);
+    const probe = await agentBindProbe(vm);
+    record("edge-rule-bind-probe", probe.ok, probe.detail);
+  } finally {
+    await deleteVm(vm, vmId, name, ledger);
+  }
+}
+
+/**
+ * The edge-rule clone's checks read the provider's TLS-rule resolver (the 61-freestyle-tls.conf nameserver a
+ * gateway-mode create gets), which a candidate shares with the live image. From 2026-11-26 ~05:00Z that resolver
+ * answered no name on any tlsRules clone while plain clones of the same snapshot resolved (dns-resolved-restart
+ * passed), and the smoke blocked every image roll on it, so no image carried a guest fix to production or dev spares.
+ */
+export const EDGE_RULE_CHECKS = ["edge-rule-resolve", "edge-rule-bind-probe"] as const;
+
+/**
+ * Judges the candidate's edge-rule checks against the live image's (harness-gate.ts checkRegressionGate): one that
+ * fails on both warns (it is marked ok with a WARN detail and returned, for LIVE_FAILING_FILE); one that passes on
+ * the live image, or has no live result, still fails the smoke.
+ */
+export function excuseLiveFailing(report: Report, live: Record<string, CheckResult | undefined> | null, names: readonly string[] = EDGE_RULE_CHECKS): CheckNote[] {
+  const gate = checkRegressionGate(names, report.checks, live);
+  for (const w of gate.warnings) {
+    report.checks[w.check] = { ok: true, detail: `WARN ${w.detail}`, warned: true };
+    console.log(`WARN ${w.check}: ${w.detail.split("\n").slice(0, 6).join(" | ")}`);
+  }
+  for (const b of gate.blocking) report.checks[b.check] = { ok: false, detail: b.detail };
+  return gate.warnings;
+}
+
+/** When an edge-rule check failed: the same clone on production's boot image, then excuseLiveFailing. */
+async function edgeRuleLiveControl(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, tag: string, snapshotId: string, outDir: string, report: Report): Promise<void> {
+  if (EDGE_RULE_CHECKS.every((n) => report.checks[n]?.ok !== false)) return;
+  let live: Report | null = null;
+  try {
+    const image = await liveBootImage();
+    if (image.snapshotId === snapshotId) return;
+    console.log(`INFO edge-rule live control: the same clone on production's boot image ${image.id} (${image.snapshotId})`);
+    const control: Report = { checks: {}, pending: [] };
+    await edgeRuleChecks(fs, ledger, tag, image.snapshotId, control, { suffix: "edge-live", label: "edge-rule-live" });
+    live = control;
+    report.edgeRuleLive = { image: image.id, checks: control.checks, facts: (control.edgeRule as { facts?: unknown } | undefined)?.facts };
+  } catch (error) {
+    console.log(`INFO edge-rule live control failed, so the candidate's failures block: ${String(error).slice(0, 400)}`);
+  }
+  const warnings = excuseLiveFailing(report, live?.checks ?? null);
+  if (warnings.length) appendFileSync(path.join(outDir, LIVE_FAILING_FILE), `${liveFailingLines("smoke", warnings.map((w) => ({ name: w.check, detail: w.detail }))).join("\n")}\n`);
+}
+
+/** Replacement clones a smoke may create for ones the provider never finished. */
+export const PROVIDER_RETRIES = 3;
+
+/**
+ * Measures one clone, replacing it when the provider never finished it (deleting the unfinished one),
+ * at most `retries` times across the whole smoke (`budget.left`). An image failure is never retried.
+ */
+export async function measureCloneRetrying(measure: (attempt: number) => Promise<{ clone: Clone; row: Record<string, number | string> }>, discard: (clone: Clone) => Promise<void>, budget: { left: number; unfinished: string[] }, backoffMs = 10_000): Promise<{ clone: Clone; row: Record<string, number | string> }> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await measure(attempt);
+    } catch (error) {
+      if (!(error instanceof ProviderUnfinished)) throw error;
+      budget.unfinished.push(error.message);
+      if (error.clone) await discard(error.clone).catch((e) => console.error(`could not delete unfinished ${error.clone?.vmId}: ${String(e)}`));
+      if (budget.left <= 0) throw new Error(`provider never finished ${budget.unfinished.length} clones: ${budget.unfinished.join("; ")}`);
+      budget.left--;
+      console.log(`PROVIDER clone unfinished (${error.message}); replacing it, ${budget.left} replacements left`);
+      await sleep(backoffMs);
+    }
+  }
 }
 
 async function idlePhase(vm: Vm, report: Report, idleSeconds: number): Promise<void> {
@@ -331,11 +554,30 @@ async function automationChecks(vm: Vm, report: Report): Promise<void> {
   const probe = await run(vm, `${HOST_CLI} cloud probe-activity`, 60_000);
   const probed = probe.code === 0 && /"capability":true,"connected":true/.test(probe.stdout);
   check(report, "vm-activity-stream", probed, probe.stdout.trim().split("\n").at(-1) || probe.stderr.slice(-300));
-  const roles = await run(vm, `test -s ${ROLES_MANIFEST_PATH} && ! pgrep -x Xvfb >/dev/null && ! command -v openbox >/dev/null && ! command -v ffmpeg >/dev/null && command -v Xvfb >/dev/null && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK' && echo roles-off-fonts-on`);
+  const roles = await run(vm, rolesOffFontsOnCommand());
   check(report, "roles-off-fonts-on", roles.code === 0, roles.stdout.trim() || roles.stderr.slice(-300));
 }
 
 /** The health loop runs clean and the guard drop-ins apply (machine-health.ts). */
+/**
+ * Roles are parked (no Xvfb running), first-use packages are absent, and CJK fonts are baked. ffmpeg and ffprobe are
+ * baked in the agents layer since #56284 (the Computer Use driver still sees its refusing shims), so ffprobe must be on
+ * PATH. openbox is role
+ * display-wm's: a first-use package, except that an agent-tools image bakes it for the desktop session
+ * (AGENT_TOOLS_BAKED_ROLES, #44696). The agent tools' cmux-cua wrapper marks that image.
+ */
+export function rolesOffFontsOnCommand(): string {
+  return [
+    `test -s ${ROLES_MANIFEST_PATH}`,
+    "! pgrep -x Xvfb >/dev/null",
+    `{ test -x ${AGENT_TOOLS_BIN}/cmux-cua || ! command -v openbox >/dev/null; }`,
+    "command -v ffprobe >/dev/null",
+    "command -v Xvfb >/dev/null",
+    "ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
+    "echo roles-off-fonts-on",
+  ].join(" && ");
+}
+
 async function machineHealthChecks(vm: Vm, report: Report): Promise<void> {
   const out = await run(vm, machineHealthSmokeCommand(DEVBOX_WORK_USER), 120_000);
   const problems = machineHealthSmokeProblems(out.stdout);
@@ -349,6 +591,14 @@ async function resolverChecks(vm: Vm, report: Report): Promise<void> {
   const problems = dnsCheckProblems(dns.code, dns.stdout);
   report.dns = dns.stdout.trim().split("\n");
   check(report, "dns-resolved-restart", problems.length === 0, problems.join("\n") || dns.stdout.trim());
+}
+
+/** Public IPv6 stays routed: no block route over 2000::/3 (a dead-IPv6 host's fix) and an IPv6 default route (ipv6-route.ts, RFD 0067 item 5). */
+async function ipv6RouteChecks(vm: Vm, report: Report): Promise<void> {
+  const out = await run(vm, ipv6RouteSmokeCommand(), 90_000);
+  const problems = ipv6RouteProblems(out.code, out.stdout);
+  report.ipv6Routes = out.stdout.trim().split("\n");
+  check(report, "ipv6-public-routed", problems.length === 0, problems.join("\n") || out.stdout.trim().split("\n").filter((l) => !l.startsWith("==")).join(" ; "));
 }
 
 /**
@@ -384,10 +634,36 @@ function summarize(rows: Array<Record<string, number | string>>): Record<string,
     const values = pick(key);
     return { n: values.length, p50: percentile(values, 50), p95: percentile(values, 95), raw: values };
   };
-  return { createApi: stat("createApiMs"), createToFirstExec: stat("createToFirstExecMs"), createToListening: stat("createToListeningMs"), createToReady: stat("createToReadyMs"), guestWait: stat("guestWaitMs") };
+  return {
+    createApi: stat("createApiMs"),
+    createToFirstExec: stat("createToFirstExecMs"),
+    createToListening: stat("createToListeningMs"),
+    createToReady: stat("createToReadyMs"),
+    guestWait: stat("guestWaitMs"),
+    createDoneToFirstExec: stat("createDoneToFirstExecMs"),
+    createDoneToListening: stat("createDoneToListeningMs"),
+    createDoneToReady: stat("createDoneToReadyMs"),
+  };
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean }): Promise<Report> {
+/** The provider's part: its create call and the clones it never finished. Reported, never judged. */
+export function providerLatency(rows: Array<Record<string, number | string>>, unfinished: readonly string[]): Record<string, unknown> {
+  const s = summarize(rows);
+  return { createApi: s.createApi, unfinished: unfinished.length, reasons: unfinished };
+}
+
+/** The image's part: from the create call's return to the daemon listening and ready. */
+export function imageLatency(rows: Array<Record<string, number | string>>): Record<string, unknown> {
+  const s = summarize(rows);
+  return { createDoneToFirstExec: s.createDoneToFirstExec, createDoneToListening: s.createDoneToListening, createDoneToReady: s.createDoneToReady, guestWait: s.guestWait };
+}
+
+/** Every clone the provider finished had its daemon listening and ready. */
+export function daemonListening(rows: Array<Record<string, number | string>>): boolean {
+  return rows.length > 0 && rows.every((r) => Number(r.createDoneToListeningMs) >= 0 && Number(r.createDoneToReadyMs) >= 0);
+}
+
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean; edgeBaseline?: "live" | "none" }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -398,8 +674,14 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
   try {
     // One at a time: creating them at once made every create wait about 13 s at the provider (run
     // 42012003953, against about 0.5 s each one by one), and create latency is what this measures.
+    const budget = { left: PROVIDER_RETRIES, unfinished: [] as string[] };
+    report.providerUnfinished = budget.unfinished;
     for (let i = 1; i <= options.clones; i++) {
-      const { clone, row } = await measureClone(fs, ledger, `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}`, options.snapshotId);
+      const { clone, row } = await measureCloneRetrying(
+        (attempt) => measureClone(fs, ledger, `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}${attempt ? `r${attempt}` : ""}`, options.snapshotId),
+        (c) => deleteVm(c.vm, c.vmId, c.name, ledger),
+        budget,
+      );
       rows.push(row);
       // Track the clone before the extra probe so a refused/failed exec still cleans it up.
       kept.push(clone);
@@ -412,7 +694,9 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     }
     report.clones = rows;
     report.latency = summarize(rows);
-    check(report, "daemon-listening", rows.every((r) => Number(r.createToListeningMs) > 0 && Number(r.createToReadyMs) > 0), JSON.stringify(report.latency));
+    report.providerLatency = providerLatency(rows, budget.unfinished);
+    console.log(`INFO provider-latency ${JSON.stringify(report.providerLatency)}`);
+    check(report, "daemon-listening", daemonListening(rows), JSON.stringify(imageLatency(rows)));
     const ids = await Promise.all(kept.slice(0, 2).map((c) => run(c.vm, IDENTITY_PROBE, 60_000).then((r) => kv(r.stdout))));
     report.identity = ids.map((id) => ({ instance: id.instance, bound: id.bound, sshkey: id.sshkey, daemon: id.daemon?.slice(0, 12), machineid: id.machineid?.slice(0, 8), bootid: id.bootid?.slice(0, 8) }));
     check(report, "daemon-bound", ids.every((id) => id.instance && id.instance === id.bound && id["identity-present"] === "1"), JSON.stringify(report.identity));
@@ -439,6 +723,7 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       await automationChecks(kept[1].vm, report);
       await machineHealthChecks(kept[1].vm, report);
       await resolverChecks(kept[1].vm, report);
+      await ipv6RouteChecks(kept[1].vm, report);
       if (options.agentProbe) {
         const probe = await agentBindProbe(kept[1].vm);
         check(report, "vm-agent-bind-probe", probe.ok, probe.detail);
@@ -454,9 +739,17 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     };
     const phases: Record<string, number> = {};
     const timed = (label: string, f: () => Promise<void>) => async () => { const t = Date.now(); await f(); phases[label] = Date.now() - t; };
+    // The edge-rule clone needs the dev API for its bind probe, as the agent probe does.
+    const edgeRule = async () => {
+      await edgeRuleChecks(fs, ledger, options.tag, options.snapshotId, report).catch((error: unknown) => {
+        check(report, "edge-rule-resolve", false, `edge-rule clone failed: ${String(error).slice(0, 400)}`);
+      });
+    };
     await Promise.all([timed("idleClone1Ms", () => idlePhase(kept[0].vm, report, options.idleSeconds))(), timed("checksClone2Ms", onClone2)(),
-      ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report))()] : [])]);
+      ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report))()] : []),
+      ...(options.agentProbe ? [timed("edgeRuleCloneMs", edgeRule)()] : [])]);
     report.phasesMs = phases;
+    if (options.agentProbe && options.edgeBaseline === "live") await edgeRuleLiveControl(fs, ledger, options.tag, options.snapshotId, options.outDir, report);
     if (options.resizeProbe) {
       report.resize = await resizeProbe(kept[0].vm);
       const after = JSON.parse(String((report.resize as Record<string, unknown>).after)) as { cpu: number; memoryMb: number; rootMb: number };
@@ -509,6 +802,7 @@ export async function main(argv = process.argv): Promise<number> {
     browserProbe: argv.includes("--browser-probe"),
     expectCapabilities: expectedCapabilities(argValue("--expect-capabilities", argv)),
     teamVm: argv.includes("--team-vm"),
+    edgeBaseline: argValue("--edge-baseline", argv) === "live" ? "live" : "none",
   });
   return report.passed ? 0 : 1;
 }

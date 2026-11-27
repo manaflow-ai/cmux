@@ -17,6 +17,10 @@ impl Hub {
     /// Whether `session`'s restored work waits for the person: its folder is protected and no
     /// client shows it now. Marks the hold, which `release_protected_hold` lifts.
     pub(super) fn hold_in_protected_folder(&self, session: &Session) -> bool {
+        // A held chat's restored work waits for its release too (`session_hold.rs`).
+        if self.session_held(session) {
+            return true;
+        }
         if self.shown(session) {
             return false;
         }
@@ -28,6 +32,22 @@ impl Hub {
             tracing::info!(session = %session.id, "restored work waits for the person: {reason}");
         }
         true
+    }
+
+    /// What `session`'s hold for a person is (`SessionSummary::person_hold`): its folder and why
+    /// it waits, or `None` when nothing waits for a person there. The folder is read only while
+    /// the hold is on.
+    pub(crate) fn person_hold(
+        &self,
+        session: &Session,
+    ) -> Option<crate::protocol::session::PersonHold> {
+        if !session.protected_hold.load(Ordering::SeqCst) {
+            return None;
+        }
+        let cwd = session.meta().cwd.clone();
+        let reason = crate::protected_folders::restored_work_refusal(&cwd)
+            .unwrap_or_else(|| format!("{} is a guarded folder", cwd.display()));
+        Some(crate::protocol::session::PersonHold { folder: cwd.display().to_string(), reason })
     }
 
     /// The person asked for `session` (showed it, typed into it, prompted it): what a daemon

@@ -1,7 +1,7 @@
 //! Link shares: the owner's verbs, redeem, the guest binding, expiry and a restart.
 use super::*;
 use crate::server::agent_session_attach_tests::{
-    Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with, terminal_pane,
+    Client, FakeAcpmux, Fixture, SESSION, WAIT, agent_tab, assert_code, mux_with, terminal_pane,
 };
 use crate::server::{
     BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink,
@@ -161,6 +161,35 @@ fn a_link_works_once_and_a_retried_redeem_gets_the_same_guest() {
     assert_eq!(redeem(&mut owner, &many, &"é".repeat(64), "n")["ok"], true);
 }
 
+/// A side chat is its owner's alone: a link guest of a share on its tab attaches to nothing,
+/// whatever its role, and the daemon remembers the chat as a side chat from then on.
+#[test]
+fn a_link_guest_never_attaches_to_a_side_chat() {
+    let fixture = Fixture { side_of: Some("acp_chat"), ..Fixture::default() };
+    let fake = FakeAcpmux::start_with("share-side", fixture);
+    let mux = mux_with(&fake, "share-side");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-side-owner");
+    let share = create(&mut owner, surface, json!({}));
+    assert_eq!(invite(&mut owner, &share, "theo@example.com", Some("talk"))["ok"], true);
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "account":"theo@example.com", "name":"Theo",
+        "attempt_id":"a1"}));
+    let (mut client, bound) = bind(&mux, &share, &guest, "share-side-link");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let attach = client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_code(&attach, "agent_session.not_trusted");
+    assert_eq!(mux.control_clients.agent_sessions.attachment_count(), 0);
+    assert!(mux.control_clients.agent_sessions.sides.contains(SESSION));
+    // Known now: the next try ends before acpmux is asked.
+    while fake.next_frame(Duration::from_millis(200)).is_some() {}
+    assert_code(
+        &client.request(json!({"cmd":"agent-session-attach", "surface":surface})),
+        "agent_session.not_trusted",
+    );
+    fake.no_frame();
+}
+
 /// An account invited with `talk` (signed in at the room) may send: its prompts reach acpmux
 /// held for the owner, and nothing outside its verbs does.
 #[test]
@@ -195,6 +224,14 @@ fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
     let id = format!("g-{}", &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash)[..22]);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["promptId"], id);
     assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
+    // A guest never steers: its prompt waits for the owner, whatever it asks (cloud multiplayer).
+    let steer = json!({"cmd":"agent-session-prompt", "surface":surface, "client_id":"c0",
+        "text":"steer me in", "steer":true});
+    let held = client.request(steer);
+    assert_eq!(held["ok"], true, "{held}");
+    let sent = fake.frame();
+    assert_eq!(sent["params"]["_meta"]["acpmux"]["author"], author);
+    assert!(sent["params"]["_meta"]["acpmux"].get("steer").is_none(), "{sent}");
     let content = json!([{"type":"text", "text":" "}, {"type":"text", "text":"still Theo"}]);
     assert_eq!(
         client.request(json!({"cmd":"agent-session-prompt", "surface":surface,
@@ -222,6 +259,12 @@ fn a_guest_reaches_only_its_verbs_and_its_prompts_wait_for_the_owner() {
         json!({"cmd":"agent-session-permission", "surface":surface, "permission_id":"p",
             "option_id":"allow"}),
         json!({"cmd":"agent-session-children", "surface":surface}),
+        // A fork, a side chat and a side question are the owner's: outside a guest's verbs.
+        json!({"cmd":"agent-session-fork", "surface":surface, "through_seq":1}),
+        json!({"cmd":"agent-session-side", "surface":surface, "live":true}),
+        json!({"cmd":"agent-session-side", "surface":surface, "live":true, "prompt":"x",
+            "prompt_id":"p"}),
+        json!({"cmd":"agent-session-btw", "surface":surface, "question":"why?"}),
         json!({"cmd":"agent-session-media", "surface":surface, "path":"/tmp/a.png"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"get"}),
         json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":"edit"}),
@@ -1052,27 +1095,36 @@ fn an_unreadable_shares_file_is_kept_aside_and_never_overwritten() {
 
 /// A move aside never replaces a copy already kept: when `.unreadable` and the `-<unix ms>` name
 /// the clock gives are both taken (two moves in one millisecond, or a clock that went back), the
-/// new copy goes to a free name beside them and every earlier copy survives (cmux#33921).
+/// new copy goes to a free name beside them and every earlier copy survives (cmux#33921). The
+/// move's millisecond is fixed, so the taken names are known however slow the host is.
 #[test]
 fn a_move_aside_never_replaces_a_kept_copy_on_a_suffix_collision() {
+    const MS: u64 = 1_700_000_000_000;
     let directory = scratch("shares-unreadable-collision");
     let dir = Some(directory.as_path());
     let first = directory.join(format!("{FILE}.unreadable"));
     std::fs::write(&first, b"first").unwrap();
-    // Take every `-<ms>` name the move can pick in the next few seconds.
-    let now = wall_ms();
-    let taken: Vec<_> =
-        (now..now + 3_000).map(|ms| directory.join(format!("{FILE}.unreadable-{ms}"))).collect();
+    // The `-<ms>` name and the next suffixes the move tries are all taken.
+    let taken: Vec<_> = std::iter::once(directory.join(format!("{FILE}.unreadable-{MS}")))
+        .chain((1..=3).map(|n| directory.join(format!("{FILE}.unreadable-{MS}-{n}"))))
+        .collect();
     for path in &taken {
         std::fs::write(path, b"earlier").unwrap();
     }
     std::fs::write(directory.join(FILE), b"not json").unwrap();
-    LinkShares::default().insert(dir, SESSION.into(), 1, terms(), false).unwrap();
-    assert!(wall_ms() < now + 3_000, "the move ran inside the taken window");
+    let shares = LinkShares::default();
+    shares.set_aside_ms.store(MS, Ordering::Relaxed);
+    shares.insert(dir, SESSION.into(), 1, terms(), false).unwrap();
     assert_eq!(std::fs::read(&first).unwrap(), b"first", "`.unreadable` is not replaced");
     for path in &taken {
         assert_eq!(std::fs::read(path).unwrap(), b"earlier", "{} was replaced", path.display());
     }
+    let free = directory.join(format!("{FILE}.unreadable-{MS}-4"));
+    assert_eq!(
+        std::fs::read(&free).unwrap(),
+        b"not json",
+        "the new copy takes the first free name"
+    );
     let moved: Vec<_> = std::fs::read_dir(&directory)
         .unwrap()
         .map(|entry| entry.unwrap().path())

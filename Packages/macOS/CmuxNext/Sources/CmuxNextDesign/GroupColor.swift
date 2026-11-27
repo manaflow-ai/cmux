@@ -23,11 +23,11 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
     case cyan
     case orange
 
-    /// The color a new space or browser profile gets: the first of
-    /// `automaticOrder` not in `used`; never blue or grey. Nil when every
-    /// such color is in use. Groups get none: no color until a person picks one.
-    public static func automatic(used: Set<String>) -> GroupColor? {
-        automaticOrder.first { !used.contains($0.rawValue) }
+    /// A stored workspace color: a palette name in any case, `gray` for `grey` as the sidebar reads
+    /// it. Nil for no color or a name outside the palette.
+    public init?(stored: String?) {
+        guard let name = stored?.lowercased() else { return nil }
+        self.init(rawValue: name == "gray" ? "grey" : name)
     }
 
     /// A stable palette color for an unbranded harness or session mark. Groups with no

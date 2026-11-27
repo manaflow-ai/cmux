@@ -10,9 +10,11 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
+use flags::{BOOLEAN_FLAGS, SWITCH_OR_VALUE_FLAGS, usage, validate_one_of};
 
 mod agent_focus;
+#[cfg(unix)]
+mod agent_hook_links;
 #[cfg(unix)]
 mod agent_hook_status;
 mod agent_list;
@@ -31,6 +33,7 @@ mod machine;
 mod name_flags;
 mod notification;
 mod pane_move;
+mod project;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
@@ -115,8 +118,12 @@ impl Selectors {
     ) -> Result<(), UsageError> {
         validate_selector(scope, prefix, value)?;
         if !matches!(Selector::parse(value), Ok(Selector::Id(_))) {
+            // `focused` is the object the person looks at, so its implied
+            // parents are the focused ones too, not the caller's
+            // (resolve.rs `focused_scopes`).
+            let parent = if value == "focused" { "focused" } else { "current" };
             for ancestor in structural_ancestors(scope) {
-                self.values.entry(ancestor).or_insert_with(|| "current".into());
+                self.values.entry(ancestor).or_insert_with(|| parent.into());
             }
         }
         self.values.insert(scope, value.to_string());
@@ -193,7 +200,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     }
     let mut selectors = Selectors::default();
     let plan = match scope {
-        "server" => parse_server(words, &mut tokens.flags)?,
+        "server" => parse_server(words, &mut tokens.flags, surface)?,
         "machine" => machine::parse(words, &mut selectors, &mut tokens.flags, surface)?,
         "session" => parse_session(words, &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
@@ -210,6 +217,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "space" => parse_space(&strs(words), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
+        "project" => project::parse_project(&strs(words), &mut tokens.flags)?,
         "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
         "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
         "notify" => parse_notify(words, &mut tokens.flags)?,
@@ -234,7 +242,11 @@ fn parse_space(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageEr
     }
 }
 
-fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+fn parse_server(
+    words: &[String],
+    flags: &mut Flags,
+    surface: super::Surface,
+) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
@@ -245,6 +257,10 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
         },
+        ["premigrate-registry"] => super::lifecycle::ServerAction::PremigrateRegistry {
+            state_dir: flags.take("state-dir").map(PathBuf::from),
+            max_duration: premigrate_max_duration(flags)?,
+        },
         ["start"] => {
             return Err(UsageError::new(
                 crate::localization::catalog().local_server.start_options_after_action,
@@ -252,7 +268,9 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         }
         [action] => {
             let messages = &crate::localization::catalog().local_server;
+            let scope = if surface == super::Surface::Cmux { "daemon" } else { "server" };
             return Err(UsageError::new(messages.unknown_server_action(
+                scope,
                 action,
                 super::suggestion(
                     action,
@@ -265,6 +283,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                         "restart",
                         "reload-config",
                         "compact-registry",
+                        "premigrate-registry",
                     ],
                 ),
             )));
@@ -279,7 +298,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
 }
 
 /// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
-/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// [--if-idle] [--restore-wait-seconds <n>]`. The wait for an owner that still restores
 /// defaults to the bound `server ensure` gives a restore
 /// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
 fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
@@ -287,6 +306,7 @@ fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, Usag
         restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
         end_terminals: flags.boolean("end-terminals"),
+        if_idle: flags.boolean("if-idle"),
     })
 }
 
@@ -302,6 +322,23 @@ fn restart_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, U
         restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
     })
+}
+
+/// `server premigrate-registry --max-seconds <n>`: at most a day, 10 minutes
+/// by default (the app's update handoff waits for it; a partial fold still
+/// shortens the next start, and the next run resumes it).
+fn premigrate_max_duration(flags: &mut Flags) -> Result<Option<std::time::Duration>, UsageError> {
+    const DEFAULT_SECONDS: u64 = 600;
+    const MAX_SECONDS: u64 = 86_400;
+    match flags.take("max-seconds") {
+        None => Ok(Some(std::time::Duration::from_secs(DEFAULT_SECONDS))),
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_SECONDS) => Ok(Some(std::time::Duration::from_secs(seconds))),
+            _ => Err(UsageError::new(
+                crate::localization::catalog().local_server.registry_premigrate_max_seconds_invalid,
+            )),
+        },
+    }
 }
 
 fn restore_wait(flags: &mut Flags) -> Result<std::time::Duration, UsageError> {
@@ -337,7 +374,9 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if name.is_empty() {
                 return Err(UsageError::new("empty flag name"));
             }
-            let flag_value = if is_boolean_flag(name) {
+            let switch = inline.is_none()
+                && flag_takes_no_value(name, args.get(index + 1).map(String::as_str));
+            let flag_value = if is_boolean_flag(name) || switch {
                 if inline.is_some() {
                     return Err(UsageError::new(format!("--{name} does not take a value")));
                 }
@@ -427,6 +466,14 @@ fn insert_creation_command(
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
+}
+
+/// Whether `--name` followed by `next` (the next argument, if any) is a flag
+/// without a value: a boolean flag, or a [`SWITCH_OR_VALUE_FLAGS`] one with no
+/// value word after it.
+pub(super) fn flag_takes_no_value(name: &str, next: Option<&str>) -> bool {
+    is_boolean_flag(name)
+        || (SWITCH_OR_VALUE_FLAGS.contains(&name) && next.is_none_or(|next| next.starts_with("--")))
 }
 
 fn parse_session(
@@ -850,6 +897,20 @@ fn parse_pane_strings(
             if let Some(ratio) = flags.take("ratio") {
                 insert_ratio(&mut params, "ratio", "--ratio", ratio)?;
             }
+            if flags.values.contains_key("fit") {
+                if flags.take("fit").is_some() {
+                    return Err(UsageError::new("--fit does not take a value"));
+                }
+                if direction != "right" {
+                    return Err(UsageError::new("--fit requires --right"));
+                }
+                if flags.values.contains_key("viewport-width") || params.contains_key("ratio") {
+                    return Err(UsageError::new(
+                        "--fit shares the window; drop --viewport-width and --ratio",
+                    ));
+                }
+                params.insert("fit".into(), Value::Bool(true));
+            }
             if let Some(viewport_width) = flags.take("viewport-width") {
                 if direction != "right" {
                     return Err(UsageError::new("--viewport-width requires --right"));
@@ -974,7 +1035,9 @@ fn parse_tab_strings(
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => {
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+            let created_by = list_filter::take_created_by(flags)?;
             request(ResourceOperation::TabList, selectors, flags, Map::new())
+                .map(|plan| plan.filtered(ListFilter { created_by, ..ListFilter::default() }))
         }
         ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
@@ -988,6 +1051,7 @@ fn parse_tab_strings(
             insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
         }
         ["create", "browser"] => {
@@ -1001,6 +1065,7 @@ fn parse_tab_strings(
             browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
         }
         [selector, "rename"] => {
@@ -1879,7 +1944,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
 
 pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
     #[cfg_attr(not(unix), allow(unused_mut))]
-    let mut result = crate::agent_hook_install::run(&plan);
+    let mut result = run_hooks_and_links(&plan);
     #[cfg(unix)]
     if plan.action == crate::agent_hook_install::Action::Status {
         result.value =
@@ -1896,6 +1961,44 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     } else {
         super::wire::print_local_success(&result.value, global.output)
     }
+}
+
+/// `agent hook` over the hook providers and the `link-` rows (agent_hook_links.rs): a status
+/// with no ids lists both; an install or uninstall with no ids touches hooks only; ids that are
+/// all `link-` run no hook step.
+#[cfg(unix)]
+fn run_hooks_and_links(
+    plan: &crate::agent_hook_install::Plan,
+) -> crate::agent_hook_install::RunResult {
+    use crate::agent_hook_install::{Action, Plan, RunResult};
+    let (apps, hooks, mut errors) = agent_hook_links::split(&plan.providers);
+    let every = plan.providers.is_empty();
+    let hooks_run = every || !hooks.is_empty();
+    let base = if hooks_run {
+        crate::agent_hook_install::run(&Plan { action: plan.action, providers: hooks })
+    } else {
+        let action = match plan.action {
+            Action::Install => "install",
+            Action::Uninstall => "uninstall",
+            Action::Status => "status",
+        };
+        RunResult { value: json!({"action": action, "providers": [], "errors": []}), failed: false }
+    };
+    let (rows, link_errors) = if every && plan.action != Action::Status {
+        (Vec::new(), Vec::new())
+    } else {
+        agent_hook_links::run(plan.action, &apps, every)
+    };
+    errors.extend(link_errors);
+    let failed = base.failed || !errors.is_empty();
+    RunResult { value: agent_hook_links::merge(base.value, rows, errors), failed }
+}
+
+#[cfg(not(unix))]
+fn run_hooks_and_links(
+    plan: &crate::agent_hook_install::Plan,
+) -> crate::agent_hook_install::RunResult {
+    crate::agent_hook_install::run(plan)
 }
 
 /// What `cmux agent|sidebar plugin list` prints when no plugin is installed.

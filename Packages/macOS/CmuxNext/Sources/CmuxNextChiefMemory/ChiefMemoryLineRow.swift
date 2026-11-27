@@ -31,6 +31,6 @@ struct ChiefMemoryLineRow: View {
             .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(selected ? Color(nsColor: Palette.selectionFill) : .clear))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
     }
 }

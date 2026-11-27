@@ -15,6 +15,7 @@
 // A guest's prompt is not the owner's either (design/chat-multiplayer.md, "Held message card"): it
 // draws here as a message from that person, held with Approve and Decline while it waits for the
 // owner (acpmux `awaitingOwner`), then with the queue's label once approved.
+import { TRANSIENT_SHOW_MS, useSettledItems } from "../afterDelay";
 import type { ComposerAttachment } from "../attachments";
 import { isGuest } from "../multiplayer/participants";
 import { inboxText } from "./inboxNotice";
@@ -33,9 +34,46 @@ export const isHeldEntry = (entry: QueuedEntry) => entry.awaitingOwner === true 
 /// Whether a queue entry draws in the transcript rather than as a composer-queue row.
 const inTranscript = (entry: QueuedEntry) => isAgentEntry(entry) || isHeldEntry(entry);
 
+/// Whether a queue entry is acpmux's own prompt to the chat's agent (a surge digest, a subagent's
+/// resume, a cut turn's continuation: model.ts `system`, acpmux hub/queue_origin.rs). Leo,
+/// 2026-11-24: "why would a user steer or whatever on these? they should be separated out from the
+/// user visible steer ui area. maybe not even interactable?" It draws as a quiet note apart from the
+/// steer rows, with none of the person's actions (ComposerQueue.tsx `SystemNotes`).
+export const isSystemEntry = (entry: QueuedEntry) => entry.system !== undefined || entry.retry !== undefined;
+
+const notOwn = (entry: QueuedEntry) => inTranscript(entry) || isSystemEntry(entry);
+
 /// The person's own queued prompts, in the queue's order: the composer's queue rows.
 export function ownQueue(queue: AcpmuxSnapshot["queue"]): AcpmuxSnapshot["queue"] {
-  return queue.some(inTranscript) ? queue.filter((entry) => !inTranscript(entry)) : queue;
+  return queue.some(notOwn) ? queue.filter((entry) => !notOwn(entry)) : queue;
+}
+
+/// acpmux's own prompts waiting in the queue, in its order: the notes apart from the steer rows.
+export function systemQueue(queue: AcpmuxSnapshot["queue"]): AcpmuxSnapshot["queue"] {
+  return queue.filter((entry) => !inTranscript(entry) && isSystemEntry(entry));
+}
+
+/// Whether a queue entry shows at once. A person's prompt does: one the person just sent is a whole
+/// queued row in the frame the composer clears (Leo, 2026-11-11; test/agent-pane-queue-collapse),
+/// and a held one waits on someone (the folder's trust, a waking machine, the owner), never on the
+/// turn. So does another agent's message a Stop holds: it waits for the person, not for a batch.
+const showsAtOnce = (entry: QueuedEntry) =>
+  (!isAgentEntry(entry) && !isSystemEntry(entry)) || entry.heldByStop === true;
+
+const entryKey = (entry: QueuedEntry) => entry.id;
+
+/// The queue as the pane draws it, the composer's queue rows and the transcript's waiting card
+/// alike (App.tsx): another agent's message or acpmux's inbox notice that comes and goes within
+/// TRANSIENT_SHOW_MS (queued at a turn's end and started in the next batch) never paints (Leo,
+/// 2026-11-17: "i also dont like seeing the flicker flash of the Queued blah blah blah something").
+/// The queue there when chat `scope` first draws shows at once; the same array comes back while
+/// nothing shown changed.
+export function useShownQueue(
+  queue: AcpmuxSnapshot["queue"],
+  scope: unknown,
+  ms: number = TRANSIENT_SHOW_MS,
+): AcpmuxSnapshot["queue"] {
+  return useSettledItems(queue, entryKey, scope, ms, showsAtOnce) as AcpmuxSnapshot["queue"];
 }
 
 /// The transcript row id of queued message `promptId`.

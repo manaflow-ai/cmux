@@ -46,10 +46,21 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
     /// install when you click restart": "Yeah, let's do that, man. Let's get it done." It was off
     /// on every channel from Leo 2026-10-27 ("ask before the download + install step"). Turning
     /// it off makes a found update wait on the Update Available step for its Update click.
+    /// cmux NEXT's nightly ring had it on first (Leo 2026-11-10: "the nightly automatically downloads
+    /// and installs/unpacks and you simply click and it restarts with the new version"); every
+    /// channel now does the same.
     public var downloadsAutomaticallyByDefault: Bool {
         switch self {
         case .stable, .rc, .nightly, .nightlyNext, .development: true
         }
+    }
+
+    /// Update When Idle (`updates.installWhenIdle`) is on by default in cmux NEXT's NIGHTLY only: it
+    /// restarts into the downloaded build while the person is away, as if they clicked Restart to Update
+    /// (Leo 2026-11-22: "cosmic-gray was supposed to auto-update when i was away from the keyboard. like,
+    /// auto be de facto able to click the restart button"). Release, RC, classic NIGHTLY and DEV stay opt-in.
+    public var installsWhenIdleByDefault: Bool {
+        self == .nightlyNext
     }
 }
 

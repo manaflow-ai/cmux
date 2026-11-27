@@ -3,12 +3,13 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextDaemonService
 import CmuxNextRemote
 import CmuxNextWakeups
 
 extension CloudHandlers {
     static func bindNetworkActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud
+        let cloud = context.services.cloud, rules = CloudHandlerRules()
         bind("cloudTunnelAttach", registry, reason: reason) { invocation in
             let networkID = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) // none: the joined team
             runTracked("attach Cloud tunnel network", context) { try await AcpmuxCloudTunnel(QuitAgents.environment(context.services), platformOrigin: cloud.configuration.relayAPIBaseURL(), fallback: CloudStrings.tunnelDaemonUnavailable).run(.attach, token: cloud.auth.tokens().access, networkID: networkID) }
@@ -23,8 +24,8 @@ extension CloudHandlers {
         bind("cloudNetworkList", registry, reason: reason) { invocation in
             answer("list Cloud networks", invocation, context) {
                 let networks = try await cloud.machineAPI.listNetworks()
-                let lines = networks.map { network in [network.id, "(\(network.scope))", network.cidr ?? ""].joined(separator: " ") }
-                return CloudAnswer(title: CloudStrings.networkTitle, text: lines.joined(separator: "\n"), fields: ["count": .int(networks.count)])
+                let items: [[String: Any]] = networks.map { ["id": $0.id, "scope": $0.scope, "cidr": $0.cidr as Any].compacted }
+                return cloudAnswer(CloudStrings.networkTitle, rules.answer(["kind": "networks", "items": items]))
             }
         }
         // The firewall actions called classic cmux.com's /api/vm/firewall, deleted from NEXT; cmux-platform
@@ -36,12 +37,5 @@ extension CloudHandlers {
         bind("cloudSetNetworkAccess", registry, reason: reason) { invocation in
             try CloudNetworkAccessActions.set(invocation, context)
         }
-    }
-
-    /// The id an action takes in `--path`; `missing` names which id and
-    /// where to find one (not the file-path refusal).
-    static func idArgument(_ invocation: ActionInvocation, _ missing: String) throws -> String {
-        guard let value = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { throw ActionFailure(message: missing) }
-        return value
     }
 }

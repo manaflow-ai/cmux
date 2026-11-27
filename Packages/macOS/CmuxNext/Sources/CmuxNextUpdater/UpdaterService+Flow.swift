@@ -17,6 +17,7 @@ extension UpdaterService {
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
         if let cancelledDownloadCard { return cancelledDownloadCard }
+        if let healthCard { return healthCard }
         guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
@@ -66,6 +67,7 @@ extension UpdaterService {
     /// Restart to Update (the Update Ready card, the footer pill): install and relaunch, at once
     /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
+        if relaunchIntoInstalledBuild() { return }
         syncFlowPhase()
         updateClicks += 1
         log.append("restart to update clicked (\(flow.phase))")
@@ -75,6 +77,13 @@ extension UpdaterService {
         send(.installRequested)
     }
 
+    /// Reads the feed and the pulled list now while an update waits on Update Ready, so a Restart
+    /// to Update soon after decides at once (``StagedUpdateRefresh/prefetch(updater:)``). Called
+    /// when cmux becomes active; a no-op otherwise.
+    public func prefetchForInstallClick() {
+        stagedRefresh.prefetch(updater: self)
+    }
+
     /// The quit is decided: with `updates.installOnQuit` off, or a staged build known pulled
     /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits. A pulled
     /// build whose installer this app does not hold (Sparkle's silent cycle still resuming) cannot
@@ -82,9 +91,23 @@ extension UpdaterService {
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
         syncFlowPhase()
+        if case .downloading(let transfer) = flow.phase,
+           transfer.stage != .preparing,
+           cancelDownloadNow() {
+            log.append("quit: cancelling the active update download")
+        }
         var action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
+        if rollbackQuitPending {
+            // A rollback's quit: a staged update would install over the build just put in place
+            // and relaunch forward (cmux#41013 review F2). One staged after the swap is cancelled.
+            if let staged = stagedBuild(), !staged.isEmpty {
+                log.append(cancelStaged() ? "quit: a rollback quits, cancelled the staged update \(staged)"
+                                          : "quit: a rollback quits, but the staged update \(staged) could not be cancelled")
+            }
+            return .cancelPendingInstall
+        }
         if action == .proceed, stagedPulledHeld {
             if cancelStaged() {
                 log.append("quit: the staged build was pulled, cancelled it instead of installing on quit")
@@ -100,11 +123,12 @@ extension UpdaterService {
     }
 
     /// Why the update flow failed, as Sparkle reported it (a failed check, download or install
-    /// preflight), else the read-only probe's failure on a build without Sparkle; nil otherwise.
+    /// preflight) in plain words (``UpdateFailureText``), else the read-only probe's failure on a
+    /// build without Sparkle; nil otherwise.
     public var failureReason: String? {
         if let controller, disabledReason == nil {
             guard case .error(let failure) = controller.model.effectiveState else { return nil }
-            return failure.error.localizedDescription
+            return UpdateFailureText.plain(failure.error)
         }
         return lastProbeError
     }
@@ -130,10 +154,18 @@ extension UpdaterService {
         switch effect {
         case .install:
             stagedRefresh.installStarted()
+            installClickedAt = ContinuousClock.now
+            picturesAtClick?()
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
-            // The newest build of the ring, not a stale staged one (one click, one relaunch).
-            stagedRefresh.beforeInstall(updater: self) { [weak self] in self?.installStagedNow() }
+            // The staged build's pre-warm, if it still runs, goes at the click's priority from now on.
+            if let run = prewarmRun, run.line == nil { run.urgency.raise() }
+            // The newest build of the ring, not a stale staged one (one click, one relaunch); then the
+            // staged build's pre-warm, bounded, so its first launch is pre-warmed for a click that came
+            // right after the update staged (Leo's NIGHTLY: 3 s).
+            stagedRefresh.beforeInstall(updater: self) { [weak self] in
+                self?.installAfterPrewarm { [weak self] in self?.installStagedNow() }
+            }
         case .download:
             log.append("gate: downloading the available update")
             acceptAvailable()
@@ -206,7 +238,7 @@ extension UpdaterService {
         followNewestFetch(phase, previous: previous)
         followInstall(phase)
         followStagedUpdate(phase)
-        stagedRefresh.follow(phase, updater: self)
+        stagedRefresh.follow(phase, previous: previous, updater: self)
         tipCheck.refresh(self)
         followReleasePush()
         // A pulled running build read while a check ran is followed once the check ends.
@@ -260,20 +292,39 @@ extension UpdaterService {
     /// (``follow(ring:)``) to Sparkle, and when given the idle install's wait cap and quiet window
     /// (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a driver
     /// too (the probe reads it).
+    /// - Parameter installWhenIdleMinutes: Update When Idle (`updates.installWhenIdle`, off by default):
+    ///   the idle time `updates.installWhenIdleMinutes` when it is on, nil when off.
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
-                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
+                          idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
+                          installWhenIdleMinutes: TimeInterval? = nil) {
+        // Paused (``AutomaticUpdatePause``): the settings keep their values, nothing automatic runs.
+        let paused = pausesAutomaticUpdates
+        let checkAutomatically = checkAutomatically && !paused
+        let downloadAutomatically = downloadAutomatically && !paused
+        let installWhenIdleMinutes = paused ? nil : installWhenIdleMinutes
+        if paused, !settingsApplied { log.append("automatic updates paused: checks, downloads and idle installs only on the person's click") }
         if let ring { follow(ring: ring) }
+        installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
+            // The longest an automatic install waits silently on a modal, sheet, menu or composition;
+            // with Update When Idle, never before its idle time could have passed.
+            relaunchMomentHold.surfaceAfter = max(.seconds(idleInstall.maxWait), installWhenIdle ?? .zero)
         }
-        downloadSetting = (downloadAutomatically, metered)
+        // Update When Idle installs what it downloaded: it downloads found updates too.
+        downloadSetting = (downloadAutomatically || installWhenIdle != nil, metered)
         settingsApplied = true
         // `updates.downloadAutomatically` downloads found updates and stages them; it never installs
-        // them. The app restarts only on the person's click (Restart to Update), so the idle install
-        // stays off whatever the download setting says (nightly restart policy, 2026-10-27).
-        if let controller, controller.installsUpdatesWhenIdle { controller.installsUpdatesWhenIdle = false }
+        // them. The app restarts only on the person's click (Restart to Update) unless the person
+        // turned on Update When Idle (Leo, 2026-11-19: "maybe even having it as an opt-in option
+        // would be pretty interesting. Yeah, like update when idle"); nightly restart policy, 2026-10-27.
+        // Its installs wait on ``UpdateRelaunchMomentHold/idleGate`` (the app's Rust rule).
+        // The gate first: turning the policy on may hold an update already staged at once.
+        let installsWhenIdle = installWhenIdle != nil && idleInstallGate != nil
+        relaunchMomentHold.idleGate = installsWhenIdle ? idleInstallGate : nil
+        if let controller, controller.installsUpdatesWhenIdle != installsWhenIdle { controller.installsUpdatesWhenIdle = installsWhenIdle }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()
@@ -312,7 +363,7 @@ extension UpdaterService {
     func applyDownloadPolicy() {
         let required = requiredMinimumVersion != nil
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
-        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
+        let downloads = (required || !downloadHeldForDeltas) && UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained || networkPending,
                                                                    expensive: network.expensive || networkPending)
         // The tip app reads its feed every few minutes only where found updates download by

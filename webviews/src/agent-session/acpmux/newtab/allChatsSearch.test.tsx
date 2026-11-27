@@ -5,6 +5,8 @@ import { JSDOM } from "jsdom";
 import { resetSettledChatsForTests } from "./settledCache";
 import { AllChatsList } from "./AllChatsList";
 import { SEARCH_SETTLE_MS, useChatPages, type AllChatsPage, type LoadChatsPage } from "./allChatsListModel";
+import { settleReact } from "../../../../test/support/domTeardown";
+import { LASTING_MS } from "../../../ui/lasting";
 
 // All chats search asks the daemon once per settled query, not once per keystroke: each read
 // ranks every chat, so a read per key made typing cost keys x chats (Leo, 2026-11-04: "never ...
@@ -45,11 +47,12 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   jest.useRealTimers();
   root = undefined;
   resetSettledChatsForTests();
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -141,4 +144,52 @@ test("a reply for a query typed past is dropped, and clearing the field reads th
   expect(keys()).toBe("claude:new");
   await typeInto("");
   expect(queries(requests)).toEqual(["dep", "deplo", ""]);
+});
+
+// A first read that fails is no one's decision (Leo, 2026-11-22: "vacuous decisions like that should be
+// just done"): the list asks again on its own, shows no Try again, and says one quiet line only once the
+// failure has lasted the house deadline (autoRetry.ts, lasting.ts LASTING_MS).
+test("a failed first read is asked again on its own, with no button, and says one quiet line only once it lasts", async () => {
+  const requests: Request[] = [];
+  const load: LoadChatsPage = (params) =>
+    new Promise((resolve) => {
+      requests.push({ params, resolve });
+    });
+  await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} now={0} />));
+  const failLatest = () => act(async () => requests.at(-1)!.resolve(undefined));
+  const wait = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
+  const quietLine = () => container.querySelector(".nt-chats-failed");
+
+  await failLatest();
+  expect(container.querySelector("button.nt-chats-retry")).toBeNull();
+  expect(quietLine()).toBeNull();
+  // The first ask again comes within a second (jittered), for the first page of the same query.
+  await wait(1_000);
+  expect(requests).toHaveLength(2);
+  expect(requests[1]!.params.cursor).toBeUndefined();
+
+  let elapsed = 1_000;
+  while (elapsed < LASTING_MS) {
+    await failLatest();
+    expect(quietLine()).toBeNull();
+    await wait(5_000);
+    elapsed += 5_000;
+  }
+  await failLatest();
+  const line = quietLine();
+  expect(line?.textContent).toBeTruthy();
+  expect(line?.querySelector("button")).toBeNull();
+  const asked = requests.length;
+  expect(asked).toBeGreaterThan(3);
+
+  // It keeps asking (the jittered backoff tops out at 30 s, so a 30 s wait holds at least one ask) and
+  // the first read that lands clears the line.
+  await wait(30_000);
+  expect(requests.length).toBeGreaterThan(asked);
+  await act(async () => requests.at(-1)!.resolve({ chats: [row("claude:a", "A")], ready: true }));
+  expect(quietLine()).toBeNull();
+  // Nothing more is asked once it landed.
+  const landed = requests.length;
+  await wait(60_000);
+  expect(requests.length).toBe(landed);
 });

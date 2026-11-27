@@ -61,6 +61,9 @@ impl ApiError {
 }
 
 /// Routes an app's catalog op to the daemon's own dispatcher.
+/// How `OpRouter::start_events` hands a change to the supervisor: a stream name and its body.
+pub type StreamPublish = Box<dyn Fn(&str, Value) + Send + Sync>;
+
 pub trait OpRouter: Send + Sync {
     /// Runs `op` for `app`. Ok is the ABI ok body (`{value, ...}`), Err the
     /// ABI error body (`{code, message, details?, retryable}`).
@@ -91,9 +94,17 @@ pub trait OpRouter: Send + Sync {
         Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
     }
     /// Starts delivering daemon change events as stream names
-    /// (`workspace.changed`, `agent.changed`, …). Called once, on the first
-    /// app subscription.
-    fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>);
+    /// (`workspace.changed`, `agent.changed`, …) and their bodies (`{}`, or
+    /// `{"live": bool}` for a stream with a push channel). Called once, on the
+    /// first app subscription.
+    fn start_events(&self, publish: StreamPublish);
+    /// For a stream fed by a push channel outside this machine (`github.changed`, the Cloud's
+    /// webhooks): whether that channel is live now. A new subscriber hears `{"live": bool}` first,
+    /// so a watch knows whether to keep its slow re-read. `None` for every other stream.
+    fn stream_live(&self, stream: &str) -> Option<bool> {
+        let _ = stream;
+        None
+    }
     /// True when the daemon's own dispatcher owns `op`; other ops go to a
     /// provider.
     fn owns(&self, op: &str) -> bool;
@@ -131,6 +142,11 @@ pub struct Config {
     /// wait for the user such as a file panel (default 10 min).
     pub provider_deadline: Duration,
     pub provider_user_deadline: Duration,
+    /// The safe mode flag file (`crate::safe_mode_flag`), read once here
+    /// and written when safe mode changes; `None` keeps safe mode in memory.
+    pub safe_mode_file: Option<PathBuf>,
+    /// `CMUX_SAFE_MODE` asked for safe mode when the daemon started.
+    pub safe_mode_env: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -161,6 +177,10 @@ pub(super) struct Mount {
     pub context: Value,
     /// The next scene batch starts a fresh tree (after a host restart).
     pub reset: bool,
+    /// Its op-batch rate and coalescing (`budget.rs`).
+    pub budget: super::budget::MountBudget,
+    /// A widget mount's clock and meter (`widgets.rs`); `None` for every other interface.
+    pub widget: Option<super::widgets::WidgetMount>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,6 +216,13 @@ pub(super) struct Host {
     /// App calls being worked on (at most the VM's 64; the supervisor checks
     /// again because the VM is untrusted).
     pub inflight: usize,
+    /// A local app's folder fingerprint when this process loaded it: a
+    /// mount without an error keeps those files as the last good version
+    /// (`rollback.rs`). `None` for other apps.
+    pub print: Option<u64>,
+    /// Kept up by the manifest's `activation` (`activation.rs`): stopped
+    /// when the app may no longer run in the background.
+    pub background: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -222,6 +249,8 @@ pub(super) struct Inner {
     pub providers: HashMap<String, u64>,
     pub provider_calls: HashMap<u64, super::provider::ProviderCall>,
     pub next_provider_request: u64,
+    /// Granted `system_calendar.events.list` answers (`system_calendar.rs`).
+    pub system_calendar: super::system_calendar::Cache,
     /// `apps-run` replay by idempotency key (`runs.rs`).
     pub run_keys: HashMap<String, super::runs::RunKey>,
     pub run_key_order: VecDeque<String>,
@@ -242,6 +271,44 @@ pub(super) struct Inner {
     /// so within a daemon run a read the person turned off is never granted
     /// again by a broken save or one that drops and re-adds it.
     pub customize_reads_offered: Option<BTreeSet<String>>,
+    /// Safe mode (`safe_mode.rs`): `Some` while it is on.
+    pub safe_mode: Option<crate::safe_mode_flag::Flag>,
+    /// The crash loop record (`safe_mode.rs`).
+    pub launches: super::safe_mode::Launches,
+    /// The safe mode bisect (`safe_mode_bisect.rs`), only while safe mode is on.
+    pub bisect: Option<super::safe_mode_bisect::Bisect>,
+    /// Apps whose host failed (an init error, repeated crashes), with why;
+    /// cleared when a host of theirs is ready again.
+    pub failed: HashMap<String, String>,
+    /// The local apps' folder fingerprints the catalog was last read with.
+    pub local_prints: HashMap<String, u64>,
+    /// The watched folders the catalog refused at the last reload pass that
+    /// logged, with why: a refusal is logged when it is new or its reason
+    /// changed, not again on every other app's save.
+    pub local_rejected_logged: HashMap<PathBuf, String>,
+    /// The watched folders' fingerprints `catalog` was read with: a reload
+    /// pass reuses the read of each folder whose fingerprint is unchanged.
+    pub local_dir_prints: HashMap<PathBuf, u64>,
+    /// The watched folders' fingerprints at the last reload pass, whether it
+    /// applied anything or not: a pass that reads only the folders a save
+    /// names (`local_reload::Scope::Folders`) keeps these for the others.
+    pub local_seen: HashMap<PathBuf, u64>,
+    /// Each local app's last good copy (`rollback.rs`), and the fingerprint
+    /// last tried, so one version is copied once.
+    pub last_good: HashMap<String, super::rollback::Good>,
+    pub good_tried: HashMap<String, u64>,
+    /// Each app's budget ladder (`budget.rs`): its VM kills and whether it
+    /// is paused. Absent: Normal with nothing counted.
+    pub ladders: HashMap<String, super::budget::AppLadder>,
+    /// Open web panes' bridges and their calls waiting for a provider
+    /// (`page_calls.rs`).
+    pub pages: super::page_calls::Pages,
+    /// The widget layout and its replayed edits (`widgets.rs`).
+    pub widgets: super::widgets::WidgetState,
+    /// Extension signal sources' last values and floors (`signal_sources.rs`).
+    pub signal_sources: super::signal_sources::SignalSources,
+    /// `cmux.pane/1` opens with arguments, waiting for the pane's result (`pane_flow.rs`).
+    pub pane_opens: super::pane_flow::PaneOpens,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -255,6 +322,21 @@ pub(super) enum Out {
     Broadcast(Value),
     Respond(Responder, Result<Value, ApiError>),
     StartEvents,
+    /// Tell a new subscriber of a pushed stream whether its push channel is live
+    /// (`OpRouter::stream_live`); the router is asked outside the lock.
+    StreamLiveness {
+        key: HostKey,
+        sub: u64,
+        stream: String,
+    },
+    /// Keep a local app's loaded files as its last good version
+    /// (`rollback.rs`): a file copy, so it runs outside the lock.
+    KeepGood {
+        app: String,
+        dir: PathBuf,
+        version: String,
+        print: u64,
+    },
 }
 
 pub struct Supervisor {
@@ -262,16 +344,44 @@ pub struct Supervisor {
     pub(super) inner: Mutex<Inner>,
     pub(super) router: Box<dyn OpRouter>,
     pub(super) fetcher: Box<dyn Fetcher>,
+    /// `integration.request` for provider `github`, answered here
+    /// (`github_gateway.rs`). Unset, the call goes to the provider.
+    pub(super) github: OnceLock<Arc<super::github_gateway::GitHubGateway>>,
+    /// `net.fetch {cache: "shared"}`: one cache per URL for every app
+    /// (`http_cache.rs`, the `http.json` signal source).
+    pub(super) http_cache: super::http_cache::HttpCache,
+    /// `cmux.watch` sources the daemon reads, one entry per (source, params) for every app
+    /// (`signals_cache.rs`, `supervisor_signals.rs`). Taken after `inner`, never before.
+    pub(super) signals: Mutex<super::supervisor_signals::Cache>,
+    /// The App Store's Community source (`community.rs`), made on first use.
+    pub(super) community: OnceLock<Arc<super::community::Community>>,
     pub(super) storage: Mutex<Option<Storage>>,
+    /// Synced app storage's cloud link and outbox sender (`synced.rs`).
+    pub(super) synced: super::synced::SyncState,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
     pub(super) terminals: super::terminal_links::Terminals,
     transactions: AtomicU64,
+    /// `apps-set` commits take turns here, so the supervisor lock is free
+    /// while one writes `apps.json` (`Supervisor::set`).
+    pub(super) commits: Mutex<()>,
+    /// One `apps.json` write at a time (`Supervisor::persist`).
+    persisting: Mutex<()>,
+    /// App host processes spawned (`safe_mode.rs` `host_spawns`).
+    pub(super) host_spawns: AtomicU64,
+    /// Keeping a last good copy and rolling back, serialized per app
+    /// (`rollback.rs`).
+    pub(super) rollback_locks: super::rollback::AppLocks,
+    /// One local reload pass at a time (`local_reload.rs`): a pass the CLI
+    /// asks for and the file watch's never both apply the same save.
+    pub(super) local_reload_pass: Mutex<()>,
     /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
     pub(super) link_changed: Mutex<(bool, bool)>,
     /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
     pub(super) deployments: super::deploy::Deployments,
+    /// Git installs: staged fetches and the transport (`git_install.rs`).
+    pub(super) git: super::git_install::GitState,
     /// The owner's keepers observers (`AppsSlot::add_server_observer`),
     /// told outside the lock when [`Self::kept_servers`] changes.
     server_observers: OnceLock<super::ServerObservers>,
@@ -297,7 +407,14 @@ impl Supervisor {
         let local_before = super::local_reload::PrintsBefore::take(&config.sources);
         let catalog = catalog::load(&config.sources);
         let local_prints = local_before.of(&config.sources, &catalog);
+        let local_dir_prints = local_before.dirs().clone();
         let mut mirror = load_mirror(config.state_dir.as_deref());
+        let safe_mode =
+            super::safe_mode::initial(config.safe_mode_file.as_deref(), config.safe_mode_env);
+        let launches = super::safe_mode::load_launches(config.state_dir.as_deref());
+        let bisect =
+            safe_mode.as_ref().and(super::safe_mode_bisect::load(config.state_dir.as_deref()));
+        let last_good = super::rollback::load(config.state_dir.as_deref());
         // Snapshot before startup seeds: an existing install must not change the
         // person's layout on upgrade, but a newly appearing customize app may.
         let existing_sections = catalog
@@ -318,6 +435,9 @@ impl Supervisor {
         }
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
+            // A refused package is missing from the App Store: say so in the
+            // daemon log too, not only in the apps log nobody opens.
+            eprintln!("cmux-tui: app package {} refused: {issue}", dir.display());
             logs.entry("cmux/supervisor".into()).or_default().push_back(LogLine {
                 level: "warn".into(),
                 message: format!("{}: {issue}", dir.display()),
@@ -335,14 +455,19 @@ impl Supervisor {
                 seeded = true;
             }
         }
-        // The user's customization app installs itself the first time it appears.
-        if let Some(next) = catalog
-            .packages
-            .get(catalog::CUSTOMIZE_APP)
-            .and_then(|package| super::local_reload::seed_customize(&mirror, package))
-        {
-            mirror = next;
-            seeded = true;
+        // The user's customization app installs itself the first time it
+        // appears, and so does each setup's views layer (its card was the yes).
+        let folder_apps = std::iter::once(catalog::CUSTOMIZE_APP)
+            .chain(catalog.setup_layers.iter().map(String::as_str));
+        for app in folder_apps {
+            if let Some(next) = catalog
+                .packages
+                .get(app)
+                .and_then(|package| super::local_reload::seed_customize(&mirror, package))
+            {
+                mirror = next;
+                seeded = true;
+            }
         }
         for app in &catalog.defaults {
             let Some(package) = catalog.packages.get(app) else { continue };
@@ -370,6 +495,7 @@ impl Supervisor {
                 providers: HashMap::new(),
                 provider_calls: HashMap::new(),
                 next_provider_request: 0,
+                system_calendar: Default::default(),
                 run_keys: HashMap::new(),
                 run_key_order: VecDeque::new(),
                 servers: HashMap::new(),
@@ -378,17 +504,43 @@ impl Supervisor {
                 kept_servers_told: 0,
                 calls: Default::default(),
                 customize_reads_offered: None,
+                safe_mode,
+                launches,
+                bisect,
+                failed: HashMap::new(),
+                local_prints,
+                local_rejected_logged: HashMap::new(),
+                local_seen: local_dir_prints.clone(),
+                local_dir_prints,
+                last_good,
+                good_tried: HashMap::new(),
+                ladders: HashMap::new(),
+                pages: Default::default(),
+                widgets: Default::default(),
+                signal_sources: Default::default(),
+                pane_opens: Default::default(),
             }),
             config,
             router,
             fetcher,
+            github: OnceLock::new(),
+            http_cache: super::http_cache::HttpCache::default(),
+            signals: Mutex::default(),
+            community: OnceLock::new(),
             storage: Mutex::new(None),
+            synced: super::synced::SyncState::default(),
             timers: Timers::default(),
             me: me.clone(),
             terminals: Default::default(),
             transactions: AtomicU64::new(1),
+            commits: Mutex::new(()),
+            persisting: Mutex::new(()),
+            host_spawns: AtomicU64::new(0),
+            rollback_locks: Default::default(),
+            local_reload_pass: Mutex::new(()),
             link_changed: Mutex::new((false, false)),
             deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
+            git: Default::default(),
             server_observers: OnceLock::new(),
             #[cfg(test)]
             emit_pause: Mutex::new(None),
@@ -398,7 +550,8 @@ impl Supervisor {
         }
         supervisor.reconcile_sidebar();
         supervisor.start_always_servers();
-        supervisor.start_local_watch(local_prints);
+        supervisor.activate_background(&BTreeSet::new());
+        supervisor.start_local_watch();
         supervisor
     }
 
@@ -419,7 +572,9 @@ impl Supervisor {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             inner.sinks.remove(&client);
+            inner.pages.client_gone(client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            provider_outs.extend(self.external_disconnect_locked(&mut inner, client));
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
                 set.remove(&client);
@@ -443,66 +598,130 @@ impl Supervisor {
         let apps: Vec<Value> = ids
             .into_iter()
             .map(|id| {
-                let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
+                let keys = self.page_key_overrides(&inner, id);
+                let mut row = entry(
+                    id,
+                    inner.catalog.packages.get(id),
+                    inner.mirror.apps.get(id),
+                    keys.as_ref(),
+                );
                 row.set("instance", self.instance_json(id));
+                let (run_state, can_rollback) = Self::run_facts(&inner, id);
+                if let Some(run_state) = run_state {
+                    row.set("run_state", json!(run_state));
+                }
+                row.set("can_rollback", json!(can_rollback));
+                row.set("budget", json!(Self::budget_step_locked(&inner, id).as_str()));
+                if let Some(ladder) = inner.ladders.get(id.as_str()) {
+                    row.set("scene_batches", ladder.batches_json());
+                }
                 row
             })
             .collect();
-        json!({ "revision": inner.mirror.revision, "apps": apps })
+        // `local_dir`: the local development folder this daemon watches
+        // (`<state>/apps/local`, local_reload.rs), so `cmux ext dev` puts an
+        // extension where this daemon loads it.
+        let local_dir =
+            self.config.sources.local.as_ref().map(|d| d.to_string_lossy().into_owned());
+        json!({
+            "revision": inner.mirror.revision,
+            "apps": apps,
+            "local_dir": local_dir,
+            "safe_mode": super::safe_mode::flag_json(inner.safe_mode.as_ref()),
+        })
     }
 
     /// `apps-set`: one validated commit of the install mirror. Every request
     /// ends with `request-settled`, rejects and no-ops included. The mirror
     /// is written to disk before it is applied; a failed write rejects.
+    ///
+    /// The write (an fsync, which a busy disk stretches to seconds) runs off
+    /// the supervisor lock, so no other apps request waits for it. Commits
+    /// take turns (`commits`); one whose mirror changed while it wrote (a
+    /// local reload seeds the customization app under the lock) reduces and
+    /// writes again, so no change is lost.
     pub fn set(&self, client: u64, op: SetOp) -> Result<Value, ApiError> {
         let app = op.app.clone();
         let transaction = format!("apps-{}", self.transactions.fetch_add(1, Ordering::Relaxed));
-        let (outs, result) = {
-            let mut inner = self.inner.lock().unwrap();
+        let turn = self.commits.lock().recover_poison();
+        let (outs, result) = loop {
+            let (base, staged) = {
+                let inner = self.inner.lock().recover_poison();
+                let facts = inner.catalog.packages.get(&app).map(Package::facts);
+                let staged = mirror::reduce(&inner.mirror, &Op::Set(op.clone()), facts.as_ref())
+                    .map_err(|r| ApiError::new(r.code(), r.message()));
+                (inner.mirror.clone(), staged)
+            };
+            // A no-op still records its key, so the key cannot be reused later.
+            let written = match &staged {
+                Ok(outcome) if !outcome.replayed => self
+                    .persist(&outcome.mirror)
+                    .map_err(|e| ApiError::new("apps.persist", format!("apps.json: {e}"))),
+                _ => Ok(()),
+            };
+            let mut inner = self.inner.lock().recover_poison();
+            if written.is_ok() && staged.as_ref().is_ok_and(|o| !o.replayed) && inner.mirror != base
+            {
+                continue;
+            }
             let mut outs = Vec::new();
-            let result = self.commit_locked(&mut inner, op, &transaction, &mut outs).map(|()| {
-                let mut record =
-                    entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
-                // Lets a client drop list replies older than this commit.
-                record.set("revision", json!(inner.mirror.revision));
-                record
-            });
+            let result = written
+                .and(staged)
+                .map(|outcome| {
+                    if !outcome.replayed {
+                        self.apply_commit_locked(
+                            &mut inner,
+                            outcome,
+                            &app,
+                            &transaction,
+                            &mut outs,
+                        );
+                    }
+                })
+                .map(|()| {
+                    let keys = self.page_key_overrides(&inner, &app);
+                    let mut record = entry(
+                        &app,
+                        inner.catalog.packages.get(&app),
+                        inner.mirror.apps.get(&app),
+                        keys.as_ref(),
+                    );
+                    // Lets a client drop list replies older than this commit.
+                    record.set("revision", json!(inner.mirror.revision));
+                    record
+                });
             outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
-            (outs, result)
+            break (outs, result);
         };
+        // Before the emit: what it runs may commit again.
+        drop(turn);
         self.emit(outs);
         result
     }
 
-    fn commit_locked(
+    /// Applies a commit already written to disk.
+    pub(super) fn apply_commit_locked(
         &self,
         inner: &mut Inner,
-        op: SetOp,
+        outcome: mirror::Outcome,
+        app: &str,
         transaction: &str,
         outs: &mut Vec<Out>,
-    ) -> Result<(), ApiError> {
-        let app = op.app.clone();
-        let facts = inner.catalog.packages.get(&op.app).map(Package::facts);
-        let outcome = mirror::reduce(&inner.mirror, &Op::Set(op), facts.as_ref())
-            .map_err(|r| ApiError::new(r.code(), r.message()))?;
-        if outcome.replayed {
-            return Ok(());
-        }
-        // A no-op still records its key, so the key cannot be reused later.
-        self.persist(&outcome.mirror)
-            .map_err(|e| ApiError::new("apps.persist", format!("apps.json: {e}")))?;
+    ) {
+        let app = app.to_string();
         inner.mirror = outcome.mirror;
         for effect in &outcome.effects {
             outs.extend(self.apply_effect(inner, effect));
         }
         if outcome.changed {
             outs.extend(self.sync_server_locked(inner, &app));
+            // An app that starts syncing here reads the rows other devices wrote.
+            self.appkv_refresh_locked(inner);
         }
         if outcome.changed {
             outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction, "app": app })));
         }
         outs.extend(Self::inventory_demand_locked(inner));
-        Ok(())
     }
 
     fn apply_effect(&self, inner: &mut Inner, effect: &Effect) -> Vec<Out> {
@@ -513,14 +732,24 @@ impl Supervisor {
                 if let Some(storage) = self.storage().as_ref() {
                     let _ = storage.clear(app);
                 }
+                inner.signal_sources.forget_app(app);
                 self.remove_server_dirs(app);
+                self.remove_server_credential(app);
                 vec![]
             }
             Effect::StopHost(app) => {
+                // Off is the ladder's last step: on again starts Normal.
+                inner.ladders.remove(app);
+                // Turned on again, a background app gets a new try.
+                inner.failed.remove(app);
                 let mut outs = self.terminal_access_changed_locked(inner, app);
                 outs.extend(self.stop_app_locked(inner, app, "disabled"));
                 outs.extend(self.stop_server_locked(inner, app, "disabled"));
                 outs
+            }
+            Effect::SettingsChanged(app) => {
+                Self::push_settings_locked(inner, app);
+                vec![]
             }
             Effect::GrantsChanged(app) => {
                 let mut outs = self.terminal_access_changed_locked(inner, app);
@@ -639,6 +868,7 @@ impl Supervisor {
         {
             self.reconcile_sidebar();
         }
+        let activate = background_triggers(&outs);
         for out in outs {
             match out {
                 Out::Client(client, value) => {
@@ -657,15 +887,33 @@ impl Supervisor {
                     }
                 }
                 Out::Respond(responder, result) => responder(result),
+                // Up to 16 MiB of copying: never on the emitting thread.
+                Out::KeepGood { app, dir, version, print } => {
+                    if let Some(me) = self.me.upgrade() {
+                        let _ = std::thread::Builder::new()
+                            .name("cmux-apps-keep-good".into())
+                            .spawn(move || me.keep_good(&app, &dir, &version, print));
+                    }
+                }
                 Out::StartEvents => {
                     let me = self.me.clone();
-                    self.router.start_events(Box::new(move |stream| {
+                    self.router.start_events(Box::new(move |stream, body| {
                         if let Some(me) = me.upgrade() {
-                            me.publish(stream, json!({}));
+                            me.publish(stream, body);
                         }
                     }));
                 }
+                Out::StreamLiveness { key, sub, stream } => {
+                    if let Some(live) = self.router.stream_live(&stream) {
+                        self.send_liveness(&key, sub, &stream, live);
+                    }
+                }
             }
+        }
+        // After the outs above: a client hears `apps-changed` before the
+        // `apps-host` of a background host it started.
+        if let Some(retry) = activate {
+            self.activate_background(&retry);
         }
     }
 
@@ -680,13 +928,50 @@ impl Supervisor {
         guard
     }
 
+    /// Read an installed app's `cmux.keys` overrides only when its catalog
+    /// actually declares page keys. Other apps never open storage on list.
+    fn page_key_overrides(&self, inner: &Inner, app: &str) -> Option<Value> {
+        let installed = inner.mirror.apps.get(app).is_some_and(|r| r.installed);
+        if !installed || !inner.catalog.packages.get(app).is_some_and(Package::has_page_keys) {
+            return None;
+        }
+        let storage = self.storage();
+        let value = storage
+            .as_ref()?
+            .call(
+                app,
+                "app.storage.get",
+                &json!({ "key": super::page_keys::OVERRIDES_KEY }),
+                Self::synced_locked(inner, app),
+            )
+            .ok()?;
+        value.is_object().then_some(value)
+    }
+
+    /// Refresh every client after an app changes its page-key overrides.
+    pub(super) fn page_keys_changed(&self, app: &str) {
+        let revision =
+            self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).mirror.revision;
+        self.emit(vec![Out::Broadcast(json!({
+            "event": "apps-changed",
+            "revision": revision,
+            "transaction": "page-keys",
+            "app": app,
+        }))]);
+    }
+
     /// Writes `apps.json` durably: temp file, fsync, rename.
     pub(super) fn persist(&self, mirror: &Mirror) -> std::io::Result<()> {
         use std::io::Write as _;
         let Some(dir) = &self.config.state_dir else { return Ok(()) };
+        // `apps-set` writes off the supervisor lock: two writers never share the temp file.
+        let _one = self.persisting.lock().recover_poison();
+        #[cfg(test)]
+        persist_test_pause(dir);
         // A fresh daemon may not have created its state directory yet.
         std::fs::create_dir_all(dir)?;
         let temp = dir.join("apps.json.tmp");
+        let mirror = mirror.to_stored().map_err(std::io::Error::other)?;
         let body = serde_json::to_vec_pretty(&json!({ "version": 1, "mirror": mirror }))
             .map_err(std::io::Error::other)?;
         let mut file = std::fs::File::create(&temp)?;
@@ -732,13 +1017,61 @@ impl Drop for Supervisor {
     }
 }
 
+/// Whether `outs` may change which apps run in the background
+/// (`activation.rs`): an `apps-changed` (install, enable, grant, safe mode,
+/// local reload) or an `apps-budget` (pause, resume). `Some` holds the apps
+/// a local reload saved, which get a new try after a failure.
+fn background_triggers(outs: &[Out]) -> Option<BTreeSet<String>> {
+    let mut triggered = false;
+    let mut saved = BTreeSet::new();
+    for out in outs {
+        let Out::Broadcast(value) = out else { continue };
+        match value["event"].as_str() {
+            Some("apps-changed") => {
+                triggered = true;
+                if value["transaction"] == "local-reload"
+                    && let Some(app) = value["app"].as_str()
+                {
+                    saved.insert(app.to_string());
+                }
+            }
+            Some("apps-budget") => triggered = true,
+            _ => {}
+        }
+    }
+    triggered.then_some(saved)
+}
+
+/// A slow `apps.json` write on demand: an fsync on a busy disk takes seconds.
+#[cfg(test)]
+static PERSIST_PAUSES: Mutex<Vec<(PathBuf, Duration)>> = Mutex::new(Vec::new());
+
+/// The next `apps.json` write into `dir` takes `pause` longer.
+#[cfg(test)]
+pub(super) fn pause_next_persist(dir: &std::path::Path, pause: Duration) {
+    PERSIST_PAUSES.lock().recover_poison().push((dir.to_path_buf(), pause));
+}
+
+#[cfg(test)]
+fn persist_test_pause(dir: &std::path::Path) {
+    let pause = {
+        let mut pauses = PERSIST_PAUSES.lock().recover_poison();
+        let index = pauses.iter().position(|(d, _)| d == dir);
+        index.map(|i| pauses.remove(i).1)
+    };
+    if let Some(pause) = pause {
+        std::thread::sleep(pause);
+    }
+}
+
 fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {
     let Some(dir) = state_dir else { return Mirror::default() };
     let path = dir.join("apps.json");
     let Ok(raw) = std::fs::read(&path) else { return Mirror::default() };
+    // A record or field of a newer build is kept, not a reason to set the file aside.
     match serde_json::from_slice::<Value>(&raw)
         .ok()
-        .and_then(|v| serde_json::from_value::<Mirror>(v["mirror"].clone()).ok())
+        .and_then(|mut v| Mirror::from_stored(v["mirror"].take()))
     {
         Some(mirror) => mirror,
         None => {
@@ -771,7 +1104,12 @@ fn scope_classes(facts: &mirror::Facts) -> serde_json::Map<String, Value> {
 }
 
 /// One `apps-list` entry.
-pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>) -> Value {
+pub(super) fn entry(
+    id: &str,
+    package: Option<&Package>,
+    record: Option<&Record>,
+    key_overrides: Option<&Value>,
+) -> Value {
     let facts = package.map(Package::facts);
     let source =
         record.map(|r| r.source).or(package.map(|p| p.source)).unwrap_or(mirror::Source::User);
@@ -798,7 +1136,23 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         // client may read icons and images straight from the package.
         "bundle_dir": package.map(|p| p.dir.to_string_lossy().into_owned()),
         // Palette entries (`apps-run {app, op}` runs them).
-        "commands": package.map(Package::palette_commands).unwrap_or_default(),
+        "commands": package.map(|p| p.palette_commands(key_overrides)).unwrap_or_default(),
+        // `contributes.keybindings` in keybindings.json form, for the
+        // client's app binding layer (an own op runs as `app.command.run`).
+        "keybindings": package.map(Package::keybindings).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
+        // The web panes the client may host (`render: web`): each page's
+        // file root inside `bundle_dir` and its entry file, as the manifest
+        // rules accepted them (cmux_app_manifest::web_pages).
+        "web_pages": package.map(|p| web_pages_json(&p.manifest)).unwrap_or_default(),
     })
+}
+
+fn web_pages_json(manifest: &Value) -> Vec<Value> {
+    cmux_app_manifest::web_pages(manifest)
+        .into_iter()
+        .map(|page| {
+            json!({ "interface": page.interface, "root": page.root, "entry": page.entry, "symbol": page.symbol })
+        })
+        .collect()
 }

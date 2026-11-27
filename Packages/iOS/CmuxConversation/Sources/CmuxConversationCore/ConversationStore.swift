@@ -56,6 +56,14 @@ public final class ConversationStore {
     public private(set) var hasLoadedNewest = false
     public private(set) var typingParticipantIDs: [String] = []
     public private(set) var connection: ConversationConnectionState = .connecting
+    /// The connection has been down for ``connectionQuietDelay`` or more: a header may say so.
+    /// Under it nothing is said, so a blip or the reconnect after the app comes back stays
+    /// silent over the kept rows (Leo, 2026-11-16: "it said "Not connected" at the top but i
+    /// dont think it shoildve said anything").
+    public private(set) var connectionNoticeDue = false
+    /// How long a drop stays unsaid; the iPhone's one connection quiet bound (`QuietStatusGate.threshold`).
+    public var connectionQuietDelay: Duration = .seconds(10)
+    private var connectionNoticeTask: Task<Void, Never>?
     /// Everything from others at or below this seq has been read.
     public private(set) var lastReadSeq = 0
     /// Messages from others after `lastReadSeq` (including ones above the loaded window).
@@ -81,16 +89,50 @@ public final class ConversationStore {
         set { primaryObserver = newValue }
     }
     private var primaryObserver: (@MainActor (ConversationStoreChange) -> Void)?
-    private var observers: [@MainActor (ConversationStoreChange) -> Void] = []
+    private var observers: [(id: Int, observe: @MainActor (ConversationStoreChange) -> Void)] = []
+    private var nextObserverID = 0
 
     /// Additional listeners (a sidebar preview, a window title) beside `onChange`.
-    public func addObserver(_ observer: @escaping @MainActor (ConversationStoreChange) -> Void) {
-        observers.append(observer)
+    /// Returns a token for ``removeObserver(_:)``.
+    @discardableResult
+    public func addObserver(_ observer: @escaping @MainActor (ConversationStoreChange) -> Void) -> Int {
+        nextObserverID += 1
+        observers.append((nextObserverID, observer))
+        return nextObserverID
+    }
+
+    /// Stops a listener ``addObserver(_:)`` added.
+    public func removeObserver(_ token: Int) {
+        observers.removeAll { $0.id == token }
+    }
+
+    /// Whether a screen draws this store now (it set `onChange`): a second screen over the same
+    /// store would take its updates.
+    public var hasPrimaryObserver: Bool { primaryObserver != nil }
+
+    /// Whether a screen that claimed this store (``claimPrimary(_:_:)``) is still alive. A screen
+    /// that left (Home's Chief screen popped) leaves its observer behind, but not itself.
+    public var hasLivePrimaryOwner: Bool { primaryOwner != nil }
+
+    /// The screen that set `onChange` (``claimPrimary(_:)``), so only it gives the updates back.
+    public private(set) weak var primaryOwner: AnyObject?
+
+    /// Sets `onChange` for `owner`.
+    public func claimPrimary(_ owner: AnyObject, _ observer: @escaping @MainActor (ConversationStoreChange) -> Void) {
+        primaryOwner = owner
+        primaryObserver = observer
+    }
+
+    /// Clears `onChange` only while `owner` still holds it (a newer screen keeps its own).
+    public func releasePrimary(_ owner: AnyObject) {
+        guard primaryOwner === owner else { return }
+        primaryOwner = nil
+        primaryObserver = nil
     }
 
     func notify(_ change: ConversationStoreChange) {
         primaryObserver?(change)
-        for observer in observers { observer(change) }
+        for observer in observers { observer.observe(change) }
     }
 
     // MARK: Transcript journal
@@ -186,6 +228,11 @@ public final class ConversationStore {
     /// Back to no rows from the server: only sends not yet acknowledged stay.
     private func dropKeptRows() {
         isShowingKeptTranscript = false
+        // A page of the device's history asked for under those rows is not theirs any more.
+        olderGeneration += 1
+        olderTask?.cancel()
+        olderTask = nil
+        if !hasLoadedNewest { older = .idle }
         messages.removeAll { $0.seq != nil }
         sortAndReindex()
         notify(.reset)
@@ -205,7 +252,8 @@ public final class ConversationStore {
     /// Keeps the newest messages now (also called when the app leaves the foreground).
     public func saveTranscript() {
         guard let transcriptCache, let transcriptCacheKey, hasLoadedNewest else { return }
-        transcriptCache.save(transcriptCacheKey, info: info, meID: meID, messages: messages)
+        transcriptCache.save(transcriptCacheKey, info: info, meID: meID, messages: messages,
+                             deleted: deletedMessageIDs, reachedStart: older == .exhausted)
     }
 
     /// Runs `body`, a change to `messages` that leaves every message before
@@ -329,7 +377,29 @@ public final class ConversationStore {
         newestTask?.cancel()
         localTypingTask?.cancel()
         typingExpiry.values.forEach { $0.cancel() }
+        connectionNoticeTask?.cancel()
         backend.close()
+    }
+
+    /// Starts the quiet wait of a drop; a second drop before it ends keeps the first instant.
+    private func armConnectionNotice() {
+        guard connectionNoticeTask == nil, !connectionNoticeDue else { return }
+        let delay = connectionQuietDelay
+        let clock = clock
+        // An intentional, bounded UI delay on the injected clock; `.connected` cancels it.
+        connectionNoticeTask = Task { [weak self] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard !Task.isCancelled, let self, self.connection != .connected else { return }
+            self.connectionNoticeTask = nil
+            self.connectionNoticeDue = true
+            self.notify(.connection)
+        }
+    }
+
+    private func endConnectionNotice() {
+        connectionNoticeTask?.cancel()
+        connectionNoticeTask = nil
+        connectionNoticeDue = false
     }
 
     public var me: ConversationParticipant? { meID.flatMap { info?.participant($0) } }
@@ -358,6 +428,7 @@ public final class ConversationStore {
             if self.info?.background != previousBackground { notify(.background) }
             self.meID = meID
             connection = .connected
+            endConnectionNotice()
             // Unconfirmed reads from the dropped session may never have
             // arrived; the read state that follows hello is authoritative.
             pendingReadSeq = 0
@@ -384,6 +455,7 @@ public final class ConversationStore {
             removeScheduledRow(id: id, clientMessageID: clientMessageID)
         case .disconnected:
             connection = .reconnecting
+            armConnectionNotice()
             notify(.connection)
         case let .readState(state):
             serverRead = state
@@ -876,6 +948,9 @@ public final class ConversationStore {
     /// every scroll tick; it coalesces and retries with backoff on failure.
     public func loadOlder() {
         olderWanted = true
+        // No server page yet (no network, or still connecting) but kept rows on screen: the
+        // reader scrolls the history stored on this device.
+        if !hasLoadedNewest, isShowingKeptTranscript { return loadOlderKept() }
         guard hasLoadedNewest else { return }
         switch older {
         case .loading, .retrying, .exhausted: return
@@ -915,6 +990,33 @@ public final class ConversationStore {
         }
     }
 
+    /// Pages the kept rows shown before the server's newest page from the device's history.
+    /// When that page lands it replaces them (`applyNewest`'s first load), and the pager
+    /// belongs to the server again.
+    private func loadOlderKept() {
+        switch older {
+        case .loading, .retrying, .exhausted: return
+        case .idle: break
+        }
+        guard let cache = transcriptCache, let key = transcriptCacheKey,
+              let oldestSeq = messages.first(where: { $0.seq != nil })?.seq else { return }
+        older = .loading
+        notify(.older)
+        let generation = olderGeneration
+        olderTask = Task { [weak self] in
+            let page = await cache.older(key, beforeSeq: oldestSeq, limit: self?.pageSize ?? Self.defaultPageSize)
+            guard let self, self.olderGeneration == generation, !self.hasLoadedNewest, self.isShowingKeptTranscript,
+                  self.transcriptCache === cache, self.transcriptCacheKey == key else { return }
+            guard let page else {
+                // A failed read: the next scroll asks again.
+                self.older = .idle
+                self.notify(.older)
+                return
+            }
+            self.applyOlder(page, expectedOldest: oldestSeq)
+        }
+    }
+
     /// The reader left the top region; a failed fetch stops retrying.
     public func olderNoLongerWanted() {
         olderWanted = false
@@ -936,6 +1038,8 @@ public final class ConversationStore {
         older = page.hasMore ? .idle : .exhausted
         notify(.prepended)
         refreshReadState()
+        // A server page joins the device's history (a device page is already there).
+        scheduleTranscriptSave()
     }
 
     /// Puts an older page's messages in place. When every one of them goes
@@ -1148,6 +1252,7 @@ public final class ConversationStore {
               let clientID = message.clientMessageID,
               let index = indexByID[message.id] else { return }
         messages[index].delivery = .sending
+        messages[index].uploadProgress = nil
         // Try Again is a send made now: the row leaves its failed place for
         // the bottom, with the other sends in flight.
         messages[index].sentAt = Date()
@@ -1210,16 +1315,28 @@ public final class ConversationStore {
             guard let self else { return }
             do {
                 var attachmentIDs: [String] = []
+                // The row's "Uploading N%" counts every attachment's bytes, in send order.
+                let total = (audio?.data.count ?? 0) + images.reduce(0) { $0 + $1.data.count } + files.reduce(0) { $0 + $1.data.count }
+                var done = 0
                 if let audio {
-                    let uploaded = try await self.backend.uploadAudio(audio.data, mimeType: audio.mimeType, info: audio.info)
+                    let uploaded = try await self.uploading(clientID, from: done, bytes: audio.data.count, of: total) {
+                        try await self.backend.uploadAudio(audio.data, mimeType: audio.mimeType, info: audio.info)
+                    }
+                    done += audio.data.count
                     attachmentIDs.append(uploaded.id)
                 }
                 for image in images {
-                    let uploaded = try await self.backend.uploadImage(image.data, mimeType: image.mimeType)
+                    let uploaded = try await self.uploading(clientID, from: done, bytes: image.data.count, of: total) {
+                        try await self.backend.uploadImage(image.data, mimeType: image.mimeType)
+                    }
+                    done += image.data.count
                     attachmentIDs.append(uploaded.id)
                 }
                 for file in files {
-                    let uploaded = try await self.backend.uploadFile(file.data, info: file.info)
+                    let uploaded = try await self.uploading(clientID, from: done, bytes: file.data.count, of: total) {
+                        try await self.backend.uploadFile(file.data, info: file.info)
+                    }
+                    done += file.data.count
                     attachmentIDs.append(uploaded.id)
                 }
                 guard let current = self.message(id: "local:\(clientID)") ?? self.messages.first(where: { $0.clientMessageID == clientID }) else { return }
@@ -1248,10 +1365,35 @@ public final class ConversationStore {
         }
     }
 
+    /// Runs one attachment's upload with ``ConversationUploadProgress`` bound to the sending row:
+    /// the attachment's `bytes` start at `from` of the send's `total`.
+    private func uploading(_ clientID: String, from start: Int, bytes: Int, of total: Int,
+                           _ upload: () async throws -> ConversationAttachment) async throws -> ConversationAttachment {
+        let report: @Sendable (Double) -> Void = { [weak self] fraction in
+            let overall = total > 0 ? (Double(start) + fraction * Double(bytes)) / Double(total) : fraction
+            Task { @MainActor in self?.setUploadProgress(clientID: clientID, overall) }
+        }
+        return try await ConversationUploadProgress.$report.withValue(report) { try await upload() }
+    }
+
+    /// A sending row's upload progress, redrawn per whole percent; it only moves forward
+    /// (reports hop to the main actor in any order) and stops once the row is sent or failed.
+    func setUploadProgress(clientID: String, _ fraction: Double) {
+        guard let index = messages.firstIndex(where: { $0.clientMessageID == clientID && $0.seq == nil }),
+              messages[index].delivery == .sending else { return }
+        let percent = (min(1, max(0, fraction)) * 100).rounded(.down) / 100
+        guard percent > (messages[index].uploadProgress ?? -1) else { return }
+        changingMessages(from: index) { messages[index].uploadProgress = percent }
+        notify(.live(insertedRowIDs: [], sentByMe: false))
+    }
+
     private func markFailed(clientID: String, reason: String) {
         guard let index = messages.firstIndex(where: { $0.clientMessageID == clientID }),
               messages[index].seq == nil else { return }
-        changingMessages(from: index) { messages[index].delivery = .failed(reason) }
+        changingMessages(from: index) {
+            messages[index].delivery = .failed(reason)
+            messages[index].uploadProgress = nil
+        }
         failedAnchorSeq[messages[index].id] = messages.last { $0.seq != nil }?.seq ?? 0
         notify(.live(insertedRowIDs: [], sentByMe: true))
     }

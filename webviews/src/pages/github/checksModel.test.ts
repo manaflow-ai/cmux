@@ -70,6 +70,21 @@ test("elapsed, durations and the runs Re-run failed names", () => {
   expect(failedRuns(mockChecks.jobs)).toEqual([9001]);
 });
 
+test("a finished commit status with no end time has no duration; only a running job counts to now", () => {
+  // GitHub dates a commit status (cmux-next/fast-gates) only by when it was posted: it never ends.
+  const status = (state: DashboardJob["state"]): DashboardJob => ({
+    id: 0,
+    name: "cmux-next/fast-gates",
+    workflow: "",
+    state,
+    startedAt: "2026-11-05T02:37:03Z",
+    completedAt: "",
+  });
+  expect(elapsed(status("failed"), NOW)).toBe(0);
+  expect(elapsed(status("passed"), NOW)).toBe(0);
+  expect(elapsed(status("running"), NOW)).toBe(1377);
+});
+
 test("one matrix's push run and pull_request run are separate rows", () => {
   const shard = (id: number, event: string, state: DashboardJob["state"]): DashboardJob => ({
     id,

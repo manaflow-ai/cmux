@@ -1,14 +1,17 @@
-import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
+import { RESUME_NOTE_DELAY_MS, useAfterDelay, useLinkDownSaid } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
 import { shortSession } from "./chatUnavailableStateModel";
+import { useAutoRetry } from "./autoRetry";
 
 /// The tab's chat is not here (`missingSession`): centered in place of the transcript, quiet, in the
 /// new chat hero's type (EmptyState.tsx), it says which case it is. Deleted: Remove from Sidebar
-/// closes the tab. Its machine is not connected: the machine, when it was last seen, and Reconnect,
-/// which reads the machines and the chat list again (the chat opens once it is listed). Still
+/// closes the tab. Its machine is not connected: the machine and when it was last seen, while the
+/// pane reads the machines and the chat list again on its own (`onReconnect`, on the shared backoff,
+/// autoRetry.ts), so the chat opens once it is listed; no Reconnect button, since asking again is no
+/// one's decision (Leo, 2026-11-22: "vacuous decisions like that should be just done"). Still
 /// connecting (the grace, chatUnavailable.ts): nothing, an empty area where the chat opens once it
 /// is listed; never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat isn't
 /// available"") and no spinner or "Reconnecting…" (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT
@@ -30,12 +33,14 @@ export function ChatUnavailableState({
   now = Date.now(),
   onResumeMachine,
   resuming = false,
+  resumeLong = false,
   error,
   onRemove,
   onReconnect,
   onResume,
   onClose,
   noteDelayMs = RESUME_NOTE_DELAY_MS,
+  offlineDelayMs,
   line = false,
 }: {
   unavailable: ChatUnavailable;
@@ -46,8 +51,12 @@ export function ChatUnavailableState({
   now?: number;
   onResumeMachine?(): void;
   resuming?: boolean;
+  /// The resume has run past useCloudChatRecovery's RESUME_SLOW_MS: one line says it is taking longer
+  /// than usual, and Resume machine is enabled again (Resume from Transcript is the other way out).
+  resumeLong?: boolean;
   error?: string;
   onRemove(): void;
+  /// Reads the machines and the chat list again; the state asks it on its own while offline.
   onReconnect(): void;
   onResume?(): void;
   /// Close Tab, on every case but deleted (Remove from Sidebar closes that one's tab).
@@ -55,19 +64,38 @@ export function ChatUnavailableState({
   /// How long a paused machine, and a resume, stay out of sight (afterDelay.ts); the gallery's
   /// settled variants pass 0.
   noteDelayMs?: number;
+  /// How long a machine whose link dropped stays out of sight (afterDelay.ts `LINK_DOWN_SAID_MS`);
+  /// a settled variant (`noteDelayMs` 0) shows it at once.
+  offlineDelayMs?: number;
   /// Over the chat's last-read rows: a line under the header, not the centered state.
   line?: boolean;
 }) {
   const t = useT();
+  // A machine that is not connected: read the machines and the chat list again on the shared
+  // backoff while this shows (a hidden pane asks nothing, and asks once when it shows again).
+  useAutoRetry(unavailable.reason === "offline", onReconnect);
   // A pause is invisible at first, as a resume is (Leo, 2026-11-03: the wait "you mostly perceive as
   // "thinking""): a machine that wakes within RESUME_NOTE_DELAY_MS never shows its card, and one
   // resuming shows its spinner only past it. The spinner's slot is kept from the first frame, so it
   // shifts nothing when it appears.
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
-  // Still loading, or paused for less than the threshold: nothing shows, in the loading layout, until
-  // the chat opens or the wait goes on (then offline or paused, below).
-  if (unavailable.reason === "connecting" || (unavailable.reason === "paused" && !pausedShown))
+  // A machine whose link just dropped: "Reconnecting…" shows only once the drop has lasted past
+  // LINK_DOWN_SAID_MS, the time acpmux takes to notice a dead link and redial it, so a link back on
+  // its own never shows the state (Leo, 2026-11-14: "i also want all our connectivity stuff to shut
+  // the fuck up").
+  const offlineShown = useLinkDownSaid(
+    unavailable.reason === "offline",
+    undefined,
+    offlineDelayMs ?? (noteDelayMs <= 0 ? 0 : undefined),
+  );
+  // Still loading, or paused or offline for less than the threshold: nothing shows, in the loading
+  // layout, until the chat opens or the wait goes on (then offline or paused, below).
+  if (
+    unavailable.reason === "connecting" ||
+    (unavailable.reason === "paused" && !pausedShown) ||
+    (unavailable.reason === "offline" && !offlineShown)
+  )
     return line ? null : (
       <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />
     );
@@ -116,14 +144,16 @@ export function ChatUnavailableState({
     title = t("unavailable.notFound.title");
     detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
   } else {
-    title = `${t("header.reconnecting")}…`;
+    // A machine down past the bound says it is offline, with Reconnect: never a "Reconnecting…" that
+    // leaves the person in limbo (Leo, 2026-11-24: "making the user think they're constsntly suspended
+    // in a state of connection limbo").
+    title = t("machineLink.offline");
     detail =
       unavailable.lastSeen !== undefined
         ? t("unavailable.offline.lastSeen", {
             time: relativeTime(unavailable.lastSeen, now, currentLanguage()),
           })
         : t("unavailable.offline.detail");
-    action = { label: t("unavailable.reconnect"), run: onReconnect, kind: "reconnect" };
   }
   // Remove from Sidebar closes a deleted chat's tab; every other case keeps MissingChat's Close Tab.
   const closes = onClose !== undefined && unavailable.reason !== "deleted";
@@ -134,7 +164,7 @@ export function ChatUnavailableState({
           type="button"
           className="acpmux-unavailable-action"
           data-action={action.kind}
-          disabled={resuming}
+          disabled={resuming && !resumeLong}
           onClick={action.run}
         >
           {action.label}
@@ -161,9 +191,7 @@ export function ChatUnavailableState({
         data-enter="top"
       >
         <p className="acpmux-peer-copy-title">
-          {(unavailable.reason === "offline" || resuming) && (
-            <Spinner size={12} loading className="acpmux-peer-copy-spinner" />
-          )}
+          {resuming && <WaitSpinner size={12} loading className="acpmux-peer-copy-spinner" />}
           {title}
         </p>
         {error && (
@@ -172,6 +200,7 @@ export function ChatUnavailableState({
           </p>
         )}
         {detail && <p className="acpmux-watch-hint">{detail}</p>}
+        {resumeLong && <p className="acpmux-watch-hint">{t("unavailable.resumeSlow")}</p>}
         {actions}
       </div>
     );
@@ -183,45 +212,42 @@ export function ChatUnavailableState({
       role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
       data-enter="fade"
     >
-      {unavailable.reason === "offline" ? (
-        <Spinner size={28} loading className="acpmux-unavailable-spinner" />
-      ) : (
-        <svg
-          className="acpmux-empty-glyph"
-          width={36}
-          height={36}
-          viewBox="0 0 36 36"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-          {unavailable.reason === "deleted" ||
-          unavailable.reason === "notFound" ||
-          unavailable.reason === "gone" ||
-          unavailable.reason === "unreached" ? (
-            <path d="M13.5 18h9" />
-          ) : (
-            <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
-          )}
-        </svg>
-      )}
+      {/* No spinner for an offline machine: it says Offline with Reconnect, not limbo. */}
+      <svg
+        className="acpmux-empty-glyph"
+        width={36}
+        height={36}
+        viewBox="0 0 36 36"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
+        {unavailable.reason === "deleted" ||
+        unavailable.reason === "notFound" ||
+        unavailable.reason === "gone" ||
+        unavailable.reason === "unreached" ? (
+          <path d="M13.5 18h9" />
+        ) : (
+          <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />
+        )}
+      </svg>
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
       <div className="acpmux-unavailable-copy">
         {unavailable.reason === "paused" ? (
           <span className="acpmux-unavailable-progress" aria-hidden={!resumeSlow}>
             {resumeSlow && (
               <span className="acpmux-unavailable-progress-mark" data-enter="fade">
-                <Spinner size={20} loading />
+                <WaitSpinner size={20} loading />
               </span>
             )}
           </span>
         ) : (
-          resuming && <Spinner size={20} loading />
+          resuming && <WaitSpinner size={20} loading />
         )}
         {error && (
           <p className="acpmux-unavailable-detail" role="alert">
@@ -229,6 +255,7 @@ export function ChatUnavailableState({
           </p>
         )}
         {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
+        {resumeLong && <p className="acpmux-unavailable-detail">{t("unavailable.resumeSlow")}</p>}
         {session && (
           <p className="acpmux-unavailable-detail acpmux-unavailable-session">
             {t("unavailable.session", { session: shortSession(session) })}

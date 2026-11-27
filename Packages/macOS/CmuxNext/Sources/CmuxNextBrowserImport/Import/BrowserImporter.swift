@@ -10,10 +10,13 @@ public actor BrowserImporter {
     private let store: ImportedDataStore?
     private let cookies: CookieImporter?
     private let passwords: PasswordImporter?
+    private let reader: BrowserDataReader
 
-    /// `cookies` or `passwords` nil: that kind is skipped (no store to write to).
-    public init(provisioning: any BrowserProfileProvisioning = DefaultProfileOnly(), store: ImportedDataStore? = nil,
-                cookies: CookieImporter? = nil, passwords: PasswordImporter? = nil) {
+    /// `reader` reads bookmarks, history, tabs, search engines and extensions (the daemon's
+    /// `browser_import.read`). `cookies` or `passwords` nil: that kind is skipped (no store to write to).
+    public init(reader: BrowserDataReader, provisioning: any BrowserProfileProvisioning = DefaultProfileOnly(),
+                store: ImportedDataStore? = nil, cookies: CookieImporter? = nil, passwords: PasswordImporter? = nil) {
+        self.reader = reader
         self.provisioning = provisioning
         self.store = store
         self.cookies = cookies
@@ -47,7 +50,7 @@ public actor BrowserImporter {
                     } else if kind == .passwords {
                         try await importPasswords(item.profile, into: &batch)
                     } else {
-                        try Self.read(kind, from: item.profile, historyLimit: plan.historyLimit, into: &batch)
+                        try await read(kind, from: item.profile, historyLimit: plan.historyLimit, into: &batch)
                     }
                     done += 1
                 }
@@ -122,79 +125,20 @@ public actor BrowserImporter {
         return record
     }
 
-    static func read(_ kind: ImportDataKind, from profile: BrowserSourceProfile, historyLimit: Int, into batch: inout ImportBatch) throws {
+    private func read(_ kind: ImportDataKind, from profile: BrowserSourceProfile, historyLimit: Int, into batch: inout ImportBatch) async throws {
         #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_HISTORY_IMPORT
         // The cx-f58x notary test builds read no other browser's history,
         // tabs, extensions or bookmarks (CMUX_NO_HISTORY_IMPORT is the
         // history-only notary bisect build).
         return
         #else
-        let path = profile.path
-        if kind == .bookmarks {
-            batch.bookmarks = try readBookmarks(profile)
-            return
-        }
-        if kind == .history, let file = profile.historyFile {
-            batch.history = try readHistory(profile.browser.family, file: file, limit: historyLimit)
-            return
-        }
-        switch (profile.browser.family, kind) {
-        case (.chromium, .openTabs):
-            if let file = ChromiumSessionReader().sessionFile(profile: path) { batch.openTabs = ChromiumSessionReader().parse(try Data(contentsOf: file)) }
-        case (.chromium, .searchEngines):
-            batch.searchEngine = ChromiumSearchEngineReader().read(profile: path)
-        case (.chromium, .extensions):
-            batch.extensions = ChromiumExtensionsReader().read(profile: path)
-        case (.firefox, .openTabs):
-            if let file = FirefoxSessionReader().sessionFile(in: path) { batch.openTabs = FirefoxSessionReader().parse(try Data(contentsOf: file)) }
-        case (.firefox, .searchEngines):
-            batch.searchEngine = FirefoxSearchEngineReader().read(profile: path)
-        case (.safari, .searchEngines):
-            batch.searchEngine = SafariSearchEngineReader().read()
-        default:
-            return
-        }
-        #endif
-    }
-
-    /// One history database, newest pages first, with its family's reader.
-    public static func readHistory(_ family: BrowserFamily, file: URL, limit: Int) throws -> [ImportedHistoryEntry] {
-        #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_HISTORY_IMPORT
-        return []
-        #else
-        switch family {
-        case .chromium: return try ChromiumHistoryReader().read(file, limit: limit)
-        case .firefox: return try FirefoxPlacesReader().readHistory(file, limit: limit)
-        case .safari: return try SafariHistoryReader().read(file, limit: limit)
-        case .webkit, .other: return []
-        }
-        #endif
-    }
-
-    /// One profile's bookmarks, read with the reader its registry row names
-    /// (engine family, not browser). Sources the reader cannot open throw;
-    /// private stores return nothing (their HTML export is the path).
-    public static func readBookmarks(_ profile: BrowserSourceProfile) throws -> [ImportedBookmark] {
-        #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_HISTORY_IMPORT
-        return []
-        #else
-        let files = profile.browser.source?.files
-        func file(_ fallback: String) -> URL { profile.bookmarksFile ?? profile.path.appending(path: files?.bookmarks ?? fallback) }
-        switch profile.browser.bookmarksFormat {
-        case .chromiumJSON:
-            return try ChromiumBookmarksParser().parse(Data(contentsOf: file("Bookmarks")))
-        case .firefoxPlaces:
-            return try FirefoxPlacesReader().readBookmarks(file("places.sqlite"))
-        case .safariPlist:
-            return try SafariBookmarksParser().parse(Data(contentsOf: file("Bookmarks.plist")))
-        case .arcSidebar:
-            // No sidebar file: Arc's Chromium `Bookmarks` file is the fallback.
-            guard let sidebar = profile.bookmarksFile else {
-                return try ChromiumBookmarksParser().parse(Data(contentsOf: profile.path.appending(path: files?.bookmarks ?? "Bookmarks")))
-            }
-            return try ArcSidebarReader().parse(Data(contentsOf: sidebar), profileDirectory: profile.directoryName)
-        case .htmlExport, .noStore:
-            return []
+        switch kind {
+        case .bookmarks: batch.bookmarks = try await reader.bookmarks(profile)
+        case .history: if let file = profile.historyFile { batch.history = try await reader.history(profile.browser.family, file: file, limit: historyLimit) }
+        case .openTabs: batch.openTabs = try await reader.openTabs(profile)
+        case .searchEngines: batch.searchEngine = try await reader.searchEngine(profile)
+        case .extensions: batch.extensions = try await reader.extensions(profile)
+        case .cookies, .passwords: return
         }
         #endif
     }

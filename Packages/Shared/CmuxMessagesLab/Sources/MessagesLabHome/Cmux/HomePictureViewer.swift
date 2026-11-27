@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// cmux: the large picture viewer over a Chief chat pane (the user, 2026-11-05, on a Before|After table: "i want
 /// to be able to expand and annotate"). A click on a picture in a table card (or a picture bubble) opens it: the
 /// pane dims and blurs under it, it fits the pane and zooms (pinch, Command-plus and -minus, Command-0 to fit, a
-/// double-click for its own size) and pans (scroll, or drag with Move). The arrow keys and the side buttons step
+/// double-click for its own size, a mouse wheel) and pans (a trackpad scroll, or drag with Move). The arrow keys and the side buttons step
 /// through the table's pictures; C (or Compare) shows the row's Before and After side by side, where a click or
 /// Space flips one picture in place (B and A pick one) and the bar's style control also offers the slider
 /// (``HomePictureCompare``). The tools mark it up (arrow, box, pen, text; Command-Z undoes); Send in Chat hands the
@@ -41,7 +41,7 @@ final class HomePictureViewer: NSView {
 
     private let backdrop = NSVisualEffectView(frame: .zero)
     private let dim = NSView(frame: .zero)
-    private let scroll = NSScrollView(frame: .zero)
+    private let scroll = HomePictureScrollView(frame: .zero)
     private let canvas = HomePictureCanvas(frame: .zero)
     private let compare = HomePictureCompare(frame: .zero)
     private let titleLabel = NSTextField(labelWithString: "")
@@ -55,6 +55,9 @@ final class HomePictureViewer: NSView {
     private let tools = NSSegmentedControl(frame: .zero)
     /// In the comparison, in the tools' place: Side by Side, Flip, Slider (``HomePictureCompare/Style``).
     private let styles = NSSegmentedControl(frame: .zero)
+    /// Each segmented control's segment tooltips, and the controls whose tooltips `layout` has placed.
+    private var toolTips: [ObjectIdentifier: [String]] = [:]
+    private var toolTipsPlaced: Set<ObjectIdentifier> = []
     /// The comparison's rows ("Light | Dark"), when the gallery's rows have labels.
     private let rowSwitch = NSSegmentedControl(frame: .zero)
     private var rowSwitchRows: [Int] = []
@@ -93,7 +96,6 @@ final class HomePictureViewer: NSView {
         scroll.hasHorizontalScroller = true
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
         scroll.allowsMagnification = true
         scroll.minMagnification = 0.05
         scroll.maxMagnification = 8
@@ -143,9 +145,9 @@ final class HomePictureViewer: NSView {
         tools.segmentStyle = .separated
         for (i, entry) in toolList.enumerated() {
             tools.setImage(NSImage(systemSymbolName: entry.1, accessibilityDescription: entry.2), forSegment: i)
-            tools.setToolTip(entry.2, forSegment: i)
             tools.setWidth(30, forSegment: i)
         }
+        toolTips[ObjectIdentifier(tools)] = toolList.map(\.2)
         tools.selectedSegment = 0
         tools.target = self
         tools.action = #selector(toolChanged)
@@ -160,9 +162,9 @@ final class HomePictureViewer: NSView {
         styles.segmentStyle = .separated
         for (i, entry) in styleList.enumerated() {
             styles.setImage(NSImage(systemSymbolName: entry.1, accessibilityDescription: entry.2), forSegment: i)
-            styles.setToolTip(entry.2, forSegment: i)
             styles.setWidth(30, forSegment: i)
         }
+        toolTips[ObjectIdentifier(styles)] = styleList.map(\.2)
         styles.selectedSegment = HomePictureCompare.Style.sideBySide.rawValue
         styles.target = self
         styles.action = #selector(styleChanged)
@@ -213,7 +215,7 @@ final class HomePictureViewer: NSView {
         b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
         b.symbolConfiguration = .init(pointSize: size, weight: .regular)
         b.contentTintColor = NSColor.white.withAlphaComponent(0.85)
-        b.toolTip = label
+        b.setHomeToolTip(label)
         b.setAccessibilityLabel(label)
     }
 
@@ -296,18 +298,28 @@ final class HomePictureViewer: NSView {
         }
     }
 
-    private func fit() {
-        layoutSubtreeIfNeeded()
-        let size = canvas.frame.size
-        let room = scroll.bounds.size
-        guard size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return }
-        scroll.magnification = min(1, room.width / size.width, room.height / size.height)
+    /// The zoom that fits a picture `size` points large in `room`, keeping its aspect: a large picture shrinks to fit,
+    /// a small one grows to fill the pane (issue 51939: a pasted screenshot opened at its own small size in the middle
+    /// of an empty viewer), within the scroll view's zoom range. 1 for an empty size or room.
+    static func fitMagnification(_ size: CGSize, in room: CGSize, range: ClosedRange<CGFloat> = 0.05...8) -> CGFloat {
+        guard size.width > 0, size.height > 0, room.width > 0, room.height > 0 else { return 1 }
+        return min(range.upperBound, max(range.lowerBound, min(room.width / size.width, room.height / size.height)))
     }
 
+    private var fitMagnification: CGFloat {
+        Self.fitMagnification(canvas.frame.size, in: scroll.bounds.size, range: scroll.minMagnification...scroll.maxMagnification)
+    }
+
+    private func fit() {
+        layoutSubtreeIfNeeded()
+        guard canvas.frame.width > 0, canvas.frame.height > 0, scroll.bounds.width > 0, scroll.bounds.height > 0 else { return }
+        scroll.magnification = fitMagnification
+    }
+
+    /// Double-click: the picture at its own size, or back to fit.
     private func toggleActualSize() {
-        let size = canvas.frame.size, room = scroll.bounds.size
-        let fitted = min(1, room.width / max(1, size.width), room.height / max(1, size.height))
-        if abs(scroll.magnification - fitted) < 0.01 { scroll.magnification = 1 } else { scroll.magnification = fitted }
+        let fitted = fitMagnification
+        scroll.magnification = abs(scroll.magnification - fitted) < 0.01 && abs(fitted - 1) >= 0.01 ? 1 : fitted
     }
 
     private func showCompare() {
@@ -345,6 +357,8 @@ final class HomePictureViewer: NSView {
         let topBar = HomePictureViewerTopBar(
             width: bounds.width,
             titleWidth: naturalWidth(titleLabel),
+            titleHeight: Self.titleHeight,
+            titleInkMiddle: titleInkMiddle,
             center: rowSwitch.isHidden ? .zero : rowSwitch.fittingSize,
             counterWidth: naturalWidth(counterLabel),
             avoiding: topBarObstacles)
@@ -363,7 +377,14 @@ final class HomePictureViewer: NSView {
         let barWidth = 12 + toolsWidth + 12 + CGFloat(barButtons.count) * buttonWidth + 8
         bar.frame = CGRect(x: (bounds.midX - barWidth / 2).rounded(), y: bounds.maxY - 50, width: barWidth, height: 38)
         for control in [tools, styles] {
-            control.frame = CGRect(x: 12, y: (38 - control.fittingSize.height) / 2, width: control.fittingSize.width, height: control.fittingSize.height)
+            let size = control.fittingSize
+            let sizeChanged = control.frame.size != size || !toolTipsPlaced.contains(ObjectIdentifier(control))
+            control.frame = CGRect(x: 12, y: (38 - size.height) / 2, width: size.width, height: size.height)
+            // Each segment's tooltip is a region of the control: placed again only when the control's size changes.
+            if sizeChanged, let texts = toolTips[ObjectIdentifier(control)] {
+                control.setHomeSegmentToolTips(texts)
+                toolTipsPlaced.insert(ObjectIdentifier(control))
+            }
         }
         var x = shownTools.frame.maxX + 12
         for b in barButtons {
@@ -373,6 +394,18 @@ final class HomePictureViewer: NSView {
         if let textField {
             textField.frame.size.width = max(160, min(320, bounds.width - textField.frame.minX - 20))
         }
+    }
+
+    /// The title label's height: its font's line.
+    private static let titleHeight: CGFloat = 18
+
+    /// The middle of the title's capital letters, from the label's top: the cell's text top plus the font's ascent
+    /// to the baseline, less half a capital (the bar puts this on its centre line, not the label box's middle).
+    private var titleInkMiddle: CGFloat {
+        guard let font = titleLabel.font else { return Self.titleHeight / 2 }
+        let box = CGRect(x: 0, y: 0, width: 1000, height: Self.titleHeight)
+        let top = titleLabel.cell?.titleRect(forBounds: box).minY ?? 0
+        return top + font.ascender - font.capHeight / 2
     }
 
     /// The width `label` needs for its whole text, with the label cell's 2-point side insets (0 when empty). Not the
@@ -471,6 +504,36 @@ final class HomePictureViewer: NSView {
     }
 
     override func cancelOperation(_ sender: Any?) { handle(.escape) }
+
+    /// Esc while the keyboard is anywhere in the viewer's pane (a local monitor, as the thread view's in
+    /// `PaneHost+Thread.swift`): one Esc closes the viewer even when something under it holds the keyboard (the
+    /// user, 2026-11-11: "pressing esc doesnt work").
+    private var escapeMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, !closed else { return stopEscapeMonitor() }
+        guard escapeMonitor == nil else { return }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.claimsEscape(event) == true ? nil : event
+        }
+    }
+
+    private func stopEscapeMonitor() {
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
+    }
+
+    /// Closes the viewer for a plain Esc in its window while the keyboard is in its pane; false leaves the key alone.
+    func claimsEscape(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, event.keyCode == 53,
+              event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+              !closed, let window, event.window === window, !isHiddenOrHasHiddenAncestor, let pane = superview else { return false }
+        let focus = window.firstResponder
+        guard focus === window || (focus as? NSView).map({ $0 === pane || $0.isDescendant(of: pane) }) == true else { return false }
+        handle(.escape)
+        return true
+    }
 
     /// A click outside the picture and the controls closes the viewer.
     override func mouseDown(with event: NSEvent) {
@@ -676,6 +739,7 @@ final class HomePictureViewer: NSView {
     func close() {
         guard !closed else { return }
         closed = true
+        stopEscapeMonitor()
         loading?.cancel()
         textField?.removeFromSuperview()
         textField = nil

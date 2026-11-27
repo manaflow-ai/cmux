@@ -67,7 +67,6 @@ struct SidebarStatesPlaygroundRenderer {
         root.addSubview(sidebar)
         window.orderFrontRegardless()
         let list = sidebar.list
-        list.openDoneFolds.insert(.archive) // the archived row shows under the open Archive section
         list.onGroupEditorItem = { _, _ in } // a group header offers its + (the empty group's) only with a handler
         sidebar.layoutSubtreeIfNeeded()
         list.reload(animated: false)
@@ -180,7 +179,13 @@ struct SidebarStatesPlaygroundRenderer {
         let scope = ThemeScope(level: .room)
         if let theme = themes.theme(appearance) { scope.setOverride(theme.spec, input: theme.input, animated: false) }
         scope.root(root)
-        let glass = Glass.makeOverlayPanel(interactive: false, cardFill: false)
+        // The overlay surface the panel uses, on its blur material: Liquid Glass's content is composited by the window
+        // server and never reaches a view's bitmap (`cacheDisplay`), so on Liquid Glass the shot was an empty box. The
+        // blur keeps the same shape, theme tint and content, and draws them in the bitmap. Sized as the panel sizes it,
+        // to the card's fitting size, since the blur's content follows the surface's frame.
+        let size = card.fittingSize
+        let glass = OverlaySurfaceView(material: .vibrancy, interactive: false)
+        glass.translatesAutoresizingMaskIntoConstraints = false
         card.translatesAutoresizingMaskIntoConstraints = false
         glass.contentView.addSubview(card)
         root.addSubview(glass)
@@ -191,6 +196,8 @@ struct SidebarStatesPlaygroundRenderer {
             card.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
             glass.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             glass.topAnchor.constraint(equalTo: root.topAnchor),
+            glass.widthAnchor.constraint(equalToConstant: size.width),
+            glass.heightAnchor.constraint(equalToConstant: size.height),
         ])
         window.orderFrontRegardless()
         root.layoutSubtreeIfNeeded()

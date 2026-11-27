@@ -28,7 +28,7 @@ public struct BrowserRecord: Equatable, Sendable {
     }
 
     public init(tab: TabModel) {
-        self.init(url: tab.url, title: tab.title.isEmpty ? nil : tab.title, faviconURL: tab.faviconURL, zoom: tab.zoom,
+        self.init(url: tab.url, title: tab.titleText.isEmpty ? nil : tab.titleText, faviconURL: tab.faviconURL, zoom: tab.zoom,
                   back: tab.backURLs, forward: tab.forwardURLs)
     }
 

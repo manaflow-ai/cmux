@@ -74,14 +74,81 @@ public final class CmuxMobileAccentTheme: @unchecked Sendable {
     @ObservationIgnored private let defaults: UserDefaults
 
     /// The chosen accent; an install that never chose, or a value this build
-    /// does not know, is ``CmuxMobileAccent/neutral``.
+    /// does not know, is ``CmuxMobileAccent/neutral``. Choosing one stops ``followsMac``.
     public var accent: CmuxMobileAccent {
-        didSet { defaults.set(accent.rawValue, forKey: Self.settingKey) }
+        didSet {
+            defaults.set(accent.rawValue, forKey: Self.settingKey)
+            followsMac = false
+        }
+    }
+    /// Match Mac (ask-87d30da8e5): no accent chosen on this phone, so the chrome takes the Mac
+    /// theme's accent while it follows the Mac (`CmuxMobileMacTheme`), else ``accent``. An install
+    /// that never chose one starts here; a choice made on the phone always wins.
+    public private(set) var followsMac: Bool
+
+    @ObservationIgnored private let macTheme: CmuxMobileMacTheme
+
+    public init(defaults: UserDefaults = .standard, macTheme: CmuxMobileMacTheme = .shared) {
+        self.defaults = defaults
+        self.macTheme = macTheme
+        let stored = defaults.string(forKey: Self.settingKey)
+        accent = stored.flatMap(CmuxMobileAccent.init(rawValue:)) ?? .neutral
+        followsMac = stored == nil
     }
 
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        accent = defaults.string(forKey: Self.settingKey).flatMap(CmuxMobileAccent.init(rawValue:)) ?? .neutral
+    /// Settings' Match Mac row: forget the phone's choice and take the Mac's accent.
+    public func matchMac() {
+        defaults.removeObject(forKey: Self.settingKey)
+        followsMac = true
+    }
+
+    /// The Mac's accent when the accent and the chrome both follow the Mac, nil otherwise.
+    private var macAccent: CmuxMobileMacPalette? { followsMac ? macTheme.palette : nil }
+
+    /// The accent fill every chrome tint reads.
+    public var accentToken: CmuxMobileColorToken {
+        guard macAccent != nil else { return accent.accent }
+        return macTheme.token(accent.accent) { $0.accent }
+    }
+
+    /// The ink on ``accentToken``.
+    public var onAccentToken: CmuxMobileColorToken {
+        guard macAccent != nil else { return accent.onAccent }
+        return macTheme.token(accent.onAccent) { $0.onAccent }
+    }
+
+    /// Send's fill in the composers. A hue the person chose is Send's hue. With Default
+    /// (monochrome) Send takes the theme's own blue (the Mac terminal theme's ANSI blue, or the
+    /// Blue accent with no Mac theme) instead of a white disk in dark and a black one in light
+    /// (Leo, 2026-11-23: the send button "has no reason to be white on whatever").
+    public var sendToken: CmuxMobileColorToken {
+        guard accent == .neutral else { return accentToken }
+        return macTheme.token(CmuxMobileAccent.blue.accent) { palette in
+            Self.themeBlue(palette) ?? (palette.isDark ? CmuxMobileAccent.blue.accent.dark : CmuxMobileAccent.blue.accent.light)
+        }
+    }
+
+    /// The ink on ``sendToken``: black on a light fill, white on a dark one.
+    public var onSendToken: CmuxMobileColorToken {
+        guard accent == .neutral else { return onAccentToken }
+        let fill = sendToken
+        return CmuxMobileColorToken(dark: Self.ink(on: fill.dark), light: Self.ink(on: fill.light))
+    }
+
+    /// The terminal theme's blue for its appearance: bright blue (ANSI 12) on a dark theme,
+    /// blue (ANSI 4) on a light one; nil when the theme sends no palette.
+    static func themeBlue(_ palette: CmuxMobileMacPalette) -> CmuxMobileRGBA? {
+        let slot = palette.isDark ? 12 : 4
+        guard palette.terminalPalette.indices.contains(slot) else { return nil }
+        return CmuxMobileRGBA(hex: palette.terminalPalette[slot])
+    }
+
+    /// Black or white, whichever reads on `fill` (relative luminance, WCAG).
+    static func ink(on fill: CmuxMobileRGBA) -> CmuxMobileRGBA {
+        func linear(_ c: Double) -> Double { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        let luminance = 0.2126 * linear(fill.red) + 0.7152 * linear(fill.green) + 0.0722 * linear(fill.blue)
+        // Contrast against black is (L + 0.05) / 0.05, against white 1.05 / (L + 0.05): equal at L ≈ 0.179.
+        return luminance > 0.179 ? CmuxMobileRGBA(hex: "#000000") : CmuxMobileRGBA(hex: "#FFFFFF")
     }
 }
 #endif

@@ -31,7 +31,8 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
         if let source, ["http", "https"].contains(source.scheme?.lowercased()) {
             // Retry starts it again from this tab, to the file the person chose if they chose one.
             item.retryHandler = { [weak tab] in
-                guard let tab else { return false }
+                // The downloads list is global: the source tab is usually hidden, and may be frozen.
+                guard let tab, tab.resumeIfSuspended() else { return false }
                 tab.webView.startDownload(using: URLRequest(url: source)) { [weak tab] download in
                     tab?.downloads.register(download, source: source, chosen: chosen)
                 }
@@ -88,7 +89,7 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
     }
 
     private func resume(_ item: BrowserDownload) {
-        guard let tab, let data = paused.removeValue(forKey: item.id) else { return }
+        guard let tab, tab.resumeIfSuspended(), let data = paused.removeValue(forKey: item.id) else { return }
         item.isPaused = false
         tab.webView.resumeDownload(fromResumeData: data) { [weak self, weak item] download in
             guard let self, let item, item.status == .inProgress else { return download.cancel(nil) }
@@ -112,10 +113,15 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
         let directory = tab?.downloadsDirectory ?? DownloadDestination.defaultDirectory
         // The chosen file (the save panel already asked before replacing
         // it) stays until the download completes; nil cancels the download.
-        guard let placement = BrowserDownloadPolicy.place(chosen: chosen, suggestedFilename: suggestedFilename,
-                                                          directory: directory) else {
-            // No free file name: the download fails (not cancels), as in Chromium.
-            finish(download, status: .failed("no free file name"))
+        // The name is looked up off the main thread (a protected folder's
+        // first look waits for the access prompt).
+        let placement: BrowserDownloadPlacement
+        switch await BrowserDownloadPolicy.place(chosen: chosen, suggestedFilename: suggestedFilename,
+                                                 directory: directory) {
+        case .success(let placed): placement = placed
+        case .failure(let failure):
+            // No file for it: the download fails (not cancels), as in Chromium.
+            finish(download, status: .failed(failure.reason))
             return nil
         }
         guard let item = items[ObjectIdentifier(download)] else {

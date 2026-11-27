@@ -398,8 +398,9 @@ impl Hub {
         let Ok(session) = self.resolve(parent) else { return };
         // Validate provenance and remove under the same lock: a person's edit must never
         // disappear because an earlier snapshot still called the prompt a lane report.
+        let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
         let (removed, mut ledger) = {
-            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+            let queue = &mut *queue;
             let indices: Vec<usize> = queue
                 .iter()
                 .enumerate()
@@ -433,6 +434,8 @@ impl Hub {
             })
             .collect();
         drop(ledger);
+        // Taken out and logged under one lock, as `remove_queued_by` does.
+        drop(queue);
         for (id, text, provenance) in archived {
             self.lane_report_delivered_read(&session, lane, &id, &text, &provenance);
         }
@@ -440,23 +443,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn receipts_are_exact_turns_and_bounded_without_dropping_live_waits() {
-        let mut reads = Reads::default();
-        reads.waits.insert("live".into(), 1);
-        reads.turns.insert(1, Receipt { turn_id: "live".into(), ..Default::default() });
-        for turn in 2..100 {
-            reads
-                .turns
-                .insert(turn, Receipt { ended: true, read: turn == 98, ..Default::default() });
-            reads.trim();
-        }
-        assert_eq!(reads.turns.len(), 64);
-        assert!(reads.turns.contains_key(&1));
-        assert!(reads.turns.get(&98).unwrap().read);
-        assert!(!reads.turns.get(&99).unwrap().read);
-    }
-}
+#[path = "lane_report_reads_tests.rs"]
+mod tests;

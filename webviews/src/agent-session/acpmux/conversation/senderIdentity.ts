@@ -94,6 +94,13 @@ export function provenanceAuthenticated(provenance: Record<string, unknown> | un
   return typeof by === "string" && RELAY_NAME.test(by) && typeof machine === "string" && RELAY_NAME.test(machine);
 }
 
+/// Whether acpmux verified a named sender by this host's sender token (`verifiedBy: "host-token"`,
+/// acpmux sender_token.rs): one of the owner's own tools, drawn by its name with no mark. Leo,
+/// 2026-11-11: "generally the "unverified sender" things should be more verified".
+export function hostTokenVerified(provenance: Record<string, unknown> | undefined): boolean {
+  return provenance?.verified === true && provenance.verifiedBy === "host-token";
+}
+
 /// Whether the transcript marks the sender unverified: its record says it is not verified, or (an
 /// older acpmux with no `verification`) its name carried the suffix.
 export function senderUnverified(record: SenderRecord | undefined, declared: boolean): boolean {

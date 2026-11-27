@@ -129,6 +129,20 @@ public final class TerminalSurfaceView: NSView {
     private var volatileFrame: IOSurface?
     /// A frame another view shows now (``giveAway(_:)``): never made volatile here again.
     private var givenAwayFrame: IOSurface?
+    /// The last frame pictured as the surface paused (``pausedPicture``): which surface and its seed.
+    private var pausedPictureSource: (frame: ObjectIdentifier, seed: UInt32)?
+    /// The paused frame being pictured now: it turns volatile only once its picture is taken.
+    private var picturing: IOSurface?
+
+    /// A downscaled picture (at most ``pausedPictureSide`` px) of the frame the surface showed when it last paused.
+    ///
+    /// The user, 2026-11-24 (hover cards and the sidebar miniature blank for background and hibernated tabs): a paused
+    /// surface's frame is volatile, so memory pressure purges it, and then ``beginFrameRead()`` finds nothing and every
+    /// card that pictures the terminal (a tab's, a workspace's tiles, a drag) drew an empty tile. On a Mac under
+    /// pressure that happened within seconds of a tab leaving the screen. The picture is taken off the main thread as
+    /// the surface pauses, before its frame turns volatile, and stands in once the frame is gone.
+    private(set) var pausedPicture: CGImage?
+    nonisolated static let pausedPictureSide: CGFloat = 640
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     /// The display scale last given to Ghostty (``updateContentScale()``); nil before it was set.
@@ -224,6 +238,8 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
+        // Before anything can draw: every frame the layer shows is reported (``TerminalPresents``).
+        bridge.takeUnretainedValue().presents.install(on: surface, layer: layer.map(ObjectIdentifier.init), userdata: userdata)
         // The drawable follows the size this view sets (`setFrameSize`), not
         // its layer's bounds: one synchronous frame per size change at the
         // next display pass, no draw for a bounds change alone.
@@ -235,7 +251,6 @@ public final class TerminalSurfaceView: NSView {
         GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output",
                                   frameLayer: layer.map(ObjectIdentifier.init), prediction: bridge.takeUnretainedValue().prediction)
-        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
         registerForDraggedTypes([.fileURL, .URL, .string, .png, .tiff])
         updateContentScale()
         updateSurfaceSize(forceReport: true)
@@ -315,6 +330,7 @@ public final class TerminalSurfaceView: NSView {
             updateContentScale()
             // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
             // report (held while it was not shown) would be a size no frame rests at.
+            if pendingForcedReport, isInPaneMotion { geometry.forceNextReport() } // a join's final grid carries it
             let joined = isInPaneMotion && joinPaneMotion()
             updateSurfaceSize(forceReport: pendingForcedReport && !joined, justShown: true)
             pendingForcedReport = false
@@ -400,7 +416,6 @@ public final class TerminalSurfaceView: NSView {
         if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
         // A landing runs under the Core Animation lock: its cursor box follows after it (``frameDidLand()``).
         if !frameOwnership.landing { copyMode.syncCursor() }
-        if resized { selectionHint.resized() }
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
@@ -686,7 +701,7 @@ public final class TerminalSurfaceView: NSView {
     private func holdPresentedFrame(volatile: Bool) -> TerminalRevealReport.SavedFrame {
         if volatile {
             volatileFrame = presentedFrame === givenAwayFrame ? nil : presentedFrame
-            volatileFrame?.makeVolatile()
+            if let frame = volatileFrame { pictureThenMakeVolatile(frame) }
             return .none
         }
         guard let frame = volatileFrame else { return .none }
@@ -698,6 +713,28 @@ public final class TerminalSurfaceView: NSView {
             return .purged
         }
         return .kept
+    }
+
+    /// Pictures `frame` (paused now) off the main thread, then makes it volatile while it is still the paused frame.
+    /// A frame already pictured (the same surface, unchanged since) turns volatile at once: a plain switch back and
+    /// forth costs no render.
+    private func pictureThenMakeVolatile(_ frame: IOSurface) {
+        let source = (frame: ObjectIdentifier(frame), seed: frame.seed)
+        if let last = pausedPictureSource, last.frame == source.frame, last.seed == source.seed, pausedPicture != nil {
+            return frame.makeVolatile()
+        }
+        picturing = frame
+        let surface = SendableSurface(surface: frame), side = Self.pausedPictureSide
+        Task { [weak self] in  // task-owner: one bounded off-main render per pause; the frame stays non-volatile until it ends
+            let picture = await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(surface, maxPixelSize: side) }.value
+            guard let self else { return }
+            if self.picturing === frame { self.picturing = nil }
+            if let picture {
+                self.pausedPicture = picture
+                self.pausedPictureSource = source
+            }
+            if self.volatileFrame === frame { frame.makeVolatile() }
+        }
     }
 
     /// The presented frame for one reader (hover pictures): a paused surface's volatile frame is
@@ -714,7 +751,7 @@ public final class TerminalSurfaceView: NSView {
     }
 
     func endFrameRead(_ frame: IOSurface) {
-        if frame === volatileFrame { frame.makeVolatile() }
+        if frame === volatileFrame, frame !== picturing { frame.makeVolatile() }  // one being pictured turns volatile after
     }
 
     /// `frame` is shown by another view from now on (a replacement session's carried frame): this

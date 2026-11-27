@@ -4,11 +4,9 @@
 import { describe, expect, test } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { SchemaValidator } from "../../../cmux-tui/crates/cmux-app-host/tools/json-schema.ts"
-import { validatePackage } from "../../../cmux-tui/crates/cmux-app-host/tools/validate-manifest.ts"
+import { SchemaValidator, interfaceContract, manifestSchema, validatePackage } from "cmux-extension-sdk/testing"
 
 const dir = join(import.meta.dir, "..")
-const host = join(dir, "../../cmux-tui/crates/cmux-app-host")
 const json = (p: string) => JSON.parse(readFileSync(p, "utf8"))
 
 describe("manifests", () => {
@@ -18,15 +16,14 @@ describe("manifests", () => {
 
   test("cmux-app.v2.json validates against the v2 schema and agrees with the live manifest", () => {
     const v2 = json(join(dir, "cmux-app.v2.json"))
-    expect(new SchemaValidator(json(join(host, "schema/v2/cmux-app.schema.json"))).validate(v2)).toEqual([])
+    expect(new SchemaValidator(manifestSchema()).validate(v2)).toEqual([])
     const v1 = json(join(dir, "cmux-app.json"))
     expect(v2.id).toBe(v1.id)
     expect(Object.keys(v2.scopes)).toEqual(Object.keys(v1.scopes))
     expect(Object.keys(v2.optionalScopes)).toEqual(Object.keys(v1.optionalScopes))
     expect(v2.variants[0].values).toEqual(v1.contributes.settings.properties.variant.enum)
     for (const name of [...Object.keys(v2.implements), ...(v2.consumes?.interfaces ?? [])]) {
-      const [iface, major] = name.split("/")
-      expect(() => readFileSync(join(host, "interfaces", iface, `${major}.json`))).not.toThrow()
+      expect([name, interfaceContract(name) !== undefined]).toEqual([name, true])
     }
   })
 

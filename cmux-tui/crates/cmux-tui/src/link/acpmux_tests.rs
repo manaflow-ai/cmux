@@ -278,6 +278,7 @@ async fn inbound(hello: &str, target: &AcpmuxTarget) -> Result<(), InboundRefuse
         None,
         target,
         None,
+        None,
     ))
     .await
 }
@@ -337,6 +338,7 @@ fn a_link_with_acpmux_off_serves_no_acpmux_stream() {
             None,
             None,
             &AcpmuxTarget::Off,
+            None,
             None,
         ))
         .await;
@@ -487,6 +489,7 @@ fn acpmux_connect_baseline() {
                     peer_token: None,
                     vm_boundary: false,
                     github_broker: false,
+                    group: None,
                 },
             )]);
             config

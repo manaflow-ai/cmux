@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import type { Editor } from "@milkdown/kit/core";
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "Node", "Element", "getSelection", "MutationObserver"];
@@ -49,11 +50,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await editor?.destroy();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const DRAFTS = [
@@ -203,4 +200,51 @@ test("a key at the end of a 2,000-line pasted paragraph writes only its line", a
   const typed = doc.replace(doc.content.size - 1, doc.content.size - 1, parse("x").slice(1, 2));
   expect(blockwiseMarkdown(typed, counted, false)).toBe(serialize(typed));
   expect(writes).toBe(1);
+});
+
+test("a key into a one-line prompt of plain prose writes it without the serializer", async () => {
+  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/MarkdownField");
+  let writes = 0;
+  const counted = (node: ProseNode) => {
+    writes += 1;
+    return serialize(node);
+  };
+  for (const draft of ["h", "hello world", "Is it done? Yes, it's done. Ship it!", "v2 and 3 things."]) {
+    const doc = parse(draft);
+    expect(blockwiseMarkdown(doc, counted, false)).toBe(`${draft}\n`);
+    expect(blockwiseMarkdown(doc, counted, true)).toBe(`${draft}\n`);
+  }
+  // A changed plain paragraph in a longer prompt is written the same way.
+  expect(blockwiseMarkdown(parse("first line\n\nsecond, typed now"), counted, false)).toBe(
+    "first line\n\nsecond, typed now\n",
+  );
+  expect(writes).toBe(0);
+});
+
+test("plain prose writes as the serializer writes it, and anything it would escape goes to the serializer", async () => {
+  const { blockwiseMarkdown } = await import("../src/agent-session/acpmux/MarkdownField");
+  const { withTextMarksEscaped } = await import("../src/agent-session/acpmux/composer/inlineNode");
+  const paragraph = parse("x").child(0);
+  const schema = paragraph.type.schema;
+  // The fast path's own alphabet, the characters around it that the serializer escapes in some
+  // places, and the words that make those places (a list number, an autolink's www.).
+  const PIECES = ["a", "Z", "w", "W", "www", "1", "12", " ", "  ", ",", "'", "?", "!", ".", "..", "-", "_", "*", ":"];
+  const PIECES_MORE = ["#", ">", "+", "=", ")", "(", "[", "]", "`", "~", "<", "&", "\\", "|", "@", "/", "http"];
+  let seed = 11;
+  const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const texts: string[] = ["1. one", "1.5 points", "www.cmux.dev", "w.x", "go.", ".start", "end ", " start", "a  b"];
+  for (let at = 0; at < 3000; at++) {
+    const pool = random() < 0.85 ? PIECES : [...PIECES, ...PIECES_MORE];
+    let text = "";
+    const length = 1 + Math.floor(random() * 10);
+    for (let piece = 0; piece < length; piece++) text += pool[Math.floor(random() * pool.length)];
+    texts.push(text);
+  }
+  for (const text of texts) {
+    const doc = schema.topNodeType.create(null, [paragraph.type.create(null, [schema.text(text)])]);
+    expect([text, blockwiseMarkdown(doc, serialize, false)]).toEqual([text, serialize(doc)]);
+    expect([text, blockwiseMarkdown(doc, serialize, true)]).toEqual([text, serialize(withTextMarksEscaped(doc))]);
+    const two = schema.topNodeType.create(null, [parse("first").child(0), doc.child(0)]);
+    expect([text, blockwiseMarkdown(two, serialize, false)]).toEqual([text, serialize(two)]);
+  }
 });

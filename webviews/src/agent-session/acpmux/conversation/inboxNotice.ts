@@ -8,6 +8,7 @@
 // and a preview has them read back from its text. Notices next to each other draw as one group
 // (`mergeInboxNotices`), a thread named in two of them once.
 import type { AcpmuxRow } from "../model";
+import { keptPrefix, noteKeptPrefix } from "./prefixFlatMap";
 import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
 import { bareSender, relayAddress, senderRecord, senderUnverified, type SenderRecord } from "./senderIdentity";
 import type { SentFrom } from "./sentFromHarness";
@@ -67,7 +68,43 @@ export type InboxThread = {
   /// Where each message says it came from, by its prompt id (`sender_claim`, sentFromHarness.ts):
   /// a sender chip under it.
   sentFrom?: Record<string, SentFrom>;
+  /// The tool's notice its newest message is, as acpmux read it (hub/inbox.rs `notice`,
+  /// notice_read.rs): the line names its detector, not the relay host, draws its severity and
+  /// title, and counts the repeats of its condition (Leo, 2026-11-25: "how can we improve this?").
+  notice?: ThreadNotice;
 };
+
+/// A thread's newest notice: its detector, severity and title, its host, and how many of the
+/// thread's messages report the same condition and the newest one's time.
+export type ThreadNotice = {
+  sender: string;
+  severity: "fire" | "warn" | "info";
+  title: string;
+  host?: string;
+  repeats: number;
+  lastAt?: number;
+};
+
+const SEVERITIES = new Set(["fire", "warn", "info"]);
+
+/// acpmux's `notice` part, or undefined when it names no sender and title.
+export function threadNotice(value: unknown): ThreadNotice | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const n = value as Record<string, unknown>;
+  const sender = text(n.sender).trim();
+  const title = text(n.title).trim();
+  if (!sender || !title) return undefined;
+  const severity = SEVERITIES.has(text(n.severity)) ? (text(n.severity) as ThreadNotice["severity"]) : "info";
+  const repeats = typeof n.repeats === "number" && n.repeats > 1 ? Math.floor(n.repeats) : 1;
+  return {
+    sender,
+    severity,
+    title,
+    ...(text(n.host) && { host: text(n.host) }),
+    repeats,
+    ...(typeof n.lastAt === "number" && { lastAt: n.lastAt }),
+  };
+}
 
 export type InboxNotice = { threads: InboxThread[] };
 
@@ -145,6 +182,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     // The thread's flag is its newest sender's (its record, or an older acpmux's suffix on its
     // `from`), which acpmux may say only on the thread: that message is marked too, so its row and
     // the group's hover show it (laneNoticeBatches.ts, MessageGroupHover.tsx).
+    const toolNotice = threadNotice(p.notice);
     const messages =
       unverified && held?.length && !held.at(-1)!.unverified
         ? [...held.slice(0, -1), { ...held.at(-1)!, unverified: true as const }]
@@ -166,6 +204,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
       promptIds,
       ...(messages?.length && { messages }),
       ...(!messages?.length && typeof p.newest === "string" && { newest: withoutRelayEnvelope(p.newest) }),
+      ...(toolNotice && { notice: toolNotice }),
     });
   }
   return threads.length ? { threads } : undefined;
@@ -291,9 +330,30 @@ const isNotice = (row: AcpmuxRow) => row.kind === "user" && row.incoming?.kind =
 /// `rows` with each run of notices next to each other (rows that draw nothing between them) as the
 /// first one's row, holding every thread of the run (`joined` names the rest, for Find). The same
 /// rows give the same array back; a run gives the same merged row back while its rows hold.
+/// Rows change at their tail, so a call reads again only the rows after the last run that closed
+/// before the first row that changed (`keptPrefix`): a tool call arriving in a long chat costs its
+/// own rows, not a read of every row's kind (bench/transcript-replay.bench.ts, god log).
 export function mergeInboxNotices(rows: AcpmuxRow[]): AcpmuxRow[] {
+  const last = lastMerge?.rows.deref();
+  const lastOut = lastMerge?.out.deref();
+  let start = 0;
   let out: AcpmuxRow[] | undefined;
-  for (let index = 0; index < rows.length; index += 1) {
+  let swallowed: number[] = [];
+  if (last && lastOut && lastMerge) {
+    if (last === rows) return lastOut;
+    // Back from the first changed row to one that ends any run (neither a notice nor a row that
+    // draws nothing): no run crosses it, so what came before it merged as it did last time.
+    start = keptPrefix(last, rows);
+    while (start > 0 && (isNotice(rows[start - 1]!) || rows[start - 1]!.incoming?.kind === "hidden")) start -= 1;
+    // The rows each earlier run took in (the source index after the run, and how many rows the
+    // merge has dropped by then) say where the kept rows' items end in the last output.
+    swallowed = lastMerge.swallowed.filter((at) => at <= start);
+    const left = swallowed.length ? lastMerge.dropped[swallowed.length - 1]! : 0;
+    if (left > 0) out = lastOut.slice(0, start - left);
+  }
+  const kept = swallowed.length;
+  const dropped: number[] = lastMerge && last ? lastMerge.dropped.slice(0, kept) : [];
+  for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     if (!isNotice(row)) {
       out?.push(row);
@@ -314,11 +374,23 @@ export function mergeInboxNotices(rows: AcpmuxRow[]): AcpmuxRow[] {
     }
     out ??= rows.slice(0, index);
     out.push(mergedRow(run));
+    swallowed.push(next);
+    dropped.push((dropped.at(-1) ?? 0) + next - index - 1);
     // The rows that draw nothing inside the run go with it; any after it stay.
     index = next - 1;
   }
-  return out ?? rows;
+  const result = out ?? rows;
+  if (out && lastOut) noteKeptPrefix(out, lastOut, start - (dropped[kept - 1] ?? 0));
+  lastMerge = { rows: new WeakRef(rows), out: new WeakRef(result), swallowed, dropped };
+  return result;
 }
+
+/// The last call's rows and output, held weakly (a closed chat leaves nothing here), with each run
+/// it merged: `swallowed[i]` the index after the run, `dropped[i]` how many rows the merge had left
+/// out by then.
+let lastMerge:
+  | { rows: WeakRef<AcpmuxRow[]>; out: WeakRef<AcpmuxRow[]>; swallowed: number[]; dropped: number[] }
+  | undefined;
 
 /// The merged row drawn for a run, by the run's first row object: reused while the run holds the
 /// very same row objects, so it never stands in for another chat's rows that share ids.

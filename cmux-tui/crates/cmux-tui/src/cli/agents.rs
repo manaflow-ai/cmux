@@ -22,6 +22,7 @@ pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
 mod events;
+pub(in crate::cli) use events::follow as follow_events;
 pub(super) mod turn;
 mod wait;
 
@@ -40,6 +41,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (mut global, mut command_args) = parse_globals(args).ok()?;
     if command_args.first().map(String::as_str) != Some("agents") {
         return None;
+    }
+    // `agents chat new --on TARGET`: the start `cmux chat --on TARGET` makes (a Cloud chat with
+    // its folder or none, harness, model, effort and mode, as the composer starts one).
+    if let Some(words) = chat_control::on_target_words(args) {
+        return Some(match words {
+            Ok(words) => super::chat_start::run_if_requested(&words).unwrap_or(2),
+            Err(error) => print_usage(&global, &error.0),
+        });
     }
     // A local, read-only report: its human table stays the default.
     if command_args.get(1).map(String::as_str) == Some("doctor") {
@@ -113,7 +122,7 @@ fn normalize_qualified_target(
 
 fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
     if args.is_empty() || asks_help(args) {
-        println!("{HELP}");
+        println!("{}", verb_help(args).unwrap_or_else(|| HELP.to_owned()));
         return 0;
     }
     // The CLI waits longer than an MCP tool call may (wait.rs `MAX_CLI_TIMEOUT_SECONDS`).
@@ -182,6 +191,38 @@ fn events_ran_out(command: &AgentCommand, value: &Value) -> bool {
 }
 
 /// `--help` or `-h` before any `--` (chat text after `--` may hold either).
+/// `cmux agents chat new --help`: the lines of [`HELP`] for the verb asked about (the longest
+/// run of its words that has any), `None` for the whole help. Before, every verb printed it all
+/// (the Cloud and remote command matrix).
+fn verb_help(args: &[String]) -> Option<String> {
+    let words = args
+        .iter()
+        .take_while(|arg| *arg != "--")
+        .filter(|arg| !arg.starts_with('-'))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let (verb, lines) = (1..=words.len()).rev().find_map(|count| {
+        let verb = words.get(..count)?.join(" ");
+        let prefix = format!("  cmux agents {verb}");
+        let lines = HELP
+            .lines()
+            .filter(|line| {
+                line.strip_prefix(&prefix)
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            })
+            .collect::<Vec<_>>();
+        (!lines.is_empty()).then_some((verb, lines))
+    })?;
+    let mut text = format!("Usage: cmux agents {verb}\n\n{}", lines.join("\n"));
+    if verb == "chat new" || verb == "chat" {
+        text.push_str(
+            "\n\n`cmux agents chat new --on vm:ID|NAME|new` starts the chat on a Cloud machine, as \
+             `cmux chat --on` does (`cmux chat --help`).",
+        );
+    }
+    Some(text)
+}
+
 fn asks_help(args: &[String]) -> bool {
     args.iter().take_while(|arg| *arg != "--").any(|arg| matches!(arg.as_str(), "--help" | "-h"))
 }
@@ -197,7 +238,7 @@ pub(super) enum AgentCommand {
         args: Vec<String>,
     },
     Wait(wait::WaitRequest),
-    Events(events::EventsRequest),
+    Events(Box<events::EventsRequest>),
     /// Prompt another agent chat or read its transcript (chat.rs).
     Chat(chat::ChatCommand),
 }
@@ -278,7 +319,9 @@ fn command_capped(args: &[String], wait_max: u64) -> Result<AgentCommand, UsageE
                 .collect(),
         }),
         ["wait", rest @ ..] => wait::parse(rest, wait_max).map(AgentCommand::Wait),
-        ["events", rest @ ..] => events::parse(rest).map(AgentCommand::Events),
+        ["events", rest @ ..] => {
+            events::parse(rest).map(|request| AgentCommand::Events(Box::new(request)))
+        }
         _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }
@@ -960,6 +1003,6 @@ pub(super) fn snapshot_tool() -> Value {
 }
 
 pub(super) mod chat;
-mod chat_control;
+pub(super) mod chat_control;
 #[cfg(test)]
 mod tests;

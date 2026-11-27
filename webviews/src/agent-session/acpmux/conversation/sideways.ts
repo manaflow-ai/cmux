@@ -8,12 +8,16 @@
 // own sideways scroll; the app leaves a swipe over it to the page, PageInputReadiness `sideways`).
 // A reply's table also fades its left edge once scrolled (`MORE_LEFT`, conversation.css).
 import {
+  followShownScrollerFade,
   installSidewaysScrollers,
   markSidewaysEdges,
   MORE_LEFT_ATTRIBUTE,
   MORE_RIGHT_ATTRIBUTE,
   SIDEWAYS_ATTRIBUTE,
+  SIDEWAYS_INK,
+  SIDEWAYS_SCROLLER_ATTRIBUTE,
 } from "../../../scrollers";
+import { MORE_BELOW, moreBelow } from "./moreBelow";
 
 /// On a sideways scroller while content lies past its right edge.
 export const MORE_RIGHT = MORE_RIGHT_ATTRIBUTE;
@@ -36,7 +40,7 @@ export function watchSideways(container: HTMLElement): () => void {
   installSidewaysScrollers(container.ownerDocument);
   const view = container.ownerDocument.defaultView;
   /// Each watched box: its update, and what of it the size observer watches.
-  const watched = new Map<Element, { update: () => void; sized: Element[] }>();
+  const watched = new Map<Element, { update: () => void; sized: Element[]; unfade: () => void }>();
   /// Boxes whose lines changed since the last frame.
   const dirty = new Set<Element>();
   /// Custom elements without their shadow root yet: Pierre attaches it as it draws.
@@ -63,9 +67,16 @@ export function watchSideways(container: HTMLElement): () => void {
     const update = () => {
       markSidewaysEdges(box);
       box.toggleAttribute(SIDEWAYS_ATTRIBUTE, sideways(box));
+      // A Pierre box cut to its block's preview scrolls down itself; its bottom fades while more lies under it.
+      if (box.hasAttribute("data-code")) box.toggleAttribute(MORE_BELOW, moreBelow(box));
     };
     const sized = [box, ...box.children];
-    watched.set(box, { update, sized });
+    // A page-side sideways box (a table, a Shell body) fades its thumb in and out by script: WebKit
+    // never steps a CSS transition on a scrollbar part. Pierre's shadow-root boxes keep their own.
+    const unfade = box.hasAttribute(SIDEWAYS_SCROLLER_ATTRIBUTE)
+      ? followShownScrollerFade(box as HTMLElement, SIDEWAYS_INK)
+      : () => {};
+    watched.set(box, { update, sized, unfade });
     box.addEventListener("scroll", update, { passive: true });
     for (const element of sized) resize?.observe(element);
     update();
@@ -75,6 +86,7 @@ export function watchSideways(container: HTMLElement): () => void {
     const box = watched.get(element);
     if (box) {
       element.removeEventListener("scroll", box.update);
+      box.unfade();
       for (const sized of box.sized) resize?.unobserve(sized);
       watched.delete(element);
       dirty.delete(element);
@@ -143,7 +155,10 @@ export function watchSideways(container: HTMLElement): () => void {
     for (const observer of observers.values()) observer.disconnect();
     observers.clear();
     resize?.disconnect();
-    for (const [box, { update }] of watched) box.removeEventListener("scroll", update);
+    for (const [box, { update, unfade }] of watched) {
+      box.removeEventListener("scroll", update);
+      unfade();
+    }
     watched.clear();
     dirty.clear();
     hosts.clear();
@@ -152,11 +167,19 @@ export function watchSideways(container: HTMLElement): () => void {
 
 /// Added to the `unsafeCSS` of Pierre's diff and code in a transcript block: a wrapped line hangs
 /// under its first row (the continuation starts two characters further in), an unwrapped row
-/// that runs past the right edge fades out there while it does, and a block cut to its preview
-/// (`--cv-block-cut`, conversation.css) cuts the code box too, so the box's sideways scrollbar
-/// sits at the cut's bottom, in view, rather than under the last line past it.
+/// that runs past the right edge fades out there while it does, and a long block (`--cv-block-cut`,
+/// conversation.css) cuts the code box too, which then scrolls down itself, so the box's sideways
+/// scrollbar sits at the cut's bottom, in view, rather than under the last line past it. Its bottom
+/// fades above that scrollbar's lane while more lines lie under it (`MORE_BELOW`).
 export const PIERRE_BLOCK_CSS = /* css */ `
 [data-overflow="wrap"] [data-line] { padding-inline-start: 4ch; text-indent: -2ch; }
 [data-code][${MORE_RIGHT}] { mask-image: linear-gradient(to left, transparent, #000 32px); }
-[data-code] { max-height: var(--cv-block-cut, none); }
+[data-code] { max-height: var(--cv-block-cut, none); overflow-y: auto; }
+[data-code][${MORE_BELOW}] {
+  mask-image:
+    linear-gradient(to bottom, #000 calc(100% - 28px - var(--cv-lane, 0px)), transparent calc(100% - var(--cv-lane, 0px)), #000 calc(100% - var(--cv-lane, 0px))),
+    linear-gradient(to left, transparent, #000 var(--cv-more-right-fade, 0px));
+  mask-composite: intersect;
+}
+[data-code][${MORE_BELOW}][${MORE_RIGHT}] { --cv-more-right-fade: 32px; }
 `;

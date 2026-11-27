@@ -125,10 +125,25 @@ extension SidebarNoticeCard {
     /// This Mac's sessions restoring while the app waits for them (Leo, 2026-11-08: a 30-minute restore said only that
     /// the background service isn't connected): `title` ("Restoring sessions… 4m 12s") as a quiet status card, the
     /// update status's look (text at the card's padding, the bar's sweep), with no button and no x. The App shows it
-    /// until the sessions connect.
+    /// until the sessions connect. It has no Details: app health's card said what the app repairs by itself, and nothing
+    /// a person could do (Leo, 2026-11-22, ask-a78f915862).
     public static func restoring(_ title: String) -> SidebarNoticeCard {
-        var notice = SidebarNoticeCard(id: "restoring", title: title, progress: .indeterminate)
+        var notice = SidebarNoticeCard(id: "restoring", title: title, progress: .indeterminate, actions: [])
         notice.leadingSpinner = false
         return notice
+    }
+}
+
+extension SidebarNoticeCard {
+    /// A status card for work that names its step (going back to an earlier build): the text
+    /// starts at the card's padding, the bar shows `fraction` (a sweep without one) while
+    /// `working`, and only a finished one (a failure) has an x.
+    public static func status(id: String, title: String, detail: String?, fraction: Double?, working: Bool,
+                              dismissLabel: String) -> SidebarNoticeCard {
+        var card = SidebarNoticeCard(id: id, title: title, detail: detail,
+                                     progress: working ? (fraction.map { .fraction($0) } ?? .indeterminate) : nil,
+                                     dismissLabel: working ? nil : dismissLabel, userAsked: true)
+        card.leadingSpinner = false
+        return card
     }
 }

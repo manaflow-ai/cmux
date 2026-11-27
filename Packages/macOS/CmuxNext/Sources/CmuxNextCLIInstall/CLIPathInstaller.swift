@@ -87,14 +87,17 @@ public nonisolated struct CLIPathInstaller: Sendable {
     ///
     /// - Parameter destination: The link's path; `cmux` in `/usr/local/bin` by default.
     /// - Parameter source: The CLI to link to; this app's bundled CLI by default.
-    /// - Parameter privileged: Runs a shell command as administrator when a direct write is refused;
-    ///   tests pass a stand-in.
+    /// - Parameter privileged: Runs a shell command as administrator when a direct write is refused
+    ///   (``runAsAdministrator(_:)`` when nil); tests pass a stand-in.
+    // `nil`, not `runAsAdministrator` as the default argument: Swift 6.2's Linux frontend crashes
+    // (signal 11 in DefaultInitializerIsolation) on a `@concurrent` static used as one, which kept
+    // this module out of the CmuxNext Linux shape.
     public init(destination: URL = Name.cmux.destination,
                 source: URL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux"),
-                privileged: @escaping Privileged = CLIPathInstaller.runAsAdministrator) {
+                privileged: Privileged? = nil) {
         self.destination = destination
         self.source = source.standardizedFileURL
-        self.privileged = privileged
+        self.privileged = privileged ?? { try await CLIPathInstaller.runAsAdministrator($0) }
     }
 
     /// Links the destination to this app's CLI. Anything there that is not
@@ -253,8 +256,17 @@ public nonisolated struct CLIPathInstaller: Sendable {
             exited.continuation.finish()
         }
         try process.run()
-        var message: [UInt8] = []
-        for try await byte in errors.fileHandleForReading.bytes { message.append(byte) }
+        // Not `bytes`: Foundation reads every `bytes` reader in the app one at a time, so one that
+        // waits on a quiet pipe elsewhere would hold this read, and the install with it
+        // (``FileHandle/readyChunks()``).
+        let reader = errors.fileHandleForReading
+        let (chunks, stopReading) = reader.readyChunks()
+        var message = Data()
+        for await chunk in chunks { message.append(chunk) }
+        // Also when the read ended early (a cancel): no reader and no open read end stay behind.
+        stopReading()
+        try? reader.close()
+        try Task.checkCancellation()
         var status: Int32 = -1
         for await code in exited.stream { status = code }
         guard status == 0 else {

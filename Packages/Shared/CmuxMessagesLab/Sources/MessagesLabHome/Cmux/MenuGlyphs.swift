@@ -75,7 +75,7 @@ enum MenuGlyphs {
         }
     }
     /// The palette's last cell (Messages, macOS 27): the filled grinning face of the compose
-    /// bar's emoji button (private `emoji.face.grinning`), white; else the public symbol.
+    /// bar's emoji button (`FieldChrome.emojiGlyph`, the public `face.smiling.inverse`), white.
     /// MessagesLab 7518134: made once per appearance (it was made at every open, inside the menu's open on main).
     private static var pickerGlyphs: [String: NSImage] = [:]
     static func emojiPickerGlyph() -> NSImage {
@@ -150,10 +150,9 @@ final class MenuAction: NSMenuItem {
     static func icon(_ symbol: String) -> NSImage? {
         let key = "\(symbol)|\(NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? "")"
         if let i = icons[key] { return i }
-        // A private symbol (Messages' Attach Sticker icon `sticker.badge.plus`) comes from
-        // CoreGlyphsPrivate, as the compose bar's `emoji.face.grinning`.
-        guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            ?? Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?.image(forResource: symbol) else { return nil }
+        // Public symbols only: a configured variant of a CoreGlyphsPrivate symbol aborts AppKit on
+        // macOS 27.3 (see `FieldChrome.emojiGlyph`).
+        guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) else { return nil }
         let font = NSFont.menuFont(ofSize: 0)
         let cfg = NSImage.SymbolConfiguration(pointSize: Self.iconPointSize, weight: .medium)
         let sym = glyph.withSymbolConfiguration(cfg) ?? glyph
@@ -162,7 +161,7 @@ final class MenuAction: NSMenuItem {
         let icon = NSImage(size: box, flipped: false) { r in
             let s = sym.size
             let y = (r.height - s.height) / 2
-            // A wide icon (sticker.badge.plus) starts at the title start, as in Messages, not left of it.
+            // A wide icon starts at the title start, as in Messages, not left of it.
             sym.draw(in: CGRect(x: max(0, Self.iconCenterX - s.width / 2), y: y, width: s.width, height: s.height))
             NSColor.labelColor.set()
             CGRect(x: 0, y: 0, width: r.width, height: r.height).fill(using: .sourceAtop)
@@ -182,8 +181,8 @@ final class MenuAction: NSMenuItem {
     @objc private func fire() { run() }
 }
 
-/// Attach Sticker's icon: Messages' private `sticker.badge.plus` when the system has it.
+/// Attach Sticker's icon: the public `face.smiling` (Messages draws its private `sticker.badge.plus`,
+/// which cmux must not load: see `FieldChrome.emojiGlyph`).
 enum MenuSymbols {
-    static let attachSticker: String = Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?
-        .image(forResource: "sticker.badge.plus") != nil ? "sticker.badge.plus" : "face.smiling"
+    static let attachSticker = "face.smiling"
 }

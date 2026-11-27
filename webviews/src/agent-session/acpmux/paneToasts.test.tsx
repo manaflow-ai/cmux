@@ -12,8 +12,9 @@ import { resetSessionRefs, senderRef, setSessionRefResolver } from "./conversati
 import { resetTranscriptDisclosure } from "./conversation/transcriptDisclosureModel";
 import { WhoElseCard } from "./conversation/WhoElseCard";
 import { whoElseCall, WHO_ELSE_SCHEMA } from "./conversation/whoElseCalls";
-import { paneNotices } from "./paneToasts";
+import { paneNotices, senderMissingText } from "./paneToasts";
 import { SubsessionContext, SubsessionStore } from "./subagents/subsessions";
+import { settleReact } from "../../../test/support/domTeardown";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -54,6 +55,7 @@ afterEach(async () => {
   resetTranscriptDisclosure();
   setSessionRefResolver(undefined);
   resetSessionRefs();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -105,12 +107,12 @@ test("a click on a sender with no chat adds no transcript line; a second click c
   await act(async () => chip.click());
   expect(lines).toEqual([]);
   expect(toasts.snapshot().map((entry) => [entry.spec.message, entry.count])).toEqual([
-    ["Can't find build-box/mux-rs's chat", 1],
+    ["Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline.", 1],
   ]);
   await act(async () => chip.click());
   expect(lines).toEqual([]);
   expect(toasts.snapshot().map((entry) => [entry.spec.message, entry.count])).toEqual([
-    ["Can't find build-box/mux-rs's chat", 2],
+    ["Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline.", 2],
   ]);
 });
 
@@ -119,4 +121,46 @@ test("a sender that named itself is looked up without acpmux's unauthenticated l
   expect(senderRef(" mux-rs ")).toBe("mux-rs");
   // Only the label at the end goes.
   expect(senderRef("notes (draft)")).toBe("notes (draft)");
+});
+
+// Lawrence, 2026-11-13: "we need to improve all our toasts/prompts, make a swift playground for me to
+// pick my favorite". The pane's feedback toasts are the app's native toasts when a native host draws
+// the pane, so the style picked in the Toast Playground covers them too; the page's own stack draws
+// them only without a host (the browser dev page) or when the host refuses.
+test("with a native host, feedback and failures are native toasts and the page draws none", async () => {
+  const posted: Array<{ message: string; tone: string; group: string }> = [];
+  const toasts = createNoticeQueue();
+  const notices = paneNotices({
+    transcript: () => undefined,
+    toasts,
+    native: async (toast) => {
+      posted.push(toast);
+      return true;
+    },
+  });
+  notices.transient("Copied the link", "copy");
+  notices.failed("Could not open the chat");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(posted).toEqual([
+    { message: "Copied the link", tone: "neutral", group: "copy" },
+    { message: "Could not open the chat", tone: "error", group: "feedback" },
+  ]);
+  expect(toasts.snapshot()).toEqual([]);
+});
+
+test("a host that refuses the toast leaves it to the page's own stack", async () => {
+  const toasts = createNoticeQueue();
+  const notices = paneNotices({ transcript: () => undefined, toasts, native: async () => false });
+  notices.transient("Copied the link");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(toasts.snapshot().map((entry) => entry.spec.message)).toEqual(["Copied the link"]);
+});
+
+test("a missing sender's line names the chat and its machine, and what to check", () => {
+  expect(senderMissingText("build-box/mux-rs")).toBe(
+    "Can't find mux-rs's chat on build-box. It may have ended, or build-box is offline.",
+  );
+  // A bare name (this Mac's) keeps the short line; a slash at either end is not a machine.
+  expect(senderMissingText("mux-rs")).toBe("Can't find mux-rs's chat");
+  expect(senderMissingText("/mux-rs")).toBe("Can't find /mux-rs's chat");
 });

@@ -4,6 +4,7 @@ import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import Observation
 
@@ -15,22 +16,23 @@ extension WindowManager {
     // MARK: Transitions
 
     /// Applies one registry transition. `select` names, per window, the
-    /// workspaces the user just moved in; the first becomes selected there.
+    /// workspaces the user just moved in; the first becomes selected there. `gesture`: a person asked for that selection in this turn (never a daemon delta). `order`: the daemons' workspace order when the caller built it in this same turn (reconcile).
     @discardableResult
-    func transition(select preferred: [String: [String]] = [:],
+    func transition(select preferred: [String: [String]] = [:], gesture: Bool = false, order: [String]? = nil,
                     _ body: (inout WindowRegistry) -> WindowRegistry.Changes) -> WindowRegistry.Changes {
         let before = registry.value
         let previous = Dictionary(before.windows.map { ($0.id, $0.workspaceIDs) }, uniquingKeysWith: { first, _ in first })
-        let live = services.machines.daemons.flatMap { Self.orderedIDs(of: $0, machines: self.services.machines, doc: self.services.sidebarDoc) }
+        let live = order ?? services.machines.daemons.flatMap { daemon in registry.orderBuild { Self.orderedIDs(of: daemon, machines: self.services.machines, doc: self.services.sidebarDoc) } }
         let changes = registry.apply { registry in
             let changes = body(&registry)
+            shareSpaces(&registry) // the guests follow the owners in the same registry write (`WindowManager+SharedSpaces`)
             registry.order(like: live)
             return changes
         }
         if registry.value != before || !preferred.isEmpty {
             // Focus follows the workspaces: the window that received them.
             let receivers = Array(preferred.keys) + changes.moved.keys.sorted()
-            sync(previous: previous, preferred: preferred, receivers: receivers)
+            sync(previous: previous, preferred: preferred, receivers: receivers, gesture: gesture)
         }
         return changes
     }
@@ -41,12 +43,12 @@ extension WindowManager {
     /// or closed (at once), and when the key window closed, makes the window
     /// that received its workspaces key (else the next one in z-order).
     /// Windows whose membership did not change keep their state untouched.
-    func sync(previous: [String: [String]], preferred: [String: [String]] = [:], receivers: [String] = []) {
+    func sync(previous: [String: [String]], preferred: [String: [String]] = [:], receivers: [String] = [], gesture: Bool = false) {
         let value = registry.value
-        for window in value.openWindows where controller(for: window.id) == nil {
+        for window in value.openWindows where controller(for: window.id) == nil && !deferredWindows.contains(window.id) {
             makeController(for: window)
         }
-        repairSelections(previous: previous, preferred: preferred)
+        repairSelections(previous: previous, preferred: preferred, gesture: gesture)
         // A window Home that moved into a window with a Home closes (cmux#27880).
         services.windowHomes.closeSurplus(previous: previous)
         let closing = controllers.filter { $0.state.id != launchWindowID && value.window($0.state.id)?.isOpen != true }
@@ -62,37 +64,36 @@ extension WindowManager {
         recordSaver.scheduleSave()
     }
 
-    /// Makes each window's selection a workspace it lists in its current
-    /// profile. When that profile has none left there (closed, moved to
-    /// another profile or window), the window shows the most recent other
-    /// profile it holds workspaces in.
-    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:]) {
+    /// Makes each window's selection a workspace it lists in its current profile. When that profile has none left
+    /// there (closed, moved to another profile or window), the window shows the most recent other profile it holds
+    /// workspaces in. `only` repairs that one window: a close hides rows of its own window and no other window lists
+    /// them (`WindowRegistryStore.repairs`), so what a close reads does not grow with the other windows' lists.
+    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:], gesture: Bool = false, only: String? = nil, pressed: Bool = false) {
         let machines = services.machines
         let home = machines.local.store
-        for window in registry.value.windows {
+        for window in registry.repairs(only: only) {
             let state = state(for: window.id)
             let room = state.profileID
+            // Read again after each space the window enters: entering a space sets its guests (`spaceDidChange`).
+            func members() -> [String] { registry.value.window(window.id)?.workspaceIDs ?? window.workspaceIDs }
             // Its room was deleted (here or by another client); cached rooms can lag.
             if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
-                state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
+                state.enterProfile(WindowProfiles.fallback(for: state, members: members(), machines: machines) ?? .defaultProfile)
             }
-            var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
+            var visible = WindowProfiles.shown(members(), profile: state.profileID, machines: machines)
             // A window waiting for the workspace it just created in a new
-            // or empty room keeps that room.
-            let waiting = claims.pending.values.contains(window.id)
-            if visible.isEmpty, !waiting,
-               let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
+            // or empty room keeps that room (asked only when the room shows nothing).
+            if visible.isEmpty, !claims.pending.values.contains(window.id),
+               let fallback = WindowProfiles.fallback(for: state, members: members(), machines: machines) {
                 state.enterProfile(fallback)
-                visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
+                visible = WindowProfiles.shown(members(), profile: fallback, machines: machines)
             }
-            // A room change shows the workspace last shown in that room.
-            var wanted = preferred[window.id] ?? []
+            // A room change shows the workspace last shown in that room. A top page over a workspace that left stays up (a chat Bring Back took).
+            var wanted = preferred[window.id] ?? [], gone = state.workspaceID.map { !visible.contains($0) } ?? false
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
-            let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
-            // "The next row" is the sidebar's next drawn row, not the next member to have joined.
-            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior, members: visible, preferred: wanted, orders:
-                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
-            if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
+            let prior = WindowProfiles.visible(previous[window.id] ?? members(), profile: state.profileID, machines: machines)
+            registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, pressed: pressed, claimed: { claims.pending[$0] != nil }, orders:
+                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true, keepsPage: gone && !wanted.contains($0 ?? "")) }
         }
     }
 
@@ -111,11 +112,11 @@ extension WindowManager {
         noteInvariantViolations(problems)
     }
 
-    /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:)`.
-    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false) {
+    /// Sets the window's shown workspace (its own state); see `WindowState.showWorkspace(_:keepsCreation:keepsPage:)`.
+    func select(_ workspaceID: String?, in state: WindowState, keepsCreation: Bool = false, keepsPage: Bool = false) {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
-        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state))
+        state.showWorkspace(workspaceID, keepsCreation: keepsCreation || services.cloud.creations.opens(workspaceID, shownIn: state), keepsPage: keepsPage)
         recordSaver.stateDidChange(state)
     }
 
@@ -129,13 +130,13 @@ extension WindowManager {
     /// An action run without view-change permission shows nothing. The window
     /// swaps its content in this turn, not on its observation hop (I6).
     func show(workspaceID: String, in state: WindowState, from origin: ShowOrigin = .anywhere) {
-        guard ActionRunScope.viewChangeAllowed() else { return }
+        guard ActionRunScope.viewChangeAllowed() else { return }; if let mac = services.agentTabs.frontedChats.mac(showingWorkspace: workspaceID) { return CloudFrontedChats.show(mac, in: state, from: origin, windows: self) } // a Cloud chat a Mac tab shows in place shows there (CloudFrontedChats)
         let value = registry.value
         if DebugWorkspaceSwitch.timer.isRecording, let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
             DebugWorkspaceSwitch.began(timed)
         }
-        if origin == .anywhere, let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
-           let target = controller(for: owner) {
+        if origin == .anywhere, !value.isGuest(workspaceID, in: state.id), let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
+           let target = liveController(for: owner) {
             select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
             bringToFront(target)
@@ -146,12 +147,12 @@ extension WindowManager {
         let openBefore = Set(value.openWindows.map(\.id))
         claim(workspaceID: workspaceID, in: state)
         // An unowned ephemeral workspace went to its own incognito window: that window shows it.
-        if let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = controller(for: owner) {
+        if !registry.value.isGuest(workspaceID, in: state.id), let owner = registry.value.owner(of: workspaceID), owner != state.id, let target = liveController(for: owner) {
             target.showWorkspace(requested: target.state.workspaceID)
             if origin.raisesOwner(ownerWasOpen: openBefore.contains(owner)) { bringToFront(target) }
             return
         }
-        controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
+        liveController(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
     /// Shows `workspaceID` in window `windowID` (taking it there), as a pick in that window's own
@@ -181,7 +182,7 @@ extension WindowManager {
     func reveal(workspaceID: String) -> WindowController? {
         let value = registry.value
         let shows = ActionRunScope.viewChangeAllowed()
-        if let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
+        if let owner = actingWindow(for: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
             if shows { select(workspaceID, in: target.state) }
             return target
         }
@@ -217,14 +218,24 @@ extension WindowManager {
         // Not reported yet: it lands when the daemon reports it, shown only
         // when asked (reconcileMembership).
         if !shows, claims.pending[workspaceID] != nil { claims.quiet.insert(workspaceID) }
-        if registry.value.owner(of: workspaceID) == state.id {
+        // Listed here, as its own or as a view of another window's (a shared space): selected, never taken.
+        if registry.value.lists(workspaceID, in: state.id) {
             if shows { select(workspaceID, in: state) }
             return
         }
         // A workspace of another room: the window enters that room first, so the selection repair
         // after the move finds it shown there and picks it (Home took a second click otherwise).
+        // Spaces off (#48355): this window keeps its view. A workspace of another space shows in its open window, else
+        // opens in a window of its own on its space.
+        if shows, !spacesOn, let room = WindowProfiles.room(of: workspaceID, current: state.profileID, machines: services.machines) {
+            if let owner = openOwner(of: workspaceID), let target = controller(for: owner) { return select(workspaceID, in: target.state) }
+            let windowID = UUID().uuidString.lowercased()
+            self.state(for: windowID).enterProfile(room)
+            openWindow(id: windowID, workspaces: [workspaceID])
+            return
+        }
         if shows { enterProfile(of: workspaceID, in: state) }
-        transition(select: shows ? [state.id: [workspaceID]] : [:]) { $0.move([workspaceID], to: state.id) }
+        transition(select: shows ? [state.id: [workspaceID]] : [:], gesture: true) { $0.move([workspaceID], to: state.id) }
         fileOpenedMachine(of: workspaceID, into: state.id)
     }
 
@@ -244,7 +255,7 @@ extension WindowManager {
     /// window; a normal one joins the most recent open normal window, else opens one.
     func fileHeldWorkspace(_ workspaceID: String, select: Bool) {
         // Placed meanwhile (opening its machine's other workspace re-ran reconcile): it stays there.
-        guard registry.value.owner(of: workspaceID) == nil else { return }
+        guard registry.value.owner(of: workspaceID) == nil, !services.agentTabs.frontedChats.workspaceIDs.contains(workspaceID) else { return } // nor one a Mac tab shows in place (CloudFrontedChats)
         if EphemeralWorkspaces.isEphemeral(workspaceID, self) {
             openWindow(workspaces: [workspaceID], incognito: true, behind: !select)
         } else if let normal = registry.value.mostRecentOpen(incognito: false), let state = states[normal] {
@@ -260,7 +271,7 @@ extension WindowManager {
     /// through the usual ephemeral placement. An incognito `windowID` takes none of them: closing it
     /// would discard them, so reconcile gives them to a normal window.
     func fileOpenedMachine(of workspaceID: String, into windowID: String) {
-        guard !fillingOpenedMachine, let daemon = services.machines.daemon(forWorkspace: workspaceID),
+        guard !fillingOpenedMachine, opensMachine(workspaceID), let daemon = services.machines.daemon(forWorkspace: workspaceID),
               services.machines.session(daemon.machineID) != nil else { return }
         fillingOpenedMachine = true
         defer { fillingOpenedMachine = false }
@@ -283,7 +294,7 @@ extension WindowManager {
     /// Returns false when nothing moved (a move between an incognito
     /// window and a normal one is refused with a message).
     @discardableResult
-    func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true) -> Bool {
+    func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true, keepingSpace: Bool = false) -> Bool {
         let select = select && ActionRunScope.viewChangeAllowed()
         guard registry.value.window(windowID)?.isOpen == true, !ids.isEmpty else { return false }
         if registry.value.crossesIncognito(ids, to: windowID) {
@@ -294,11 +305,14 @@ extension WindowManager {
         // (New Window opens a new one) used to list them unseen while the window they left closed: in no sidebar.
         // The first that another space shows decides (one still unreported, or already shown here, switches nothing).
         // A window on its own incognito space never leaves it (`switchProfile`).
-        if select, incognitoSpaces[windowID] == nil, let state = states[windowID],
+        // Spaces off (#48355): the window keeps its view, and workspaces of another space join it (a pin, as Move to Space).
+        if !spacesOn, incognitoSpaces[windowID] == nil, let state = states[windowID] {
+            pin(ids, to: state.profileID, selectIn: select ? windowID : nil)
+        } else if select, !keepingSpace, incognitoSpaces[windowID] == nil, let state = states[windowID],
            let room = ids.lazy.compactMap({ WindowProfiles.room(of: $0, current: state.profileID, machines: self.services.machines) }).first {
             state.enterProfile(room)
         }
-        transition(select: select ? [windowID: ids] : [:]) { $0.move(ids, to: windowID) }
+        transition(select: select ? [windowID: ids] : [:], gesture: true) { $0.move(ids, to: windowID) }
         return true
     }
 
@@ -335,11 +349,11 @@ extension WindowManager {
         if incognito { registry.apply { $0.markIncognito(id); return WindowRegistry.Changes() } }
         if behind { behindWindows.insert(id) }
         protectIfUnknown(workspaces, window: id)
-        transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
+        transition(select: [id: workspaces], gesture: true) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
         // Every Cloud machine the batch opens, once each (a drag can carry several).
         var machines = Set<String>()
         for workspace in workspaces {
-            guard let machine = services.machines.daemon(forWorkspace: workspace)?.machineID, machines.insert(machine).inserted else { continue }
+            guard opensMachine(workspace), let machine = services.machines.daemon(forWorkspace: workspace)?.machineID, machines.insert(machine).inserted else { continue }
             fileOpenedMachine(of: workspace, into: id)
         }
         guard let controller = controller(for: id) else { return nil }
@@ -357,7 +371,7 @@ extension WindowManager {
         let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
         if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
         guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
-        if select { bringToFront(moved) }
+        if select { bringToFront(moved) }; if !whole { WindowOwnSpace.give(moved.state.id, in: self) } // its own space, reached from the switcher
     }
 
     /// The user closed window `id`: it stays registered, closed, with its
@@ -443,7 +457,7 @@ extension WindowManager {
             for await _ in ObservationStream({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
-                    + [Self.profileTags(of: machines.local)] + PhoneIncognitoHiding.ephemeralIDs(machines.local).sorted()
+                    + [Self.profileTags(of: machines.local)] + EphemeralWorkspaces.ephemeralIDs(machines.local).sorted()
             }) {
                 self?.reconcileMembership()
                 self?.recordIncognitoWorkspaces()
@@ -463,7 +477,7 @@ extension WindowManager {
         var cloud: [[String]] = []
         for daemon in services.machines.daemons {
             installWorkspaceListHook(on: daemon)
-            let ids = Self.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc)
+            let ids = registry.orderBuild { Self.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc) }
             for id in ids {
                 live.append(id)
                 seenMachine[id] = daemon.machineID
@@ -474,6 +488,7 @@ extension WindowManager {
                 cloud.append(ids.filter { services.machines.workspace(id: $0)?.1 === daemon })
             }
         }
+        let liveSet = Set(live)
         var placements = claims.pending
         // A tab moved out of an incognito window into a new workspace (drag,
         // action, CLI) keeps its kind: that workspace goes back to the
@@ -488,7 +503,7 @@ extension WindowManager {
         // Before the ephemeral placements: one there is not the person opening the machine, and an
         // unopened machine's ephemeral workspace opens no incognito window either.
         claims.background.formIntersection(claims.pending.keys)
-        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || (placements[$0] != nil && !claims.background.contains($0)) }
+        let unopened = Self.unopenedCloudWorkspaces(cloud, opensMachine: opensMachine) { registered.owner(of: $0) != nil || (placements[$0] != nil && !claims.background.contains($0)) }
         // A background create's claim never places a held workspace (#28609): opening its machine does.
         for id in unopened where claims.background.remove(id) != nil { (claims.pending[id], placements[id]) = (nil, nil); claims.quiet.remove(id) }
         placements.merge(EphemeralWorkspaces.placements(self, live: live.filter { !unopened.contains($0) }, placements: placements)) { claimed, _ in claimed }
@@ -496,11 +511,11 @@ extension WindowManager {
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window; so does one awaiting its first tab (FirstTabHold).
         // So does one claimed for the launch window before the restore (`awaitsRestore`).
-        let held: Set<String> = FirstTabHold.held(live).union(unopened).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
+        let held: Set<String> = FirstTabHold.held(liveSet).union(unopened).union(services.agentTabs.frontedChats.workspaceIDs).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
-        }).union(live.filter { id in placements[id].map(awaitsRestore) == true })
-        for id in live where !held.contains(id) { claims.pending[id] = nil; claims.background.remove(id) }
+        }).union(placements.compactMap { id, window in liveSet.contains(id) && awaitsRestore(window) ? id : nil })
+        for id in claims.pending.keys where liveSet.contains(id) && !held.contains(id) { claims.pending[id] = nil; claims.background.remove(id) } // background ⊆ pending (above)
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).
         let before = registry.value
@@ -508,23 +523,26 @@ extension WindowManager {
         for id in live where before.owner(of: id) == nil && !held.contains(id) {
             if let window = placements[id], !claims.quiet.contains(id) { preferred[window, default: []].append(id) }
         }
-        for id in live where !held.contains(id) { claims.quiet.remove(id) }
+        for id in claims.quiet where liveSet.contains(id) && !held.contains(id) { claims.quiet.remove(id) }
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
         settleRestoreClosed()
         let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
-        transition(select: preferred) { registry in
+        transition(select: preferred, gesture: false, order: live) { registry in // a delta: never the person's gesture, whatever run is current
             let changes = registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
                                              fallbackWindow: fallback)
             restoreClosed.keepClosed(&registry)
             return changes
         }
-        // A workspace that changed profile leaves no trace in membership.
-        if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
+        // A workspace that changed profile leaves no trace in membership; one moved in while Spaces is off is selected once its pin lands.
+        if registry.value == before, preferred.isEmpty {
+            let pinned = pinSelections.isEmpty ? [:] : landedPins()
+            repairSelections(previous: [:], preferred: pinned, gesture: !pinned.isEmpty)
+        }
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
         settleRestoreClosed()
         rememberIncognitoTabs()
-        applyPendingPlacements(live: Set(live))
+        applyPendingPlacements(live: liveSet)
     }
 
     /// After the restore, the closed launch window is remembered while a workspace it asked for can still come.
@@ -540,12 +558,12 @@ extension WindowManager {
     /// person opened that machine here: one of its workspaces is in a window (open or closed) or
     /// claimed for one (Open Machine, New Cloud Workspace, a run with focus). Until then reconcile
     /// holds them, in no sidebar. Returns the workspaces of each Cloud machine in `machines` (its
-    /// live workspace ids) that has none `opened` says is in a window or claimed for one.
-    static func unopenedCloudWorkspaces(_ machines: [[String]], opened: (String) -> Bool) -> Set<String> {
-        var held = Set<String>()
-        for workspaces in machines where !workspaces.contains(where: opened) { held.formUnion(workspaces) }
-        return held
+    /// live workspace ids) that has none `opened` and `opensMachine` (not only agent chats: a Cloud chat's own joins alone; cmux#45947).
+    static func unopenedCloudWorkspaces(_ machines: [[String]], opensMachine: (String) -> Bool = { _ in true }, opened: (String) -> Bool) -> Set<String> {
+        Set(machines.filter { !$0.contains { opened($0) && opensMachine($0) } }.joined().filter { !opened($0) })
     }
+
+    func opensMachine(_ id: String) -> Bool { services.machines.workspace(id: id)?.0.holdsOnlyAgentChats != true }
 
     private func installWorkspaceListHook(on daemon: DaemonService) {
         guard daemon.store.onWorkspaceListChanged == nil else { return }
@@ -592,9 +610,7 @@ extension WindowManager {
     /// `doc`: the app's own sidebar document.
     static func orderedIDs(of daemon: DaemonService, machines: MachineRegistry, doc: SidebarDocument) -> [String] {
         if let personal = PersonalSidebar.orderedIDs(of: daemon, machines: machines, doc: doc) { return personal }
-        let sidebar = daemon.store.sidebarSections.flatMap(\.workspaces).map(\.id)
-        let listed = Set(sidebar)
-        return sidebar + daemon.store.workspaces.map(\.id).filter { !listed.contains($0) }
+        return daemon.store.sidebarOrderedIDs
     }
 
     /// The room rules (each room's followed sessions, each workspace pin)

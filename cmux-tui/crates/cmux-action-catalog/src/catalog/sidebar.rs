@@ -18,23 +18,21 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "sidebar.left",
         surfaces: PALETTE | KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 300)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar toggle-left",
         main_menu: Some("view"),
         ..Action::DEFAULT
     },
     Action {
-        id: "toggleRightSidebar",
+        id: "sidebar.customize",
         group: GROUP,
-        title: t("ActionCatalog", "action.toggleRightSidebar", "Toggle Right Sidebar"),
-        keywords: &["files", "explorer", "panel"],
-        default_shortcut: Some(Shortcut { key: "b", modifiers: OPT | CMD }),
+        title: t("ActionCatalog", "action.sidebar.customize", "Customize Sidebar…"),
+        keywords: &["sidebar", "customize", "rows", "layout", "density", "sections"],
         category: "sidebar",
-        symbol: "sidebar.right",
-        surfaces: KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "sidebar toggle-right",
-        main_menu: Some("view"),
+        symbol: "slider.horizontal.3",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        cli_name: "sidebar customize",
         ..Action::DEFAULT
     },
     Action {
@@ -76,93 +74,6 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar reveal-and-focus-workspace",
         focuses: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "focusRightSidebar",
-        group: GROUP,
-        title: t("ActionCatalog", "action.focusRightSidebar", "Focus Right Sidebar"),
-        keywords: &["files", "explorer", "panel"],
-        default_shortcut: Some(Shortcut { key: "e", modifiers: SHIFT | CMD }),
-        category: "sidebar",
-        symbol: "sidebar.squares.right",
-        surfaces: KEYBOARD | MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("focusMove")), context_menu_exemption: Some("focusMove"), ..SurfacePlan::DEFAULT },
-        cli_name: "sidebar focus-right",
-        main_menu: Some("view"),
-        focuses: true,
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "switchRightSidebarToFiles",
-        group: GROUP,
-        title: t("ActionCatalog", "action.switchRightSidebarToFiles", "Show Files"),
-        keywords: &["right sidebar", "explorer"],
-        category: "sidebar",
-        symbol: "doc.text",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "sidebar show-files",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "switchRightSidebarToFind",
-        group: GROUP,
-        title: t("ActionCatalog", "action.switchRightSidebarToFind", "Show Find"),
-        keywords: &["right sidebar", "search"],
-        category: "sidebar",
-        symbol: "text.magnifyingglass",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "sidebar show-find",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "switchRightSidebarToSessions",
-        group: GROUP,
-        title: t("ActionCatalog", "action.switchRightSidebarToSessions", "Show Vault"),
-        keywords: &["right sidebar", "sessions"],
-        category: "sidebar",
-        symbol: "archivebox",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "sidebar show-vault",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "switchRightSidebarToFeed",
-        group: GROUP,
-        title: t("ActionCatalog", "action.switchRightSidebarToFeed", "Show Feed in Right Sidebar"),
-        keywords: &["right sidebar", "activity"],
-        category: "sidebar",
-        symbol: "dot.radiowaves.left.and.right",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "sidebar show-feed",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "switchRightSidebarToDock",
-        group: GROUP,
-        title: t("ActionCatalog", "action.switchRightSidebarToDock", "Show Dock"),
-        keywords: &["right sidebar"],
-        category: "sidebar",
-        symbol: "dock.rectangle",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "sidebar show-dock",
-        ..Action::DEFAULT
-    },
-    Action {
-        id: "switchRightSidebarToMachines",
-        group: GROUP,
-        title: t("ActionCatalog", "action.switchRightSidebarToMachines", "Show Cloud"),
-        keywords: &["right sidebar", "machines"],
-        category: "sidebar",
-        symbol: "cloud",
-        surfaces: PALETTE | KEYBOARD,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
-        cli_name: "sidebar show-cloud",
         ..Action::DEFAULT
     },
     Action {
@@ -359,6 +270,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar resume-session-in-new-workspace",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -383,6 +295,7 @@ pub static ACTIONS: &[Action] = &[
         surfaces: CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("liveInput")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar open-session-pull-request",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -487,7 +400,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle.compress.vertical",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 130).folder("options")], mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), mcp_exemption: Some("systemChange"), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar enable-minimal-mode",
         ..Action::DEFAULT
     },
@@ -499,7 +412,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "rectangle.expand.vertical",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 131).folder("options")], mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), mcp_exemption: Some("systemChange"), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         cli_name: "sidebar disable-minimal-mode",
         ..Action::DEFAULT
     },

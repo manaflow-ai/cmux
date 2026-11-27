@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { settleReact } from "./support/domTeardown";
 
 await requireBrowserLane("session-info-changes-narrow-browser.test.tsx", async () => {
   setDefaultTimeout(60_000);
@@ -91,6 +92,7 @@ await requireBrowserLane("session-info-changes-narrow-browser.test.tsx", async (
     html[name] = container.innerHTML;
     act(() => root.unmount());
   }
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

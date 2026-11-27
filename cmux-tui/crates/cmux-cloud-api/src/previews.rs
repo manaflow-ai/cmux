@@ -25,7 +25,7 @@ pub(crate) const PUBLICATION_CALLS: [&str; 5] = [
     "vm.revoke_publication_api_key",
 ];
 
-fn client(request: &Request) -> Result<cmux_cloud_client::Client, Failure> {
+pub(crate) fn client(request: &Request) -> Result<cmux_cloud_client::Client, Failure> {
     super::http::base_url(&request.api).map_err(Failure::Transport)?;
     let _ = rustls::crypto::ring::default_provider().install_default();
     cmux_cloud_client::client(
@@ -175,7 +175,7 @@ async fn target(
 
 /// `sent`'s answer within `limit`, its refusal read as the app's failure (a local stack that is
 /// not running is `NoBackend`).
-async fn answered(
+pub(crate) async fn answered(
     request: &Request,
     limit: std::time::Duration,
     path: String,

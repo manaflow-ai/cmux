@@ -17,6 +17,7 @@ use super::get_surface;
 use super::image_paste;
 use super::optional_surface_size;
 use super::require_pty;
+use super::send_once;
 use super::terminal_snapshot;
 use crate::Actor;
 use crate::DefaultColors;
@@ -72,8 +73,30 @@ pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foregrou
 
 /// `send-expect-agent-v1`: `send` takes `expect_agent` and `submit`, so a reply typed from
 /// somewhere that cannot see the screen (the phone's Feed) reaches only the agent that waits at
-/// its prompt, and is submitted with no gap between the text and Return.
+/// its prompt, and is submitted by a Return of its own. The PTY writer gives it its own read once
+/// the program read the text (`paste_pacing`): sent right behind a paste, an agent TUI took it as
+/// part of the paste.
 pub(super) const SEND_EXPECT_AGENT_CAPABILITY: &str = "send-expect-agent-v1";
+
+/// `send-typed-submit-v1`: a `send` with `submit` and typed text (no `paste`) writes Return
+/// [`TYPED_SUBMIT_GAP`] after the text, in the same request. The phone's composer sends a one-line
+/// draft for a full-screen program that way (typed, not pasted: vim takes a bracketed paste as
+/// text even in normal mode). It was the text, then Return as a second request 250 ms later from
+/// the phone; across a link blip the text arrived and the Return did not (Leo, 2026-11-21: "the
+/// text goes through. But then the send doesn't go through"). One keyed request goes once or not
+/// at all, and the gap keeps an agent's paste-burst detection (Codex: about 120 ms after a burst
+/// of unbracketed characters) from taking the Return for a newline.
+pub(super) const SEND_TYPED_SUBMIT_CAPABILITY: &str = "send-typed-submit-v1";
+
+/// How long Return waits after typed text in a `submit` send (`send-typed-submit-v1`): past an
+/// agent TUI's paste-burst window, the phone's old typed-Enter delay.
+pub(super) const TYPED_SUBMIT_GAP: Duration = Duration::from_millis(250);
+
+/// The wait before a `submit`'s Return: after typed text, [`TYPED_SUBMIT_GAP`]; after a paste
+/// (the PTY writer's `paste_pacing` waits for it) or with nothing written, none.
+pub(super) fn submit_wait(paste: bool, wrote_text: bool) -> Duration {
+    if !paste && wrote_text { TYPED_SUBMIT_GAP } else { Duration::ZERO }
+}
 
 /// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle`, never `working`,
 /// `blocked` on an approval or a question, or `done`), in this harness session.
@@ -118,6 +141,12 @@ pub(super) struct SendParams {
     /// flows); only recorded, never acted on. An older daemon ignores it.
     #[serde(default)]
     pub(super) flow: Option<u64>,
+    /// `send-key-v1`: an id for this input. A `send` whose key the daemon already applied is
+    /// answered with the same success reply and writes nothing (`send_once`), so a client that
+    /// lost the reply can send it again safely. Applies to `text` and `bytes` alike. An older
+    /// daemon ignores it.
+    #[serde(default)]
+    pub(super) key: Option<String>,
 }
 
 /// The terminal a key (`send`, `send-key`) goes to. A client attached to it (the app's terminal view) keeps its handle
@@ -149,13 +178,15 @@ pub(super) fn input_surface(
         }
         return Ok((surface, InputReply::Written));
     }
-    if let Some((surface, can_type)) = mux.control_clients.attached_input_surface(client, id) {
+    if let Some((surface, can_type)) =
+        mux.control_clients.attached_input_surface(client, id, &mux.route_generations)
+    {
         if can_type {
             writer.input_lane.mark_person_input();
         }
         return Ok((surface, InputReply::Written));
     }
-    let generation = crate::route_table::route_generation(id);
+    let generation = mux.route_generations.of(id);
     let surface = get_surface(mux, id)?;
     if mux.control_clients.remember_attached_input(client, id, &surface, generation) {
         writer.input_lane.mark_person_input();
@@ -164,6 +195,48 @@ pub(super) fn input_surface(
 }
 
 pub(super) fn send(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    mut params: SendParams,
+) -> anyhow::Result<Value> {
+    let Some(key) = params.key.take() else {
+        return send_unkeyed(mux, client, writer, params);
+    };
+    if key.is_empty() || key.len() > send_once::MAX_KEY_LEN {
+        return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+            "bad request: key must be 1 to {} bytes",
+            send_once::MAX_KEY_LEN
+        )));
+    }
+    let claimed = send_once::sent_keys()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .claim(&key, Instant::now());
+    if !claimed {
+        // Applied already (the client lost the first reply): the same success, nothing written.
+        return Ok(json!({}));
+    }
+    let result = send_unkeyed(mux, client, writer, params);
+    if let Err(error) = &result
+        && known_not_delivered(error)
+    {
+        send_once::sent_keys()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .forget(&key);
+    }
+    result
+}
+
+/// The error says nothing was written (a refused check), so the same key may write later.
+fn known_not_delivered(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<DeliveryClassifiedError>().is_some_and(|classified| {
+        matches!(classified.delivery, super::ResponseErrorDelivery::KnownNotDelivered)
+    })
+}
+
+fn send_unkeyed(
     mux: &Arc<Mux>,
     client: u64,
     writer: &MessageWriter,
@@ -179,6 +252,7 @@ pub(super) fn send(
         expect_agent,
         submit,
         flow,
+        key: _,
     } = params;
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
@@ -247,6 +321,7 @@ pub(super) fn send(
             )));
         }
     }
+    let wrote_text = text.as_deref().is_some_and(|text| !text.is_empty()) || bytes.is_some();
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
         if let Some(b64) = bytes {
@@ -274,7 +349,13 @@ pub(super) fn send(
     }
     if submit {
         // Return as its own key: a full-screen agent editor reads a pasted newline as a line
-        // break, not a submit.
+        // break, not a submit. The PTY writer holds it until the program read the paste
+        // (`paste_pacing`).
+        // Typed text: Return waits past an agent's paste-burst window (`send-typed-submit-v1`).
+        let wait = submit_wait(paste, wrote_text);
+        if !wait.is_zero() {
+            std::thread::sleep(wait);
+        }
         // The text is already in: a failed Return must not read as "nothing was written".
         surface.write_bytes_replying(b"\r", reply).map_err(|error| {
             anyhow::anyhow!("submit failed after the text was written: {error}")

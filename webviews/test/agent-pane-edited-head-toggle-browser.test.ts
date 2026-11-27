@@ -1,13 +1,9 @@
 // l10n-allow-file: test fixture prompts, replies and file text, not shipped UI.
-// The edits card's whole header is its toggle (Leo, 2026-10-31: "this thing i can't click the whole
-// thing to expand/collapse only on the middle strip it's weird and bad"). A one-file card's header
-// ("± Edited MEMORY.md +1 -0") opens and closes its diff from a click anywhere on it: the left
-// padding, the icon, the right end past the chevron, and the top and bottom insets, not only the
-// title's strip. View changes, a control of its own in the header, still opens the changes view and
-// leaves the diff as it was. The page is the pane's dev entry with its browser host, talking
-// JSON-RPC to a stand-in acpmux daemon (as agent-pane-edited-calm.test.ts).
-//
-// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// A single-file header opens that file's diff inline, inside the card, from anywhere on it or its
+// chevron (Leo, 2026-11-22: "it should be able to just open inline inside the fucking existing agent
+// chat situation."); the changes pane is the opened diff's Open in Changes icon. There is one way to
+// open it, no View changes button beside it ("we cant be having bullshit like this"). Its whole
+// pointer target keeps the header hover; child controls (Undo) retain their own clicks.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -149,9 +145,7 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
 
   const HEAD = ".acpmux-edited-head";
   const TOGGLE = ".acpmux-edited-head .acpmux-edited-toggle";
-  const expanded = (page: Page) => page.locator(TOGGLE).getAttribute("aria-expanded");
-  /// The header's box and its parts', measured fresh before each click (the fold holds the header
-  /// in place, but nothing here relies on it).
+  /// The header and its parts, measured fresh before each click.
   const boxes = (page: Page) =>
     page.evaluate((head) => {
       const rect = (node: Element | null) => {
@@ -160,38 +154,65 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
         return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
       };
       const header = document.querySelector(head)!;
+      const card = header.closest<HTMLElement>(".acpmux-edited")!;
+      const scale = card.getBoundingClientRect().width / card.offsetWidth;
+      const radius = parseFloat(getComputedStyle(card).borderTopLeftRadius);
       return {
         head: rect(header),
+        cornerInset: Math.max(2, (radius * scale) / 2),
         icon: rect(header.querySelector(".acpmux-edited-icon")),
         counts: rect(header.querySelector(".acpmux-diff-counts")),
-        title: rect(header.querySelector(".acpmux-edited-title > div")),
-        view: rect(header.querySelector(".acpmux-review-changes")),
+        title: rect(header.querySelector(".acpmux-edited-name")),
+        undo: rect(header.querySelector(".acpmux-edited-undo")),
+        chevron: rect(header.querySelector(".acpmux-edited-chevron")),
       };
     }, HEAD);
 
-  test("a click anywhere on the one-file card's header opens and closes its diff", async () => {
+  /// Waits until the card shows `count` inline diffs (the fold may animate its close).
+  const inlineDiffs = (page: Page, count: number) =>
+    page.waitForFunction(
+      (n) => document.querySelectorAll(".acpmux-edited .acpmux-edited-stack .cv-edit-diff").length === n,
+      count,
+      { timeout: 10_000 },
+    );
+
+  test("a click anywhere on a one-file header opens its diff inline, and again closes it", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Notes updated.").waitFor();
-    await page.locator(TOGGLE).waitFor();
-    const start = await expanded(page);
+    await page.locator(HEAD).waitFor();
+    // One affordance: the chevron, and no View changes button or hover link beside it.
+    expect(await page.locator(TOGGLE).count()).toBe(1);
+    expect(
+      await page
+        .locator(".acpmux-edited .acpmux-review-changes:not(.acpmux-edited-open), .acpmux-edited-summary")
+        .count(),
+    ).toBe(0);
+    expect(
+      await page.locator(".acpmux-edited").getByRole("button", { name: "View changes", exact: true }).count(),
+    ).toBe(1);
     type Box = Awaited<ReturnType<typeof boxes>>;
     const middle = (box: Box["head"]) => (box.top + box.bottom) / 2;
     const points: [string, (box: Box) => { x: number; y: number }][] = [
       ["the left padding", ({ head }) => ({ x: head.left + 3, y: middle(head) })],
       ["the icon", ({ icon }) => ({ x: (icon.left + icon.right) / 2, y: (icon.top + icon.bottom) / 2 })],
-      ["the counts", ({ counts }) => ({ x: (counts.left + counts.right) / 2, y: (counts.top + counts.bottom) / 2 })],
-      // Between the title's words and View changes: the header's empty middle.
+      // Between the title's words and Undo: the header's empty middle.
       [
         "the empty space after the title",
-        ({ counts, view }) => ({ x: (counts.right + view.left) / 2, y: middle(view) }),
+        ({ counts, undo }) => ({ x: (counts.right + undo.left) / 2, y: middle(undo) }),
       ],
-      ["the right end, past the chevron", ({ head }) => ({ x: head.right - 2, y: middle(head) })],
+      ["the right end", ({ head }) => ({ x: head.right - 2, y: middle(head) })],
       ["the top inset", ({ head, title }) => ({ x: (title.left + title.right) / 2, y: head.top + 1.5 })],
       ["the bottom inset", ({ head, title }) => ({ x: (title.left + title.right) / 2, y: head.bottom - 1.5 })],
-      ["the top-left corner", ({ head }) => ({ x: head.left + 2, y: head.top + 2 })],
+      [
+        "inside the rounded top-left corner",
+        ({ head, cornerInset }) => ({ x: head.left + cornerInset, y: head.top + cornerInset }),
+      ],
+      [
+        "the chevron",
+        ({ chevron }) => ({ x: (chevron.left + chevron.right) / 2, y: (chevron.top + chevron.bottom) / 2 }),
+      ],
     ];
-    let open = start === "true";
     for (const [where, at] of points) {
       const point = at(await boxes(page));
       const hit = await page.evaluate(
@@ -200,19 +221,29 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
       );
       expect({ where, inHeader: hit }).toEqual({ where, inHeader: true });
       await page.mouse.click(point.x, point.y);
-      open = !open;
-      expect({ where, expanded: await expanded(page) }).toEqual({ where, expanded: String(open) });
+      await inlineDiffs(page, 1);
+      expect({ where, expanded: await page.locator(TOGGLE).getAttribute("aria-expanded") }).toEqual({
+        where,
+        expanded: "true",
+      });
+      // Closed again from the same place, ready for the next point.
+      const again = at(await boxes(page));
+      await page.mouse.click(again.x, again.y);
+      await inlineDiffs(page, 0);
+      expect({ where, expanded: await page.locator(TOGGLE).getAttribute("aria-expanded") }).toEqual({
+        where,
+        expanded: "false",
+      });
     }
-    // The diff really opens from the header: its file card shows under it.
-    if (!open) {
-      const { head } = await boxes(page);
-      await page.mouse.click(head.left + 3, middle(head));
-      open = true;
-    }
-    await page.locator(".acpmux-edited .cv-edit-diff").waitFor();
-    // View changes keeps its own click: it opens the changes view and leaves the diff open.
-    await page.locator(".acpmux-edited-head").getByRole("button", { name: "View changes" }).click();
-    expect(await expanded(page)).toBe("true");
+    // The opened diff carries the way to the changes pane: one Open in Changes icon in its header.
+    await page.locator(TOGGLE).click();
+    await inlineDiffs(page, 1);
+    expect(
+      await page
+        .locator(".acpmux-edited-stack .cv-edit-diff__header")
+        .getByRole("button", { name: "Open in Changes", exact: true })
+        .count(),
+    ).toBe(1);
     await page.close();
   });
 
@@ -220,13 +251,18 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Notes updated.").waitFor();
-    await page.locator(TOGGLE).waitFor();
+    await page.locator(HEAD).waitFor();
     const background = () => page.locator(HEAD).evaluate((node) => getComputedStyle(node).backgroundColor);
     const rest = await background();
-    const { head, view } = await boxes(page);
+    const { head, undo, chevron } = await boxes(page);
     await page.mouse.move(head.left + 3, middle(head));
-    expect(await background()).not.toBe(rest);
-    await page.mouse.move((view.left + view.right) / 2, (view.top + view.bottom) / 2);
+    const hovered = await background();
+    expect(hovered).not.toBe(rest);
+    // The chevron is the header's own toggle: pointing at it keeps the header's hover.
+    await page.mouse.move((chevron.left + chevron.right) / 2, (chevron.top + chevron.bottom) / 2);
+    expect(await background()).toBe(hovered);
+    // Undo is a button of its own: pointing at it drops the header's hover.
+    await page.mouse.move((undo.left + undo.right) / 2, (undo.top + undo.bottom) / 2);
     expect(await background()).toBe(rest);
     expect(await page.locator(HEAD).evaluate((node) => getComputedStyle(node).cursor)).toBe("default");
     await page.close();

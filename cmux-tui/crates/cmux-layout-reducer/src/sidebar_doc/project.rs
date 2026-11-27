@@ -56,6 +56,14 @@ pub struct Projection {
     pub group_sorts: BTreeMap<ItemId, String>,
     /// The group members pinned inside their group.
     pub pinned_in_group: Vec<ItemId>,
+    /// Each group's own chats-per-project cap (0 is All), by group item;
+    /// absent: the setting ([`GROUP_ROW_LIMIT_KEY`]).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub group_row_limits: BTreeMap<ItemId, u32>,
+    /// The rows each group's "Show N more" revealed past its cap
+    /// ([`GROUP_REVEALED_KEY`]), by group item; absent: none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub group_revealed: BTreeMap<ItemId, u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -371,6 +379,15 @@ pub fn project(doc: &Doc, rows: &[Row]) -> Projection {
             && let Some(sort) = item.group_sort().value()
         {
             out.group_sorts.insert(item.id.clone(), sort.to_string());
+        }
+        if item.body.is_group() {
+            if let Some(cap) = item.group_row_limit() {
+                out.group_row_limits.insert(item.id.clone(), cap);
+            }
+            let revealed = item.group_revealed();
+            if revealed > 0 {
+                out.group_revealed.insert(item.id.clone(), revealed);
+            }
         }
         if item.pinned_in_group() {
             out.pinned_in_group.push(item.id.clone());

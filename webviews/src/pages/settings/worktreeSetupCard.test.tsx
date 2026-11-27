@@ -72,6 +72,27 @@ test("Use Repository's drops the project's script; Clear Saved sends null", asyn
   page.unmount();
 });
 
+// CMUX-374: with no repository script the field's state stayed "repository" whatever the project set,
+// so Use Repository's never showed, and a project script (or an emptied one, saved as "") could not go
+// back to following the repository.
+test("Use Repository's shows for a project script where the repository sets none", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const use = () => card(page.container).querySelector<HTMLButtonElement>('[data-worktree-use="teardown"]');
+  expect(note(page.container, "teardown")).toContain("The repository sets none.");
+  expect(use()).toBeNull();
+  await type(field(page.container, "teardown"), "rm -rf tmp");
+  expect(use()).not.toBeNull();
+  await type(field(page.container, "teardown"), "");
+  expect(use()).not.toBeNull();
+  await click(use()!);
+  expect(use()).toBeNull();
+  expect(field(page.container, "teardown").value).toBe("");
+  // Back to the saved recipe (none): nothing to save.
+  expect(card(page.container).querySelector<HTMLButtonElement>('[data-worktree="save"]')!.disabled).toBe(true);
+  page.unmount();
+});
+
 test("a project's fields stay locked until its own recipe has been read", async () => {
   const page = await renderPage({ path: "/settings/agents" });
   await settle();

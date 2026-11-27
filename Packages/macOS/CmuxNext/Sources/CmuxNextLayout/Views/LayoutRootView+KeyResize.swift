@@ -13,12 +13,14 @@ extension LayoutRootView {
     }
 
     /// A keyboard resize press (`resizePane*`) is about to move `pane`'s screen: until that spring lands, every pane of
-    /// the screen keeps its content at its size and lays it out once at the landing (RESIZE KEYS K3). `keeping`: the
+    /// the screen is on the key hold (RESIZE KEYS K3): its content area follows it in every frame and what the area
+    /// shows has the area's size in every frame (`PaneContentAreaView`). `keeping`: the
     /// strip column whose place the press's layout keeps (the left one of two columns that trade width): the camera
     /// does not move for that layout, so only the divider between them moves (FRAME OWNER REFACTOR KEYS).
     public func keyboardResizeWillChange(screenContaining pane: PaneID, keeping column: ColumnID? = nil) {
         guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], !view.isHidden else { return }
         view.holdsContentForKeyResize = true
+        view.releaseLanding = false
         view.scrollState.keptColumn = column
     }
 

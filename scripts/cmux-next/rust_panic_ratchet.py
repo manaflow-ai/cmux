@@ -37,17 +37,66 @@ whose baseline went down since its own check: cmux_next_fast_gates.py). A
 count over the baseline then fails only when it is also over the base run's
 count: a base already over its row is the base's red, and the change is red
 only for hits it adds. A base run that did not finish excuses nothing.
+
+--cargo-log is the same run's cargo stderr. When a run did not finish because
+cargo refused to update a stale Cargo.lock under --locked, the ratchet names the
+lockfile and `scripts/cmux-next/cargo-locks.py fix` instead of a partial build:
+no lint ran, and a rerun cannot help (#42133).
 """
 import argparse
 import collections
+import functools
 import json
 import os
 import re
 import sys
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 BASELINE = os.path.join(HERE, "rust-panic-baseline.json")
+# Cargo's own words for a Cargo.lock that no longer matches its manifests under --locked: each spelling
+# scripts/cmux-next/cargo-locks.py knows (cargo changed the sentence, and a missing lock is "create").
+STALE_LOCK = re.compile(r"(?:cannot (?:update|create) the lock file|the lock file) (?P<path>.+?) "
+                        r"(?:because|needs to be updated but) --locked was passed")
+
+
+def stale_lock(cargo_log, root):
+    """The lockfile (relative to ROOT when inside it) cargo's stderr in CARGO_LOG refuses to update under
+    --locked, or None (no log, or no such refusal)."""
+    if not cargo_log:
+        return None
+    try:
+        with open(cargo_log, encoding="utf-8", errors="replace") as handle:
+            found = next(filter(None, map(STALE_LOCK.search, handle)), None)
+    except OSError:
+        return None
+    if found is None:
+        return None
+    path = os.path.realpath(found["path"])
+    root = os.path.realpath(root)
+    return os.path.relpath(path, root) if path.startswith(root + os.sep) else found["path"]
+
+
+@functools.lru_cache(maxsize=None)
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's, once per process); a failed fetch is said on
+    stderr, once: _changed_first asks for every failing crate/lint group."""
+    import importlib.util
+    push_range = os.path.join(HERE, "push_range.py")
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(Path(root), ref)
+    if note:
+        print(f"rust-panic-ratchet: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
 
 # Lints whose zero makes a crate "deny" (a panic in production code).
 DENY_LINTS = [
@@ -218,15 +267,32 @@ def _changed_first(root, locations, base_locations=None):
     if base_locations is not None:
         on_base = per_file(base_locations)
         grown = {name for name, count in per_file(locations).items() if count > on_base[name]}
+    changed = changed_files(root)
+    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in grown,
+                                              loc.split(":", 1)[0] not in changed, loc))
+
+
+@functools.cache
+def changed_files(root):
+    """The files this change touched against origin/feat-cmux-next, as cmux-tui-relative paths (the form
+    a hit location takes); empty when git cannot say."""
     try:
         import subprocess
-        out = subprocess.run(["git", "-C", root, "diff", "--name-only", "origin/feat-cmux-next...HEAD"],
+        # The full name: a local branch `origin/feat-cmux-next` would win over the short one (push_range.UPSTREAM).
+        refresh_base(root, "refs/remotes/origin/feat-cmux-next")
+        out = subprocess.run(["git", "-C", root, "diff", "--name-only", "refs/remotes/origin/feat-cmux-next...HEAD"],
                              capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         out = ""
-    changed = {line.split("cmux-tui/", 1)[-1] for line in out.splitlines()}
-    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in grown,
-                                              loc.split(":", 1)[0] not in changed, loc))
+    return frozenset(line.split("cmux-tui/", 1)[-1] for line in out.splitlines())
+
+
+def untouched_by_change(root, locations):
+    """True when the change touched files and none of these hit locations is in one: with no base run to
+    compare, a count over the baseline in files the change never touched is the base's, not the change's
+    (a base that does not compile charged every PR, its own fix too, with the whole workspace's drift)."""
+    changed = changed_files(root)
+    return bool(changed) and not any(loc.split(":", 1)[0].split("cmux-tui/", 1)[-1] in changed for loc in locations)
 
 
 def load_baseline():
@@ -282,6 +348,8 @@ def main():
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
     parser.add_argument("--base-clippy-json", help="the same run on the base: a count it already reaches is the base's red")
+    parser.add_argument("--cargo-log",
+                        help="the same run's cargo stderr: a stale Cargo.lock there is named as the cause")
     args = parser.parse_args()
     if args.flags:
         print(lint_flags())
@@ -290,6 +358,13 @@ def main():
         parser.error("--clippy-json is required")
     checked, counts, files, finished, hits = read_clippy(args.clippy_json)
     if not checked or finished is not True:
+        if lock := stale_lock(args.cargo_log, args.repo):
+            print(f"::error title=rust panic ratchet (stale Cargo.lock)::{lock} does not match its manifests on this"
+                  " merge ref (often: the base changed a dependency after the branch was cut), so cargo --locked"
+                  " stopped before any lint ran. Merge the base branch into the branch, run"
+                  " `scripts/cmux-next/cargo-locks.py fix` from the repository root and commit the Cargo.lock files"
+                  " it changed; rerunning the job does not help", file=sys.stderr)
+            return 2
         print("rust-panic-ratchet: the clippy run did not finish successfully (no build-finished success line);"
               " counts from a partial build prove nothing", file=sys.stderr)
         return 2
@@ -298,6 +373,7 @@ def main():
     baseline = load_baseline()
     base_counts = None
     base_hits = None
+    base_broken = False
     if args.base_clippy_json:
         base_checked, base_counts, _, base_finished, base_hits = read_clippy(args.base_clippy_json)
         if not base_checked or base_finished is not True:
@@ -305,6 +381,7 @@ def main():
                   "every count over the baseline is charged to this change", file=sys.stderr)
             base_counts = None
             base_hits = None
+            base_broken = True
     if args.init_baseline:
         write_baseline({crate: counts.get(crate, collections.Counter()) for crate in checked})
         print(f"rust-panic-ratchet: wrote {os.path.relpath(BASELINE, args.repo)} for {len(checked)} crates")
@@ -327,6 +404,10 @@ def main():
                     base_reds.append(f"{crate}: clippy::{lint} {got} > {where}, and the base has {on_base}: "
                                      "the base's red, not this change's")
                     continue
+                if lint in DENY_LINTS and base_broken and untouched_by_change(args.repo, hits.get((crate, lint), [])):
+                    base_reds.append(f"{crate}: clippy::{lint} {got} > {where}, the base clippy run did not finish, "
+                                     "and no hit is in a file this change touched: the base's red, not this change's")
+                    continue
                 # Tracked lints warn only: an added `x + 1` must not block a landing.
                 (failures if lint in DENY_LINTS else warnings).append(f"{crate}: clippy::{lint} {got} > {where}")
                 if lint in DENY_LINTS:
@@ -340,8 +421,16 @@ def main():
     if missing and not args.init_baseline:
         print("::warning title=rust panic ratchet::baseline crates not checked by this run (a -p run, a removed "
               "member, or a bin with required-features): " + ", ".join(missing), file=sys.stderr)
+    # A reasonless allow in a file this change never touched is the base's, not the change's: the scan walks the
+    # whole tree, so one base commit's slip (cmux-layout-reducer-ffi in #55909) turned every PR's check red.
+    # With no changed-file list (git cannot say) every hit still fails, as before.
+    changed = changed_files(args.repo)
     for line in allow_without_reason(args.repo):
-        failures.append(line)
+        where = line.split(":", 1)[0].split("cmux-tui/", 1)[-1]
+        if changed and where not in changed:
+            base_reds.append(f"{line} (a file this change did not touch: the base's red, not this change's)")
+        else:
+            failures.append(line)
 
     if args.update_baseline:
         if failures:

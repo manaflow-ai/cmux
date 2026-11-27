@@ -72,6 +72,17 @@ class ComposeTest(unittest.TestCase):
                 text = pn.compose(kind, target, CRATES, self.inputs)
                 self.assertNotIn("cmux-agent-screen-detection", text)
 
+    def test_linux_notices_name_the_terminal_host(self) -> None:
+        # npm and wheel packages for Linux ship bin/cmux-tui-host beside bin/cmux-tui (CMUX-571).
+        for target in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
+            with self.subTest(target=target):
+                text = pn.compose("cmux-tui", target, CRATES, self.inputs)
+                self.assertIn("bin/cmux-tui-host", text.splitlines()[0])
+        for kind, target in (("cmux-tui", "aarch64-apple-darwin"), ("relay", "aarch64-unknown-linux-musl")):
+            with self.subTest(kind=kind, target=target):
+                text = pn.compose(kind, target, CRATES, self.inputs)
+                self.assertNotIn("bin/cmux-tui-host", text.splitlines()[0])
+
     def test_relay_notice_names_its_binaries(self) -> None:
         text = pn.compose("relay", "aarch64-unknown-linux-musl", CRATES, self.inputs)
         self.assertIn("bin/chatmux-relay", text)
@@ -147,6 +158,38 @@ class WindowsToolchainTest(unittest.TestCase):
         self.assertEqual(pn.windows_binary_problems(b"MZ no C objects", self.inputs), [])
         [problem] = pn.windows_binary_problems(reviewed + b"GCC: (Rev8, Built by MSYS2 project) 15.2.0\x00", self.inputs)
         self.assertIn("MSYS2", problem)
+
+    def test_the_cross_build_archive_is_the_reviewed_one(self) -> None:
+        url, sha = pn.windows_toolchain_archive(self.inputs)
+        self.assertTrue(url.endswith("x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev1.7z"), url)
+        self.assertEqual(sha, "029bd02b5bce7c10fd9476165b3fe178239fe1838ad62516b5c3e0921bb283cf")
+
+    def _sysroot(self, root: Path, gcc: str = "15.2.0") -> Path:
+        (root / "lib/gcc/x86_64-w64-mingw32" / gcc).mkdir(parents=True)
+        for name in ("libgcc.a", "libgcc_eh.a"):
+            (root / "lib/gcc/x86_64-w64-mingw32" / gcc / name).write_bytes(b"!<arch>\n")
+        (root / "x86_64-w64-mingw32/lib").mkdir(parents=True)
+        for name in ("crt2.o", "libmingw32.a", "libmingwex.a", "libucrt.a"):
+            (root / "x86_64-w64-mingw32/lib" / name).write_bytes(b"x")
+        return root
+
+    def test_the_reviewed_sysroot_passes(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._sysroot(Path(tmp))
+            self.assertEqual(pn.windows_sysroot_problems(root, self.REVIEWED_MACROS, self.inputs), [])
+
+    def test_a_sysroot_of_another_gcc_or_mingw_fails(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._sysroot(Path(tmp), gcc="14.2.0")
+            problems = pn.windows_sysroot_problems(root, self.REVIEWED_MACROS.replace("MAJOR 13", "MAJOR 12"), self.inputs)
+            self.assertTrue(any("12.0.0" in p for p in problems), problems)
+            self.assertTrue(any("libgcc.a is missing" in p for p in problems), problems)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._sysroot(Path(tmp))
+            [problem] = pn.windows_sysroot_problems(root, self.REVIEWED_MACROS.replace("#define _UCRT 1\n", ""), self.inputs)
+            self.assertIn("UCRT", problem)
 
 
 class DataTest(unittest.TestCase):

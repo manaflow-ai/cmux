@@ -9,8 +9,13 @@
 //! transaction: the writer's SAVEPOINT, or a request-side transaction when
 //! the writer does not run or the caller still holds the connection.
 
-use super::public_fold::workspace_value_stated;
+use super::public_fold::{StatedDigests, workspace_value_stated};
 use super::*;
+use cmux_json::JsonGet as _;
+
+#[path = "workspace_insert_commit.rs"]
+mod insert;
+pub(crate) use insert::WorkspaceInsert;
 
 /// One prepared workspace registry commit.
 #[derive(Debug)]
@@ -32,12 +37,17 @@ pub(crate) struct WorkspaceCommitIntent {
     /// The resource topology before this commit (with `project_resource`).
     previous_topology: Option<ResourceTopologySnapshot>,
     /// What the journal states for each workspace before this commit (the public fold at its head, read at
-    /// prepare on the registry's thread), or `None` while the fold is unseeded. The commit journals only the
-    /// workspace upserts the fold does not state already (#32408).
-    stated_workspaces: Option<(u64, HashMap<String, Value>)>,
+    /// prepare on the registry's thread), or `None` when the journal head could not be read. The commit
+    /// journals only the workspace upserts the fold does not state already (#32408). A fold that was lost
+    /// and started again (a daemon start) holds no workspace: of the ones it does not hold, the commit
+    /// journals only the ones it changes.
+    stated_workspaces: Option<(u64, HashMap<String, StatedDigests>)>,
     session_id: SessionPublicId,
     /// Rows written after the ledger, before the resource batch.
     extra: Option<ExtraRows>,
+    /// A commit that adds one workspace and changes nothing else (`workspaces` is then empty):
+    /// it runs [`insert`]'s path, whose work does not follow the count of workspaces.
+    insert: Option<insert::InsertedWorkspace>,
 }
 
 /// [`OwnedTransactionWrite`] with a `Debug` for the intent.
@@ -74,10 +84,12 @@ impl WorkspaceRegistry {
         result: &Value,
         project_resource: bool,
     ) -> anyhow::Result<WorkspaceCommitIntent> {
-        // A late indeterminate commit must land before the topology read.
-        self.connection.drain_unsettled()?;
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
+        // `workspaces.to_vec()`, the frame read and the fold's workspace digests below each
+        // walk the whole list.
+        #[cfg(test)]
+        crate::walk_counters::workspace_list_walked(workspaces.len());
         let stated_workspaces = if project_resource { self.stated_workspaces() } else { None };
         Ok(WorkspaceCommitIntent {
             mutation: mutation.clone(),
@@ -93,11 +105,12 @@ impl WorkspaceRegistry {
             result_json: canonical_json(result)?,
             project_resource,
             previous_topology: project_resource
-                .then(|| self.resource_topology_snapshot())
+                .then(|| self.resource_topology_for_workspace_commit(workspaces, active_workspace))
                 .transpose()?,
             stated_workspaces,
             session_id: self.session_id.clone(),
             extra: None,
+            insert: None,
         })
     }
 
@@ -131,9 +144,20 @@ impl WorkspaceRegistry {
             result,
             project_resource,
         )?;
+        self.commit_workspace_intent(intent, extra)
+    }
+
+    /// Commit a prepared workspace registry intent: through the journal writer when it runs
+    /// and the caller does not hold the connection, else locally. A borrowed `extra` cannot
+    /// leave this thread, so it commits locally.
+    pub(super) fn commit_workspace_intent(
+        &mut self,
+        intent: WorkspaceCommitIntent,
+        extra: Option<RegistryTransactionWrite<'_>>,
+    ) -> anyhow::Result<RegistryCommit> {
         let Some(extra) = extra else {
             return Ok(self
-                .commit_registry_intent(RegistryIntent::Workspace(intent))?
+                .commit_registry_intent(RegistryIntent::Workspace(Box::new(intent)))?
                 .into_workspace()?
                 .commit);
         };
@@ -155,26 +179,6 @@ impl WorkspaceCommitIntent {
         self
     }
 
-    /// Resident size for the writer's durable batch byte cap.
-    pub(crate) fn estimated_bytes(&self) -> usize {
-        self.fingerprint
-            .len()
-            .saturating_add(self.result_json.len().saturating_mul(2))
-            .saturating_add(self.workspaces.len().saturating_mul(512))
-            .saturating_add(
-                self.previous_topology
-                    .as_ref()
-                    .map_or(0, |topology| topology.active_screens.len().saturating_mul(128)),
-            )
-            // The fold's copy of every stated workspace value, one per workspace (#32408).
-            .saturating_add(
-                self.stated_workspaces
-                    .as_ref()
-                    .map_or(0, |(_, stated)| stated.len().saturating_mul(512)),
-            )
-            .saturating_add(1024)
-    }
-
     /// The body of a workspace registry commit inside the caller's
     /// transaction. `extra` (borrowed, local commits only) replaces the
     /// intent's own extra rows.
@@ -183,9 +187,15 @@ impl WorkspaceCommitIntent {
         tx: &Transaction<'_>,
         extra: Option<RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<WorkspaceCommitReceipt> {
+        if let Some(replayed) = self.replayed(tx)? {
+            return Ok(replayed);
+        }
+        self.check_generation()?;
+        if let Some(insert) = &self.insert {
+            return self.apply_insert(tx, extra, insert);
+        }
         let mutation = &self.mutation;
         let fingerprint: &str = &self.fingerprint;
-        let expected_generation = self.expected_generation.as_deref();
         let expected_revision = self.expected_revision;
         let event_kind: &str = &self.event_kind;
         let workspace_key: &str = &self.workspace_key;
@@ -196,53 +206,15 @@ impl WorkspaceCommitIntent {
         let project_resource = self.project_resource;
         let previous_topology = &self.previous_topology;
 
-        if let Some((stored_fingerprint, stored_result, revision)) = tx
-            .query_row(
-                "SELECT fingerprint, result_json, committed_revision
-                 FROM mutations WHERE origin = ?1 AND mutation_id = ?2",
-                params![mutation.origin, mutation.id],
-                |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-                },
-            )
-            .optional()?
-        {
-            let ids = StoredIds::load(tx)?;
-            if ids.fingerprint(stored_fingerprint)? != fingerprint {
-                anyhow::bail!(
-                    "mutation {} from {} was retried with a different payload",
-                    mutation.id,
-                    mutation.origin
-                );
-            }
-            return Ok(WorkspaceCommitReceipt {
-                commit: RegistryCommit {
-                    revision: u64::try_from(revision)
-                        .context("stored mutation revision is negative")?,
-                    result: serde_json::from_str(&ids.text(stored_result))?,
-                    replayed: true,
-                },
-                resource_revision: None,
-            });
-        }
-
         validate_workspace_key(workspace_key)?;
         validate_registry(workspaces)?;
-        if let Some(expected) = expected_generation
-            && expected != self.generation
-        {
-            anyhow::bail!(
-                "workspace generation conflict: expected {expected}, current {}",
-                self.generation
-            );
-        }
         if let Some(active_workspace) = active_workspace {
             anyhow::ensure!(
                 workspaces.iter().any(|workspace| &workspace.public_id == active_workspace),
                 "active workspace is absent from the desired registry: {active_workspace}"
             );
         }
-        let (revision, _) = commit_workspace_registry_in_transaction(
+        let (revision, _, written) = commit_workspace_rows_in_transaction(
             tx,
             mutation,
             fingerprint,
@@ -285,9 +257,19 @@ impl WorkspaceCommitIntent {
                 .iter()
                 .map(|workspace| workspace.public_id.clone())
                 .collect::<HashSet<_>>();
+            // Only the workspaces whose row this commit wrote, or that have no
+            // live resource row yet: every other one is stored as desired
+            // already (its row unchanged, its active screen read from the
+            // store), so the patch's prune would drop it after one query
+            // each. Restating them all made every create O(workspaces) in
+            // queries (#40449: 113 ms per create at 1,000).
             let mut resource_changes = workspaces
                 .iter()
                 .enumerate()
+                .filter(|(_, workspace)| {
+                    written.contains(&workspace.key)
+                        || !active_screens.contains_key(&workspace.public_id)
+                })
                 .map(|(position, workspace)| ResourceChange::UpsertWorkspace {
                     workspace: workspace.clone(),
                     position,
@@ -354,25 +336,69 @@ impl WorkspaceCommitIntent {
                 result_json,
                 sqlite_resource_revision,
             )?;
-            let resource_deltas = normalized_workspace_resource_deltas(
-                &self.session_id,
-                workspaces,
-                active_workspace.map(WorkspacePublicId::as_str),
-                previous_topology,
-            )?;
             // Only what the journal does not state already (#32408): each upsert is compared, decorated as the
             // journal writes it, with the public fold read at prepare. The commit's own workspace always goes
-            // when extra rows ran (a metadata commit changes only its decorations). With the fold unseeded,
-            // or behind this commit's base revision, every workspace is stated, as before.
+            // when extra rows ran (a metadata commit changes only its decorations). With no fold, or one
+            // behind this commit's base revision, every workspace is stated, as before.
+            //
+            // A fold that was lost and started again (each daemon start) holds no workspace. Of the
+            // workspaces that it does not hold, the commit states only the ones that it changes: its own
+            // workspace, a row that it wrote (new, moved, renamed), a workspace with no resource row yet,
+            // and the two ends of a focus move (`focused` is a field of the value). Before, the first workspace commit
+            // after a start stated the value of each workspace of the session (826 values for one new
+            // workspace); the restatement in parts states the others
+            // (`mux/startup_restore/restate_parts.rs`).
+            //
+            // With a fold at this base, the same set (`changed`) is all that is built: the fold holds the
+            // value of every other workspace, whose row this commit did not write, so its upsert is
+            // dropped by the prune below, and building it first (a JSON value for each workspace of the
+            // session) was most of the cost of a create.
             let stated = self
                 .stated_workspaces
                 .as_ref()
                 .filter(|(fold_revision, _)| *fold_revision == previous_resource_revision)
                 .map(|(_, workspaces)| workspaces);
             let keep = extra_ran.then_some(workspace_key);
-            let resource_deltas = match stated {
-                Some(stated) => prune_stated_workspace_upserts(tx, &resource_deltas, stated, keep)?,
-                None => resource_deltas,
+            let changed = stated.map(|_| {
+                #[cfg(test)]
+                crate::walk_counters::workspace_list_walked(workspaces.len());
+                let resourced = previous_topology
+                    .active_screens
+                    .iter()
+                    .map(|(workspace, _)| workspace)
+                    .collect::<HashSet<_>>();
+                let mut changed = workspaces
+                    .iter()
+                    .filter(|workspace| {
+                        workspace.key == workspace_key
+                            || written.contains(&workspace.key)
+                            || !resourced.contains(&workspace.public_id)
+                    })
+                    .map(|workspace| workspace.public_id.as_str())
+                    .collect::<HashSet<_>>();
+                let was_active = previous_topology.active_workspace.as_ref();
+                if was_active != active_workspace {
+                    changed.extend(
+                        [was_active, active_workspace]
+                            .into_iter()
+                            .flatten()
+                            .map(WorkspacePublicId::as_str),
+                    );
+                }
+                changed
+            });
+            let resource_deltas = normalized_workspace_resource_deltas(
+                &self.session_id,
+                workspaces,
+                active_workspace.map(WorkspacePublicId::as_str),
+                previous_topology,
+                changed.as_ref(),
+            )?;
+            let resource_deltas = match (stated, changed.as_ref()) {
+                (Some(stated), Some(changed)) => {
+                    prune_stated_workspace_upserts(tx, &resource_deltas, stated, changed, keep)?
+                }
+                _ => resource_deltas,
             };
             append_resource_journal_record(
                 tx,
@@ -394,24 +420,152 @@ impl WorkspaceCommitIntent {
     }
 }
 
+impl WorkspaceCommitIntent {
+    /// The receipt of this mutation when the ledger holds it already (a retry): its original
+    /// result, nothing written.
+    fn replayed(&self, tx: &Transaction<'_>) -> anyhow::Result<Option<WorkspaceCommitReceipt>> {
+        let mutation = &self.mutation;
+        let Some((stored_fingerprint, stored_result, revision)) = tx
+            .query_row(
+                "SELECT fingerprint, result_json, committed_revision
+                 FROM mutations WHERE origin = ?1 AND mutation_id = ?2",
+                params![mutation.origin, mutation.id],
+                |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+                },
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        let ids = StoredIds::load(tx)?;
+        if ids.fingerprint(stored_fingerprint)? != self.fingerprint {
+            anyhow::bail!(
+                "mutation {} from {} was retried with a different payload",
+                mutation.id,
+                mutation.origin
+            );
+        }
+        Ok(Some(WorkspaceCommitReceipt {
+            commit: RegistryCommit {
+                revision: u64::try_from(revision)
+                    .context("stored mutation revision is negative")?,
+                result: serde_json::from_str(&ids.text(stored_result))?,
+                replayed: true,
+            },
+            resource_revision: None,
+        }))
+    }
+
+    fn check_generation(&self) -> anyhow::Result<()> {
+        if let Some(expected) = self.expected_generation.as_deref()
+            && expected != self.generation
+        {
+            anyhow::bail!(
+                "workspace generation conflict: expected {expected}, current {}",
+                self.generation
+            );
+        }
+        Ok(())
+    }
+}
+
+/// Add to `deltas` what a workspace commit that moves the active workspace
+/// changes below the workspaces: the active screen and its active pane at
+/// each end that stays live get a new `focused` (as `focus_deltas` states
+/// for a focus change). `before` holds those screens (see
+/// `resource_topology_for_workspace_commit`). Without these two upserts per
+/// end the journal kept `focused: true` for the screen and the pane of the
+/// workspace the focus left, until a later projection had that workspace in
+/// its scope: an events client then showed two focused screens.
+pub(super) fn push_focus_move_upserts(
+    deltas: &mut Vec<Value>,
+    before: &ResourceTopologySnapshot,
+    live_workspaces: &HashSet<WorkspacePublicId>,
+    active_workspace: Option<&str>,
+) -> anyhow::Result<()> {
+    let previous = before.active_workspace.as_ref().map(WorkspacePublicId::as_str);
+    if previous == active_workspace {
+        return Ok(());
+    }
+    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&before.tabs);
+    let panes_by_id = crate::resource_screen::panes_by_id(&before.panes);
+    for workspace in [previous, active_workspace].into_iter().flatten() {
+        let Some(screen) = before
+            .active_screens
+            .iter()
+            .find(|(id, _)| id.as_str() == workspace && live_workspaces.contains(id))
+            .and_then(|(_, screen)| screen.as_ref())
+            .and_then(|id| before.screens.iter().find(|screen| &screen.public_id == id))
+        else {
+            continue;
+        };
+        let focused = active_workspace == Some(workspace);
+        let sequence = deltas.len();
+        deltas.push(serde_json::json!({
+            "kind":"upsert",
+            "sequence":sequence,
+            "resource":"screen",
+            "id":screen.public_id,
+            "value":crate::resource_screen::screen_value(
+                screen,
+                focused,
+                &tabs_by_pane,
+                &panes_by_id,
+            )?,
+        }));
+        if let Some(pane) = panes_by_id.get(&screen.active_pane) {
+            let sequence = deltas.len();
+            deltas.push(serde_json::json!({
+                "kind":"upsert",
+                "sequence":sequence,
+                "resource":"pane",
+                "id":pane.public_id,
+                "value":{
+                    "id":pane.public_id,
+                    "screen_id":pane.screen_id,
+                    "name":pane.name,
+                    "focused":focused,
+                    "zoomed":screen.zoomed_pane.as_ref() == Some(&pane.public_id),
+                },
+            }));
+        }
+    }
+    Ok(())
+}
+
 /// `deltas` without the workspace upserts whose decorated value `stated` holds already (the public fold:
-/// what the journal states). Every other change stays, renumbered. `keep` (a workspace key) is never dropped.
+/// what the journal states), and without the ones of a workspace that `stated` does not hold and that this
+/// commit did not change (`changed`, public ids). Every other change stays, renumbered. `keep` (a
+/// workspace key) is never dropped.
 fn prune_stated_workspace_upserts(
     tx: &Transaction<'_>,
     deltas: &Value,
-    stated: &HashMap<String, Value>,
+    stated: &HashMap<String, StatedDigests>,
+    changed: &HashSet<&str>,
     keep: Option<&str>,
 ) -> anyhow::Result<Value> {
-    let mut decorated = deltas.clone();
+    let raw = deltas.as_array().context("resource deltas are not an array")?;
+    // An upsert whose own fields the journal states already is dropped before it is decorated:
+    // its decorations (presentation, kind, folder, creator) are journaled by the commits that
+    // write them (state/values.rs `fresh_upserts`), and this commit writes none of another
+    // workspace's. Decorating every workspace made each create read the whole session (#40449).
+    let candidates = raw
+        .iter()
+        .filter(|change| {
+            !(is_workspace_upsert(change)
+                && (raw_upsert_stated(change, stated, keep)
+                    || raw_upsert_not_owed(change, stated, changed)))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut decorated = Value::Array(candidates.clone());
     crate::state::values::decorate_changes(tx, &mut decorated)?;
     let changes = decorated.as_array().context("resource deltas are not an array")?;
-    let raw = deltas.as_array().context("resource deltas are not an array")?;
-    let mut kept = Vec::with_capacity(raw.len());
-    for (change, decorated_change) in raw.iter().zip(changes) {
-        if text_field(change, "kind") == Some("upsert")
-            && text_field(change, "resource") == Some("workspace")
-        {
-            let id = text_field(change, "id").unwrap_or_default();
+    let mut kept = Vec::with_capacity(candidates.len());
+    for (change, decorated_change) in candidates.iter().zip(changes) {
+        if is_workspace_upsert(change) {
+            let id = change.get_str("id").unwrap_or_default();
             let value = decorated_change.get("value").unwrap_or(&Value::Null);
             let own = keep.is_some_and(|key| {
                 value.pointer("/extra/key").and_then(Value::as_str) == Some(key)
@@ -431,7 +585,34 @@ fn prune_stated_workspace_upserts(
     Ok(Value::Array(kept))
 }
 
-/// A string field of a change, or `None` when it is absent or not a string.
-fn text_field<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
-    value.get(field).and_then(Value::as_str)
+fn is_workspace_upsert(change: &Value) -> bool {
+    change.get_str("kind") == Some("upsert") && change.get_str("resource") == Some("workspace")
+}
+
+/// Whether this raw workspace upsert is of a workspace that `stated` does not hold and that the commit
+/// did not change: the commit does not owe its value (see the caller).
+fn raw_upsert_not_owed(
+    change: &Value,
+    stated: &HashMap<String, StatedDigests>,
+    changed: &HashSet<&str>,
+) -> bool {
+    change.get_str("id").is_some_and(|id| !stated.contains_key(id) && !changed.contains(id))
+}
+
+/// Whether `stated` holds every field of this raw (undecorated) workspace upsert, its
+/// `extra` fields included, so the upsert decorated would equal what the journal states.
+/// The upsert of the workspace keyed `keep` is never dropped here.
+fn raw_upsert_stated(
+    change: &Value,
+    stated: &HashMap<String, StatedDigests>,
+    keep: Option<&str>,
+) -> bool {
+    let Some(value) = change.get("value").and_then(Value::as_object) else { return false };
+    let Some(stated) = change.get_str("id").and_then(|id| stated.get(id)) else {
+        return false;
+    };
+    if keep.is_some_and(|key| stated.has_workspace_key(key)) {
+        return false;
+    }
+    stated.holds_fields(value)
 }

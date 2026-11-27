@@ -1,0 +1,24 @@
+// The Codex app: a gray sidebar beside a white page, near-black text, gray accents, no borders.
+{
+  "name": "Codex app",
+  "description": "A gray sidebar beside a white page, near-black text, no borders.",
+
+  "appearance.theme": "Builtin Light",
+  "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#e3e3e3", "accent": "#5d5d5d" },
+  "appearance.appTheme": "followTerminal",
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#d9d9d9",
+  "appearance.surfaces.sidebar.opacity": 0.92,
+  "appearance.surfaces.agentPane.color": "#ffffff",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+
+  "appearance.density": "comfortable"
+}

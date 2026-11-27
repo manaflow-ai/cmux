@@ -20,6 +20,7 @@ import {
   SESSION_INFO_WIDTH,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { resetSectionOrderForTests } from "../src/agent-session/acpmux/session-info/sectionOrder";
+import { settleReact } from "./support/domTeardown";
 
 const global = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -61,6 +62,7 @@ afterEach(async () => {
   resetSessionInfoState();
   resetSectionOrderForTests();
   frames.clear();
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete global[key];
@@ -287,28 +289,6 @@ test("an older failed post cannot withdraw a newer native model", async () => {
   expect(nativeSessionInfoDrawn()).toBe(true);
   await act(async () => rejects[1]!(new Error("Latest request failed")));
   expect(nativeSessionInfoDrawn()).toBe(false);
-});
-
-test("native Progress marks each step's state and meters the plan", async () => {
-  const entries = [
-    { content: "Write", status: "completed" as const },
-    { content: "Test", status: "in_progress" as const },
-    { content: "Ship", status: "pending" as const },
-  ];
-  await render({ ...props(), plan: { entries, ended: false } });
-  await flushFrame();
-  const live = model()!.sections.find((section) => section.id === "progress")!;
-  expect(live.meter).toBeCloseTo(1 / 3);
-  expect(live.rows.map((row) => [row.symbol, row.tone, Boolean(row.working)])).toEqual([
-    ["checkmark.circle.fill", "muted", false],
-    [undefined, "running", true],
-    ["circle.dashed", "waiting", false],
-  ]);
-  // A step left in progress when the turn ended gets a plain ring, never a frozen spinner.
-  await render({ ...props(), plan: { entries, ended: true } });
-  await flushFrame();
-  const ended = model()!.sections.find((section) => section.id === "progress")!;
-  expect(ended.rows[1]).toMatchObject({ symbol: "circle", tone: "waiting", working: false });
 });
 
 // A wakeup in a chat on this Mac with no background command (Leo, 2026-11-06: the "fallback heartbeat

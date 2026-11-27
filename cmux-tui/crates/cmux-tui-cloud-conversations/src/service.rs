@@ -88,7 +88,16 @@ pub enum WireRecv {
 pub trait CloudWire: Send {
     fn send(&mut self, text: &str) -> Result<(), TransportError>;
     fn recv(&mut self, timeout: Duration) -> WireRecv;
+    /// Ends a `recv` that waits now (or the next one) early with `Idle`, from
+    /// any thread, so a writer never waits out a receive timeout; `None`
+    /// when this wire cannot (its reader then sends once per receive).
+    fn interrupter(&self) -> Option<WireInterrupt> {
+        None
+    }
 }
+
+/// Wakes one wire's pending receive ([`CloudWire::interrupter`]).
+pub type WireInterrupt = Arc<dyn Fn() + Send + Sync>;
 
 /// The HTTP and WebSocket seam. Calls block; the daemon runs them off the
 /// connection's request loop.
@@ -194,7 +203,6 @@ pub struct ServiceOptions {
     /// How long one upstream receive waits before the driver rechecks its
     /// subscribers and the lease.
     pub poll: Duration,
-    pub max_conversation_subscriptions: usize,
     /// Cloud HTTP requests the daemon runs at once; one more is refused with
     /// `cloud_unavailable` (retryable) instead of queueing.
     pub max_concurrent_requests: usize,
@@ -214,7 +222,6 @@ impl Default for ServiceOptions {
             backoff_min: Duration::from_secs(1),
             backoff_max: Duration::from_secs(30),
             poll: Duration::from_secs(1),
-            max_conversation_subscriptions: 64,
             max_concurrent_requests: 16,
             api_origins: std::env::var("CMUX_CLOUD_API_ORIGINS")
                 .unwrap_or_default()
@@ -258,6 +265,9 @@ struct Subscription {
     /// Frames a client asked the driver to send on the socket (`run.live.get`,
     /// `typing`).
     outbox: Vec<String>,
+    /// A subscriber asked for a snapshot ([`CloudConversations::resync`]): the
+    /// driver asks the owner once its socket is live.
+    resync: bool,
     /// The client whose `cloud-conversation-typing` is on: the indicator is
     /// sent again after a reconnect (the owner turned it off when the old
     /// socket closed), and turned off when that client's connection closes.
@@ -802,6 +812,57 @@ impl CloudConversations {
         mutation_data(self.post("/v1/ops", &body)?)
     }
 
+    /// One synced app storage write (`appkv.set` or `appkv.delete`, the
+    /// daemon's own outbox, cmux-tui-core apps/synced.rs). The caller retries
+    /// an `Unavailable` with the same idempotency key.
+    ///
+    /// `account` is the account the write was queued for: it is sent only
+    /// with a lease of that account (a sign-in to another one between the
+    /// caller's check and this send must not carry it to the new account).
+    pub fn appkv_op(
+        &self,
+        account: &str,
+        app: &str,
+        key: &str,
+        value: Option<&Value>,
+        idempotency_key: &str,
+    ) -> Result<Value, CloudError> {
+        let body = contract::appkv_op_body(app, key, value, idempotency_key)?;
+        mutation_data(self.post_as(Some(account), "/v1/ops", &body)?)
+    }
+
+    /// One page of the person's synced storage rows (`appkv.list`) after
+    /// `after_revision`: the rows past a snapshot's newest ones.
+    pub fn appkv_list(&self, after_revision: u64, limit: u32) -> Result<Value, CloudError> {
+        if !(1..=500).contains(&limit) {
+            return Err(CloudError::BadRequest("limit must be 1-500".into()));
+        }
+        let params = json!({"after_revision": after_revision, "limit": limit});
+        let reply = self.post("/v1/read", &read_body("appkv.list", params))?;
+        // The head revision the page was read at comes beside the value.
+        let (mut value, revision) = read_value(reply)?;
+        if value.get("revision").is_none() {
+            value.set("revision", revision);
+        }
+        Ok(value)
+    }
+
+    /// Asks `target`'s owner for a snapshot once its socket is live (a
+    /// subscriber that needs every row again). Nothing without a subscription.
+    pub fn resync(&self, target: &Target) {
+        if let Some(subscription) =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).get_mut(target)
+        {
+            subscription.resync = true;
+        }
+        self.inner.notify();
+    }
+
+    /// The cloud user id (`sub`) of the current lease, if any.
+    pub fn lease_account(&self) -> Option<String> {
+        self.inner.lease_account()
+    }
+
     /// Validates a `cloud-inbox-op` before it leaves the request loop.
     pub fn check_inbox_op(&self, request: &InboxOpRequest) -> Result<(), CloudError> {
         contract::inbox_op_body(request).map(|_| ())
@@ -898,7 +959,25 @@ impl CloudConversations {
     }
 
     pub(crate) fn post(&self, path: &str, body: &Value) -> Result<HttpReply, CloudError> {
+        self.post_as(None, path, body)
+    }
+
+    /// [`Self::post`] with the lease it uses held to `account` when one is
+    /// named: another account's lease sends nothing.
+    fn post_as(
+        &self,
+        account: Option<&str>,
+        path: &str,
+        body: &Value,
+    ) -> Result<HttpReply, CloudError> {
         let session = self.inner.usable_session()?;
+        if let Some(account) = account
+            && session.account.as_deref() != Some(account)
+        {
+            return Err(CloudError::Unavailable(
+                "the cloud lease is no longer the account this write was made for".into(),
+            ));
+        }
         let reply = self
             .inner
             .backend
@@ -938,18 +1017,8 @@ impl CloudConversations {
                 subscription.idle_since = None;
                 (None, subscription.state.reply(&target))
             } else {
-                let conversations = subscriptions
-                    .keys()
-                    .filter(|target| matches!(target, Target::Conversation(_)))
-                    .count();
-                if matches!(target, Target::Conversation(_))
-                    && conversations >= self.inner.options.max_conversation_subscriptions
-                {
-                    return Err(CloudError::daemon_reject(
-                        "too_many_subscriptions",
-                        "too many cloud conversation subscriptions",
-                    ));
-                }
+                // No count cap: an open conversation costs one driver thread
+                // and one socket, and ends `linger` after its last subscriber.
                 let reply = initial.reply(&target);
                 let driver = self.inner.next_driver.fetch_add(1, Ordering::Relaxed);
                 subscriptions.insert(
@@ -960,6 +1029,7 @@ impl CloudConversations {
                         idle_since: None,
                         state: initial,
                         outbox: Vec::new(),
+                        resync: false,
                         typing_by: None,
                         viewing: BTreeSet::new(),
                         presence: None,
@@ -1394,6 +1464,11 @@ impl Inner {
         subscriptions.get_mut(target).map(|s| std::mem::take(&mut s.outbox)).unwrap_or_default()
     }
 
+    fn take_resync(&self, target: &Target) -> bool {
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        subscriptions.get_mut(target).is_some_and(|s| std::mem::take(&mut s.resync))
+    }
+
     fn remove(&self, target: &Target) {
         self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
     }
@@ -1621,6 +1696,15 @@ fn pump(
                     return Ended::Dropped;
                 }
             }
+            if inner.take_resync(target) {
+                for action in stream.request_snapshot() {
+                    if let StreamAction::Send(frame) = action
+                        && wire.send(&frame).is_err()
+                    {
+                        return Ended::Dropped;
+                    }
+                }
+            }
         }
         let now = inner.now();
         // A snapshot that did not decode is asked for again when its backoff ends.
@@ -1684,140 +1768,14 @@ fn valid_selfhost_user(user: &str) -> bool {
         && user.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
 }
 
+#[path = "owner_wire.rs"]
+mod owner_wire;
+pub use owner_wire::{LeaseBearer, OwnerWire, OwnerWireError};
+
 #[cfg(test)]
-mod presence_order_tests {
-    use super::*;
-    use std::sync::mpsc;
+#[path = "service_presence_order_tests.rs"]
+mod presence_order_tests;
 
-    struct NoBackend;
-
-    impl CloudBackend for NoBackend {
-        fn post(
-            &self,
-            _: &str,
-            _: Option<&str>,
-            _: Option<&str>,
-            _: &Value,
-        ) -> Result<HttpReply, TransportError> {
-            Err(TransportError("offline".into()))
-        }
-        fn connect(
-            &self,
-            _: &str,
-            _: Option<&str>,
-            _: Option<&str>,
-        ) -> Result<Box<dyn CloudWire>, ConnectError> {
-            Err(ConnectError::Unavailable("offline".into()))
-        }
-    }
-
-    fn presence(viewing: bool) -> CloudEvent {
-        let participants = if viewing { vec![("user_ana".to_string(), true)] } else { Vec::new() };
-        CloudEvent::Presence { conversation: "conv_1".into(), participants, account: None }
-    }
-
-    fn entry(driver: u64, shown: Option<CloudEvent>) -> Subscription {
-        Subscription {
-            driver,
-            clients: BTreeSet::from([1]),
-            idle_since: None,
-            state: SocketState { state: "live", reason: None, account: None },
-            outbox: Vec::new(),
-            typing_by: None,
-            viewing: BTreeSet::new(),
-            presence: shown,
-        }
-    }
-
-    fn recording(service: &CloudConversations) -> Arc<Mutex<Vec<CloudEvent>>> {
-        let emitted: Arc<Mutex<Vec<CloudEvent>>> = Arc::default();
-        let log = emitted.clone();
-        service.set_sink(Arc::new(move |event| log.lock().unwrap().push(event)));
-        emitted
-    }
-
-    /// A driver that retires after a new subscribe replaced its entry
-    /// (`retire` removes the entry before the driver cleans up) leaves the
-    /// replacement's set alone; with no replacement, or one that has shown
-    /// nothing yet, it empties the clients.
-    #[test]
-    fn a_retired_drivers_cleanup_never_erases_its_replacements_set() {
-        let service = CloudConversations::new(Arc::new(NoBackend));
-        let target = Target::Conversation("conv_1".into());
-        let emitted = recording(&service);
-        let entries = || service.inner.subscriptions.lock().unwrap();
-        entries().insert(target.clone(), entry(1, Some(presence(true))));
-        service.inner.end_presence(&target, 0, Some(presence(false)));
-        assert!(emitted.lock().unwrap().is_empty(), "the replacement's set stands");
-        assert_eq!(entries()[&target].presence, Some(presence(true)));
-        // A replaced driver shows nothing either.
-        service.inner.show_presence(&target, 0, presence(false));
-        assert!(emitted.lock().unwrap().is_empty());
-        entries().insert(target.clone(), entry(2, None));
-        service.inner.end_presence(&target, 0, Some(presence(false)));
-        assert_eq!(*emitted.lock().unwrap(), [presence(false)], "nothing newer to keep");
-        entries().remove(&target);
-        service.inner.end_presence(&target, 0, Some(presence(false)));
-        assert_eq!(emitted.lock().unwrap().len(), 2, "no entry: the clients empty");
-        // The driver's own entry: cleared and emptied.
-        entries().insert(target.clone(), entry(3, Some(presence(true))));
-        service.inner.end_presence(&target, 3, Some(presence(false)));
-        assert_eq!(entries()[&target].presence, None);
-        assert_eq!(emitted.lock().unwrap().len(), 3);
-    }
-
-    /// A replay that is mid-emit when the socket ends still goes out before
-    /// the socket's empty set: the clients end on no viewers, never on the
-    /// dead socket's set.
-    #[test]
-    fn a_replay_racing_the_socket_end_goes_out_before_the_empty_set() {
-        let service = CloudConversations::new(Arc::new(NoBackend));
-        let target = Target::Conversation("conv_1".into());
-        service
-            .inner
-            .subscriptions
-            .lock()
-            .unwrap()
-            .insert(target.clone(), entry(0, Some(presence(true))));
-        let emitted: Arc<Mutex<Vec<CloudEvent>>> = Arc::default();
-        let (paused_tx, paused) = mpsc::channel::<()>();
-        let (resume, resume_rx) = mpsc::channel::<()>();
-        let resume_rx = Mutex::new(resume_rx);
-        let log = emitted.clone();
-        service.set_sink(Arc::new(move |event| {
-            let pause = matches!(event, CloudEvent::SubscriptionState { .. });
-            log.lock().unwrap().push(event);
-            // The replay pauses after the state, before its presence set.
-            if pause {
-                let _ = paused_tx.send(());
-                let _ = resume_rx.lock().unwrap().recv();
-            }
-        }));
-        let replay = {
-            let (service, target) = (service.clone(), target.clone());
-            std::thread::spawn(move || service.announce_state(&target))
-        };
-        paused.recv().unwrap();
-        let (ended_tx, ended) = mpsc::channel::<()>();
-        let end = {
-            let (inner, target) = (service.inner.clone(), target.clone());
-            std::thread::spawn(move || {
-                inner.end_presence(&target, 0, Some(presence(false)));
-                let _ = ended_tx.send(());
-            })
-        };
-        assert!(
-            ended.recv_timeout(Duration::from_millis(200)).is_err(),
-            "the socket's end waits for the replay in flight"
-        );
-        resume.send(()).unwrap();
-        replay.join().unwrap();
-        end.join().unwrap();
-        let emitted = emitted.lock().unwrap();
-        assert!(matches!(emitted[0], CloudEvent::SubscriptionState { .. }));
-        assert_eq!(emitted[1..], [presence(true), presence(false)]);
-        // Nothing is kept for a later subscribe: the socket is gone.
-        drop(emitted);
-        assert!(service.inner.subscriptions.lock().unwrap()[&target].presence.is_none());
-    }
-}
+#[cfg(test)]
+#[path = "service_appkv_account_tests.rs"]
+mod appkv_account_tests;

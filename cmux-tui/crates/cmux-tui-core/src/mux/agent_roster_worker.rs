@@ -41,6 +41,10 @@ struct RosterRequests {
     wanted: u64,
     /// A caller asked for a fold through the journal head (the catch-up).
     head: bool,
+    /// A caller waits for the roster (the catch-up, the stop): the pass saves
+    /// the snapshot at the cursor it reaches, however short the stretch of
+    /// journal since the last save.
+    flush: bool,
     /// Terminals closed since: retired once the roster folded a journal head
     /// read after they were recorded, so none of their earlier events brings
     /// an entry back.
@@ -66,6 +70,9 @@ pub(super) struct RosterPass {
     pub(super) wanted: u64,
     /// Fold through the journal head read in this pass.
     pub(super) head: bool,
+    /// Save the snapshot at the cursor this pass reaches whenever it is not
+    /// saved there yet ([`RosterRequests::flush`]).
+    pub(super) flush: bool,
     /// Retire these closed terminals once the roster folded that head.
     pub(super) retire: Vec<String>,
 }
@@ -109,6 +116,7 @@ impl RosterControl {
         requests.asked = requests.asked.saturating_add(1);
         let ticket = requests.asked;
         requests.head |= head;
+        requests.flush = true;
         requests.pending = true;
         self.wake.notify_one();
         while requests.done < ticket {
@@ -155,7 +163,13 @@ impl RosterControl {
 
     /// The owner finishes the work recorded so far, then ends.
     fn stop(&self) {
-        self.lock().stopping = true;
+        let mut requests = self.lock();
+        requests.stopping = true;
+        // The last pass saves the snapshot at the roster's cursor, so the next
+        // start replays nothing this run folded.
+        requests.flush = true;
+        requests.pending = true;
+        drop(requests);
         self.wake.notify_all();
     }
 
@@ -271,6 +285,7 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
             let pass = RosterPass {
                 wanted: requests.wanted,
                 head: std::mem::take(&mut requests.head),
+                flush: std::mem::take(&mut requests.flush),
                 retire: std::mem::take(&mut requests.retire),
             };
             (pass, requests.asked)
@@ -380,10 +395,12 @@ impl Mux {
     }
 
     /// Whether the roster may still show states older than the journal: its start's replay
-    /// runs in the background, or the projection reconcile that replay owes has not run yet.
+    /// runs in the background, or the projection reconcile that replay owes has not run yet, or it
+    /// is stale (a reducer bump) and waits for its rebuild: a guarded send stays refused then.
     pub(crate) fn agent_roster_settling(&self) -> bool {
         self.agent_roster_replaying()
             || self.agent_roster_worker.reconcile_pending.load(Ordering::Acquire)
+            || self.agent_roster_stale()
     }
 
     /// Whether the start's roster replay is still running in the background.
@@ -445,40 +462,5 @@ impl Mux {
 // Test-only, in its own module: the crash ratchet counts the parent's
 // `#[cfg(test)]` methods as daemon code.
 #[cfg(test)]
-mod replay_for_test {
-    use super::*;
-
-    impl Mux {
-        /// Starts a roster replay from zero in this running daemon, as a start
-        /// whose snapshot does not restore does: the roster goes back to empty and
-        /// the owner replays the journal in the background, `page` records per
-        /// page, through `gate` (`agent_roster_restore::REPLAY_GATE_FOR_TEST`).
-        #[cfg(test)]
-        pub(crate) fn restart_agent_roster_replay_for_test(
-            &self,
-            page: usize,
-            gate: (SyncSender<()>, Receiver<()>),
-        ) {
-            use agent_roster_restore::{RosterFoldLimits, restore_agent_roster_within};
-            assert!(self.settle_agent_roster_for_test());
-            let restored = {
-                let registry = self.workspace_registry.lock().unwrap();
-                registry
-                    .put_journal_reducer_state(
-                        crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                        crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                        0,
-                        "",
-                    )
-                    .unwrap();
-                let limits =
-                    RosterFoldLimits { page, save_every_pages: 64, stop_after_pages: None };
-                restore_agent_roster_within(&registry, limits, Some(Duration::ZERO)).unwrap()
-            };
-            *self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner) = restored.host;
-            *self.agent_roster_worker.replay_gate.lock().unwrap_or_else(PoisonError::into_inner) =
-                Some(gate);
-            self.continue_agent_roster_replay(restored.replay.expect("a replay from zero"));
-        }
-    }
-}
+#[path = "agent_roster_worker_replay_for_test_tests.rs"]
+mod replay_for_test;

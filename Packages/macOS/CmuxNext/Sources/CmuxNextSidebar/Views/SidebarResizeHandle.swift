@@ -23,6 +23,8 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
     private var pointerHover: PointerHover?
     private var startX: CGFloat = 0
     private let line = CALayer()
+    /// The wallpaper's rim light along the edge (`appearance.wallpaperLighting`, ``WallpaperRimLayer``).
+    private lazy var wallpaperRim = WallpaperRimLayer(host: self)
     /// The accent band on the edge while hovered or dragged (`DividerGlowBand`).
     let glow = DividerGlowBand()
 
@@ -41,9 +43,9 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
         }
     }
 
-    /// In a curved-card window, the sidebar edge line belongs in the titlebar band above the card.
-    /// The root supplies this y coordinate after layout; flat styles leave it at zero so their
-    /// existing full-height line remains unchanged.
+    /// In a curved-card window, the top of the card: the root supplies this y coordinate after layout;
+    /// flat styles leave it at zero. A resting border line (`sidebar.border`) runs the whole edge
+    /// whatever it says (``updateLineFrame()``).
     var lineMinY: CGFloat = 0 {
         didSet {
             guard lineMinY != oldValue else { return }
@@ -57,9 +59,9 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
 
     /// The hairline shows at rest when the sidebar border is on, else only
     /// on hover or while dragging, and never as hover feedback beside the
-    /// curved main pane: the card's edge is the seam there. The hit area and
-    /// the resize cursor stay.
-    var isLineVisible: Bool { restingLineWidth > 0 || ((isHovered || isDragging) && !Metrics.mainPaneCurved) }
+    /// curved main pane: the card's edge is the seam there, and the glow
+    /// (``glow``) marks the hover. The hit area and the resize cursor stay.
+    var isLineVisible: Bool { restingLineWidth > 0 || ((isHovered || isDragging) && !Metrics.cardEdgeIsSidebarSeam) }
 
     /// The drawn width: the border's, else the divider hairline.
     var lineWidth: CGFloat { restingLineWidth > 0 ? restingLineWidth : Metrics.lineWidth(Metrics.dividerThickness) }
@@ -69,27 +71,17 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
         wantsLayer = true
         line.opacity = 0
         layer?.addSublayer(line)
+        layer?.addSublayer(wallpaperRim)
         layer?.addSublayer(glow.layer)
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityLabel(Strings.resize)
         setAccessibilityIdentifier("cmux.sidebar.resize")
         pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
-        // Over a knob that takes the press the band does not light: the press is the scroller's.
-        pointerHover?.isHoverable = { [weak self] in !(self?.pointerOverYield ?? false) }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-
-    /// True when a view under the band takes a press at a point (the handle's superview's
-    /// coordinates) before the resize: a shown scroller's knob in the sidebar's inner points
-    /// (Lawrence msg 18056). There the press scrolls and the cursor is the arrow.
-    var yieldsPress: (CGPoint) -> Bool = { _ in false }
-
-    /// Pointer moves over the band, to swap the resize cursor for the arrow over a knob that takes
-    /// the press. Pointer events only: nothing runs on a key press.
-    private var cursorArea: NSTrackingArea?
 
     private static var resizeCursor: NSCursor {
         if #available(macOS 15, *) { return .columnResize }
@@ -98,44 +90,6 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: Self.resizeCursor)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        guard cursorArea == nil else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        cursorArea = area
-    }
-
-    /// The press at `point` (this view's superview's coordinates) is the band's, not a knob's.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let hit = super.hitTest(point) else { return nil }
-        return yieldsPress(point) ? nil : hit
-    }
-
-    /// The cursor at `locationInWindow`: the resize cursor, or the arrow over a knob that takes the
-    /// press (the cursor rect alone would show the resize cursor over the whole band).
-    func showsResizeCursor(at locationInWindow: CGPoint) -> Bool {
-        guard let superview else { return true }
-        return !yieldsPress(superview.convert(locationInWindow, from: nil))
-    }
-
-    /// The pointer was over a knob that takes the press, as of the last move over the band.
-    private var pointerOverYield = false
-
-    override func mouseMoved(with event: NSEvent) {
-        guard !isDragging else { return }
-        let resizes = showsResizeCursor(at: event.locationInWindow)
-        (resizes ? Self.resizeCursor : .arrow).set()
-        guard pointerOverYield == resizes else { return }
-        pointerOverYield = !resizes
-        pointerHover?.refresh()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        pointerOverYield = false
     }
 
     override func layout() {
@@ -147,10 +101,14 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let width = lineWidth
-        let minY = min(max(0, lineMinY), bounds.height)
+        // `sidebar.border` on draws the whole edge under every style, beside the card too. Leo, 2026-11-12:
+        // "you've slightly regressed the border thing, the border divider."
+        let minY = restingLineWidth > 0 ? 0 : min(max(0, lineMinY), bounds.height)
         line.frame = CGRect(x: edgeOffset - width / 2, y: minY, width: width, height: bounds.height - minY)
         CATransaction.commit()
-        glow.place(along: line.frame, vertical: true)
+        // The glow runs the whole edge, also where the line keeps to the titlebar band beside the card.
+        glow.place(along: CGRect(x: line.frame.minX, y: 0, width: width, height: bounds.height), vertical: true)
+        wallpaperRim.place(CGRect(x: line.frame.minX, y: 0, width: max(1, width), height: bounds.height), cornerRadius: 0, lineWidth: max(1, width))
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -160,6 +118,7 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        ResizeBands.register(self) // the band has priority over any scroller's knob under it
         applyLineTheme()
     }
 
@@ -167,7 +126,7 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
     /// (`Palette.separator`, `Metrics.lineWidth`): a borders change repaints
     /// here, and the relayout picks up the width.
     private func applyLineTheme() {
-        performWithTheme { line.backgroundColor = Palette.separator.cgColor }
+        performWithTheme { line.backgroundColor = (Palette.surfaceOverride(.splitDivider) ?? Palette.chromeDivider).cgColor }
         glow.applyTheme(self)
         needsLayout = true
     }
@@ -201,9 +160,9 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
     }
 
     private func updateLine() {
-        // Hover lights it only where the hairline would show on hover: beside the curved main pane
-        // the card's edge is the seam. A drag lights it everywhere.
-        glow.set(isDragging ? .dragging : isHovered && !Metrics.mainPaneCurved ? .hovered : .rest)
+        // Hover and drag light it in every style, beside the curved main pane too. Leo, 2026-11-12:
+        // "there's no more drag divider highlight".
+        glow.set(isDragging ? .dragging : isHovered ? .hovered : .rest)
         let target: Float = isLineVisible ? 1 : 0
         guard line.opacity != target else { return }
         Motion.sidebar.set(line, "opacity", to: target, fade: .hover)

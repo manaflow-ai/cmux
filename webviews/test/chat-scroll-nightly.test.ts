@@ -25,13 +25,20 @@
 //   added, removed or re-rendered, its box holds and its opacity stays 1.
 //
 // The page is the pane's dev entry talking to a stand-in acpmux (support/papercutChat.ts). WebKit is
-// the engine the app draws the pane in; Chromium runs too. Run it yourself, never as a CI gate:
+// the engine the app draws the pane in; Chromium runs too. Run it yourself; it is not a CI gate (written under
+// the 2026-10-23 no-new-CI rule, since lifted):
 // CMUX_BROWSER_TESTS=1 bun test test/chat-scroll-nightly.test.ts (or `cmux-ci test -- ...` off host).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { traceUpwardAnchors } from "./support/upwardAnchorTrace";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -117,9 +124,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
     lead.push(["mux", "turn_result", { status: "completed" }]);
   }
 
-  let current: Browser | undefined;
   const browsers = new Map<string, Browser>();
-  let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
   beforeAll(async () => {
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
   });
@@ -141,132 +146,148 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
   /// the scrollbar's thumb, and rows on screen drawn faded or running an animation. Session Info's
   /// changes are collected by a MutationObserver (a running clock aside).
   const startWatch = (page: Page) =>
-    page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const info = document.querySelector<HTMLElement>("aside.acpmux-session-info");
-      const holder = window as unknown as {
-        __scrollWatch?: { frames: Frame[]; infoChanges: string[]; infoNode: Element | null; stop(): void };
-      };
-      const frames: Frame[] = [];
-      const infoChanges: string[] = [];
-      // Row ids end in their record's seq: the running turn's rows come after its prompt, the last
-      // prompt on the page when the watch starts (older pages only add rows before it).
-      const rowSeq = (id: string) => Number(/(\d+)$/.exec(id)?.[1] ?? Number.NaN);
-      const prompts = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row.acpmux-user")];
-      const runningPrompt = rowSeq(prompts.at(-1)?.dataset.rowId ?? "");
-      const clock = (node: Node) =>
-        !!(node instanceof Element ? node : node.parentElement)?.closest(
-          ".acpmux-summary-meta, .acpmux-session-info-task__time, .acpmux-session-info-server__time, [data-clock]",
-        );
-      const name = (node: Node) => {
-        const element = node instanceof Element ? node : node.parentElement;
-        return element ? `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}` : "#text";
-      };
-      const observer = new MutationObserver((records) => {
-        for (const record of records) {
-          if (clock(record.target)) continue;
-          if (record.type === "attributes" && record.attributeName === "style" && record.target === info) continue;
-          infoChanges.push(`${record.type}:${record.attributeName ?? ""}:${name(record.target)}`);
-        }
-      });
-      if (info) observer.observe(info, { subtree: true, childList: true, characterData: true, attributes: true });
-      const box = (element: Element) => {
-        const rect = element.getBoundingClientRect();
-        return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
-      };
-      const stop = window.cmuxAfterPaint(() => {
-        const view = scroller.getBoundingClientRect();
-        const jump = document.querySelector<HTMLElement>(".acpmux-jump-latest");
-        const faded: string[] = [];
-        const animating: string[] = [];
-        const live: string[] = [];
-        const hover: string[] = [];
-        for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row")) {
-          const rect = row.getBoundingClientRect();
-          if (rect.height === 0 || rect.bottom <= view.top || rect.top >= view.bottom) continue;
-          const id = row.dataset.rowId ?? "?";
-          const visual = row
-            .getAnimations({ subtree: true })
-            .filter((animation) => animation.playState === "running")
-            .filter((animation) => {
-              const effect = animation.effect as KeyframeEffect | null;
-              // Shimmers and spinners loop by design; a load-in plays once.
-              if (!effect || effect.getComputedTiming().iterations === Infinity) return false;
-              return effect.getKeyframes().some((frame) => "opacity" in frame || "transform" in frame);
-            });
-          // A live row's entrance (the running turn's rows, after its prompt, arriving as the reply
-          // streams) is not scroll-up loading: reported apart, not held here. Any other row on
-          // screen playing an entrance is.
-          const LIVE = new Set(["cv-enter", "cv-enter-fade", "cv-message-enter"]);
-          const liveRow = rowSeq(id) > runningPrompt;
-          // A row's hover controls (a prompt's actions, a turn's time and actions) fade with the
-          // pointer, which rests over the chat as the rows pass under it: reported apart (`hover`),
-          // pending Leo's call on holding them still while the wheel moves.
-          const HOVER =
-            ".cv-user__actions, .cv-received-actions, .cv-received__hover, .cv-reply-actions, .cv-turn-actions, .cv-turn-time, .cv-command__ok, .cv-command__time";
-          const named = (animation: Animation) => {
-            const css = (animation as CSSAnimation).animationName;
-            if (css) return css;
-            const target = (animation.effect as KeyframeEffect | null)?.target;
-            const where = target ? `${target.tagName.toLowerCase()}.${[...target.classList].join(".")}` : "?";
-            const property = (animation as CSSTransition).transitionProperty;
-            return property ? `transition(${where} ${property})` : `script(${where})`;
-          };
-          const isHover = (animation: Animation) => {
-            const target = (animation.effect as KeyframeEffect | null)?.target;
-            return !!(animation as CSSTransition).transitionProperty && !!target?.matches(HOVER);
-          };
-          const loading = visual.filter(
-            (animation) => !(liveRow && LIVE.has((animation as CSSAnimation).animationName)) && !isHover(animation),
+    page.evaluate(
+      ({ JUMP_LATEST, SESSION_INFO }) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const info = document.querySelector<HTMLElement>(SESSION_INFO);
+        const holder = window as unknown as {
+          __scrollWatch?: { frames: Frame[]; infoChanges: string[]; infoNode: Element | null; stop(): void };
+        };
+        const frames: Frame[] = [];
+        const infoChanges: string[] = [];
+        // Row ids end in their record's seq: the running turn's rows come after its prompt, the last
+        // prompt on the page when the watch starts (older pages only add rows before it).
+        const rowSeq = (id: string) => Number(/(\d+)$/.exec(id)?.[1] ?? Number.NaN);
+        const prompts = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row.acpmux-user")];
+        const runningPrompt = rowSeq(prompts.at(-1)?.dataset.rowId ?? "");
+        const clock = (node: Node) =>
+          !!(node instanceof Element ? node : node.parentElement)?.closest(
+            ".acpmux-summary-meta, .acpmux-session-info-task__time, .acpmux-session-info-server__time, [data-clock]",
           );
-          if (loading.length) animating.push(`${id}:${loading.map(named).join("+")}`);
-          if (visual.some(isHover)) hover.push(id);
-          if (liveRow && visual.some((animation) => LIVE.has((animation as CSSAnimation).animationName))) live.push(id);
-          else if (Number(getComputedStyle(row).opacity) < 0.999) faded.push(id);
-        }
-        frames.push({
-          jump: jump
-            ? {
-                shown: jump.hasAttribute("data-shown"),
-                opacity: Number(getComputedStyle(jump).opacity),
-                ...box(jump),
-              }
-            : null,
-          info: info?.isConnected ? { ...box(info), opacity: Number(getComputedStyle(info).opacity) } : null,
-          thumb:
-            scroller.scrollHeight > scroller.clientHeight
-              ? (scroller.scrollTop / scroller.scrollHeight) * scroller.clientHeight
-              : 0,
-          scrollHeight: scroller.scrollHeight,
-          faded,
-          animating,
-          live,
-          hover,
+        const name = (node: Node) => {
+          const element = node instanceof Element ? node : node.parentElement;
+          return element ? `${element.tagName.toLowerCase()}.${[...element.classList].join(".")}` : "#text";
+        };
+        const observer = new MutationObserver((records) => {
+          for (const record of records) {
+            if (clock(record.target)) continue;
+            if (record.type === "attributes" && record.attributeName === "style" && record.target === info) continue;
+            infoChanges.push(`${record.type}:${record.attributeName ?? ""}:${name(record.target)}`);
+          }
         });
-      });
-      holder.__scrollWatch = {
-        frames,
-        infoChanges,
-        infoNode: info,
-        stop: () => {
-          stop();
-          observer.disconnect();
-        },
-      };
-    });
+        if (info) observer.observe(info, { subtree: true, childList: true, characterData: true, attributes: true });
+        const box = (element: Element) => {
+          const rect = element.getBoundingClientRect();
+          return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+        };
+        const stop = window.cmuxAfterPaint(() => {
+          const view = scroller.getBoundingClientRect();
+          const jump = document.querySelector<HTMLElement>(JUMP_LATEST);
+          const faded: string[] = [];
+          const animating: string[] = [];
+          const live: string[] = [];
+          const hover: string[] = [];
+          for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row")) {
+            const rect = row.getBoundingClientRect();
+            if (rect.height === 0 || rect.bottom <= view.top || rect.top >= view.bottom) continue;
+            const id = row.dataset.rowId ?? "?";
+            const visual = row
+              .getAnimations({ subtree: true })
+              .filter((animation) => animation.playState === "running")
+              .filter((animation) => {
+                const effect = animation.effect as KeyframeEffect | null;
+                // Shimmers and spinners loop by design; a load-in plays once.
+                if (!effect || effect.getComputedTiming().iterations === Infinity) return false;
+                // The running line now sweeps in finite cadences. These two shimmer layers are
+                // ongoing status, just like an infinite spinner, not a row's entrance animation.
+                const name = (animation as CSSAnimation).animationName;
+                if (
+                  (name === "cmux-cadenced-shimmer-band" && effect.target?.matches(".cv-shimmer__band")) ||
+                  (name === "cmux-cadenced-shimmer-lit" &&
+                    effect.target?.matches(".cv-shimmer__band > .cv-shimmer__lit"))
+                )
+                  return false;
+                return effect.getKeyframes().some((frame) => "opacity" in frame || "transform" in frame);
+              });
+            // A live row's entrance (the running turn's rows, after its prompt, arriving as the reply
+            // streams) is not scroll-up loading: reported apart, not held here. Any other row on
+            // screen playing an entrance is.
+            const LIVE = new Set(["cv-enter", "cv-enter-fade", "cv-message-enter"]);
+            const liveRow = rowSeq(id) > runningPrompt;
+            // A row's hover controls (a prompt's actions, a turn's time and actions) fade with the
+            // pointer, which rests over the chat as the rows pass under it: reported apart (`hover`),
+            // pending Leo's call on holding them still while the wheel moves.
+            const HOVER =
+              ".cv-user__actions, .cv-received-actions, .cv-received__hover, .cv-reply-actions, .cv-turn-actions, .cv-turn-time, .cv-command__ok, .cv-command__time";
+            const named = (animation: Animation) => {
+              const css = (animation as CSSAnimation).animationName;
+              if (css) return css;
+              const target = (animation.effect as KeyframeEffect | null)?.target;
+              const where = target ? `${target.tagName.toLowerCase()}.${[...target.classList].join(".")}` : "?";
+              const property = (animation as CSSTransition).transitionProperty;
+              return property ? `transition(${where} ${property})` : `script(${where})`;
+            };
+            const isHover = (animation: Animation) => {
+              const target = (animation.effect as KeyframeEffect | null)?.target;
+              return !!(animation as CSSTransition).transitionProperty && !!target?.matches(HOVER);
+            };
+            const loading = visual.filter(
+              (animation) => !(liveRow && LIVE.has((animation as CSSAnimation).animationName)) && !isHover(animation),
+            );
+            if (loading.length) animating.push(`${id}:${loading.map(named).join("+")}`);
+            if (visual.some(isHover)) hover.push(id);
+            if (liveRow && visual.some((animation) => LIVE.has((animation as CSSAnimation).animationName)))
+              live.push(id);
+            else if (Number(getComputedStyle(row).opacity) < 0.999) faded.push(id);
+          }
+          frames.push({
+            jump: jump
+              ? {
+                  shown: jump.hasAttribute("data-shown"),
+                  opacity: Number(getComputedStyle(jump).opacity),
+                  ...box(jump),
+                }
+              : null,
+            info: info?.isConnected ? { ...box(info), opacity: Number(getComputedStyle(info).opacity) } : null,
+            thumb:
+              scroller.scrollHeight > scroller.clientHeight
+                ? (scroller.scrollTop / scroller.scrollHeight) * scroller.clientHeight
+                : 0,
+            scrollHeight: scroller.scrollHeight,
+            faded,
+            animating,
+            live,
+            hover,
+          });
+        });
+        holder.__scrollWatch = {
+          frames,
+          infoChanges,
+          infoNode: info,
+          stop: () => {
+            stop();
+            observer.disconnect();
+          },
+        };
+      },
+      { JUMP_LATEST, SESSION_INFO },
+    );
   const stopWatch = (page: Page) =>
-    page.evaluate(() => {
-      const holder = window as unknown as {
-        __scrollWatch?: { frames: Frame[]; infoChanges: string[]; infoNode: Element | null; stop(): void };
-      };
-      const watch = holder.__scrollWatch!;
-      watch.stop();
-      return {
-        frames: watch.frames,
-        infoChanges: watch.infoChanges,
-        infoReplaced: watch.infoNode !== null && watch.infoNode !== document.querySelector("aside.acpmux-session-info"),
-      };
-    });
+    page.evaluate(
+      ({ SESSION_INFO }) => {
+        const holder = window as unknown as {
+          __scrollWatch?: { frames: Frame[]; infoChanges: string[]; infoNode: Element | null; stop(): void };
+        };
+        const watch = holder.__scrollWatch!;
+        watch.stop();
+        return {
+          frames: watch.frames,
+          infoChanges: watch.infoChanges,
+          infoReplaced: watch.infoNode !== null && watch.infoNode !== document.querySelector(SESSION_INFO),
+        };
+      },
+      { SESSION_INFO },
+    );
 
   /// What the reader saw over the frames, as counts the check holds at zero.
   function tally(frames: Frame[]) {
@@ -346,12 +367,12 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
   test.each(engines.map(([name]) => name))(
     "%s: wheeling up through older history while a reply streams, nothing on screen jumps or flickers",
     async (name) => {
-      current = browsers.get(name)!;
+      const engine = browsers.get(name)!;
       // A fresh chat per engine (an earlier run's streamed reply would move its tail). A running
       // last turn: the pane follows its tail, and Jump to latest offers "still replying".
       // The summary counts every prompt, the older ones too, as acpmux's does: the pane reserves the
       // room for the unloaded history from it.
-      pane = await papercutPane(() => current!, {
+      const pane = await papercutPane(() => engine, {
         turns: 12,
         running: true,
         lead,
@@ -367,10 +388,10 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
           window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
         ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
       );
-      const toggle = page.locator("button.acpmux-session-info-toggle");
+      const toggle = page.locator(SESSION_INFO_TOGGLE);
       await toggle.waitFor({ timeout: 10_000 });
       if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
-      await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+      await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
       await page.evaluate(() =>
         Promise.all(
           document
@@ -379,16 +400,37 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
             .map((animation) => animation.finished.catch(() => undefined)),
         ),
       );
-      const pagesBefore = pane!.methods.filter((method) => method === "_acpmux/events").length;
+      const pagesBefore = pane.methods.filter((method) => method === "_acpmux/events").length;
       const view = (await page.locator(".acpmux-scroll").boundingBox())!;
       await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
+      // The reader leaves the latest row before the reply streams, so every paragraph lands below
+      // them. Started at the tail, the first paragraph could land in the frame before the wheel's
+      // first step while the view still followed the tail: the follow moved every row up by that
+      // paragraph (78.75 px), and the trace read it as the wheel's anchor drifting (WebKit, round 0
+      // frame 0, under load).
+      await page.mouse.wheel(0, -240);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            let last = scroller.scrollTop;
+            let still = 0;
+            window.cmuxAfterPaint(() => {
+              still = scroller.scrollTop === last ? still + 1 : 0;
+              last = scroller.scrollTop;
+              if (still < 6) return true;
+              resolve();
+              return false;
+            });
+          }),
+      );
       // The reply streams below the reader: a paragraph every 80 ms for the whole run.
       let streamed = 0;
       const stream = setInterval(() => {
         const [dir, kind, msg] = say(
           `Streaming paragraph ${++streamed}: the reader scrolls up while this arrives.\n\n`,
         );
-        pane!.record(kind, msg, dir);
+        pane.record(kind, msg, dir);
       }, 80);
       await startWatch(page);
       // A trackpad's uneven steps, in rounds so older pages land while the wheel is moving.
@@ -424,7 +466,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
         clearInterval(stream);
       }
       const watched = await stopWatch(page);
-      const pages = pane!.methods.filter((method) => method === "_acpmux/events").length - pagesBefore;
+      const pages = pane.methods.filter((method) => method === "_acpmux/events").length - pagesBefore;
       const reachedFirst = await page.evaluate(atFirstPrompt);
       const seen = tally(watched.frames);
       const sum = (key: "cancelledWheels" | "missingAnchors" | "blankFrames" | "blankBandFrames" | "overlapFrames") =>
@@ -457,7 +499,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       for (const [key, value] of Object.entries(summary))
         console.info(`chat-scroll-nightly ${name} ${key}: ${JSON.stringify(value)}`);
       await page.close();
-      await pane!.close();
+      await pane.close();
 
       // The run went where the repros are: older pages landed while the wheel moved up.
       expect(pages).toBeGreaterThan(0);

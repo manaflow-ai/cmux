@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the page host (Localizable.xcstrings): the native confirmation sheet.
 nonisolated enum PageStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var installTitle: String { t("pages.confirm.installTitle", "Install “%@”?") }
@@ -28,13 +28,19 @@ nonisolated enum PageStrings {
     static var enable: String { t("pages.confirm.apps.enable", "Turn on “%@”?") }
     static var disable: String { t("pages.confirm.apps.disable", "Turn off “%@”?") }
     static var change: String { t("pages.confirm.apps.change", "Change “%@”?") }
+    /// An app installed from a git repository: where it comes from (`%1$@`, `github.com/o/r`) and the short commit (`%2$@`).
+    static var appSource: String { t("pages.confirm.apps.source", "From %1$@ at %2$@.") }
+    static var appNotReviewed: String { t("pages.confirm.apps.notReviewed", "Not reviewed by cmux.") }
+    static var appVerifiedSource: String { t("pages.confirm.apps.verifiedSource", "Verified source.") }
 
     static var cloudPublish: String { t("pages.confirm.cloud.publish", "Publish “%@” to the internet?") }
     static var cloudFirewall: String { t("pages.confirm.cloud.firewall", "Change the firewall of “%@”?") }
     static var cloudBilling: String { t("pages.confirm.cloud.billing", "Open billing in your browser?") }
     static var cloudSignIn: String { t("pages.confirm.cloud.signIn", "Sign in to cmux Cloud?") }
     static var cloudSignOut: String { t("pages.confirm.cloud.signOut", "Sign out of cmux Cloud?") }
-    static var cloudConnect: String { t("pages.confirm.cloud.connect", "Connect to “%@”?") }
+    static var cloudConnect: String { t("pages.confirm.cloud.connect", "Open “%@”") }
+    static var cloudMachine: String { t("pages.confirm.cloud.machine", "Cloud machine") }
+    static var cloudConnectDetail: String { t("pages.confirm.cloud.connectDetail", "Connect opens this machine in cmux so you can see what is running.") }
 
     static func risk(_ risk: String) -> String {
         switch risk {

@@ -204,6 +204,56 @@ test("a toast times out, but not while the stack is hovered, and gets its full t
   expect(live()).toHaveLength(0);
 });
 
+test("toasts shown at once stack, and each fades on its own timer, oldest first", () => {
+  // Leo, 2026-11-07: "They have stacked toasts." Three toasts a second apart rest together in the
+  // stack; each leaves when its own time is up, not all at once and not after the last one's.
+  let clock = 0;
+  const armed: { fire(): void; ms: number; live: boolean }[] = [];
+  const arm = (fire: () => void, ms: number) => {
+    const timer = { fire, ms, live: true };
+    armed.push(timer);
+    return () => {
+      timer.live = false;
+    };
+  };
+  const live = () => armed.filter((timer) => timer.live);
+  const queue = createNoticeQueue();
+  const closed: string[] = [];
+  const show = (id: string) =>
+    act(() => {
+      queue.show({ id, message: `Toast ${id}`, duration: 4000, onClose: (reason) => closed.push(`${id}:${reason}`) });
+    });
+  show("a");
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" now={() => clock} arm={arm} />);
+  clock = 1000;
+  show("b");
+  clock = 2000;
+  show("c");
+  const ids = () => queue.snapshot().map((entry) => entry.spec.id);
+  expect(ids()).toEqual(["a", "b", "c"]);
+  expect(doc.querySelectorAll(".ui-notice-stack .ui-notice")).toHaveLength(3);
+  // One timer, for the oldest: due at 4000, armed at 2000.
+  expect(live().map((timer) => timer.ms)).toEqual([2000]);
+
+  clock = 4000;
+  act(() => live()[0]!.fire());
+  expect(ids()).toEqual(["b", "c"]);
+  expect(doc.querySelectorAll(".ui-notice-stack .ui-notice")).toHaveLength(2);
+  // b's own time (shown at 1000) is up at 5000, not 4000 after a left.
+  expect(live().map((timer) => timer.ms)).toEqual([1000]);
+
+  clock = 5000;
+  act(() => live()[0]!.fire());
+  expect(ids()).toEqual(["c"]);
+  expect(live().map((timer) => timer.ms)).toEqual([1000]);
+
+  clock = 6000;
+  act(() => live()[0]!.fire());
+  expect(ids()).toEqual([]);
+  expect(live()).toHaveLength(0);
+  expect(closed).toEqual(["a:timeout", "b:timeout", "c:timeout"]);
+});
+
 test("the same toast shown again is one toast with a count, moved to the newest place", () => {
   const queue = createNoticeQueue();
   const closed: string[] = [];
@@ -396,4 +446,37 @@ test("a hovered deck at a top anchor (drawn in another host) keeps its toast's t
   // Another toast arrives at the bottom while the pointer stays on the top one.
   act(() => void queue.show({ id: "bottom", message: "Archived.", duration: 0 }));
   expect(live()).toHaveLength(0);
+});
+
+test("a named stack is a region landmark, so a person can reach the toasts from anywhere", () => {
+  const queue = createNoticeQueue();
+  queue.show({ message: "Copied the link." });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" label="Notifications" />);
+  const stack = doc.querySelector(".ui-notice-stack")!;
+  expect(stack.getAttribute("role")).toBe("region");
+  expect(stack.getAttribute("aria-label")).toBe("Notifications");
+  // A region with no name is no landmark: an unnamed stack stays a plain box.
+  const plain = render(<NoticeStack queue={queue} dismissLabel="Dismiss" />).querySelector(".ui-notice-stack")!;
+  expect(plain.hasAttribute("role")).toBe(false);
+});
+
+const glassOf = (doc: Document) => doc.querySelector(".ui-notice")?.getAttribute("data-host-glass-role") ?? null;
+const oneToast = () => {
+  const queue = createNoticeQueue();
+  queue.show({ id: "a", message: "Saved." });
+  return <NoticeStack queue={queue} dismissLabel="Dismiss" label="Notifications" />;
+};
+
+test("a stack toast draws on the page's glass by default (experiments.toastGlass off)", () => {
+  expect(glassOf(render(oneToast()))).toBeNull();
+});
+
+test("experiments.toastGlass (arm host) puts a stack toast on the App's toast glass", () => {
+  const savedArms = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { "toast-glass": "host" };
+  try {
+    expect(glassOf(render(oneToast()))).toBe("toast");
+  } finally {
+    globalThis.cmuxExperiments = savedArms;
+  }
 });

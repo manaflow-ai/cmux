@@ -21,6 +21,9 @@ NX_ARTIFACTS. `--socket PATH` checks an app already running (started with Launch
 `capture-host launch` or `open -g -n` does) instead, and leaves it running.
 """
 import json, os, shutil, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 ATTACH = sys.argv[2] if len(sys.argv) == 3 and sys.argv[1] == "--socket" else None
 APP, TAG = (None, None) if ATTACH else (os.environ["NX_APP"], os.environ["NX_APP_TAG"])
@@ -137,7 +140,7 @@ def stop(app):
     try:
         app.wait(timeout=60)
     except subprocess.TimeoutExpired:
-        print("app pid %d did not quit within 60 s" % app.pid, flush=True)
+        safe_print("app pid %d did not quit within 60 s" % app.pid, flush=True)
     rpc("action.run", {"id": "endAgents"}, timeout=10)
     acpmux = os.path.join(APP, "Contents/Resources/bin/acpmux")
     for acp in (os.path.join(CHIEF, "acpmux"), os.path.join(HOME, ".acpmux")):
@@ -165,7 +168,10 @@ try:
     moved = poll(lambda: (lambda w: w if w.get("workspace") not in (None, home) and browser(w) else None)(window()), 60)
     check("the link opens in a browser tab of a workspace other than Home", bool(moved), {"home": home, "window": window()})
     if moved:
-        time.sleep(2)  # test harness wait: a second delivery would land by now
+        # Negative check: a second delivery would change the workspace or its browser tabs; wait until they held
+        # still for 2 s (the check below compares them).
+        wait_stable(lambda: (window().get("workspace"), browser(window())), "the window after the open", timeout=15,
+                    interval=0.25, reads=8, raise_on_timeout=False)
         check("the link opens once", window().get("workspace") == moved.get("workspace") and browser(window()) == browser(moved),
               window().get("topology"))
     shot("2-after-open")

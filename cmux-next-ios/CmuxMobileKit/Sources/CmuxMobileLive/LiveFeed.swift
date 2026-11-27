@@ -130,6 +130,9 @@ public final class LiveFeed: FeedActions {
         .prefix(FeedStore.memoryLimit)
         log.info("feed history \(turns.count, privacy: .public) of \(sessions.count, privacy: .public) sessions")
         store.mergeHistory(turns.map(\.0))
+        // `sessionsLoaded` is the authoritative watch reply, including an empty list.
+        // Marking here avoids treating channel readiness as a fetched Feed.
+        store.markKnown()
         // Replies of cards no longer in the Feed are let go.
         let shown = Set(store.items.map(\.id))
         fullReplies = fullReplies.filter { shown.contains($0.key) }
@@ -166,7 +169,9 @@ public final class LiveFeed: FeedActions {
         let harness = session?.harness ?? "agent"
         var item = FeedItem(
             id: id, kind: kind, workspaceID: place?.workspaceID ?? "", tabID: place?.tabID ?? sessionID,
-            agentName: session?.name.isEmpty == false ? session!.name : DaemonTree.agentName(harness), harness: harness,
+            // The agent ("Claude", "Codex"), as for a terminal agent's card: a session's name is an id
+            // acpmux or the Chief made ("claude-2", "optchat-sub-…-a12"), not who answered.
+            agentName: DaemonTree.agentName(harness), harness: harness,
             workspaceTitle: place?.workspaceTitle ?? (session?.cwd).map { ($0 as NSString).lastPathComponent } ?? "",
             markdown: markdown, quote: quote, createdAt: now()
         )

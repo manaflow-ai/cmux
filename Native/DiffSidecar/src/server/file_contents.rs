@@ -515,17 +515,6 @@ async fn read_work_tree(repo: &Path, path: &str) -> Result<Side, FileContentsErr
 
 /// Standard base64 with padding (RFC 4648), for a binary side.
 pub(super) fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let triple = (u32::from(chunk[0]) << 16)
-            | (u32::from(chunk.get(1).copied().unwrap_or(0)) << 8)
-            | u32::from(chunk.get(2).copied().unwrap_or(0));
-        let digit = |shift: u32| char::from(ALPHABET[((triple >> shift) & 0x3f) as usize]);
-        text.push(digit(18));
-        text.push(digit(12));
-        text.push(if chunk.len() > 1 { digit(6) } else { '=' });
-        text.push(if chunk.len() > 2 { digit(0) } else { '=' });
-    }
-    text
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }

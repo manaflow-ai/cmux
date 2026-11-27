@@ -4,7 +4,7 @@
 // mount or an earlier one, or a write still on its way), the prompt is the draft and acpmux's is
 // never merged in; text typed before the page ever read the chat's draft is kept beside acpmux's;
 // an untouched prompt shows acpmux's draft.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
@@ -12,6 +12,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { hydratedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -86,12 +87,8 @@ afterEach(() => {
   delete page().cmuxAcpmuxActions;
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -157,9 +154,19 @@ const page = () =>
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
   };
 
+/// The person types `text` and pauses: a typed change's draft writes run just after its keys
+/// (Composer.tsx `flushTyped`, 150 ms), so each step after an edit sees its write out, as it did
+/// when the key's own task wrote it. composer-typed-flush.test.tsx covers the keys before that.
+/// The pause is on a fake clock: the key's timers run on it, not on the runner's wall clock.
 async function type(text: string) {
   await act(async () => markdownField()!.setCaret(Number.MAX_SAFE_INTEGER));
-  await act(async () => markdownField()!.insertTyped(text));
+  jest.useFakeTimers();
+  try {
+    await act(async () => markdownField()!.insertTyped(text));
+    await act(async () => void jest.advanceTimersByTime(1_000));
+  } finally {
+    jest.useRealTimers();
+  }
 }
 
 /// acpmux's drafts for one chat, with reads and writes the steps can hold and answer.
@@ -688,4 +695,21 @@ test("a new chat's large kept draft and typed text are merged and sent", async (
   await until(() => prompt() === merged, "the merged prompt");
   await act(async () => handle.current!.settleDraft());
   expect(sent.at(-1)).toBe(merged);
+});
+
+test("a switch into a chat whose saved draft equals the last drawn text shows that draft, not the typed one", async () => {
+  // A typed key that changes nothing the composer draws renders nothing, so the field's `value` prop holds the text
+  // as of its last render. Switching to a chat whose draft equals that stale prop must still put the draft in the
+  // field: otherwise the field keeps chat A's text and the next key writes it into chat B.
+  const { writePersistedDraft, readPersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
+  writePersistedDraft("chat-equal-b", "h");
+  await render("chat-equal-a");
+  await type("h");
+  await type("ello");
+  expect(prompt()).toBe("hello");
+  await render("chat-equal-b");
+  await settle();
+  expect(prompt()).toBe("h");
+  await type("i");
+  expect(readPersistedDraft("chat-equal-b")).toBe("hi");
 });

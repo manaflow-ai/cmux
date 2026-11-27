@@ -304,12 +304,7 @@ pub(super) fn validate_client_socket_directory(
 }
 
 #[cfg(unix)]
-pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-
-    let capacity = unsafe { std::mem::zeroed::<libc::sockaddr_un>() }.sun_path.len();
-    path.as_os_str().as_bytes().len() < capacity
-}
+pub(crate) use cmux_unix_socket::fits as unix_socket_path_fits;
 
 pub(super) fn default_client_socket(
     state_dir: &Path,

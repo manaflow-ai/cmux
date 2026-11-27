@@ -11,6 +11,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { ChatCard } from "../src/agent-session/acpmux/newtab/screenModel";
 import { pageSwitch, type PageSwitch } from "./support/pageSwitch";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -94,12 +95,9 @@ afterEach(async () => {
   page.reset();
 });
 
-afterAll(() => {
+afterAll(async () => {
   page.dispose();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const card = (sessionId: string, title: string): ChatCard => ({

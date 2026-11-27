@@ -4,7 +4,10 @@
 //!
 //! The tracker reads raw output as the reader gets it. A line ends at `\n`
 //! or `\r`, so a progress bar that redraws its line after `\r` shows its
-//! newest frame. Escapes are stripped, tabs become spaces, other control
+//! newest frame. Escapes are parsed as the bytes come, across chunks, and
+//! never kept: a `\n` or `\r` inside an OSC, DCS, SOS, PM or APC string
+//! ends no line (a terminal ignores it there too), and a line cut at
+//! `MAX_LINE_BYTES` never cuts one in half. Tabs become spaces, other control
 //! characters are dropped and runs of spaces fold to one. A line that is
 //! blank after that never replaces the tail. A line keeps at most its first
 //! `MAX_LINE_BYTES`; the shown tail is cut to `MAX_TAIL_CHARS` and
@@ -88,27 +91,69 @@ impl TailPinSlot {
     }
 }
 
+/// Where the output is in an escape sequence, kept from one chunk to the next.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Escape {
+    /// Text.
+    #[default]
+    None,
+    /// After `ESC`. A `\n` or `\r` here still ends the line.
+    Start,
+    /// A CSI's parameters, up to its final byte in `@..~`. A C0 control in it
+    /// still acts, as in a terminal: `\n` and `\r` end the line.
+    Csi,
+    /// An OSC, DCS, SOS, PM or APC string, up to BEL or ST (`ESC \`); `\n` and
+    /// `\r` in it are part of the string.
+    Str,
+    /// `ESC` inside a string: `\` ends it, any other byte starts a new escape.
+    StrEsc,
+}
+
 /// One pinned terminal's last line.
 #[derive(Debug, Default)]
 pub(crate) struct TailLine {
-    /// The raw bytes of the line being printed, up to `MAX_LINE_BYTES`.
+    /// The text bytes of the line being printed, escapes left out, up to `MAX_LINE_BYTES`.
     pending: Vec<u8>,
+    escape: Escape,
     tail: Option<String>,
     /// The tail changed since the last `take_change`.
     changed: bool,
 }
 
+const ESC: u8 = 0x1b;
+const BEL: u8 = 0x07;
+/// CAN and SUB end any escape sequence, as in a terminal.
+const CAN: u8 = 0x18;
+const SUB: u8 = 0x1a;
+
 impl TailLine {
     /// Feeds raw output. Returns whether the tail has a change to take.
     pub(crate) fn feed(&mut self, bytes: &[u8]) -> bool {
-        let mut segments = bytes.split(|byte| matches!(byte, b'\n' | b'\r')).peekable();
-        while let Some(segment) = segments.next() {
-            let room = MAX_LINE_BYTES.saturating_sub(self.pending.len());
-            let kept = segment.get(..room).unwrap_or(segment);
-            self.pending.extend_from_slice(kept);
-            if segments.peek().is_some() {
-                self.end_line();
-            }
+        for &byte in bytes {
+            self.escape = match (self.escape, byte) {
+                (_, CAN | SUB) => Escape::None,
+                (Escape::None | Escape::Csi | Escape::Start, b'\n' | b'\r') => {
+                    self.end_line();
+                    self.escape
+                }
+                (Escape::None | Escape::Csi, ESC) => Escape::Start,
+                (Escape::None, _) => {
+                    if self.pending.len() < MAX_LINE_BYTES {
+                        self.pending.push(byte);
+                    }
+                    Escape::None
+                }
+                (Escape::Start | Escape::StrEsc, b'[') => Escape::Csi,
+                (Escape::Start | Escape::StrEsc, b']' | b'P' | b'X' | b'^' | b'_') => Escape::Str,
+                (Escape::Start | Escape::StrEsc, ESC) => Escape::Start,
+                // A two-byte escape (`ESC 7`, `ESC =`), or the ST that ends a string.
+                (Escape::Start | Escape::StrEsc, _) => Escape::None,
+                (Escape::Csi, 0x40..=0x7e) => Escape::None,
+                (Escape::Csi, _) => Escape::Csi,
+                (Escape::Str, BEL) => Escape::None,
+                (Escape::Str, ESC) => Escape::StrEsc,
+                (Escape::Str, _) => Escape::Str,
+            };
         }
         self.changed
     }

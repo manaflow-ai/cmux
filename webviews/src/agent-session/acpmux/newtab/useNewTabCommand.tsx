@@ -1,6 +1,7 @@
 import React, { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   CMUX_PASS_THROUGH,
+  CmuxCommandRefused,
   composerCommand,
   harnessTakesToo,
   type CmuxCommand,
@@ -12,8 +13,13 @@ import { withoutInlineTokens, type ComposerAttachment } from "../attachments";
 export type NewTabCommandActions = {
   importError?: string | undefined;
   importSandboxed?: boolean;
+  /// The chat this page starts runs somewhere other than this machine (customizeCommand.ts
+  /// `startsElsewhere`): read when a command is typed, since the picks change under the page.
+  startsElsewhere?(): boolean;
   onCmuxCommand?(command: CmuxCommand, args?: string): CmuxCommandResult;
   onImportFile?(file: File): void | Promise<void>;
+  /** `/help`: open the sheet of commands, skills and keys (HelpSheet.tsx). */
+  onHelp?(): void;
 };
 
 /** Both New Tab templates consume owned commands before omnibar or chat dispatch. */
@@ -64,6 +70,14 @@ export function useNewTabCommand(
       setText((current) => (current === text ? "" : current));
       setRefusal(undefined);
     };
+    if (command.command.action === "help") {
+      if (!actions.onHelp) refuse(t("composer.cmuxUnavailable"));
+      else {
+        actions.onHelp();
+        clear();
+      }
+      return true;
+    }
     if (command.command.action === "import") {
       if (actions.importSandboxed) refuse(t("composer.cmuxImportSandbox"));
       else if (!actions.onImportFile) refuse(t("composer.cmuxUnavailable"));
@@ -72,6 +86,10 @@ export function useNewTabCommand(
         importInput.current?.click();
         clear();
       }
+      return true;
+    }
+    if (command.command.action === "customize" && actions.startsElsewhere?.()) {
+      refuse(t("composer.cmuxCustomizeHere"));
       return true;
     }
     if (!actions.onCmuxCommand && harnessTakesToo(command.command)) return false;
@@ -93,9 +111,11 @@ export function useNewTabCommand(
           pending.current = false;
           setText((current) => (current === text ? "" : current));
         },
-        () => {
+        (reason: unknown) => {
           pending.current = false;
-          setRefusal({ text: currentText.current, message: t("composer.cmuxUnavailable") });
+          // The command's own refusal (`/resume`: no chat has that id), as the chat composer says it.
+          const message = reason instanceof CmuxCommandRefused ? reason.message : t("composer.cmuxUnavailable");
+          setRefusal({ text: currentText.current, message });
         },
       );
     } else if (accepted === false) refuse(t("composer.cmuxUnavailable"));

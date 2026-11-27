@@ -1,3 +1,5 @@
+import CmuxEgress
+import CmuxMobileTransport
 import Foundation
 import OSLog
 
@@ -29,6 +31,9 @@ public final class PresenceListener {
     private let fetchMacs: @MainActor () async throws -> [LiveAPI.Mac]
     private let makeSocket: @MainActor (URLRequest) -> any PresenceSocket
     private let clock: any Clock<Duration>
+    /// Settings → Transport → Align Keepalives: the ping waits for the 10 s
+    /// keepalive beat instead of 15 s after the pong.
+    private let beat: KeepaliveBeat
     private let onUpdate: @MainActor (Update) -> Void
     private var task: Task<Void, Never>?
     private var socket: (any PresenceSocket)?
@@ -38,21 +43,41 @@ public final class PresenceListener {
     private var generation: UInt64 = 0
     private var failures = 0
     private var active = false
+    /// The app is in the background (set by the coordinator). The socket stays (iOS
+    /// suspends the app within seconds anyway, which ends it; during a locked-phone
+    /// Chief call, the audio background mode, its frames redial the call's Mac link),
+    /// but a failed socket's retries skip the HTTP Mac-list refresh: nobody sees the
+    /// list, and the foreground's `kick` reconnects and the socket's hello brings it.
+    var backgrounded = false
     /// Poll interval while the socket is down.
     static let pollInterval: Duration = .seconds(20)
     static let pingInterval: Duration = .seconds(15)
     static let pingTimeout: Duration = .seconds(5)
     static let helloTimeout: Duration = .seconds(10)
 
+    /// The socket's retry after `failures` failures in a row: 2 s, 3 s, then every 5 s
+    /// for about five minutes, then the poll interval. Its hello after an outage is what
+    /// tells the links the network is back when iOS reports no path change, so it
+    /// retries as often as the links do (was 2, 4, 8, then 20 s).
+    static func retryDelay(afterFailures failures: Int) -> Duration {
+        switch failures {
+        case ..<2: .seconds(2)
+        case 2: .seconds(3)
+        case ..<60: .seconds(5)
+        default: pollInterval
+        }
+    }
+
     public convenience init(api: LiveAPI, teamID: String, deviceID: String, clock: any Clock<Duration> = ContinuousClock(),
                 onUpdate: @escaping @MainActor (Update) -> Void) {
         self.init(clock: clock,
                   signalRequest: { try await api.signalRequest(teamID: teamID, deviceID: deviceID) },
                   fetchMacs: { try await api.macs(teamID: teamID) },
-                  makeSocket: { URLSession.shared.webSocketTask(with: $0) }, onUpdate: onUpdate)
+                  makeSocket: { CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxMobileLive.PresenceListener"), with: $0, site: "CmuxMobileLive.PresenceListener") }, onUpdate: onUpdate)
     }
 
     init(clock: any Clock<Duration>,
+         beat: KeepaliveBeat = .live,
          signalRequest: @escaping @MainActor () async throws -> URLRequest,
          fetchMacs: @escaping @MainActor () async throws -> [LiveAPI.Mac],
          makeSocket: @escaping @MainActor (URLRequest) -> any PresenceSocket,
@@ -61,6 +86,7 @@ public final class PresenceListener {
         self.fetchMacs = fetchMacs
         self.makeSocket = makeSocket
         self.clock = clock
+        self.beat = beat
         self.onUpdate = onUpdate
     }
 
@@ -182,7 +208,8 @@ public final class PresenceListener {
                 if let error {
                     self.failed(generation, reason: String(describing: error))
                 } else {
-                    self.pingTimer = self.timer(after: Self.pingInterval, generation: generation) { listener in
+                    let next = self.beat.delay(toNextBeatOf: KeepaliveBeat.period) ?? Self.pingInterval
+                    self.pingTimer = self.timer(after: next, generation: generation) { listener in
                         listener.ping(generation)
                     }
                 }
@@ -207,7 +234,13 @@ public final class PresenceListener {
         onUpdate(.connected(false))
         guard isCurrent(recoveryGeneration) else { return }
         failures += 1
-        let delay: Duration = failures < 4 ? .seconds(1 << failures) : Self.pollInterval
+        let delay = Self.retryDelay(afterFailures: failures)
+        if backgrounded {
+            task = timer(after: delay, generation: recoveryGeneration) { listener in
+                listener.connect()
+            }
+            return
+        }
         // Refresh and retry are independent: a slow HTTP response cannot hold
         // the socket in backoff. Both are canceled on stop/kick/next attempt.
         refreshTask = Task { [weak self, fetchMacs] in

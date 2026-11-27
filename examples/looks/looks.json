@@ -1,0 +1,115 @@
+{
+  "$comment": "Looks written only on public surfaces (docs/cmux-next/look-addons.md), and the twin of every look cmux builds in. Each `addon` is a setup folder here that installs with `cmux setup install` and from the community registry. `builtIn` names the built-in preset a look recreates: the setting that selects it and the agent-pane.transcript gallery variant that draws it. webviews test/browser/look-addons.test.ts draws the add-on through the host's own customization path and compares it with that variant; scripts/check-look-addons.ts fails when a built-in look id has no entry here, so no built-in look can depend on code an outsider cannot reach. `pending` says why an entry has no add-on twin yet.",
+  "looks": [
+    {
+      "id": "studio",
+      "addon": "studio",
+      "builtIn": null,
+      "pending": "The built-in Studio transcript preset (agentPane.display.transcriptLook studio) is in review in #46047 and #46258; once it lands this entry names it and its gallery variant. Until then the add-on is the reference it must match."
+    },
+    {
+      "id": "paper",
+      "addon": "paper",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "aurora",
+      "addon": "aurora",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "nature",
+      "addon": "nature",
+      "builtIn": null,
+      "pending": "An outside-only look: the wallpaper leads on the clearest glass. There is no built-in twin."
+    },
+    {
+      "id": "grove",
+      "addon": "grove",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "overdrive",
+      "addon": "overdrive",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "astrolabe",
+      "addon": "astrolabe",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "gel",
+      "addon": "gel",
+      "builtIn": null,
+      "pending": "An outside-only look on the flush corner with goo fillets: there is no built-in twin."
+    },
+    {
+      "id": "workbench",
+      "addon": "workbench",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "hearth",
+      "addon": "hearth",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "halo",
+      "addon": "halo",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "grid",
+      "addon": "grid",
+      "builtIn": null,
+      "pending": "An outside-only look on a strict grid (zero corners, 1 px rules, one accent): there is no built-in twin."
+    },
+    {
+      "id": "claude",
+      "surface": "composer",
+      "addon": null,
+      "builtIn": { "setting": "composerLook", "value": "claude" },
+      "pending": "The composer look is page storage only (composerLook.ts); a setup cannot select it until a setting carries it (#43272, #45843), and the composer has no paint tokens yet."
+    },
+    {
+      "id": "codex",
+      "surface": "composer",
+      "addon": null,
+      "builtIn": { "setting": "composerLook", "value": "codex" },
+      "pending": "As claude: the default composer look, page storage only until #43272 or #45843 lands."
+    },
+    {
+      "id": "codex-composer",
+      "surface": "composer",
+      "setup": "codex/composer",
+      "addon": "codex/composer",
+      "builtIn": null,
+      "pending": "The ChatGPT replica's round composer, opt-in only: the in-box composer (agentPane.composerLook studio) and a circular + highlight (--cv-composer-icon-radius). cmux's own composers keep the app's corner; there is no built-in twin."
+    },
+    {
+      "id": "send-pop",
+      "surface": "transcript",
+      "setup": "claude-code/send-pop",
+      "addon": null,
+      "builtIn": null,
+      "pending": "An opt-in behavior preset, not a stylesheet look: it sets one setting and no agent-pane/theme.css. The pop is cmux#50293; the switch it needs, agentPane.display.sendPop (off by default, pop), is not in any build yet, so the setup carries it as a comment."
+    },
+    {
+      "id": "send-parity",
+      "surface": "transcript",
+      "setup": "codex/send-parity",
+      "addon": null,
+      "builtIn": null,
+      "pending": "An opt-in behavior preset, not a stylesheet look: no entrance on send and the sent prompt placed near the top with room for the reply, plus the builder New Tab page (customize/, cmux.newtab/1, tabs.newTabApp). Its placement switch, agentPane.sendPlacement (bottom by default, top), does not exist yet; agentPane.display.sendPop off arrives with cmux#50293."
+    }
+  ]
+}

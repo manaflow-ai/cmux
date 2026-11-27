@@ -19,23 +19,34 @@ export type MotionStep = keyof typeof MOTION_MS;
 export const MOTION_EASE_OUT = "cubic-bezier(0, 0, 0.58, 1)";
 
 /**
- * The one spring (`--cmux-ease-spring`): a selection or view that travels to where it lands and settles with a touch of give (a sliding tab indicator, the chat switch); run over its step (large, 240 ms) it is visibly settled by 58% (about 140 ms) and at rest by the end.
+ * The one spring (`--cmux-ease-spring`): a selection or view that travels to where it lands and stops there, never past it (a sliding tab indicator, the chat switch; Lawrence: no bounce in any motion); run over its step (large, 240 ms) it is at its end by 55% (about 130 ms) and stays there.
  */
-export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1.006 58%, 1.004 72%, 1)";
+export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1)";
 
 /** The step the spring runs over (`MOTION_MS[MOTION_SPRING_STEP]`). */
 export const MOTION_SPRING_STEP: MotionStep = "large";
 
 /**
- * A sent prompt's one motion (ms, `--cmux-motion-send`): a prompt the reader sends: its room opens, the bubble comes in from the right and the thread rises, in one motion that settles (Leo 2026-11-07: "it's all just one unified motion"), on the standard step's 180 ms like the settle (Leo 2026-11-09: "the animations end to end need to just resolve faster"); scaled with the move step by ui.animationSpeed.
+ * A sent prompt's one motion (ms, `--cmux-motion-send`): a prompt the reader sends lands at once: its room, its bubble and the thread are in their places in the frame the composer empties, with no flight, rise, ride, tuck or fade (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just do it."); 0 at every ui.animationSpeed.
  */
-export const MOTION_SEND_MS = 180;
+export const MOTION_SEND_MS = 0;
 
 /** The sent prompt's curve (`--cmux-ease-send`): a fast start that settles. */
 export const MOTION_EASE_SEND = "cubic-bezier(0.16, 1, 0.3, 1)";
 
 /** The same curve's control points, for a scroll stepped from script. */
 export const MOTION_SEND_CURVE = [0.16, 1, 0.3, 1] as const;
+
+/**
+ * A sent prompt's pop (ms, `--cmux-motion-send-pop`): a prompt the reader sends pops in where it already sits: from 92% of its size and 6px low, anchored at its trailing edge, it passes its size by about 0.25% at 300 ms and settles back (Leo 2026-11-22: "it does a little pop and settle"; "so much NICER FEELING than just a jarring instant send"). Claude's desktop app's own user-message entrance (`cds-um-enter`: 450 ms, cubic-bezier(.34, 1.3, .64, 1), scale(.92) translateY(6px), transform-origin at the trailing edge). Transform only, so the compositor plays it; its room, the thread and the thinking row still land at once (send). Scaled by ui.animationSpeed, 0 with motion off; Reduce Motion draws the prompt in place. It overshoots and outlasts the large step on Leo's word; nothing waits on it.
+ */
+export const MOTION_SEND_POP_MS = 450;
+
+/** The pop's curve (`--cmux-ease-send-pop`): it passes its end and settles back. */
+export const MOTION_EASE_SEND_POP = "cubic-bezier(0.34, 1.3, 0.64, 1)";
+
+/** The scale and the rise (px) the pop starts from (conversation.css `cv-send-pop`'s first keyframe). */
+export const MOTION_SEND_POP_FROM = { scale: 0.92, rise: 6 } as const;
 
 /**
  * The settle (`--cmux-ease-settle`, over `--cmux-motion-settle`): a fold, a Show more or a panel that grows or shrinks to its new height: a strong ease-out that starts at full speed and decelerates into its end on a long soft tail, never past it (Leo 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key"). Measured on the reference panel's folds (split-motion-sweep, 4 events): a first-order exponential, 1 - e^(-t/38 ms), about 53% of the way in the first frame and within 0.5 pt of rest by about 225 ms, fold and unfold alike; this cubic-bezier over 265 ms was within 1.1% of it at every point. It runs the standard step's 180 ms instead, the same curve compressed, so a fold is at rest 85 ms sooner (Leo 2026-11-09: "there's some sort of 'settling' and like ok maybe but the animations end to end need to just resolve faster"); no house move outlasts the large step. The exact curve as linear(0, .393, .632, .778, .866, .920, .952, .972, .984, .991, .996, .998, 1) over 230 ms is not the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has no linear() easing. Native: the same CAMediaTimingFunction(0.16, 1, 0.3, 1) over 0.18 s, or, where a spring must take an interruption, an overdamped one with mass 1, stiffness 45100 and damping 1216.

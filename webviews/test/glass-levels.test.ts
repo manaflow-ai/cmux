@@ -33,33 +33,109 @@ test("the levels are chrome, popover, menu and chip, each with its tint, blur an
   expect(desktop).toContain("--tooltip-blur: var(--ds-glass-chip-blur);");
 });
 
-test("popups and hover cards are the popover level, menus the menu level", () => {
+// Leo, 2026-11-11: "The point is, the styles mix and they don't look good. So they need to look good."
+// Every floating popup and card (menus, popovers, pickers, hover cards, the context card) is one
+// material: the shared transient token, and on the App's glass the App's own surface with its veil (the
+// page lays none: Glass.makeHostSurface). No surface keeps a tint of its own.
+test("every popup and hover card uses the transient material and lays no veil on the App's glass", () => {
   const glass = source("ui/glass/glass.css").replace(/\/\*[\s\S]*?\*\//g, "");
-  const rule = (selector: string) => {
-    const at = glass.indexOf(`${selector} {`);
-    expect(at, selector).toBeGreaterThanOrEqual(0);
-    return glass.slice(at, glass.indexOf("}", at));
-  };
-  const popover = rule(".ui-popup.ui-glass,\n.ui-card.ui-glass");
-  expect(popover).toContain("var(--ds-glass-popover-tint)");
-  expect(popover).toContain("--glass-backdrop: var(--ds-glass-popover-blur)");
-  const menu = rule(
-    ".ui-popup.ui-glass:is(.ui-menu, .ui-context-menu, .ui-select-popup, .toolbar-menu, .page-menu, .acpmux-menu, .acpmux-slash-menu)",
+  // Popups, cards and the transient class's other floating surfaces (.ui-glass-transient) share it.
+  const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass,\n.ui-glass.ui-glass-transient {");
+  expect(at).toBeGreaterThanOrEqual(0);
+  const rule = glass.slice(at, glass.indexOf("}", at));
+  expect(rule).toContain("var(--ds-transient-web-tint)");
+  expect(rule).toContain(
+    "--glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
   );
-  expect(menu).toContain("var(--ds-glass-menu-tint)");
-  expect(menu).toContain("--glass-backdrop: var(--ds-glass-menu-blur)");
+  expect(rule).toContain("--host-glass-fill: transparent");
+  // No popup names the popover level, and no menu a second rule of its own.
+  expect(glass).not.toMatch(/\.ui-popup\.ui-glass[^{]*\{[^}]*--ds-glass-popover-tint/);
+  // The surfaces that kept a tint of their own (the model menu's 92%, the + menu's and New Tab
+  // suggestions' 86%) and a radius of their own (the model menu's 10) read the shared ones.
+  for (const file of [
+    "agent-session/acpmux/modelPicker.css",
+    "agent-session/acpmux/styles.css",
+    "agent-session/acpmux/newtab/screen.css",
+  ]) {
+    // One rule at a time: a selector and its own declarations (the sheets hold no nested blocks there).
+    const rules = source(file)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("}")
+      .map((rule) => rule.split("{"))
+      .filter((parts) => parts.length >= 2)
+      .map((parts) => ({ selector: parts.at(-2)!, body: parts.at(-1)! }));
+    const own = rules.filter(
+      ({ selector, body }) =>
+        (/\.(acpmux-quick-menu|acpmux-composer-plus|nt-popover)\b/.test(selector) && /--glass-tint\s*:/.test(body)) ||
+        (/\.ui-glass\b/.test(selector) && /--host-glass-fill\s*:/.test(body)),
+    );
+    expect(
+      own.map(({ selector }) => selector.trim()),
+      file,
+    ).toEqual([]);
+  }
+  const quick = source("agent-session/acpmux/modelPicker.css");
+  const menu = quick.slice(
+    quick.indexOf(".acpmux-quick-menu {"),
+    quick.indexOf("}", quick.indexOf(".acpmux-quick-menu {")),
+  );
+  expect(menu).toContain("border-radius: var(--ui-popup-radius);");
 });
 
-test("Session Info, the composer and the running tray share the popover level", () => {
-  for (const file of [
-    "agent-session/acpmux/session-info/sessionInfo.css",
-    "agent-session/acpmux/composerStates.css",
-    "agent-session/acpmux/subagents/subagents.css",
-  ]) {
-    const css = source(file);
-    expect(css, file).toContain("var(--ds-glass-popover-blur)");
-    expect(css, file).toContain("var(--ds-glass-popover-art-tint)");
+// One material (design/surface-materials.md, 2026-11-11; Leo 2026-11-12: "polish of the two-tone
+// mode"): the sidebar's cards, group headers, toasts and sheets mix the design scale's glass
+// material at their own opacities and name no color of their own, so a change to the material
+// reaches every role at once.
+test("every overlay role's veil and rim is the design scale's glass material", () => {
+  const desktop = source("pages/shared/desktop.css");
+  const material = designScale.glassMaterial;
+  const gray = (level: number) => {
+    const channel = Math.round(level * 255);
+    return `rgb(${channel} ${channel} ${channel})`;
+  };
+  expect(desktop).toContain(`--ds-material-neutral-light: ${gray(material.neutralLight)};`);
+  expect(desktop).toContain(`--ds-material-neutral-dark: ${gray(material.neutralDark)};`);
+  expect(desktop).toContain(`--ds-material-rim-lit: ${gray(material.rimLit)};`);
+  expect(desktop).toContain(`--ds-material-rim-shade: ${gray(material.rimShade)};`);
+  const glass = source("ui/glass/glass.css");
+  const block = glass.slice(glass.indexOf("/* surface-roles:begin"), glass.indexOf("/* surface-roles:end */"));
+  const looks = [...block.matchAll(/(--surface-\w+-(?:veil|rim-top|rim-bottom)):\s*([^;]+);/g)];
+  expect(looks.length).toBeGreaterThanOrEqual(12);
+  for (const [, name, value] of looks) {
+    expect(value, name).not.toMatch(/rgba?\(|#[0-9a-f]{3,8}\b|\b(white|black)\b/i);
+    const mixes = [...value!.matchAll(/color-mix\(in srgb, var\((--[\w-]+)\) [\d.]+%, transparent\)/g)];
+    expect(mixes.length, name).toBe(2);
+    for (const [, token] of mixes)
+      expect(
+        [
+          "--ds-material-neutral-light",
+          "--ds-material-neutral-dark",
+          "--ds-material-rim-lit",
+          "--ds-material-rim-shade",
+          "--glass-surface",
+        ],
+        name,
+      ).toContain(token);
   }
+});
+
+// Session Info stays the popover level. The composer's stack (the card, the running tray, the Goal banner)
+// is the popups' transient material, one family with the pickers it opens (Leo 2026-11-21: "our shitty
+// multi layer glass + web view. we need to properly do that once and for all."); it was the popover level.
+test("Session Info is the popover level; the composer and the running tray share the popups' material", () => {
+  const info = source("agent-session/acpmux/session-info/sessionInfo.css");
+  expect(info).toContain("var(--ds-glass-popover-blur)");
+  expect(info).toContain("var(--ds-glass-popover-art-tint)");
+  const composer = source("agent-session/acpmux/composerStates.css");
+  expect(composer).toMatch(
+    /--acpmux-stack-tint: color-mix\(in srgb, var\(--acpmux-composer-solid\) var\(--ds-transient-web-tint\)/,
+  );
+  expect(composer).toContain(
+    "--acpmux-stack-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
+  );
+  const tray = source("agent-session/acpmux/subagents/subagents.css");
+  expect(tray).toContain("background: var(--acpmux-stack-tint)");
+  expect(tray).toContain("--acpmux-tray-frost: var(--acpmux-stack-backdrop)");
 });
 
 test("the check fails a raw blur and passes a level, an element filter and a stated exception", () => {
@@ -96,7 +172,7 @@ test("the native GlassLevel names the design scale's levels, and the roles map o
   const levels = designScale.glass.filter((level) => level.kind === "level").map((level) => level.name);
   expect(cases).toEqual(levels);
   // The overlay tint tunable defaults to the popover level's strength.
-  const popover = swift.match(/case \.popover, \.menu: ([\d.]+)/)?.[1];
+  const popover = designScale.transientMaterial.nativeTintStrength;
   const tunables = readFileSync(
     new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift", import.meta.url),
     "utf8",
@@ -133,7 +209,7 @@ test("the native check fails a glass view or tint scale outside the levels and p
 test("a level surface outside .ui-glass turns solid under Reduce Transparency: the New Tab box", () => {
   const css = source("agent-session/acpmux/styles.css");
   expect(css).toMatch(
-    /:root\[data-reduce-transparency\] \.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,
+    /:root:is\(\[data-reduce-transparency\], \[data-glass="off"\]\) \.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,
   );
   expect(css).toMatch(
     /@media \(prefers-reduced-transparency:reduce\)\{\.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,

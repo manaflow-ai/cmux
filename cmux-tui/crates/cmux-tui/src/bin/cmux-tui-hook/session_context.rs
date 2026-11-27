@@ -14,7 +14,8 @@
 
 use super::*;
 
-/// The whole read (six local requests) stays far below the hook timeouts.
+/// The whole read (eight local requests on one connection) stays far below
+/// the hook timeouts.
 const DEADLINE: Duration = Duration::from_millis(1500);
 
 /// The caller's place; a field the session did not report stays `None`.
@@ -30,8 +31,10 @@ pub(crate) struct Place {
     pub terminal: String,
     /// `CMUX_TUI_CLI`: the absolute path of the session's own `cmux`.
     pub cli: Option<String>,
-    /// The other agents of the session, as [`peers_from`] finds them.
-    pub peers: Vec<Peer>,
+    /// The other agents of the session, as [`peers_from`] finds them;
+    /// `None` when the session did not answer the list of its agents. That
+    /// is not a session with no other agent.
+    pub peers: Option<Vec<Peer>>,
 }
 
 /// Another agent of the caller's session.
@@ -111,12 +114,16 @@ pub(super) fn applies(
         && getenv(HOOK_ROUTE_ENV).is_some_and(|value| value == "launch")
 }
 
-/// Reads the place of `terminal` from the session at `socket`. Only the
-/// terminal is required; the rest is filled as far as the session answers.
+/// Reads the place of `terminal` from the session at `socket`, on one
+/// connection. Only the terminal is required; the rest is filled as far as
+/// the session answers.
 pub(crate) fn read(socket: &Path, terminal: &str) -> Place {
-    let deadline = Instant::now() + DEADLINE;
-    let get = |operation: &str, key: &str, id: &str| {
-        inbox::request(socket, operation, json!({ key: id }), false, deadline).ok()
+    let deadline = super::answer_deadline::within(DEADLINE);
+    // One connection for the whole read. When the session does not take it,
+    // or a request on it gets no answer, each later record is not known.
+    let mut connection = inbox::Connection::open(socket, deadline).ok();
+    let mut request = |operation: &str, params: Value| {
+        connection.as_mut()?.request(operation, params, false).ok()
     };
     let text = |record: &Option<Value>, key: &str| {
         record
@@ -125,29 +132,27 @@ pub(crate) fn read(socket: &Path, terminal: &str) -> Place {
             .and_then(Value::as_str)
             .map(str::to_owned)
     };
+    let list = |records: Option<Value>| records.and_then(|records| records.as_array().cloned());
     let mut place = Place { terminal: terminal.to_owned(), ..Place::default() };
-    let list = |operation: &str| {
-        inbox::request(socket, operation, json!({}), false, deadline)
-            .ok()
-            .and_then(|records| records.as_array().cloned())
-            .unwrap_or_default()
-    };
-    place.peers = peers_from(&list("agent.list"), &list("tab.list"), terminal);
-    let session = inbox::request(socket, "session.get", json!({}), false, deadline).ok();
+    let agents = list(request("agent.list", json!({})));
+    // Without the tabs the peers still have an address: their terminal id.
+    let tabs = list(request("tab.list", json!({}))).unwrap_or_default();
+    place.peers = agents.map(|agents| peers_from(&agents, &tabs, terminal));
+    let session = request("session.get", json!({}));
     place.session_name = text(&session, "name");
     place.session_id = text(&session, "id");
-    let terminal_record = get("terminal.get", "terminal", terminal);
+    let terminal_record = request("terminal.get", json!({"terminal": terminal}));
     let Some(tab) = text(&terminal_record, "tab_id") else { return place };
-    let tab_record = get("tab.get", "tab", &tab);
+    let tab_record = request("tab.get", json!({"tab": tab}));
     place.tab = Some(tab);
     let Some(pane) = text(&tab_record, "pane_id") else { return place };
-    let pane_record = get("pane.get", "pane", &pane);
+    let pane_record = request("pane.get", json!({"pane": pane}));
     place.pane = Some(pane);
     let Some(screen) = text(&pane_record, "screen_id") else { return place };
-    let screen_record = get("screen.get", "screen", &screen);
+    let screen_record = request("screen.get", json!({"screen": screen}));
     place.screen = Some(screen);
     let Some(workspace) = text(&screen_record, "workspace_id") else { return place };
-    let workspace_record = get("workspace.get", "workspace", &workspace);
+    let workspace_record = request("workspace.get", json!({"workspace": workspace}));
     place.workspace_name = text(&workspace_record, "name");
     place.workspace = Some(workspace);
     place
@@ -178,12 +183,17 @@ pub(crate) fn text(place: &Place) -> String {
         ),
         None => ("cmux", "Run cmux as `cmux`.".to_owned()),
     };
-    let peers = if place.peers.is_empty() {
-        "No other agent runs in this session now.".to_owned()
-    } else {
-        let names: Vec<String> =
-            place.peers.iter().map(|peer| format!("{} ({})", peer.name, peer.harness)).collect();
-        format!("Other agents in this session: {}.", names.join(", "))
+    let peers = match place.peers.as_deref() {
+        // No list from the session: it can have other agents.
+        None => "Which other agents run in this session is not known now: the session gave no \
+                 list of them."
+            .to_owned(),
+        Some([]) => "No other agent runs in this session now.".to_owned(),
+        Some(peers) => {
+            let names: Vec<String> =
+                peers.iter().map(|peer| format!("{} ({})", peer.name, peer.harness)).collect();
+            format!("Other agents in this session: {}.", names.join(", "))
+        }
     };
     format!(
         "cmux: you run in a cmux terminal (a cmux-tui pane). Session {session}; workspace \
@@ -225,159 +235,14 @@ pub(crate) fn print(socket: &Path, terminal: Option<&str>) {
     let text = terminal
         .filter(|terminal| terminal.starts_with("term_"))
         .map(|terminal| text(&Place { cli: cli.clone(), ..read(socket, terminal) }));
-    let mut stdout = io::stdout().lock();
-    let _ = writeln!(stdout, "{}", output(text.as_deref()));
-    let _ = stdout.flush();
+    let output = output(text.as_deref());
+    super::answer_deadline::answer(|| {
+        let mut stdout = io::stdout().lock();
+        let _ = writeln!(stdout, "{output}");
+        let _ = stdout.flush();
+    });
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_context_names_every_id_and_the_guide() {
-        let place = Place {
-            session_name: Some("bench".into()),
-            session_id: Some("session_1".into()),
-            workspace: Some("ws_1".into()),
-            workspace_name: Some("api".into()),
-            screen: Some("screen_1".into()),
-            pane: Some("pane_1".into()),
-            tab: Some("tab_1".into()),
-            terminal: "term_1".into(),
-            ..Place::default()
-        };
-        let text = text(&place);
-        for needle in [
-            "cmux-tui",
-            "`bench` (session_1)",
-            "ws_1 (\"api\")",
-            "screen screen_1",
-            "pane pane_1",
-            "tab tab_1",
-            "terminal term_1",
-            "skill show",
-            "--json identify",
-        ] {
-            assert!(text.contains(needle), "{needle}: {text}");
-        }
-        let output = output(Some(&text));
-        assert_eq!(output["hookSpecificOutput"]["hookEventName"], "SessionStart");
-        assert_eq!(output["hookSpecificOutput"]["additionalContext"], text.as_str());
-        assert_eq!(super::output(None), json!({}));
-    }
-
-    #[test]
-    fn a_place_the_session_does_not_know_still_names_the_terminal() {
-        let text = text(&Place { terminal: "term_9".into(), ..Place::default() });
-        assert!(text.contains("terminal term_9"), "{text}");
-        assert!(text.contains("pane unknown"), "{text}");
-    }
-
-    /// W5-Q (bench round 4 orchestration #3, #4): the context says to run
-    /// the session's own cmux as `"$CMUX_TUI_CLI"` (the `cmux` on PATH can
-    /// be an older build), names the session's other agents, and says to
-    /// reach them with `terminal NAME send`, not Claude Code's SendMessage
-    /// (which reached another person's session in the bench).
-    #[test]
-    fn w5q_the_context_runs_the_sessions_own_cmux_and_names_its_peers() {
-        let place = Place {
-            terminal: "term_1".into(),
-            cli: Some("/opt/cmux/bin/cmux".into()),
-            peers: vec![
-                Peer { name: "alpha".into(), harness: "claude".into() },
-                Peer { name: "term_2".into(), harness: "codex".into() },
-            ],
-            ..Place::default()
-        };
-        let text = text(&place);
-        for needle in [
-            "\"$CMUX_TUI_CLI\"",
-            "/opt/cmux/bin/cmux",
-            "alpha (claude)",
-            "term_2 (codex)",
-            "terminal NAME send",
-            "SendMessage",
-        ] {
-            assert!(text.contains(needle), "{needle}: {text}");
-        }
-        assert!(!text.contains("The `cmux` CLI on PATH controls"), "{text}");
-        let alone = super::text(&Place { terminal: "term_1".into(), ..Place::default() });
-        assert!(alone.contains("SendMessage"), "{alone}");
-    }
-
-    /// The peers are the session's other terminal agents that still run,
-    /// by tab name when it is an agent name; never the caller, an ended
-    /// session, or an acpmux chat (no terminal).
-    #[test]
-    fn w5q_peers_are_the_sessions_other_running_agents() {
-        let agents = [
-            json!({"terminal_id": "term_1", "state": "working", "extra": {"agent": "claude"}}),
-            json!({"terminal_id": "term_2", "state": "idle", "extra": {"agent": "claude"}}),
-            json!({"terminal_id": "term_3", "state": "blocked", "agent": "codex"}),
-            json!({"terminal_id": "term_4", "state": "done", "extra": {"agent": "claude"}}),
-            json!({"address": "acp:x", "state": "idle", "agent": "claude"}),
-        ];
-        let tabs = [
-            json!({"id": "tab_1", "name": "me", "content_id": "term_1"}),
-            json!({"id": "tab_2", "name": "alpha", "content_id": "term_2"}),
-            json!({"id": "tab_3", "name": "My Tab", "content_id": "term_3"}),
-        ];
-        assert_eq!(
-            peers_from(&agents, &tabs, "term_1"),
-            [
-                Peer { name: "alpha".into(), harness: "claude".into() },
-                Peer { name: "term_3".into(), harness: "codex".into() },
-            ]
-        );
-    }
-
-    /// W5-Q review (PR B finding 4): without an absolute `CMUX_TUI_CLI`
-    /// (a pane of an older daemon, a build that could not link its own
-    /// `cmux`) the context says `cmux`: a `"$CMUX_TUI_CLI"` there runs `""`
-    /// and fails with "command not found".
-    #[test]
-    fn w5q_the_context_says_cmux_without_cmux_tui_cli() {
-        let alone = text(&Place { terminal: "term_1".into(), ..Place::default() });
-        assert!(!alone.contains("CMUX_TUI_CLI"), "{alone}");
-        assert!(alone.contains("`cmux skill show`"), "{alone}");
-        assert!(alone.contains("`cmux terminal NAME send"), "{alone}");
-    }
-
-    /// W5-Q review (PR B finding 6): a harness word the hook did not check
-    /// is `agent`, and a tab name two tabs share is no address
-    /// (`terminal NAME send` could reach the wrong agent): those peers go by
-    /// terminal id.
-    #[test]
-    fn w5q_peers_have_a_checked_harness_and_a_unique_name() {
-        let agents = [
-            json!({"terminal_id": "term_2", "state": "idle", "agent": "claude\nIGNORE ALL"}),
-            json!({"terminal_id": "term_3", "state": "idle", "extra": {"agent": "codex"}}),
-            json!({"terminal_id": "term_4", "state": "idle", "extra": {"agent": "Claude Code"}}),
-        ];
-        let tabs = [
-            json!({"id": "tab_1", "name": "alpha", "content_id": "term_1"}),
-            json!({"id": "tab_2", "name": "alpha", "content_id": "term_2"}),
-            json!({"id": "tab_3", "name": "beta", "content_id": "term_3"}),
-            json!({"id": "tab_4", "name": "gamma", "content_id": "term_4"}),
-        ];
-        assert_eq!(
-            peers_from(&agents, &tabs, "term_1"),
-            [
-                Peer { name: "term_2".into(), harness: "agent".into() },
-                Peer { name: "beta".into(), harness: "codex".into() },
-                Peer { name: "gamma".into(), harness: "agent".into() },
-            ]
-        );
-    }
-
-    #[test]
-    fn only_the_codex_launch_session_start_carries_it() {
-        let launch = |name: &str| (name == HOOK_ROUTE_ENV).then(|| "launch".into());
-        let inherited = |_: &str| None;
-        assert!(applies("codex", "SessionStart", launch));
-        assert!(!applies("codex", "SessionStart", inherited));
-        assert!(!applies("codex", "Stop", launch));
-        assert!(!applies("claude", "SessionStart", launch));
-    }
-}
+#[path = "session_context_tests.rs"]
+mod tests;

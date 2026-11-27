@@ -10,6 +10,8 @@ import { holdPaintForClaim } from "./paintGate";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
 import { installSwipeNavigation } from "../../swipeNavigation/install";
 import { installPageHealth } from "./pageHealth";
+import { installBusyWatchdog } from "./busyWatchdog";
+import { installAppLanguage } from "./appLanguage";
 
 export interface PageError extends Error {
   code: string;
@@ -93,6 +95,12 @@ export const PARKED_NAME = "__cmuxPageParked";
  */
 export const CLAIM_OP = "cmux.page.claim";
 
+/**
+ * Set to `true` with `PARKED_NAME` by a host whose spare mounts its page only at the claim
+ * (`CMUX_NEXT_SETTINGS_SPARE=unmounted`, PageSpareVariant.swift): the bundle runs, its React root waits.
+ */
+export const DEFER_MOUNT_NAME = "__cmuxPageDeferMount";
+
 /** How many not-yet-registered subscriptions, and events per subscription, the client holds. */
 const EARLY_SUBS = 16;
 const EARLY_EVENTS = 64;
@@ -126,6 +134,8 @@ export class BridgePageClient implements PageClient {
   private parked: boolean;
   private held: Held[] = [];
   private readonly location: ClaimLocation | undefined;
+  /** What runs at the claim, before the claimed page's paint hold is read (`whenClaimed`). */
+  private claimListeners: (() => void)[] = [];
 
   constructor(
     private readonly handler: ReplyHandler,
@@ -139,6 +149,16 @@ export class BridgePageClient implements PageClient {
   /** True while the document is parked and holds its calls until the claim. */
   get holding(): boolean {
     return this.parked;
+  }
+
+  /**
+   * Runs `listener` in the claim's own turn, after the held calls went out and before the paint
+   * hold is read, so a page that mounts there (`DEFER_MOUNT_NAME`) holds its first report as a
+   * parked page would. At once when the document is not parked.
+   */
+  whenClaimed(listener: () => void): void {
+    if (this.parked) this.claimListeners.push(listener);
+    else listener();
   }
 
   async call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
@@ -235,6 +255,7 @@ export class BridgePageClient implements PageClient {
     const held = this.held;
     this.held = [];
     for (const { envelope, resolve, reject } of held) this.handler.postMessage(envelope).then(resolve, reject);
+    for (const listener of this.claimListeners.splice(0)) listener();
     // The host's next paint report (its pane's hold) waits for the claimed page's first screen.
     holdPaintForClaim();
     return { claimed: true };
@@ -358,6 +379,10 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     if (typeof document !== "undefined") installSwipeNavigation(client);
     // App health: the heartbeat, input count and kept scroll and draft (pageHealth.ts).
     if (typeof document !== "undefined") installPageHealth(client);
+    // A main thread busy for 30 s names its scripts in `cmux errors` (busyWatchdog.ts).
+    if (typeof window !== "undefined") installBusyWatchdog(window);
+    // Settings > General > Language: the host switches the page's strings live (appLanguage.ts).
+    installAppLanguage();
     return client;
   }
   return fallback ? fallback() : null;

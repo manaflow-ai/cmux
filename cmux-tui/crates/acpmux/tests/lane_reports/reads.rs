@@ -74,6 +74,38 @@ async fn lane_report_parent_completion_wait_archives_read_without_a_turn_or_queu
     assert_eq!(hub.session_summary(&hub.resolve(&parent).unwrap())["queued"], 0);
 }
 
+/// A completion wait whose caller left before the lane's turn ended (its CLI was killed, as a
+/// tool call's time limit does) read nothing: the parent still gets the lane's report. Before, the
+/// wait's request ran on after its connection closed and its mark consumed the report, so the
+/// parent heard nothing at all.
+#[tokio::test]
+async fn lane_report_a_waiter_that_left_before_the_end_does_not_consume_the_parents_result() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("parent", json!({})).await;
+    let lane = Client::as_session(&hub, &parent).await.new_session("left-lane", json!({})).await;
+    start_running(&mut person, &lane).await;
+    let mut waiter = Client::as_session(&hub, &parent).await;
+    waiter.send("_acpmux/wait", json!({"sessions": [lane.clone()], "until": ["ready"]})).await;
+    wait_registered(&mut person).await;
+    // The waiter's process dies: its connection closes.
+    drop(waiter);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let status = person.ok("_acpmux/status", json!({})).await;
+            if status["openWaits"].as_u64() == Some(0) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the wait of a closed connection is still open");
+    person.ok("session/cancel", json!({"sessionId": lane})).await;
+    person.exactly(&parent, 1).await;
+    assert!(archive(&mut person, &parent).await.is_empty());
+}
+
 #[tokio::test]
 async fn lane_report_an_unproven_waiter_does_not_consume_the_parents_result() {
     let hub = hub();

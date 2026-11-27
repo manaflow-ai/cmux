@@ -1,4 +1,6 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
+import { PrefixFilter } from "./prefixFlatMap";
+import { noticeRowLook } from "./noticeRowLook";
 import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
 import {
   laneNotice,
@@ -44,6 +46,7 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
         : {}),
       ...(thread.fromHarness ? { fromHarness: thread.fromHarness } : {}),
       ...(thread.unverified ? { unverified: thread.unverified } : {}),
+      ...(thread.notice && noticeRowLook() !== "off" && { notice: thread.notice }),
       count: thread.count,
     };
   });
@@ -96,7 +99,9 @@ const phaseOf = (row: AcpmuxRow): DeliveryPhase => {
 let version = 0;
 const extensionCache = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
 const listCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
-type InboxProjection = { rows: readonly AcpmuxRow[]; offsets: readonly number[] };
+/// `offsets`: where each source row's drawn rows start, the end last; the delivered (folded)
+/// projection's only (projectInboxRows reuses it), the flat one has none.
+type InboxProjection = { rows: readonly AcpmuxRow[]; offsets?: readonly number[] };
 const inboxFlattenCache = new WeakMap<readonly AcpmuxRow[], InboxProjection>();
 // Waiting rows already have an outer fold; delivered notices need their own. Search and display
 // may use the same source array, so their flat and folded projections cannot share a cache.
@@ -146,7 +151,13 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
   if (cached) return cached;
   const children: AcpmuxRow[] = [];
   for (const thread of notice.threads ?? []) {
-    for (const [index, delivery] of inboxDeliveries(thread).entries()) {
+    // A tool's notice (acpmux notice_read.rs) is one line for its thread: its newest message, its
+    // detector's name and severity, its title and its repeats (Leo, 2026-11-25, on a row per relayed
+    // `[notice from now on HOST · FIRE] …`: "how can we improve this?").
+    const tool = thread.notice;
+    const all = inboxDeliveries(thread);
+    const deliveries = tool ? all.slice(-1) : all;
+    for (const [index, delivery] of deliveries.entries()) {
       children.push({
         id: `${row.id}:inbox:${thread.id}:${index}`,
         version: row.version,
@@ -176,26 +187,45 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
           : {}),
         incoming: {
           kind: "message",
-          message: {
-            name: delivery.sender,
-            ...(delivery.lookup && { lookup: delivery.lookup }),
-            text: delivery.text,
-            raw: delivery.text,
-            threadId: thread.id,
-            ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
-            ...(delivery.session
-              ? { sessionId: delivery.session }
-              : thread.fromSession && delivery.sender === thread.sender
-                ? { sessionId: thread.fromSession }
-                : {}),
-            ...(delivery.harness
-              ? { harness: delivery.harness }
-              : thread.fromHarness && delivery.sender === thread.sender
-                ? { harness: thread.fromHarness }
-                : {}),
-            ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
-            ...(delivery.at !== undefined ? { at: delivery.at } : {}),
-          },
+          message: tool
+            ? {
+                name: tool.sender,
+                text: delivery.text,
+                raw: delivery.text,
+                threadId: thread.id,
+                ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
+                notice: {
+                  // The line names the detector, not the machine it ran on (Mochi's spec, from
+                  // Leo's screenshot): the opened text still says the host.
+                  sender: tool.sender,
+                  severity: tool.severity,
+                  title: tool.title,
+                  links: [],
+                  ...(tool.repeats > 1 ? { repeats: tool.repeats } : {}),
+                  ...((tool.lastAt ?? delivery.at) !== undefined ? { lastAt: tool.lastAt ?? delivery.at } : {}),
+                },
+                ...(delivery.at !== undefined ? { at: delivery.at } : {}),
+              }
+            : {
+                name: delivery.sender,
+                ...(delivery.lookup && { lookup: delivery.lookup }),
+                text: delivery.text,
+                raw: delivery.text,
+                threadId: thread.id,
+                ...(delivery.promptId ? { msgId: delivery.promptId } : {}),
+                ...(delivery.session
+                  ? { sessionId: delivery.session }
+                  : thread.fromSession && delivery.sender === thread.sender
+                    ? { sessionId: thread.fromSession }
+                    : {}),
+                ...(delivery.harness
+                  ? { harness: delivery.harness }
+                  : thread.fromHarness && delivery.sender === thread.sender
+                    ? { harness: thread.fromHarness }
+                    : {}),
+                ...(delivery.unverified ? { unverified: delivery.unverified } : {}),
+                ...(delivery.at !== undefined ? { at: delivery.at } : {}),
+              },
         },
       });
     }
@@ -321,11 +351,23 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   const cache = foldNotices ? deliveredInboxCache : inboxFlattenCache;
   const cached = cache.get(rows);
   if (cached) return cached.rows;
+  // A chat with no inbox row and, folded, no two received lines next to each other draws its rows
+  // as they are: found from a pass that reads only the rows a snapshot changed (prefixFlatMap.ts),
+  // not by reading every row of a long chat on each event.
+  if ((foldNotices ? foldedInboxMarks : flatInboxMarks).read(rows).items.length === 0) {
+    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
+    return rows;
+  }
   const deliveredIds = new Set<string>();
   const deliveredBodies = new Set<string>();
   let hasInbox = false;
   const collect = (members: readonly AcpmuxRow[]) => {
     for (const row of members) {
+      // A closed message-run line holds its received lines (messageRuns.ts): their ids count as drawn.
+      if (row.messageRun?.messages) {
+        for (const id of row.messageRun.messages) deliveredIds.add(id);
+        continue;
+      }
       if (row.laneNoticeBatch) {
         if (row.laneNoticeBatch.kind === "inbox") hasInbox = true;
         collect(row.laneNoticeBatch.rows);
@@ -346,7 +388,7 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   const gathersLines =
     foldNotices && !hasInbox && rows.some((row, i) => i > 0 && receivedMessages(row) && receivedMessages(rows[i - 1]!));
   if (!hasInbox && !gathersLines) {
-    cache.set(rows, { rows, offsets: rows.map((_, i) => i).concat(rows.length) });
+    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
     return rows;
   }
   const seenIds = new Set<string>();
@@ -382,7 +424,14 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
       }
       const notice = noticeOf(row);
       if (notice?.kind === "inbox") {
-        const children = attachQueueSource(row, inboxChildren(row, notice).filter(keepDelivery));
+        const parsed = inboxChildren(row, notice);
+        // A notice whose text named no thread this page can read keeps its own line, its text whole
+        // behind the chevron: never no row at all (router-review on cmux#34320).
+        if (!parsed.length) {
+          out.push(row);
+          return;
+        }
+        const children = attachQueueSource(row, parsed.filter(keepDelivery));
         if (foldNotices && !insideInbox && children.length > 1) out.push(projectedBatch(row, children));
         else out.push(...children);
       } else if (row.inboxDelivery) {
@@ -433,6 +482,21 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   return result;
 }
 
+/// Whether a row is or holds an inbox notice or delivery (projectAllInboxRows' `collect`).
+function holdsInbox(row: AcpmuxRow): boolean {
+  if (row.laneNoticeBatch) return row.laneNoticeBatch.kind === "inbox" || row.laneNoticeBatch.rows.some(holdsInbox);
+  return noticeOf(row)?.kind === "inbox" || !!row.inboxDelivery;
+}
+/// The rows that keep a projection from being the rows as they are: inbox rows, and folded, a
+/// received line right after another.
+const flatInboxMarks = new PrefixFilter<AcpmuxRow>(holdsInbox);
+const foldedInboxMarks = new PrefixFilter<AcpmuxRow>(
+  (row, index, rows) =>
+    holdsInbox(row) ||
+    (index > 0 && receivedMessages(row) !== undefined && receivedMessages(rows[index - 1]!) !== undefined),
+);
+const identityOffsets = (length: number) => Array.from({ length: length + 1 }, (_, index) => index);
+
 /** Reuse the display projection of the turn prefix that turnViewFrom already reused. Streaming
  * only changes assistant/tool rows: when the tail's incoming rows are the same immutable objects,
  * no delivery index is rebuilt and historical messages are neither visited nor reparsed. A new,
@@ -448,8 +512,12 @@ export function projectInboxRows(
   if (cached) return cached.rows;
   const held = previous && deliveredInboxCache.get(previous);
   if (!previous || !held || reusedRows > Math.min(rows.length, previous.length)) return projectAllInboxRows(rows, true);
+  // A message-run line that holds received messages counts too (`collect`): a new one rebuilds.
   const relevant = (row: AcpmuxRow) =>
-    row.laneNoticeBatch !== undefined || row.incoming?.kind === "message" || row.incoming?.kind === "inbox";
+    row.laneNoticeBatch !== undefined ||
+    row.incoming?.kind === "message" ||
+    row.incoming?.kind === "inbox" ||
+    Boolean(row.messageRun?.messages?.length);
   // A message right after another (`next`) draws in one "Received N messages" row with it
   // (`receivedRun`): the same messages next to the same neighbours reuse their rows.
   const oldMessages: { row: AcpmuxRow; index: number; next: boolean }[] = [];
@@ -463,15 +531,16 @@ export function projectInboxRows(
     if (old?.row !== rows[i] || old.next !== (i > 0 && relevant(rows[i - 1]!))) return projectAllInboxRows(rows, true);
   }
   if (at !== oldMessages.length) return projectAllInboxRows(rows, true);
-  const projected = held.rows.slice(0, held.offsets[reusedRows]);
-  const offsets = held.offsets.slice(0, reusedRows);
+  const heldOffsets = held.offsets!;
+  const projected = held.rows.slice(0, heldOffsets[reusedRows]);
+  const offsets = heldOffsets.slice(0, reusedRows);
   at = 0;
   for (let i = reusedRows; i < rows.length; i += 1) {
     offsets.push(projected.length);
     const row = rows[i]!;
     if (relevant(row)) {
       const oldIndex = oldMessages[at++]!.index;
-      projected.push(...held.rows.slice(held.offsets[oldIndex], held.offsets[oldIndex + 1]));
+      projected.push(...held.rows.slice(heldOffsets[oldIndex], heldOffsets[oldIndex + 1]));
     } else projected.push(row);
   }
   offsets.push(projected.length);

@@ -27,6 +27,7 @@ import { AgentTag } from "./AgentTag";
 import { useMessageLineLook } from "./messageLineLook";
 import { useMessageRowLook } from "./messageRowLook";
 import { UnverifiedMark } from "./UnverifiedMark";
+import type { SenderProgram } from "./incomingMessage";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import "./AgentMessageRow.css";
 export function AgentMessageRow({
@@ -40,6 +41,7 @@ export function AgentMessageRow({
   nameSlot,
   detail,
   unverified = false,
+  program,
   preview,
   label,
   open,
@@ -50,6 +52,7 @@ export function AgentMessageRow({
   failed = false,
   live = false,
   body,
+  bare = false,
   under,
   animates,
   className,
@@ -82,6 +85,8 @@ export function AgentMessageRow({
   detail?: ReactNode;
   /// acpmux could not verify the other agent (senderIdentity.ts): the subtle marker by its name.
   unverified?: boolean;
+  /// The program acpmux saw send it (incomingMessage.ts `senderProgram`): the marker says so.
+  program?: SenderProgram;
   /// The message's first line, shown while closed.
   preview: string;
   /// The toggle's label: the line as a sentence.
@@ -99,6 +104,9 @@ export function AgentMessageRow({
   live?: boolean;
   /// The opened message, in the glass card.
   body: ReactNode;
+  /// The body is a row, not words (a sent call with no text): it opens bare at the row step, never a
+  /// row inside a card (design/chat-row-anatomy.md; frame 03 of Leo's 2026-11-21 05:30Z video).
+  bare?: boolean;
   /// Under the card while open.
   under?: ReactNode;
   /// Whether a toggle plays the fold (default: none, the card opens and closes at once).
@@ -136,7 +144,9 @@ export function AgentMessageRow({
     // The click itself, so a drag across the line toggles nothing (useAnchoredCollapse `deliberateClick`).
     if (collapse.toggle(event) && open) toggleRef.current?.focus({ preventScroll: true });
   };
-  const marker = unverified && <UnverifiedMark className={rowLook === "corner" ? "is-corner" : undefined} />;
+  const marker = unverified && (
+    <UnverifiedMark className={rowLook === "corner" ? "is-corner" : undefined} program={program} />
+  );
   // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
   // stacked gallery version puts it under the row, on its own line.
   const look = useMessageLineLook();
@@ -257,7 +267,7 @@ export function AgentMessageRow({
             <div className="cv-agentmsg__open">
               {/* The body opens whole from the line's own toggle, never cut, so it carries no Show
                   more of its own. TODO(#37610): swap to ExpandRow if a long body gets cut here. */}
-              <div id={bodyId} className="cv-agentmsg__card selectable">
+              <div id={bodyId} className={bare ? "cv-agentmsg__bare" : "cv-agentmsg__card selectable"}>
                 {body}
               </div>
               {under}

@@ -36,6 +36,7 @@ struct AgentPaneRelaunchWakeTests {
         let tree = DaemonStore()
         tabs.lookupScoped = { scoped in records[scoped.key].map { ($0, tree) } }
         tabs.listTabsScoped = { records.map { (key: $0.key, record: $0.value, machine: thisMac) } }
+        tabs.tabsNamedScoped = { id in records[id] == nil ? [] : [AgentTabKey(machine: thisMac, key: id)] }
         return tabs
     }
 

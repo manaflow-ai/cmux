@@ -1,0 +1,26 @@
+// The shape of acpmux/tests/start_mode.rs:1369 at e1d9c990 (KNOWN_MISSES in timing_ratio.rs):
+// milliseconds a JSON log reports, a median by a local fn that sorts them, an upper bound on it.
+use std::time::Duration;
+
+/// The median, the 95th percentile and the largest of `ms`, sorted in place.
+fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
+    ms.sort_by(f64::total_cmp);
+    let at = |q: usize| ms.get((ms.len().saturating_sub(1)) * q / 100).copied().unwrap_or(0.0);
+    (at(50), at(95), at(100))
+}
+
+#[tokio::test]
+async fn the_policy_gate_round_trip_under_approve_all_is_measured() {
+    let text = read_log(Duration::from_secs(30));
+    let mut gate = Vec::new();
+    for line in text.lines() {
+        let record: serde_json::Value = serde_json::from_str(line).unwrap();
+        for hook in record["hookMs"].as_array().cloned().unwrap_or_default() {
+            let ms = hook["ms"].as_f64().unwrap_or_else(|| panic!("{record}"));
+            gate.push(ms);
+        }
+    }
+    let (g50, g95, gmax) = spread(&mut gate);
+    eprintln!("p50 {g50:.2} ms, p95 {g95:.2} ms, max {gmax:.2} ms");
+    assert!(g50 < 500.0, "p50 {g50} ms");
+}

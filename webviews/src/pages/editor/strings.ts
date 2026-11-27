@@ -5,7 +5,7 @@ export const L = {
   loading: "page.loading",
   failed: "page.failed",
   disconnected: "page.disconnected",
-  retry: "page.retry",
+  stillOpening: "page.stillOpening",
   saved: "status.saved",
   edited: "status.edited",
   saving: "status.saving",
@@ -45,7 +45,6 @@ export const L = {
 /** The editor's empty state and its file picker (viewer-empty/EditorEmptyState.tsx). */
 export const EMPTY = {
   title: "empty.title",
-  subtitle: "empty.subtitle",
   choose: "empty.choose",
   drop: "empty.drop",
   recents: "empty.recents",

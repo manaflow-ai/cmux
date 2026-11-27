@@ -20,6 +20,7 @@ import type {
 } from "../src/pages/home-channels/types";
 import table from "../src/pages/home-channels/generated/strings.json";
 import { createStrings } from "../src/pages/shared/i18n";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -65,9 +66,10 @@ function installDom(): HTMLElement {
   return w.document.getElementById("root")!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -545,13 +547,14 @@ test("the lock switch sends locked, and only when it changed", async () => {
   const container = installDom();
   const { service, calls } = fakeService();
   await mount(container, service, CHIEF);
-  const lock = container.querySelector<HTMLInputElement>("input[data-chief-lock]")!;
+  // The lock is an animated switch (role switch, aria-checked), not a checkbox (#47688).
+  const lock = container.querySelector<HTMLElement>('[role="switch"][data-chief-lock]')!;
   expect(lock.getAttribute("aria-label")).toBe(t("chief.lock.title"));
-  expect(lock.checked).toBe(false);
+  expect(lock.getAttribute("aria-checked")).toBe("false");
   await save(container);
   expect(lastSave(calls)?.locked).toBeUndefined();
   await click(lock);
-  expect(lock.checked).toBe(true);
+  expect(lock.getAttribute("aria-checked")).toBe("true");
   await save(container);
   expect(lastSave(calls)?.locked).toBe(true);
 });
@@ -595,7 +598,8 @@ test("without the host's relay the gesture fields, the backend and the lock show
   const { service } = fakeService(false);
   await mount(container, service, CHIEF);
   expect(byLabel<HTMLSelectElement>(container, t("chief.backend.title")).disabled).toBe(true);
-  expect(container.querySelector<HTMLInputElement>("input[data-chief-lock]")!.disabled).toBe(true);
+  const lock = container.querySelector<HTMLButtonElement>('[role="switch"][data-chief-lock]')!;
+  expect(lock.disabled || lock.getAttribute("aria-disabled") === "true").toBe(true);
   expect(button(container, t("chief.history.undo")).disabled).toBe(true);
   expect(byLabel<HTMLInputElement>(container, t("chief.field.name")).disabled).toBe(false);
 });

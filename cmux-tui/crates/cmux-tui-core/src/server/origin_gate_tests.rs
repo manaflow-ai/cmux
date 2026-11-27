@@ -42,7 +42,7 @@ fn a_terminal_peer_that_omits_its_credential_cannot_become_the_owner() {
     let process = surface.process_id().expect("the terminal child pid");
     let terminal = surface.terminal_public_id().expect("the terminal id").as_str().to_string();
 
-    let peer = super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(process));
+    let peer = super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(process), |_| None);
     assert_eq!(peer, crate::request_origin::LocalPeer::Terminal(terminal));
 
     let conn = connect(&mux);
@@ -58,6 +58,85 @@ fn a_terminal_peer_that_omits_its_credential_cannot_become_the_owner() {
         ),
     );
     assert_eq!(mint["error"]["details"]["reason"], "credential_owner_only", "{mint}");
+    mux.shutdown();
+}
+
+/// A process of a new terminal connects while the terminal's host starts:
+/// the daemon has no process id of the terminal yet. The peer is that
+/// terminal by the host's seat, when the parent of its session's leader is
+/// the host. A peer under another parent, a peer whose leader's parent the
+/// daemon cannot read, and each peer after the host's seat ended are not a
+/// terminal by it. A seat that names no terminal gives no terminal.
+#[test]
+fn a_peer_whose_terminals_host_starts_is_that_terminal() {
+    use crate::diagnostics::HostSeating;
+    use crate::request_origin::LocalPeer;
+    const SESSION: u32 = 4_000_001;
+    const HOST: u32 = 4_100_001;
+    let mux = mux("peer-host-seat");
+    let classify = |parent: Option<u32>| {
+        let parent_of = |leader| {
+            assert_eq!(leader, SESSION, "the parent of the session's leader");
+            parent
+        };
+        super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(SESSION), parent_of)
+    };
+    assert_eq!(classify(Some(HOST)), LocalPeer::Other, "no host starts");
+
+    let seat = HostSeating::of(mux.connection_stats().clone(), Some("term_new")).seat(HOST);
+    assert_eq!(classify(Some(HOST)), LocalPeer::Terminal("term_new".to_string()));
+    assert_eq!(classify(Some(HOST + 1)), LocalPeer::Other, "the child of another process");
+    assert_eq!(classify(None), LocalPeer::Other, "no parent that the daemon can read");
+    drop(seat);
+    assert_eq!(classify(Some(HOST)), LocalPeer::Other, "the host's seat ended");
+
+    let unnamed = HostSeating::of(mux.connection_stats().clone(), None).seat(HOST);
+    assert_eq!(classify(Some(HOST)), LocalPeer::Other, "a seat that names no terminal");
+    drop(unnamed);
+    mux.shutdown();
+}
+
+/// A process of a terminal whose host an earlier daemon started connects
+/// before this daemon adopted the terminal. The peer is that terminal by the
+/// kept host's seat, when the parent of its session's leader has the host's
+/// process id and the host's start. A peer under a process with that id and
+/// another start, and each peer after the seat ended, are not a terminal by
+/// it.
+#[test]
+fn a_peer_under_a_kept_host_is_that_terminal_before_its_adoption_ends() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use crate::diagnostics::{HostSeating, KeptHost};
+    use crate::process_resources::ProcessStart;
+    use crate::request_origin::LocalPeer;
+    const SESSION: u32 = 4_000_001;
+    const HOST: u32 = 4_100_001;
+    static START: AtomicU64 = AtomicU64::new(7);
+    fn start_of(process: u32) -> Option<ProcessStart> {
+        (process == HOST).then(|| ProcessStart(START.load(Ordering::SeqCst)))
+    }
+    let mux = mux("peer-kept-host-seat");
+    let classify = |parent: Option<u32>| {
+        let parent_of = |leader| {
+            assert_eq!(leader, SESSION, "the parent of the session's leader");
+            parent
+        };
+        super::classify_local_peer(&mux, Some("token:4242.1"), |_| Some(SESSION), parent_of)
+    };
+    assert_eq!(classify(Some(HOST)), LocalPeer::Other, "no host has a seat");
+
+    let host = KeptHost::read_by(HOST, Some(ProcessStart(9)), start_of);
+    let seat = HostSeating::of(mux.connection_stats().clone(), Some("term_kept")).seat_kept(host);
+    assert_eq!(classify(Some(HOST)), LocalPeer::Terminal("term_kept".to_string()));
+    assert_eq!(classify(Some(HOST + 1)), LocalPeer::Other, "the child of another process");
+    assert_eq!(classify(None), LocalPeer::Other, "no parent that the daemon can read");
+
+    START.store(12, Ordering::SeqCst);
+    assert_eq!(classify(Some(HOST)), LocalPeer::Other, "a later process has the host's id");
+    START.store(7, Ordering::SeqCst);
+    assert_eq!(classify(Some(HOST)), LocalPeer::Terminal("term_kept".to_string()));
+    drop(seat);
+    assert_eq!(classify(Some(HOST)), LocalPeer::Other, "the kept host's seat ended");
     mux.shutdown();
 }
 

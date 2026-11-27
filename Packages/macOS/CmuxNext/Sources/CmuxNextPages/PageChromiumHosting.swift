@@ -12,6 +12,9 @@ public protocol PageChromiumHosting: AnyObject {
     /// Whether Chromium can host a page now: false when the build has no Chromium or it failed to
     /// start.
     var isAvailable: Bool { get }
+    /// App health's feed for every page view made with this host (the one host every page view takes
+    /// at init); nil: its pages report nothing.
+    var healthFeed: (any PageHealthFeed)? { get }
     /// Whether Chromium's `cmux-page://` scheme serves `page` (its bundled folder is registered).
     ///
     /// - Parameter page: The page to show.
@@ -19,7 +22,7 @@ public protocol PageChromiumHosting: AnyObject {
     func serves(_ page: PageDescriptor) -> Bool
     /// Makes an empty Chromium page for `page` and returns once its browser exists, before any
     /// document loads, so the host can set the page up
-    /// (``ChromiumPageHostBridge/setupCalls(handlers:documentScripts:)``) and then call
+    /// (``ChromiumPageHostBridge/setUp(documentScripts:)``) and then call
     /// ``PageChromiumPage/load(_:)``. Async because Chromium starts on its first page.
     ///
     /// - Parameter page: The page's descriptor (its origin and policy).
@@ -54,9 +57,16 @@ extension PageChromiumPage {
     public var dockedDevTools: (page: CGRect, devTools: CGRect)? { nil }
     /// No DevTools image.
     public func devToolsImage() async -> CGImage? { nil }
+
+    public func restartRenderer() { reload() }
+
+    public var isUnresponsive: Bool { false }
 }
 
 extension PageChromiumHosting {
+    /// No app health feed: the host's pages report nothing.
+    public var healthFeed: (any PageHealthFeed)? { nil }
+
     /// No focus model: the page keeps its keyboard itself.
     public func focusViewChanged(_ page: PageWebView) -> Bool { false }
     public func setLivePages(_ live: Bool) -> Bool { false }
@@ -105,6 +115,11 @@ public protocol PageChromiumPage: AnyObject {
     /// - Returns: The method's JSON result.
     /// - Throws: When the page is gone or the method fails.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
+    /// Sends a DevTools protocol method now, after every call sent before it, and returns what awaits its JSON
+    /// result (throwing as ``devTools(_:params:)`` does). Calls started one after another in one turn reach the
+    /// page in that order, and their answers come in about one round trip instead of one each
+    /// (``ChromiumPageHostBridge/startSetUp(documentScripts:)``).
+    func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String
     /// Runs a bounded long-lived evaluation (a DEBUG DOM waiter) beyond the ordinary short-call deadline.
     func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -115,6 +130,12 @@ public protocol PageChromiumPage: AnyObject {
     func load(_ url: URL)
     /// Reloads the document.
     func reload()
+    /// App health's `restartRenderer`: ends a renderer that stopped answering and brings the page
+    /// back in a new one (the default: a plain reload).
+    func restartRenderer()
+    /// Whether Chromium's hang monitor says the page's renderer stopped answering (observable: the
+    /// page view follows it for app health's renderer part). The default: never.
+    var isUnresponsive: Bool { get }
     /// Sets the page zoom (1 is 100%).
     func setZoom(_ zoom: Double)
     /// Gives or takes the keyboard focus.
@@ -148,6 +169,11 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// The Chromium browser itself went away (not closed by the host): the page cannot come back
     /// in Chromium.
     case ended
+    /// The Chromium engine stopped for the app's quit (`CEFRuntime.shutdown` closed every browser): the page is
+    /// not reopened in WebKit, and no crash is reported. Each quit was logged as every Chromium page's crash and
+    /// started a WebKit load of each while the app quit (Leo's Mac, 2026-11-21: four quits read as four
+    /// "chromium-failed" New Tab pages).
+    case engineStopped
     /// The page asked to open `url` in a new tab or window (`window.open`, a `target=_blank` link).
     case openRequested(URL)
     /// A drag of these files from outside the app entered the page (their paths, which the page

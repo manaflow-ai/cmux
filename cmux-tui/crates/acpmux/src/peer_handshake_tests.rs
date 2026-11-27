@@ -88,7 +88,7 @@ async fn a_watch_list_is_asked_for_without_tools_from_the_start() {
             .expect("the link connects instead of waiting out the handshake deadline")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -135,7 +135,7 @@ async fn a_paged_watch_list_is_read_whole_before_the_link_connects() {
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -259,12 +259,12 @@ async fn a_change_during_a_paged_watch_list_comes_after_the_whole_list() {
         .iter()
         .enumerate()
         .filter_map(|(at, n)| match n {
-            PeerNotice::Sessions(rows) => Some((at, rows)),
+            PeerNotice::Sessions(rows) => Some((at, crate::peer::parse_rows(rows))),
             _ => None,
         })
         .collect();
     assert_eq!(lists.len(), 1, "one list, published whole: {seen:?}");
-    let (list_at, rows) = lists[0];
+    let (list_at, rows) = (lists[0].0, &lists[0].1);
     let ids: Vec<&str> = rows.iter().map(|r| r["sessionId"].as_str().unwrap()).collect();
     assert_eq!(ids, ["a", "b"]);
     let changed_at = seen
@@ -327,7 +327,7 @@ async fn a_request_of_a_gone_link_takes_no_page_of_the_watch_list() {
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -421,7 +421,7 @@ async fn a_watch_list_too_large_from_an_old_peer_is_read_in_pages_of_rows() {
             .expect("the link connects instead of failing on a list too large")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => lists.push(rows),
+            PeerNotice::Sessions(rows) => lists.push(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -536,6 +536,9 @@ fn paced_old_peer(
     })
 }
 
+/// How long a paced link may go without a notice (on the paused clock) before its test fails.
+const LINK_WAIT: Duration = Duration::from_secs(3600);
+
 /// Builds c230bb58a's list guard runs back to back (`BURST`) before its pace holds.
 const OLD_BURST: u32 = 4;
 
@@ -567,12 +570,21 @@ async fn link_to_paced_old_peer(
         let end = link.serve(client, &mut out_rx).await;
         (end, out_rx)
     });
-    let mut listed = None;
+    // Ready, and listed: a link after a far restart reads its list after it is ready.
+    let (mut listed, mut connected) = (None, false);
     let outcome = loop {
+        if connected && listed.is_some() {
+            break Ok((started.elapsed(), listed.take().unwrap_or_default()));
+        }
         tokio::select! {
-            notice = notices.recv() => match notice.expect("the link stays open").2 {
-                PeerNotice::Sessions(rows) => listed = Some(rows),
-                PeerNotice::Connected => break Ok((started.elapsed(), listed.take().unwrap_or_default())),
+            // Bounded: the clock is paused, so a link that stops sending fails here at once.
+            notice = tokio::time::timeout(LINK_WAIT, notices.recv()) => match notice
+                .expect("a notice from the paced link within LINK_WAIT")
+                .expect("the link stays open")
+                .2
+            {
+                PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
+                PeerNotice::Connected => connected = true,
                 _ => {}
             },
             ended = &mut serving => {
@@ -684,7 +696,7 @@ async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => break,
             _ => {}
         }
@@ -694,27 +706,36 @@ async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
     fake.abort();
 }
 
-/// The pages move the deadline on only up to [`HANDSHAKE_MOST`] in all: a peer whose pages keep
-/// coming in time, with the last one due right at that cap, is cut there and never connects.
+/// The pages have no cap in all: each moves the deadline on by the handshake's own, so a peer
+/// whose pages keep coming in time links however long the whole list takes. The old 300 s
+/// total was a guess; observed handshakes took p99 19 s (n=40, 2026-11-23..24).
 #[tokio::test(start_paused = true)]
-async fn a_paged_watch_list_is_cut_at_the_handshake_cap() {
+async fn a_paged_watch_list_past_the_old_300_s_total_still_links() {
     let (tx, mut notices) = mpsc::channel(64);
     let peer = deaf_to_pings(Peer::new("web", "ws://10.0.0.9:9", None, None, tx));
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
-    let gap = Duration::from_secs(50);
-    let pages = HANDSHAKE_MOST.as_secs().div_ceil(gap.as_secs());
-    let fake = slow_pages_peer(server, pages, gap);
+    // Twelve pages, each 50 s apart: 600 s in all, twice the total cap this link once had. The
+    // rows come once the list is whole, so the wait for them outlasts the 600 s (paused time).
+    let fake = slow_pages_peer(server, 12, Duration::from_secs(50));
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
-    let started = tokio::time::Instant::now();
-    let ended = peer.serve(client, &mut out_rx).await;
-    let why = ended.expect_err("the handshake is cut");
-    assert!(why.contains("handshake timed out after"), "{why}");
-    assert!(started.elapsed() <= HANDSHAKE_MOST, "cut at the cap: {:?}", started.elapsed());
-    while let Ok((_, _, notice)) = notices.try_recv() {
-        assert!(!matches!(notice, PeerNotice::Connected), "never connects");
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    let mut listed = None;
+    loop {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(3600), notices.recv())
+            .await
+            .expect("the link connects")
+            .expect("the link stays open");
+        match notice {
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
+            PeerNotice::Connected => break,
+            _ => {}
+        }
     }
+    assert_eq!(listed.expect("the whole list").len(), 12);
+    serving.abort();
     fake.abort();
 }
 
@@ -803,4 +824,96 @@ async fn a_handshake_that_ends_without_a_ready_link_ends_the_link() {
     assert!(ended.is_err(), "{ended:?}");
     assert!(!peer.link().is_ready());
     fake.abort();
+}
+
+/// The link asks for row patches (`sessionChangedDelta: 2`) and makes each one whole again: the
+/// hub reads every change as the whole row. A patch with a gap before it is dropped, the link
+/// asks for the row whole (`_acpmux/session_resync`), and the row it gets goes on as before.
+#[tokio::test(start_paused = true)]
+async fn the_link_makes_each_patch_whole_and_asks_again_after_a_gap() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = saved(|| Peer::new("box", "ws://10.0.0.9:9", None, None, tx));
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let (hello_tx, mut hello) = mpsc::unbounded_channel::<Value>();
+    let (resync_tx, mut resynced) = mpsc::unbounded_channel::<Value>();
+    let fake = tokio::spawn(async move {
+        let row = |a: u64| json!({"sessionId": "s", "harness": "claude", "lastSeq": a, "a": a});
+        while let Some(Ok(frame)) = server.next().await {
+            let Frame::Text(text) = frame else { continue };
+            let msg: Value = serde_json::from_str(&text).unwrap();
+            let Some(id) = msg.get("id").cloned() else { continue };
+            let mut frames = vec![json!({"id": id, "result": {}})];
+            match msg["method"].as_str() {
+                Some(method::INITIALIZE) => {
+                    let _ = hello_tx.send(msg["params"].clone());
+                }
+                Some(method::MUX_WATCH) => {
+                    frames = vec![
+                        json!({"id": id, "result": {"sessions": []}}),
+                        json!({"method": method::MUX_SESSION_CHANGED, "params": {"sessionId": "s", "session": row(1), "kind": "status", "seq": 1, "rowSeq": 1}}),
+                        json!({"method": method::MUX_SESSION_PATCH, "params": {"sessionId": "s", "patch": {"a": 2, "lastSeq": 2}, "rowSeq": 2, "baseRowSeq": 1, "kind": "status", "recordKind": "status", "seq": 2}}),
+                        // Row 3 never came.
+                        json!({"method": method::MUX_SESSION_PATCH, "params": {"sessionId": "s", "patch": {"a": 4}, "rowSeq": 4, "baseRowSeq": 3, "kind": "status", "recordKind": "status", "seq": 4}}),
+                    ];
+                }
+                Some(method::MUX_SESSION_RESYNC) => {
+                    let _ = resync_tx.send(msg["params"].clone());
+                    frames = vec![
+                        json!({"method": method::MUX_SESSION_CHANGED, "params": {"sessionId": "s", "session": row(5), "kind": "status", "seq": 5, "rowSeq": 5}}),
+                        json!({"id": id, "result": {"sent": true}}),
+                        json!({"method": method::MUX_SESSION_PATCH, "params": {"sessionId": "s", "patch": {"a": 6}, "rowSeq": 6, "baseRowSeq": 5, "kind": "status", "recordKind": "status", "seq": 6}}),
+                    ];
+                }
+                _ => {}
+            }
+            for mut frame in frames {
+                if frame["params"]["rowSeq"] == 6 {
+                    // Separate the resync's whole row and its following patch in virtual time.
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                frame["jsonrpc"] = json!("2.0");
+                if server.send(Frame::Text(frame.to_string().into())).await.is_err() {
+                    return;
+                }
+            }
+        }
+    });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+
+    let hello = tokio::time::timeout(Duration::from_secs(5), hello.recv()).await.unwrap().unwrap();
+    assert_eq!(
+        hello["_meta"]["acpmux"]["sessionChangedDelta"],
+        json!(crate::peer_row_patch::VERSION)
+    );
+    let mut rows = Vec::new();
+    while rows.len() < 4 {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), notices.recv())
+            .await
+            .expect("the rows come")
+            .expect("the link stays open");
+        if let PeerNotice::SessionChanged { session, .. } = notice {
+            rows.push(session);
+        }
+    }
+    let a: Vec<u64> = rows.iter().map(|r| r["a"].as_u64().unwrap()).collect();
+    assert_eq!(
+        a,
+        [1, 2, 5, 6],
+        "the gap's patch is dropped, the resync's row and the patch after it go on"
+    );
+    assert_eq!(rows[1]["harness"], "claude", "a patch comes out as the whole row");
+    assert!(rows.iter().all(|r| r.get("patch").is_none()));
+    let asked = resynced.try_recv().expect("the link asked for the row whole");
+    assert_eq!(asked["sessionId"], "s");
+    assert!(resynced.try_recv().is_err(), "asked once");
+    serving.abort();
+    fake.abort();
+    tokio::time::advance(demand::IDLE_CLOSE_AFTER - Duration::from_millis(500)).await;
+    assert!(!peer.idle_due(), "the applied patch kept the peer active after the whole row");
+    tokio::time::advance(Duration::from_millis(500)).await;
+    assert!(peer.idle_due(), "the idle interval runs from the last patch");
 }
