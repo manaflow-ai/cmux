@@ -70,6 +70,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
 import re
 import shlex
@@ -7504,7 +7505,10 @@ GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b
 RISK_EVIDENCE_JOB = "risk evidence"
 RISK_EVIDENCE_STEP = "Grade the pull request"
 RISK_EVIDENCE_MARKER = re.compile(r"^risk-evidence\.rate-limited (?P<body>\{.*\})$")
-RISK_EVIDENCE_ENDPOINT = re.compile(r"^repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:pulls|compare|issues|commits)(?:/|\?|$)")
+RISK_EVIDENCE_ENDPOINT = re.compile(
+    r"^repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/"
+    r"(?:pulls|compare|issues|commits|contents)(?:/[A-Za-z0-9_.~%/-]+)?"
+    r"(?:\?[A-Za-z0-9_.~%=&/-]+)?$")
 
 # The published-tree hand-off re-runs other commits' runs. Its own quota-only failure is a retryable gate state,
 # not a red in the pull request. The hand-off emits this live annotation without installation or request IDs.
@@ -7566,9 +7570,18 @@ def tree_handoff_quota_only(job: dict, log: str) -> str | None:
     return (f"run {match.group('run')}; job {job.get('id')}; no attempt before {match.group('retry')}")
 
 
-def risk_evidence_quota_only(job: dict, log: str, *, step_names) -> str | None:
+def risk_evidence_quota_only(repo: str, job: dict, log: str, github, run_reads: dict, *, step_names) -> str | None:
     """The one trusted risk-evidence quota marker, placed in the classifier's failed step."""
     if str(job.get("name") or "") != RISK_EVIDENCE_JOB:
+        return None
+    workflow_info = run_reads.get(("run-record", job.get("run_id")))
+    if not isinstance(workflow_info, dict):
+        try:
+            workflow_info = rest_run(repo, int(job["run_id"]), github, run_reads)
+        except (KeyError, TypeError, ValueError, Refused):
+            return None
+    if (str(workflow_info.get("path") or "") != ".github/workflows/risk-tier.yml@refs/heads/main"
+            or workflow_info.get("event") != "pull_request_target"):
         return None
     steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
     if all(isinstance(step.get("number"), int) for step in steps):
@@ -7576,43 +7589,51 @@ def risk_evidence_quota_only(job: dict, log: str, *, step_names) -> str | None:
     failed = [str(step.get("name") or "") for step in steps if step.get("conclusion") == "failure"]
     if failed != [RISK_EVIDENCE_STEP]:
         return None
-    owned = step_owners(job, log, step_names=step_names)
-    if any(status == AMBIGUOUS for _, _, status in owned):
+    view = failed_view(job, log, step_names=step_names, base=False)
+    if view is UNPLACED:
         return None
-    target = next((index for index, step in enumerate(steps) if str(step.get("name") or "") == RISK_EVIDENCE_STEP), None)
+    target = next((index for index, step in enumerate(view.steps)
+                   if str(step.get("name") or "") == RISK_EVIDENCE_STEP), None)
+    if target is None:
+        return None
     markers: list[dict] = []
     all_lines: list[str] = []
-    for raw, index, _status in owned:
-        texts = lines_of(raw)
-        if not texts:
-            continue
-        text = texts[0]
-        all_lines.append(text)
-        match = RISK_EVIDENCE_MARKER.fullmatch(text)
-        if match is None:
-            continue
-        if index != target:
-            return None
-        try:
-            marker = json.loads(match.group("body"))
-        except (TypeError, ValueError):
-            return None
-        if isinstance(marker, dict):
-            markers.append(marker)
-    if len(markers) != 1 or any("takes back" in line.lower() or "takeback" in line.lower() for line in all_lines):
+    for raw, index in view.lines():
+        for text in lines_of(raw):
+            all_lines.append(text)
+            match = RISK_EVIDENCE_MARKER.fullmatch(text)
+            if match is None:
+                continue
+            if index != target:
+                return None
+            try:
+                marker = json.loads(match.group("body"))
+            except (TypeError, ValueError):
+                return None
+            if isinstance(marker, dict):
+                markers.append(marker)
+    if not markers or any("takes back" in line.lower() or "takeback" in line.lower() for line in all_lines):
         return None
-    marker = markers[0]
-    if (set(marker) != {"endpoint", "status", "reset", "graded"} or marker.get("graded") is not False
-            or not isinstance(marker.get("status"), int) or isinstance(marker.get("status"), bool)
-            or marker["status"] not in (403, 429) or not isinstance(marker.get("endpoint"), str)
-            or not RISK_EVIDENCE_ENDPOINT.fullmatch(marker["endpoint"])
-            or not isinstance(marker.get("reset"), (int, float)) or isinstance(marker.get("reset"), bool)
-            or marker["reset"] < 0):
+    if any(("Traceback" in line or "CalledProcessError" in line
+            or (re.search(r"\bexited [1-9]\d*\b", line) and "structured refusal" not in line)
+            or re.search(r"^##\[error\](?!Process completed with exit code)", line)) for line in all_lines):
         return None
-    if any(line.startswith("##[error]") and not line.startswith("##[error]Process completed with exit code")
-           for line in all_lines):
+    if test_reds.failed_in(view_text(view)):
         return None
-    when = datetime.fromtimestamp(float(marker["reset"]), timezone.utc).strftime("%H:%MZ")
+    def valid(marker: dict) -> bool:
+        return (set(marker) == {"endpoint", "status", "reset", "graded"} and marker.get("graded") is False
+                and isinstance(marker.get("status"), int) and not isinstance(marker.get("status"), bool)
+                and marker["status"] in (403, 429) and isinstance(marker.get("endpoint"), str)
+                and RISK_EVIDENCE_ENDPOINT.fullmatch(marker["endpoint"]) is not None
+                and isinstance(marker.get("reset"), (int, float)) and not isinstance(marker.get("reset"), bool)
+                and math.isfinite(float(marker["reset"])) and marker["reset"] >= 0)
+    if not all(valid(marker) for marker in markers):
+        return None
+    marker = max(markers, key=lambda found: float(found["reset"]))
+    try:
+        when = datetime.fromtimestamp(float(marker["reset"]), timezone.utc).strftime("%H:%MZ")
+    except (OverflowError, OSError, ValueError):
+        return None
     return f"risk evidence API quota at {marker['endpoint']} (HTTP {marker['status']}); rerun after {when}"
 
 
@@ -9617,8 +9638,11 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")
-    if name == RISK_EVIDENCE_JOB and (said := risk_evidence_quota_only(job, head_log, step_names=names)) is not None:
+    if name == RISK_EVIDENCE_JOB and (said := risk_evidence_quota_only(repo, job, head_log, github, run_reads,
+                                                                       step_names=names)) is not None:
         raise JobRateLimited(f"'{name}' reported only its structured API quota refusal ({said})")
+    if name == RISK_EVIDENCE_JOB:
+        raise Refused(f"'{name}' lacks its trusted structured quota marker; a real risk-evidence failure stays red")
     if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                       "re-run its prerequisite and this dependent job together")

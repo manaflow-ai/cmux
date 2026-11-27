@@ -30,8 +30,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import email.utils
 import fnmatch
 import json
+import math
 import os
 import re
 import shlex
@@ -758,18 +760,11 @@ def gh_json(*args: str):
     return json.loads(out) if out.strip() else None
 
 
-# What GitHub answers when this run's API budget is gone, in gh's own words (`gh api` prints the message on
-# stderr and exits 1). A rate limit is not a verdict on the pull request: on 2026-11-22 the "risk evidence" job on
-# #50881 printed nothing but "CalledProcessError ... returned non-zero exit status 1" because gh's stderr was
-# captured and dropped, and on 2026-11-23 #49215's job went red on `pulls/49215/files` for the same reason, a red
-# a lander then had to override by hand. So a rate limit waits for the budget once, when it comes back inside
-# RATE_LIMIT_WAIT_SECONDS, and otherwise ends the check ungraded and green with the reason (pr_mode's
-# RateLimited path below): the next event on the pull request grades it again.
+# GitHub's API quota response is classified from `gh api --include` metadata, never from provider prose. A quota is
+# not a pull-request verdict, but the check stays red and emits the fixed marker consumed by base_red_excuse.py.
 GH_RATE_LIMIT_STATUSES = frozenset((403, 429))
 # The longest this job waits, in all, for GitHub's API budget to come back (the job's timeout is 8 minutes).
 RATE_LIMIT_WAIT_SECONDS = 90
-# A secondary limit names no reset time; GitHub asks a client to wait at least a minute.
-SECONDARY_WAIT_SECONDS = 60
 _rate_waited = 0.0
 
 
@@ -802,22 +797,30 @@ def _gh_api_endpoint(args: list[str]) -> str:
 
 
 def _http_response(stdout: str) -> tuple[str, int | None, dict[str, str]]:
-    """Split gh api --include output into body, final status and lower-case headers."""
-    starts = list(re.finditer(r"(?m)^HTTP/\S+\s+(\d{3})\b[^\r\n]*\r?\n", stdout))
-    if not starts:
+    """Split only leading HTTP response blocks; an HTTP-looking body line is never response metadata."""
+    cursor, status, headers = 0, None, {}
+    while True:
+        match = re.match(r"HTTP/\S+\s+(\d{3})\b[^\r\n]*(?:\r\n|\n)", stdout[cursor:])
+        if match is None:
+            break
+        boundary = re.search(r"\r?\n\r?\n", stdout[cursor + match.end():])
+        if boundary is None:
+            return stdout, int(match.group(1)), {}
+        status = int(match.group(1))
+        header_text = stdout[cursor + match.end():cursor + match.end() + boundary.start()]
+        headers = {}
+        for line in header_text.splitlines():
+            key, sep, value = line.partition(":")
+            if sep:
+                headers[key.strip().lower()] = value.strip()
+        cursor += match.end() + boundary.end()
+        # gh may print a second block for a redirect; only a 3xx response can start one. A body beginning with
+        # "HTTP/..." is data and must not replace the real status or headers.
+        if status is None or not 300 <= status < 400 or not re.match(r"HTTP/\S+\s+\d{3}\b", stdout[cursor:]):
+            break
+    if status is None:
         return stdout, None, {}
-    start = starts[-1]
-    boundary = re.search(r"\r?\n\r?\n", stdout[start.end():])
-    if boundary is None:
-        return stdout, int(start.group(1)), {}
-    header_text = stdout[start.end():start.end() + boundary.start()]
-    body = stdout[start.end() + boundary.end():]
-    headers: dict[str, str] = {}
-    for line in header_text.splitlines():
-        key, sep, value = line.partition(":")
-        if sep:
-            headers[key.strip().lower()] = value.strip()
-    return body, int(start.group(1)), headers
+    return stdout[cursor:], status, headers
 
 
 def _quota_reset(headers: dict[str, str]) -> tuple[float | None, float | None]:
@@ -825,29 +828,24 @@ def _quota_reset(headers: dict[str, str]) -> tuple[float | None, float | None]:
     if (raw := headers.get("x-ratelimit-reset")) is not None:
         try:
             reset = float(raw)
-            return reset, max(0.0, reset - time.time())
-        except ValueError:
+            if math.isfinite(reset) and reset >= 0:
+                return reset, max(0.0, reset - time.time())
+        except (TypeError, ValueError):
             pass
     if (raw := headers.get("retry-after")) is not None:
         try:
-            wait = max(0.0, float(raw))
-            return time.time() + wait, wait
-        except ValueError:
-            pass
+            wait = float(raw)
+            if math.isfinite(wait) and wait >= 0:
+                return time.time() + wait, wait
+        except (TypeError, ValueError):
+            try:
+                date = email.utils.parsedate_to_datetime(raw)
+                if date is not None:
+                    wait = max(0.0, date.timestamp() - time.time())
+                    return time.time() + wait, wait
+            except (TypeError, ValueError, OverflowError):
+                pass
     return None, None
-
-
-def rate_limit_reset_in(why: str) -> float | None:
-    """Seconds until this token's REST budget comes back, from `gh api rate_limit` (a call that costs no budget),
-    or a minute for a secondary limit. None when unreadable."""
-    if re.search(r"secondary rate|abuse detection", why, re.I):
-        return SECONDARY_WAIT_SECONDS
-    try:
-        done = subprocess.run(["gh", "api", "rate_limit", "--jq", ".resources.core.reset"],
-                              capture_output=True, text=True, timeout=20)
-        return max(0.0, float(done.stdout.strip()) - time.time()) if done.returncode == 0 else None
-    except (subprocess.SubprocessError, OSError, ValueError):
-        return None
 
 
 def gh_run(args: list[str], attempts: int = 3) -> str:
@@ -867,7 +865,7 @@ def gh_run(args: list[str], attempts: int = 3) -> str:
                    (headers.get("x-ratelimit-remaining") == "0" or "retry-after" in headers))
         if limited and not limited_once and attempt < attempts - 1:
             limited_once = True
-            wait = structured_wait if structured_wait is not None else rate_limit_reset_in(why)
+            wait = structured_wait
             if wait is not None and _rate_waited + wait <= RATE_LIMIT_WAIT_SECONDS:
                 print(f"{shlex.join(args)}: GitHub rate limit; waiting {wait:.0f}s for the budget",
                       file=sys.stderr, flush=True)
@@ -875,9 +873,12 @@ def gh_run(args: list[str], attempts: int = 3) -> str:
                 time.sleep(wait + 1)
                 continue
         if limited or attempt == attempts - 1:
-            print(f"{shlex.join(args)} exited {done.returncode}"
-                  f"{' (GitHub rate limit: not a verdict on this pull request)' if limited else ''}"
-                  f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
+            if limited:
+                print(f"{shlex.join(args)} exited {done.returncode} (GitHub API quota: structured refusal; "
+                      f"endpoint {_gh_api_endpoint(args)}, HTTP {status})", file=sys.stderr, flush=True)
+            else:
+                print(f"{shlex.join(args)} exited {done.returncode}"
+                      f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
             if limited:
                 raise RateLimited(done.returncode, args, output=body, stderr=done.stderr,
                                   endpoint=_gh_api_endpoint(args), status=status, reset=reset)
@@ -888,11 +889,10 @@ def gh_run(args: list[str], attempts: int = 3) -> str:
 
 def ungraded(args: argparse.Namespace, error: RateLimited) -> int:
     """End on a red, ungraded result with a fixed marker the base-red consumer can safely rerun."""
-    why = (error.stderr or error.output or "").strip().splitlines()
     report = "\n".join([
         "## Risk tier: ungraded", "",
-        f"GitHub's API budget for this run ran out on `{printable(shlex.join(error.cmd))}`"
-        f"{': ' + printable(why[0]) if why else ''}.",
+        f"GitHub's API budget refused `{printable(error.endpoint)}` with HTTP {error.status}; "
+        "the reset boundary is in the machine-readable marker below.",
         "That is not a verdict on this pull request. The next push, edit or label regrades it, or rerun this job.",
         "", "Policy: docs/ci/risk-tiers.md"])
     marker = {"endpoint": error.endpoint, "graded": False, "reset": error.reset, "status": error.status}
@@ -900,7 +900,8 @@ def ungraded(args: argparse.Namespace, error: RateLimited) -> int:
     print(report)
     print("::warning::risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)")
     if args.summary:
-        Path(args.summary).open("a").write(report + "\n")
+        with Path(args.summary).open("a") as summary:
+            summary.write(report + "\n")
     if args.github_output:
         with Path(args.github_output).open("a") as out:
             out.write("tier=ungraded\nlabel=\nready=false\nsignoff_unread=false\ntakes_back=false\ntakes_back_fix=\n")
@@ -1212,6 +1213,8 @@ def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
         try:
             sources[key] = gh_run(["gh", "api", "-H", "Accept: application/vnd.github.raw+json",
                                    f"repos/{repo}/contents/{quote(path)}?ref={ref}"])
+        except RateLimited:
+            raise
         except (subprocess.CalledProcessError, UnicodeDecodeError):
             print(f"::warning::couldn't read {printable(path)} at {ref[:12]}; its hunks alone grade it")
     return sources
@@ -1231,6 +1234,8 @@ def merge_base_of(repo: str, pr: dict, repo_dir: str | None = None) -> str:
     try:
         return gh_json("api", f"repos/{repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
                        "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
+    except RateLimited:
+        raise
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
         return pr["base"]["sha"]
 
@@ -1295,6 +1300,8 @@ def pr_mode(args: argparse.Namespace) -> int:
     if grade.tier == "high":
         try:
             signed, blocked = human_ok_by(args.repo, args.number, pr)
+        except RateLimited:
+            raise
         except (subprocess.CalledProcessError, ValueError, TypeError):
             # An unreadable comment, review or label read (or one past the page cap) could hide a
             # BLOCK: list it as held (risk-tier.yml then warns; the lander reads the verdict itself).

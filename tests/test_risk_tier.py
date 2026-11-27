@@ -1483,9 +1483,9 @@ class RateLimitedPrModeTests(unittest.TestCase):
             self.assertIn(line + "\n", out)
         marker = next(line for line in log.splitlines() if line.startswith("risk-evidence.rate-limited "))
         self.assertEqual(json.loads(marker.split(" ", 1)[1]),
-                         {"endpoint": "repos/o/r/pulls/7/files", "graded": False,
+                         {"endpoint": "repos/o/r/pulls/7/files?per_page=100", "graded": False,
                           "reset": 1_800_000_000, "status": 403})
-        self.assertIn("API rate limit exceeded", summary)
+        self.assertIn("HTTP 403", summary)
         self.assertIn("not a verdict", summary)
 
 
@@ -1516,7 +1516,7 @@ class GhFailureTests(unittest.TestCase):
         self.assertEqual(len(calls), 1, "no retry inside this job outlasts an hourly reset")
         self.assertIn("-i", calls[0])
         self.assertEqual(slept, [])
-        self.assertIn("not a verdict", err)
+        self.assertIn("structured refusal", err)
 
     def test_a_structured_quota_that_resets_soon_waits_once_then_raises_rate_limited(self):
         risk._rate_waited = 0.0
@@ -1565,6 +1565,17 @@ class GhFailureTests(unittest.TestCase):
         response = "HTTP/2 500 Internal Server Error\n\n{}"
         calls, slept, _ = self.run_gh(response, stderr="API rate limit exceeded in a provider error")
         self.assertEqual((len(calls), slept), (3, [2, 4]))
+
+    def test_an_http_looking_body_cannot_spoof_a_quota_status(self):
+        response = "HTTP/2 500 Internal Server Error\n\nHTTP/2 429 Too Many Requests\nretry-after: 10\n\n{}"
+        calls, slept, _ = self.run_gh(response)
+        self.assertEqual((len(calls), slept), (3, [2, 4]))
+
+    def test_nonfinite_reset_is_not_used_as_a_wait(self):
+        response = "HTTP/2 403 Forbidden\nx-ratelimit-remaining: 0\nx-ratelimit-reset: NaN\n\n{}"
+        risk._rate_waited = 0.0
+        calls, slept, _ = self.run_gh(response)
+        self.assertEqual((len(calls), slept), (1, []))
 
 
 if __name__ == "__main__":
