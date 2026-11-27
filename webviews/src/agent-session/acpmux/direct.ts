@@ -16978,21 +16978,6 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     return this.request("_acpmux/context", { sessionId });
   }
-  /// The instructions and memory files that follow the person to this machine, and the notes other
-  /// machines propose to add (`_acpmux/agent_home`): Session Info's Carried memory.
-  async agentHome(sessionId = this.actingSessionId): Promise<unknown> {
-    if (!sessionId) throw new Error(translate("error.notOpen"));
-    return this.request("_acpmux/agent_home", { sessionId });
-  }
-  /// Accepts or drops proposals by id (`_acpmux/agent_home_resolve`). Sent on the click with no await
-  /// before it: acpmux takes it only from the person, like `_acpmux/memory_resolve`.
-  async resolveAgentHome(
-    change: { accept: string[]; drop: string[] },
-    sessionId = this.actingSessionId,
-  ): Promise<unknown> {
-    if (!sessionId) throw new Error(translate("error.notOpen"));
-    return this.request("_acpmux/agent_home_resolve", { sessionId, accept: change.accept, drop: change.drop });
-  }
   /// Saves (or with `text: null` removes) the guidance new chats get, for every chat (`user`) or
   /// this folder's (`project`), and answers with the inventory after it (`_acpmux/context_override`).
   /// Sent on the Save click with no await before it: the relay takes it only on a gesture.
