@@ -86,7 +86,7 @@ mv /etc/cmux/daemon.json.tmp /etc/cmux/daemon.json
 chmod 0644 /etc/cmux/daemon.json /etc/cmux/daemon-socket
 cat /etc/cmux/daemon.json
 EOF
-)" 90000 | tail -n 1)"
+)" 90000)"
 printf '%s' "$daemon_info" | jq -e '(.version // "unknown" | startswith("unknown") | not) and ((.capabilities // []) | index("vm-agent-v1") and index("loopback-forward-v1"))' >/dev/null \
   || { echo "daemon.json is not a real identify answer: ${daemon_info:0:300}" >&2; exit 1; }
 
