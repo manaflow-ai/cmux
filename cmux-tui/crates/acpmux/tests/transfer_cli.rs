@@ -314,6 +314,12 @@ impl Daemon {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         let _ = std::fs::remove_file(&stderr);
+        // A connect proves only the bind (`daemon.rs`): the daemon may still save its generated
+        // web config to config.json after it, over a test's own edit of that file (a harness
+        // `session_move_as` adds then found unknown). It answers only once serving, after its saves.
+        tokio::time::timeout_at(deadline, Rpc::connect(&socket))
+            .await
+            .unwrap_or_else(|_| panic!("daemon {tag} never answered"));
         Self { home, socket, child }
     }
 }
