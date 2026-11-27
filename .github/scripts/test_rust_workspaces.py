@@ -21,6 +21,7 @@ import unittest
 SCRIPT = Path(__file__).with_name("rust-workspaces.py")
 FAKE_CARGO = """#!/usr/bin/env bash
 printf '%s|%s\\n' "$PWD" "$*" >> "$CARGO_LOG"
+printf '%s %s\\n' "${CARGO_PROFILE_DEV_DEBUG:-unset}" "${CARGO_PROFILE_TEST_DEBUG:-unset}" >> "$CARGO_LOG.env"
 if [[ "$1" == "${FAIL_SUBCOMMAND:-none}" ]]; then
   [[ -n "${STALE_LOCK:-}" ]] && echo "error: cannot update the lock file $PWD/Cargo.lock because --locked was passed to prevent this" >&2
   exit 101
@@ -485,6 +486,17 @@ class RustWorkspacesTests(unittest.TestCase):
         self.assertEqual(red.returncode, 1)
         self.assertIn("` failed in ws/crates/own", red.stdout)
         self.assertNotIn("stale Cargo.lock", red.stdout + red.stderr)
+
+    def test_run_builds_with_line_tables_only_unless_the_caller_set_debuginfo(self) -> None:
+        # Full DWARF in one binary per test file filled a runner's disk mid-link: rust-lld SIGBUS (2026-11-27).
+        env_log = Path(f"{self.log}.env")
+        result = self.script("run", "solo")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(env_log.read_text().splitlines(), ["line-tables-only line-tables-only"] * 2)
+        env_log.unlink()
+        result = self.script("run", "solo", env={**self.env, "CARGO_PROFILE_DEV_DEBUG": "full"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(env_log.read_text().splitlines(), ["full line-tables-only"] * 2)
 
     def test_run_refuses_a_root_that_is_not_a_run_entry(self) -> None:
         result = self.script("run", "ws")
