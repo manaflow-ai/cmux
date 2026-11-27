@@ -33,8 +33,15 @@ concurrency:
   # which skips pr pipeline), cancelled the full run, so the iOS matrix never ran and the land stopped matrix_missing
   # (#54957 run 45875774607, cancelled by 45876000317). A push still starts the new head's run; the old head's full
   # run finishes or is cancelled by its callees' own per-ref groups.
-  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name == 'full-ci' && format('-full-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: true
+  # An added ready-to-land gets a group per head too, and both handoff groups queue instead of cancelling: a bot
+  # takes ready-to-land off and puts it back on the same head every few minutes, and each re-add cancelled the
+  # in-flight run with its 20-55 min nightly pr build compile (#47278 head 9b27d460: added 10:59:48, removed 11:12,
+  # re-added 11:30:15; runs 45986744639 -> 45991007377). Same-head cancels were 15.6 runner-h/day on the 24 h to
+  # 2026-11-27T10Z. The re-add now waits for the in-flight run, and the callees' input-keyed caches skip what passed.
+  # A newer push still cancels the old head's run (ci-pr-superseded-cancel.yml). CI_PR_ROUTER_HANDOFF_QUEUE=0 restores
+  # the shared group and cancel-in-progress for ready-to-land.
+  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name == 'full-ci' && format('-full-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'labeled' && github.event.label.name == 'ready-to-land' && format('{0}', vars.CI_PR_ROUTER_HANDOFF_QUEUE) != '0' && format('-land-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ !(github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('{0}', vars.CI_PR_ROUTER_HANDOFF_QUEUE) != '0') }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
