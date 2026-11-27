@@ -123,6 +123,18 @@ jobs:
             *) echo "::error title=nightly app compile::fleet verification failed for $ARCH (cmux-ci exit $status); see the client output for the admission, setup or build error"
                exit "$status" ;;
           esac
+      - name: Cancel the fleet step of a cancelled job
+        # fail-fast (or a newer push) cancelled this job: its fleet step, queued or building, has no reader.
+        if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' }}
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" 2>/dev/null | head -1 | cut -d' ' -f2)"
+          if [[ -x "$client" && -n "$step" ]]; then
+            "$client" cancel "$step" --reason "nightly pr build: job cancelled" || true
+          fi
       - name: Record the pass
         if: ${{ steps.compile.outputs.passed == 'true' }}
         run: mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$KEY" > "$RUNNER_TEMP/nightly-pr-build-pass/key"
