@@ -2859,6 +2859,7 @@ inputs = [
   "Packages/Shared/CmuxEgress/**",
   "Packages/Shared/CmuxGhosttyKit/**",
   "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxLiveCode/**",
   "Packages/Shared/CmuxScreenKit/**",
   "Packages/Shared/CmuxSpinner/**",
   "Packages/Shared/CmuxTheme/**",
@@ -3153,7 +3154,7 @@ selected=()
 # A pure app FFI re-pin runs only the handler coverage suite (cmux_next_route.py pure_ffi_repin).
 if grep -qx 'ffi_repin=true' "$CI_TOOLS/fast-tiers.txt"; then selected=(--only "app handler coverage"); fi
 # Otherwise only the suites (and the package builds) the change reaches run; the post-merge batch runs every suite
-# (cmux-next-fast-tier-batch.yml). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
+# (cmux-next-pr-pipeline-mac-batch.yml sets it to `0`). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
 if [ ${#selected[@]} -eq 0 ] && [ "${CI_FAST_TIER_PR_SCOPE:-1}" != 0 ] && [ -n "${CI_PATHS_FILE:-}" ]; then
   selected=(--changed-files "$CI_PATHS_FILE")
 fi

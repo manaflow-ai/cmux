@@ -244,7 +244,8 @@ jobs:
       contents: read
       issues: write
 
-  # The fast tier's full run (note-559): a pull request runs only the entries its change reaches.
+  # The fast tier's full run of its cargo and script entries (note-559): a pull request runs only the entries its
+  # change reaches. Its Swift entries run in pr-pipeline-mac (ci/steps.toml mac-fast-tier).
   fast-tier:
     needs: plan
     if: contains(needs.plan.outputs.suites, ' fast-tier ')
@@ -275,6 +276,35 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+
+  # pr-pipeline.yml's mac job (the fast tier's Swift suites, every one once routed) and ios job (the kit and the
+  # reliability matrix's phone cells), which pull requests no longer route: each runs the steps the window's changed
+  # paths reach (base..sha), on pr-pipeline.yml's machines. They replace the push runs of cmux-next-ios-kit.yml and
+  # ios-reliability-matrix.yml and the fast-tier suite's Swift leg.
+  pr-pipeline-mac:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-mac ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-mac-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
+    permissions:
+      contents: read
+      id-token: write
+
+  pr-pipeline-ios:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' pr-pipeline-ios ')
+    uses: ./.github/workflows/cmux-next-pr-pipeline-ios-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
     permissions:
       contents: read
       id-token: write
@@ -341,7 +371,7 @@ jobs:
       statuses: read
 
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
