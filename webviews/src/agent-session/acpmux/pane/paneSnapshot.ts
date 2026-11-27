@@ -69,6 +69,8 @@ import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
 import { liveThought, thoughtOnly } from "../liveThought";
+import { changeHidden } from "../drawnRows";
+import { callOnly, liveCallLine, setLiveLine } from "../liveCallLine";
 import { liveSummary, usageOnly } from "../liveSummary";
 import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
@@ -155,14 +157,22 @@ import {
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
+  hostPlannedRestart,
   hostRetryStep,
   HOST_WAKE_EVENTS,
   hostWakeAsks,
   lostRetryStep,
-  hostPlannedRestart,
+  reconnectRefusalStarts,
+  RETRY_FIRST_MS,
 } from "../hostRetry";
-import { acpmuxSendsReady, heldStartStop, sendsHeldForHost, untilHostAnswers, paneSends } from "../sendWhenReady";
-import { revealedSubagent } from "../subagents/subagentPanes";
+import {
+  acpmuxSendsReady,
+  heldStartStop,
+  sendsHeldForHost,
+  untilHostAnswers,
+  pageClientLink,
+} from "../sendWhenReady";
+import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
@@ -335,6 +345,8 @@ export type PaneSnapshotArgs = {
   toggleInspector: (open?: boolean) => boolean;
   sessionIdRef: React.RefObject<string | undefined>;
   subagentDraftChatRef: React.RefObject<string>;
+  /// The subagent this pane, opened on one, shows now (App.tsx), for the wake state.
+  subagentPaneNow: React.RefObject<string | undefined>;
   openChangesTab: React.RefObject<() => void>;
   setClientEpoch: React.Dispatch<React.SetStateAction<number>>;
   folderContinuation: FolderContinuation;
@@ -421,8 +433,6 @@ export type PaneSnapshotArgs = {
   setLinkDown: React.Dispatch<React.SetStateAction<boolean>>;
   /// When the pane's trouble began (`troubleSince` below): bounds the bare "Reconnecting…".
   setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
-  /// The handshake loop stopped (hostRetry.ts `hostRetryStep`): the line offers Restart agent service.
-  setHostGaveUp: React.Dispatch<React.SetStateAction<boolean>>;
   setHostRestoring: React.Dispatch<React.SetStateAction<HostRestoring | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
@@ -508,6 +518,7 @@ export function paneSnapshotEffect({
   toggleInspector,
   sessionIdRef,
   subagentDraftChatRef,
+  subagentPaneNow,
   openChangesTab,
   setClientEpoch,
   folderContinuation,
@@ -568,7 +579,6 @@ export function paneSnapshotEffect({
   restartGate,
   setLinkDown,
   setHostTroubleSince,
-  setHostGaveUp,
   setHostRestoring,
   runPendingAdoption,
   freshRef,
@@ -908,6 +918,39 @@ export function paneSnapshotEffect({
     },
   });
   let cancelled = false;
+  /// The pane draws `next` (every bypass's store starts over from it). A redraw of the whole pane
+  /// is a transition a key can go before, unless it answers what the person just did or opens
+  /// another chat (paneSnapshotLane.ts), or the live line ran ahead of a pass that drew the pane's
+  /// older rows (`urgent`, liveCallLine.ts `flush`).
+  const redrawPane = (next: AcpmuxSnapshot, urgent: boolean) => {
+    streamingRow.clear();
+    liveSummary.clear();
+    toolOutputEpoch.current = liveToolOutput.redraw();
+    thoughtEpoch.current = liveThought.redraw();
+    liveCallLine.redraw(next);
+    const drewBefore = drawnSnapshot.current;
+    drawnSnapshot.current = next;
+    const draw = () =>
+      setSnapshot((previous) => {
+        if (
+          next.canHandoff &&
+          !next.handoff?.ready &&
+          next.sessionId === previous.sessionId &&
+          previous.handoff?.record
+        )
+          return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
+        return next;
+      });
+    if (!urgent) return drawPaneSnapshot(drewBefore, next, pendingPaneDraw, draw);
+    pendingPaneDraw.drew(next, true);
+    draw();
+  };
+  // A pass drew the running turn from the pane's older rows while its line ran ahead on hidden
+  // calls (liveCallLine.ts): the client's newest snapshot, at once.
+  const unregisterLineFlush = liveCallLine.onFlush(() => {
+    const next = receivedSnapshot.current;
+    if (!cancelled && next) redrawPane(next, true);
+  });
   // The New Tab page closes (AgentPaneView.discardUnsentChat, cx-e2aa): a chat a chip pick started
   // behind it, never sent, is discarded.
   const discardUnsent = () => harnessSwitch.cancelDeferred();
@@ -923,6 +966,10 @@ export function paneSnapshotEffect({
   // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
   // Looking is cheap, so a daemon started again elsewhere is found within seconds.
   let reconnect = false;
+  /// The next ask is the starting `ready` handshake although the page reconnects (`reconnect` stays
+  /// true for the page's own state): a reconnect was refused with a definite answer, such as this
+  /// app's agent service stopped (hostRetry.ts `reconnectRefusalStarts`), and only `ready` starts it.
+  let startOnAsk = false;
   /// The chat the lost client held (direct.ts `CarriedChat`): the next client starts from it, so
   /// a reconnect keeps every row on screen instead of reading the chat again from nothing.
   let carriedChat: CarriedChat | undefined;
@@ -934,10 +981,10 @@ export function paneSnapshotEffect({
   /// never stays open stops being a bare "Reconnecting…" past SELF_RETRY_SAID_MS.
   let troubleSince: number | undefined;
   let connecting = false;
-  /// The loop stopped (hostRetry.ts `hostRetryStep`): no timer asks again; an event does
-  /// (`HOST_WAKE_EVENTS`), as does the line's Retry.
+  /// The loop is in its slow spell (hostRetry.ts `hostRetryStep` `slow`): its timer asks at most every
+  /// REFUSED_RETRY_MAX_MS, and an event (`HOST_WAKE_EVENTS`) asks now. It never stops.
   let stopped = false;
-  /// The host's `acpmux-daemon-answered` already asked once in this stop (hostRetry.ts `hostWakeAsks`).
+  /// The host's `acpmux-daemon-answered` already asked once in this slow spell (hostRetry.ts `hostWakeAsks`).
   let answerSpent = false;
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
@@ -1000,10 +1047,13 @@ export function paneSnapshotEffect({
     // its identity, without unmounting ComposerContext and losing a pending machine selection.
     reconnectingRef.current = true;
     cloudTypingPrewarm.reset();
+    // A `reconnect` only looks for a daemon; after its definite refusal this ask starts one (`startOnAsk`).
+    const asksReconnect = reconnect && !startOnAsk;
+    startOnAsk = false;
     try {
       acpmuxPerf.markAgent("handshakeStart");
       acpmuxPerf.markLaunch("handshakeStart");
-      acpWire.lifecycle("handshake", { reconnect });
+      acpWire.lifecycle("handshake", { reconnect: asksReconnect });
       const answered = await callNative<{
         protocolVersion: number;
         transport?: string;
@@ -1053,7 +1103,7 @@ export function paneSnapshotEffect({
         sandboxState?: unknown;
         /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
         tab?: unknown;
-      }>("ready", reconnect ? { reconnect } : {})
+      }>("ready", asksReconnect ? { reconnect: true } : {})
         // The host cleared its toast box for this handshake: it hears the mounted composer's again.
         .finally(resendToastAvoidance);
       if (cancelled) return;
@@ -1073,9 +1123,13 @@ export function paneSnapshotEffect({
       // are the subagent's from the first frame, not the chat's until the client connects (the 41 px
       // composer drop and 40 to 28 px header of a subagent opening into a split, Leo 2026-11-22:
       // "they need to be able to load faster and without layout shifts"). The reveal after connect
-      // runs again and changes nothing.
+      // runs again and changes nothing. A page built again after its hidden one let go (the person
+      // left the workspace) gets no reveal: the wake state says which subagent the pane showed, so it
+      // never comes back as the chat's own pane.
+      const wokenPane = !reconnect ? readWake(host.wake)?.subagentPane : undefined;
       if (typeof host.revealTurn === "string" && revealedSubagent(host.revealTurn) !== undefined)
         revealRef.current(host.revealTurn);
+      else if (wokenPane !== undefined) revealRef.current(SUBAGENT_REVEAL + wokenPane);
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
       if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
@@ -1317,9 +1371,14 @@ export function paneSnapshotEffect({
           const drawn = drawnSnapshot.current;
           const received = receivedSnapshot.current;
           receivedSnapshot.current = next;
+          // The replay bench's per-kind table: records whose one changed row is hidden under the
+          // running turn's closed fold, and those that still redraw the pane (drawnRows.ts).
+          const hiddenChange = acpmuxPerf.enabled && received !== undefined && changeHidden(received, next);
+          if (hiddenChange) acpmuxPerf.render("record:row-hidden");
           const at = drawn ? streamedOnly(drawn, next) : -1;
           if (drawn && at >= 0) {
             streamingRow.set(next.rows[at]!, drawn.rows[at]!);
+            liveCallLine.follow(received, next);
             return;
           }
           // Only a running command's output grew: the row that draws it reads it
@@ -1331,6 +1390,7 @@ export function paneSnapshotEffect({
               : undefined;
           if (call) {
             liveToolOutput.set(call.id, call.output, call.before);
+            liveCallLine.follow(received, next);
             return;
           }
           // Only a thought grew: the row that draws it reads it (liveThought.ts).
@@ -1340,34 +1400,28 @@ export function paneSnapshotEffect({
               : undefined;
           if (thought) {
             liveThought.set(thought.id, thought.before, thought.after);
+            liveCallLine.follow(received, next);
+            return;
+          }
+          // Only a quiet call under the running turn's closed fold started or ended: the live line
+          // reads it (liveCallLine.ts); the pane, the transcript and the composer keep what they drew.
+          const line =
+            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+              ? callOnly(received, next)
+              : undefined;
+          if (line) {
+            setLiveLine(line.line);
             return;
           }
           // Only the usage numbers moved (the context count, usage, time breakdown): the parts that
           // draw them read them (liveSummary.ts); the pane, transcript and header keep what they drew.
           if (drawn && !pendingPaneDraw.pending && usageOnly(drawn, next)) {
             liveSummary.set(drawn.summary!, next.summary!);
+            liveCallLine.follow(received, next);
             return;
           }
-          streamingRow.clear();
-          liveSummary.clear();
-          toolOutputEpoch.current = liveToolOutput.redraw();
-          thoughtEpoch.current = liveThought.redraw();
-          // A redraw of the whole pane is a transition a key can go before, unless it answers what
-          // the person just did or opens another chat (paneSnapshotLane.ts).
-          const drewBefore = drawnSnapshot.current;
-          drawnSnapshot.current = next;
-          drawPaneSnapshot(drewBefore, next, pendingPaneDraw, () =>
-            setSnapshot((previous) => {
-              if (
-                next.canHandoff &&
-                !next.handoff?.ready &&
-                next.sessionId === previous.sessionId &&
-                previous.handoff?.record
-              )
-                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
-              return next;
-            }),
-          );
+          if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
+          redrawPane(next, false);
         },
         () => {
           // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
@@ -1381,6 +1435,8 @@ export function paneSnapshotEffect({
           chrome.clientLost();
           directClient.current = undefined;
           delete window.cmuxAcpmuxActions;
+          // A send made until the next client connects waits for it (sendWhenReady.ts `pageClientLink`).
+          pageClientLink.lost();
           notifyDraftActionsChanged();
           // Until a client connects again, an open handed this page would wait for that connect.
           if (!mock) void postNative("pane.clientReady", { ready: false }).catch(() => undefined);
@@ -1393,23 +1449,16 @@ export function paneSnapshotEffect({
           // the pane right after every connect is not asked again every 250 ms. Jittered so the
           // tabs that lost one daemon together do not ask it again in lockstep.
           const lost = lostRetryDelay(retryDelay, Date.now() - connectedAt);
-          // Bounded: a daemon that keeps dropping the pane past SELF_RETRY_SAID_MS is not asked
-          // again on a timer; the line says so with Retry, and an event asks again (`stopped`).
+          // Never given up: a daemon that keeps dropping the pane past SELF_RETRY_SAID_MS is asked
+          // again at most every REFUSED_RETRY_MAX_MS, and an event asks now (`stopped`). Nothing is said.
           const step = lostRetryStep({
             troubleForMs: failingSince - troubleSince,
             upForMs: failingSince - connectedAt,
             waitMs: lost.wait,
           });
-          if (step.kind === "stop") {
-            stopped = true;
-            setHostGaveUp(true);
-            const failure = new Error("The agent service keeps closing this chat's connection.");
-            setHostError(failure.message);
-            setHostFailure(failure);
-            setHostErrorShown(true);
-            return;
-          }
-          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(lost.wait));
+          stopped = step.kind === "retry" && step.slow === true;
+          if (step.kind === "stop") return;
+          retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
           retryDelay = lost.next;
         },
         mockModule
@@ -1513,7 +1562,6 @@ export function paneSnapshotEffect({
       setHostErrorShown(false);
       stopped = false;
       answerSpent = false;
-      setHostGaveUp(false);
       failingSince = undefined;
       setLinkDown(false);
       setHostRestoring(undefined);
@@ -2388,6 +2436,9 @@ export function paneSnapshotEffect({
         // Composer drafts belong to the daemon session so every host can restore them.
         "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
         "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
+        "chat.readDraftAttachments": ({ sessionId }) => client.readDraftAttachments(String(sessionId)),
+        "chat.writeDraftAttachments": ({ sessionId, attachments }) =>
+          client.writeDraftAttachments(String(sessionId), Array.isArray(attachments) ? attachments : []),
         "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
         "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
         "file.search": ({ path, query, limit }) =>
@@ -2815,6 +2866,7 @@ export function paneSnapshotEffect({
           const subagentDrafts = wakeSubagentDrafts(subagentDraftChatRef.current);
           // The transcript's open folds, the newest WAKE_FOLD_LIMIT of each (conversation/wakeFolds.ts).
           const folds = wakeFolds(foldsNow.current.session, foldsNow.current);
+          const subagentPane = subagentPaneNow.current;
           return {
             ...composer,
             // An edit only this page holds (a queued message being edited, a send or draft not yet
@@ -2824,6 +2876,7 @@ export function paneSnapshotEffect({
             ...(attachments.length ? { attachments } : {}),
             ...(subagentDrafts ? { subagentDrafts } : {}),
             ...(folds ? { folds } : {}),
+            ...(subagentPane ? { subagentPane } : {}),
             ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
           };
         },
@@ -2920,6 +2973,8 @@ export function paneSnapshotEffect({
         return sendPrompt(params);
       };
       notifyDraftActionsChanged();
+      // The sends made while no client was connected go now, on this one (sendWhenReady.ts).
+      pageClientLink.back();
       // Sends made while the page connected go now, in their order (sendWhenReady.ts).
       acpmuxSendsReady();
       harnessSwitch.setHandlers({
@@ -3048,20 +3103,29 @@ export function paneSnapshotEffect({
         // A sleeping Cloud machine is never "Can't reach"; an SSH peer of the same name still is.
         const asleep = (peer: string | undefined) =>
           peer !== undefined && snapshotRef.current?.peerKinds?.[peer] !== "ssh" && cloudMachineAsleep(peer);
-        setHostErrorShown(hostErrorShows(error, Date.now() - failingSince, asleep));
+        // A reconnect's definite refusal (a stopped agent service) is not said: the starting ask that
+        // follows at once clears it (`startOnAsk`), and says it only if that one is refused too.
+        const restartOffered = offersAcpmuxRestart(error);
+        const startsNext = asksReconnect && reconnectRefusalStarts(error, restartOffered);
+        if (startsNext) {
+          startOnAsk = true;
+          retryDelay = RETRY_FIRST_MS;
+        }
+        setHostErrorShown(hostErrorShows(error, Date.now() - failingSince, asleep, asksReconnect));
         // A refused chat of another machine still names that machine on its chip (cx-k21v).
         setMachineName((current) => refusedMachine(error) ?? current);
         // Another binary's daemon on this app's socket: the card offers Restart acpmux.
-        setAcpmuxRestartOffered(offersAcpmuxRestart(error));
+        setAcpmuxRestartOffered(restartOffered);
         // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
         // in flight asks again itself when it ends.
         // A reply too large to send is the same at every ask: only the line's Retry asks again.
-        // Bounded (hostRetry.ts `hostRetryStep`): past SELF_RETRY_SAID_MS of trouble the timer
-        // stops; the line says why with Retry, and an event asks again (`stopped`).
-        const step = hostRetryStep({ error, troubleForMs: Date.now() - troubleSince, waitMs: retryDelay });
-        // A chat too large to open gets the same reply at every ask: only the line's Retry asks again.
-        stopped = step.kind === "stop" && !tooLarge;
-        setHostGaveUp(stopped);
+        // Never given up (hostRetry.ts `hostRetryStep`): past SELF_RETRY_SAID_MS of trouble the timer
+        // asks at most every REFUSED_RETRY_MAX_MS and an event asks now (`stopped`); a stopped service
+        // is asked to start at once. Only a chat too large to open waits for the line's Retry.
+        const step = startsNext
+          ? { kind: "retry" as const, waitMs: RETRY_FIRST_MS }
+          : hostRetryStep({ error, troubleForMs: Date.now() - troubleSince, waitMs: retryDelay });
+        stopped = step.kind === "retry" && step.slow === true;
         if (step.kind === "retry" && restartGate.mayAsk()) {
           retryTimer = window.setTimeout(() => void connectHost(), jitteredDelay(step.waitMs));
           retryDelay = nextRetryDelay(
@@ -3113,13 +3177,15 @@ export function paneSnapshotEffect({
     retryPending = true;
     setRetryQueued(true);
   };
-  // A stopped loop asks once more on an event, never on a tick: the window shown or focused again,
+  // A slow loop asks now on an event instead of at its next tick: the window shown or focused again,
   // the network back, or the host's word that its agent service changed.
   const wake = (event: Event) => {
-    if (cancelled || !restartGate.mayAsk()) return;
+    if (cancelled || !restartGate.mayAsk() || directClient.current) return;
     const hidden = document.visibilityState === "hidden";
     if (!hostWakeAsks({ event: event.type, stopped, connecting, hidden, answerSpent })) return;
     answerSpent = event.type === "acpmux-daemon-answered";
+    if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    retryTimer = undefined;
     void connectHost();
   };
   for (const name of HOST_WAKE_EVENTS.document) document.addEventListener(name, wake);
@@ -3127,6 +3193,7 @@ export function paneSnapshotEffect({
   void connectHost();
   return () => {
     cancelled = true;
+    unregisterLineFlush();
     unregisterViewBridge?.();
     for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
     for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
@@ -3143,6 +3210,8 @@ export function paneSnapshotEffect({
     setSavedPromptsTransport(undefined);
     setStashTransport(undefined);
     delete window.cmuxAcpmuxActions;
+    // No client comes for this pane now: a send that waited for one goes back to its composer.
+    pageClientLink.ended();
     notifyDraftActionsChanged();
   };
 }
