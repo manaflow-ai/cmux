@@ -9,17 +9,34 @@
 // Three looks share the parts (the gallery shows each): `card` (shipped) puts the progress line under
 // the button; `row` is one compact line whose detail turns into the progress; `steps` adds a muted
 // Step n of 3 caption (sign in, approve, save) above the line.
-import { useId, useState, type FormEvent } from "react";
+//
+// An app connection (Settings > Integrations > Connections: Linear, Sentry, ...) draws through the same
+// card with `provider` in place of `family` (its mark, name, line and button), a status `pill` in the
+// head (shared/connect/ConnectPill.tsx), `details` under the line and `extra` controls after the
+// button (Disconnect behind its confirm, a pasted-key form).
+import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { normalizeClaudeToken } from "../shared/claudeSetupToken";
 import { checkToken, connectRequest, refusalText, type ConnectPhase, type ConnectProgress } from "./claudeConnect";
-import { Check, Spinner } from "./conversation/icons";
+import { Check } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { useT } from "./i18n";
 import "./claudeConnect.css";
 
 export type ConnectCardLook = "card" | "row" | "steps";
 
 export type ConnectCardFamily = "claude" | "codex";
+
+/// An app connection's own parts, in place of a family's. `action` names the button in
+/// `data-connect-action` (connect, reconnect, enable); else `begin`.
+export type ConnectCardProvider = {
+  mark: ReactNode;
+  title: string;
+  line: ReactNode;
+  button: string;
+  action?: string;
+  disabled?: boolean;
+};
 
 const MARK = { claude: "claude", codex: "openai" } as const satisfies Record<ConnectCardFamily, string>;
 
@@ -47,8 +64,20 @@ export function ConnectCard({
   onPaste,
   onApiKey,
   onDismiss,
+  provider,
+  pill,
+  details,
+  extra,
 }: {
-  family: ConnectCardFamily;
+  /// The family the card signs in (Claude, Codex); an app connection passes `provider` instead.
+  family?: ConnectCardFamily;
+  provider?: ConnectCardProvider;
+  /// The connection's status pill, trailing the head.
+  pill?: ReactNode;
+  /// Lines under the line (whose it is, when its sign-in lapses, why it is unavailable).
+  details?: ReactNode;
+  /// The host's own controls after the button.
+  extra?: ReactNode;
   look?: ConnectCardLook;
   /// The host's sign-in: a phase while it runs, else the error it ended with (ConnectProgress).
   progress: ConnectProgress;
@@ -67,6 +96,7 @@ export function ConnectCard({
   onDismiss?(): void;
 }) {
   const t = useT();
+  const line = provider ? provider.line : family && t(LINE[family]);
   const [refusal, setRefusal] = useState<string | null>(null);
   const shownPhase = progress.phase && family === "codex" ? CODEX_PHASE[progress.phase] : progress.phase;
   const running = !done && shownPhase !== null;
@@ -84,8 +114,8 @@ export function ConnectCard({
     </output>
   ) : running && shownPhase ? (
     <output className="acpmux-connect-card__status" data-state="running" aria-busy="true">
-      <Spinner size={12} loading />
-      <span>{t(PHASE[family][shownPhase])}</span>
+      <WaitSpinner size={12} loading />
+      <span>{t(PHASE[family ?? "claude"][shownPhase])}</span>
     </output>
   ) : error ? (
     <output className="acpmux-connect-card__status" data-state="error" role="alert">
@@ -98,10 +128,11 @@ export function ConnectCard({
       className="ui-button ui-btn acpmux-connect-card__button"
       data-variant={look === "row" ? "subtle" : "solid"}
       data-size="sm"
-      data-connect-action={error ? "retry" : "begin"}
+      data-connect-action={error ? "retry" : (provider?.action ?? "begin")}
+      disabled={provider?.disabled}
       onClick={begin}
     >
-      {error ? t("picker.tryAgain") : t(BUTTON[family])}
+      {error ? t("picker.tryAgain") : provider ? provider.button : family && t(BUTTON[family])}
     </button>
   );
   const cancel = running && onCancel && (
@@ -137,28 +168,35 @@ export function ConnectCard({
   return (
     <section className="acpmux-connect-card" data-look={look} data-family={family} data-connect-card="">
       <div className="acpmux-connect-card__head">
-        <AgentMark agent={MARK[family]} size={look === "row" ? 14 : 16} reserve />
+        {provider
+          ? provider.mark
+          : family && <AgentMark agent={MARK[family]} size={look === "row" ? 14 : 16} reserve />}
         <span className="acpmux-connect-card__text">
-          {look === "steps" && (
+          {provider && <span className="acpmux-connect-card__title">{provider.title}</span>}
+          {look === "steps" && family && (
             <span className="acpmux-connect-card__step">
               {t("cloudSetup.steps.progress", { step: done ? 3 : shownPhase ? STEP[shownPhase] : 1, total: 3 })}
             </span>
           )}
           {look === "row" ? (
-            (status ?? <span className="acpmux-connect-card__line">{t(LINE[family])}</span>)
+            (status ?? <span className="acpmux-connect-card__line">{line}</span>)
           ) : (
-            <span className="acpmux-connect-card__line">{t(LINE[family])}</span>
+            <span className="acpmux-connect-card__line">{line}</span>
           )}
         </span>
+        {pill}
         {look === "row" && (button || cancel)}
+        {look === "row" && extra}
       </div>
+      {details && <div className="acpmux-connect-card__details">{details}</div>}
       {look !== "row" && (
         <>
-          {(button || cancel || dismiss) && (
+          {(button || cancel || dismiss || extra) && (
             <div className="acpmux-connect-card__actions">
               {button}
               {cancel}
               {dismiss}
+              {extra}
             </div>
           )}
           {status}

@@ -1,0 +1,69 @@
+name: cmux login
+description: >-
+  Sign this workflow in to cmux with no stored secret. Trades the run's GitHub OIDC token (audience "cmux") for a
+  one-hour cmux API token and exports it as CMUX_TOKEN, for curl, the cmux CLI or any HTTP client. A team admin first
+  allows the repository in cmux Settings > Developer, or with `cmux token github allow OWNER/REPO`. The job needs
+  `permissions: id-token: write`. RFD 0183.
+branding:
+  icon: terminal
+  color: gray-dark
+inputs:
+  team:
+    description: "The cmux team (team_...) when more than one team trusts this repository; default: the one that does."
+    required: false
+    default: ""
+  api:
+    description: The cmux API origin.
+    required: false
+    default: https://cmux-platform-production.debussy.workers.dev
+outputs:
+  token:
+    description: The one-hour cmux API token (also exported as CMUX_TOKEN; masked in logs).
+    value: ${{ steps.login.outputs.token }}
+  team:
+    description: The team the token acts in.
+    value: ${{ steps.login.outputs.team }}
+  expires-at:
+    description: When the token stops working (ISO 8601).
+    value: ${{ steps.login.outputs.expires_at }}
+runs:
+  using: composite
+  steps:
+    - id: login
+      shell: bash
+      env:
+        CMUX_LOGIN_TEAM: ${{ inputs.team }}
+        CMUX_LOGIN_API: ${{ inputs.api }}
+      run: |
+        set -euo pipefail
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+          echo "::error title=cmux login::This job cannot ask GitHub for an OIDC token. Add 'permissions: id-token: write' to the job."
+          exit 1
+        fi
+        oidc=$(curl -sSf -m 30 -H "authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=cmux" | jq -r '.value // empty')
+        [ -n "$oidc" ] || { echo "::error title=cmux login::GitHub gave no OIDC token"; exit 1; }
+        echo "::add-mask::$oidc"
+        body=$(jq -nc --arg t "$oidc" --arg team "$CMUX_LOGIN_TEAM" '{idToken: $t} + (if $team == "" then {} else {team: $team} end)')
+        answer=$(curl -sS -m 60 -X POST -H 'content-type: application/json' --data-binary "$body" \
+          "${CMUX_LOGIN_API%/}/v1/tokens/github/exchange")
+        token=$(printf '%s' "$answer" | jq -r '.token // empty' 2>/dev/null || true)
+        if [ -z "$token" ]; then
+          message=$(printf '%s' "$answer" | jq -r '.error.message // empty' 2>/dev/null || true)
+          echo "::error title=cmux login::${message:-cmux did not answer with a token}"
+          exit 1
+        fi
+        echo "::add-mask::$token"
+        team=$(printf '%s' "$answer" | jq -r .team)
+        expires=$(printf '%s' "$answer" | jq -r .expiresAt)
+        {
+          echo "token=$token"
+          echo "team=$team"
+          echo "expires_at=$expires"
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo "CMUX_TOKEN=$token"
+          echo "CMUX_CLOUD_TEAM=$team"
+          echo "CMUX_PLATFORM_ORIGIN=${CMUX_LOGIN_API%/}"
+        } >> "$GITHUB_ENV"
+        echo "Signed in to cmux team $team until $expires ($(printf '%s' "$answer" | jq -r '.scopes | join(", ")'))."

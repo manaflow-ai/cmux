@@ -453,7 +453,7 @@ extension AgentTabStore {
             let reconnect = tabs.machineLink.reconnecting(machine: daemon.machineID)
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
-            host.linksHost = AgentTabStore.registryHost(of: daemon)
+            host.linksHost = AgentTabStore.registryHost(of: daemon); host.chatNoted = AgentTabRemoteHost.notesChats(of: machineID) // names from this daemon only (cmux#55668)
             host.servesSide = daemon.supports(DaemonCapability.agentSessionSide.rawValue)
             host.servesMachineLogin = daemon.supports(DaemonCapability.agentSessionLoginMachine.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID

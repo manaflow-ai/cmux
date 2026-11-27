@@ -500,7 +500,7 @@ fn a_moved_chats_folder_is_projected_and_projected_again_once_frozen() {
 }
 
 #[test]
-#[ignore = "a bench: CMUX_PROJECT_BENCH_FILES=200000 cargo test --test link_project -- --ignored --nocapture"]
+#[ignore = "a bench: CMUX_PROJECT_BENCH_FILES=200000 cargo test --test it -- link_project:: --ignored --nocapture"]
 fn a_bench_of_the_first_turn() {
     if !fuse_here() {
         eprintln!("skipping: no FUSE here");

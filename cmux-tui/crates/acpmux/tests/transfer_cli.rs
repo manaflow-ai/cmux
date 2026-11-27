@@ -242,6 +242,8 @@ mod composer_attachments;
 mod first_turn_fence;
 #[path = "transfer_cli/move_matrix.rs"]
 mod move_matrix;
+#[path = "transfer_cli/place_set.rs"]
+mod place_set;
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
 #[path = "transfer_cli/session_move_as.rs"]
@@ -259,5 +261,7 @@ mod session_move_live;
 mod session_move_reachable;
 #[path = "transfer_cli/session_move_target_ask.rs"]
 mod session_move_target_ask;
+#[path = "transfer_cli/synced_pins_drafts.rs"]
+mod synced_pins_drafts;
 #[path = "transfer_cli/view_latency.rs"]
 mod view_latency;

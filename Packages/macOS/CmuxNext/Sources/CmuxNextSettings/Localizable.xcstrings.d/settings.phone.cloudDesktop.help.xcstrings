@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.phone.cloudDesktop.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View only, streamed by this Mac while the page is open."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "للعرض فقط، يبثّها هذا الـ Mac أثناء فتح الصفحة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Samo za pregled; ovaj Mac ga prenosi dok je stranica otvorena."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kun til visning, streamet af denne Mac, mens siden er åben."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nur zum Ansehen, von diesem Mac übertragen, solange die Seite offen ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solo para ver, transmitida por este Mac mientras la página está abierta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lecture seule, diffusé par ce Mac tant que la page est ouverte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solo visualizzazione, trasmessa da questo Mac mentre la pagina è aperta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "表示のみ。ページを開いている間、このMacが配信します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មើលតែប៉ុណ្ណោះ ផ្សាយដោយ Mac នេះ ពេលទំព័របើក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "보기 전용이며, 페이지가 열려 있는 동안 이 Mac이 스트리밍합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bare visning, strømmet av denne Macen mens siden er åpen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tylko do podglądu, przesyłany przez ten Mac, gdy strona jest otwarta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apenas visualização, transmitida por este Mac enquanto a página está aberta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Только просмотр; этот Mac транслирует экран, пока страница открыта."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ดูอย่างเดียว Mac เครื่องนี้สตรีมขณะที่หน้าเปิดอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yalnızca görüntüleme; sayfa açıkken bu Mac tarafından aktarılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Лише для перегляду; цей Mac транслює екран, поки сторінка відкрита."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chỉ để xem, do máy Mac này phát trực tiếp khi trang đang mở."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "仅供查看，页面打开时由这台 Mac 串流。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "僅供檢視，頁面開啟時由這台 Mac 串流。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

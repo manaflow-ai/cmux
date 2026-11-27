@@ -178,6 +178,14 @@ except FileNotFoundError:
 mod.fetch = lambda url: feed(TWO).encode()
 expect(mod.main(["newest", "--feed-url", "x", "--build", "300"]) == 0 and mod.main(["newest", "--feed-url", "x", "--build", "200"]) == 1,
        "newest passes only for the feed's newest build")
+# published-build's read-back (run 45607031207: a refused publication said it published; the feed stayed put).
+expect(mod.main(["published", "--feed-url", "x", "--build", "300"]) == 0, "published passes for the feed's newest build")
+expect(mod.main(["published", "--feed-url", "x", "--build", "200"]) == 0,
+       "published passes for a build on the feed under a newer one that already went out")
+expect(mod.main(["published", "--feed-url", "x", "--build", "400"]) == 1,
+       "published fails a build the feed does not list (the feed did not move)")
+expect(mod.published(feed(TWO).encode(), 250)[0] == 1, "published fails a build missing between the feed's builds")
+expect(mod.published(b"<rss><channel></channel></rss>", 300)[0] == 1, "published fails an empty feed")
 merged_file = tmp / "merged.xml"
 merged_file.write_text(feed(TWO), encoding="utf-8")
 expect(mod.main(["newest", "--feed-file", str(merged_file), "--build", "300"]) == 0

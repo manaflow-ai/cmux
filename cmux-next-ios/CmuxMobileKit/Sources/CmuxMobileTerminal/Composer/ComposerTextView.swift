@@ -6,8 +6,8 @@ import UIKit
 /// The composer's text field: a UITextView, so the screen controls what a
 /// SwiftUI TextField does not expose: the dark keyboard (iOS 27 no longer
 /// derives it from the field's trait), terminal-safe text traits, and growth
-/// upward from 1 to 6 lines before it scrolls inside (the agent chat's; the
-/// height rule is `ComposerFieldHeight`, shared with the agent chat composer).
+/// upward from 1 line to the cap before it scrolls inside (`ComposerHeightCap`;
+/// the height rule is `ComposerFieldHeight`, shared with the agent chat composer).
 ///
 /// Return starts a new line from either keyboard and only the send button
 /// sends (classic cmux iOS, `ComposerReturnStyle.message`); the key row's ⏎
@@ -35,14 +35,16 @@ struct ComposerTextView: UIViewRepresentable {
     /// on, the keyboard corrects, spell-checks and predicts as in the chat
     /// composer; off (the default), a shell line is typed as is.
     var autocorrect = false
-    /// Points of the card over the field taken by the attachment strip: the field gives them up
-    /// (`ComposerReturnTextView.shareCard`), so attaching never makes the card taller than its tallest.
-    var reservedTop: CGFloat = 0
+    /// The attachment strip's height above the field inside the card (0:
+    /// none): the field gives it that much of the cap.
+    var stripReserve: CGFloat = 0
+    /// Where the screen reads the field's strip overlap (`ComposerFieldRef`).
+    var fieldRef: ComposerFieldRef?
 
-    /// Six lines, the agent chat's: 14 (classic cmux iOS) covered most of the terminal over the
-    /// keyboard (Leo, 2026-11-23: "composer growth in terminal view on ios is most certainly too
-    /// high").
-    static let maxLines = ComposerFieldHeight.defaultMaxLines
+    /// Six lines, then the draft scrolls inside, as the chat composer and
+    /// ChatGPT's do (Leo, 2026-11-23: "composer growth in terminal view on ios
+    /// is most certainly too high"; it had classic cmux iOS's 14).
+    static var maxLines: Int { ComposerHeightCap.terminalLines }
     /// Read so a live text size change updates the view (Codex QA F10): the
     /// insets follow the new line height and SwiftUI measures it again.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -95,7 +97,8 @@ struct ComposerTextView: UIViewRepresentable {
             view.setNeedsLayout()
         }
         if view.differs(from: text) { view.takeDraft(text) }
-        if view.shareCard(reserved: reservedTop, baseMaxLines: Self.maxLines) { view.setNeedsLayout() }
+        fieldRef?.view = view
+        view.stripReserve = stripReserve
         view.placeholder = placeholder
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()

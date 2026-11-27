@@ -72,7 +72,7 @@
   white-space: nowrap;
 }
 .cmux-app-scene-row-title[data-unread] {
-  font-weight: 600;
+  font-weight: var(--weight-emphasis, 600);
 }
 .cmux-app-scene-row-subtitle {
   color: var(--agent-muted);
@@ -102,7 +102,7 @@
   opacity: 0.5;
 }
 .cmux-app-scene-node:is(button, [role="button"]):focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--agent-text);
   outline-offset: -1.5px;
 }
 .cmux-app-scene-button {
@@ -316,7 +316,7 @@
   cursor: default;
 }
 .cmux-app-scene-failure-action:focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--agent-text);
   outline-offset: 1px;
 }
 .cmux-app-scene-mount {

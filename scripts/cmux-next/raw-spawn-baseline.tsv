@@ -31,7 +31,6 @@ cmux-tui/crates/cmux-tui/src/cli/chief/launch.rs	4	PL-daemon (cmux-tui-core and 
 cmux-tui/crates/cmux-tui/src/cli/chief/relocate.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/cli/chief/usage.rs	1	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/cli/code_mode.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)
-cmux-tui/crates/cmux-tui/src/cli/coderouter.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/cli/codex_app_server.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/cli/dev.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)
 cmux-tui/crates/cmux-tui/src/cli/mcp/upstream.rs	2	PL-daemon (cmux-tui-core and cmux-tui migration)

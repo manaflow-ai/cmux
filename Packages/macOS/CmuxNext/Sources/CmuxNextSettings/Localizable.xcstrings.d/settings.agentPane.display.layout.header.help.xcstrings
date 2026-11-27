@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.layout.header.help" : {
+      "comment" : "Settings > Agent Chat > Chat Layout > Chat Header: help; Full and Quiet are this row's choice names",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الكامل يعرض أدوات الترويسة دائمًا؛ الهادئ يعرضها فقط عندما يكون المؤشر فوق الترويسة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Puno uvijek prikazuje alate zaglavlja; Tiho ih prikazuje samo dok je pokazivač iznad zaglavlja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fuld viser altid værktøjerne i chathovedet; Stille viser dem kun, mens markøren er over hovedet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vollständig zeigt die Werkzeuge der Kopfzeile immer; Ruhig zeigt sie nur, solange der Zeiger über der Kopfzeile ist."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Completo muestra siempre las herramientas del encabezado; Discreto solo las muestra mientras el puntero está sobre el encabezado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Complet affiche toujours les outils de l'en-tête ; Discret ne les affiche que lorsque le pointeur survole l'en-tête."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Completa mostra sempre gli strumenti dell'intestazione; Discreta li mostra solo quando il puntatore è sull'intestazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「フル」はヘッダーのツールを常に表示し、「控えめ」はポインタがヘッダー上にあるときだけ表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេញ បង្ហាញឧបករណ៍ក្បាលជានិច្ច ស្ងាត់ បង្ហាញវាតែពេលព្រួញនៅលើក្បាល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "전체는 헤더 도구를 항상 표시하고, 조용히는 포인터가 헤더 위에 있을 때만 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Full viser alltid verktøyene i topplinjen; Stille viser dem bare mens pekeren er over topplinjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pełny zawsze pokazuje narzędzia nagłówka; Cichy pokazuje je tylko, gdy wskaźnik jest nad nagłówkiem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Completo mostra sempre as ferramentas do cabeçalho; Discreto as mostra só enquanto o ponteiro está sobre o cabeçalho."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Полный» всегда показывает инструменты заголовка; «Тихий» показывает их только при наведении указателя на заголовок."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แบบเต็มแสดงเครื่องมือส่วนหัวตลอดเวลา แบบเงียบแสดงเฉพาะเมื่อตัวชี้อยู่เหนือส่วนหัว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tam, başlık araçlarını her zaman gösterir; Sessiz, onları yalnızca işaretçi başlığın üzerindeyken gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Повний» завжди показує інструменти заголовка; «Тихий» показує їх лише коли вказівник над заголовком."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đầy đủ luôn hiện các công cụ tiêu đề; Yên lặng chỉ hiện chúng khi con trỏ ở trên tiêu đề."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“完整”始终显示标题栏工具；“安静”仅在指针位于标题栏上方时显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「完整」一律顯示標題列工具；「安靜」僅在指標位於標題列上方時顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

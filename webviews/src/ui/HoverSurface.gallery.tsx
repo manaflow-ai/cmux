@@ -10,6 +10,7 @@
 // l10n-allow-file: gallery fixture labels, not shipped UI.
 import { useLayoutEffect, useRef } from "react";
 import { componentEntry } from "../gallery/format";
+import { KeyHint } from "./KeyHint";
 import { attachSeeThroughBlur } from "./glass/seeThroughBlur";
 import { hoverCardGlass } from "./glass/hoverCardGlass";
 import { HOVER_LOOK_ATTRIBUTE, HOVER_LOOK_ONE } from "./hoverLook.experiment";
@@ -98,7 +99,7 @@ function HoverSurfaceGallery({ look = "one" }: Props) {
         role="tooltip"
         data-gallery-hover=""
       >
-        <span className="ui-tooltip-hint">⌃⌘M</span>
+        <KeyHint keys="⌃⌘M" className="ui-tooltip-hint" />
         <span className="ui-tooltip-text">Opus 5.5 · 65% of context used</span>
       </div>
       <div

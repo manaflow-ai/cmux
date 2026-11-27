@@ -44,7 +44,7 @@ new_pid() {
 }
 
 started() { pid="$(new_pid "$1")"; }
-gone() { ! kill -0 "$pid" 2>/dev/null; }
+gone() { ! ps -p "$pid" >/dev/null 2>&1; }
 
 # Activate cmux
 osascript -e 'tell application "cmux" to activate'

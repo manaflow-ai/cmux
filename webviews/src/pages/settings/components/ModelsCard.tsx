@@ -29,12 +29,12 @@ import { planName } from "../harnesses";
 import { Icon } from "../icons";
 import {
   SETTINGS_SENTENCES,
-  type ClaudeTokenPhase,
-  type ClaudeTokenState,
   type ModelConnection,
   type ModelProvider,
   type ModelsRun,
   type ModelsState,
+  type ClaudeTokenPhase,
+  type ClaudeTokenState,
 } from "../ops";
 import { sectionHref } from "../router";
 import { t } from "../strings";
@@ -200,7 +200,7 @@ export function ChatGPTStatus({ chatgpt, busy, run }: { chatgpt: ModelsState["ch
   if (chatgpt.attempt) {
     return (
       <output className="models-chatgpt" data-chatgpt="pending">
-        <span className="row-help">{t("settingsWindow.models.chatgpt.waiting")}</span>
+        <span className="row-help">{t("connect.codex.signingIn")}</span>
         <Button
           type="button"
           className="button"
@@ -219,6 +219,7 @@ export function ChatGPTStatus({ chatgpt, busy, run }: { chatgpt: ModelsState["ch
         <span className="row-error" role="alert">
           {chatgptErrorText(chatgpt.error)}
         </span>
+        {/* retry-prompt-ok: connecting ChatGPT again opens its sign-in, which the person completes. */}
         <Button
           type="button"
           className="button"

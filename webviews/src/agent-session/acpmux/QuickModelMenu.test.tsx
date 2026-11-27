@@ -1043,6 +1043,38 @@ test("familyTabs: one tab per model family, its routes in rail order", async () 
   ]);
 });
 
+test("familyTabs: Antigravity is a route of the Gemini tab, drawn with the Gemini mark", async () => {
+  const { familyTabs, leadRoute } = await import("./quickModelMenuModel");
+  const gemini: QuickFamily = {
+    id: "gemini",
+    name: "Gemini CLI",
+    mark: "gemini",
+    models: [{ id: "gemini-3.8-flash", name: "3.8 Flash", family: "gemini" }],
+    more: [],
+    unavailable: true,
+  };
+  const antigravity: QuickFamily = {
+    id: "antigravity",
+    name: "Antigravity",
+    mark: "antigravity",
+    models: [{ id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", family: "antigravity" }],
+    more: [],
+  };
+  const tabs = familyTabs([gemini, antigravity]);
+  expect(tabs.map((tab) => [tab.key, tab.name, tab.mark, tab.routes.map((route) => route.id)])).toEqual([
+    ["gemini", "Gemini", "gemini", ["gemini", "antigravity"]],
+  ]);
+  // The tab opens on the route that can start: Gemini CLI failed its probe (not signed in), even
+  // when it is the new chat's harness.
+  expect(leadRoute(tabs[0]!, "gemini").id).toBe("antigravity");
+  expect(leadRoute(tabs[0]!, undefined).id).toBe("antigravity");
+  // A Gemini CLI that can start keeps its place as the chat's own route.
+  const ready = familyTabs([{ ...gemini, unavailable: undefined }, antigravity]);
+  expect(leadRoute(ready[0]!, "gemini").id).toBe("gemini");
+  // One product's routes keep their own name and mark.
+  expect(familyTabs(familyRail)[0]?.mark).toBeUndefined();
+});
+
 test("searchGroups: a family's routes share one heading and list a model once", async () => {
   const { searchGroups } = await import("./quickModelMenuModel");
   const found: QuickModel[] = [

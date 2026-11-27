@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 import type * as T from "./types.js";
@@ -1458,6 +1458,7 @@ export type HomeInboxResult = {
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
+  "restore_progress"?: boolean;
   "revisions"?: boolean;
 }
 
@@ -2497,6 +2498,7 @@ export type SendKeyResult = T.EmptyResult;
 export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
   "include"?: (Array<string>) | null;
+  "restore_progress"?: boolean;
 }
 
 /** Protocol v12; authority: frontend. */
@@ -2770,6 +2772,7 @@ export interface SetWorkspaceMetadataRequest extends CmuxRequestBase {
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "icon"?: (string) | null;
+  "keep_awake"?: (boolean) | null;
   "key"?: (string) | null;
   "marked_unread"?: (boolean) | null;
   "mutation_id"?: (string) | null;

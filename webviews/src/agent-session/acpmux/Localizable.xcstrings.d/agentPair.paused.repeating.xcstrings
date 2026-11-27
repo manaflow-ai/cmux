@@ -1,0 +1,438 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "agentPair.paused.repeating" : {
+      "comment" : "Agent pane: transcript note where acpmux paused messages between this chat's agent and another agent because one kept sending a near-identical message; {peer} is the other chat's name, {n} how many in a row",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "variations" : {
+            "plural" : {
+              "zero" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "تم إيقاف الرسائل مع {peer} مؤقتًا: أُرسلت الرسالة نفسها {n} مرة متتالية دون تقدم"
+                }
+              },
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "تم إيقاف الرسائل مع {peer} مؤقتًا: أُرسلت الرسالة نفسها {n} مرة متتالية دون تقدم"
+                }
+              },
+              "two" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "تم إيقاف الرسائل مع {peer} مؤقتًا: أُرسلت الرسالة نفسها {n} مرة متتالية دون تقدم"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "تم إيقاف الرسائل مع {peer} مؤقتًا: أُرسلت الرسالة نفسها {n} مرات متتالية دون تقدم"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "تم إيقاف الرسائل مع {peer} مؤقتًا: أُرسلت الرسالة نفسها {n} مرة متتالية دون تقدم"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "تم إيقاف الرسائل مع {peer} مؤقتًا: أُرسلت الرسالة نفسها {n} مرة متتالية دون تقدم"
+                }
+              }
+            }
+          }
+        },
+        "bs" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Poruke s {peer} pauzirane: ista poruka je poslana {n} put zaredom bez napretka"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Poruke s {peer} pauzirane: ista poruka je poslana {n} puta zaredom bez napretka"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Poruke s {peer} pauzirane: ista poruka je poslana {n} puta zaredom bez napretka"
+                }
+              }
+            }
+          }
+        },
+        "da" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Beskeder med {peer} er sat på pause: den samme besked blev sendt {n} gang i træk uden fremskridt"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Beskeder med {peer} er sat på pause: den samme besked blev sendt {n} gange i træk uden fremskridt"
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Nachrichten mit {peer} pausiert: Dieselbe Nachricht wurde {n}-mal hintereinander ohne Fortschritt gesendet"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Nachrichten mit {peer} pausiert: Dieselbe Nachricht wurde {n}-mal hintereinander ohne Fortschritt gesendet"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Paused messages with {peer}: the same message was sent {n} time in a row without progress"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Paused messages with {peer}: the same message was sent {n} times in a row without progress"
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Mensajes con {peer} en pausa: se envió el mismo mensaje {n} vez seguida sin avanzar"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Mensajes con {peer} en pausa: se envió el mismo mensaje {n} veces seguidas sin avanzar"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Mensajes con {peer} en pausa: se envió el mismo mensaje {n} veces seguidas sin avanzar"
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Messages avec {peer} en pause : le même message a été envoyé {n} fois de suite sans progrès"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Messages avec {peer} en pause : le même message a été envoyé {n} fois de suite sans progrès"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Messages avec {peer} en pause : le même message a été envoyé {n} fois de suite sans progrès"
+                }
+              }
+            }
+          }
+        },
+        "it" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Messaggi con {peer} in pausa: lo stesso messaggio è stato inviato {n} volta di fila senza progressi"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Messaggi con {peer} in pausa: lo stesso messaggio è stato inviato {n} volte di fila senza progressi"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Messaggi con {peer} in pausa: lo stesso messaggio è stato inviato {n} volte di fila senza progressi"
+                }
+              }
+            }
+          }
+        },
+        "ja" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "{peer} とのメッセージを一時停止しました: 同じメッセージが進展のないまま {n} 回続けて送信されました"
+                }
+              }
+            }
+          }
+        },
+        "km" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "បានផ្អាកសារជាមួយ {peer}៖ សារដដែលត្រូវបានផ្ញើ {n} ដងជាប់ៗគ្នាដោយគ្មានវឌ្ឍនភាព"
+                }
+              }
+            }
+          }
+        },
+        "ko" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "{peer}와(과)의 메시지를 일시 중지함: 같은 메시지가 진전 없이 {n}번 연속으로 전송되었습니다"
+                }
+              }
+            }
+          }
+        },
+        "nb" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Meldinger med {peer} er satt på pause: den samme meldingen ble sendt {n} gang på rad uten fremgang"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Meldinger med {peer} er satt på pause: den samme meldingen ble sendt {n} ganger på rad uten fremgang"
+                }
+              }
+            }
+          }
+        },
+        "pl" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Wstrzymano wiadomości z {peer}: ta sama wiadomość została wysłana {n} raz z rzędu bez postępu"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Wstrzymano wiadomości z {peer}: ta sama wiadomość została wysłana {n} razy z rzędu bez postępu"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Wstrzymano wiadomości z {peer}: ta sama wiadomość została wysłana {n} razy z rzędu bez postępu"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Wstrzymano wiadomości z {peer}: ta sama wiadomość została wysłana {n} razy z rzędu bez postępu"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Mensagens com {peer} pausadas: a mesma mensagem foi enviada {n} vez seguida sem progresso"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Mensagens com {peer} pausadas: a mesma mensagem foi enviada {n} vezes seguidas sem progresso"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Mensagens com {peer} pausadas: a mesma mensagem foi enviada {n} vezes seguidas sem progresso"
+                }
+              }
+            }
+          }
+        },
+        "ru" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Сообщения с {peer} приостановлены: одно и то же сообщение отправлено {n} раз подряд без прогресса"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Сообщения с {peer} приостановлены: одно и то же сообщение отправлено {n} раза подряд без прогресса"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Сообщения с {peer} приостановлены: одно и то же сообщение отправлено {n} раз подряд без прогресса"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Сообщения с {peer} приостановлены: одно и то же сообщение отправлено {n} раза подряд без прогресса"
+                }
+              }
+            }
+          }
+        },
+        "th" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "หยุดข้อความกับ {peer} ชั่วคราวแล้ว: ส่งข้อความเดิมติดกัน {n} ครั้งโดยไม่มีความคืบหน้า"
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "{peer} ile mesajlar duraklatıldı: aynı mesaj ilerleme olmadan art arda {n} kez gönderildi"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "{peer} ile mesajlar duraklatıldı: aynı mesaj ilerleme olmadan art arda {n} kez gönderildi"
+                }
+              }
+            }
+          }
+        },
+        "uk" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Повідомлення з {peer} призупинено: те саме повідомлення надіслано {n} раз поспіль без прогресу"
+                }
+              },
+              "few" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Повідомлення з {peer} призупинено: те саме повідомлення надіслано {n} рази поспіль без прогресу"
+                }
+              },
+              "many" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Повідомлення з {peer} призупинено: те саме повідомлення надіслано {n} разів поспіль без прогресу"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Повідомлення з {peer} призупинено: те саме повідомлення надіслано {n} разу поспіль без прогресу"
+                }
+              }
+            }
+          }
+        },
+        "vi" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "Đã tạm dừng tin nhắn với {peer}: cùng một tin nhắn đã được gửi {n} lần liên tiếp mà không có tiến triển"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "已暂停与 {peer} 的消息：同一条消息连续发送了 {n} 次，没有进展"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant" : {
+          "variations" : {
+            "plural" : {
+              "other" : {
+                "stringUnit" : {
+                  "state" : "needs_review",
+                  "value" : "已暫停與 {peer} 的訊息：同一則訊息連續傳送了 {n} 次，沒有進展"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

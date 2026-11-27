@@ -514,7 +514,7 @@ fn an_idle_mount_unmounts_itself_but_never_while_a_file_is_open() {
             .unwrap(),
     );
     let options = Options { idle_exit: Some(Duration::from_secs(2)), ..Options::default() };
-    let (up, is_up) = std::sync::mpsc::channel();
+    let (up, is_up) = channel();
     let path = at.path().to_owned();
     let server = std::thread::spawn(move || {
         serve_with(overlay, &path, options, move || up.send(()).unwrap())

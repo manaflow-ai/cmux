@@ -95,7 +95,7 @@ AFTER_RUN_S = 60.0
 KEEP_SESSIONS = ("update", "sparkle-update")
 # What a person who keeps automatic updates has in their own file (downloadAutomatically is user-only over the
 # socket): post-update-hitches.py's settings.
-SPARKLE_SETTINGS = {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "downloadAutomatically": True}}
+SPARKLE_SETTINGS = {"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True, "automatic": "download"}}
 STAGE_S = 900.0
 PREWARM_S = 120.0
 INSTALL_S = 300.0

@@ -61,8 +61,6 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
-  type LooksRun,
-  type Standup,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -95,8 +93,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -106,9 +102,13 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type HubRun,
+  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
+  type LooksRun,
+  type Standup,
   type ArchivedRun,
   type ArchivedState,
   type ConnectionsRun,
@@ -120,6 +120,9 @@ import {
   type Checklist,
   type ChecklistFact,
   type PreviousBuild,
+  type CreatedToken,
+  type DeveloperTokensRun,
+  type DeveloperTokensState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -252,6 +255,8 @@ export class SettingsStore {
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribers: Array<() => void> = [];
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
+  /** Settings > Extensions cards waiting for `cmux.settings.extensions.changed`. */
+  private readonly extensionListeners = new Set<() => void>();
   private disposed = false;
   private openingThemeFile = false;
   private themeColorsRequested = false;
@@ -319,6 +324,10 @@ export class SettingsStore {
       this.listen("cmux.settings.models.changed", (models) =>
         this.queryClient.setQueryData(settingsKeys.models, models),
       ),
+      // An extension was installed, removed or saved (hot reload): Settings > Extensions reads again.
+      this.listen("cmux.settings.extensions.changed", () => {
+        for (const listener of this.extensionListeners) listener();
+      }),
       // A key request arrived or ended: Settings > Keys reads its list again (the event has no values).
       this.listen("cmux.settings.keys.changed", () =>
         this.queryClient.invalidateQueries({ queryKey: [...settingsKeys.all, "keys"] }),
@@ -823,6 +832,11 @@ export class SettingsStore {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
 
+  /** The Slack row owns its TS state; the host forwards authenticated Cloud requests only. */
+  readonly slackCalls = {
+    call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
+  };
+
   /** Settings > Updates' channels, with the way back to `ring` (the Channel row's value); null
    * when the host has no updater. */
   async channelsState(ring?: string): Promise<ChannelsState | null> {
@@ -913,6 +927,42 @@ export class SettingsStore {
   async runHub(run: HubRun): Promise<HubState | null> {
     await this.request("cmux.settings.hub.run", run);
     return this.hubState();
+  }
+
+  /** Settings > Developer (API tokens); null when the host has none. */
+  async tokensState(): Promise<DeveloperTokensState | null> {
+    const reply = await this.request("cmux.settings.tokens.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Developer gesture, then the card as it is after it. `created` is the new token, answered once. */
+  async runTokens(
+    run: DeveloperTokensRun,
+  ): Promise<{ ok: boolean; state: DeveloperTokensState | null; created: CreatedToken | null }> {
+    const reply = await this.request("cmux.settings.tokens.run", run);
+    const created = reply.ok ? (reply.value?.created ?? null) : null;
+    const ok = reply.ok && reply.value?.ok !== false;
+    const state = await this.tokensState();
+    if (reply.ok) return { ok, state, created };
+    // Validation and bridge refusals never reach the provider's lastError. Preserve them across
+    // the read so the card can explain the failed gesture, even if the host is no longer there.
+    return {
+      ok: false,
+      created: null,
+      state: {
+        ...(state ?? {
+          loading: false,
+          problem: "unavailable",
+          listError: null,
+          platform: null,
+          team: null,
+          tokens: [],
+          canManageTeamTokens: false,
+          githubRules: null,
+        }),
+        error: { action: run.action, code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) },
+      },
+    };
   }
 
   /** Settings > Automations (Cloud automations); null when the host has none. */
@@ -1054,6 +1104,13 @@ export class SettingsStore {
     if (!reply.ok)
       return { apps: [], error: userMessage(reply.error, SETTINGS_SENTENCES), unavailable: isUnsupported(reply.error) };
     return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
+  }
+
+  /** Runs `listener` each time the installed extensions change: an install, a removal, a hide, or a
+   * save of an extension's manifest that the daemon reloaded. */
+  onExtensionsChanged(listener: () => void): () => void {
+    this.extensionListeners.add(listener);
+    return () => this.extensionListeners.delete(listener);
   }
 
   /** Changes settings of one extension (`null` resets a key): the values it now runs with, or the
@@ -1283,6 +1340,7 @@ export class SettingsStore {
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     this.listeners.clear();
     this.commandListeners.clear();
+    this.extensionListeners.clear();
     this.queryClient.clear();
   }
 
@@ -1531,10 +1589,13 @@ export class SettingsStore {
   /** The host holds one live preview at a time, whatever its key: its latest owner. */
   private previewOwner: object | null = null;
 
-  preview(key: string, value: unknown, owner?: object): void {
+  /** `also` previews more keys with `key` as one preview (the whole-app theme preview). */
+  preview(key: string, value: unknown, owner?: object, also?: readonly { key: string; value: unknown }[]): void {
     this.previewOwner = owner ?? {};
     this.setLive({ key, value });
-    if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
+    if (this.ui.connected) {
+      void this.request("cmux.settings.preview", also?.length ? { key, value, also } : { key, value });
+    }
   }
 
   /** With an `owner`, ends the preview only while that owner's is still the one showing. */

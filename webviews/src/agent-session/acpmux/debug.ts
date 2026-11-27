@@ -14,7 +14,7 @@ import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
 import { wantAllSessions } from "./sessionPages";
 import { followTrace } from "./followTrace";
-import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import { composerChips, composerFrames, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
@@ -486,6 +486,8 @@ export function createAcpmuxDebug(
             subagentCorner: document.querySelector(".cv-subagent-corner") !== null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
+            // Where the composer's controls are drawn: a mode or place switch moves none of them.
+            composerFrames: composerFrames(),
             // What the access chip decided its face from on its last render (chipProbe.ts).
             composerInputs: chipProbe.last,
             // What decides whether the run row is offered now.

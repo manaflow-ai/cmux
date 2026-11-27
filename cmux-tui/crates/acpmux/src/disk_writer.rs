@@ -59,6 +59,8 @@ pub(crate) static WRITES: AtomicU64 = AtomicU64::new(0);
 pub(crate) static COALESCED: AtomicU64 = AtomicU64::new(0);
 pub(crate) static INLINE: AtomicU64 = AtomicU64::new(0);
 
+// test-hook-allow: not a test hook; the process's one disk writer, whose queued jobs are saves
+// every caller queues, and no test sets or replaces it
 static WRITER: OnceLock<&'static Writer> = OnceLock::new();
 
 thread_local! {
