@@ -22,6 +22,12 @@
       "title" : "Composer Look",
       "type" : "string"
     },
+    "agentPane.composerPlaceholder" : {
+      "default" : "",
+      "description" : "The text shown in an empty message box. Empty uses cmux's own.",
+      "title" : "Message Box Placeholder",
+      "type" : "string"
+    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -389,12 +395,19 @@
       "title" : "Pop In Sent Prompts",
       "type" : "boolean"
     },
+    "agentPane.display.sendScrollsToTop" : {
+      "default" : false,
+      "description" : "A prompt you send moves to the top of the chat, with room below it for the reply.",
+      "title" : "Scroll Sent Prompts to Top",
+      "type" : "boolean"
+    },
     "agentPane.display.sessionInfo.placement" : {
       "default" : "overlay",
       "description" : "Push narrows the chat; Overlay covers it.",
       "enum" : [
         "push",
-        "overlay"
+        "overlay",
+        "inline"
       ],
       "title" : "Session Info",
       "type" : "string"
@@ -413,6 +426,17 @@
         "custom"
       ],
       "title" : "Working Status Verbs",
+      "type" : "string"
+    },
+    "agentPane.display.streaming" : {
+      "default" : "words",
+      "description" : "How an agent's reply text appears as it arrives.",
+      "enum" : [
+        "words",
+        "lines",
+        "instant"
+      ],
+      "title" : "Reply Streaming",
       "type" : "string"
     },
     "agentPane.display.subagentOf" : {
@@ -969,18 +993,6 @@
       "title" : "Saved Servers in Agent Chats",
       "type" : "boolean"
     },
-    "agents.modelRouter.model" : {
-      "default" : "deepseek/deepseek-v4.1-flash-1017",
-      "description" : "The model new cmux model router chats start on.",
-      "enum" : [
-        "deepseek/deepseek-v4.1-flash-1017",
-        "deepseek/deepseek-v4.1-flash",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro"
-      ],
-      "title" : "cmux Model Router Model",
-      "type" : "string"
-    },
     "agents.promptCache" : {
       "default" : "1h",
       "description" : "One hour keeps replies after a pause cheap; its cache writes cost a little more.",
@@ -1084,6 +1096,12 @@
       "default" : true,
       "description" : "Off: cmux never asks the network for announcements. The request carries no identifiers.",
       "title" : "Download Announcements",
+      "type" : "boolean"
+    },
+    "app.captureScreenshotGlobalHotKey" : {
+      "default" : false,
+      "description" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts.",
+      "title" : "Capture Screenshot to Chat from Any App",
       "type" : "boolean"
     },
     "app.confirmQuit" : {
@@ -2318,6 +2336,18 @@
       "title" : "Highlight Color",
       "type" : "string"
     },
+    "appearance.homeCardStyle" : {
+      "default" : "standard",
+      "description" : "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass.",
+      "enum" : [
+        "standard",
+        "flat",
+        "raised",
+        "glass"
+      ],
+      "title" : "Home Cards",
+      "type" : "string"
+    },
     "appearance.hue" : {
       "default" : 0.5,
       "description" : "Shift the tint color around the hue wheel.",
@@ -3159,6 +3189,18 @@
       "title" : "Title Area",
       "type" : "string"
     },
+    "appearance.toolbarButtonStyle" : {
+      "default" : "standard",
+      "description" : "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass.",
+      "enum" : [
+        "standard",
+        "plain",
+        "grouped",
+        "glass"
+      ],
+      "title" : "Top Right Buttons",
+      "type" : "string"
+    },
     "appearance.twoTone" : {
       "default" : "off",
       "description" : "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.",
@@ -3798,6 +3840,12 @@
       "default" : false,
       "description" : "Back to Before This Turn restores the machine in seconds. Keeps the newest few.",
       "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
+      "type" : "boolean"
+    },
+    "cloud.useMyGitHubLogin" : {
+      "default" : false,
+      "description" : "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine.",
+      "title" : "Use My GitHub Login on Cloud Machines",
       "type" : "boolean"
     },
     "computerUse.allowForeground" : {
@@ -4526,6 +4574,12 @@
       "title" : "App Font in Native Chrome",
       "type" : "boolean"
     },
+    "experiments.appsTier" : {
+      "default" : false,
+      "description" : "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar.",
+      "title" : "Publish Previews as Apps",
+      "type" : "boolean"
+    },
     "experiments.appStoreFeatures" : {
       "default" : false,
       "description" : "The App Store gets a Features tab where built-in features turn on and off.",
@@ -4544,6 +4598,12 @@
       "title" : "Browser Profile Card",
       "type" : "boolean"
     },
+    "experiments.chatInstantUnderLoad" : {
+      "default" : false,
+      "description" : "While you type or a reply streams, wait for a pause before saving the chat list new tabs show.",
+      "title" : "Prioritize Chat Input",
+      "type" : "boolean"
+    },
     "experiments.chatWidgets" : {
       "default" : false,
       "description" : "Installed extensions can show a card under a finished tool call in agent chat.",
@@ -4554,6 +4614,18 @@
       "default" : false,
       "description" : "Cloud machine cards show disk use as a bar split into system, project and caches.",
       "title" : "Cloud Disk Bar",
+      "type" : "boolean"
+    },
+    "experiments.cloudToggle" : {
+      "default" : false,
+      "description" : "A cloud button in the chat's composer picks where the chat runs: this Mac, Cloud or Auto. It lights up in rainbow colors when on.",
+      "title" : "Cloud Toggle",
+      "type" : "boolean"
+    },
+    "experiments.compactionThresholdInsight" : {
+      "default" : false,
+      "description" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns.",
+      "title" : "Compaction Threshold Insight",
       "type" : "boolean"
     },
     "experiments.composerButtonsVisible" : {
@@ -4578,6 +4650,12 @@
       "default" : false,
       "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
       "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
+    "experiments.eventsAsToolCalls" : {
+      "default" : false,
+      "description" : "A rule cmux pushes into a chat shows as cmux's line, never as your own message.",
+      "title" : "Harness Events Read by Origin",
       "type" : "boolean"
     },
     "experiments.expandedEditsEstimate" : {
@@ -4716,6 +4794,12 @@
       "default" : false,
       "description" : "Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context.",
       "title" : "Transcript Work Log",
+      "type" : "boolean"
+    },
+    "experiments.writtenHTMLOpenBeside" : {
+      "default" : false,
+      "description" : "A web page the agent writes gets an Open beside chat button that shows the real page, with its styles and images, in a tab.",
+      "title" : "Open Written HTML Beside the Chat",
       "type" : "boolean"
     },
     "feed.agentPermissionPrompts" : {
@@ -5033,6 +5117,12 @@
       "default" : false,
       "description" : "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex.",
       "title" : "Use Bundled Codex App Server",
+      "type" : "boolean"
+    },
+    "labs.chatMultiplayer" : {
+      "default" : false,
+      "description" : "Teammates you share a chat with show when they view it and when they type.",
+      "title" : "Chat Multiplayer",
       "type" : "boolean"
     },
     "labs.commentThreads" : {
@@ -6705,6 +6795,16 @@
       "title" : "Priority Status Words",
       "type" : "boolean"
     },
+    "sidebar.profileMenu.style" : {
+      "default" : "app",
+      "description" : "What the profile button at the sidebar's foot opens: the app menu, or an account menu with your accounts and teams to switch between, then Settings, Usage, Help and Sign Out.",
+      "enum" : [
+        "app",
+        "account"
+      ],
+      "title" : "Profile Menu",
+      "type" : "string"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
@@ -6801,7 +6901,7 @@
       "type" : "boolean"
     },
     "sidebar.showSearchButton" : {
-      "default" : false,
+      "default" : true,
       "description" : "A search button after the profile button. Off: search from the palette.",
       "title" : "Show Search Button",
       "type" : "boolean"
@@ -6898,6 +6998,11 @@
       "minimum" : 0.1,
       "title" : "Top Sections Height",
       "type" : "number"
+    },
+    "sidebar.workspaceListApp" : {
+      "description" : "The id of an installed extension that draws the whole workspace list (cmux.sidebar/1), such as local/workspace-list. Empty draws the built-in list, which also shows while the extension loads, fails or is removed.",
+      "title" : "Workspace List Extension",
+      "type" : "string"
     },
     "sidebar.workspaceRow.agent.agentStatus" : {
       "description" : "sidebar.workspaceRow.agent.agentStatus",
@@ -7453,7 +7558,7 @@
     },
     "sidebar.workspacesAsTabs" : {
       "default" : false,
-      "description" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces.",
+      "description" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs.",
       "title" : "Workspaces as Tabs",
       "type" : "boolean"
     },
@@ -8240,7 +8345,7 @@
       "type" : "string"
     },
     "worktrees.cleanBuildCaches" : {
-      "default" : false,
+      "default" : true,
       "description" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
       "title" : "Clean Up Build Caches",
       "type" : "boolean"

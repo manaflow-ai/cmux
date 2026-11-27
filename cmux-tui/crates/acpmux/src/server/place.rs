@@ -88,6 +88,7 @@ async fn this_machine(hub: &Hub) -> Candidate {
         health: super::peer_status::host_health(hub, Origin::Peer).await,
         health_at: Some(crate::store::now_ms()),
         via_hub: false,
+        unreachable: None,
     }
 }
 
@@ -179,16 +180,20 @@ fn split_peers_with(
     let mut down = Vec::new();
     let mut peers = Vec::new();
     let mut outdated = Vec::new();
+    // Read once for every row: the transfers to a peer that failed lately (`placement/reach.rs`).
+    let failures = crate::placement::reach::Failures::load();
+    let now = crate::store::now_ms();
+    let peer = |row: &Value| Candidate::peer_at(row, now, &failures);
     for row in rows {
         if outdated_ok && crate::placement::only_outdated(&row) {
-            if let Some(c) = Candidate::peer(&row) {
+            if let Some(c) = peer(&row) {
                 outdated.push(c.name.clone());
                 peers.push(c);
             }
             continue;
         }
         match crate::placement::peer_down(&row) {
-            None => peers.extend(Candidate::peer(&row)),
+            None => peers.extend(peer(&row)),
             Some(why) => {
                 if let Some(name) = row.get("name").and_then(Value::as_str) {
                     down.push((name.to_owned(), why));
@@ -261,6 +266,7 @@ fn named_refusal(registry: &Value, host: &str, work: Work) -> Option<String> {
         health: Value::Null,
         health_at: None,
         via_hub: false,
+        unreachable: None,
     }];
     let v = crate::placement::place(&only, Some(registry), work);
     if let Some(r) = v.pointer("/hosts/0/refused").and_then(Value::as_str) {

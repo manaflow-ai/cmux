@@ -4,6 +4,7 @@
 import "./computerAuto.css";
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
+import { Button } from "../../../ui/Button";
 
 export function CreateAgentCard({
   task,
@@ -43,21 +44,21 @@ export function CreateAgentCard({
         />
       </label>
       <div className="acpmux-create-foot">
-        <button type="button" className="acpmux-create-field" onClick={onProject}>
+        <Button bare type="button" className="acpmux-create-field" onClick={onProject}>
           <span className="acpmux-create-field-label">{t("computer.create.project")}</span>
           <span className="acpmux-create-field-value">{project}</span>
           <span aria-hidden="true">▾</span>
-        </button>
-        <button type="button" className="acpmux-create-field" onClick={onAgent}>
+        </Button>
+        <Button bare type="button" className="acpmux-create-field" onClick={onAgent}>
           <span className="acpmux-create-field-label">{t("computer.create.agent")}</span>
           <span className="acpmux-create-field-value">{agent}</span>
           <span aria-hidden="true">▾</span>
-        </button>
+        </Button>
         <span className="acpmux-create-spacer" />
         {placeButton}
-        <button type="button" className="acpmux-create-start" disabled={!task.trim()} onClick={onStart}>
+        <Button bare type="button" className="acpmux-create-start" disabled={!task.trim()} onClick={onStart}>
           {t("computer.create.start")} <span aria-hidden="true">⏎</span>
-        </button>
+        </Button>
       </div>
     </section>
   );

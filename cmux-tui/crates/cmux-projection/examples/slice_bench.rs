@@ -435,7 +435,7 @@ fn mount(args: &[String]) -> anyhow::Result<()> {
     if std::env::var_os("SLICE_BULK").is_some_and(|value| value == "1") {
         let copying = overlay.clone();
         std::thread::spawn(move || {
-            let started = std::time::Instant::now();
+            let started = Instant::now();
             let report = copying.bulk_copy(
                 &cmux_projection::overlay::bulk::BulkOptions::default(),
                 &std::sync::atomic::AtomicBool::new(false),
