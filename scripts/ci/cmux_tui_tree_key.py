@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 
@@ -153,9 +154,16 @@ def tree_key(revision: str, version: str = "v2") -> str:
         ["git", "-C", str(ROOT), "mktree", "--batch", "--missing"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=GIT_ENV,
     )
+    # Its reads block on git's answer, so one deadline bounds the whole batch: a git that never
+    # answers (a fake reading stdin to its end hung tests 60 s each) is killed, readline then
+    # returns nothing and the key fails fast instead of waiting.
+    watchdog = threading.Timer(GIT_TIMEOUT_SECONDS, mktree.kill)
+    watchdog.daemon = True
+    watchdog.start()
     try:
         return _make_tree((), entries, mktree)
     finally:
+        watchdog.cancel()
         if mktree.stdin is not None:
             mktree.stdin.close()
         try:

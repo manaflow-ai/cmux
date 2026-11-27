@@ -18,6 +18,9 @@
 //!
 //! `cmux repo mcp-lazy DIR -- CMD…` runs a project MCP server once that barrier is open, and
 //! answers for it until then (`repo_mcp_lazy.rs`).
+//!
+//! `cmux repo from-archive --url URL --at DIR` takes a new checkout from the repo archive store
+//! (`repo_archive.rs`, hq RFD 0065 piece 2), else a shallow blobless sparse clone.
 
 use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
@@ -26,8 +29,9 @@ use cmux_git::sync_barrier::Sync;
 use cmux_process::{Command, Stdio};
 
 const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait DIR SECONDS \
-                     | cmux repo mcp-lazy DIR -- CMD [ARG...] | cmux repo read|ls|run|commit|tier \
-                     (no checkout: `cmux repo tier --help`)";
+                     | cmux repo mcp-lazy DIR -- CMD [ARG...] \
+                     | cmux repo from-archive --url URL --at DIR [--branch B] [--archive-only] \
+                     | cmux repo read|ls|run|commit|tier (no checkout: `cmux repo tier --help`)";
 /// The child's one stdout line once it holds the barrier.
 const HELD: &str = "held";
 
@@ -47,6 +51,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
             Some((dir, cmd)) => super::repo_mcp_lazy::run(&dir, cmd),
             None => usage(),
         },
+        Some((verb, rest)) if verb == "from-archive" => super::repo_archive::run(rest),
         Some((verb, rest)) if verb == "hold-run" => match parse(rest) {
             Some((dir, cmd)) => hold_run(&dir, cmd, || println!("{HELD}")),
             None => usage(),

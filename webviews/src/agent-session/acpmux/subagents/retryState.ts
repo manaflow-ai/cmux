@@ -10,6 +10,7 @@
 // remove the "ask parent to retry" if we haven't already").
 //
 // The daemon's field names live in ``readRetry`` and ``RETRY_METHOD`` alone.
+import type { ConnectionQuietKeys } from "../../../ui/lasting";
 import { AutoRetryLoop, type AutoRetryOptions } from "../autoRetry";
 import type { StringKey, Translate } from "../i18n";
 import type { RetrySummary } from "../protocol/generated/types";
@@ -160,6 +161,32 @@ const REASON: Record<string, StringKey> = {
 export function retryLabel(t: Translate, retry: RetryState): string {
   const values = { attempt: retry.attempt, of: retry.of };
   return t((retry.reason && REASON[retry.reason]) || "retry.waiting", values);
+}
+
+/// Whether a row's retry has waited out the shared bound, by the row's key: `useConnectionQuietKeys`
+/// (ui/lasting.ts) in the component that draws it. A retry heals on its own and offers nothing to do,
+/// so for its first `CONNECTION_QUIET_MS` the row reads as running, as it will once the retry runs
+/// (Leo, 2026-11-14: "i also want all our connectivity stuff to shut up").
+export type RetryQuiet = ConnectionQuietKeys;
+
+/// The key a subagent's retry waits under (``RetryQuiet``), the same on every surface.
+export const subagentRetryKey = (agent: Pick<Subagent, "id">) => `agent:${agent.id}`;
+
+/// The key a sub-session's retry waits under (``RetryQuiet``), the same on every surface.
+export const sessionRetryKey = (sessionId: string) => `session:${sessionId}`;
+
+/// A row's state words while acpmux retries it: "Retrying (2/4) after a capacity error" once the
+/// retry has lasted the bound (``RetryQuiet``), the running word before; undefined when no retry
+/// waits. Every draw of the row asks, retrying or not, so a retry that ends is forgotten.
+export function retryWords(
+  t: Translate,
+  retry: RetryState | undefined,
+  key: string,
+  connectionQuiet: RetryQuiet,
+): string | undefined {
+  const lasting = connectionQuiet(key, retry !== undefined);
+  if (!retry) return undefined;
+  return lasting ? retryLabel(t, retry) : t("subagents.state.running");
 }
 
 /// Whether a prompt record is acpmux's continuation of a failed turn or subagent, never the

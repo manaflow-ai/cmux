@@ -95,6 +95,11 @@ private struct Timeline {
     }
 
     private mutating func apply(_ event: LinkMachine.Event, world: World) {
+        var event = event
+        // A drop scripted before its link existed (`network_flaps`): the link up now.
+        if case .linkDropped(Self.currentLink, let reason) = event {
+            event = .linkDropped(generation: machine.generation, reason: reason)
+        }
         let wasConnected = machine.phase.isConnected
         let effects = machine.handle(event)
         phases.append((now, machine.phase))
@@ -138,6 +143,9 @@ private struct Timeline {
         }
         return (min(limit, closes), .standbyLost(generation: generation))
     }
+
+    /// A `linkDropped` generation meaning whichever link is up when it arrives.
+    static let currentLink = -1
 
     /// When the machine was first connected at or after `t`.
     func connected(after t: Duration) -> Duration? {
@@ -253,6 +261,101 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         }
         // Both end on the longest backoff step: the same worst case.
         #expect(results[1] <= Duration.seconds(30) + dialTime)
+    }
+
+    /// Leo, 11-25 (an elevator): "I feel like iOS doesn't retry connections aggressively
+    /// enough." 200 seeded flaps: the network goes for 3 s to 5 min (log-uniform), comes
+    /// back for 2 to 3 min. Half the returns bring a path change (Wi-Fi rejoined), half
+    /// none (cellular stayed "satisfied" through the outage). While down, 30% of dials
+    /// and presence attempts hang to their timeout (25 s, 10 s), the rest fail fast.
+    /// Presence notices the outage 0 to 20 s in (ping interval plus timeout) and retries
+    /// on ``PresenceListener/retryDelay(afterFailures:)``; its hello after the outage
+    /// redials the links (`LiveCoordinator.presenceReturned`).
+    ///
+    /// `before`: the old backoff (1, 2, 4, 8, 15, 30) and no presence redial. `after`:
+    /// today's. Reports reconnect after the network is back, p50/p95/max per return kind.
+    @MainActor @Test func cellNetworkFlaps() {
+        let seed = TickRandom.seed(default: 0x464C_4150) // "FLAP"
+        var random = TickRandom(seed: seed)
+        var flaps: [(lost: Duration, back: Duration, path: Bool, detect: Duration)] = []
+        var t: Duration = .seconds(10)
+        for _ in 0..<200 {
+            let outage = random.logDuration(.seconds(3)...Duration.seconds(300))
+            flaps.append((t, t + outage, random.chance(0.5), random.duration(.zero...Duration.seconds(20))))
+            t += outage + random.duration(.seconds(120)...Duration.seconds(180))
+        }
+        let end = t
+        // The same coin for the same moment in both variants.
+        func hangs(_ t: Duration, _ salt: UInt64) -> Bool {
+            var coin = TickRandom(seed: seed ^ salt ^ UInt64(t.components.seconds * 1000 + t.components.attoseconds / 1_000_000_000_000_000))
+            return coin.chance(0.3)
+        }
+        func down(_ t: Duration) -> Duration? {
+            flaps.first { t >= $0.lost && t < $0.back }?.back
+        }
+        let world = World { t in
+            guard down(t) != nil else { return (true, dialTime, "") }
+            return hangs(t, 1) ? (false, .seconds(25), timeoutReason) : (false, .milliseconds(100), "network unreachable")
+        }
+        let helloTime: Duration = .milliseconds(300)
+
+        /// When presence's hello comes back after `flap`, and whether presence went down at all.
+        func presenceBack(_ flap: (lost: Duration, back: Duration, path: Bool, detect: Duration)) -> Duration? {
+            let noticed = flap.lost + flap.detect
+            guard noticed < flap.back else { return nil } // never noticed: never down
+            var failures = 1
+            var at = noticed + PresenceListener.retryDelay(afterFailures: failures)
+            while at < flap.back {
+                at += hangs(at, 2) ? PresenceListener.helloTimeout : .milliseconds(100)
+                failures += 1
+                at += PresenceListener.retryDelay(afterFailures: failures)
+            }
+            let hello = at + helloTime
+            return hello - noticed >= PresenceListener.outageMin ? hello : nil
+        }
+
+        var summary: [String: [String: Double]] = [:]
+        for variant in ["before", "after"] {
+            var external: [(Duration, LinkMachine.Event)] = [(.zero, .target(studio))]
+            for flap in flaps {
+                external.append((flap.lost, .linkDropped(generation: Timeline.currentLink, reason: "network lost")))
+                if flap.path {
+                    external.append((flap.back + LinkController.networkSettle, .networkChanged))
+                } else if variant == "after", let hello = presenceBack(flap) {
+                    external.append((hello, .networkChanged))
+                }
+            }
+            var timeline = Timeline()
+            if variant == "before" { timeline.machine.backoff = [1, 2, 4, 8, 15, 30] }
+            timeline.run(world: world, external: external, until: end)
+            var samples: [Bool: [Double]] = [true: [], false: []]
+            var unrecovered = 0
+            for (index, flap) in flaps.enumerated() {
+                let next = index + 1 < flaps.count ? flaps[index + 1].lost : end
+                guard let at = timeline.connected(after: flap.back), at < next else { unrecovered += 1; continue }
+                samples[flap.path, default: []].append((at - flap.back).seconds)
+            }
+            func pct(_ values: [Double], _ q: Double) -> Double {
+                let sorted = values.sorted()
+                return sorted.isEmpty ? -1 : sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * q).rounded()))]
+            }
+            var fields: [String: Any] = ["seed": seed, "flaps": flaps.count, "dials": timeline.dials, "unrecovered": unrecovered]
+            for (kind, values) in [("path", samples[true] ?? []), ("no_path", samples[false] ?? [])] {
+                let stats = ["p50_ms": pct(values, 0.5) * 1000, "p95_ms": pct(values, 0.95) * 1000, "max_ms": (values.max() ?? -1) * 1000, "n": Double(values.count)]
+                summary["\(variant)_\(kind)"] = stats
+                for (key, value) in stats { fields["\(kind)_\(key)"] = value }
+            }
+            report("network_flaps", variant, fields)
+            #expect(unrecovered == 0, "\(variant): \(unrecovered) flaps never reconnected before the next")
+            // Retries stay bounded over the whole run (about 23 h of virtual time).
+            #expect(Double(timeline.dials) <= end.seconds / 15 + 10 * Double(flaps.count), "\(variant): \(timeline.dials) dials")
+        }
+        let before = summary["before_no_path"] ?? [:], after = summary["after_no_path"] ?? [:]
+        let path = summary["after_path"] ?? [:]
+        #expect((path["max_ms"] ?? .infinity) <= 2000, "a path change reconnects within 2 s: \(path)")
+        #expect((after["p50_ms"] ?? .infinity) < (before["p50_ms"] ?? 0), "no path change, p50: after \(after) vs before \(before)")
+        #expect((after["p95_ms"] ?? .infinity) < (before["p95_ms"] ?? 0), "no path change, p95: after \(after) vs before \(before)")
+        #expect((after["max_ms"] ?? .infinity) <= 30_000, "no path change, worst: \(after)")
     }
 
     /// Wi-Fi to cellular: the link drops when the old path dies; one redial

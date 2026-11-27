@@ -97,6 +97,18 @@
       "title" : "Compact Summary for Short Turns",
       "type" : "boolean"
     },
+    "agentPane.display.detail" : {
+      "default" : "normal",
+      "description" : "How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own.",
+      "enum" : [
+        "messages",
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "title" : "Chat Detail",
+      "type" : "string"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -272,6 +284,16 @@
       },
       "title" : "Model Picker Harness Order",
       "type" : "array"
+    },
+    "agentPane.display.modelPickerStyle" : {
+      "default" : "list",
+      "description" : "List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode.",
+      "enum" : [
+        "list",
+        "menu"
+      ],
+      "title" : "Model Picker Style",
+      "type" : "string"
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
@@ -2652,6 +2674,17 @@
       "title" : "Toolbar Button Size",
       "type" : "number"
     },
+    "appearance.mode" : {
+      "default" : "system",
+      "description" : "Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too.",
+      "enum" : [
+        "system",
+        "light",
+        "dark"
+      ],
+      "title" : "Appearance",
+      "type" : "string"
+    },
     "appearance.paneArt.dark" : {
       "default" : [
 
@@ -3821,6 +3854,12 @@
       "title" : "Denied Apps",
       "type" : "array"
     },
+    "computerUse.floatingPreview" : {
+      "default" : false,
+      "description" : "A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar.",
+      "title" : "Floating Live Preview",
+      "type" : "boolean"
+    },
     "computerUse.livePreview" : {
       "default" : true,
       "description" : "A small live view of the app an agent uses. Click it for Agent Activity.",
@@ -4481,16 +4520,16 @@
       "title" : "Agent Badges: Running Beam",
       "type" : "boolean"
     },
-    "experiments.appStoreFeatures" : {
-      "default" : false,
-      "description" : "The App Store gets a Features tab where built-in features turn on and off.",
-      "title" : "App Store Features",
-      "type" : "boolean"
-    },
     "experiments.appFontChrome" : {
       "default" : false,
       "description" : "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts.",
       "title" : "App Font in Native Chrome",
+      "type" : "boolean"
+    },
+    "experiments.appStoreFeatures" : {
+      "default" : false,
+      "description" : "The App Store gets a Features tab where built-in features turn on and off.",
+      "title" : "App Store Features",
       "type" : "boolean"
     },
     "experiments.attachmentTypeIcons" : {
@@ -6195,6 +6234,12 @@
       "title" : "Screen Sharing Quality",
       "type" : "string"
     },
+    "remoteDesktop.sharpLinuxText" : {
+      "default" : false,
+      "description" : "A Linux machine without a GPU encoder codes its screen for sharp text instead of speed. Text reads clearer while it changes; typing and scrolling show a little later.",
+      "title" : "Sharper Text from Linux Machines",
+      "type" : "boolean"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
@@ -6340,6 +6385,12 @@
       "default" : true,
       "description" : "With the sidebar hidden, point at the window's edge to show it over your work.",
       "title" : "Float Hidden Sidebar on Hover",
+      "type" : "boolean"
+    },
+    "sidebar.folderlessUngrouped" : {
+      "default" : false,
+      "description" : "Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header.",
+      "title" : "Ungroup Rows With No Folder",
       "type" : "boolean"
     },
     "sidebar.groupBy" : {
@@ -6555,7 +6606,8 @@
         "cmux",
         "claude",
         "codex",
-        "studio"
+        "studio",
+        "rex"
       ],
       "title" : "Sidebar Look",
       "type" : "string"
@@ -6629,10 +6681,28 @@
       "title" : "Priority View",
       "type" : "boolean"
     },
+    "sidebar.priorityView.filters" : {
+      "default" : false,
+      "description" : "All, Waiting, Unread and Running chips with counts, and Mark All as Read.",
+      "title" : "Priority Filters",
+      "type" : "boolean"
+    },
+    "sidebar.priorityView.showIdle" : {
+      "default" : true,
+      "description" : "Off, Priority lists only chats that need you or are running.",
+      "title" : "Idle Chats in Priority",
+      "type" : "boolean"
+    },
     "sidebar.priorityView.shown" : {
       "default" : true,
       "description" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.",
       "title" : "Show Priority View",
+      "type" : "boolean"
+    },
+    "sidebar.priorityView.statusWords" : {
+      "default" : false,
+      "description" : "Each Priority row says its state, such as Needs you or Done.",
+      "title" : "Priority Status Words",
       "type" : "boolean"
     },
     "sidebar.sectionLook" : {
@@ -6686,12 +6756,6 @@
       "default" : false,
       "description" : "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows.",
       "title" : "Show Sessions Started by Agents",
-      "type" : "boolean"
-    },
-    "sidebar.showAutomaticSessions" : {
-      "default" : false,
-      "description" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
-      "title" : "Show Automatic Sessions",
       "type" : "boolean"
     },
     "sidebar.showChats" : {
@@ -8169,11 +8233,23 @@
       "title" : "Clean Up Agent Worktrees",
       "type" : "boolean"
     },
+    "worktrees.branchPrefix" : {
+      "default" : "cmux/",
+      "description" : "The start of each new worktree's branch name, such as cmux/.",
+      "title" : "Worktree Branch Prefix",
+      "type" : "string"
+    },
     "worktrees.cleanBuildCaches" : {
       "default" : false,
       "description" : "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
       "title" : "Clean Up Build Caches",
       "type" : "boolean"
+    },
+    "worktrees.location" : {
+      "default" : "~/.cmux/worktrees",
+      "description" : "Where cmux makes worktrees for local chats, forks and lanes, one folder per project.",
+      "title" : "Worktree Folder",
+      "type" : "string"
     }
   },
   "title" : "cmux (com.manaflow.cmux)"
