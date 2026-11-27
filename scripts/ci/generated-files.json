@@ -39,16 +39,6 @@
       "status": "build"
     },
     {
-      "id": "device-glyph-swift",
-      "generator": "scripts/cmux-next/gen-device-glyph-swift.py",
-      "outputs": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextDevices/DeviceGlyphKind.swift",
-        "Packages/Shared/CmuxDeviceHub/Sources/CmuxDeviceHub/DeviceGlyphKind.swift"
-      ],
-      "inputs": ["webviews/src/ui/deviceGlyphKinds.json"],
-      "status": "build"
-    },
-    {
       "id": "feature-tips",
       "generator": "webviews/scripts/pages/gen-feature-tips.mjs",
       "outputs": ["webviews/src/ui/featureTips/tips.generated.json"],
