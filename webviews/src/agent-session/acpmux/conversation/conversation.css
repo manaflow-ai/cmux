@@ -8890,20 +8890,12 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   animation: none;
 }
 
-/* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`): the
-   cause under the live spot's one shimmer, as "Thinking" (Leo, 2026-11-22: "all in the "thinking"
-   spot should glimmer like that"), the count and error muted, the error the part that gives way. */
+/* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`): one
+   short line under the live spot's one shimmer, as "Thinking" (Leo, 2026-11-22: "all in the
+   "thinking" spot should glimmer like that"); the count and the error are its tooltip. */
 .cv-retrying {
-  flex: 0 0 auto;
-}
-.cv-retrying__error {
   flex: 0 1 auto;
   min-width: 0;
-}
-.cv-retrying__words {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Interleaved sent attachments stay in the prompt's reading order, as macOS Messages does. */

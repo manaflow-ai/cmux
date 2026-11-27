@@ -489,6 +489,11 @@ export type AcpmuxTurnRetry = {
   host?: string;
   /// When the harness tries again, epoch ms (acpmux adds the harness's delay to its own clock).
   retryAt?: number;
+  /// What the live line says (hub/turn_retry.rs `retry_line`): a full or rate-limited model, or one
+  /// out of reach.
+  line?: "busy" | "unavailable";
+  /// How long the retries go on before the live line says so, ms from the first.
+  showAfterMs?: number;
 };
 
 /// The client's row that carries the running turn's retries (direct.ts): kind "typing", so no

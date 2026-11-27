@@ -41,7 +41,7 @@ import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
-import { retryBusy, retryParts, retryShown, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
+import { retryParts, retryQuietMs, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
 import { useConnectionQuietFrom } from "../../../ui/lasting";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
@@ -565,7 +565,7 @@ export function Thinking({
   /// (BackgroundHint.tsx), since the row is not drawn while it runs.
   command?: boolean;
   /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that
-  /// (`retryParts`), a model out of reach once it has lasted the shared bound (`retryShown`).
+  /// (`retryParts`), once it has lasted acpmux's bound (`retryQuietMs`).
   retry?: AcpmuxTurnRetry;
   /// When the retries began (the line's `retryAt`, conversation/turns.ts `withRetry`): the bound
   /// counts from then; without it, from when the line first saw the retry.
@@ -598,8 +598,6 @@ export function Thinking({
   // liveTurnClock.experiment.ts `top`) while it could fall silent, so it can say "Waiting".
   const listening = !waiting && turnTotal && heardAt !== undefined && doing === undefined;
   const time = useTicking(timed || listening, now);
-  // The countdown to the harness's next try ticks each second while a deadline is announced.
-  const retryNow = useTicking(retry?.retryAt !== undefined, now);
   const statusVerbConfig = useStatusVerbConfig();
   const thinkingVerbs = useContext(ThinkingVerbsContext);
   const verbs = useMemo(
@@ -678,9 +676,8 @@ export function Thinking({
                 : idleLabel
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
-  // "Can't reach the model" waits out the shared bound; until then the line reads as it did.
-  const unreachableLasting = useConnectionQuietFrom(retry !== undefined && !retryBusy(retry), retryAt, now);
-  const retrying = retryShown(retry, unreachableLasting);
+  // A retry says so once it has lasted acpmux's bound (`retryQuietMs`); until then the line reads as it did.
+  const retrying = useConnectionQuietFrom(retry !== undefined, retryAt, now, retry && retryQuietMs(retry));
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.
   const away = waiting !== undefined || retrying || startLook !== "thinking";
   const sameCall = call !== undefined && doing !== undefined && experimentArm(oneRowPerCall) === "morph";
@@ -798,10 +795,12 @@ export function Thinking({
   useCountGlide(lineRef, roll.turns, moved);
   // The question card already asks for an answer above the composer.
   if (waiting === "question") return null;
-  // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
-  // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
+  // A model the harness cannot reach: one calm line in the line's own box, so nothing moves when it
+  // starts or ends (Leo, 2026-11-03), and nothing on it changes from one retry to the next; what
+  // failed, the count and the raw error are its tooltip (`retryParts`). What the chat waits on the
+  // person for still comes first.
   if (retry && !waiting && retrying) {
-    const parts = retryParts(t, retry, retryNow);
+    const parts = retryParts(t, retry);
     return (
       <div
         className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
@@ -815,28 +814,6 @@ export function Thinking({
             <LiveShimmer label={parts.label} />
           </span>
         </output>
-        <span className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          {parts.count}
-        </span>
-        {parts.countdown && (
-          <span className="cv-worked__count" data-retry-countdown="">
-            <span className="cv-worked__sep" aria-hidden="true">
-              ·
-            </span>
-            {parts.countdown}
-          </span>
-        )}
-        {parts.error && (
-          <span className="cv-worked__count cv-retrying__error">
-            <span className="cv-worked__sep" aria-hidden="true">
-              ·
-            </span>
-            <span className="cv-retrying__words">{parts.error}</span>
-          </span>
-        )}
       </div>
     );
   }

@@ -1,67 +1,57 @@
 import type { AcpmuxTurnRetry } from "../model";
 import type { Translate } from "../i18n";
 
-/// A rate limit or an overloaded model: the model answered and is busy, not out of reach.
+/// A rate limit or an overloaded model, for an acpmux older than `line` (hub/turn_retry.rs
+/// `retry_line` makes the same test): the model answered and is busy, not out of reach.
 const BUSY = /\b(?:rate.?limit|overloaded|too many requests|capacity)\b/i;
 
+/// The bound an unreachable model's retries wait before the line says so, for an acpmux older than
+/// `showAfterMs` (hub/turn_retry.rs `UNAVAILABLE_QUIET_MS`).
+const UNAVAILABLE_QUIET_MS = 10_000;
+
 /// What the live line says while the harness retries a failed model request (acpmux
-/// `turn_retrying`): the cause in plain words, the retry's count, and the harness's error when it
-/// names one ("Can't reach the model · retrying (7 of 10) · 503 server error"). Calm: no sweep and
-/// no clock, since nothing works on the reply while it waits.
-export function retryParts(
-  t: Translate,
-  retry: AcpmuxTurnRetry,
-  now?: number,
-): { label: string; count: string; error?: string; detail?: string; countdown?: string } {
-  const words = retry.error?.replaceAll("_", " ");
-  const busy = retryBusy(retry);
-  // A connection failure acpmux classified (hub/outage.rs) says what is wrong and where; the words
-  // of a busy or unreachable model stay for the rest. Rust decides, this only words it.
-  const label = retry.cause
+/// `turn_retrying`): one calm line whose words stay the same from one retry to the next, "Model API
+/// unavailable, retrying…" or, for a full or rate-limited model, "Waiting for capacity". What
+/// failed, the retry's count and the harness's raw error go to its tooltip (`detail`: "Can't reach
+/// api.anthropic.com · retrying (1 of 14) · 502 server error"). Leo, 2026-11-26, on the line that
+/// said all of it at once and cut off the cause ("Can't reach ... · retrying (1 of 14) · retrying
+/// now · 502 ser..."): "this is really really bad". No count, countdown or error on the line, so
+/// nothing on it changes while the harness retries.
+export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: string; detail?: string } {
+  const label = t(retryBusy(retry) ? "capacity.live" : "turn.live.retry.unavailable");
+  // A connection failure acpmux classified (hub/outage.rs) names what it could not reach.
+  const outage = retry.cause
     ? t(retry.cause === "dns" ? "turn.live.retry.outage.dns" : "turn.live.retry.outage.host", {
         host: retry.host ?? t("turn.live.retry.outage.theApi"),
       })
-    : t(busy ? "capacity.live" : "turn.live.retry.unreachable");
-  // Seconds until the deadline acpmux computed; none once it passed or when none was announced.
-  const left = retry.retryAt !== undefined && now !== undefined ? Math.ceil((retry.retryAt - now) / 1000) : undefined;
-  const countdown =
-    left !== undefined && left > 0
-      ? t("turn.live.retry.countdown", { time: formatCountdown(left) })
-      : left !== undefined
-        ? t("turn.live.retry.retryingNow")
-        : undefined;
+    : undefined;
   const count =
     retry.attempt === undefined
-      ? t("turn.live.retry.retrying")
+      ? undefined
       : retry.maxRetries === undefined
         ? t("turn.live.retry.attemptOnly", { attempt: retry.attempt })
         : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
+  const words = retry.error?.replaceAll("_", " ");
   const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
-  // A full or rate-limited model is a wait, not an error: its words leave the line for its tooltip
-  // (RFD model-overload-smoothing §3.8; Leo, 2026-11-24: "fix 529s properly with better designs").
-  if (busy && !retry.cause) return { label, count, ...(error && { detail: error }), ...(countdown && { countdown }) };
-  return { label, count, ...(error && { error }), ...(countdown && { countdown }) };
+  const detail = [outage, count, error].filter((part) => part !== undefined && part !== "").join(" · ");
+  return { label, ...(detail && { detail }) };
 }
 
-/// "45s", "1m 15s": the wait to the next try.
-export function formatCountdown(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-/// Whether the harness retries because the model is busy (a rate limit, an overload), not out of reach.
-export function retryBusy(retry: AcpmuxTurnRetry): boolean {
+/// Whether the harness retries because the model is busy (a rate limit, an overload), not out of
+/// reach: acpmux says (`line`); an older one's record is read the way it reads it.
+function retryBusy(retry: AcpmuxTurnRetry): boolean {
+  if (retry.line !== undefined) return retry.line === "busy";
+  if (retry.cause) return false;
   const words = retry.error?.replaceAll("_", " ");
   return retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
 }
 
-/// Whether the live line says the retry: "Can't reach the model" heals on its own and offers nothing
-/// to do, so it waits out the shared bound (`unreachableLasting`, ui/lasting.ts `useConnectionQuiet`)
-/// and the line reads as it did meanwhile (Leo, 2026-11-14: "i also want all our connectivity stuff
-/// to shut up"); a busy model says so at once.
-export function retryShown(retry: AcpmuxTurnRetry | undefined, unreachableLasting: boolean): boolean {
-  return retry !== undefined && (retryBusy(retry) || unreachableLasting);
+/// How long the retries go on before the live line says so (acpmux's `showAfterMs`): a busy model
+/// at once, a model out of reach once it has lasted the shared bound, so a retry that goes through
+/// within a few seconds draws nothing at all and the line reads as it did meanwhile. Not behind
+/// Quiet Connections: every chat waits it.
+export function retryQuietMs(retry: AcpmuxTurnRetry): number {
+  return retry.showAfterMs ?? (retryBusy(retry) ? 0 : UNAVAILABLE_QUIET_MS);
 }
 
 /// How long a paused answer still reads "Writing"; a longer pause is the agent thinking again.

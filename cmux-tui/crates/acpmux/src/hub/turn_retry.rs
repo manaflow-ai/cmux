@@ -122,6 +122,29 @@ fn http_status(info: &Value) -> Option<u64> {
     }
 }
 
+/// How long a model the harness cannot reach retries before the chat says so (`showAfterMs` on
+/// `turn_retrying`): the shared connection bound (schemas/notice-timing `connectionQuietMs`), so a
+/// retry that goes through within a few seconds draws nothing at all (Leo, 2026-11-26, on "Can't
+/// reach ... · retrying (1 of 14) · retrying now · 502 ser...": "this is really really bad").
+pub(super) const UNAVAILABLE_QUIET_MS: u64 = 10_000;
+
+/// What the chat's live line says of a retry (`line` on `turn_retrying`): `busy`, a rate limit or a
+/// full model (429, 529, "overloaded"), which is a wait and says so at once; `unavailable`, every
+/// other failure, which says "Model API unavailable, retrying…" once it has lasted
+/// [`UNAVAILABLE_QUIET_MS`]. A failure of the connection itself (`cause`, `outage.rs`) is never busy.
+/// Rust decides; the webview only words it (`conversation/thinkingModel.ts`).
+pub(super) fn retry_line(retry: &Value) -> &'static str {
+    if retry.get("cause").is_some() {
+        return "unavailable";
+    }
+    let words = retry["error"].as_str().unwrap_or("").replace(['_', '-'], " ").to_lowercase();
+    let busy = matches!(retry["errorStatus"].as_u64(), Some(429 | 529))
+        || ["rate limit", "ratelimit", "overloaded", "too many requests", "capacity"]
+            .iter()
+            .any(|w| words.contains(w));
+    if busy { "busy" } else { "unavailable" }
+}
+
 /// The retry at which a model request refused for its sign-in ends the turn (module docs).
 const SIGN_IN_REFUSED_END_ATTEMPT: u64 = 2;
 
@@ -226,6 +249,10 @@ impl Hub {
         ) {
             retry.set("retryAt", json!(at));
         }
+        // What the live line says and when (`retry_line`): one calm line, never per-retry words.
+        let line = retry_line(&retry);
+        retry.set("line", json!(line));
+        retry.set("showAfterMs", json!(if line == "busy" { 0 } else { UNAVAILABLE_QUIET_MS }));
         self.append(session, "mux", "turn_retrying", retry);
         *silent = Some(turn.turn_id);
     }
@@ -249,6 +276,24 @@ mod tests {
         let codex = codex_retry(&json!({"message": "Reconnecting... 3/5",
             "codexErrorInfo": {"responseStreamDisconnected": {"httpStatusCode": 401}}}));
         assert!(!sign_in_refused(&codex), "Codex's own retries are its to end");
+    }
+
+    #[test]
+    fn a_retry_is_a_busy_model_or_an_unavailable_one() {
+        let claude = |status: u64, error: &str| {
+            retry_line(&claude_retry(&json!({"attempt": 1, "max_retries": 14,
+            "error_status": status, "error": error})))
+        };
+        assert_eq!(claude(529, "overloaded_error"), "busy");
+        assert_eq!(claude(429, "x"), "busy");
+        assert_eq!(claude(400, "rate_limit_error"), "busy");
+        // Leo's chat, 2026-11-26: a gateway answering 502 is the model API out of reach.
+        assert_eq!(claude(502, "server_error"), "unavailable");
+        assert_eq!(claude(503, "server_error"), "unavailable");
+        assert_eq!(retry_line(&json!({"cause": "dns", "error": "overloaded"})), "unavailable");
+        let codex = codex_retry(&json!({"message": "Reconnecting... 2/5",
+            "codexErrorInfo": {"serverOverloaded": {}}}));
+        assert_eq!(retry_line(&codex), "busy");
     }
 
     /// A session of a test hub whose turn `turn-1` runs, and a refused retry at `attempt`.

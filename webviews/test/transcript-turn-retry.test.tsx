@@ -39,12 +39,15 @@ const drawn = (line: AcpmuxRow, now: number) =>
 
 const snapshotRows = (name: string) => (retryEntry.variants[name] as { snapshot: { rows: AcpmuxRow[] } }).snapshot.rows;
 
-test("a turn whose model the harness cannot reach says so, with its count and error and no clock", () => {
+test("a turn whose model the harness cannot reach says so in one short line, its count and error in the tooltip", () => {
   const line = liveLine(snapshotRows("retrying-with-error"));
   expect(line.kind).toBe(THINKING);
-  expect(line.retry).toEqual({ attempt: 7, maxRetries: 10, errorStatus: 503, error: "server_error" });
+  expect(line.retry).toEqual({ attempt: 1, maxRetries: 14, errorStatus: 502, error: "server_error" });
   const html = drawn(line, line.at + 469_000);
-  expect(words(html)).toBe("Can't reach the model · retrying (7 of 10) · 503 server error");
+  // Leo, 2026-11-26, on "Can't reach ... · retrying (1 of 14) · retrying now · 502 ser...": "this is
+  // really really bad".
+  expect(words(html)).toBe("Model API unavailable, retrying…");
+  expect(html).toContain('title="retrying (1 of 14) · 502 server error"');
   // No ticking time on the line; its words shimmer as every status in the live spot does (Leo,
   // 2026-11-22: "all in the "thinking" spot should glimmer like that").
   expect(html).toContain('class="cv-thinking is-shimmer cv-retrying"');
@@ -65,8 +68,15 @@ test("the line reads Thinking again once the model answers, timed without the re
   expect(words(drawn(line, user.at + 469_000))).toBe("Thinking 29s");
 });
 
-test("a busy model waits for capacity, its 529 only in the tooltip", () => {
+test("a busy model waits for capacity, its count and 529 only in the tooltip", () => {
   const html = drawn(liveLine(snapshotRows("retrying-busy")), Date.now());
-  expect(words(html)).toBe("Waiting for capacity · retrying (2 of 10)");
-  expect(html).toContain('title="529 overloaded error"');
+  expect(words(html)).toBe("Waiting for capacity");
+  expect(html).toContain('title="retrying (2 of 10) · 529 overloaded error"');
+});
+
+test("a retry that goes through within a few seconds draws nothing new", () => {
+  const line = liveLine(snapshotRows("retrying-with-error"));
+  // Three seconds into the retries the line still reads as it did; past the bound it says so.
+  expect(words(drawn(line, line.retryAt! + 3_000))).not.toContain("unavailable");
+  expect(words(drawn(line, line.retryAt! + 10_000))).toBe("Model API unavailable, retrying…");
 });

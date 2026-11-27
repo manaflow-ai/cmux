@@ -60,7 +60,7 @@ export function useConnectionQuiet(down: boolean): boolean {
 
 /// Settings > Advanced > Experiments > Quiet Connections (`experiments.quietConnect`, off by default; Leo,
 /// 2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to easily toggle" it). On, the
-/// surfaces below (a subagent's or sub-session's retry, a connector's connect, "Can't reach the model", the guest
+/// surfaces below (a subagent's or sub-session's retry, a connector's connect, the guest
 /// and Chief pages' Connecting/Reconnecting) wait out `CONNECTION_QUIET_MS`; off, they say so at once, as before.
 export const QUIET_CONNECT_SWITCH = "quietConnect";
 
@@ -115,13 +115,16 @@ export function useConnectionQuietKeys(now: () => number = Date.now): Connection
 
 /// `useConnectionQuiet` for a state whose start the data knows (`since`, on the `now` clock): true once `down` has
 /// held for `CONNECTION_QUIET_MS` since then, so a state that began before the view drew shows as soon as it has
-/// lasted, not 10 s after the view. Without `since` the bound counts from when this view first saw it down.
+/// lasted, not 10 s after the view. Without `since` the bound counts from when this view first saw it down. A bound
+/// the data names (`boundMs`: acpmux's `showAfterMs` on a model retry) is waited whatever Quiet Connections says.
 export function useConnectionQuietFrom(
   down: boolean,
   since: number | undefined,
   now: () => number = Date.now,
+  boundMs?: number,
 ): boolean {
-  const grace = useQuietConnectGrace();
+  const switchGrace = useQuietConnectGrace();
+  const grace = boundMs === undefined ? switchGrace : defaultGrace <= 0 ? 0 : boundMs;
   const [, redraw] = useState(0);
   const seen = useRef<number | undefined>(undefined);
   if (!down) seen.current = undefined;
