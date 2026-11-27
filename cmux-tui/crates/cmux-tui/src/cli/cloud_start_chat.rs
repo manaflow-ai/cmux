@@ -87,6 +87,7 @@ const TAKES_VALUE: &[&str] = &[
     "--from-folder",
     "--environment",
     "--account",
+    "--connection",
     "--name",
     "--target",
     "--timeout",
@@ -129,6 +130,9 @@ pub(super) struct Request {
     /// nothing starts unless the app is signed in to that account, and the prompt goes only to a
     /// machine that account's list shows. The daemon's sandboxed Runs pass the Run's own.
     pub account: Option<String>,
+    /// `--connection ID`: the local Cloud model connection used by the agent launch, independent
+    /// of the Cloud account scope in `--account`.
+    pub connection: Option<String>,
     pub machine: Machine,
     pub wait: bool,
     pub timeout: Duration,
@@ -255,6 +259,7 @@ pub(super) fn send_existing(
         from_folder: None,
         environment: None,
         account: None,
+        connection: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait,
         timeout: timeout.unwrap_or(DEFAULT_TIMEOUT).min(MAX_TIMEOUT),
@@ -374,6 +379,7 @@ pub(super) fn wait_on(
         timeout: timeout.min(MAX_TIMEOUT),
         make_room: false,
         account: None,
+        connection: None,
         until: None,
         allow_large: false,
         timings: false,
@@ -556,6 +562,7 @@ pub(super) fn parse(
     let mut from_folder = None;
     let mut environment = None;
     let mut account = None;
+    let mut connection = None;
     let mut name = None;
     let mut target = None;
     let mut wait = false;
@@ -596,6 +603,7 @@ pub(super) fn parse(
             "--from-folder" => from_folder = Some(value()?),
             "--environment" => environment = Some(value()?),
             "--account" => account = Some(value()?),
+            "--connection" => connection = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
             "--timeout" => {
@@ -669,6 +677,9 @@ pub(super) fn parse(
     if account.as_deref().is_some_and(|scope| !scope.starts_with("user:")) {
         return Err(UsageError::new("--account user:ID|team:ID or user:ID|personal"));
     }
+    if connection.as_deref().is_some_and(|id| !valid_connection_id(id)) {
+        return Err(UsageError::new("--connection CONNECTION: a valid Cloud connection id"));
+    }
     if environment.is_some() && target.is_some() {
         return Err(UsageError::new(
             "--environment makes a new machine; not with --target, whose environment is set",
@@ -699,6 +710,7 @@ pub(super) fn parse(
         from_folder,
         environment,
         account,
+        connection,
         machine,
         wait,
         timeout,
@@ -713,6 +725,11 @@ pub(super) fn parse(
 /// Refused: `--no-folder` with a folder.
 pub(super) const NO_FOLDER_WITH_FOLDER: &str = "--no-folder starts the chat in a fresh folder of its own on the machine; not with --cwd or \
      --from-folder";
+
+fn valid_connection_id(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b".-_:@".contains(&byte))
+}
 
 /// `--effort`'s or `--mode`'s word: 1 to 64 letters, digits, `.`, `_` or `-`, not starting with
 /// `-` (the ids harnesses give their efforts and modes: `high`, `xhigh`, `acceptEdits`, `plan`).
@@ -1059,6 +1076,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if let Some(model) = &request.model {
         words.push(format!("--model {}", shell_quote(model)));
+    }
+    if let Some(connection) = &request.connection {
+        words.push(format!("--connection {}", shell_quote(connection)));
     }
     if let Some(effort) = &request.effort {
         words.push(format!("--effort {}", shell_quote(effort)));
@@ -1834,6 +1854,9 @@ fn steps(
     if let Some(model) = &request.model {
         start.extend(["--model".to_owned(), model.clone()]);
     }
+    if let Some(connection) = &request.connection {
+        start.extend(["--connection".to_owned(), connection.clone()]);
+    }
     if let Some(cwd) = &request.cwd {
         start.extend(["--cwd".to_owned(), cwd.clone()]);
     }
@@ -2366,6 +2389,7 @@ pub(super) fn send(
         from_folder: None,
         environment: None,
         account: None,
+        connection: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait: false,
         timeout: DEFAULT_TIMEOUT,

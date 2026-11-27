@@ -85,11 +85,11 @@ import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
 import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
-import { untilAcpmuxTakesSends, paneSends } from "../sendWhenReady";
+import { paneSends, untilAcpmuxTakesSends } from "../sendWhenReady";
 import { keptAttachments, postComposerFilled } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
-import type { AutoRow, RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
+import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
 import type { MachineHarnessCheck } from "../machineHarnesses";
@@ -337,7 +337,12 @@ export type PaneComposerDeps = {
   shellRuns: ShellRuns;
   sandbox: SandboxTab;
   sandboxNotNow: "sandbox_spent" | "unavailable_now";
-  startSandbox: (text: string, attachmentCount: number, harness: string | undefined) => string | boolean;
+  startSandbox: (
+    text: string,
+    attachmentCount: number,
+    harness: string | undefined,
+    connection?: string,
+  ) => string | boolean;
   setCloudWaking: React.Dispatch<React.SetStateAction<boolean>>;
   trustHeld: ReturnType<typeof useTrustHeldPrompts>;
   trustHeldCwd: string | undefined;
@@ -1249,7 +1254,12 @@ export function drawPaneComposer({
                 return false;
               }
               if (sandboxing) {
-                const started = startSandbox(text, chips?.length ?? 0, composerSnapshot.summary?.harness);
+                const started = startSandbox(
+                  text,
+                  chips?.length ?? 0,
+                  composerSnapshot.summary?.harness,
+                  composerSnapshot.summary?.route,
+                );
                 if (typeof started !== "string") return started;
                 // Refused here: the chat view says why and the composer keeps the prompt.
                 sandbox.refuse(text, started);

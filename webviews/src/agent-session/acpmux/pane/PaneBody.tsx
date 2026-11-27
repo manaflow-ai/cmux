@@ -265,7 +265,12 @@ export type PaneBodyDeps = NewTabShown &
     cloudRetryFolder: React.RefObject<{ cwd: string } | { home: true } | undefined>;
     sendToCloud: SendToCloud;
     sandboxing: boolean;
-    startSandbox: (text: string, attachmentCount: number, harness: string | undefined) => string | boolean;
+    startSandbox: (
+      text: string,
+      attachmentCount: number,
+      harness: string | undefined,
+      connection?: string,
+    ) => string | boolean;
     sandboxNotNow: "sandbox_spent" | "unavailable_now";
     newTabSandboxSent: React.RefObject<boolean>;
     heldBack: React.RefObject<{ text: string; attachments: ComposerAttachment[] }[] | undefined>;
@@ -1038,7 +1043,9 @@ export function drawPaneBody({
                           // A sandbox is another machine, with no Computer Use tools (cmux#48541).
                           if (holdsForComputerUseSetup(text, true, "machine")) return false;
                           // Only a run this tab can make goes: a Sandboxed pick left over once a session opened here is refused.
-                          const started = sandboxing ? startSandbox(text, attachments.length, harness) : sandboxNotNow;
+                          const started = sandboxing
+                            ? startSandbox(text, attachments.length, harness, composerSnapshot.summary?.route)
+                            : sandboxNotNow;
                           if (started !== false) newTabSandboxSent.current = true;
                           if (typeof started !== "string") return started;
                           heldBack.current = [...(heldBack.current ?? []), { text, attachments }];

@@ -348,14 +348,14 @@ public struct CloudDaemon: Sendable {
         return copy
     }
 
-    func sandboxSnapshot(task: String, agent: String?, timeoutMs: Int, key: String, incognito: Bool, deadline: ContinuousClock.Instant,
+    func sandboxSnapshot(task: String, agent: String?, connection: String?, timeoutMs: Int, key: String, incognito: Bool, deadline: ContinuousClock.Instant,
                                  now: @Sendable () -> ContinuousClock.Instant, follow: (@Sendable (String) async throws -> Data)?) async throws -> Data {
         // The create and its retry go with one account's credentials, read once.
         let credentials: (access: String, refresh: String)
         do { credentials = try await tokens() } catch { throw CloudAPIError.notSignedIn }
         var pinned = self
         pinned.tokens = { credentials }
-        let create = { try await pinned.createSandboxRun(task: task, agent: agent, timeoutMs: timeoutMs, idempotencyKey: key,
+        let create = { try await pinned.createSandboxRun(task: task, agent: agent, connection: connection, timeoutMs: timeoutMs, idempotencyKey: key,
                                                                    incognito: incognito) }
         let createdData: Data
         do {

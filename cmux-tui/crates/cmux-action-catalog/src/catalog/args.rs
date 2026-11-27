@@ -397,6 +397,8 @@ pub const HARNESS_2: Argument = Argument { name: "harness", title: t("ActionCata
 #[rustfmt::skip]
 pub const MODEL: Argument = Argument { name: "model", title: t("ActionCatalog", "argument.agent.model", "Model"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const CONNECTION: Argument = Argument { name: "connection", title: t("Localizable", "argument.connection", "Connection"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const HOST: Argument = Argument { name: "host", title: t("Localizable", "argument.agent.host", "Session Host"), kind: ArgKind::Target("machine"), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 /// An acpmux session of this machine, by id; the palette lists them from acpmux `session/list`
 /// (newest first, by title), as `agent open` and `agent open-tab` take them.

@@ -217,14 +217,14 @@ public nonisolated struct AgentPaneCloudRepick: Sendable, Equatable {
 struct AgentPaneHandOff {
     let model: AgentPaneModel
 
-    func sandbox(task: String, agent: String?, key: String) async -> [String: Any] {
+    func sandbox(task: String, agent: String?, key: String, connection: String?) async -> [String: Any] {
         guard let run = model.onSandboxRun else { return AgentPaneModel.unsupported("sandbox.run") }
         // Read as the send is issued, before `held` waits on the send line: the tab may close by then (#31109).
         let incognito = model.sendIsIncognito?() ?? true
         return await held("sandbox.run") { replacements in
             await model.sandboxRuns.run(task: task, key: key) {
                 defer { replacements.endSandbox() }
-                return await run(task, agent, key, incognito)
+                return await run(task, agent, key, connection, incognito)
             }
         }
     }

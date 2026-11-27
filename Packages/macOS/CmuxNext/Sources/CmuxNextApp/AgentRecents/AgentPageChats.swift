@@ -33,7 +33,7 @@ final class AgentPageChats {
     /// run with no state folder, where New Tab pages list none.
     var environments: (any AgentPaneEnvironmentStoring)?
     /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
-    var sandboxRun: (@MainActor (String, String?, String, Bool) async -> [String: Any])?
+    var sandboxRun: (@MainActor (String, String?, String, String?, Bool) async -> [String: Any])?
     /// The signed-in person's platform environment API, through the existing install mint and Rust transport.
     var cloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
     var cloudReservation: (@MainActor (AgentPaneCloudReservationRequest) async -> [String: Any])?
@@ -185,7 +185,7 @@ final class AgentPageChats {
         handoffs.start()
         tabs.pageChats.handoffTurn = CloudHandoffTurnOpener.runner(tabs, services: services)
         tabs.pageChats.forkFirst = CloudHandoffTurnOpener.forkFirst(tabs, services: services)
-        tabs.pageChats.sandboxRun = { [weak services] task, agent, key, incognito in
+        tabs.pageChats.sandboxRun = { [weak services] task, agent, key, connection, incognito in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             // Cloud turned off by policy, or the managed team it requires missing: a definite
             // refusal, nothing was asked of the server.
@@ -200,7 +200,7 @@ final class AgentPageChats {
             let follow: @Sendable (String) async throws -> Data = { id in
                 try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }
-            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, incognito: incognito, follow: follow) },
+            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, connection: connection, idempotencyKey: key, incognito: incognito, follow: follow) },
                                                 code: AgentPageChats.sandboxCode)
         }
     }

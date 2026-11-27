@@ -59,6 +59,11 @@ const ERROR_MAX_CHARS: usize = 500;
 pub const AGENTS: [&str; 4] = ["claude", "codex", "opencode", "pi"];
 pub const DEFAULT_AGENT: &str = "codex";
 
+fn connection_id(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b".-_:@".contains(&byte))
+}
+
 /// Whether `task` (already trimmed) is a Run's task: 1 to [`TASK_MAX_CHARS`] characters. Characters
 /// as the composer and classic Cloud count them (grapheme clusters, Swift's `count`), never bytes,
 /// Unicode scalars or UTF-16 units: a decomposed "é" or a ZWJ family emoji is one (#39022 review at
@@ -87,6 +92,8 @@ pub struct Task {
     /// The Run's account ([`account_scope`]): the start and the send happen only while the app is
     /// signed in to it, and only on a machine its list shows.
     pub account: String,
+    /// The selected local model connection used by the agent launch, independent of `account`.
+    pub connection: Option<String>,
 }
 
 /// Whose a `cloud list-machines` answer is: `user:<id>|team:<id>` or `user:<id>|personal`. `None`
@@ -203,6 +210,9 @@ struct Run {
     /// The scope (`team`) and the caller's idempotency key.
     key: String,
     digest: String,
+    /// The selected local model connection used by the agent launch.
+    #[serde(default)]
+    connection: Option<String>,
     agent: String,
     timeout_ms: i64,
     machine_name: String,
@@ -543,9 +553,22 @@ impl Engine {
         let account = self.check_account(args)?;
         let scoped = format!("{account}\u{0}{key}");
         let suffix = format!("\u{0}{key}");
-        let digest = hex(&Sha256::digest(
-            serde_json::to_vec(&json!([task, agent, timeout_ms])).unwrap_or_default(),
-        ));
+        let connection = optional_text(args, "connection").map(str::to_owned);
+        if connection.as_deref().is_some_and(|value| !connection_id(value)) {
+            return Err(refused(
+                400,
+                "run_connection_invalid",
+                "connection: a valid Cloud connection id",
+            ));
+        }
+        // Keep the pre-connection digest for callers that do not select a connection. Runs
+        // persisted before this field existed must still accept an idempotent retry after an
+        // upgrade. A selected connection is part of the key's body and gets the new format.
+        let digest_input = match connection.as_deref() {
+            Some(connection) => json!([task, agent, connection, timeout_ms]),
+            None => json!([task, agent, timeout_ms]),
+        };
+        let digest = hex(&Sha256::digest(serde_json::to_vec(&digest_input).unwrap_or_default()));
         let mut state = self.lock();
         // The key made a Run under another account (its answer lost, then a switch before the
         // retry): never a second Run under this one, which would take the first account's task.
@@ -569,6 +592,7 @@ impl Engine {
             id: id.clone(),
             key: scoped,
             digest,
+            connection,
             agent: agent.to_owned(),
             timeout_ms,
             machine_name: format!("{MACHINE_PREFIX}{id}"),
@@ -638,6 +662,7 @@ impl Engine {
                     agent: run.agent.clone(),
                     timeout: Duration::from_millis(u64::try_from(run.timeout_ms).unwrap_or(0)),
                     account: run.scope.clone().unwrap_or_default(),
+                    connection: run.connection.clone(),
                 };
                 self.save(&state);
                 self.changed.notify_all();
