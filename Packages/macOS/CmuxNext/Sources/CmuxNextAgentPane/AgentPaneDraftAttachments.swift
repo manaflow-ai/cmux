@@ -174,6 +174,15 @@ public final class AgentPaneDraftAttachments {
             if previous == nil { try? manager.removeItem(at: folder) }
             throw Failure.write(folder)
         }
+        // A new image, document or recording without bytes has historically been ignored when it
+        // was the first draft the host saw. Once a valid draft exists, silently dropping such a
+        // chip would replace that draft with an incomplete list, so reject the whole replacement.
+        let requested = Set(attachments.map(\.id))
+        let retained = Set(bytes.attachments.map(\.id)).union(Set(bytes.files.keys))
+        if previous != nil, !requested.isSubset(of: retained) {
+            removeUncommittedFiles()
+            throw Failure.write(folder)
+        }
         guard let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder, kept: kept?.texts ?? [:], failOnMissingKept: true) else {
             removeUncommittedFiles()
             if previous == nil { try? manager.removeItem(at: folder) }

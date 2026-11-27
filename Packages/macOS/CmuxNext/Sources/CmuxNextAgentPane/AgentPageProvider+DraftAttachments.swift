@@ -15,7 +15,9 @@ extension AgentPageProvider {
         }
         let store = AgentPaneDraftAttachments.shared
         if method == "chat.draftAttachments.get" {
-            guard let store else { return .array([]) }
+            guard let store else {
+                throw PageError.unavailable("draft attachment storage is unavailable")
+            }
             let kept: [AgentPaneWakeState.Attachment]
             do {
                 kept = try await store.attachments(for: session)
@@ -25,7 +27,9 @@ extension AgentPageProvider {
             return await Task.detached { AgentPaneDraftAttachments.json(kept) }.value
         }
         guard let list = body["attachments"], case .array = list else { throw PageError.invalidParams(op) }
-        guard let store else { return .object(["held": .array([])]) }
+        guard let store else {
+            throw PageError.unavailable("draft attachment storage is unavailable")
+        }
         let held: [String]?
         do {
             held = try await store.keep(list, for: session)

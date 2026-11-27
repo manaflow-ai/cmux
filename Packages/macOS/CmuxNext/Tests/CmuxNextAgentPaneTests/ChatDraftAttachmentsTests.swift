@@ -131,10 +131,12 @@ struct ChatDraftAttachmentsTests {
         #expect(try await Self.kept("s-1").map(\.id) == ["shot-2"])
 
         // An image the host has no contents for (never sent, its file gone) is not brought back empty,
-        // and the host says it holds none, so the page sends its contents next time.
-        #expect(try await Self.keep([Self.chip(3, contents: false)], for: "s-1").isEmpty)
-        #expect(try await Self.kept("s-1").isEmpty)
-        #expect(!FileManager.default.fileExists(atPath: folder.path))
+        // and the host says it holds none, so the page sends its contents next time. With no prior
+        // draft this remains the compatibility no-op for a byte-less new chip.
+        let emptyFolder = try #require(store.folder(for: "s-empty"))
+        #expect(try await Self.keep([Self.chip(3, contents: false)], for: "s-empty").isEmpty)
+        #expect(try await Self.kept("s-empty").isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: emptyFolder.path))
     }
 
     @Test func duplicateAttachmentIdsKeepOnlyTheLatestChip() async throws {
@@ -357,6 +359,51 @@ struct ChatDraftAttachmentsTests {
         let back = try await Self.kept("s-held")
         #expect(back.map(\.id) == ["shot-1"])
         #expect(back.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(1))
+    }
+
+    /// A new required payload without bytes cannot replace a valid draft with an incomplete list.
+    /// The first-write compatibility case for an unheld, byte-less chip remains covered above.
+    @Test func aMissingNewPayloadDoesNotReplaceTheExistingDraft() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AgentPaneDraftAttachments(directory: directory)
+        AgentPaneDraftAttachments.shared = store
+        #expect(try await Self.keep([Self.chip(1)], for: "s-new") == ["shot-1"])
+
+        do {
+            _ = try await Self.keep([Self.chip(1, contents: false), Self.chip(2, contents: false)], for: "s-new")
+            Issue.record("the missing new payload was silently dropped")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.agent.draft_attachments.write_failed")
+            #expect(error.retryable)
+        }
+
+        let back = try await Self.kept("s-new")
+        #expect(back.map(\.id) == ["shot-1"])
+        #expect(back.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(1))
+    }
+
+    @Test func unavailableStorageCannotAcknowledgeOrClearDraftAttachments() async throws {
+        AgentPaneDraftAttachments.shared = nil
+        defer { AgentPaneDraftAttachments.shared = nil }
+
+        do {
+            _ = try await Self.call("chat.draftAttachments.get", ["sessionId": .string("s-unavailable")])
+            Issue.record("unavailable storage was reported as an empty draft")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.protocol.unavailable")
+            #expect(error.retryable)
+        }
+        do {
+            _ = try await Self.call("chat.draftAttachments", ["sessionId": .string("s-unavailable"), "attachments": .array([])])
+            Issue.record("unavailable storage acknowledged an empty replacement")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.protocol.unavailable")
+            #expect(error.retryable)
+        }
     }
 
     @Test func badCallsAreRefused() async throws {
