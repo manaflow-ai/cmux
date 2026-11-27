@@ -1,28 +1,26 @@
 import AppKit
 import CmuxNextDesign
 
-// Icons that carry no news stay out of sight until the pointer is on the bar or the bar has the keyboard (Lawrence
-// 2026-11-21, "drastically simplify all parts of the UI"): the site-info chip of a secure page and the hollow star of a
-// page not bookmarked. They keep their room, faded to clear, so their coming and going moves no text. A page that is not
-// secure keeps its "Not secure" chip, and a bookmarked page its filled star.
+// The site-info chip and the bookmark star show at full strength by default (https://github.com/manaflow-ai/cmux/issues/50986).
+// They used to fade to clear at rest and in on hover or focus (Lawrence 2026-11-21, "drastically simplify"): a person saw
+// no star until they pointed at the bar, then a white one after bookmarking, and read the bar as broken ("unless i focus
+// on it i see it.. otherwise its not there"). Leo asked for them hidden again (2026-11-22, "fucking hide it along with the
+// favouite/left side "stuff" about icon"), so the fade is back behind `browser.omnibar.quietIcons`, off by default.
+//
+// The profile avatar is not in the bar at all (Leo 2026-11-22, "why do we have the profile icon here if it's always
+// visible ... move it outside the omnibar"): it is the toolbar's profile button, at the toolbar's right.
 extension AddressBarView {
-    /// The site-info chip says nothing a person needs at rest: a secure web page's neutral icon, with no label.
-    var chipIsQuiet: Bool {
-        chip.indicator.symbol == PageInfoIndicator.secureSymbol && chip.indicator.label == nil && chip.indicator.tone == .neutral
+    /// The chip and the star show: always, unless `browser.omnibar.quietIcons` is on; then only while the bar is
+    /// hovered or focused.
+    var showsQuietIcons: Bool {
+        !suggestionEngine.display.quietIcons || pill.debugHovering || controller.state.hasFocus
     }
 
-    /// The star says nothing a person needs at rest: the page is not bookmarked.
-    var starIsQuiet: Bool { starButton.state == .off }
-
-    /// Whether the quiet icons show: the pointer is on the bar, or the bar has the keyboard.
-    var showsQuietIcons: Bool { pill.debugHovering || controller.state.hasFocus }
-
-    /// Fades the quiet icons in or out; `fade` nil sets them at once (a page or focus change).
+    /// Every path that can change the quiet icons (a page, focus, hover, bookmark or the setting) lands here; `fade`
+    /// animates a hover change, nil snaps.
     func updateQuietIcons(fade: MotionFade?) {
-        let shown = showsQuietIcons
-        for (view, quiet) in [(chip as NSView, chipIsQuiet), (starButton as NSView, starIsQuiet)] {
-            let alpha: CGFloat = quiet && !shown ? 0 : 1
-            guard view.alphaValue != alpha else { continue }
+        let alpha: CGFloat = showsQuietIcons ? 1 : 0
+        for view in [chip as NSView, starButton as NSView] where view.alphaValue != alpha {
             if let fade {
                 Motion.feedback.animate(fade, in: view) { view.animator().alphaValue = alpha }
             } else {

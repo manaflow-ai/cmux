@@ -42,6 +42,10 @@ extension OnboardingStrings {
         String(format: String(localized: "onboarding.computerUse.panel.drag",
                               defaultValue: "Drag %1$@ to the list above to allow %2$@", bundle: .localizedModule), helper, grant)
     }
+    /// The drag panel's second line: a dropped helper lands switched off in the list.
+    static var computerUseTurnOn: String {
+        String(localized: "onboarding.computerUse.panel.turnOn", defaultValue: "Then turn it on.", bundle: .localizedModule)
+    }
     /// No Developer ID signed helper (a dev build): the fix is a release helper.
     static var computerUseHelperUnavailable: String {
         String(localized: "onboarding.computerUse.helper.unavailable",
@@ -58,6 +62,7 @@ extension OnboardingStrings {
                defaultValue: "Computer Use helper version mismatch. Update cmux NIGHTLY and this build.", bundle: .localizedModule)
     }
     static var computerUseHelperFailed: String {
+        // retry-prompt-ok: restarting the helper ends its running session; the person chooses it
         String(localized: "onboarding.computerUse.helper.failed",
                defaultValue: "The cmux Computer Use helper did not respond. Restart the helper to try again.", bundle: .localizedModule)
     }

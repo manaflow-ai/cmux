@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 use cmux_projection::link::{Source, answer_asks};
 use cmux_projection::manifest::{Item, Kind, Manifest};
 use cmux_projection::wire::{self, Part};
+use cmux_projection::{Fetch, FetchError};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -322,6 +323,54 @@ fn relay(
 
 // --- mount: the machine -------------------------------------------------------------------------
 
+/// Bench only: a [`Fetch`] that times each ask (one `read` or `batch` call of the overlay) and
+/// appends one JSON line per ask: its start and answer times (seconds since the epoch, the clock
+/// the bench script reads), its kind and the paths it asked for.
+struct Timed {
+    link: Arc<cmux_projection::link::Link>,
+    manifest: Arc<Manifest>,
+    log: std::fs::File,
+}
+
+fn epoch() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |since| since.as_secs_f64())
+}
+
+impl Timed {
+    fn record(&self, kind: &str, entries: &[u32], start: f64) {
+        let paths: Vec<String> =
+            entries.iter().map(|entry| self.manifest.path_of(*entry)).collect();
+        let line = format!(
+            "{{\"kind\":\"{kind}\",\"start\":{start:.6},\"end\":{:.6},\"n\":{},\"paths\":{paths:?}}}\n",
+            epoch(),
+            entries.len()
+        );
+        let _ = (&self.log).write_all(line.as_bytes());
+    }
+}
+
+impl Fetch for Timed {
+    fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
+        let start = epoch();
+        let answer = self.link.read(entry, offset, len);
+        self.record("read", &[entry], start);
+        answer
+    }
+
+    fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+        let start = epoch();
+        let answers = self.link.batch(entries);
+        self.record("batch", entries, start);
+        answers
+    }
+
+    fn cache(&self) -> bool {
+        self.link.cache()
+    }
+}
+
 #[cfg(not(target_os = "linux"))]
 fn mount(_args: &[String]) -> anyhow::Result<()> {
     anyhow::bail!("projected folders mount on Linux only")
@@ -353,12 +402,47 @@ fn mount(args: &[String]) -> anyhow::Result<()> {
     let decode_ms = ms(decoding);
     let entries = manifest.len();
     let mounting = Instant::now();
+    let manifest = Arc::new(manifest);
     let link = Arc::new(Link::default());
     let serving = link.clone();
     let reader = stream.try_clone()?;
     std::thread::spawn(move || serving.serve(reader, stream));
+    // Bench only: with SLICE_ASK_LOG set, every ask the overlay makes is timed into that file.
+    let fetch: Arc<dyn Fetch> = match std::env::var_os("SLICE_ASK_LOG") {
+        Some(path) => Arc::new(Timed {
+            link,
+            manifest: manifest.clone(),
+            log: std::fs::OpenOptions::new().create(true).append(true).open(path)?,
+        }),
+        None => link,
+    };
     let owner = (linux::uid(), linux::gid());
-    let overlay = Arc::new(Overlay::open(Arc::new(manifest), Path::new(state), link, owner)?);
+    let overlay = Overlay::open(manifest, Path::new(state), fetch, owner)?;
+    // Bench only: with SLICE_REPLAY=KEY the mount records its access list under KEY and fetches
+    // the last one ahead in the background (RFD 0065 piece 8).
+    let overlay = Arc::new(match std::env::var("SLICE_REPLAY") {
+        Ok(key) if !key.is_empty() => overlay.with_replay(&key),
+        _ => overlay,
+    });
+    if !overlay.replay_list().is_empty() {
+        let replaying = overlay.clone();
+        std::thread::spawn(move || {
+            let report = replaying.replay_prefetch();
+            eprintln!("replay: {report:?}");
+        });
+    }
+    // Bench only: SLICE_BULK=1 copies the rest of the tree behind the mount (RFD 0065 piece 11).
+    if std::env::var_os("SLICE_BULK").is_some_and(|value| value == "1") {
+        let copying = overlay.clone();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            let report = copying.bulk_copy(
+                &cmux_projection::overlay::bulk::BulkOptions::default(),
+                &std::sync::atomic::AtomicBool::new(false),
+            );
+            eprintln!("bulk: {report:?} in {:.1} s", started.elapsed().as_secs_f64());
+        });
+    }
     let at = std::fs::canonicalize(at)?;
     let mounted = cmux_projection::mount::mount_with(overlay.clone(), &at, Options::default())?;
     std::fs::metadata(&at)?;

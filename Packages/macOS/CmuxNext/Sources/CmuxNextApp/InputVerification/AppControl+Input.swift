@@ -17,6 +17,7 @@ extension AppControl {
     static func debugMouseMethod(_ services: AppServices) -> ControlMethod {
         ControlMethod.mainActor("debug.mouse") { [weak services] call in
             guard let services else { return .value(.null) }
+            if let refusal = DebugDialog.syntheticInputRefusal(onlyCancels: false) { return .value(refusal) }
             return .value(DebugMouse.send(call.params, services: services))
         }.leavingSnapshotFresh()
     }
@@ -63,7 +64,7 @@ extension AppControl {
             .mainActor("debug.home.sidebar_fixture") { [weak services] call in
                 .value(services.map { DebugHomeSidebarFixture.handle(call.params, services: $0) } ?? .null)
             },
-            // Fixture Chief subagents under the sidebar's top Chief row (captures of their rows and task counts).
+            // Fixture Chief subagents under the sidebar's top Chief row (captures of their rows).
             .mainActor("debug.chief.subagent_fixture") { call in .value(.number(Double((try? AgentLaneStore.chief.applyDebugChiefSubagents(json: JSONEncoder().encode(call.params))) ?? -1))) }, // main-actor-ok: DEBUG fixture params, a few rows
             .mainActor("debug.tab_drag") { [weak services] _ in .value(services.map { DebugTabDrag.report(services: $0) } ?? .null) },
         ])

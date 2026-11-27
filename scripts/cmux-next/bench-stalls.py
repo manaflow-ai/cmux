@@ -52,6 +52,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
+from state_wait import StateWaitTimeout, wait_stable  # noqa: E402
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 
@@ -207,7 +208,22 @@ class Run:
             if "first_terminal_surface_created" in launch and "first_window_frame_committed" in launch:
                 break
             time.sleep(0.1)
-        time.sleep(2.0)  # let the first frames and deferred idle work run
+        # The first frames and deferred idle work have run once the main thread drew no slow frame for 1 s.
+        self.wait_quiet(1.0, timeout=20)
+
+    def wait_quiet(self, quiet_s, timeout=10):
+        """Wait until debug.hangs records no new slow frame or stall for `quiet_s` (best-effort; logs on timeout)."""
+        def counters():
+            hangs = self.result("debug.hangs")
+            return hangs.get("frames_over_8_3ms"), len(hangs.get("records", [])), hangs.get("max_gap_ms")
+        interval = 0.05
+        try:
+            return wait_stable(counters, "the main thread quiet", timeout=timeout, interval=interval,
+                               reads=max(2, int(quiet_s / interval) + 1))
+        except StateWaitTimeout:
+            print(f"warning: {self.tag}: the main thread never went quiet for {quiet_s:g} s within {timeout:g} s",
+                  file=sys.stderr, flush=True)
+            return None
 
     def stalls(self, hangs):
         out = []
@@ -221,10 +237,11 @@ class Run:
         """Clears the counters, runs `trigger`, waits `settle` seconds, reads them."""
         self.result("debug.hangs", {"clear": True})
         self.result("debug.timings", {"clear": True})
-        time.sleep(0.3)
+        # Work the clears themselves caused has drawn once the counters hold still for 0.3 s.
+        self.wait_quiet(0.3, timeout=5)
         self.result("debug.hangs", {"clear": True})
         response = trigger()
-        time.sleep(settle)
+        time.sleep(settle)  # sleep-ok: the fixed measurement window the hang and timing counters cover, same for every tag
         hangs = self.result("debug.hangs")
         timings = self.result("debug.timings")
         return {

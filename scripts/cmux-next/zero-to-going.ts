@@ -70,6 +70,7 @@ import {
   sleep,
   validLogin,
   waitMachine,
+  waitRunning,
 } from "./cloud-journey.ts";
 import type { StepKind } from "./vm-hassle.ts";
 
@@ -141,6 +142,9 @@ export const LEVELS: Record<Level, { title: string; section: string; steps: Leve
       { kind: "physical", by: "person", step: "finish the cmux sign-in in the browser", ops: "none" },
       { kind: "command", by: "person", step: "cmux whoami", ops: "none" },
       { kind: "command", by: "person", step: CHAT, ops: "chat" },
+      { kind: "physical", by: "person", step: "do the one thing the refusal names (a Cloud plan, a model connection or GitHub)", ops: "none", when: REFUSED },
+      { kind: "command", by: "person", step: "cmux cloud diagnostics", ops: "none", when: "the refusal does not say what is wrong" },
+      { kind: "command", by: "person", step: `${CHAT} (again)`, ops: "none", when: REFUSED },
     ],
   },
   chief: {
@@ -172,9 +176,12 @@ export const LEVELS: Record<Level, { title: string; section: string; steps: Leve
       { kind: "command", by: "agent", step: "cmux settings get mobile.allowIPhoneConnections", ops: "none" },
       { kind: "command", by: "agent", step: "cmux cloud open-mobile-pairing", ops: "none" },
       { kind: "physical", by: "person", step: "turn iPhone connections on", ops: "none", when: "they are off" },
-      { kind: "physical", by: "person", step: "install the cmux iPhone beta from its invite", ops: "none" },
+      { kind: "physical", by: "person", step: "install cmux on the iPhone (the app is in beta)", ops: "none" },
       { kind: "physical", by: "person", step: "sign in on the iPhone with the same cmux account", ops: "none" },
       { kind: "physical", by: "person", step: "allow the phone on the Mac when it asks", ops: "none" },
+      { kind: "command", by: "agent", step: CHAT, ops: "chat" },
+      { kind: "physical", by: "person", step: "on the iPhone, open that chat and send it one message", ops: "none" },
+      { kind: "command", by: "agent", step: "read the chat and show the agent's answer to the phone's message", ops: "none" },
     ],
   },
 };
@@ -187,7 +194,7 @@ export const NOT_TIMED: Record<Level, string> = {
   app: "every step is a click in the Mac app or a browser; no headless route drives New Cloud Chat",
   cli: "the install, app launch and the person's browser sign-in need a Mac and a person; `cmux whoami` needs the app's socket",
   chief: "Chief runs inside the Mac app; the install, the paste and the browser sign-in need a Mac and a person",
-  phone: "the iPhone app, its beta install and the pairing need a Mac and an iPhone",
+  phone: "the iPhone app, its beta install, the pairing and the message sent from the phone need a Mac and an iPhone",
 };
 
 export type Counts = { steps: number; command: number; wait: number; physical: number; by_person: number; conditional: number };
@@ -419,7 +426,7 @@ async function chatOp(ctx: Ctx): Promise<OpResult> {
   const v = await ctx.api.op("cloud.machine.create", { name: ctx.name, size: MACHINE_SIZE }, `${ctx.tag}-create-${randomUUID().slice(0, 8)}`);
   ctx.machine = String(v.machine.id);
   ctx.exec = directExec(ctx.api, ctx.machine, { secrets: ctx.secrets });
-  const m = await waitMachine(ctx.api, ctx.machine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+  const m = await waitRunning(ctx.api, ctx.machine, 300_000);
   const runningMs = Date.now() - t0;
   let lastError = "";
   let execOk = false;

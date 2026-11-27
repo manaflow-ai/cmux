@@ -209,6 +209,35 @@ public final class CEFEngine: BrowserEngine {
     /// The timed steps of Chromium's start in this process (`debug.cef`).
     public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
 
+    /// `startReport.launchMarks(now:)` plus the start's points before `CefInitialize` as `cef.step.<name>`
+    /// (`start_called`, `map_waited_first_frame`, `map_done`, `keychain_done`, `launch_prep_read`, `first_frame_waited`),
+    /// each once, to see which step holds `cef.initialize_start` back; and the first window's steps (see below).
+    ///
+    /// - Parameter now: Seconds since the process started, on the caller's clock.
+    /// - Returns: Each mark's name and its offset from now.
+    public func launchMarks(now: Double) -> [(name: String, offset: Double)] {
+        let uptime = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1e9
+        let steps: Set = ["start_called", "map_waited_first_frame", "map_done", "keychain_done", "launch_prep_read", "first_frame_waited"]
+        let marks = CEFStartSteps.shared.marks
+        let points = marks.filter { $0.milliseconds == 0 && steps.contains($0.name) }
+        let at: (CEFStartMark) -> Double = { Double($0.startUptimeNanos) / 1e9 - uptime }
+        var out = startReport.launchMarks(now: now) + points.map { ("cef.step." + $0.name, at($0)) }
+        // The first page's window build (make_tab, create_window, the pump runs until OnAfterCreated,
+        // first_window), each step's start and `_end`: what of chromium_page.make_start to
+        // browser_created is Chromium's window and what waits on the pump (restart-to-chat).
+        for name in ["make_tab", "create_window"] {
+            guard let step = marks.first(where: { $0.name == name }) else { continue }
+            out += [("cef.step." + name, at(step)), ("cef.step." + name + "_end", at(step) + step.milliseconds / 1_000)]
+        }
+        let pumps = marks.filter { $0.name == "pump" }
+        if let first = pumps.first, let longest = pumps.max(by: { $0.milliseconds < $1.milliseconds }) {
+            out += [("cef.step.pump_first", at(first)), ("cef.step.pump_longest", at(longest)),
+                    ("cef.step.pump_longest_end", at(longest) + longest.milliseconds / 1_000)]
+        }
+        if let window = marks.first(where: { $0.name == "first_window" }) { out.append(("cef.step.first_window", at(window))) }
+        return out
+    }
+
 
     /// The framework read before CefInitialize (`CEFFrameworkPrefetch`), `debug.cef`'s
     /// `prefetch` fields: bytes, files and milliseconds; nil before one ran. `map_ms` is the time
@@ -283,6 +312,15 @@ public final class CEFEngine: BrowserEngine {
 
     /// What the fork's page tracker read from host views (for `debug.cef`).
     @MainActor public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
+    /// The page work a divider drag's frame-timing work line reports (`TransitionFrameLog.workCounts`): running totals of
+    /// page window detaches and attaches and of resize fences made, joined, presented, missed and expired (goal
+    /// instant-splits, gap row 1). Integer reads only: no hosted page fields.
+    @MainActor public static var dragWorkCounts: [(String, Int)] {
+        let stats = CEFHostView.trackerStats
+        return [("detaches", stats.detaches), ("attaches", stats.attaches), ("fences", stats.resizeFences),
+                ("fence_joined", stats.resizeFenceJoined), ("fence_presented", stats.resizeFencePresented),
+                ("fence_missed", stats.resizeFenceMissed), ("fences_expired", stats.resizeFencesExpired)]
+    }
 
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:
@@ -397,7 +435,7 @@ public final class CEFEngine: BrowserEngine {
     /// `timeout` passes, commits the cookie stores, awaits `beforeEngineStop`
     /// right before the main thread blocks in CefShutdown, then calls it. The
     /// App awaits this from `applicationShouldTerminate`. No-op when CEF never started.
-    public func shutdown(timeout: Duration = .seconds(3), beforeEngineStop: @MainActor () async -> Void) async {
-        await CEFRuntime.shared.shutdown(timeout: timeout, beforeEngineStop: beforeEngineStop)
+    public func shutdown(timeout: Duration = .seconds(3), stopsEngine: Bool = true, beforeEngineStop: @MainActor () async -> Void) async {
+        await CEFRuntime.shared.shutdown(timeout: timeout, stopsEngine: stopsEngine, beforeEngineStop: beforeEngineStop)
     }
 }

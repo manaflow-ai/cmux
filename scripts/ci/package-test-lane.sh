@@ -127,14 +127,16 @@ case "${1:-}" in
     done
     ;;
   suite)
-    phase="$1"; suite_package="${2:-}"
+    phase="$1"; suite_package="${2:-}"; kit_package=cmux-next-ios/CmuxMobileKit
     if [ "$#" -lt 3 ]; then
       echo "usage: package-test-lane.sh suite PACKAGE_DIR FILTER[,FILTER...] [FILTER...]" >&2; exit 2
     fi
-    # A Packages/ path inside the checkout, and filters that are not options.
-    if ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] || [[ "$suite_package" == *..* ]] \
-      || [ ! -f "$suite_package/Package.swift" ]; then
-      echo "package-test-lane.sh: suite needs a package directory under Packages/ (got '$suite_package')" >&2; exit 2
+    # A Packages/ path inside the checkout (or the iPhone app's kit, cmux-next-ios/CmuxMobileKit), and filters that
+    # are not options. The kit had no Mac route but the simulator class (one Mac, a queue of 200 on 2026-11-24) and
+    # its GitHub job's macOS runner label, so its PRs' new tests waited hours; its macOS suites run here.
+    if { ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] && [ "$suite_package" != "$kit_package" ]; } \
+      || [[ "$suite_package" == *..* ]] || [ ! -f "$suite_package/Package.swift" ]; then
+      echo "package-test-lane.sh: suite needs a package directory under Packages/, or $kit_package (got '$suite_package')" >&2; exit 2
     fi
     shift 2
     suite_filters=()
@@ -290,29 +292,26 @@ PY
 
 # The packages this lane tests whole when a pull request changes one of their inputs. A Swift test
 # target no pull request check runs is listed with its reason in the swift-test-targets.json
-# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
+# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxUpdater
 # passed `suite` on an owned Mac at ccc9958672bf before they joined (CmuxChiefList at 777eb5a7d77f).
+# Mac-only: a package whose tests pass on Linux runs in swift-linux-packages.yml (the list or a whole-package
+# matrix group), never here as well. CmuxAuthRuntime and CmuxPhonePush run on Linux; the suites that
+# compile only on Apple platforms run in auth-refresh-tests.yml on a Mac.
 select_packages() {
   PACKAGES=(
-    CMUXAuthCore
-    CmuxAuthRuntime
-    CmuxChiefList
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
-    CmuxPhonePush
-    CmuxConnectivityTelemetry
-    CmuxDeviceHub
-    CmuxHomeCore
     CmuxHomeRender
     CmuxMobileBilling
     CmuxMobileSupport
     CmuxMobileTunnel
+    CmuxPushRegistration
     CmuxRemote
     CmuxScreenKit
-    CmuxTabsKit
     CmuxVNCWebRTC
     GlassHost
+    CmuxLiveCode
   )
 
   changed="$work/changed-files.txt"
@@ -655,9 +654,10 @@ run_package_tests() {
     package_args "$pkg" || return $? # 1: not found; 75: the resolve failed on the network (no verdict)
     case "$pkg" in
     # These packages have process-tree suites whose child fixtures
-    # share global process resources; run each suite in its own Swift
-    # Testing process.
-    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport)
+    # share global process resources (CmuxPushRegistration: its URLProtocol
+    # stubs, as when it was part of CmuxAuthRuntime); run each suite in its
+    # own Swift Testing process.
+    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport|CmuxPushRegistration)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
     *)
@@ -823,17 +823,28 @@ linux_suite_setup() {
 # finished for minutes until the watchdog ended it (fleet bd721902, 2026-11-15). A word that names no suite fails.
 expand_each_filters() {
   local package="$1" filter word list filters expanded=() found=() matched line suite
+  local discovery_status=0 discovery_log
+  list="$(mktemp -t swift-suite-list.XXXXXX)" filters="$(mktemp -t swift-suite-filters.XXXXXX)"
+  discovery_log="$(mktemp -t swift-suite-discovery.XXXXXX)"
+  SWIFT_BACKTRACE=enable=no python3 scripts/ci/run_with_timeout.py --timeout-seconds "${CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS:-300}" \
+    -- swift test list ${configuration[@]+"${configuration[@]}"} --package-path "$package" --skip-build \
+    < /dev/null > "$list" 2> "$discovery_log" || discovery_status=$?
+  if [ "$discovery_status" -ne 0 ]; then
+    cat "$discovery_log" >&2
+    exit "$discovery_status"
+  fi
+  python3 scripts/ci/require_swift_test_execution.py --list-filters "$list" > "$filters" 2> "$discovery_log" || discovery_status=$?
+  if [ "$discovery_status" -ne 0 ]; then
+    cat "$discovery_log" >&2
+    record_suite_outcome discovery "$discovery_status" "$discovery_log"
+    exit "$discovery_status"
+  fi
   for filter in "${suite_filters[@]}"; do
     [[ "$filter" == each:* ]] || { expanded+=("$filter"); continue; }
     if [ "$lane_os" = Linux ]; then
       echo "package-test-lane.sh: $filter runs on macOS only" >&2; exit 2
     fi
     word="${filter#each:}"
-    if [ -z "${list:-}" ]; then
-      list="$(mktemp -t swift-suite-list.XXXXXX)" filters="$(mktemp -t swift-suite-filters.XXXXXX)"
-      swift test list ${configuration[@]+"${configuration[@]}"} --package-path "$package" --skip-build < /dev/null > "$list"
-      python3 scripts/ci/require_swift_test_execution.py --list-filters "$list" > "$filters"
-    fi
     matched=0
     while IFS= read -r line; do
       suite="$(filter_label "$line")"
@@ -849,6 +860,16 @@ expand_each_filters() {
     echo "$filter: $matched suites, each in its own process"
   done
   suite_filters=("${expanded[@]}")
+  local requested=()
+  for filter in "${suite_filters[@]}"; do
+    requested+=("--require-filter=$(swift_filter "$filter")")
+  done
+  python3 scripts/ci/require_swift_test_execution.py --list-filters "$list" "${requested[@]}" > /dev/null 2> "$discovery_log" || discovery_status=$?
+  if [ "$discovery_status" -ne 0 ]; then
+    cat "$discovery_log" >&2
+    record_suite_outcome discovery "$discovery_status" "$discovery_log"
+    exit "$discovery_status"
+  fi
   # The suites each: found, one per line: one whose own traits skip all of it (an opt-in gallery or profile,
   # a display check) is "skipped", not "no result", since nobody named it; a named suite that runs nothing fails.
   printf '%s\n' ${found[@]+"${found[@]}"} > "$each_found"
@@ -898,9 +919,55 @@ require_display_screen() {
   exit 1
 }
 
+# CmuxMobileKit's binary target, Frameworks/CmuxMobileLinkFFI.xcframework, is gitignored and built from
+# cmux-next-ios/rust; SwiftPM loads no part of the package without it (macOS links none of it: its
+# dependents name it for iOS only). The worker's source-keyed cache (scripts/ci/ios_ffi_cache.py, the
+# simulator steps fill it) gives it in seconds; a miss builds it, as cmux-next-ios-kit.yml does.
+ensure_mobile_link_ffi() {
+  local xcf=cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+  local work key rc=0
+  [ ! -f "$xcf/Info.plist" ] || { echo "CmuxMobileLinkFFI.xcframework: present"; return 0; }
+  export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin"
+  work="$(mktemp -d "${TMPDIR:-/tmp}/kit-ffi.XXXXXX")"
+  key="$(python3 -I scripts/ci/ios_ffi_cache.py key "$PWD" "$work/inputs.json" 2>"$work/key.log")" || rc=$?
+  if [ "$rc" -eq 0 ] && [[ "$key" =~ ^[0-9a-f]{64}$ ]] \
+    && python3 -I scripts/ci/ios_ffi_cache.py restore "$PWD" "$key" >"$work/restore.log" 2>&1 && [ -f "$xcf/Info.plist" ]; then
+    echo "CmuxMobileLinkFFI.xcframework: cache hit ${key:0:12}"
+    return 0
+  fi
+  echo "::group::CmuxMobileLinkFFI.xcframework build (no cache entry)"
+  if ! JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh; then
+    echo "::endgroup::"
+    echo "::error title=CmuxMobileLinkFFI build failed::package-test-lane.sh: build-xcframework.sh failed; no kit test ran" >&2
+    exit 1
+  fi
+  echo "::endgroup::"
+}
+
+record_suite_outcome() {
+  local phase="$1" status="$2" log="${3:-}" arguments=()
+  [ -n "${suite_outcome_state:-}" ] || return 0
+  [ -z "$log" ] || arguments+=(--log "$log")
+  python3 scripts/ci/package-test-lane/swift_suite_outcomes.py record --state "$suite_outcome_state" \
+    --phase "$phase" --status "$status" ${arguments[@]+"${arguments[@]}"} || true
+}
+
 run_suite() {
+  local app_ffi_link=()
   if [ "$lane_os" = Linux ]; then
     linux_suite_setup
+    # CmuxNext's Linux shape links CCmuxAppFFI as libcmux_app_ffi.a built here (scripts/ci/app_ffi_linux.py).
+    if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+      local app_ffi_lib
+      echo "::group::libcmux_app_ffi.a for Linux"
+      if ! app_ffi_lib="$(python3 scripts/ci/app_ffi_linux.py build)"; then
+        echo "::endgroup::"
+        echo "::error title=CCmuxAppFFI build failed::package-test-lane.sh: scripts/ci/app_ffi_linux.py build failed; no CmuxNext test ran" >&2
+        exit 1
+      fi
+      echo "::endgroup::"
+      app_ffi_link=(-Xlinker -L -Xlinker "$app_ffi_lib")
+    fi
   else
     select_xcode
     echo "Xcode: $DEVELOPER_DIR"
@@ -909,9 +976,13 @@ run_suite() {
   if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
     ensure_ghosttykit
   fi
+  if [ "$suite_package" = cmux-next-ios/CmuxMobileKit ] && [ "$lane_os" != Linux ]; then
+    ensure_mobile_link_ffi
+  fi
   # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
   # user runs); @testable imports then need -enable-testing. The default stays debug.
-  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"}
+    ${app_ffi_link[@]+"${app_ffi_link[@]}"})
   # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
   # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
   # release suite build turns that one SIL pass off.
@@ -924,14 +995,50 @@ run_suite() {
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
-  case "$suite_package" in
-    Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
-      ensure_web_bundles ;;
-  esac
-  if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
-    ensure_cmux_tui_tree
+  local suite_outcome_state outcome_status=0 outcome_filter outcome_configuration outcome_args=()
+  suite_outcome_state="$(mktemp -t swift-suite-outcome.XXXXXX)"
+  for outcome_filter in "${suite_filters[@]}"; do
+    outcome_args+=("--filter=$outcome_filter")
+  done
+  for outcome_configuration in "${configuration[@]}"; do
+    outcome_args+=("--configuration=$outcome_configuration")
+  done
+  python3 scripts/ci/run_with_timeout.py --timeout-seconds 15 -- python3 scripts/ci/package-test-lane/swift_suite_outcomes.py check --state "$suite_outcome_state" --package "$suite_package" \
+    --lane-script "$lane_script" "${outcome_args[@]}" || outcome_status=$?
+  if { [ "$outcome_status" -eq 1 ] || [ "$outcome_status" -eq 2 ]; } && [ -s "${CMUX_CI_SUITE_FAILURE_FILE:-/dev/null}" ]; then
+    exit "$outcome_status"
+  fi
+  # On Linux, CmuxNext builds only its Linux shape (CMUX_SWIFTPM_TARGET_LINUX: targets that read
+  # neither the web bundles nor cmux-tui's daemon), and the swift container has no curl to fetch bun.
+  if [ "$lane_os" != Linux ]; then
+    case "$suite_package" in
+      Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
+        ensure_web_bundles ;;
+    esac
+    if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+      ensure_cmux_tui_tree
+    fi
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
+  # CMUX_SWIFT_TEST_PRODUCTS=fleet: run on the test bundles a fleet job built for this commit
+  # (scripts/ci/fleet-test-products.py) instead of building them here. Debug, unsanitized suites of a
+  # whole package only. When the fleet has no products (no verdict, a red build, an unreachable
+  # controller), this Mac builds them as it always has, and the log says so.
+  local fleet_products=0
+  if [ "${CMUX_SWIFT_TEST_PRODUCTS:-build}" = fleet ] && [ "$lane_os" != Linux ] \
+    && [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = debug ] && [ -z "${CMUX_SWIFT_SANITIZE:-}" ] \
+    && [ -z "${CMUX_SWIFT_TEST_DEBUG_INFO:-}" ]; then
+    echo "::group::fleet test products $suite_package"
+    local products_started=$SECONDS
+    if python3 scripts/ci/fleet-test-products.py "$suite_package"; then
+      fleet_products=1
+      echo "fleet test products: in place after $((SECONDS - products_started))s; this Mac builds nothing"
+    else
+      echo "::warning title=Fleet test products::$suite_package: no fleet test products for this commit; building them on this Mac"
+    fi
+    echo "::endgroup::"
+  fi
+  if [ "$fleet_products" != 1 ]; then
   swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   local build_log build_status=0
@@ -946,18 +1053,22 @@ run_suite() {
     swiftpm_purge_build_outputs "$scratch"
     swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
     build_status=0
-    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
+    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 | tee "$build_log" || build_status=$?
   elif [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
     echo "::warning title=Stale precompiled module::$suite_package: the warm build read a stale explicit module; building again from clean outputs"
     swiftpm_purge_build_outputs "$scratch"
     swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
     build_status=0
-    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
+    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 | tee "$build_log" || build_status=$?
+  fi
+  if [ "$build_status" -ne 0 ]; then
+    record_suite_outcome compile "$build_status" "$build_log"
+    exit "$build_status"
   fi
   rm -f "$build_log"
-  [ "$build_status" -eq 0 ] || exit "$build_status"
   record_built_ref "$suite_package"
   echo "::endgroup::"
+  fi
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
   # (xcstringstool is Xcode's: on Linux the listed packages have no catalogs, and their CI job proves it.)
@@ -1077,6 +1188,9 @@ run_suite() {
       if [ "$status" -eq 124 ]; then result="stalled/timeout"; else result="failed (exit $status)"; fi
       echo "::error title=Swift suite failed::$filter in $suite_package: $result after $((SECONDS - started))s"
     fi
+    if [ "$status" -ne 0 ]; then
+      record_suite_outcome assertion "$status" "$log"
+    fi
     rows+=("$(printf '%-48s %-24s %6ss' "$(filter_label "$filter")" "$result" "$((SECONDS - started))")")
   done
   local table
@@ -1093,6 +1207,7 @@ run_suite() {
     echo "$((${#suite_filters[@]} - display_only)) of ${#suite_filters[@]} suites passed; $display_only skipped (needs a display, not gating)."
   else
     echo "All ${#suite_filters[@]} suites passed."
+    record_suite_outcome passed 0
   fi
 }
 

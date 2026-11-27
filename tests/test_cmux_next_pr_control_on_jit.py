@@ -39,7 +39,7 @@ ONE_LABEL_TAIL = f"|| '{LABEL}' }}}}"
 
 def one_label(runs_on: str) -> bool:
     # The fork arm's own runner variable (scripts/ci/one_linux_label.py) is no pool.
-    return "vars." not in runs_on.replace("vars.CI_FORK_LINUX_RUNNER", "") and runs_on.rstrip().endswith(ONE_LABEL_TAIL)
+    return "vars." not in runs_on and runs_on.rstrip().endswith(ONE_LABEL_TAIL)
 
 
 class PrControlOnJit(unittest.TestCase):

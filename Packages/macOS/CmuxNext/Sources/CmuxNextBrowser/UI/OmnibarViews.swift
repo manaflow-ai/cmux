@@ -26,7 +26,15 @@ final class OmnibarPillView: NSView {
     /// A fill, ring or shadow animation is still running on the bar's layer.
     var debugIsFading: Bool { !(layer?.animationKeys() ?? []).isEmpty }
     /// The look in effect; follows cmux.json live.
-    private(set) var look = OmnibarGlassLook.current { didSet { if oldValue != look { rebuildMaterial() } } }
+    private(set) var look = OmnibarGlassLook.current {
+        didSet {
+            guard oldValue != look else { return }
+            rebuildMaterial()
+            onLookChange?()
+        }
+    }
+    /// The look changed (cmux.json `browser.omnibar`): the ink on the bar follows the new material (`AddressBarView`).
+    var onLookChange: (() -> Void)?
     /// The glass under the bar, built while the look has a material.
     private var glass: GlassPanelView?
     /// Ends with the view (the loop holds it weakly).
@@ -108,9 +116,7 @@ final class OmnibarPillView: NSView {
     }
 
     /// Glass draws only with a material and without Reduce Transparency.
-    private var drawsGlass: Bool {
-        (look.material == .regular || look.material == .clear) && !ReduceTransparency.shared.isEnabled
-    }
+    private var drawsGlass: Bool { look.drawsGlass }
 
     private func rebuildMaterial() {
         if drawsGlass {

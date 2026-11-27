@@ -13,7 +13,12 @@
 //! - A folder field (`cwd`, `additionalDirectories`) of `session/new`,
 //!   `session/fork`, `session/load`, `session/resume` and `acp.trust.set`
 //!   must be an absolute path to an existing directory; the request goes on
-//!   with the canonical path (symlinks resolved, no `..`). An `acp.trust.set`
+//!   with the canonical path (symlinks resolved, no `..`). A Web `session/new` folder must
+//!   also sit in a root; the owner's own daemon asking for itself may also use an existing
+//!   git checkout whose top is neither home nor above it (`peer_folder::owner_checkout`),
+//!   or an existing folder of its home that is not home, hidden or in `~/Library`
+//!   (`peer_folder::owner_home_folder`).
+//!   An `acp.trust.set`
 //!   for a peer's session names the peer's folder: it goes on to that peer
 //!   unchanged, and the peer's own guard checks the folder there.
 //! - A session method acpmux does not handle itself is not passed to the
@@ -94,6 +99,7 @@ pub(super) use hint::check;
 use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
+    owner_checkout, owner_home_folder,
 };
 
 /// Whether a session method acpmux does not handle itself goes on to the
@@ -153,6 +159,22 @@ pub(super) fn control_of(
     }
 }
 
+/// Owner control (cmux#50026): the person's own daemon on another machine asking for itself or
+/// for its own person's unix socket or app (`cancel_owner::owner`: the peer token, `Control::Peer`,
+/// no `via: web` or `via: device`). Their CLI's `acpmux session fork HOST/CHAT` and `acpmux new
+/// --machine HOST` arrive so. It forks a chat in the mode the chat has, as a fork on this machine
+/// does, and starts a chat as this machine's own (not a remote chain), in the harness and policy
+/// it names, so no one has to walk over and allow it here (Leo, 2026-11-22: "who's gonna walk
+/// over and click allow on a headless mac mini, or a remote macbook??? stop having that shit.").
+/// Anyone holding the peer token reads it from this user's own `ACPMUX_HOME` and could do the
+/// same over the unix socket. A Web client, a paired machine's own credential (`Device`, a
+/// phone, read-only) and a peer forwarding for either are not the owner: their rules stand. Nor
+/// is a control the mesh hub relayed under a grant below approve-all (`ConnAuth::MeshControl`,
+/// `meshRelay.controlFrom[].maxPolicy`): the hub's stamp is its only proof.
+pub(super) fn owner_control(origin: super::Origin, auth: super::ConnAuth, params: &Value) -> bool {
+    cancel_owner::owner(origin, auth, params)
+}
+
 /// The paired machine whose Full-access setting covers this request
 /// (`crate::pairing` module docs), or None: the connection presented that
 /// machine's own `client` or `phone` credential (`ConnAuth::Device`; never the shared
@@ -175,9 +197,176 @@ pub(super) fn full_access_device(
 /// (`PromptOptions::full_access_device`), where each rule reads the store again: its Full-access
 /// setting (`Hub::full_access_hold`) and whether it is the owner's own phone (D13,
 /// `Hub::local_claude_refusal`). It grants nothing by itself.
+///
+/// The owner's own peer daemon (`ConnAuth::peer_daemon`), forwarding for a Web client of its own,
+/// says when that client is the owner's own phone paired with it (`_meta.acpmux.ownerPhone`,
+/// [`attest_owner_phone`]): the phone is then named [`crate::pairing::vouched_phone_id`] of this
+/// connection, which [`note_vouched_phone`] recorded with the Full-access setting the forwarding
+/// daemon read, and which that daemon's change notice or this link's end takes back
+/// ([`owner_phone_changed`]). That link already controls every chat here as the owner's daemon
+/// (`Control::Peer` when it asks for itself), so its word gives the phone nothing the link
+/// lacks, as its `personVerified` does not (`requests::person_admitted`). The claim from any
+/// other connection (a Web client, a paired machine, the unix socket) is ignored.
 pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<String> {
-    let id = conn.device.as_deref().filter(|_| conn.auth == super::ConnAuth::Device)?;
-    (control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web).then(|| id.to_owned())
+    if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
+        return None;
+    }
+    if conn.auth == super::ConnAuth::Device {
+        return conn.device.clone();
+    }
+    let (device, ..) = vouched_claim(conn, params)?;
+    Some(crate::pairing::vouched_phone_id(&conn.id, device))
+}
+
+/// The owner's peer daemon's claim on this request (`ownerPhone {device, fullAccess}`), read only
+/// from a link that presented this daemon's peer token, forwarding for its Web client.
+fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, bool, u64)> {
+    if conn.origin != super::Origin::Peer || !conn.auth.peer_daemon() {
+        return None;
+    }
+    if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
+        return None;
+    }
+    let claim = params.pointer("/_meta/acpmux/ownerPhone")?;
+    let device = claim.get("device")?.as_str().filter(|d| !d.is_empty() && d.len() <= 128)?;
+    let epoch = claim.get("epoch").and_then(Value::as_u64).unwrap_or(0);
+    Some((device, claim.get("fullAccess")?.as_bool()?, epoch))
+}
+
+/// Records, before any rule reads it, the phone the owner's peer daemon vouches for on this
+/// request ([`sending_device`]), with the Full-access setting it read for this very request.
+pub(super) fn note_vouched_phone(hub: &crate::hub::Hub, conn: &super::Conn, params: &Value) {
+    if let Some((device, full, epoch)) = vouched_claim(conn, params) {
+        hub.pairing.vouch(&conn.id, device, full, epoch);
+    }
+}
+
+/// `_acpmux/owner_phone_changed {device, fullAccess}` from the owner's peer daemon: the phone
+/// it vouched for had its Full-access setting turned off (`fullAccess: false`) or was removed
+/// (`fullAccess: null`). Every chat out of its policy is held again, as on that daemon itself.
+/// From anything but a peer-token link it changes nothing.
+pub(super) async fn owner_phone_changed(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    conn: &super::Conn,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    if conn.origin != super::Origin::Peer || !conn.auth.peer_daemon() {
+        return Err(RpcError::method_not_found(&format!(
+            "{} (the owner's peer daemon only)",
+            crate::rpc::method::MUX_OWNER_PHONE_CHANGED
+        )));
+    }
+    let device = params
+        .get("device")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("device is required"))?;
+    let full = params.get("fullAccess").and_then(Value::as_bool);
+    let epoch = params
+        .get("epoch")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("epoch is required"))?;
+    let narrowed = hub.pairing.unvouch(&conn.id, Some(device), full, epoch);
+    let held_again = if narrowed { hub.hold_policies_again().await } else { 0 };
+    Ok(serde_json::json!({"held_again": held_again}))
+}
+
+/// Tells every peer this daemon reaches that its phone `device` had its Full-access setting
+/// turned off or was removed (`full` None), so a turn the phone started there through this
+/// daemon is held at its next tool ([`owner_phone_changed`]). Each peer is told once here; one
+/// that does not acknowledge it (busy, a lost reply) is told again in the background until it
+/// does ([`retell_owner_phone_changed`]). A peer whose link ends drops every phone vouched for
+/// on it (`Pairing::unvouch` at the connection's end), and an older peer that does not know the
+/// method never took the claim.
+pub(crate) async fn tell_peers_owner_phone_changed(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    device: &str,
+    full: Option<bool>,
+) {
+    let params =
+        serde_json::json!({"device": device, "fullAccess": full, "epoch": crate::store::now_ms()});
+    let peers = hub.connected_peers();
+    let links: Vec<u64> = peers.iter().map(|p| p.link_epoch()).collect();
+    let sent = futures::future::join_all(
+        peers
+            .iter()
+            .map(|peer| peer.request(crate::rpc::method::MUX_OWNER_PHONE_CHANGED, params.clone())),
+    )
+    .await;
+    for ((peer, link), result) in peers.into_iter().zip(links).zip(sent) {
+        if let Err(e) = result
+            && !settled_without_ack(&e)
+        {
+            tracing::info!(peer = %peer.name, device, "owner phone change not acknowledged ({}); retrying", e.message);
+            let params = params.clone();
+            let retell = retell_owner_phone_changed(peer, link, params);
+            drop(hub.scope.spawn_named("owner-phone-retell", retell));
+        }
+    }
+}
+
+/// A refusal that needs no retry: the peer does not know the method (an older acpmux, which never
+/// read the claim either).
+fn settled_without_ack(e: &RpcError) -> bool {
+    e.code == -32601
+}
+
+/// How long [`retell_owner_phone_changed`] keeps telling one peer.
+const RETELL_FOR: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Tells `peer` the change again, backing off to 10 s, until it acknowledges it, its link ends
+/// (link `link` is gone: the peer dropped what it was told on it), or [`RETELL_FOR`] passes (then
+/// a warning: the peer may still hold the phone's Full access until that link ends).
+async fn retell_owner_phone_changed(
+    peer: std::sync::Arc<crate::peer::Peer>,
+    link: u64,
+    params: Value,
+) {
+    let started = std::time::Instant::now();
+    let mut wait = std::time::Duration::from_millis(250);
+    loop {
+        tokio::time::sleep(wait).await;
+        if peer.link_epoch() != link {
+            return;
+        }
+        match peer.request(crate::rpc::method::MUX_OWNER_PHONE_CHANGED, params.clone()).await {
+            Ok(_) => return,
+            Err(e) if settled_without_ack(&e) => return,
+            Err(e) if started.elapsed() > RETELL_FOR => {
+                tracing::warn!(peer = %peer.name, "owner phone change never acknowledged: {}", e.message);
+                return;
+            }
+            Err(_) => wait = (wait * 2).min(std::time::Duration::from_secs(10)),
+        }
+    }
+}
+
+/// `_meta.acpmux.ownerPhone` on a request a daemon forwards to its peer: `{device, fullAccess}`,
+/// saying the Web client it forwards for is the owner's own phone ([`attest_owner_phone`]).
+pub(super) const OWNER_PHONE: &str = "ownerPhone";
+
+/// Says on a request forwarded to a peer ([`mark_forwarded`] first, which drops any client's
+/// own claim) that it comes from the owner's own phone, by this daemon's pairing store for this
+/// request (`Pairing::own_phone`, `Pairing::full_access`), so the peer controls a Claude chat it
+/// started for that phone as this daemon does for its own (D13, `Hub::local_claude_refusal`).
+/// Leo, 2026-11-15, typing from his iPhone to a chat another of his machines started: "im still
+/// hitting the \"Only the cmux app on this Mac can control a Claude chat started on this
+/// mac...\" when i try to type from iphone".
+pub(super) fn attest_owner_phone(
+    hub: &crate::hub::Hub,
+    conn: &super::Conn,
+    params: &Value,
+    forwarded: &mut Value,
+) {
+    let Some(device) = sending_device(conn, params).filter(|d| hub.pairing.own_phone(d)) else {
+        return;
+    };
+    // The clock before the setting: a claim read before a narrowing is older than it.
+    let epoch = crate::store::now_ms();
+    let full = hub.pairing.full_access(&device);
+    crate::hub::merge_mux_meta(
+        forwarded,
+        serde_json::json!({OWNER_PHONE: {"device": device, "fullAccess": full, "epoch": epoch}}),
+    );
 }
 
 /// A request forwarded to a peer, which serves this daemon as Peer: one
@@ -227,6 +416,7 @@ pub(super) fn mark_forwarded_with_person(
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
         mux.remove(PERSON_PROVEN);
+        mux.remove(OWNER_PHONE);
     }
     if person_verified {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
@@ -319,7 +509,10 @@ async fn check_inner(
     log_own_phone_control(hub, sender, m, params);
     // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
     // agent session of this daemon asks over the unix socket; no page, app or peer does.
-    if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
+    if m == method::MUX_GITHUB_ACTION
+        || m == method::MUX_GITHUB_APP_LEASE
+        || m == method::MUX_GITHUB_REST
+    {
         return Err(refused(m));
     }
     // A person's name (`author.rs`) comes over the unix socket, from a peer forwarding one it took
@@ -455,6 +648,19 @@ async fn check_inner(
     }
     // A new session's folder is judged first, so one refusal names every field the caller
     // must change; nothing is made for a start the policy or mode check refuses anyway.
+    // A hub-relayed control below the owner's grant (`ConnAuth::MeshControl`): `mesh_relay.rs`
+    // held its start to the entry's `maxPolicy`, which is never approve-all on this proof.
+    if auth == super::ConnAuth::MeshControl
+        && m == method::SESSION_NEW
+        && [params.get("policy"), params.pointer("/_meta/acpmux/policy")].into_iter().any(|p| {
+            // Parsed, so an alias (`yolo`) is caught as well as `approve-all`.
+            p.and_then(Value::as_str)
+                .and_then(|s| s.parse::<crate::config::PermissionPolicy>().ok())
+                == Some(crate::config::PermissionPolicy::ApproveAll)
+        })
+    {
+        return Err(refused("an approve-all start relayed through the mesh hub"));
+    }
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
@@ -526,7 +732,14 @@ async fn check_inner(
                 None => return Err(cwd_refused(cwd).await),
             };
             if let Some(canonical) = canonical {
-                if !inside(&canonical) {
+                // The owner's own daemon asking for itself (no Web client or paired device
+                // behind it) may also start in a git checkout outside the roots, or in a
+                // folder of its home its chooser picked (`owner_home_folder`).
+                let owners_checkout = peer_new
+                    && cancel_owner::owner(origin, auth, params)
+                    && (owner_checkout(Path::new(&canonical)).await
+                        || owner_home_folder(Path::new(&canonical)).await);
+                if !inside(&canonical) && !owners_checkout {
                     return Err(outside_told(cwd, &told).await);
                 }
                 params.set("cwd", Value::String(canonical));
@@ -654,7 +867,8 @@ async fn check_inner(
     if web && !device_hub_prompt {
         let control = control_of(origin, auth, params);
         let vm_boundary = crate::hub::vm_boundary::asked(auth, control, params);
-        web_starts_asking(hub, control, vm_boundary, sender, m, params).await?;
+        let owner = owner_control(origin, auth, params);
+        web_starts_asking(hub, control, owner, vm_boundary, sender, m, params).await?;
     }
     // A chat in Full access by a machine's setting: every request that controls or changes its
     // turn and queue comes from that machine (`Hub::full_access_hold`; `device`, from
@@ -934,9 +1148,14 @@ fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
 ///   source session's effective policy skips asking or its mode is a known
 ///   permissive one: a downgrade could not reach a mode held inside the
 ///   harness, which a fork copies.
+///
+/// `owner` ([`owner_control`]): neither holds. Its new chat starts in the harness and policy it
+/// names, and its fork keeps the chat's mode.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn web_starts_asking(
     hub: &std::sync::Arc<crate::hub::Hub>,
     control: crate::hub::Control,
+    owner: bool,
     vm_boundary: bool,
     device: Option<&str>,
     m: &str,
@@ -954,7 +1173,7 @@ pub(super) async fn web_starts_asking(
         control == crate::hub::Control::Peer,
         hub.approve_all_allowed(),
     );
-    if m == method::SESSION_NEW {
+    if m == method::SESSION_NEW && !owner {
         let meta = params.pointer("/_meta/acpmux");
         let pick = |key: &str| {
             meta.and_then(|m| m.get(key))
@@ -1008,6 +1227,7 @@ pub(super) async fn web_starts_asking(
     }
     if m == method::SESSION_NEW
         && !vm_host_peer
+        && !owner
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
     {
@@ -1179,6 +1399,10 @@ pub(super) async fn web_starts_asking(
     if web && hub.owner_phone_full_access(device) {
         return Ok(());
     }
+    // The owner's own daemon forks it as a fork on this machine does: in the mode it has.
+    if owner {
+        return Ok(());
+    }
     let default = hub.config.read().await.permission_policy;
     let policy = meta.permission_policy.as_deref().and_then(|p| p.parse().ok()).unwrap_or(default);
     if !asking_policy(policy) || !mode_asks(hub, &meta, cloud_mobile).await {
@@ -1236,11 +1460,7 @@ async fn peer_scratch(params: &Value, cloud_peer: bool) -> Result<String, RpcErr
     if !cloud_peer {
         let dir = dir.clone();
         let made = tokio::task::spawn_blocking(move || {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            builder.create(&dir)?;
+            crate::home_fs::create_dir_all(&dir, 0o700)?;
             mark_made_by_acpmux(&dir)
         })
         .await;
@@ -1261,7 +1481,10 @@ async fn cloud_chat_folder(name: &str) -> Result<PathBuf, RpcError> {
     )?
 }
 
-fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf, RpcError> {
+pub(crate) fn cloud_chat_folder_under(
+    home: &std::path::Path,
+    name: &str,
+) -> Result<PathBuf, RpcError> {
     let chats = home.join("chats");
     let dir = chats.join(name);
     let failed = |why: String| {
@@ -1293,6 +1516,9 @@ fn cloud_chat_folder_under(home: &std::path::Path, name: &str) -> Result<PathBuf
             Err(error) => return Err(failed(error.to_string())),
         }
     }
+    // Marked as made by acpmux for this chat, so a remote Claude session may start in it
+    // (`hub/remote_cwd.rs` `chat_folder`); a folder from before the marker gets it here too.
+    mark_made_by_acpmux(&dir).map_err(|e| failed(e.to_string()))?;
     Ok(dir)
 }
 
@@ -1319,7 +1545,7 @@ fn peer_scratch_root() -> Result<PathBuf, RpcError> {
 /// agent-home is. A marker already there is kept; anything else in its place (a link, a folder)
 /// is no marker, so the folder is asked about as any other.
 fn mark_made_by_acpmux(dir: &std::path::Path) -> std::io::Result<()> {
-    match std::fs::OpenOptions::new()
+    match crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(dir.join(crate::trust::AGENT_HOME_MARKER))
@@ -1410,28 +1636,5 @@ async fn canonical_dir(path: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod cloud_chat_tests {
-    use super::*;
-
-    #[test]
-    fn cloud_peer_uses_a_durable_chat_folder() {
-        let home = std::env::temp_dir().join(format!("cmux-cloud-peer-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&home);
-        // A Cloud machine's home folder exists; only `chats` and the chat's
-        // folder are made here.
-        std::fs::create_dir_all(&home).unwrap();
-        let dir = cloud_chat_folder_under(&home, "chat-1").unwrap();
-        assert_eq!(dir, home.join("chats/chat-1"));
-        assert!(dir.is_dir());
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                std::fs::metadata(home.join("chats")).unwrap().permissions().mode() & 0o777,
-                0o700
-            );
-            assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
-        }
-        let _ = std::fs::remove_dir_all(home);
-    }
-}
+#[path = "remote_guard_cloud_chat_tests.rs"]
+mod cloud_chat_tests;

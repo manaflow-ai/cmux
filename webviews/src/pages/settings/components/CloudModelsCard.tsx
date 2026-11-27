@@ -4,9 +4,10 @@
 // listed or explained here (Settings > Models marks it This Mac only). A row is Connected for Cloud by the
 // rule a Cloud start uses (CloudSetup.swift `choice`): an enabled, signed-in personal connection that
 // serves Cloud and the family, else the team's shared key for it. Each row fixes itself in place: Sign in
-// with ChatGPT runs `connectChatGPT` (with the plan's id when it signed out, a reauth), Turn On runs
-// `enable` on a connection turned off, and Set Up opens Settings > Models' own Add a Connection steps
-// (`claudeSetupToken` and `addClaudeToken`, `addKey`); this card adds no second way in. A row's connection is
+// with ChatGPT runs `connectChatGPT` (with the plan's id when it signed out, a reauth), Connect Claude runs
+// the one-click `connectClaudeToken` with its progress line under the row (Paste a token instead opens
+// Models' Claude Code steps), Turn On runs `enable` on a connection turned off, and Add an API key opens
+// Settings > Models' own key steps (`addKey`); this card adds no second way in. A row's connection is
 // changed in place from its more menu: a ChatGPT plan signs in again or signs out, a Claude Code token or an
 // API key is replaced (the same add steps, then the old one is removed) or removed.
 // `?focus=cloud.claude`, `cloud.chatgpt` or `cloud.apiKey` (the chat's Set up Cloud card,
@@ -20,7 +21,16 @@ import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import type { ModelConnection, ModelProvider, ModelsRun, ModelsState } from "../ops";
 import { t } from "../strings";
-import { AddConnectionSheet, ChatGPTStatus, PROVIDERS, useModelsRun, type Run, type SheetStart } from "./ModelsCard";
+import {
+  AddConnectionSheet,
+  ChatGPTStatus,
+  ClaudeTokenStatus,
+  claudeTokenOf,
+  PROVIDERS,
+  useModelsRun,
+  type Run,
+  type SheetStart,
+} from "./ModelsCard";
 
 /** The rows, in order; each is the focus that opens the page on it (`cloud.<row>`). */
 export const CLOUD_ROWS = ["claude", "chatgpt", "apiKey"] as const;
@@ -176,6 +186,9 @@ function CloudModelRow({
   // Nothing serves the row, or what would is signed out: the row's own way in.
   const needsSetUp = state === "missing" || signedOut;
   const pending = row === "chatgpt" && (models.chatgpt.attempt !== null || models.chatgpt.error !== null);
+  // Connect Claude's run, in flight or failed: its line under the row in place of the button.
+  const claude = claudeTokenOf(models);
+  const claudeRunning = row === "claude" && (claude.attempt !== null || claude.error !== null);
   return (
     <div
       className="row accounts-row"
@@ -220,16 +233,16 @@ function CloudModelRow({
               {t("settingsWindow.cloud.turnOn")}
             </Button>
           )}
-          {needsSetUp && row === "claude" && (
+          {needsSetUp && row === "claude" && !claudeRunning && (
             <Button
               type="button"
               className="button"
               variant="solid"
-              data-cloud-action="setUpClaude"
+              data-cloud-action="connectClaudeToken"
               disabled={busy}
-              onClick={() => onSetUp("claude")}
+              onClick={() => void run({ action: "connectClaudeToken" })}
             >
-              {t("settingsWindow.cloud.setUp")}
+              {t("connect.claude.button")}
             </Button>
           )}
           {needsSetUp && row === "chatgpt" && !pending && (
@@ -299,6 +312,23 @@ function CloudModelRow({
               </Button>
             </div>
           </div>
+        </div>
+      )}
+      {needsSetUp && row === "claude" && (
+        <div className="accounts-body">
+          <ClaudeTokenStatus claude={claude} busy={busy} run={run} />
+          {claude.attempt === null && (
+            <Button
+              type="button"
+              className="button"
+              variant="ghost"
+              data-cloud-action="setUpClaude"
+              disabled={busy}
+              onClick={() => onSetUp("claude")}
+            >
+              {t("connect.pasteToken")}
+            </Button>
+          )}
         </div>
       )}
       {row === "chatgpt" && pending && (

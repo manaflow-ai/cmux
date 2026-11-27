@@ -6,7 +6,7 @@
 // Duress: WEB_SHIFT_ROWS=4659 (the rows chat-sim --long 1000 draws) and WEB_SHIFT_STREAM=1 (a chunk into the last row
 // every 4 ms, 30 swaps per state); load the machine yourself and say so. Before and after at commits:
 //   scripts/measure/bench-at-commits.sh bench/web-connection-shift.bench.ts SHA1 SHA2
-//   bun bench/web-connection-shift.bench.ts   ->  WEB-CONNECTION-SHIFT {"chief-web":{"offline":{"shift":0,…},…},"guest":{…}}
+//   bun bench/web-connection-shift.bench.ts   ->  WEB-CONNECTION-SHIFT {"chief-web":{"expired":{"shift":0,…},…},"guest":{…}}
 /// <reference types="bun" />
 import { readFileSync } from "node:fs";
 import { createElement as h, type ReactNode } from "react";
@@ -35,7 +35,6 @@ const chief: Record<string, ReactNode> = {
   live: null,
   connecting: [h(Spinner, { size: 14, key: 1 }), h("span", { key: 2 }, "Connecting…")],
   reconnecting: [h(Spinner, { size: 14, key: 1 }), h("span", { key: 2 }, "Reconnecting…")],
-  offline: [h("span", { key: 1 }, "Can't reach Chief."), h("button", { key: 2 }, "Retry")],
   expired: [h("span", { key: 1 }, "Signed out"), h("button", { key: 2 }, "Sign in again")],
   inaccessible: h("span", { role: "alert" }, "This chief isn't yours."),
 };
@@ -46,7 +45,7 @@ const guest: Record<string, string> = {
   live: "",
   connecting: `<output class="guest-live__notice">Connecting…</output>`,
   reconnecting: `<output class="guest-live__notice">Reconnecting…</output>`,
-  "load failed": `<div class="guest-live__notice guest-live__notice--failed" role="alert">Couldn't load. <button class="guest-live__retry">Retry</button></div>`,
+  "still loading": `<output class="guest-live__notice">Still loading…</output>`,
 };
 const guestPage = (slot: string) =>
   `<div class="guest-live" style="display:flex;flex-direction:column;height:100vh"><header class="guest-live__header"><div class="guest-live__titles"><h1 class="guest-live__title">Chat</h1><p class="guest-live__owner">Shared by Alex</p></div></header><div class="guest-live__transcript"><div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start">${rows}<p data-row id=live>streaming</p></div><span id=slot style="display:contents">${slot}</span></div><div class="guest-live__dock"><div class="guest-composer" data-row style="height:56px"></div></div></div>`;

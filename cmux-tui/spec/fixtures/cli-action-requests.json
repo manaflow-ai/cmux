@@ -50,6 +50,18 @@
     },
     {
       "params": {
+        "action": "app relaunch",
+        "args": {
+          "ifNewer": true,
+          "keepSessions": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux app relaunch --keep-sessions --if-newer"
+    },
+    {
+      "params": {
         "action": "workspace move-to-window",
         "args": {
           "window": "window:contract-1"
@@ -191,6 +203,28 @@
         "wait": true
       },
       "source": "cmux workspace set-color --color grey"
+    },
+    {
+      "params": {
+        "action": "workspace open-in-editor",
+        "args": {
+          "app": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace open-in-editor --app /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "workspace open-in",
+        "args": {
+          "app": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux workspace open-in --app /tmp/contract"
     },
     {
       "params": {
@@ -813,12 +847,14 @@
       "params": {
         "action": "tab new-mac-screen",
         "args": {
-          "device": "/tmp/contract"
+          "autoconnect": true,
+          "device": "/tmp/contract",
+          "scope": "view"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux tab new-mac-screen --device /tmp/contract"
+      "source": "cmux tab new-mac-screen --device /tmp/contract --scope view --autoconnect"
     },
     {
       "params": {
@@ -1486,6 +1522,17 @@
         "wait": true
       },
       "source": "cmux terminal keep --on"
+    },
+    {
+      "params": {
+        "action": "terminal pin-tail",
+        "args": {
+          "on": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux terminal pin-tail --on"
     },
     {
       "params": {
@@ -2172,6 +2219,28 @@
     },
     {
       "params": {
+        "action": "agent open-cwd-in-editor",
+        "args": {
+          "app": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent open-cwd-in-editor --app /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent open-cwd-in",
+        "args": {
+          "app": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent open-cwd-in --app /tmp/contract"
+    },
+    {
+      "params": {
         "action": "agent set-model",
         "args": {
           "model": "/tmp/contract"
@@ -2807,13 +2876,14 @@
         "args": {
           "binary": "/tmp/contract",
           "destination": "/tmp/contract",
+          "name": "/tmp/contract",
           "session": "/tmp/contract",
           "stateDir": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux remote connect --destination /tmp/contract --arg session=/tmp/contract --binary /tmp/contract --state-dir /tmp/contract"
+      "source": "cmux remote connect --destination /tmp/contract --arg session=/tmp/contract --binary /tmp/contract --state-dir /tmp/contract --name /tmp/contract"
     },
     {
       "params": {
@@ -2837,6 +2907,28 @@
         "wait": true
       },
       "source": "cmux machine add --destination /tmp/contract --name /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "machine port-forward",
+        "args": {
+          "port": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux machine port-forward --port 1"
+    },
+    {
+      "params": {
+        "action": "machine port-close",
+        "args": {
+          "port": "1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux machine port-close --port 1"
     },
     {
       "params": {
@@ -2930,6 +3022,32 @@
         "wait": true
       },
       "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --from-folder /tmp/contract --model /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud computer-control",
+        "args": {
+          "action": "status",
+          "machine": "/tmp/contract",
+          "reason": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud computer-control --machine /tmp/contract --action status --reason /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud chief-computer",
+        "args": {
+          "args": "/tmp/contract",
+          "chief": "/tmp/contract",
+          "op": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud chief-computer --chief /tmp/contract --op /tmp/contract --args /tmp/contract"
     },
     {
       "params": {
@@ -3141,6 +3259,17 @@
         "wait": true
       },
       "source": "cmux density create --name /tmp/contract --based-on /tmp/contract --font-size /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "wallpaper recent",
+        "args": {
+          "background": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux wallpaper recent --background /tmp/contract"
     },
     {
       "params": {
@@ -3495,6 +3624,17 @@
         "wait": true
       },
       "source": "cmux window stash --window window:contract-1 --confirm"
+    },
+    {
+      "params": {
+        "action": "app key-mode-enter",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux app key-mode-enter --name /tmp/contract"
     },
     {
       "params": {
@@ -4209,12 +4349,12 @@
         "action": "agent set-computer-use-approval",
         "args": {
           "appId": "/tmp/contract",
-          "decision": "/tmp/contract"
+          "decision": "always"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux agent set-computer-use-approval --app-id /tmp/contract --decision /tmp/contract"
+      "source": "cmux agent set-computer-use-approval --app-id /tmp/contract --decision always"
     }
   ]
 }

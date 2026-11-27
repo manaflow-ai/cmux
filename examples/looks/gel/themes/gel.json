@@ -20,7 +20,7 @@
     "Builtin Dark/background": "#0f1416",
     "Builtin Dark/foreground": "#dee3e5",
     "Builtin Dark/cursor": "#84d2e6",
-    "Builtin Dark/selection": "#004e5b",
+    "Builtin Dark/selection": "#3e7d8b",
     "Builtin Dark/accent": "#84d2e6"
   },
   "appearance.accent": "theme",

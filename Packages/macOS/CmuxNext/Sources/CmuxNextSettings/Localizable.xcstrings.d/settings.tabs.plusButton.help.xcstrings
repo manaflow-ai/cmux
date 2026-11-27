@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.tabs.plusButton.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies in Minimal Mode; otherwise the + always shows."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ミニマルモードで適用されます。それ以外では + は常に表示されます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُطبَّق في الوضع البسيط؛ وإلا يظهر + دائمًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Važi u Minimalnom načinu; inače se + uvijek prikazuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gælder i Minimal tilstand; ellers vises + altid."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gilt im Minimalen Modus; sonst wird das + immer angezeigt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se aplica en el Modo mínimo; si no, el + se muestra siempre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "S'applique en Mode minimal ; sinon le + s'affiche toujours."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vale in Modalità minimale; altrimenti il + è sempre visibile."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អនុវត្តក្នុងរបៀបអប្បបរមា; បើមិនដូច្នោះទេ + តែងតែបង្ហាញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "미니멀 모드에서 적용되며, 그 외에는 +가 항상 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gjelder i Minimal modus; ellers vises + alltid."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Działa w Trybie minimalnym; poza nim + jest zawsze widoczny."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vale no Modo Mínimo; fora dele, o + sempre aparece."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Действует в Минимальном режиме; иначе + виден всегда."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "มีผลในโหมดมินิมอล นอกนั้น + จะแสดงเสมอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Minimal Modda geçerlidir; aksi halde + her zaman görünür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Діє в Мінімальному режимі; інакше + видно завжди."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Áp dụng trong Chế độ tối giản; nếu không, nút + luôn hiển thị."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在极简模式下生效；否则 + 始终显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在極簡模式下適用；否則 + 一律顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

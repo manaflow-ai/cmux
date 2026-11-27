@@ -278,6 +278,41 @@ pub(super) fn restore_terminal_unlocked(
     Ok(())
 }
 
+/// The outer terminal restored from the UI watchdog's thread before the client restarts in place
+/// (`ui_watchdog::restart`): the same steps as [`restore_terminal_unlocked`], written straight to
+/// fd 1 so a UI thread stuck holding the stdout lock cannot hold this up too.
+pub(super) fn restore_terminal_for_restart(host_keyboard_protocol: &HostKeyboardProtocolOwnership) {
+    #[cfg(unix)]
+    {
+        struct RawStdout;
+        impl Write for RawStdout {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                // SAFETY: a write of an initialized buffer to fd 1.
+                let written = unsafe { libc::write(1, bytes.as_ptr().cast(), bytes.len()) };
+                usize::try_from(written).map_err(|_| std::io::Error::last_os_error())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut stdout = RawStdout;
+        let _ = stdout.write_all(&[0x18]);
+        let _ = write!(stdout, "\x1b\\");
+        let _ = write!(stdout, "\x1b]22;default\x07");
+        let _ = write!(stdout, "\x1b]112\x07\x1b[0 q");
+        let _ = write!(stdout, "\x1b[>0s");
+        let _ = disable_host_keyboard_protocol(&mut stdout, host_keyboard_protocol);
+        let _ = stdout.execute(DisableBracketedPaste);
+        let _ = stdout.execute(DisableFocusChange);
+        let _ = stdout.execute(DisableMouseCapture);
+        let _ = stdout.execute(LeaveAlternateScreen);
+        let _ = write!(stdout, "\x1b[?25h");
+    }
+    let _ = disable_raw_mode();
+    #[cfg(not(unix))]
+    let _ = host_keyboard_protocol;
+}
+
 #[cfg(test)]
 pub(super) fn forward_host_input(
     mut read: impl FnMut() -> std::io::Result<Event>,

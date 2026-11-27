@@ -155,7 +155,7 @@ fn appends_of_many_chats_go_on_side_by_side() {
     let scale = many.per_s / one.per_s.max(1.0);
     let of_apart = many.per_s / apart.per_s.max(1.0);
     eprintln!(
-        "STRESS ingest: 1 chat {:.0}/s read p95 {:.2} ms; {n} chats {:.0}/s read p95 {:.2} ms; \
+        "STRESS ingest: {cores} cores; 1 chat {:.0}/s read p95 {:.2} ms; {n} chats {:.0}/s read p95 {:.2} ms; \
          scale {scale:.2}x; {n} chats in stores of their own {:.0}/s, one store reaches \
          {of_apart:.2} of it",
         one.per_s, one.read_p95_ms, many.per_s, many.read_p95_ms, apart.per_s
@@ -164,11 +164,13 @@ fn appends_of_many_chats_go_on_side_by_side() {
     // fast as the same chats in stores of their own on the same machine at the same time (a
     // floor against the control, not the core count, so the suite's other tests on the runner
     // do not decide it). A store that writes every chat's line under one lock stays near one
-    // chat's rate, far under the control.
+    // chat's rate, far under the control: about one/apart, 0.2 on the run that set this floor.
+    // 0.4 keeps twice that margin; a loaded runner took the shared store to 0.54 (2026-11-22,
+    // scale 2.6x over one chat), which no one-lock store reaches.
     assert!(
-        of_apart >= 0.6,
+        of_apart >= 0.4,
         "{n} chats appending to one store reached {:.0}/s, {of_apart:.2} of the {:.0}/s they \
-         reach in stores of their own (floor 0.6): the chats' appends wait on one another",
+         reach in stores of their own (floor 0.4): the chats' appends wait on one another",
         many.per_s,
         apart.per_s
     );

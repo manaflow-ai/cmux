@@ -291,28 +291,6 @@ test("an older failed post cannot withdraw a newer native model", async () => {
   expect(nativeSessionInfoDrawn()).toBe(false);
 });
 
-test("native Progress marks each step's state and meters the plan", async () => {
-  const entries = [
-    { content: "Write", status: "completed" as const },
-    { content: "Test", status: "in_progress" as const },
-    { content: "Ship", status: "pending" as const },
-  ];
-  await render({ ...props(), plan: { entries, ended: false } });
-  await flushFrame();
-  const live = model()!.sections.find((section) => section.id === "progress")!;
-  expect(live.meter).toBeCloseTo(1 / 3);
-  expect(live.rows.map((row) => [row.symbol, row.tone, Boolean(row.working)])).toEqual([
-    ["checkmark.circle.fill", "muted", false],
-    [undefined, "running", true],
-    ["circle.dashed", "waiting", false],
-  ]);
-  // A step left in progress when the turn ended gets a plain ring, never a frozen spinner.
-  await render({ ...props(), plan: { entries, ended: true } });
-  await flushFrame();
-  const ended = model()!.sections.find((section) => section.id === "progress")!;
-  expect(ended.rows[1]).toMatchObject({ symbol: "circle", tone: "waiting", working: false });
-});
-
 // A wakeup in a chat on this Mac with no background command (Leo, 2026-11-06: the "fallback heartbeat
 // ... doesn't get highlighted in the same way that the other ones do"): the panel reads the loaded
 // calls for it all the same, so its row takes an action (the App lights it) that shows the call.

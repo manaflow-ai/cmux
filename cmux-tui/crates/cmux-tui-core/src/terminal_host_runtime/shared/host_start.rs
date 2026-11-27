@@ -143,6 +143,7 @@ pub(crate) fn start_host_runtime(
         exit_published: AtomicBool::new(false),
         exit_record_path: Path::new(&launch.record_path).with_extension("exit"),
         exit_publish_requests,
+        exit_publisher: Mutex::new(None),
         force_pty_drain: AtomicBool::new(false),
         pty_drain_waker: Mutex::new(pty_drain_waker),
         termination_started: AtomicBool::new(false),
@@ -225,6 +226,16 @@ pub(crate) fn start_host_runtime(
     Ok(shared)
 }
 
+/// The work class of this host's parser and PTY reader threads right now: the focused pane's while the person is
+/// typing into it or resizing it (this host process noted that itself), a visible pane's otherwise.
+pub(crate) fn host_work_class() -> cmux_interactivity::WorkClass {
+    if cmux_interactivity::is_interacting() {
+        cmux_interactivity::WorkClass::FocusedPane
+    } else {
+        cmux_interactivity::WorkClass::VisiblePane
+    }
+}
+
 /// The PTY reader (thread `terminal-host-pty`): reads the program's output
 /// until end of stream or the end of a forced drain, publishes each read,
 /// then queues the parser's drain behind the last byte.
@@ -241,12 +252,16 @@ pub(crate) fn read_pty_output(
     let mut kitty_media = KittyMediaRewriter::new();
     let mut kitty_scratch = Vec::new();
     let mut forced_at = None;
+    let mut qos = cmux_interactivity::Follower::new();
     while let Ok(true) = wait_for_pty_readable_or_forced_drain(
         pty_poll_fd,
         &mut pty_drain_waiter,
         &reader_host.force_pty_drain,
         &mut forced_at,
     ) {
+        // The terminal being typed into or resized (its host noted it, `HostShared::write_input`, the parser's
+        // resize) serves its output at user-interactive QoS; otherwise the visible pane's default.
+        qos.follow(host_work_class());
         let mut count = match pty_reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(count) => count,

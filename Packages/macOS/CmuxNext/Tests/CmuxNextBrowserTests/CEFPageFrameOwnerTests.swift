@@ -92,6 +92,9 @@ import Testing
 
         // The control: the same rig sees a divider drag's detach and its landing's attach.
         first.container.paneResizeGestureDidChange(active: true)
+        #expect(!hosting.isDetached, "a drag's press detached a page its drag has not moved")
+        first.container.frame = NSRect(x: 320, y: 0, width: 460, height: 500)
+        first.container.layoutSubtreeIfNeeded()
         #expect(hosting.isDetached, "SETUP: a divider drag no longer detaches, so this rig sees no detach")
         first.container.paneResizeGestureDidChange(active: false)
         #expect(PageSpyShim.detachAsks.map(\.enabled) == [true, false])

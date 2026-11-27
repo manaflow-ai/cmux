@@ -5,6 +5,8 @@
 // (`data-chat-motion="minimal"` on the chat over it, agent-session/acpmux/conversation/frameBudget.ts):
 // the chat's own motion stops, and the rest of the page (a view swap, the sidebar, depth) moves on.
 
+import { motionToken } from "./motionTokens";
+
 export type MotionMode = "full" | "reduced" | "none";
 
 /** "none": animations are off or the page is hidden; "reduced": Reduce Motion; else "full". */
@@ -19,11 +21,26 @@ export function motionMode(
   if (root.dataset.agentMotion === "off" || root.dataset.cmuxMotion === "off") return "none";
   // A chat that missed its frame budget moves nothing of its own until its frames are healthy again.
   if (node?.closest('[data-chat-motion="minimal"]')) return "none";
-  const token = view.getComputedStyle(root).getPropertyValue("--agent-motion-in").trim();
+  // Kept per page and theme (motionTokens.ts): a read here after a commit's writes recalculated the page's style.
+  const token = motionToken(root, "--agent-motion-in", doc);
   if (token && !(Number.parseFloat(token) > 0)) return "none";
   if (root.dataset.agentMotion === "reduced" || root.dataset.cmuxMotion === "reduced") return "reduced";
-  if (view.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return "reduced";
+  if (reducedQuery(view)?.matches) return "reduced";
   return "full";
+}
+
+/// One `prefers-reduced-motion` query per window, kept: `matches` follows the setting live, and a new
+/// query each call (a live line's every change, ThinkingLine's dwell) built a MediaQueryList each time.
+/// Kept with the `matchMedia` it came from, so a window given another one (a test's stand-in) asks it.
+const reducedQueries = new WeakMap<Window, { from: Window["matchMedia"]; query: MediaQueryList | null }>();
+function reducedQuery(view: Window): MediaQueryList | null {
+  const from = view.matchMedia;
+  if (typeof from !== "function") return null;
+  const kept = reducedQueries.get(view);
+  if (kept && kept.from === from) return kept.query;
+  const query = from.call(view, "(prefers-reduced-motion: reduce)") ?? null;
+  reducedQueries.set(view, { from, query });
+  return query;
 }
 
 /**

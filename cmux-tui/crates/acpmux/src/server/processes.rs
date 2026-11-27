@@ -4,7 +4,9 @@
 //! `_acpmux/process/tail {processId, fromByte?, maxBytes?}` and
 //! `_acpmux/process/kill {processId, sessionId?, signal?}` (a named chat must
 //! be the process's),
-//! `_acpmux/process/background {sessionId, toolCallId?}` (Ctrl-B), and the
+//! `_acpmux/process/background {sessionId, toolCallId?}` (Ctrl-B),
+//! `_acpmux/process/census {callerSession?}` (every process and lock acpmux owns on this machine,
+//! what `acpmux ps --json` prints: [`census`]), and the
 //! `_acpmux/process_update {process}` notification.
 //!
 //! Routed before every other method (`chats.rs`), like the secret methods:
@@ -35,6 +37,7 @@ pub(super) async fn dispatch(
             | method::MUX_PROCESS_TAIL
             | method::MUX_PROCESS_KILL
             | method::MUX_PROCESS_BACKGROUND
+            | method::MUX_PROCESS_CENSUS
     ) {
         return None;
     }
@@ -47,6 +50,9 @@ pub(super) async fn dispatch(
 }
 
 async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
+    if m == method::MUX_PROCESS_CENSUS {
+        return census(hub, params).await;
+    }
     if m == method::MUX_PROCESS_LIST {
         let paging = process_page_params(params)?;
         let recent = recent_param(params)?;
@@ -117,6 +123,65 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         }
     }
     hub.kill_process(id).await
+}
+
+/// `_acpmux/process/census {callerSession?}`: the census `acpmux ps --json` prints
+/// (`cli/process_census.rs`), built by the same code, so an agent or the app reads acpmux's own
+/// judgment of each process (whose it is now, and whether it is in use, idle or a proven orphan)
+/// instead of guessing from a command line. Read-only: it ends nothing and removes nothing.
+///
+/// Each session's status comes from this hub, never from a connection to this daemon's own
+/// socket. The process and lock reads block (every process's environment, each host's lock), so
+/// they run on the blocking pool. `callerSession` names the asker's session, whose processes read
+/// `yours` instead of `live` and are never `orphaned` or a gc candidate, as `acpmux ps` run in
+/// that session reads them; it changes no state. Any local client may name any session, as any
+/// local process may run `acpmux ps` with that session's environment.
+///
+/// A census too large for one reply has its longest command lines cut (`fit_census`); one that
+/// still does not fit is refused with a pointer to `acpmux ps --json`, never sent over the cap.
+#[cfg(not(unix))]
+async fn census(_hub: &Arc<Hub>, _params: &Value) -> Result<Value, RpcError> {
+    // `cli::process_census` reads /proc and ps, which this platform has no arm for yet.
+    Err(RpcError::internal("the process census runs on unix only")
+        .with_data(json!({"reason": "census.unsupported"})))
+}
+
+#[cfg(unix)]
+async fn census(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    use crate::cli::process_census::{self, SessionInfo, Sessions};
+    let caller = match params.get("callerSession").filter(|v| !v.is_null()) {
+        None => None,
+        Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
+        Some(_) => {
+            return Err(RpcError::invalid_params("callerSession must be a nonempty session id"));
+        }
+    };
+    let blocking_failed = |e: tokio::task::JoinError| RpcError::internal(format!("census: {e}"));
+    let gathered = tokio::task::spawn_blocking(move || process_census::gather(caller.as_deref()))
+        .await
+        .map_err(blocking_failed)?;
+    let wanted = gathered.session_ids();
+    let mut sessions: Sessions =
+        wanted.iter().map(|id| (id.clone(), SessionInfo::gone())).collect();
+    for session in hub.session_handles() {
+        if let Some(info) = sessions.get_mut(session.id.as_str()) {
+            *info = session.read_meta(|m| SessionInfo {
+                status: Some(m.status.to_string()),
+                updated_at: Some(m.updated_at),
+            });
+        }
+    }
+    let mut census =
+        tokio::task::spawn_blocking(move || process_census::build(&gathered, &sessions, true))
+            .await
+            .map_err(blocking_failed)?;
+    if !process_census::fit_census(&mut census, crate::hub::reply_fit::REPLY_BYTES) {
+        return Err(RpcError::internal(
+            "census too large for one reply even with command lines cut; run `acpmux ps --json`",
+        )
+        .with_data(json!({"reason": "census.too_large"})));
+    }
+    Ok(census)
 }
 
 /// An opt-in process page. A bare cursor must never silently fall back to a full
@@ -197,46 +262,5 @@ pub(super) fn push_update(conn: &Conn, ev: &HubEvent) {
 }
 
 #[cfg(test)]
-mod process_page_params_tests {
-    use super::*;
-
-    #[test]
-    fn a_cursor_requires_a_positive_limited_session_page() {
-        assert_eq!(process_page_params(&json!({})).unwrap(), None);
-        assert_eq!(process_page_params(&json!({"limit": 1})).unwrap(), Some((1, None)));
-        assert_eq!(
-            process_page_params(&json!({"limit": 3_000, "cursor": "s/task"})).unwrap(),
-            Some((1_000, Some("s/task")))
-        );
-        for bad in [
-            json!({"cursor": "s/task"}),
-            json!({"limit": 0}),
-            json!({"limit": -1}),
-            json!({"limit": "3"}),
-            json!({"limit": true}),
-            json!({"limit": 1, "cursor": ""}),
-            json!({"limit": 1, "cursor": 13}),
-        ] {
-            assert!(process_page_params(&bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
-    fn calls_are_one_to_a_thousand_tool_call_ids() {
-        assert_eq!(calls_param(&json!({})).unwrap(), None);
-        assert_eq!(
-            calls_param(&json!({"calls": ["a", "b"]})).unwrap(),
-            Some(vec!["a".into(), "b".into()])
-        );
-        let many: Vec<String> = (0..1_001).map(|n| format!("call-{n}")).collect();
-        for bad in [
-            json!({"calls": []}),
-            json!({"calls": [""]}),
-            json!({"calls": [3]}),
-            json!({"calls": "a"}),
-            json!({"calls": many}),
-        ] {
-            assert!(calls_param(&bad).is_err(), "{bad}");
-        }
-    }
-}
+#[path = "processes_process_page_params_tests.rs"]
+mod process_page_params_tests;

@@ -10,10 +10,11 @@ act on the page:
 
 For each engine (`openBrowser.chromium`, `openBrowser.webkit`) the script opens a local page and
 checks, with no real key presses unless `--keys` is given: the router delivers Cmd-V, Cmd-Shift-V and
-Cmd-Opt-Shift-V to the page, offers Cmd-B, Cmd-I and Shift-Cmd-E to a Chromium page first
-(cmux first in WebKit), and resolves Cmd-Shift-R to Hard Reload (`debug.key` dry_run); Hard
+Cmd-Opt-Shift-V to the page, runs cmux's Cmd-B, Cmd-I and Shift-Cmd-E before the page, offers
+Cmd-F (Find) to the page first in both engines, and resolves Cmd-Shift-R to Hard Reload (`debug.key` dry_run); Hard
 Reload (`browserHardReload`, what the chord runs) reloads with `Cache-Control: no-cache`, read
-from the script's own server, and Reload Page does not. With `--keys` (the app active, its page
+from the script's own server, and Reload Page does not. On Chromium it also right-clicks a link
+and checks that Open Link in New Tab creates the destination tab. With `--keys` (the app active, its page
 window key) it also copies a rich-text source with Cmd-C, pastes it into a contenteditable with
 each paste chord and reads what landed (bold kept or not), and presses Cmd-Shift-R. Keys go
 through `debug.key` (the app's own dispatch: router, window, page, main menu), into the Chromium
@@ -42,6 +43,7 @@ ROWS = []
 REQUESTS = []
 
 PAGE = """<!doctype html><title>shortcuts {run}</title>
+<a id=menuLink href="/context-link">Context menu link</a>
 <div id=src><b>bold27619</b> plain</div>
 <div id=dst contenteditable style="min-height:40px;border:1px solid gray"></div>
 <script>
@@ -55,7 +57,7 @@ class Page(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         REQUESTS.append({"path": self.path, "cache_control": self.headers.get("Cache-Control"),
                          "pragma": self.headers.get("Pragma")})
-        if self.path != "/":
+        if self.path not in ("/", "/context-link"):
             self.send_response(404)
             self.end_headers()
             return
@@ -161,6 +163,51 @@ def bypassed(request):
     return bool(request) and "no-cache" in (request.get("cache_control") or "") + (request.get("pragma") or "")
 
 
+def check_link_menu(tab, page_url):
+    """Choose a native link menu item and verify its new destination tab."""
+    label = "Open Link in New Tab"
+    destination = page_url + "context-link"
+    tabs = rpc("browser.page.tabs", {"all": True}).get("tabs")
+    if not tab or not tabs or tab not in {item["id"] for item in tabs}:
+        row(label, "source tab in initial tab list", tabs, False)
+        return
+    before = {item["id"] for item in tabs}
+    link = rpc("browser.page.eval", {"tab": tab, "script": """
+        (() => {
+            const link = document.getElementById('menuLink');
+            if (!link) return null;
+            link.scrollIntoView({block: 'center'});
+            const {left, top, width, height} = link.getBoundingClientRect();
+            const x = left + width / 2, y = top + height / 2;
+            return document.elementFromPoint(x, y) === link ? {x, y, href: link.href} : null;
+        })()"""}).get("value")
+    if not link or link.get("href") != destination:
+        row(label, destination, link, False)
+        return
+    try:
+        click = rpc("browser.page.mouse", {"tab": tab, "kind": "click", "button": "right", "x": link["x"], "y": link["y"]})
+        if click.get("native") is not True:
+            row(label, "native right-click", click, False)
+            return
+        items = wait(lambda: (rpc("debug.menu") or {}).get("items"), 5)
+        if label not in (items or []):
+            row(label, "link context menu", items, False)
+            return
+        choice = rpc("debug.menu", {"choose": label})
+        if choice.get("chose") != label:
+            row(label, label, choice, False)
+            return
+    finally:
+        if rpc("debug.menu").get("open"):
+            rpc("debug.menu", {"dismiss": True})
+
+    opened = wait(lambda: [item for item in rpc("browser.page.tabs", {"all": True}).get("tabs", [])
+                           if item["id"] not in before and item.get("url") == destination], 5) or []
+    row(label, "one new tab at " + destination, opened, len(opened) == 1)
+    for item in opened:
+        rpc("action.run", {"action": "closeTab", "target": "tab:" + item["id"]})
+
+
 def check_engine(engine, base_url):
     before = len(REQUESTS)
     opened = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": base_url}, "focus": True}, timeout=120)
@@ -184,11 +231,11 @@ def check_engine(engine, base_url):
         routed = f"{reply.get('decision')}"
         row(f"{engine}: {label} routes", want, routed, want in routed)
 
-    # Rich-text editing chords (Bold, Italic, Center): a Chromium page gets them first and the cmux
-    # action bound to the chord runs only if the page leaves the key unhandled. A WebKit tab reports
-    # no unhandled keys, so cmux keeps running them first there.
-    want = "offerToPage" if engine == "chromium" else "run("
-    for label, key, modifiers in [("Cmd-B", "b", ["cmd"]), ("Cmd-I", "i", ["cmd"]), ("Shift-Cmd-E", "E", ["cmd", "shift"])]:
+    # cmux shortcuts run before the page (Lawrence 2026-11-11), so Cmd-B toggles the sidebar even in a
+    # page that takes it for Bold. Only Find goes to the page first, in both engines (Chromium reports
+    # an unhandled key; WebKit sends it back to NSApp.sendEvent), and cmux's Find runs if it comes back.
+    for label, key, modifiers, want in [("Cmd-B", "b", ["cmd"], "run("), ("Cmd-I", "i", ["cmd"], "run("),
+                                        ("Shift-Cmd-E", "E", ["cmd", "shift"], "run("), ("Cmd-F", "f", ["cmd"], "offerToPage")]:
         reply = rpc("debug.key", {"key": key, "modifiers": modifiers, "dry_run": True}) or {}
         routed = f"{reply.get('decision')}"
         row(f"{engine}: {label} routes", want, routed, routed.startswith(want))
@@ -203,6 +250,9 @@ def check_engine(engine, base_url):
 
     if opts.keys:
         check_keys(engine, keys)
+    if engine == "chromium":
+        tab = next((entry for entry in (opened or {}).get("created", []) if entry.startswith("tab_")), None)
+        check_link_menu(tab, base_url)
 
 
 def check_keys(engine, keys):

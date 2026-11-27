@@ -15,7 +15,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
+// affected-reads: cmux-tui scripts/cmux-next/rust-live.py
 fn repo_root() -> PathBuf {
+    // affected-reads: scripts/cmux-next/rust-live.py cmux-tui
+    // affected-reads: scripts/cmux-next/rust-live.py cmux-tui .gitmodules
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().unwrap()
 }
 
@@ -50,7 +53,7 @@ fn modified(path: &Path) -> SystemTime {
 }
 
 /// The newest entry per name among `paths` (a crate built more than once keeps old hashes around).
-fn newest<'a>(paths: impl Iterator<Item = (String, PathBuf)>) -> BTreeMap<String, PathBuf> {
+fn newest(paths: impl Iterator<Item = (String, PathBuf)>) -> BTreeMap<String, PathBuf> {
     let mut newest: BTreeMap<String, PathBuf> = BTreeMap::new();
     for (name, path) in paths {
         match newest.get(&name) {

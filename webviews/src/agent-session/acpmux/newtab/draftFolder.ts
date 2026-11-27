@@ -5,7 +5,7 @@ import type { AcpmuxSnapshot } from "../model";
 /// folder pick never puts the chips back on a default (Leo 2026-10-18). With no pick, the summary
 /// names only the folder, so the chips name what a chat there starts on.
 export function withDraftFolder(snapshot: AcpmuxSnapshot, projectDraft: string | undefined): AcpmuxSnapshot {
-  if (!projectDraft || snapshot.sessionId) return snapshot;
+  if (projectDraft === undefined || snapshot.sessionId) return snapshot;
   const picked = heldPick(snapshot).harness !== undefined;
   return {
     ...snapshot,
@@ -37,6 +37,7 @@ export function withCloudStartPick(snapshot: AcpmuxSnapshot, pick: CloudStartPic
 /// the start's pick covered it).
 export type CloudStartPick = { harness: string; model?: string; over?: { harness?: string; model?: string } };
 
+/// retry-prompt-ok: a Cloud start's Retry sends the prompt again (a paid model request on a Cloud machine).
 /// The pick a Cloud start shows on the composer, so the chip names it and a Retry sends it again. While the start
 /// runs, always. Once it failed, until the person picks again: a New Tab's pick lives only in the start (the chat
 /// under it names no agent), so dropping it on failure retried as the first installed agent, and a pick made since

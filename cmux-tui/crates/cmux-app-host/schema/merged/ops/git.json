@@ -68,6 +68,23 @@
       "risk": "send-external",
       "digest": "67b1e8892e209f60"
     },
+    "git.review.comment": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "35e158777c161289"
+    },
+    "git.review.post": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "send-external",
+      "digest": "0cadb59f7d9d6855"
+    },
+    "git.review.start": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "92dd8d03092b54fb"
+    },
     "git.status": {
       "source": "local",
       "class": "read",
@@ -94,7 +111,13 @@
     "git.worktree.setup": {
       "source": "local",
       "class": "read",
-      "digest": "f22381c0a96c02f7"
+      "digest": "99f7056e2577a447"
+    },
+    "git.worktree.setup.run": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "e9e56df69334262e"
     }
   }
 }

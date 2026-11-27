@@ -13,7 +13,8 @@ export function useStatusIsland(
     Partial<Pick<AcpmuxSnapshot, "queue" | "queueApproval">>,
 ): IslandState | undefined {
   const { sessions, asks, sessionId, rows, queue, queueApproval } = snapshot;
-  const tabs = useAttentionTabs();
+  // Off: no subscription, so host attention pushes do not rerender the pane for a hidden island.
+  const tabs = useAttentionTabs(on);
   return useMemo(() => {
     if (!on) return undefined;
     const items = needsYouItems({

@@ -22,9 +22,11 @@ nonisolated enum DebugSettingsStrings {
     static var response: String { text("debugSettings.response", "Response") }
     static var damping: String { text("debugSettings.damping", "Damping") }
     static var footer: String {
-        text("debugSettings.footer", "Changes apply live and persist for this build. Defaults stay in code: copy the changed values for an agent to bake in.")
+        text("debugSettings.footer", "Changes apply live unless a row says it needs a relaunch, and persist for this build. Copy changed values for an agent to bake in.")
     }
     static func defaultIs(_ value: String) -> String { format("debugSettings.defaultIs", "Default: %@", value) }
+    /// Under the control of a tunable the app reads once at launch.
+    static var needsRelaunch: String { text("debugSettings.needsRelaunch", "Needs a relaunch") }
     static func copiedJSON(_ count: Int) -> String { format("debugSettings.copiedJSON", "Copied changed values as JSON (%lld).", count) }
     static func copiedSwift(_ count: Int) -> String { format("debugSettings.copiedSwift", "Copied Swift defaults (%lld).", count) }
     static func didReset(_ section: String) -> String { format("debugSettings.didReset", "Reset %@.", section) }

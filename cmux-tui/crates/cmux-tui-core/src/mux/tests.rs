@@ -37,6 +37,8 @@ mod cell_pixels;
 mod checkpoint_retention;
 mod column_update;
 #[cfg(unix)]
+mod create_after_discard;
+#[cfg(unix)]
 mod create_commit_cost;
 mod create_entity_cost;
 mod creation_burst;

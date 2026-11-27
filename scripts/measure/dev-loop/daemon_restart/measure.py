@@ -72,34 +72,35 @@ def records(log_dir: Path, since: float, until: float) -> list[dict]:
 
 
 class TimedBuilder(rl.Builder):
-    """rust-live's Builder, with the wall time of each build and copy kept for the round."""
+    """rust-live's Builder, with the wall time of each build and copy kept for the round (in `timed`: rust-live's
+    own classes keep monotonic `marks`, and Swapper.swap resets its `marks` on each call)."""
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self.marks: dict[str, float] = {}
+        self.timed: dict[str, float] = {}
 
     def build(self, daemons):
-        self.marks["build_start"] = time.time()
+        self.timed["build_start"] = time.time()
         result = super().build(daemons)
-        self.marks["build_end"] = time.time()
+        self.timed["build_end"] = time.time()
         return result
 
     def fetch(self, daemons, generation):
-        self.marks["fetch_start"] = time.time()
+        self.timed["fetch_start"] = time.time()
         result = super().fetch(daemons, generation)
-        self.marks["fetch_end"] = time.time()
+        self.timed["fetch_end"] = time.time()
         return result
 
 
 class TimedSwapper(rl.Swapper):
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
-        self.marks: dict[str, float] = {}
+        self.timed: dict[str, float] = {}
 
     def swap(self, built):
-        self.marks["swap_start"] = time.time()
+        self.timed["swap_start"] = time.time()
         result = super().swap(built)
-        self.marks["swap_end"] = time.time()
+        self.timed["swap_end"] = time.time()
         return result
 
 
@@ -169,7 +170,7 @@ def main() -> int:
 
     def on_swap(entry: dict) -> None:
         with swapped:
-            entry["_marks"] = {**builder.marks, **swapper.marks}
+            entry["_marks"] = {**builder.timed, **swapper.timed}
             swaps.append(entry)
             swapped.notify_all()
 
@@ -424,7 +425,19 @@ def main() -> int:
         except (OSError, RuntimeError, ValueError):
             pass
         started_hosts.update(rl.host_pids(work))
-        time.sleep(0.5)
+
+        def running(pid):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                pass
+            return True
+        # The shutdown ends its terminals: until those hosts exit by themselves (5 s), then SIGKILL the rest.
+        hosts_end = time.monotonic() + 5
+        while time.monotonic() < hosts_end and any(running(pid) for pid in started_hosts.values()):
+            time.sleep(0.05)
         for pid in started_hosts.values():  # only the terminal hosts this measurement started
             try:
                 os.kill(pid, signal.SIGKILL)

@@ -10,6 +10,9 @@
 //!   every session here that is between turns (`--all-idle`) when none is named.
 //! - `--to`, `--machine` and `--host` name the target; `here` means this machine
 //!   (`local`, for a move `--from` another machine).
+//! - `--to cloud`, a Cloud machine's name, and `--to here` for a chat the app shows on a Cloud
+//!   machine run the app's Move to Cloud and Bring Back Local instead (agent_move_cloud.rs): the
+//!   app's one move, never a second one here.
 //! - A close misspelling of an option (`--dryrun`, `--after_turn`, `--too`) is
 //!   taken as the option it clearly means, with a note on stderr.
 
@@ -57,8 +60,15 @@ struct MoveRequest {
 }
 
 /// Options that take no value, as acpmux spells them.
-const SWITCHES: &[&str] =
-    &["--all-idle", "--after-turn", "--interrupt", "--leave-dirty", "--carry-changes", "--dry-run"];
+const SWITCHES: &[&str] = &[
+    "--all-idle",
+    "--after-turn",
+    "--interrupt",
+    "--leave-dirty",
+    "--carry-changes",
+    "--dry-run",
+    "--timings",
+];
 /// Options that take a value, as acpmux spells them (`--to` is ours: acpmux's `--machine`).
 const VALUED: &[&str] = &["--to", "--cwd", "--from"];
 /// Other spellings that mean one of the options above.
@@ -79,6 +89,7 @@ const SPELLINGS: &[(&str, &str)] = &[
     ("--carry", "--carry-changes"),
     ("--with-changes", "--carry-changes"),
     ("--dir", "--cwd"),
+    ("--timing", "--timings"),
     ("--folder", "--cwd"),
 ];
 
@@ -99,8 +110,8 @@ fn help(verb: Verb) -> String {
 {lead}
 
 USAGE
-  cmux move [SESSION...] --to MACHINE|auto|here [OPTIONS]
-  cmux teleport [SESSION...] --to MACHINE|auto|here [OPTIONS]
+  cmux move [SESSION...] --to MACHINE|cloud|auto|here [OPTIONS]
+  cmux teleport [SESSION...] --to MACHINE|cloud|auto|here [OPTIONS]
   cmux evacuate [SESSION...] [--to MACHINE|auto] [OPTIONS]
 
 A session moves with its history, queue and draft; its folder is made on the
@@ -108,10 +119,18 @@ target (a checkout's branch is pushed and becomes a worktree there). It is
 acpmux's `session move`: `cmux agent move` and `acpmux session move` are the
 same move.
 
+`--to cloud` (or a Cloud machine's name) is the app's Move to Cloud for a chat
+tab the app shows: your one Cloud machine (name one when you have several;
+`cmux setup cloud-machine` makes one). `--to here` for a chat on a Cloud
+machine is the app's Bring Back Local. Both need the app open and signed in
+(`cmux login`); they are `cmux cloud move` and `cmux cloud bring-back`.
+
 OPTIONS
   --to MACHINE|auto|here  Where to (`--machine` and `--host` work too). auto: the best
                           of your machines, never a reserved one, one per checkout.
-                          here: this machine, for sessions moved --from another one.
+                          here: this machine, for sessions moved --from another one,
+                          or a chat on a Cloud machine (Bring Back Local).
+                          cloud: your Cloud machine (Move to Cloud).
   --from MACHINE          The machine the sessions are on, when not this one
   --all-idle              Every session here that is between turns (evacuate's default)
   --after-turn            Let a running turn end on its own, then move
@@ -120,10 +139,13 @@ OPTIONS
   --carry-changes         Take a checkout's uncommitted changes along
   --cwd PATH              Run the sessions in this folder there; no worktree is made
   --dry-run               Say where each session would go and change nothing
+  --timings               Add how long each step took to the answer
   --json                  Print one JSON result
 
 EXAMPLES
   cmux move my-chat --to auto
+  cmux move my-chat --to cloud --dry-run
+  cmux move my-chat --to here
   cmux teleport my-chat --to build-box --after-turn
   cmux move first second --to build-box --dry-run
   cmux evacuate
@@ -155,6 +177,21 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(request) => request,
         Err(error) => return Some(usage(verb, &global, &error.0)),
     };
+    let from = request.options.iter().position(|option| option == "--from");
+    let ask = super::agent_move_cloud::Ask {
+        sessions: &request.sessions,
+        target: &request.machine,
+        from: from.and_then(|at| request.options.get(at + 1)).map(String::as_str),
+        all_idle: request.all_idle,
+        options: &request.options,
+        dry_run: request.options.iter().any(|option| option == "--dry-run"),
+        timings: request.options.iter().any(|option| option == "--timings"),
+    };
+    if let Some(code) = super::agent_move_cloud::run_if_routed(&global, &ask) {
+        return Some(code);
+    }
+    let timings = ask.timings;
+    let began = std::time::Instant::now();
     let words = acpmux_words(request);
     let refs: Vec<&str> = words.iter().map(String::as_str).collect();
     let executable = match std::env::current_exe() {
@@ -171,7 +208,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     command.arg0("cmux");
     let command = joined::acp_command(command, &refs);
     match joined::run_acp(command, &refs, None, MOVE_DEADLINE) {
-        Ok(value) => Some(wire::print_local_success(&value, global.output)),
+        Ok(mut value) => {
+            if timings && let Some(object) = value.as_object_mut() {
+                let move_ms = began.elapsed().as_millis() as u64;
+                object.insert("timings".into(), serde_json::json!({ "move_ms": move_ms }));
+            }
+            Some(wire::print_local_success(&value, global.output))
+        }
         Err(error) => Some(wire::print_local_error(&error, global.output, 1)),
     }
 }
@@ -185,7 +228,8 @@ fn acpmux_words(request: MoveRequest) -> Vec<String> {
     if request.all_idle {
         words.push("--all-idle".to_owned());
     }
-    words.extend(request.options);
+    // `--timings` is this verb's: acpmux's move times nothing itself.
+    words.extend(request.options.into_iter().filter(|option| option != "--timings"));
     // run_acp parses the final JSON value, but acpmux otherwise defaults to a
     // human report with no JSON to return to this command.
     words.push("--json".to_owned());
@@ -240,18 +284,15 @@ fn target(verb: Verb, value: &str) -> Result<String, UsageError> {
     let value = value.trim();
     if value.is_empty() {
         return Err(UsageError::new(format!(
-            "{}: --to needs a machine, auto or here",
+            "{}: --to needs a machine, cloud, auto or here",
             verb.word()
         )));
     }
     match value.to_ascii_lowercase().as_str() {
         "here" | "local" | "this-machine" | "this-mac" => Ok("local".to_owned()),
         "auto" | "any" | "best" => Ok("auto".to_owned()),
-        "cloud" => Err(UsageError::new(format!(
-            "{}: `--to cloud` is not a target acpmux's move knows yet; name the Cloud machine \
-             (`acpmux machine ls`), use `--to auto`, or use Move to Cloud in the app",
-            verb.word()
-        ))),
+        // The app's Move to Cloud (agent_move_cloud.rs).
+        "cloud" => Ok("cloud".to_owned()),
         _ => Ok(value.to_owned()),
     }
 }
@@ -313,7 +354,7 @@ fn parse_request(
         all_idle |= sessions.is_empty();
     }
     let machine = machine.ok_or_else(|| {
-        UsageError::new(format!("{name} needs --to MACHINE|auto|here (try `--to auto`)"))
+        UsageError::new(format!("{name} needs --to MACHINE|cloud|auto|here (try `--to auto`)"))
     })?;
     if all_idle && !sessions.is_empty() {
         return Err(UsageError::new(format!("{name}: name sessions or --all-idle, not both")));

@@ -44,6 +44,9 @@ jobs:
   # vars.CMUX_NEXT_GENERATED_CATCH_UP_COALESCE = '0' catches up on every move again.
   coalesce:
     if: github.repository == 'manaflow-ai/cmux'
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-generated-catch-up
@@ -54,7 +57,7 @@ jobs:
     needs: coalesce
     if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && github.repository == 'manaflow-ai/cmux' }}
     name: select conflicting PRs
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: reads pull requests; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 5
     permissions:
       contents: read
@@ -62,10 +65,12 @@ jobs:
     outputs:
       prs: ${{ steps.select.outputs.prs }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/generated_catch_up.py
+          sparse-checkout: |
+            scripts/cmux-next/generated_catch_up.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Select PRs that conflict with feat-cmux-next
@@ -85,7 +90,7 @@ jobs:
     needs: select
     if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
     name: catch up #${{ matrix.pr.number }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -99,7 +104,7 @@ jobs:
       # The classifier and the generated patterns come from the base, never
       # from the PR being merged.
       - name: Check out the base's catch-up script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           path: trusted
           persist-credentials: false
@@ -111,12 +116,14 @@ jobs:
             scripts/merge-baseline.py
             scripts/merge-daemon-capabilities.py
             scripts/merge-insertions.py
+            scripts/merge-cargo-lock.py
             scripts/ci/merge_main_resolver.py
             scripts/normalize-pbxproj.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check out the pull request
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ matrix.pr.sha }}
           path: pr
@@ -200,6 +207,7 @@ jobs:
           printf -v baseline '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-baseline.py"
           printf -v capabilities '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-daemon-capabilities.py"
           printf -v insertions '%q -I %q %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-insertions.py"
+          printf -v cargo_lock '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-cargo-lock.py"
           # Generated files merge three-way when clean, else keep this branch's copy for the
           # rebuild below; the Mac-only exports merge three-way or stay a conflict (never one side).
           printf -v generated '%q -I %q --generated %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-insertions.py"
@@ -208,6 +216,7 @@ jobs:
           git config merge.cmux-baseline-v1.driver "$baseline"
           git config merge.cmux-capabilities-v1.driver "$capabilities"
           git config merge.cmux-insertions-v1.driver "$insertions"
+          git config merge.cmux-cargo-lock-v1.driver "$cargo_lock"
           git config merge.cmux-export-v1.driver "$insertions"
           git config merge.cmux-generated-v1.driver "$generated"
           # Git reads merge attributes from the checked-out PR, so a head older than a
@@ -264,9 +273,10 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Setup Node
+        timeout-minutes: 5
         if: steps.merge.outputs.skip != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

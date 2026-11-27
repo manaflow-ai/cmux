@@ -1,5 +1,9 @@
 @testable import CmuxTabsKit
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 /// Swipe-to-close, against Safari trials on the iPhone 17 Pro simulator

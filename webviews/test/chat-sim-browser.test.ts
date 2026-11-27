@@ -10,39 +10,26 @@
 // `CHAT_SIM_OUT=FILE` writes the results as JSON.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { writeFileSync } from "node:fs";
-import path from "node:path";
 import type { Browser, Page } from "playwright";
+import type { ViteDevServer } from "vite";
 import { summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
-import { scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
+import { SCENARIOS, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
+import { CHAT_SIM_PAGE, startChatSimServer } from "./support/chatSimServer";
 
 await requireBrowserLane("chat-sim-browser.test.ts", async () => {
-  const PAGE = "/test/browser/chat-sim.html";
   setDefaultTimeout(300_000);
-  const { createServer } = await import("vite");
   const { chromium } = await import("playwright");
-  const webviews = path.resolve(import.meta.dir, "..");
-  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let vite: ViteDevServer | undefined;
   let browser: Browser | undefined;
   let page: Page | undefined;
   beforeAll(async () => {
-    vite = await createServer({
-      root: webviews,
-      configFile: path.join(webviews, "vite.config.ts"),
-      mode: "production",
-      define: { "process.env.NODE_ENV": JSON.stringify("production") },
-      cacheDir: path.join(webviews, "node_modules/.vite-chat-sim"),
-      server: { port: 0, host: "127.0.0.1", strictPort: false },
-      logLevel: "error",
-    });
-    await vite.listen();
-    await warmViteServer(vite, PAGE);
-    const { port } = vite.httpServer!.address() as { port: number };
+    const server = await startChatSimServer();
+    vite = server.vite;
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage({ viewport: { width: 720, height: 1400 } });
     page.on("pageerror", (error) => console.error(`chat-sim page: ${error.message}`));
-    await page.goto(`http://127.0.0.1:${port}${PAGE}`);
+    await page.goto(`${server.base}${CHAT_SIM_PAGE}`);
     await page.waitForFunction(() => "__chatSim" in window);
   });
   afterAll(async () => {
@@ -58,8 +45,12 @@ await requireBrowserLane("chat-sim-browser.test.ts", async () => {
   const broken = (result: SimResult, prefix: string) =>
     result.violations.filter((violation) => violation.rule.startsWith(prefix)).map((v) => `${v.rowId}: ${v.detail}`);
 
-  // `CHAT_SIM_DUMP=scenario:step`: prints the drawn rows' boxes at that step (where each gap lives).
-  const dumpAt = process.env.CHAT_SIM_DUMP?.split(":");
+  // `CHAT_SIM_DUMP=scenario:step`: prints the drawn rows' boxes at that step (where each gap lives). The step is
+  // after the last colon, so a `file:PATH` scenario works too.
+  const dumpSpec = process.env.CHAT_SIM_DUMP;
+  const dumpAt = dumpSpec
+    ? [dumpSpec.slice(0, dumpSpec.lastIndexOf(":")), dumpSpec.slice(dumpSpec.lastIndexOf(":") + 1)]
+    : undefined;
   if (dumpAt)
     test(`chat simulator in Chrome: the drawn rows of ${dumpAt[0]} at step ${dumpAt[1]}`, async () => {
       const rows = await page!.evaluate(
@@ -83,5 +74,31 @@ await requireBrowserLane("chat-sim-browser.test.ts", async () => {
       console.log(summarize(result));
       expect([...new Set(broken(result, "b-"))]).toEqual([]);
       expect([...new Set(broken(result, "a-"))]).toEqual([]);
+    });
+
+  // The watch mode (scripts/chat-sim-watch.ts): records handed in from the page play on fast real time and
+  // the shot hook fires at each turn's start and end.
+  if (!dumpAt && !process.env.CHAT_SIM_SCENARIOS)
+    test("chat simulator in Chrome: watch plays handed-in records and shoots at turn boundaries", async () => {
+      const shots: { why: string }[] = [];
+      await page!.exposeFunction("__chatSimShot", async (shot: { why: string }) => void shots.push(shot));
+      const scenario = SCENARIOS["incoming-notice-turn"]!();
+      const result = (await page!.evaluate(
+        (records) =>
+          (window as unknown as { __chatSim: { watch(o: unknown): Promise<unknown> } }).__chatSim.watch({
+            name: "handed-in",
+            records,
+            speed: 1000,
+            maxGapMs: 20,
+            minGapMs: 0,
+            maxSeconds: 120,
+          }),
+        scenario.events,
+      )) as { played: number; steps: number; turns: number; stoppedEarly: boolean };
+      expect(result.stoppedEarly).toBe(false);
+      expect(result.played).toBe(result.steps);
+      expect(shots.filter((shot) => shot.why === "turn-start").length).toBe(result.turns);
+      expect(shots.filter((shot) => shot.why === "turn-end").length).toBeGreaterThan(0);
+      expect(shots.at(-1)?.why).toBe("end");
     });
 });
