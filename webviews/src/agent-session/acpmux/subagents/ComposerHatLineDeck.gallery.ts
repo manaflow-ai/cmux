@@ -53,6 +53,35 @@ const snapshotOf = (agents: readonly Subagent[], withCommand: boolean) =>
 const THREE = snapshotOf(AGENTS.slice(0, 3), false);
 const EIGHT = snapshotOf(AGENTS, true);
 
+/// Leo's screenshot (2026-11-27, ask-b6fc7a81c2): fourteen subagents and six background commands, so
+/// the deck shows eight marks and "+12 more", with the header open and its panel button showing.
+const FOURTEEN: readonly Subagent[] = [
+  ...AGENTS,
+  ...AGENTS.map((agent, index) => ({
+    ...agent,
+    id: `${agent.id}-again`,
+    task: `${agent.task}, second pass`,
+    startedAt: minutesAgo(index + 1),
+  })),
+];
+const TWENTY = chat([
+  user("Fan the review out and keep the checks running while I look", 12),
+  row(SUBAGENTS, 12, { subagents: [...FOURTEEN] }),
+  activity(
+    [
+      command("bun test --watch", "Watch the tests", 8),
+      command("bun run dev", "Run the dev server", 8),
+      command("cargo watch -x check", "Check the daemon", 7),
+      command("tail -f logs/app.log", "Follow the app log", 6),
+      command("bun run gallery", "Run the gallery", 5),
+      command("bun run typecheck --watch", "Typecheck", 4),
+    ],
+    11,
+  ),
+  assistant("The reviewers keep running in the background.", 1),
+  summary(1, { status: "completed", durationMs: 600_000, toolCount: 3 }),
+]);
+
 /// Each variant pins the one line and its arm, so a later default never changes what it shows.
 const pins = (arm: HatLineArm) => ({ "subagent-tray-fold-head": "line", "composer-hat-line-deck": arm });
 
@@ -124,6 +153,16 @@ export default agentPaneEntry({
       note: "The pick, thumbed to the fifth mark: it pops, the line reads that subagent's name and latest step; a click opens it.",
       play: thumbedTo(5),
       snapshot: EIGHT,
+      experiments: pins("trail"),
+    },
+    "trail-twenty-open": {
+      note: "Leo's case (ask-b6fc7a81c2): fourteen subagents and six commands, opened. The words turn ink, never the accent, with no chip; the panel button sits at the row's end, clear of \"+12 more\".",
+      play: async (ctx: PlayContext) => {
+        await folded(ctx);
+        await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__open"));
+      },
+      snapshot: TWENTY,
       experiments: pins("trail"),
     },
     "lead-thumb-eight": {
