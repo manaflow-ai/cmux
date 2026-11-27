@@ -480,7 +480,8 @@ const MAX_DELTA: i128 = 1_000_000_000_000_000;
 fn delta<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
     number(d, |n| match n {
         Number::Int(v) => Ok(i64::try_from(v).unwrap_or(v.clamp(-MAX_DELTA, MAX_DELTA) as i64)),
-        Number::Float(v) if v.is_finite() => Ok(v.round().clamp(-1e15, 1e15) as i64),
+        Number::Float(v) if v.is_finite() => Ok(ranged(Number::Float(v), i64::MIN, i64::MAX)
+            .unwrap_or_else(|_| v.round().clamp(-1e15, 1e15) as i64)),
         Number::Float(_) => Err("not a finite delta".into()),
     })
 }

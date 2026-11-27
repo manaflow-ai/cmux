@@ -22,6 +22,9 @@ fn input_decodes_like_the_swift_decoder() {
         ScreenInput::decode(br#"{"t":"scroll","dx":123456789012345678}"#).unwrap().dx,
         Some(123_456_789_012_345_678)
     );
+    let whole =
+        ScreenInput::decode(br#"{"t":"scroll","dx":2e15,"dy":-2000000000000000.0}"#).unwrap();
+    assert_eq!((whole.dx, whole.dy), (Some(2_000_000_000_000_000), Some(-2_000_000_000_000_000)));
     // A whole float is an Int; a fraction anywhere else fails the message.
     assert_eq!(ScreenInput::decode(br#"{"t":"display","i":2.0}"#).unwrap().i, Some(2));
     assert!(ScreenInput::decode(br#"{"t":"display","i":2.5}"#).is_none());
