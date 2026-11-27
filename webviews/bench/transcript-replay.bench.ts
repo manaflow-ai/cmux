@@ -587,6 +587,8 @@ type BurstResult = {
     contentRenders: number;
     layoutObjects: number;
     styled: number;
+    /// The trace's main-thread ms per record by phase: where the time no script profile names goes.
+    phases: { script: number; style: number; layout: number; paint: number };
   };
 };
 /// Names of perf.ts `renders` that count something other than one more component commit: the transcript's anchor
@@ -845,6 +847,12 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           contentRenders: per(sum("content:")),
           layoutObjects: cost.layoutObjectsMax ?? 0,
           styled: cost.styleElementsMax ?? 0,
+          phases: {
+            script: per(cost.scriptMs ?? 0),
+            style: per(cost.styleMs ?? 0),
+            layout: per(cost.layoutMs ?? 0),
+            paint: per(cost.paintMs ?? 0),
+          },
         };
       } else if (RENDERS) {
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
@@ -1341,7 +1349,9 @@ if (import.meta.main) {
               (burst.probe
                 ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
                   `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
-                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}`
+                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}; ms script ` +
+                  `${burst.probe.phases.script} style ${burst.probe.phases.style} layout ${burst.probe.phases.layout} ` +
+                  `paint ${burst.probe.phases.paint}`
                 : "") +
               (burst.renders
                 ? ` renders per record ${burst.renders.total}: ` +
