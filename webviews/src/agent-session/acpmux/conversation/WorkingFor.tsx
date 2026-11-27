@@ -102,7 +102,7 @@ export function WorkingFor({
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (
-        // "Working for <1s" from the first frame (turns.ts `turnSpan`), never a bare "Working" that
+        // "Working for 0s" from the first frame (turns.ts `turnSpan`), never a bare "Working" that
         // swaps to a time at its first second: the words keep one shape until "Worked for" (Leo,
         // 2026-11-25: "i think it was replacing the "worked for" as it went").
         <span className="cv-worked__label">
