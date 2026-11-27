@@ -94,6 +94,7 @@ impl Translator {
                         {
                             self.dedupe.reset();
                             self.path_rules.reset();
+                            self.dir_rules.reset();
                         }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
@@ -666,6 +667,21 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
         match request.pointer_mut("/hooks/PostToolUse").and_then(Value::as_array_mut) {
             Some(hooks) => hooks.push(entry),
             None => request.set_path(&["hooks", "PostToolUse"], json!([entry])),
+        }
+    }
+    // Harness magic `dirRules` (`dir_rules.rs`): a directory's rules after the first call that
+    // touches it.
+    if super::dir_rules::enabled() {
+        let entry = json!({
+            "matcher": super::dir_rules::DIR_RULES_MATCHER,
+            "hookCallbackIds": [super::dir_rules::DIR_RULES_CALLBACK],
+            "timeout": super::dir_rules::DIR_RULES_TIMEOUT_S,
+        });
+        if let Some(hooks) = request.pointer_mut("/hooks/PostToolUse").and_then(Value::as_array_mut)
+        {
+            hooks.push(entry);
+        } else {
+            request.set_path(&["hooks", "PostToolUse"], json!([entry]));
         }
     }
     if suggestions {
