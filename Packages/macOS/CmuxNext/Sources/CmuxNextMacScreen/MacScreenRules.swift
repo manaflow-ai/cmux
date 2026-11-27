@@ -28,7 +28,7 @@ nonisolated enum MacScreenRules {
     }
 }
 
-extension MacScreenRules {
+nonisolated extension MacScreenRules {
     /// One `rd_devices_*` call (cmux-rd-core's rd_devices rules), decoded; nil when Rust does not answer.
     static func rdDevices<T: Decodable>(_ operation: String, _ request: Any, as _: T.Type) -> T? {
         guard let data = try? JSONSerialization.data(withJSONObject: request, options: .fragmentsAllowed),
