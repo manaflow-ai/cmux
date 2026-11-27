@@ -54,8 +54,10 @@ final class QuitCoordinator {
     /// Right before CefShutdown, which never returned before the 4 s deadline in the quit hang files (cmuxterm-hq#8608, #11994): the windows
     /// go (a decided quit looks done), the drafts the closing pages queued reach disk, and the process ends `engineShutdownLimit` later.
     func engineWillStop(hide: () -> Void = { for window in NSApp?.windows ?? [] where window.isVisible { window.orderOut(nil) } }) async {
+        DebugTimings.markLaunch("quit.pages_closed")
         hide()
         await services.stateFilesDrained()
+        DebugTimings.markLaunch("quit.engine_will_stop.drained")
         deadline.endSooner(after: QuitDeadline.engineShutdownLimit, reason: "CefShutdown began")
     }
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -252,8 +254,11 @@ final class QuitCoordinator {
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
+                DebugTimings.markLaunch("quit.after_save.home_cache")
                 await services.windows.recordSaver.launchRecord.flush()
+                DebugTimings.markLaunch("quit.after_save.launch_record")
                 await services.windows.recordSaver.layoutCache.flush()
+                DebugTimings.markLaunch("quit.after_save.layout_cache")
                 guard let self else { return }
                 // CefShutdown runs on the main thread and can block it for good: from here the quit ends by a deadline whatever it
                 // does (a keep quit's deadline is armed already and stays), and a debug build reports that hang, never asserts it.
@@ -267,6 +272,7 @@ final class QuitCoordinator {
                 // wait has no limit of its own; the deadline bounds it and records what was still saving.
                 let spare = deadline.timeLeft(margin: QuitDeadline.replyMargin + QuitDeadline.engineCloseWait) ?? .zero
                 await steps.run("state_files", limit: spare) { await services.stateFilesDrained() }
+                DebugTimings.markLaunch("quit.engines_stopping")
                 await closeEngines()
                 DebugTimings.markLaunch("quit.engines_stopped")
                 await services.stateFilesDrained()

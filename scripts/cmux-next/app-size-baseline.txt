@@ -17,9 +17,4 @@
 # BrowserDownloadsPopup.swift (468) belong in their own targets (SW14).
 # Then to the count at ae0d9b765fa4 (+1103 more, 26 commits), chiefly #23651 +305,
 # #23155 +285, #23527 +132, #23324 +92, #23638 +82, #23492 +57, #23588 +53, #23109 +48.
-# Raised from 135848 on 2026-11-26 to the count at 36413f80ebe7 (+16143) to stop the base red.
-# Chiefly Control/CaptureSceneRegistry.swift +833 (#53687, #52807, #41359, #41327); Cloud start,
-# service and GitHub setup +~1700 (#58836, #51384, #55950, #50572, #56114, #55922); AppServices
-# +440 (#47140, #50090, #47075); AgentTabs +676 (#55714, #56033, #52752); BrowserHibernation +350.
-# Cloud code belongs in its own target; move it there and lower this cap.
-151991
+135848
