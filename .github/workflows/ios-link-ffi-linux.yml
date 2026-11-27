@@ -14,6 +14,10 @@ on:
   # terminal-projection sources, the script, this file). This is the required cross-commit receipt:
   # both skew directions must link and complete the daemon identify handshake.
   workflow_call:
+    outputs:
+      pair_verdict:
+        description: Explicit compatibility assertion verdict; empty means infrastructure/no verdict
+        value: ${{ jobs.pair-skew.outputs.verdict }}
     inputs:
       head:
         type: string
@@ -79,6 +83,8 @@ jobs:
   # host the published NEXT nightly was built from, over every transport, and the daemon
   # channel must answer. Leo, 11-27: "i mean we cant connect to phone anyways right now lol".
   pair-skew:
+    outputs:
+      verdict: ${{ steps.matrix.outputs.verdict }}
     name: phone and Mac supported shipped window
     if: ${{ toJSON(inputs.pair_skew) != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -108,13 +114,36 @@ jobs:
           curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      # Persist publication receipts independently of binary/test success. The
+      # next run still verifies live publication state; cache is history, not a
+      # substitute for it. A cold or unrelated branch uses bounded discovery.
+      - name: Restore verified publication history
+        id: publication-history
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/pair-publication-history
+          key: phone-pair-publications-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            phone-pair-publications-v1-
+
       - name: Resolve the last three published builds of each app
         id: shipped
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/ci/mobile_pair_shipped_window.py refresh --registry scripts/ci/mobile_pair_shipped_window.json --count 3 --output "$RUNNER_TEMP/pair-shipped.json"
+          history="$RUNNER_TEMP/pair-publication-history/registry.json"
+          seed=scripts/ci/mobile_pair_shipped_window.json
+          if [ -s "$history" ]; then seed="$history"; fi
+          python3 scripts/ci/mobile_pair_shipped_window.py refresh --registry "$seed" --count 3 --output "$RUNNER_TEMP/pair-shipped.json"
+          mkdir -p "$(dirname "$history")"
+          cp "$RUNNER_TEMP/pair-shipped.json" "$history"
           python3 scripts/ci/mobile_pair_shipped_window.py resolve --registry "$RUNNER_TEMP/pair-shipped.json" --count 3 --github-output "$GITHUB_OUTPUT" > "$RUNNER_TEMP/pair-window.json"
+
+      - name: Persist verified publication history
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/pair-publication-history
+          key: ${{ steps.publication-history.outputs.cache-primary-key }}
 
       - name: Restore immutable shipped-source binaries
         id: binaries
@@ -135,6 +164,8 @@ jobs:
       # Serial source pairs reuse the PR's two executables and the dependency target.
       # The immutable binary cache builds each shipped source/role at most once per window.
       - name: Dial both directions across the supported shipped window
+        id: matrix
+        continue-on-error: true
         env:
           SKEW_LOG_DIR: ${{ runner.temp }}/pair-skew-logs
           SKEW_BINARY_CACHE_DIR: ${{ runner.temp }}/pair-binaries
@@ -146,11 +177,17 @@ jobs:
           python3 scripts/ci/mobile_pair_matrix.py "$RUNNER_TEMP/pair-window.json"
 
       - name: Cache the verified immutable binaries
-        if: ${{ success() && steps.binaries.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.matrix.outcome == 'success' && steps.binaries.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/pair-binaries
           key: ${{ steps.binaries.outputs.cache-primary-key }}
+
+      # Keep the explicit output available to callers even when assertions failed.
+      # The required fast-gates status consumes it; infrastructure has no verdict.
+      - name: Report the compatibility verdict
+        if: ${{ always() && steps.matrix.outcome != 'success' }}
+        run: echo '::warning::Pair matrix did not pass; required fast-gates status judges its explicit verdict'
 
       - name: Record full gate wall time
         if: always()
@@ -173,3 +210,8 @@ jobs:
           name: pair-skew-logs
           path: ${{ runner.temp }}/pair-skew-logs
           if-no-files-found: ignore
+
+      # Standalone push/dispatch runs have no caller to post a required status.
+      - name: Fail a standalone run without a successful matrix
+        if: ${{ always() && !cancelled() && github.event_name != 'pull_request' && inputs.head == '' && steps.matrix.outputs.verdict != 'success' }}
+        run: exit 1

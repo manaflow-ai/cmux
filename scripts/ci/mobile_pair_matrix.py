@@ -22,6 +22,12 @@ def pairs(window, head, trees):
         yield row, (shipped, head) if row["role"] == "host" else (head, shipped)
 
 
+def publish_verdict(verdict):
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            print(f"verdict={verdict}", file=output)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("window", type=Path)
@@ -50,6 +56,9 @@ def main():
             for index, (row, (host, dial)) in enumerate(plan):
                 label = row["role"] + "-" + row["sha"][:12]
                 env = dict(os.environ, SKEW_LOG_DIR=str(logs / label))
+                verdict_path = logs / label / "assertion-verdict"
+                verdict_path.parent.mkdir(parents=True, exist_ok=True)
+                verdict_path.write_text("")  # Never reuse a receipt from an interrupted attempt.
                 start = time.monotonic()
                 cpu = resource.getrusage(resource.RUSAGE_CHILDREN)
                 status, failed_stage = 1, ""
@@ -64,12 +73,19 @@ def main():
                     status, failed_stage = 124, "pair-timeout"
                 except OSError:
                     status, failed_stage = 127, "pair-launch"
+                verdict = verdict_path.read_text().strip()
+                if status in (124, 126, 127, 137) or status < 0:
+                    verdict = ""
+                if status == 0 and verdict != "success":
+                    status, failed_stage = 1, "missing-assertion-verdict"
+                if verdict == "failure":
+                    publish_verdict("failure")
                 after = resource.getrusage(resource.RUSAGE_CHILDREN)
                 receipt = dict(row, pr_sha=subprocess.check_output(
                     ["git", "-C", str(head), "rev-parse", "HEAD"], text=True).strip(),
                     wall_seconds=time.monotonic() - start,
                     cpu_seconds=(after.ru_utime + after.ru_stime - cpu.ru_utime - cpu.ru_stime),
-                    exit_code=status, failed_stage=failed_stage,
+                    exit_code=status, failed_stage=failed_stage, verdict=verdict,
                     cost_scope="pair including any build; excludes setup and source fetch")
                 (logs / (label + ".json")).write_text(json.dumps(receipt, indent=2) + "\n")
                 print(json.dumps(receipt), flush=True)
@@ -81,6 +97,7 @@ def main():
                 }, indent=2) + "\n")
                 if status:
                     raise SystemExit(status)
+            publish_verdict("success")
         finally:
             for tree in reversed(added):
                 subprocess.run(["git", "-C", str(head), "worktree", "remove", str(tree)], check=True)

@@ -222,7 +222,7 @@ def refresh(registry, reader, count=3):
     """Refresh releases; existing receipts save log/API reads, never mask failures.
 
     The appcast's oldest sinceCommit identifies its predecessor, which still
-    needs a publication receipt. At most 20 iOS runs and 10 historical Mac runs
+    needs a publication receipt. At most 20 iOS runs and 20 historical Mac runs
     are inspected. Exhaustion, unavailable logs and rate limits fail closed.
     """
     validate_registry(registry)
@@ -236,27 +236,52 @@ def refresh(registry, reader, count=3):
         predecessor = previous[oldest["release_id"]]
         if not SHA.fullmatch(predecessor):
             raise ValueError("NIGHTLY feed does not identify the preceding source")
-        cached = sorted(
+        history = sorted(
             (r for r in registry["releases"]
-             if r["platform"] == "mac" and r["sha"] == predecessor
+             if r["platform"] == "mac"
              and timestamp(r["published_at"]) < timestamp(oldest["published_at"])),
             key=lambda r: timestamp(r["published_at"]), reverse=True,
         )
-        if cached:
-            mac.extend(cached[:count - len(mac)])
-        else:
-            runs = reader.api("actions/workflows/nightly.yml/runs",
-                              head_sha=predecessor, status="completed", per_page=10)["workflow_runs"]
-            for run in runs[:10]:
+        # A persisted window is a contiguous publication snapshot. It may fill
+        # a short feed only when its newest older source is the feed's named
+        # predecessor; unrelated/stale history must never fill the gap.
+        if history and history[0]["sha"] == predecessor:
+            mac.extend(history[:count - len(mac)])
+        if len(mac) < count:
+            # A one-item appcast needs two predecessors. Read one bounded run
+            # snapshot and use actual publication receipts, not run conclusions.
+            # Older runs may finish publishing out of order, so collect the
+            # bounded snapshot before sorting by publication time.
+            runs = reader.api(
+                "actions/workflows/nightly.yml/runs", branch="nightly-next",
+                status="completed", per_page=20,
+                created="<=" + timestamp(oldest["published_at"]).isoformat(),
+            )["workflow_runs"]
+            candidates = {r["release_id"]: r for r in mac
+                          if timestamp(r["published_at"]) < timestamp(oldest["published_at"])}
+            for run in runs[:20]:
                 jobs = reader.api(f"actions/runs/{run['id']}/jobs", per_page=100)["jobs"]
                 job = next((j for j in jobs if j["name"] == "published-build" and
                             successful_step(j, "Read the published build back from the live feed")), None)
-                if job:
-                    candidate = mac_receipt(run, job, reader.log(job["id"]), predecessor)
-                    if timestamp(candidate["published_at"]) >= timestamp(oldest["published_at"]):
-                        raise ValueError("historical Mac receipt is newer than its successor")
-                    mac.append(candidate)
-                    break
+                if not job:
+                    continue
+                log = reader.log(job["id"])
+                sources = re.findall(r"(?m)^.*?Z source_sha=([0-9a-f]{40})\s*$", log)
+                if not sources:
+                    raise ValueError(f"Mac run {run['id']}: no published source receipt")
+                candidate = mac_receipt(run, job, log, sources[-1])
+                if timestamp(candidate["published_at"]) >= timestamp(oldest["published_at"]):
+                    continue
+                prior = candidates.get(candidate["release_id"])
+                if prior and prior["sha"] != candidate["sha"]:
+                    raise ValueError("historical release ID has conflicting source receipts")
+                candidates[candidate["release_id"]] = candidate
+            history = sorted(candidates.values(),
+                             key=lambda r: timestamp(r["published_at"]), reverse=True)
+            if not history or history[0]["sha"] != predecessor:
+                raise ValueError("NIGHTLY history does not confirm the feed's preceding source")
+            mac = [r for r in mac if timestamp(r["published_at"]) >= timestamp(oldest["published_at"])]
+            mac.extend(history[:count - len(mac)])
 
     ios = []
     runs = reader.api("actions/workflows/ios-internal-nightly.yml/runs",

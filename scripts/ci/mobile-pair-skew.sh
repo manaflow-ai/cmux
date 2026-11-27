@@ -31,6 +31,7 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$work/bin" "$work/tui" "$work/state"
+if [[ -n "${SKEW_LOG_DIR:-}" ]]; then mkdir -p "$SKEW_LOG_DIR"; fi
 
 echo "old (Mac host): $(git -C "$old" rev-parse HEAD)"
 echo "head (phone link): $(git -C "$head" rev-parse HEAD)"
@@ -91,6 +92,9 @@ for _ in $(seq 50); do
   [[ -S "$work/tui/main.sock" ]] && curl -s -o /dev/null "$url/v1/ice" && break
   sleep 0.2
 done
+if [[ ! -S "$work/tui/main.sock" ]] || ! curl -fsS -o /dev/null "$url/v1/ice"; then
+  echo "::error::pair fixture did not become ready; no compatibility verdict"; exit 1
+fi
 CMUX_MOBILE_BASE_URL=$url CMUX_MOBILE_TEAM_ID=t1 CMUX_MOBILE_DEVICE_ID=mac1 \
   CMUX_MOBILE_ACCESS_TOKEN=user:u1 CMUX_MOBILE_OWNER_USER_ID=u1 CMUX_MOBILE_STATE_DIR="$work/state" \
   CMUX_MOBILE_TUI_SOCKET_DIR="$work/tui" CMUX_MOBILE_TUI_SOCKET="$work/tui/main.sock" \

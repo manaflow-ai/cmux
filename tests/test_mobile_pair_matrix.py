@@ -14,10 +14,32 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("mobile_pair_matrix", ROOT / "scripts/ci/mobile_pair_matrix.py")
 matrix = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(matrix)
+result_spec = importlib.util.spec_from_file_location("mobile_pair_result", ROOT / "scripts/ci/mobile_pair_result.py")
+pair_result = importlib.util.module_from_spec(result_spec)
+result_spec.loader.exec_module(pair_result)
 
 
 class MatrixReceipts(unittest.TestCase):
-    def exercise(self, outcome=None, prep_failure=False):
+    def test_assertion_verdict_requires_complete_parseable_transport_results(self):
+        good = [json.dumps({"transport": t, "daemon": json.dumps({"id": 1, "ok": True})})
+                for t in ("webrtc", "wireguard")]
+        bad = [json.dumps({"transport": t, "error": "connect failed", "daemon": ""})
+               for t in ("webrtc", "wireguard")]
+        cases = [
+            ("success", good, 0, "success"), ("assertion", bad, 1, "failure"),
+            ("incomplete", bad[:1], 1, ""), ("malformed", ["{broken}"], 1, ""),
+            ("launch", [], 127, ""), ("timeout", bad, 124, ""), ("killed", bad, 137, ""),
+            ("nonzero-only", good, 1, ""), ("duplicate", [bad[0], bad[0]], 1, ""),
+        ]
+        for name, rows, status, expected in cases:
+            with self.subTest(case=name):
+                self.assertEqual(pair_result.assertion_verdict(rows, status), expected)
+
+    def test_timeout_cannot_promote_an_assertion_marker(self):
+        self.exercise(124, verdict="failure")
+        self.assertEqual(self.last_verdict, "")
+
+    def exercise(self, outcome=None, prep_failure=False, verdict=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             rows = [{"role": role, "sha": char * 40, "release_ids": [release]}
@@ -26,17 +48,21 @@ class MatrixReceipts(unittest.TestCase):
             window.write_text(json.dumps({"include": rows}))
             logs = root / "logs"
             calls = []
+            output = root / "github-output"
             def run(command, **kwargs):
                 calls.append(command)
                 if command[0] == "bash":
                     if isinstance(outcome, Exception):
                         raise outcome
+                    if verdict is not None or not outcome:
+                        Path(kwargs["env"]["SKEW_LOG_DIR"], "assertion-verdict").write_text(
+                            verdict if verdict is not None else "success")
                     return subprocess.CompletedProcess(command, outcome or 0)
                 if prep_failure and "fetch" in command:
                     raise subprocess.CalledProcessError(128, command)
                 return subprocess.CompletedProcess(command, 0)
             with patch.object(sys, "argv", ["matrix", str(window), "--head", str(root)]), \
-                 patch.dict(os.environ, {"SKEW_LOG_DIR": str(logs)}), \
+                 patch.dict(os.environ, {"SKEW_LOG_DIR": str(logs), "GITHUB_OUTPUT": str(output)}), \
                  patch.object(matrix.subprocess, "run", side_effect=run), \
                  patch.object(matrix.subprocess, "check_output", return_value="c" * 40 + "\n"):
                 try:
@@ -46,7 +72,26 @@ class MatrixReceipts(unittest.TestCase):
                     code = exc.code
                 except subprocess.CalledProcessError as exc:
                     code = exc.returncode
+            self.last_verdict = output.read_text() if output.exists() else ""
             return code, json.loads((logs / "matrix-result.json").read_text()), calls
+
+    def test_infrastructure_failures_do_not_mint_red_verdict(self):
+        for outcome in (7, 124, OSError("missing bash")):
+            self.exercise(outcome)
+            self.assertEqual(self.last_verdict, "")
+        self.exercise(prep_failure=True)
+        self.assertEqual(self.last_verdict, "")
+
+    def test_completed_assertion_failure_is_red(self):
+        code, _, _ = self.exercise(1, verdict="failure")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.last_verdict, "verdict=failure\n")
+
+    def test_success_without_assertion_receipt_is_no_verdict(self):
+        code, receipt, _ = self.exercise(0, verdict="")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.last_verdict, "")
+        self.assertEqual(receipt["completed"][0]["failed_stage"], "missing-assertion-verdict")
 
     def test_timeout_has_terminal_receipt_and_retains_unrun_release(self):
         code, receipt, calls = self.exercise(124)
@@ -79,6 +124,7 @@ class MatrixReceipts(unittest.TestCase):
         code, receipt, calls = self.exercise()
         self.assertEqual(code, 0)
         self.assertTrue(receipt["passed"])
+        self.assertEqual(self.last_verdict, "verdict=success\n")
         self.assertEqual(len(receipt["completed"]), 2)
         self.assertEqual(receipt["not_run"], [])
         self.assertTrue(all(row["pr_sha"] == "c" * 40 for row in receipt["completed"]))

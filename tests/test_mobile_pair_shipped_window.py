@@ -204,7 +204,8 @@ class ShippedWindowTests(unittest.TestCase):
                 return self.feed()
             def api(inner, path, **query):
                 if path == "actions/workflows/nightly.yml/runs":
-                    self.assertEqual(query["head_sha"], third["sha"])
+                    self.assertEqual(query["branch"], "nightly-next")
+                    self.assertEqual(query["per_page"], 20)
                     return {"workflow_runs": [{"id": 99}]}
                 if path == "actions/runs/99/jobs":
                     return {"jobs": [{
@@ -224,6 +225,84 @@ class ShippedWindowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "token may only"):
             window.PublicationReader("not-a-real-token").read(
                 "https://example.test/logs", authenticated=True)
+
+    def short_feed(self):
+        feed = window.ET.fromstring(self.feed())
+        channel = feed.find("channel")
+        channel.remove(channel.findall("item")[1])
+        return window.ET.tostring(feed, encoding="unicode")
+
+    def test_single_feed_item_uses_persisted_contiguous_window(self):
+        class Reader:
+            def read(inner, url):
+                return self.short_feed()
+            def api(inner, path, **query):
+                self.assertEqual(path, "actions/workflows/ios-internal-nightly.yml/runs")
+                return {"workflow_runs": self.ios_runs()}
+        result = window.resolve(window.refresh(self.registry, Reader()))
+        self.assertEqual(result["include"], window.resolve(self.registry)["include"])
+
+    def test_single_feed_item_cold_start_recovers_two_published_predecessors(self):
+        history = self.registry["releases"][4:]
+        registry = {"schema_version": 1, "releases": self.registry["releases"][:4]}
+        class Reader:
+            def read(inner, url):
+                return self.short_feed()
+            def api(inner, path, **query):
+                if path == "actions/workflows/nightly.yml/runs":
+                    # Reverse run order to prove publication timestamps decide.
+                    return {"workflow_runs": [{"id": 101}, {"id": 100}]}
+                if path == "actions/workflows/ios-internal-nightly.yml/runs":
+                    return {"workflow_runs": self.ios_runs()}
+                run = int(path.split("/")[-2])
+                return {"jobs": [{
+                    "id": run, "name": "published-build", "conclusion": "success",
+                    "steps": [{"name": "Read the published build back from the live feed",
+                               "conclusion": "success"}],
+                }]}
+            def log(inner, job_id):
+                release = history[job_id - 100]
+                return (release["published_at"] + " source_sha=" + release["sha"] + "\n" +
+                        release["published_at"] + " the live feed's newest build is " +
+                        release["release_id"] + ", the build this run published\n")
+        result = window.resolve(window.refresh(registry, Reader()))
+        self.assertEqual(result["include"], window.resolve(self.registry)["include"])
+
+    def test_short_feed_cannot_fill_gap_from_unrelated_stale_history(self):
+        registry = copy.deepcopy(self.registry)
+        registry["releases"][4]["sha"] = "f" * 40
+        class Reader:
+            def read(inner, url):
+                return self.short_feed()
+            def api(inner, path, **query):
+                self.assertEqual(path, "actions/workflows/nightly.yml/runs")
+                return {"workflow_runs": []}
+        with self.assertRaisesRegex(ValueError, "does not confirm"):
+            window.refresh(registry, Reader())
+
+    def test_missing_second_predecessor_fails_closed(self):
+        registry = {"schema_version": 1, "releases": self.registry["releases"][:5]}
+        class Reader:
+            def read(inner, url):
+                return self.short_feed()
+            def api(inner, path, **query):
+                if path == "actions/workflows/nightly.yml/runs":
+                    return {"workflow_runs": []}
+                return {"workflow_runs": self.ios_runs()}
+        with self.assertRaisesRegex(ValueError, "mac: need 3"):
+            window.refresh(registry, Reader())
+
+    def test_refresh_output_is_the_next_runs_publication_history(self):
+        class Reader:
+            def read(inner, url):
+                return self.short_feed()
+            def api(inner, path, **query):
+                self.assertEqual(path, "actions/workflows/ios-internal-nightly.yml/runs")
+                return {"workflow_runs": self.ios_runs()}
+        first = window.refresh(self.registry, Reader())
+        # JSON round-trip matches the persisted registry used by another run.
+        second = window.refresh(json.loads(json.dumps(first)), Reader())
+        self.assertEqual(window.resolve(first), window.resolve(second))
 
 
 if __name__ == "__main__":

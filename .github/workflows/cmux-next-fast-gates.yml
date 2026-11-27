@@ -889,6 +889,7 @@ jobs:
           GATES: ${{ needs.fast-gates.result }}
           RATCHET: ${{ needs.panic-ratchet.result }}
           PAIR_RESULT: ${{ needs.pair-skew.result }}
+          PAIR_VERDICT: ${{ needs.pair-skew.outputs.pair_verdict }}
           PAIR_REQUIRED: ${{ needs.resolve.outputs.pair_required != 'false' }}
           RECEIPT_VALID: ${{ needs.resolve.outputs.receipt_valid }}
           RECEIPT_BASE: ${{ needs.resolve.outputs.receipt_base }}
@@ -939,10 +940,10 @@ jobs:
           # Required means skipped/cancelled/unknown is not a pass. A real failure remains
           # a failure even when the other branch stopped. Keep the base freshness prefix.
           if [[ "${PAIR_REQUIRED:-false}" == true ]]; then
-            if [[ "$PAIR_RESULT" == failure ]]; then
+            if [[ "${PAIR_VERDICT:-}" == failure ]]; then
               state=failure
               description="base $BASE; phone/Mac cross-commit failed"
-            elif [[ "$PAIR_RESULT" != success && "$state" != failure ]]; then
+            elif [[ ( "$PAIR_RESULT" != success || "${PAIR_VERDICT:-}" != success ) && "$state" != failure ]]; then
               state=pending
               description="base $BASE; phone/Mac cross-commit stopped (${PAIR_RESULT:-none}), no verdict"
             fi
