@@ -74,6 +74,10 @@ GS = None  # graceful-swap.py of the tree under test (--tree), loaded in main()
 STRESS = load("perf_stress_session", NEXT / "perf-stress-session.py")
 
 HARNESS_ID = "gswfake"
+# The film's tail after a latency save: a save not shown by then is a miss, counted as at least this long by
+# the importer. 2.5 s hid saves that showed at ~3 s (18 of 20 at 75ef6ec3); 8 s measures them.
+LATENCY_WINDOW_S = 8.0
+
 EDITS = {
     "composer": ("webviews/src/agent-session/acpmux/ComposerFoot.tsx",
                  "{children}</InQuietRow.Provider>",
@@ -509,7 +513,8 @@ class Scenario:
         rows = [r.get("regions", {}) for r in runs]
         seen = [float(r.get(watch, {}).get(sample)) for r in rows if r.get(watch, {}).get(sample) is not None]
         out = {"version": GS.VERSION, "label": f"fleet-{series}", "runs": len(runs), "watch": watch, "surface": surface,
-               "sample": sample, "fps": [r.get("video", {}).get("fps") for r in runs], "regions": {}}
+               "sample": sample, "window_ms": round(LATENCY_WINDOW_S * 1000),
+               "fps": [r.get("video", {}).get("fps") for r in runs], "regions": {}}
         out["regions"][watch] = {"n": len(seen), "missed": len(rows) - len(seen), "p50_ms": GS.percentile(seen, 50),
                                  "p95_ms": GS.percentile(seen, 95), "max_ms": max(seen) if seen else None,
                                  "samples_ms": seen}
@@ -523,7 +528,7 @@ class Scenario:
         print("GRACEFUL_SWAP_LATENCY " + json.dumps(out, separators=(",", ":")), flush=True)
         self.results["latency"][f"{series}-{surface}"] = {k: out["regions"][watch][k] for k in ("n", "missed", "p50_ms", "p95_ms")}
 
-    def series(self, kind, runs, before=None, trigger_for=None, after=None, post=2.5, edit="composer"):
+    def series(self, kind, runs, before=None, trigger_for=None, after=None, post=LATENCY_WINDOW_S, edit="composer"):
         results = []
         for i in range(runs + 1):  # run 0 warms the dev server's compile of the file and is not counted
             on = i % 2 == 0
