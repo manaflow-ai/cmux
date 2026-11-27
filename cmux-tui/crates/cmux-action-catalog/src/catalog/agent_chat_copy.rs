@@ -24,7 +24,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentChat.copyHarnessSessionID",
         group: GROUP,
-        title: t("ActionCatalog", "action.agentChat.copyHarnessSessionID", "Copy Harness Session ID"),
+        title: t("ActionCatalog", "action.agentChat.copyHarnessSessionID", "Copy Agent Session ID"),
         keywords: &["agent", "chat", "harness", "session", "id", "identifier", "claude", "codex", "copy"],
         category: "agents",
         symbol: "number",
@@ -115,7 +115,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentChat.copyHarnessConfigFile",
         group: GROUP,
-        title: t("ActionCatalog", "action.agentChat.copyHarnessConfigFile", "Copy Harness Config File"),
+        title: t("ActionCatalog", "action.agentChat.copyHarnessConfigFile", "Copy Agent Config File"),
         keywords: &["agent", "chat", "harness", "config", "claude.json", "config.toml", "claude", "codex", "json", "copy"],
         category: "agents",
         symbol: "gearshape",
@@ -128,7 +128,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "agentChat.copyHarnessSettingsFile",
         group: GROUP,
-        title: t("ActionCatalog", "action.agentChat.copyHarnessSettingsFile", "Copy Harness Settings File"),
+        title: t("ActionCatalog", "action.agentChat.copyHarnessSettingsFile", "Copy Agent Settings File"),
         keywords: &["agent", "chat", "harness", "settings", "settings.json", "claude", "json", "copy"],
         category: "agents",
         symbol: "slider.horizontal.3",

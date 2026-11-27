@@ -235,7 +235,7 @@ pub const EMAIL: Argument = Argument { name: "email", title: t("HomeActions", "a
 #[rustfmt::skip]
 pub const NAME_3: Argument = Argument { name: "name", title: t("HomeActions", "argument.home.chief.name", "Chief Name"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const HARNESS: Argument = Argument { name: "harness", title: Text::raw("Harness"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const HARNESS: Argument = Argument { name: "harness", title: Text::raw("Agent"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const ENGINE_2: Argument = Argument { name: "engine", title: Text::raw("Engine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -393,7 +393,7 @@ pub const EVENT_2: Argument = Argument { name: "event", title: t("Localizable", 
 #[rustfmt::skip]
 pub const CWD_2: Argument = Argument { name: "cwd", title: t("Localizable", "argument.agent.cwd", "Folder"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const HARNESS_2: Argument = Argument { name: "harness", title: t("ActionCatalog", "argument.agent.harness", "Harness"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const HARNESS_2: Argument = Argument { name: "harness", title: t("ActionCatalog", "argument.agent.harness", "Agent"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const MODEL: Argument = Argument { name: "model", title: t("ActionCatalog", "argument.agent.model", "Model"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]

@@ -31413,7 +31413,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Integrate a Harness with an Agent…",
+      "title" : "Add Agent…",
       "title_key" : "action.palette.addHarness",
       "title_table" : "ActionCatalog"
     },
@@ -34651,7 +34651,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Copy Harness Session ID",
+      "title" : "Copy Agent Session ID",
       "title_key" : "action.agentChat.copyHarnessSessionID",
       "title_table" : "ActionCatalog"
     },
@@ -34868,7 +34868,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Copy Harness Config File",
+      "title" : "Copy Agent Config File",
       "title_key" : "action.agentChat.copyHarnessConfigFile",
       "title_table" : "ActionCatalog"
     },
@@ -34899,7 +34899,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Copy Harness Settings File",
+      "title" : "Copy Agent Settings File",
       "title_key" : "action.agentChat.copyHarnessSettingsFile",
       "title_table" : "ActionCatalog"
     },
