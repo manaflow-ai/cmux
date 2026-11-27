@@ -7748,13 +7748,28 @@ extension BrowserPanel {
 
     /// Use Selection for Find (Cmd+E): opens the find bar with the page's
     /// current selection as the needle, replacing any query already in it.
-    /// Returns false, leaving find untouched, when nothing is selected or a
-    /// diff viewer page owns find.
+    /// Returns false, leaving find untouched, when nothing is selected, a
+    /// diff viewer page owns find, or the page or the find bar changed while
+    /// the selection was being read.
     @discardableResult
     func useSelectionForFind() async -> Bool {
-        guard !isDiffViewerFindOwner,
-              case .snapshot(let snapshot) = await readSurfaceSelection(),
-              snapshot.hasSelection else { return false }
+        guard !isDiffViewerFindOwner else { return false }
+        // The read suspends, so a navigation or an edit to the find bar can
+        // land under it. Adopt the selection only when the document and the
+        // find state are the ones this call started with.
+        let startInstanceID = webViewInstanceID
+        let startHistoryItem = webView.backForwardList.currentItem
+        let startURL = webView.url
+        let startSearchState = searchState
+        let startNeedle = searchState?.needle ?? lastSearchNeedle
+        guard case .snapshot(let snapshot) = await readSurfaceSelection(),
+              snapshot.hasSelection,
+              startInstanceID == webViewInstanceID,
+              startHistoryItem === webView.backForwardList.currentItem,
+              startURL == webView.url,
+              startSearchState === searchState,
+              startNeedle == (searchState?.needle ?? lastSearchNeedle),
+              !isDiffViewerFindOwner else { return false }
         let needle = snapshot.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return false }
         if let searchState {
