@@ -268,6 +268,16 @@ def route(event: dict, callees: dict, files: list[str] | None,
             start.append(name)
             why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, iOS-affecting: the ios fast verdict alone (no table job) "
                          f"compiles the changed iOS targets before the merge")
+            gates = nightly_gates(config, files) if nightly_gate_on() else []
+            why[name] += f"; nightly gate: runs only {', '.join(gates)}" if gates else ""
+            continue
+        gates = nightly_gates(config, files) if landing_affected and nightly_gate_on() else []
+        if gates:
+            # A landing head on the affected tier starts no full-tier job, so a check the nightly also runs first ran
+            # at the nightly, hours after the merge (NIGHTLY_GATE_JOBS). Only those steps run (main's `only`).
+            start.append(name)
+            why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, nightly gate: runs only "
+                         f"{', '.join(gates)} (steps the nightly also runs, ci/steps.toml `nightly`)")
             continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
@@ -342,6 +352,32 @@ def preflight_web(event: dict, callees: dict, files: list[str] | None) -> tuple[
 # just kept getting bottled on random stuff that we can juts fix fundamentally in terms of decisions and/or just
 # setting up more capacity and stuff". vars.CI_IOS_FAST_VERDICT=0 turns the verdict, and this start, off.
 IOS_VERDICT_CALLEE = "pr-pipeline.yml"
+
+
+# The step table's steps that mirror a nightly step (ci/steps.toml `nightly`: the notices generation) run on a landing
+# head of the affected tier when the change routes them, with every input kept (ci_steps.nightly_gate_steps). 11-26 to
+# 11-27: 8 nightly failures in a row from 4 causes, each found only at the nightly (#59540's IJG-licensed jpeg-encoder;
+# #51044's duplicate import and #46903's shelf red, now caught by the compile preflight and app-store-shelf-pr).
+# Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
+# vars.CI_NIGHTLY_GATE_ON_LAND=0
+# turns this start off.
+NIGHTLY_GATE_JOBS = ("linux",)
+
+
+def nightly_gate_on() -> bool:
+    return os.environ.get("CI_NIGHTLY_GATE_ON_LAND", "").strip() != "0"
+
+
+def nightly_gates(config: dict, files: list[str] | None, table: Path | None = None) -> list[str]:
+    """The nightly-mirroring steps of CONFIG's table jobs FILES route. Unknown files route every such step; an
+    unreadable table routes none here (the full tier and the post-merge batch still run it)."""
+    jobs = [job for job in config.get("table_jobs", []) if job in NIGHTLY_GATE_JOBS]
+    if not jobs:
+        return []
+    try:
+        return ci_steps.nightly_gate_steps(ci_steps.load(table or ci_steps.TABLE), files, jobs)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def ios_verdict_on() -> bool:
@@ -575,12 +611,27 @@ def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tup
     return {c for c in carried if c in callees}, rows
 
 
+def nightly_gate_table(callees: dict, files: list[str] | None, decided: tuple[str, str], start: list[str],
+                       table: list[str]) -> tuple[list[str], list[str]]:
+    """(the table jobs pr-pipeline.yml starts, the steps its jobs run only): on a landing head of the affected tier
+    whose change routes a nightly-mirroring step (nightly_gates), that step's job joins TABLE and runs only those
+    steps. Any other head: (TABLE, []), its jobs run their whole route."""
+    if not head_tier.land_affected(decided) or not nightly_gate_on():
+        return table, []
+    only = [step for name, config in sorted(callees.items()) if name in start
+            for step in nightly_gates(config, files)]
+    jobs = [job for job in NIGHTLY_GATE_JOBS if only and job not in table]
+    return (table + jobs, only) if jobs else (table, [])
+
+
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
                   table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", ""),
-                  ui: tuple[str, str] = ("", ""), preflight: tuple[bool, str] = (True, "")) -> None:
+                  ui: tuple[str, str] = ("", ""), only: list[str] | None = None,
+                  preflight: tuple[bool, str] = (True, "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
+        out.write(f"only={' '.join(only or [])}\n")
         out.write(f"land_status={status}\n")
         out.write(f"ios_status={ios[0]}\n")
         out.write(f"ios_status_description={ios[1]}\n")
@@ -614,6 +665,7 @@ def main(argv: list[str]) -> int:
         full = decided[0] == "full" or FULL_CI in labels
         table = [job for job in table_jobs_routed(callees, files, full=full,
                                                   full_ci=full_ci_kept(event)) if job not in rows]
+        table, only = nightly_gate_table(callees, files, decided, start, table)
         if rows:
             why["pr-pipeline.yml"] = why.get("pr-pipeline.yml", "") + (
                 f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
@@ -623,7 +675,7 @@ def main(argv: list[str]) -> int:
         held = (carried or rows) and not head_tier.full_rerun(decided)
         status = "pending" if status and held else status
         write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
-                      ui_status(event, files), preflight_web(event, callees, files))
+                      ui_status(event, files), only, preflight_web(event, callees, files))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

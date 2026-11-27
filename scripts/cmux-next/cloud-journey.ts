@@ -4667,24 +4667,53 @@ export function leakProof(log: string, id: string): string | null {
   return seenCreate ? `the job's journey made ${id} but logged no failed cleanup delete for it` : `the job's log has no journey that made ${id}`;
 }
 
-type GhGet = (url: string, headers: Record<string, string>) => Promise<{ status: number; location: string | null; text: string }>;
+type GhResponse = { status: number; location: string | null; text: string; remaining?: string | null; reset?: string | null; retryAfter?: string | null };
+type GhGet = (url: string, headers: Record<string, string>) => Promise<GhResponse>;
 
 const ghGet: GhGet = async (url, headers) => {
   const res = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(60_000) });
   const text = await res.text();
-  return { status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024) };
+  return {
+    status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024),
+    remaining: res.headers.get("x-ratelimit-remaining"), reset: res.headers.get("x-ratelimit-reset"),
+    retryAfter: res.headers.get("retry-after"),
+  };
 };
 
 /**
  * The GitHub side of the proof: the job is PROOF_JOB of PROOF_WORKFLOW in a trusted run of JOURNEY_REPO (PROOF_EVENTS,
  * its own head repository, PROOF_BRANCHES), and its log has leakProof's two lines. Null when proven, else why not. The log's download link is fetched without the token.
  */
-export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet): Promise<string | null> {
+export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet,
+  clock: { now: () => number; sleep: (ms: number) => Promise<unknown> } = { now: Date.now, sleep },
+): Promise<string | null> {
   const api = `https://api.github.com/repos/${JOURNEY_REPO}/actions`;
   const auth = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
-  const json = async (url: string) => {
+  const diagnostic = (r: GhResponse) => {
+    // Redact before truncating: a cut through a token must never expose its prefix.
+    const safe = (text: string) => scrub(token ? text.split(token).join("[secret]") : text);
+    const body = Buffer.from(safe(r.text)).subarray(0, 200).toString("utf8").replace(/\uFFFD$/, "");
+    return `HTTP ${r.status}; x-ratelimit-remaining=${safe(r.remaining ?? "unknown")}; x-ratelimit-reset=${safe(r.reset ?? "unknown")}; retry-after=${safe(r.retryAfter ?? "unknown")}; body=${JSON.stringify(body)}`;
+  };
+  const read = async (url: string) => {
     const r = await get(url, auth);
-    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: HTTP ${r.status}`);
+    if ((r.status !== 403 && r.status !== 429) || r.remaining !== "0") return r;
+    const now = clock.now();
+    const reset = r.reset && /^\d+$/.test(r.reset) ? Number(r.reset) * 1000 - now : NaN;
+    const retry = r.retryAfter
+      ? (/^\d+$/.test(r.retryAfter) ? Number(r.retryAfter) * 1000 : Date.parse(r.retryAfter) - now)
+      : NaN;
+    const delays = [reset, retry].filter(Number.isFinite);
+    if (!delays.length) return r;
+    // Honor both headers. Longer resets belong to a later run, not an hour-long cleanup job.
+    const delay = Math.max(1000, ...delays);
+    if (delay > 60_000) return r;
+    await clock.sleep(delay);
+    return get(url, auth);
+  };
+  const json = async (url: string) => {
+    const r = await read(url);
+    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: ${diagnostic(r)}`);
     return JSON.parse(r.text);
   };
   try {
@@ -4699,13 +4728,13 @@ export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet =
     if (!PROOF_BRANCHES.has(String(run?.head_branch)) || job.head_branch !== run.head_branch) return `job ${entry.job}: branch ${short(run?.head_branch)} is not feat-cmux-next or main`;
     const workflow = String(run?.path ?? "").replace(/@.*$/, "");
     if (workflow !== PROOF_WORKFLOW) return `job ${entry.job}: workflow ${workflow || "?"} is not ${PROOF_WORKFLOW}`;
-    const link = await get(`${api}/jobs/${entry.job}/logs`, auth);
+    const link = await read(`${api}/jobs/${entry.job}/logs`);
     let log = link.text;
     if (link.status === 302 && link.location) {
       const blob = await get(link.location, {});
       if (blob.status !== 200) return `job ${entry.job}: its log download answered HTTP ${blob.status}`;
       log = blob.text;
-    } else if (link.status !== 200) return `job ${entry.job}: its log answered HTTP ${link.status}`;
+    } else if (link.status !== 200) return `job ${entry.job}: its log answered ${diagnostic(link)}`;
     const why = leakProof(log, entry.id);
     return why ? `job ${entry.job}: ${why}` : null;
   } catch (e) {

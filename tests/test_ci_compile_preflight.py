@@ -176,6 +176,13 @@ class LiveBase(unittest.TestCase):
         self.assertLess(dup, install, "the parse check runs before any install")
         self.assertLess(block.index("name: Fast fail"), block.index("name: Source key"))
 
+    def test_every_module_is_parsed_for_a_twice_bound_name_before_the_build(self) -> None:
+        block = job_block(CALLEE.read_text(), "web")
+        parse = block.index("node scripts/check-duplicate-bindings.mjs")
+        self.assertLess(block.index("name: Setup Node"), parse)
+        self.assertLess(block.index("name: Restore the webviews Bun package cache"), parse)
+        self.assertLess(parse, block.index("compile_preflight.py web-build"), "the parse fails before the build")
+
 
 class NeverSkipped(unittest.TestCase):
     def test_router_calls_it_on_every_tier(self) -> None:
@@ -199,6 +206,23 @@ class NeverSkipped(unittest.TestCase):
         self.assertIn("compile_preflight.py web-build", block)
         self.assertIn("compile_preflight.py web-touched . HEAD^1 HEAD", block)
         self.assertIn("fetch-depth: 2", block)
+
+    def test_a_warm_runner_skips_unpacking_the_bun_cache_archive(self) -> None:
+        # A pool runner keeps its own Bun cache across jobs; the restore unpacked the 1.1 GB archive over it anyway,
+        # a 30 s median of a 205 s build job (11-27 05:30-11:36Z). The check runs first, and the restore only when the
+        # runner's cache is empty; CI_BUN_CACHE_RESTORE_WARM=1 restores everywhere again (fast gates' same rule).
+        block = job_block(CALLEE.read_text(), "web")
+        warm_at = block.index("name: Is this runner's own Bun package cache warm")
+        restore_at = block.index("name: Restore the webviews Bun package cache")
+        build_at = block.index("name: Build the web bundles")
+        self.assertLess(warm_at, restore_at)
+        self.assertLess(restore_at, build_at)
+        self.assertIn("id: bun-warm", block[warm_at:restore_at])
+        self.assertIn("vars.CI_BUN_CACHE_RESTORE_WARM", block[warm_at:restore_at])
+        self.assertIn("steps.bun-warm.outputs.warm != 'true'", block[restore_at:build_at])
+        # The build itself never depends on the warm check: a warm runner still builds.
+        build_if = re.search(r"name: Build the web bundles.*\n\s+if: (.*)", block).group(1)
+        self.assertNotIn("bun-warm", build_if)
 
 
 class NeverWebCheck(unittest.TestCase):
