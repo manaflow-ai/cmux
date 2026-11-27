@@ -15,7 +15,9 @@ public nonisolated final class RemoteRdSession {
     public let carrier: RemoteRdCore.Carrier
     private let handle: OpaquePointer
 
-    /// Nil only when the core cannot allocate a session.
+    /// `deadlineMicros` caps the wait for a NACKed frame; the core sizes the wait from the
+    /// measured round trip (two windows of RTT plus 10 ms). Nil only when the core cannot
+    /// allocate a session.
     public init?(carrier: RemoteRdCore.Carrier, deadlineMicros: UInt64 = 200_000, nackAfterMicros: UInt64 = 5_000) {
         guard let handle = cmux_rd_session_new(carrier.raw, deadlineMicros, nackAfterMicros) else { return nil }
         self.carrier = carrier
@@ -78,6 +80,38 @@ public nonisolated final class RemoteRdSession {
 
     public func noteDecode(stream: UInt16, micros: UInt32) throws(RemoteRdCoreError) {
         _ = try RemoteRdCoreError.check(cmux_rd_session_note_decode(handle, stream, micros))
+    }
+
+    /// Starts clock probes; only when the welcome lists `clock`. Idempotent.
+    public func enableClock() throws(RemoteRdCoreError) {
+        _ = try RemoteRdCoreError.check(cmux_rd_session_enable_clock(handle))
+    }
+
+    /// Frame `frame` decoded at `decodedAtMicros` (this core's clock) in `decodeMicros`: the
+    /// feedback median and the stage ledger.
+    public func noteFrameDecoded(stream: UInt16, frame: UInt32, decodeMicros: UInt32, decodedAtMicros: UInt64) throws(RemoteRdCoreError) {
+        _ = try RemoteRdCoreError.check(cmux_rd_session_note_frame_decoded(handle, stream, frame, decodeMicros, decodedAtMicros))
+    }
+
+    /// Frame `frame` reached the glass at `presentedAtMicros` (this core's clock).
+    public func noteFramePresented(stream: UInt16, frame: UInt32, presentedAtMicros: UInt64) throws(RemoteRdCoreError) {
+        _ = try RemoteRdCoreError.check(cmux_rd_session_note_frame_presented(handle, stream, frame, presentedAtMicros))
+    }
+
+    /// The stage ledger so far (`cmux.rd-stage-ledger/1` JSON), nil on an error.
+    public func stageLedger() -> String? {
+        var length = 0
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        // At most twice: a summary larger than the first buffer says its size.
+        for _ in 0..<2 {
+            let code = buffer.withUnsafeMutableBufferPointer { buf in
+                cmux_rd_session_stage_ledger(handle, buf.baseAddress, buf.count, &length)
+            }
+            if code >= 0 { return String(decoding: buffer.prefix(length), as: UTF8.self) }
+            guard RemoteRdCoreError(code: code) == .buffer else { return nil }
+            buffer = [UInt8](repeating: 0, count: length)
+        }
+        return nil
     }
 
     /// Asks the host for a keyframe of `stream` until one is released there.

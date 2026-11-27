@@ -63,12 +63,14 @@
         "apps.updates.list",
         "apps.grants.get",
         "apps.logs",
-        "apps.asset.get"
+        "apps.asset.get",
+        "apps.features.list"
       ],
       "gesture": [
         "apps.hidden.set",
         "apps.grant.revoke",
-        "apps.install"
+        "apps.install",
+        "apps.features.set"
       ],
       "confirm": [
         "apps.set",
@@ -141,6 +143,19 @@
         "feed-view-changed",
         "feed-reports-changed"
       ]
+    },
+    "forum": {
+      "description": "Forum (experiments.forum): the team's hosted forum read through the daemon's forum owner (server/forum_routed.rs, the cmux-forum-hosted client). It reads the spaces and threads (forum.snapshot) and one thread with its comments (forum.thread.get); a new thread (forum.thread.post) and a reply (forum.thread.reply) need the person's gesture. It hears no event: the page re-reads after its own post or reply and on demand.",
+      "read": [
+        "forum.snapshot",
+        "forum.thread.get"
+      ],
+      "gesture": [
+        "forum.thread.post",
+        "forum.thread.reply"
+      ],
+      "confirm": [],
+      "events": []
     }
   },
   "namespaces": {
@@ -165,6 +180,16 @@
         "apps.hidden.set",
         "apps.grant.set",
         "apps.grant.revoke"
+      ]
+    },
+    "apps_features": {
+      "owner": "apps.features",
+      "description": "Built-in features as App Store switches (server/app_features.rs): list reads each feature's existing settings key; set writes that key the way Settings does (a toggle's bool, or a choice's value and a reset to the default). No key of its own, no default changed. Unix socket and authenticated WebSocket connections; mutations need origin user.",
+      "read": [
+        "apps.features.list"
+      ],
+      "mutation": [
+        "apps.features.set"
       ]
     },
     "agent_session": {
@@ -225,6 +250,18 @@
         "feed.github.refresh",
         "feed.reports.reply",
         "feed.presence.set"
+      ]
+    },
+    "forum": {
+      "owner": "forum.hosted",
+      "description": "The team's hosted forum (/v1/forum on cmux-platform) through the daemon's cmux-forum-hosted client (server/forum_routed.rs), set up from CMUX_FORUM_URL, CMUX_FORUM_TEAM and CMUX_FORUM_KEY. Only the app's own process (its main connection or its Forum page relay); mutations need origin user.",
+      "read": [
+        "forum.snapshot",
+        "forum.thread.get"
+      ],
+      "mutation": [
+        "forum.thread.post",
+        "forum.thread.reply"
       ]
     }
   }

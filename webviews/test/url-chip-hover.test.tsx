@@ -84,9 +84,12 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.focus());
   expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
-  // Its card asked gh about it (chips/PullRequestCard.tsx); the chip asks nothing for itself, as its
-  // mark keeps the link's colour (Lucas, 2026-11-11).
+  // The chip asks cmux once more for a site it has no icon for (chips/linkStore.ts `retrySite`, #50378:
+  // a tab may have opened it since); its focus, just after, asks nothing again. Its card asked gh
+  // about it (chips/PullRequestCard.tsx); the chip asks gh nothing for itself, as its mark keeps the
+  // link's colour (Lucas, 2026-11-11).
   expect(calls).toEqual([
+    { method: "link.inspect", params: { paths: [], urls: ["https://github.com/manaflow-ai/cmux/pull/21180"] } },
     { method: "pr.inspect", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
     // Not `browser.open`, which the host takes only for a turn's local preview page.
     { method: "browser.openIn", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180", browserId: "cmux" } },

@@ -13,17 +13,16 @@ import Foundation
 /// The same rules as the WebKit half, the same constants: a page asked through
 /// ``PageWebView/callPageFunction(_:arguments:timeout:)`` (either engine) answers
 /// `window.cmuxWebSwap.hold()`; null reloads now, a reason waits (``WebBundleGracefulReload/mayReload(_:waited:)``),
-/// a page without the hook reloads as before. The cover is ``PageWebView/snapshot()``.
+/// a page without the hook reloads as before. A page that may reloads in place (``PageWebView/swapReload()``).
 @MainActor
 final class PageGracefulReload {
     private var waiting: [ObjectIdentifier: (page: PageWebView, since: ContinuousClock.Instant)] = [:]
     private var generation: UInt64 = 0
     private var looking = false
     private let timer = DemandTimer(owner: "page.graceful-reload")
-    private var covers: [ObjectIdentifier: NSImageView] = [:]
     /// Tests answer for the pages (nil: ask each page).
     var askOverride: (@MainActor ([PageWebView]) async -> [String?])?
-    /// Tests reload without a page engine (nil: ``PageWebView/reload()`` under a cover).
+    /// Tests reload without a page engine (nil: ``PageWebView/swapReload()``).
     var reloadOverride: (@MainActor (PageWebView) -> Void)?
     /// Tests run each look themselves (false: nothing is booked).
     var booksLooks = true
@@ -47,6 +46,13 @@ final class PageGracefulReload {
         guard booksLooks else { return nil }
         // task-owner: the first look at these pages; later ones are booked on the timer
         return Task { [weak self] in await self?.look() }
+    }
+
+    /// Reloads `page` now, under a picture of itself: the person asked, so no safe point is waited for
+    /// (their draft was saved first). A page out of sight, or one whose picture fails, reloads bare.
+    func reloadUnderCover(_ page: PageWebView) {
+        guard !page.isClosed else { return }
+        reloadNow(page)
     }
 
     /// How many pages still wait for their safe point (tests).
@@ -111,58 +117,7 @@ final class PageGracefulReload {
 
     private func reloadNow(_ page: PageWebView) {
         if let reloadOverride { return reloadOverride(page) }
-        let id = ObjectIdentifier(page)
-        guard covers[id] == nil, page.isShownForHealth, let host = page.superview else {
-            page.reload()
-            return
-        }
-        let frame = page.frame
-        // task-owner: one cover's life: its picture, the reload under it, and its fade once the page settled
-        Task { [weak self] in
-            guard let picture = await page.snapshot(), let self,
-                  page.superview === host, page.frame == frame, !page.isClosed else {
-                page.reload()
-                return
-            }
-            let cover = NSImageView(frame: frame)
-            cover.image = picture
-            cover.imageScaling = .scaleAxesIndependently
-            cover.autoresizingMask = page.autoresizingMask
-            cover.wantsLayer = true
-            host.addSubview(cover, positioned: .above, relativeTo: page)
-            self.covers[id] = cover
-            _ = await page.callPageFunction("window.cmuxSwapOld = true; return null;", timeout: WebBundleGracefulReload.answerWithin)
-            page.reload()
-            await Self.settled(page)
-            Motion.panes.animate(.fadeOut, in: cover, { cover.animator().alphaValue = 0 }, completion: {
-                cover.removeFromSuperview()
-            })
-            if self.covers[id] === cover { self.covers[id] = nil }
-        }
-    }
-
-    /// Returns once the new document settled (``WebBundleGracefulReload/settleScript``), or after the cover limit.
-    private static func settled(_ page: PageWebView) async {
-        let clock = ContinuousClock()
-        let start = clock.now
-        for _ in 0..<WebBundleGracefulReload.settleAsks {
-            let left = WebBundleGracefulReload.coverLimit - (clock.now - start)
-            guard left > .zero, !page.isClosed else { return }
-            let milliseconds = Int(left.components.seconds * 1000 + left.components.attoseconds / 1_000_000_000_000_000)
-            let answer = await page.callPageFunction(WebBundleGracefulReload.settleScript, arguments: ["limit": milliseconds], timeout: left) as? String
-            if answer == "settled" { return }
-            // The old document answered, or it went away mid-answer: ask the new one a frame later.
-            await pause(.milliseconds(16))
-        }
-    }
-
-    private static func pause(_ duration: Duration) async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            let timer = DemandTimer(owner: "page.graceful-reload.frame")
-            timer.schedule(after: duration) { @MainActor in
-                _ = timer
-                done.resume()
-            }
-        }
+        // task-owner: one swap per page; it ends with the page's restored frame or its cover limit
+        Task { await page.swapReload() }
     }
 }

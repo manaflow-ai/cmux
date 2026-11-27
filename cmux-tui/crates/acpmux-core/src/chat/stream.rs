@@ -375,12 +375,16 @@ pub(super) fn window(
     rows: usize,
 ) -> Result<(Frame, u64), ChatError> {
     let (seen, folds) = person_state(state, person);
-    let read = state.log.read_window(
+    // The open turn's settled work comes folded, as it will be when the turn ends: only its
+    // open rows stream in.
+    let live = state.translate.open_fold();
+    let read = state.log.read_window_live(
         anchor,
         Log::bound(if rows == 0 { MAX_ROWS } else { rows }, MAX_ROWS),
         MAX_FRAME_BYTES,
         Some(&state.folds),
         &folds,
+        live.as_ref(),
     )?;
     let rows = row_texts(&read)?;
     let open = open_rows(state)?;
@@ -847,7 +851,8 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         state.log.read_turns(edge, max, &state.folds)
     } else {
         let (_, folds) = person_state(state, &person);
-        state.log.read_page(edge, max, page.fold, Some(&state.folds), &folds)
+        let live = state.translate.open_fold();
+        state.log.read_page_live(edge, max, page.fold, Some(&state.folds), &folds, live.as_ref())
     };
     let read = match read {
         Ok(read) => read,

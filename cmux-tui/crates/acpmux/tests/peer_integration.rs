@@ -3000,7 +3000,7 @@ async fn lying_peer(says: Lying) -> u16 {
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
-            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
             let says = says.clone();
             tokio::spawn(async move {
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.
@@ -3673,7 +3673,7 @@ async fn legacy_models_peer(a_port: u16) -> u16 {
     let port = l.local_addr().unwrap().port();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
-            let Ok(ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let Ok(ws) = acpmux::server::accept_ws(tcp).await else { continue };
             tokio::spawn(async move {
                 let (mut sink, mut source) = ws.split();
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.
@@ -3785,23 +3785,32 @@ async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer()
     tokio::spawn(acpmux::server::serve_unix(a.clone(), l));
     let cli = acpmux::client::Client::connect(&sock).await.unwrap();
 
-    let here =
-        resolve(&cli, "agent", Some("near"), false, false, false).await.unwrap_err().to_string();
+    let here = resolve(&cli, "agent", Some("near"), false, false, false, false)
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(here.contains("already runs on this machine") && here.contains("--reuse"), "{here}");
-    assert_eq!(resolve(&cli, "agent", Some("near"), true, false, false).await.unwrap(), None);
-    let there =
-        resolve(&cli, "agent", Some("far"), false, false, false).await.unwrap_err().to_string();
+    assert_eq!(
+        resolve(&cli, "agent", Some("near"), true, false, false, false).await.unwrap(),
+        None
+    );
+    let there = resolve(&cli, "agent", Some("far"), false, false, false, false)
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(there.contains("already runs on b"), "{there}");
     assert_eq!(
-        resolve(&cli, "agent", Some("far"), true, false, false).await.unwrap().as_deref(),
+        resolve(&cli, "agent", Some("far"), true, false, false, false).await.unwrap().as_deref(),
         Some("b")
     );
     // On two machines: not guessed at, even with --reuse.
-    let two =
-        resolve(&cli, "agent", Some("both"), true, false, false).await.unwrap_err().to_string();
+    let two = resolve(&cli, "agent", Some("both"), true, false, false, false)
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(two.contains("this machine, b") && two.contains("--machine"), "{two}");
     // A new name goes to the pick (which a busy test machine may refuse).
-    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false).await {
+    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false, false).await {
         let e = e.to_string();
         assert!(!e.contains("runs on") && !e.contains("--reuse"), "{e}");
     }

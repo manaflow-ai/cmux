@@ -21,10 +21,17 @@ impl Translator {
                             .and_then(Value::as_bool)
                             == Some(true);
                         let suggestions = prompt_suggestions::enabled_in_settings() && !for_agent;
+                        let mut request = initialize_request(suggestions);
+                        if self.stop_condition.load(std::sync::atomic::Ordering::Relaxed) {
+                            request.set_path(&["hooks", "Stop"], json!([{"hookCallbackIds": [super::hook_callback::STOP_CALLBACK], "timeout": super::hook_callback::STOP_TIMEOUT_S}]));
+                        }
+                        if self.plugin_hook_home.get().is_some() {
+                            super::hook_callback::add_tool_hooks(&mut request);
+                        }
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": initialize_request(suggestions)
+                            "request": request
                         })];
                         lines.extend(self.suggestion_init(id, suggestions));
                         // Ultracode and fast mode survive a respawn on the live channel
@@ -80,10 +87,12 @@ impl Translator {
                                 RpcError::invalid_params(super::STEER_NO_TURN),
                             ));
                         }
-                        // A new turn (not a steer into this one): the task list ages a turn
-                        // (`task_plan.rs`).
-                        if !steer {
-                            self.task_plan.lock().await.begin_turn();
+                        // `/clear` empties the context: nothing read before it is in it (dedupe.rs).
+                        if p.pointer("/prompt/0/text")
+                            .and_then(Value::as_str)
+                            .is_some_and(|t| t.trim_start().starts_with("/clear"))
+                        {
+                            self.dedupe.reset();
                         }
                         // The hub's prompt for the turn Claude Code runs on steers it read after
                         // its turn ended: nothing to write (`carry.rs`).
@@ -92,6 +101,9 @@ impl Translator {
                         }
                         let blocks =
                             p.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
+                        // The files the hub's prefetch attached are in the context from now
+                        // on: a later Read of them is stubbed (dedupe.rs, RFD 0160).
+                        self.dedupe_prefetch(&blocks).await;
                         let content: Vec<Value> = blocks
                             .iter()
                             .map(|b| match b.get("type").and_then(Value::as_str) {
@@ -145,6 +157,8 @@ impl Translator {
                         // A new prompt of the hub's: no carried turn waits for one any more.
                         self.clear_carry().await;
                         self.in_turn.store(true, Ordering::SeqCst);
+                        // The turn's first request goes out with this line (`model_calls.rs`).
+                        self.model_clock.requested(super::prompt_cache::now_ms());
                         // A new prompt starts a fresh logical turn. A cancelled compaction may
                         // never emit its boundary/result, so clear its live compaction state here
                         // while retaining the separate late-result attribution marker.
@@ -622,12 +636,25 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
     request.set(
         "hooks",
         json!({"PreToolUse": [{
-            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK],
+            "timeout": super::hook_callback::SYNC_TIMEOUT_S
         }, {
             "matcher": "*", "hookCallbackIds": [super::policy_gate::GATE_CALLBACK],
             "timeout": super::policy_gate::GATE_TIMEOUT_S, "onFailure": "block"
         }]}),
     );
+    // Harness magic `dedupe` (`dedupe.rs`): no `onFailure`, so a callback that fails lets the call
+    // run.
+    #[cfg(unix)]
+    if super::dedupe::enabled()
+        && let Some(hooks) = request.pointer_mut("/hooks/PreToolUse").and_then(Value::as_array_mut)
+    {
+        hooks.push(json!({
+            "matcher": super::dedupe::DEDUPE_MATCHER,
+            "hookCallbackIds": [super::dedupe::DEDUPE_CALLBACK],
+            "timeout": super::dedupe::DEDUPE_TIMEOUT_S,
+        }));
+    }
     if suggestions {
         request.set("promptSuggestions", json!(true));
     }

@@ -111,7 +111,6 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
                 worked: [".cv-worked__label", ".cv-worked__chevron"],
                 // A closed thought reads its words after the brain glyph (Codex parity).
                 thought: [".cv-thought__preview", ".cv-tool__icon svg, .cv-tool__chevron"],
-                plan: [".cv-plan__text", ".cv-plan__mark"],
                 "session-info": [
                   ".acpmux-session-info-section__title",
                   ".acpmux-session-info-section__icon, .acpmux-session-info-section__fold",
@@ -159,9 +158,10 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
             expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
           }
-          // Retry and its model switch moved to the reply footer (TurnFooter); Save as Prompt sits by the time.
-          expect(measurements.footer).toHaveLength(2);
-          expect(measurements.versionFooter).toHaveLength(4);
+          // Retry and its model switch moved to the reply footer (TurnFooter), and Save as Prompt is
+          // gone (Leo, 2026-11-24: "save prompt butotn still bad"): Copy, and the version switcher's two.
+          expect(measurements.footer).toHaveLength(1);
+          expect(measurements.versionFooter).toHaveLength(3);
           for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {
             expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
             expect(glyph.width, "footer glyph width").toBe(16);
@@ -173,66 +173,49 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           await page.close();
         }
       });
-      // Leo, 2026-11-14, on a pending prompt's note: "this is misaligned". The clock sat on the words'
-      // baseline (the age's inline-block rule beat the note's flex centring), 2px from them. Leo,
-      // 2026-11-17: "stop making the copy button move with the text ... why was it not just at the
-      // right edge": the row stays anchored at the bubble's right edge, as a sent prompt's, so Copy
-      // is where it always is and the note's words grow to its left. Leo, 2026-11-17, on a queued
-      // prompt's note: "it's not really useful to see ever": a queued prompt draws none.
-      test(`${theme}: a pending note's clock is centred on its words, Copy keeps the sent row's right edge, and a queued prompt has no note`, async () => {
+      // Leo, 2026-11-17: "stop making the copy button move with the text ... why was it not just at
+      // the right edge": a waiting prompt's buttons end at its bubble's right edge, as a sent
+      // prompt's. Leo, 2026-11-24, on a waiting prompt drawn two ways (the queued row and a
+      // "(clock) Sending" note): "this one is good. why were ther e2 of them". A prompt on its way
+      // draws the queued row, with no clock note, at the same edge and height as the queued one.
+      test(`${theme}: a prompt on its way draws the queued row with no clock, its buttons at the sent row's right edge`, async () => {
         const page = await browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2 });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
           await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}`);
-          await page.locator("[data-pending-row] .cv-user__pending-state svg").waitFor();
+          await page.locator("[data-pending-row] .cv-user__send-now").waitFor();
           await page.evaluate(() => document.fonts.ready);
           const m = await page.evaluate(() => {
-            // The button row's right edge against its bubble's: a pending row's and a sent row's are
-            // the same, so Copy and the buttons after it sit where they always do.
-            const copyFromBubbleRight = (row: Element) =>
+            const rowRight = (row: Element) =>
               row.querySelector(".cv-user__actions .cv-message-footer-row")!.getBoundingClientRect().right -
               row.querySelector(".cv-user__bubble")!.getBoundingClientRect().right;
-            const scope = document.querySelector("[data-pending-row]")!;
-            const note = scope.querySelector(".cv-user__pending-state")!;
-            const icon = note.querySelector("svg")!.getBoundingClientRect();
-            const textRange = (el: Element) => {
-              const range = document.createRange();
-              range.selectNodeContents(el);
-              return range.getBoundingClientRect();
+            const look = (selector: string) => {
+              const scope = document.querySelector(selector)!;
+              const sendNow = scope.querySelector<HTMLElement>(".cv-user__send-now");
+              return {
+                right: rowRight(scope),
+                height: scope.querySelector(".cv-user__actions .cv-message-footer-row")!.getBoundingClientRect().height,
+                notes: scope.querySelectorAll(".cv-user__pending-state").length,
+                state: sendNow?.dataset.pendingState,
+                text: scope.textContent ?? "",
+              };
             };
-            const words = textRange(note.querySelector(".cv-user__pending-words")!);
-            const gapToken = document.createElement("div");
-            gapToken.style.width = "var(--cv-row-icon-gap)";
-            note.append(gapToken);
-            const tokenPx = gapToken.getBoundingClientRect().width;
-            gapToken.remove();
             return {
-              text: note.textContent,
-              iconCenter: icon.top + icon.height / 2,
-              wordsCenter: words.top + words.height / 2,
-              gap: words.left - icon.right,
-              tokenPx,
-              copyFromBubbleRight: copyFromBubbleRight(scope),
-              sentCopyFromBubbleRight: copyFromBubbleRight(document.querySelector("[data-sent-twin-row]")!),
+              pending: look("[data-pending-row]"),
+              queued: look("[data-queued-row]"),
+              sentRight: rowRight(document.querySelector("[data-sent-twin-row]")!),
             };
           });
-          console.log(`PENDING_NOTE ${JSON.stringify({ theme, ...m })}`);
-          expect(m.text).toContain("Sending");
-          // The queued prompt keeps its time: no clock, no queued words.
-          const queued = await page.evaluate(() => {
-            const scope = document.querySelector("[data-queued-row]")!;
-            return {
-              notes: scope.querySelectorAll(".cv-user__pending-state").length,
-              ages: scope.querySelectorAll("time.cv-user__time").length,
-              text: scope.textContent ?? "",
-            };
-          });
-          expect(queued.notes).toBe(0);
-          expect(queued.ages).toBe(1);
-          expect(queued.text).not.toContain("Queued, sends when");
-          expect(Math.abs(m.iconCenter - m.wordsCenter)).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(m.gap - m.tokenPx)).toBeLessThanOrEqual(0.5);
-          expect(Math.abs(m.copyFromBubbleRight - m.sentCopyFromBubbleRight)).toBeLessThanOrEqual(0.5);
+          console.log(`PENDING_ROW ${JSON.stringify({ theme, ...m })}`);
+          expect(m.pending.state).toBe("sending");
+          expect(m.queued.state).toBe("queued");
+          for (const look of [m.pending, m.queued]) {
+            expect(look.notes).toBe(0);
+            expect(look.text).not.toContain("Sending");
+            expect(look.text).not.toContain("Queued, sends when");
+            expect(Math.abs(look.right - m.sentRight)).toBeLessThanOrEqual(0.5);
+          }
+          expect(Math.abs(m.pending.height - m.queued.height)).toBeLessThanOrEqual(0.5);
         } finally {
           await page.close();
         }

@@ -89,10 +89,12 @@ const shapes = (shaped: AcpmuxRow[]) =>
     ]),
   );
 
-test("open is the shipped arm", () => {
+// #50987: `folded` ships (one live line under a closed Working for, which opens this file's `open`
+// look); `open` stays the arm a reader's opened Working for draws (live-turn-folds-to-line.test.ts).
+test("folded is the shipped arm", () => {
   globalThis.cmuxExperiments = undefined;
-  expect(liveTurnWork.defaultArm).toBe("open");
-  expect(experimentArm(liveTurnWork, { overrides: {}, stored: {} })).toBe("open");
+  expect(liveTurnWork.defaultArm).toBe("folded");
+  expect(experimentArm(liveTurnWork, { overrides: {}, stored: {} })).toBe("folded");
 });
 
 test("a running turn folds no run, before a steer, after it and after more calls", () => {

@@ -178,10 +178,24 @@ async function drawn(row: AcpmuxRow, actions: TurnActions): Promise<string[]> {
   return names;
 }
 
+// A failed prompt's row draws one line and the pending row's X, which takes it back into the
+// composer: the table's Edit in place and Remove in one control. Its Retry is the message menu's,
+// where retrying helps (messageMenu.ts `retryRowId`). Leo, 2026-11-24: "these 4 buttons are really
+// bad tho".
+const FAILED_LABELS: Record<string, string | undefined> = {
+  retry: undefined,
+  edit_in_place: translate("composer.queueEditMessage"),
+  remove: translate("composer.queueEditMessage"),
+};
+const labelFor = (stage: string) => (action: string) =>
+  stage === "failed" && action in FAILED_LABELS ? FAILED_LABELS[action] : LABELS[action];
 // The table's actions as the labels they draw (Edit in place and Edit and resend both say "Edit").
-const labelsOf = (actions: readonly string[]) => [...new Set(actions.map((action) => LABELS[action]!))].sort();
+const labelsOf = (stage: string, actions: readonly string[]) =>
+  [...new Set(actions.map(labelFor(stage)).filter((label): label is string => label !== undefined))].sort();
 const drawnLabels = (names: readonly string[]) =>
-  [...new Set(Object.values(LABELS))].filter((label) => names.includes(label)).sort();
+  [...new Set([...Object.values(LABELS), translate("composer.queueEditMessage")])]
+    .filter((label) => names.includes(label))
+    .sort();
 
 for (const forks of [true, false]) {
   for (const { id, stage, facts } of STAGES) {
@@ -190,7 +204,7 @@ for (const forks of [true, false]) {
       const want = expected(stage, { ...facts, forks }).filter((action) => action in LABELS);
       const names = await drawn(row, actionsFor(rows, forks));
       // Exactly the table's: an Edit the stage does not offer is the bug Leo saw.
-      expect({ id, stage, drawn: drawnLabels(names) }).toEqual({ id, stage, drawn: labelsOf(want) });
+      expect({ id, stage, drawn: drawnLabels(names) }).toEqual({ id, stage, drawn: labelsOf(stage, want) });
     });
   }
 }

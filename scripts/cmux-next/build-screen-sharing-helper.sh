@@ -59,7 +59,7 @@ inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates
   cmux-tui/crates/cmux-file-lock
   cmux-tui/crates/cmux-hub-host cmux-tui/crates/cmux-process cmux-tui/crates/cmux-rd-core
   cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-link cmux-tui/crates/cmux-rd-proto
-  cmux-tui/crates/cmux-transport cmux-tui/vendor cmux-tui/Cargo.toml)
+  cmux-tui/crates/cmux-transport cmux-tui/crates/cmux-wg cmux-tui/vendor cmux-tui/Cargo.toml)
 size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_DEBUG=0)
 features="link computer-use"
 key_material="${size_profile[*]} features=$features"$'\n'

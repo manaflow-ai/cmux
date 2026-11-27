@@ -62,6 +62,14 @@ pub const ACTIVITY_TURNS_CAPABILITY: &str = "activity-turns";
 /// work; acpmux `daemon/cloud_activity.rs` names the phases). The Cloud sleeps a machine inside
 /// its turns only from a report that advertises this (cmux#34298).
 pub const ACTIVITY_PHASES_CAPABILITY: &str = "activity-phases";
+/// Advertised with `activity-turns` while every acpmux daemon whose count holds promises, with
+/// `"turn_end": 1` on its `acp_activity` line, that a count of 0 means nothing pending: no turn
+/// running or queued, no permission or question waiting, no continuation, no background task,
+/// process, subagent or sub-session at work (acpmux `daemon/cloud_activity.rs`). The Cloud
+/// pauses a machine whose pause policy asks for it (cmux-platform `turn_end`) right at turn end
+/// only from a report that advertises this; an older acpmux sends no `turn_end`, so its machine
+/// keeps the usual window.
+pub const ACTIVITY_TURN_END_CAPABILITY: &str = "activity-turn-end";
 /// Advertised with `activity` while the agent's workload probe reads (`workload.rs`): the
 /// report's `activity.workload` counts the processes using CPU, the listening sockets and the
 /// timers that are not the system's. The Cloud reads a machine as idle only from a report that
@@ -105,13 +113,36 @@ pub enum Env {
 }
 
 impl Env {
-    /// The only API origin each environment may bind to.
+    /// Each environment's default API origin (the one its images were baked against).
+    /// `bind.json` may name another of the environment's own ([`Env::allows_api_origin`]).
     pub fn api_origin(self) -> &'static str {
         match self {
             Env::Dev => cmux_cloud_environment::DEVELOPMENT_API,
             Env::Stg => cmux_cloud_environment::STAGING_API,
             Env::Prod => cmux_cloud_environment::PRODUCTION_API,
         }
+    }
+
+    /// Whether `origin` may be this environment's API base as the platform writes it in
+    /// `bind.json` (C11, plans/cloud/ARCHITECTURE-2026-11.md): the environment's API origin, its
+    /// own platform Worker ([`Env::platform_origin`]), and in dev only a numbered API preview
+    /// (`https://cmux-api-preview-N.debussy.workers.dev`, N from 1, no leading zero). Exact
+    /// strings only: https, no path, port, credentials, query or trailing slash. The machine's
+    /// bearer and install-key signatures go to this origin, so it never names another
+    /// environment's deployment or a host outside these.
+    pub fn allows_api_origin(self, origin: &str) -> bool {
+        if origin == self.api_origin() || origin == self.platform_origin() {
+            return true;
+        }
+        self == Env::Dev
+            && origin
+                .strip_prefix("https://cmux-api-preview-")
+                .and_then(|rest| rest.strip_suffix(".debussy.workers.dev"))
+                .is_some_and(|n| {
+                    (1..=9).contains(&n.len())
+                        && !n.starts_with('0')
+                        && n.bytes().all(|b| b.is_ascii_digit())
+                })
     }
 
     /// The connector owner for this environment. Socket callers cannot
@@ -158,6 +189,20 @@ pub struct BindFile {
     pub env: Env,
     /// The relay carrier route (`carrier_entry.rs`), when the platform sent one.
     pub carrier: Option<crate::carrier_entry::CarrierRoute>,
+    /// The compiler cache's settings (`sccache_env.rs`). Never fails the bind: a refused section
+    /// only leaves the cache off.
+    pub sccache: SccacheSection,
+}
+
+/// `bind.json`'s `sccache` section (`sccache_env.rs`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SccacheSection {
+    /// No section: the cache is off.
+    Absent,
+    /// The variables, in name order.
+    Env(Vec<(String, String)>),
+    /// Refused, and why (names only, never a value): the cache is off.
+    Refused(String),
 }
 
 fn prefixed_id(raw: &str, prefix: &str) -> bool {
@@ -172,7 +217,7 @@ fn bind_token_ok(raw: &str) -> bool {
 }
 
 /// `bind.json`, refused unless every field has its shape and the origin is
-/// the environment's own.
+/// one the environment allows ([`Env::allows_api_origin`]).
 pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
     let raw: Value = serde_json::from_str(text).map_err(|_| "bind.json is not JSON".to_owned())?;
     let field = |key: &str| raw.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
@@ -190,8 +235,8 @@ pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
         return Err("bind.json: unknown env".to_owned());
     };
     let api_origin = field("api_origin");
-    if api_origin != env.api_origin() {
-        return Err(format!("bind.json: api_origin is not the {} origin", field("env")));
+    if !env.allows_api_origin(&api_origin) {
+        return Err(format!("bind.json: api_origin is not a {} origin", field("env")));
     }
     let carrier = match raw.get("carrier") {
         None => None,
@@ -204,7 +249,14 @@ pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
             Some(route)
         }
     };
-    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier })
+    let sccache = match raw.get("sccache") {
+        None => SccacheSection::Absent,
+        Some(section) => match crate::sccache_env::parse_section(section) {
+            Ok(vars) => SccacheSection::Env(vars),
+            Err(why) => SccacheSection::Refused(why),
+        },
+    };
+    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier, sccache })
 }
 
 /// `bound.json`: what the machine needs to report after a restart.
@@ -249,6 +301,21 @@ impl DaemonInfo {
         DaemonInfo { version: self.version.clone(), capabilities }
     }
 
+    /// The same block with `activity-turn-end` on (every acpmux daemon promised it and
+    /// `activity-turns` is on) or off. [`Self::with_activity`] drops it: apply this after.
+    pub fn with_turn_end(&self, on: bool) -> DaemonInfo {
+        let mut capabilities: Vec<String> = self
+            .capabilities
+            .iter()
+            .filter(|c| *c != ACTIVITY_TURN_END_CAPABILITY)
+            .cloned()
+            .collect();
+        if on && capabilities.iter().any(|c| c == ACTIVITY_TURNS_CAPABILITY) {
+            capabilities.push(ACTIVITY_TURN_END_CAPABILITY.to_owned());
+        }
+        DaemonInfo { version: self.version.clone(), capabilities }
+    }
+
     /// The same block with `activity-workload` on (the workload is known and `activity` is on)
     /// or off. [`Self::with_activity`] drops it: apply this after.
     pub fn with_workload(&self, on: bool) -> DaemonInfo {
@@ -273,6 +340,7 @@ fn is_activity_capability(c: &str) -> bool {
     c == ACTIVITY_CAPABILITY
         || c == ACTIVITY_TURNS_CAPABILITY
         || c == ACTIVITY_PHASES_CAPABILITY
+        || c == ACTIVITY_TURN_END_CAPABILITY
         || c == ACTIVITY_WORKLOAD_CAPABILITY
 }
 
@@ -332,6 +400,9 @@ pub struct Activity {
     /// `machine_config::idle`; a lane: 300 s): the Cloud pauses it this long after its last
     /// activity (cmux-platform `domain/Pause.ts`). None: the file declares none.
     pub idle_window_seconds: Option<u64>,
+    /// What the machine is short of (`pressure.rs`): the Cloud's sizer samples it at once
+    /// (cmux-platform `readReportedPressure`). None: nothing is short.
+    pub pressure: Option<Value>,
 }
 
 impl Activity {
@@ -360,6 +431,9 @@ impl Activity {
         if let Some(seconds) = self.idle_window_seconds {
             out.insert("idle_window_seconds".to_owned(), json!(seconds));
         }
+        if let Some(pressure) = &self.pressure {
+            out.insert("pressure".to_owned(), pressure.clone());
+        }
         Value::Object(out)
     }
 }
@@ -384,6 +458,7 @@ impl Activity {
             last_person_prompt_at: acp_prompt_at,
             workload: self.workload.clone(),
             idle_window_seconds: self.idle_window_seconds,
+            pressure: self.pressure.clone(),
         }
     }
 }

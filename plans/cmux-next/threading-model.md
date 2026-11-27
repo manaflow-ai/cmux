@@ -152,7 +152,11 @@ still waits for everything queued before it on that queue.
 A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here (the `thread-doc` guardrail
 matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on.
 
+- Disk writes: `com.cmuxterm.app.next.coalescing-file-writer` (CoalescingFileWriter: one utility queue per writer, newest bytes per path, pending bytes bounded, flushed at quit)
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
+- Hang reports: `com.cmuxterm.app.next.hang-resolve` (HangReportCollector's stack resolution, utility, serial:
+  started by a user-data-or source the main thread signals at a sampled stall's end, no allocation on main; it
+  blocks on nothing but dyld reads; at most 16 samples wait, more are dropped)
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.slow-log`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
@@ -160,6 +164,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   the bundled `cmux cloud hands` child's stdin, user-initiated, serial: its pipe writes block only it and keep
   their order; a few small lines per answer, level change or token ask, so no back-pressure; a write to an
   engine that exited fails with EPIPE (no SIGPIPE) and the engine is started again; HandsEngine)
+- Cloud event socket: `com.cmuxterm.next.cloud.wire.path` (CloudMachineWire's `NWPathMonitor` updates, utility,
+  serial: it blocks on nothing and hops each usable path change to the main actor; one per started wire)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
@@ -210,6 +216,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)
+- Design: `com.cmuxterm.next.live-wallpaper.render` (every live wallpaper's frames, LiveWallpaperRenderer,
+  user-initiated, serial: `nextDrawable`, which may wait for the compositor to hand a drawable back, the
+  encode and the commit block this queue, never main; at most one frame per view in flight, a tick that
+  finds its last frame still on the GPU draws nothing, so no back-pressure; held wallpapers queue nothing)
 - Agents: `com.cmuxterm.app.next.agent-pane.tail-disk` (each chat's kept tail on disk, AgentPaneTailDisk, utility,
   serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
   20 files of 1 MiB, and a read waits only behind the saves queued before it; the quit awaits its saves with the
@@ -236,7 +246,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   each process that posts key and mouse events, read once per process with `sysctl(KERN_PROC_PID)`/`proc_pidpath`, user-initiated,
   serial; it also runs that process's exit watch, which removes the entry. The key path only reads the table, never
   a system call; one item per new posting process, so no back-pressure)
-- Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
+- Diagnostics: `cmux-next.starvation-reports` (MainThreadWatchdog, serial utility queue for starvation-probe bookkeeping;
+  the timer skips new probes until the outstanding answer has been recorded), `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
   `debug.window_record`, `debug.motion.trace` (a `debug.motion` `trace_stop`/`trace_read` with `path`: the report's JSON serialization and file

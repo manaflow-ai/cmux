@@ -14,14 +14,14 @@ cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md), shards 2 to 1
 runner-minutes and never caught a red that no other check caught (0 of 3,078 heads); shard 1 caught 9 of its own. So
 a pull request runs:
   - shard 1 always (it holds the shard-independent checks: Oxlint, Oxfmt, type check, budgets, PR-scoped rules);
-  - a shard from 2 to N only when it holds a touched test: a test file the change edits, or a test that itself
+  - the touched tests of the shards from 2 to N, inside shard 1's job: a test file the change edits, or a test that itself
     imports a changed webviews file (one hop of webviews_affected.py's import graph, not its closure, and not its
     always-run set: the browser, Vite and file-reading tests that run on nearly every change are what the 0% above
     measured skipping; the closure put a test of every shard behind any shared module);
-    the picked shards from 2 to N become one job that runs only those touched tests (--direct-out), not each shard's
-    whole share of the affected closure: the shards were picked for them, and the closure share is what the 0%
-    above measured. Shard 1 runs all its checks and, of the tests, only the touched ones in its own share (none when
-    it holds none), not its whole share of the closure: for a source edit the closure was nearly every file (2,776 of
+    shard 1 runs only those touched tests (--direct-out), not each shard's whole share of the affected closure, and
+    no second job up to FOLD_MAX of them: a second job paid its own checkout, install, bundle build and engines for
+    a median of 1 test file (with_shard1). Shard 1 runs all its checks and, of the tests, only the touched ones (none when the change
+    touches none), not its whole share of the closure: for a source edit the closure was nearly every file (2,776 of
     3,170 test files for 56 changed paths, job 137236617956), about 37 of shard 1's 48 minutes. Its 9 own catches
     over 11-13..19 were its checks: on a pull request Test webviews is continue-on-error and the job fails only on
     its gate steps (a test red is react-apps-base-check's), and it keeps every gate step;
@@ -30,11 +30,12 @@ a pull request runs:
     webviews script (webviews/scripts/) counts as a source here: the tests that import it, or that are or import a
     module reading it as data. A deleted source counts by the files that still name it in an import;
   - shard 1 and two sampled shards when the change's only every-shard input is ci-web.yml or a selection script
-    (SAMPLED: webviews_affected.py, focused_tests.py, this file), plus the one job of touched tests from the rest of
-    the change. The two come from the head commit, so each push of a CI iteration runs a different pair. On 98
+    (SAMPLED: webviews_affected.py, focused_tests.py, this file), with shard 1 running the touched tests from the
+    rest of the change. The two come from the head commit, so each push of a CI iteration runs a different pair. On 98
     replayed every-shard heads from 2026-11-21 13Z to 11-22 07Z, ci-web.yml edits were 37 heads and 39% of their
     minutes; every one changed the react-apps-check jobs, so they still run shard 1's checks and two shards' whole
-    file lists rather than none. The full-ci label runs every shard; CI_WEBVIEWS_CI_EDIT_SAMPLE=0 (a repository
+    file lists rather than none. The full-ci label runs every shard (into feat-cmux-next only with
+    CI_WEBVIEWS_FULL_TO_BATCH=0: its post-merge batch runs them); CI_WEBVIEWS_CI_EDIT_SAMPLE=0 (a repository
     variable) runs every shard for them again, as before.
 A shard's files come from the very split it makes itself (run-webviews-tests.sh CMUX_WEB_TEST_LIST_ONLY with the
 run's one duration manifest, widths and head start, passed in the environment), so the pick and the shards agree.
@@ -56,6 +57,7 @@ import os
 import random
 import re
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -78,7 +80,8 @@ SAMPLE_WHY = "sampled shards"
 #            runs its shard-independent checks (Oxlint, Oxfmt, type check, budgets, PR-scoped rules) and no test file;
 #   sampled: shard 1 and the touched tests; when the change has an every-shard input outside FULL, also two shards
 #            sampled from the head commit (the base batch runs every shard and bisects a red to its PR);
-#   full:    a FULL path below, the full-ci label, a base push, the base batch, or a failed pick: every shard.
+#   full:    a FULL path below, the full-ci label, a base push, the base batch, or a failed pick: every shard. A FULL
+#            path on a pull request into feat-cmux-next is sampled instead (full_to_batch): its batch runs every shard.
 # The repository variable CI_WEBVIEWS_PUSH_CLASSES=0 runs the pick as it was before the classes.
 # FULL stays short: each is an input whose miss only a full run can show, because it decides what every shard runs.
 FULL = (
@@ -177,22 +180,54 @@ def shard_files(repo: Path, shard: int, count: int, selected: set[str] | None) -
     """SHARD's test files (repo paths), as run-webviews-tests.sh splits them with this environment."""
     env = dict(os.environ, CMUX_WEB_TEST_LIST_ONLY="1", CMUX_WEB_TEST_SHARD=str(shard), CMUX_WEB_TEST_SHARD_COUNT=str(count))
     env.pop("CMUX_WEB_TEST_FILES", None)
-    if selected is not None:
-        env["CMUX_WEB_TEST_FILES"] = "\n".join(sorted(f.removeprefix(wa.WEB) for f in selected))
-    out = subprocess.run(["bash", str(RUNNER)], cwd=repo / "webviews", env=env, capture_output=True, text=True,
-                         check=True).stdout
+    env.pop("CMUX_WEB_TEST_FILES_FROM", None)
+    with tempfile.NamedTemporaryFile("w", suffix=".files", delete=False) as listing:
+        if selected:  # an empty selection lists every file, as an empty CMUX_WEB_TEST_FILES did
+            # Through a file: a full-ci closure is past the 128 KiB one environment variable may hold (E2BIG),
+            # and that failed pick ran all 8 shards in place of the sampled 3.
+            listing.write("\n".join(sorted(f.removeprefix(wa.WEB) for f in selected)) + "\n")
+            env["CMUX_WEB_TEST_FILES_FROM"] = listing.name
+    try:
+        out = subprocess.run(["bash", str(RUNNER)], cwd=repo / "webviews", env=env, capture_output=True, text=True,
+                             check=True).stdout
+    except subprocess.CalledProcessError as err:
+        # The runner's own words, so a failed pick (which runs every shard) says why (run 45934349255 did not).
+        tail = (err.stderr or "").strip().splitlines()[-3:]
+        raise RuntimeError(f"run-webviews-tests.sh exit {err.returncode}: {' | '.join(tail)[-400:]}") from err
+    finally:
+        os.unlink(listing.name)
     return {wa.WEB + line for line in out.splitlines() if line}
 
 
 def with_shard1(repo: Path, count: int, selected: set[str] | None, direct: set[str],
-                own: dict[int, list[str]]) -> dict[int, list[str]]:
-    """OWN plus shard 1's touched tests (webviews-relative, maybe none), as it splits SELECTED (None: every file).
+                hits: dict[int, set[str]]) -> dict[int, list[str]]:
+    """Shard 1's touched tests (webviews-relative, maybe none): its own, as it splits SELECTED (None: every file), and
+    every touched test in the shards past 1 that HITS holds (each shard's touched tests, repo paths).
 
     An entry for shard 1, even an empty one, runs those tests in place of its share of the closure; an every-shard
-    pick writes none, and shard 1 runs its whole share.
+    pick writes none, and shard 1 runs its whole share. The touched tests outside shard 1 ran in a second job before
+    (the lowest shard holding one): that job paid its own checkout, install, bundle build and engines, about 5 min
+    on the owned runner, for a median of 1 test file (11-22 20Z to 11-23 02Z), and shard 1 pays them already.
     """
     mine = shard_files(repo, 1, count, selected) & direct if direct else set()
-    return {**own, 1: sorted(f.removeprefix(wa.WEB) for f in mine)}
+    for hit in hits.values():
+        mine |= hit
+    return {1: sorted(f.removeprefix(wa.WEB) for f in mine)}
+
+
+# A pull request's touched tests outside shard 1 run in shard 1's own job when they are this many or fewer: a second
+# job paid its own runner start, checkout, install, bundle build and engines (about 10 of the 17 minutes a median
+# one-file second job took, 891 of them a day) to run a handful of files. More than this keep their own job, so shard 1
+# does not become the long pole. Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period."
+FOLD_MAX = 40
+
+
+def fold_into_shard1(repo: Path, count: int, selected: set[str] | None, direct: set[str],
+                     own: dict[int, list[str]]) -> dict[int, list[str]]:
+    """Shard 1's touched tests plus every test OWN names, as one list for shard 1 alone."""
+    mine = with_shard1(repo, count, selected, direct, {})[1]
+    extra = [f for files in own.values() for f in files]
+    return {1: sorted({*mine, *extra})}
 
 
 def sampled_shards(head_sha: str, count: int) -> list[int]:
@@ -219,17 +254,14 @@ def pick(repo: Path, base: str, head: str, count: int) -> tuple[list[int], str, 
                                   check=True).stdout.strip()
         sample = sampled_shards(head_sha, count)
         # The sampled shards run their whole split (the selection is every file for these inputs); touched tests
-        # in the other shards past 1 become one job, as below.
+        # in the other shards past 1 run in shard 1, as below.
         hits = {shard: shard_files(repo, shard, count, None) & direct for shard in everything[1:]
                 if direct and shard not in sample}
         hits = {shard: hit for shard, hit in hits.items() if hit}
-        own = {}
-        if hits:
-            own = {min(hits): sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+        outside = sum(len(hit) for hit in hits.values())
         why = (f"{', '.join(sampled_inputs)} changed: shard 1 and {SAMPLE_WHY} {','.join(map(str, sample))} of "
-               f"{count} (from head {head_sha[:12]})" + (f", and {len(next(iter(own.values())))} touched tests in one job"
-                                                          if own else ""))
-        return sorted({1, *sample, *own}), why, with_shard1(repo, count, None, direct, own)
+               f"{count} (from head {head_sha[:12]})" + (f", and {outside} touched tests in shard 1" if hits else ""))
+        return sorted({1, *sample}), why, with_shard1(repo, count, None, direct, hits)
     direct, why = touched(selector, files)
     if direct is None:
         return everything, why, {}
@@ -244,17 +276,79 @@ def pick(repo: Path, base: str, head: str, count: int) -> tuple[list[int], str, 
     # job pays its own checkout, install and engines before its first test. It takes the lowest picked number.
     first = min(hits)
     own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+    if len(own[first]) <= FOLD_MAX:
+        return ([1], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 folded into shard 1's job",
+                fold_into_shard1(repo, count, selected, direct, own))
     return ([1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
-            with_shard1(repo, count, selected, direct, own))
+            {**own, **with_shard1(repo, count, selected, direct, {})})
 
 
 def classes_on() -> bool:
     return os.environ.get("CI_WEBVIEWS_PUSH_CLASSES", "1") != "0"
 
 
-def full_rule(files: list[str]) -> str:
+# The base whose post-merge batch runs every shard (cmux-next-post-merge.yml, suite `web`): a pull request into it
+# with a FULL path runs the sampled pick, and the full matrix runs once per batch, which bisects a red to its pull
+# request and opens the revert. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."
+# Over 11-24T01..11-25T01, 44 pull request runs ran all 8 shards: 21.2k runner-minutes, about 480 a run, against
+# 38k for the 1,639 runs of one or two shards. CI_WEBVIEWS_FULL_TO_BATCH=0 (a repository variable) runs every shard
+# for them again; another base still runs every shard, and so does the full-ci label on another base. Into
+# feat-cmux-next a full-ci (land-tier) head picks too (ci-web.yml, 2026-11-26): the batch runs the matrix after merge.
+BATCHED_BASE = "feat-cmux-next"
+BATCHED_WHY = "every shard runs in the feat-cmux-next post-merge batch"
+
+
+def full_to_batch() -> bool:
+    """A FULL path on this pull request runs the sampled pick: its base batches every shard after the merge."""
+    return (os.environ.get("CI_WEBVIEWS_PR_BASE", "") == BATCHED_BASE
+            and os.environ.get("CI_WEBVIEWS_FULL_TO_BATCH", "1") != "0")
+
+
+# webviews/package.json is on FULL for its pins: a new bun, React or test library version changes every test file. An
+# edit to its "scripts" alone moves no pin (bun.lock, a FULL path of its own, holds the versions). package.json alone
+# made 20 of the 38 every-shard pull request picks of 11-23 18Z..11-24 18Z, and this rule passes 4 of its 7 merged
+# edits of 11-18..24 (each a new check:NAME and its check:pieces line). Such an edit is an every-shard input outside
+# FULL, so sampled, unless the test run names a script it changes (`run NAME` in the runner or under webviews/test/,
+# a comment or a fixture string too): then that script may be a runner input, and the edit stays FULL.
+PACKAGE = "webviews/package.json"
+SCRIPT_CALLERS = ("scripts/ci/run-webviews-tests.sh", "webviews/test/")
+
+
+def json_or_none(text: str | None) -> dict | None:
+    try:
+        value = json.loads(text) if text is not None else None
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def scripts_only(repo: Path, base: str, head: str) -> bool:
+    """Whether webviews/package.json's edit changes only "scripts", and none the test run calls."""
+    before, after = json_or_none(git_show(repo, base, PACKAGE)), json_or_none(git_show(repo, head, PACKAGE))
+    if before is None or after is None:
+        return False
+    rest = lambda value: {k: v for k, v in value.items() if k != "scripts"}  # noqa: E731
+    if rest(before) != rest(after):
+        return False
+    old, new = before.get("scripts") or {}, after.get("scripts") or {}
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    names = sorted(k for k in set(old) | set(new) if old.get(k) != new.get(k))
+    if not names:
+        return True
+    callers = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-h", "-E", "-e", r"\brun\b", head, "--",
+                              *SCRIPT_CALLERS], capture_output=True, text=True)
+    if callers.returncode not in (0, 1):
+        return False
+    called = re.compile(r"\brun[\s\"',]+(" + "|".join(re.escape(n) for n in names) + r")(?![\w:-])")
+    return not called.search(callers.stdout)
+
+
+def full_rule(files: list[str], repo: Path | None = None, base: str = "", head: str = "") -> str:
     """Why the change needs every shard as a FULL path ("" when none is)."""
     for f in files:
+        if f == PACKAGE and repo is not None and scripts_only(repo, base, head):
+            continue
         for pattern, why in FULL:
             if pattern.search(f):
                 return f"{f} is {why}"
@@ -331,17 +425,18 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
         files = wa.changed(repo, base, head)
     except subprocess.CalledProcessError as err:
         return "full", everything, f"cannot diff {base}..{head} ({err.stderr.strip()})", {}
-    why = full_rule(files)
-    if why:
+    why = full_rule(files, repo, base, head)
+    if why and not full_to_batch():
         return "full", everything, why, {}
     selector = wa.Selector(repo)
     fast = {f: fast_why(repo, selector, base, head, f) for f in files}
     rest = [f for f in files if not fast[f]]
-    if not rest:
+    if not rest and not why:
         shown = "; ".join(fast[f] for f in files[:3]) + (f"; and {len(files) - 3} more" if len(files) > 3 else "")
         return "fast", [1], f"{shown or 'no file changed'}: shard 1's checks, no test file", {}
     direct: set[str] = set()
-    wide: list[str] = []
+    # A FULL path into the batched base: sampled, as a wide input is, and the batch runs every shard.
+    wide: list[str] = [f"{why} ({BATCHED_WHY})"] if why else []
     for f in rest:
         found, reason = touched(selector, [f])
         if found is None:
@@ -355,11 +450,11 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
         hits = {shard: shard_files(repo, shard, count, None) & direct for shard in everything[1:]
                 if direct and shard not in sample}
         hits = {shard: hit for shard, hit in hits.items() if hit}
-        own = {min(hits): sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)} if hits else {}
+        outside = sum(len(hit) for hit in hits.values())
         more = f" (and {len(wide) - 1} more)" if len(wide) > 1 else ""
         why = (f"{wide[0]}{more}: shard 1 and {SAMPLE_WHY} {','.join(map(str, sample))} of {count} (from head "
-               f"{head_sha[:12]})" + (f", and {len(next(iter(own.values())))} touched tests in one job" if own else ""))
-        return "sampled", sorted({1, *sample, *own}), why, with_shard1(repo, count, None, direct, own)
+               f"{head_sha[:12]})" + (f", and {outside} touched tests in shard 1" if hits else ""))
+        return "sampled", sorted({1, *sample}), why, with_shard1(repo, count, None, direct, hits)
     if not direct:
         return "sampled", [1], "the change touches no webviews test: shard 1's checks, no test file", {1: []}
     selected, _ = selector.select(rest)
@@ -370,12 +465,17 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
                 with_shard1(repo, count, selected, direct, {}))
     first = min(hits)
     own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
+    if len(own[first]) <= FOLD_MAX:
+        return ("sampled", [1], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 folded into shard 1's job",
+                fold_into_shard1(repo, count, selected, direct, own))
     return ("sampled", [1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
-            with_shard1(repo, count, selected, direct, own))
+            {**own, **with_shard1(repo, count, selected, direct, {})})
 
 
-HOW_FULL = ("To run every shard, add the `full-ci` label and re-run. To turn the classes off for every pull request, "
-            "set the repository variable `CI_WEBVIEWS_PUSH_CLASSES` to `0`.")
+HOW_FULL = ("To run every shard, add the `full-ci` label and re-run (into feat-cmux-next the post-merge batch runs "
+            "every shard, and the label runs them here only with the repository variable `CI_WEBVIEWS_FULL_TO_BATCH` at "
+            "`0`). To turn the classes off for every pull request, set the repository variable `CI_WEBVIEWS_PUSH_CLASSES` "
+            "to `0`.")
 
 
 def summary(cls: str, shards: list[int], count: int, why: str) -> str:
@@ -384,13 +484,18 @@ def summary(cls: str, shards: list[int], count: int, why: str) -> str:
     return head + f"Rule: {why}.\n" + ("" if cls == "full" else f"\n{HOW_FULL}\n")
 
 
-def files_of(repo: Path, base: str, head: str, count: int, shards: list[int]) -> list[str]:
-    """The test files SHARDS run for BASE..HEAD (webviews-relative), as each splits them."""
+def files_of(repo: Path, base: str, head: str, count: int, shards: list[int],
+             direct: dict[str, list[str]] | None = None) -> list[str]:
+    """The test files SHARDS run for BASE..HEAD (webviews-relative), as each splits them, and every touched test list
+    DIRECT (--direct-out's map) hands a shard: shard 1 runs touched tests from the other shards' shares."""
     selected, _ = wa.Selector(repo).select(wa.changed(repo, base, head))
     out: set[str] = set()
     for shard in shards:
         out |= shard_files(repo, shard, count, selected)
-    return sorted(f.removeprefix(wa.WEB) for f in out)
+    names = {f.removeprefix(wa.WEB) for f in out}
+    for listed in (direct or {}).values():
+        names |= set(listed)
+    return sorted(names)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -402,7 +507,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", help="every shard (a push, full-ci): print the whole matrix")
     ap.add_argument("--files-of", help="comma-separated shards: print the test files they run, one a line")
     ap.add_argument("--direct-out", type=Path,
-                    help="write {shard: [touched test files]} for shard 1 and the one picked shard past 1 (JSON)")
+                    help="write {shard: [touched test files]}: shard 1's, every touched test outside a sampled shard (JSON)")
+    ap.add_argument("--direct-in", type=Path,
+                    help="with --files-of: also print the touched tests of this --direct-out map (a missing file adds none)")
     ap.add_argument("--summary", type=Path, help="append the pick to this Markdown file (the job's step summary)")
     ap.add_argument("--class-out", type=Path, help="write the push class (fast, sampled, full) to this file")
     ap.add_argument("--full-why", help="with --all: the rule that ran every shard, for --summary (a push, full-ci)")
@@ -413,7 +520,8 @@ def main(argv: list[str] | None = None) -> int:
         shards = [int(x) for x in args.files_of.split(",") if x.strip()]
         if not shards or any(not 1 <= x <= args.count for x in shards):
             ap.error(f"--files-of names shards outside 1..{args.count}")
-        files = files_of(args.repo, args.base, args.head, args.count, shards)
+        direct = json.loads(args.direct_in.read_text()) if args.direct_in and args.direct_in.is_file() else None
+        files = files_of(args.repo, args.base, args.head, args.count, shards, direct)
         print(f"webviews pr shards: {len(files)} test files in shards {args.files_of}", file=sys.stderr)
         sys.stdout.write("".join(f + "\n" for f in files))
         return 0

@@ -53,7 +53,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
   /// A new chat; `view` "strip" turns on Settings' attachment strip (the default is inline).
   async function newChat(
     colorScheme: "light" | "dark" = "light",
-    view?: "strip",
+    view?: "strip" | "inline",
     look?: "codex" | "claude",
   ): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 }, colorScheme });
@@ -125,7 +125,7 @@ await requireBrowserLane("agent-pane-attach-typing.test.ts", async () => {
     });
 
   test("keys typed while pasted images attach all land, spaces included", async () => {
-    const page = await newChat();
+    const page = await newChat("light", "inline");
     const prompt = page.locator(COMPOSER_EDITOR);
     await prompt.click();
     await page.keyboard.type("i cant");
