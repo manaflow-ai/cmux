@@ -75,6 +75,7 @@ fn preservation_refusal_after_archival_keeps_worktree_and_discards_archive() {
         &store,
         &|| Ok(Vec::new()),
         &|_| Ok(None),
+        None,
         &preserve,
     )
     .unwrap_err();

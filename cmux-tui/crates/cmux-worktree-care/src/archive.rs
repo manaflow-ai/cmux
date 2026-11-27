@@ -81,7 +81,7 @@ pub fn reclaim(
     open: &Open,
     still: Option<&procs::Still>,
 ) -> Result<Manifest, String> {
-    reclaim_guarded(repo, worktree, facts, action, reason, store, uses, open, &|_| Ok(()))
+    reclaim_guarded(repo, worktree, facts, action, reason, store, uses, open, still, &|_| Ok(()))
 }
 
 /// Reclaims a worktree only after a final preservation check following archival.
@@ -95,6 +95,7 @@ pub fn reclaim_guarded(
     store: &Store,
     uses: &Uses,
     open: &Open,
+    still: Option<&procs::Still>,
     preserve: &Preservation<'_>,
 ) -> Result<Manifest, String> {
     if let Some(why) = &facts.unarchivable {
