@@ -246,8 +246,8 @@ def viewer_state(nodes, name=""):
     identifiers = {str(node.get(key, "")) for node in nodes for key in ("AXIdentifier", "AXUniqueId")}
     cards = [word for title, word in _VIEWER_TITLES if title.format(name) in labels]
     details = [word for text, word in _VIEWER_DETAILS if any(text in label for label in labels)]
-    views = [view for view in ("screen.view", "screen.stats", "browser.stream", "browser.meter", "macScreen.status",
-                               "macScreen.close", "screenSharing.page") if view in identifiers]
+    views = [view for view in ("screen.view", "screen.stats", "macScreen.stream", "browser.stream", "browser.meter",
+                               "macScreen.status", "macScreen.close", "screenSharing.page") if view in identifiers]
     meter = next((RD_METER_LINE.search(label).group(0) for label in labels if RD_METER_LINE.search(label)), "none")
     text = f"viewer: {', '.join(cards) or 'no card'}"
     if details:
@@ -267,7 +267,7 @@ class PairSharePhone(ScreenProofPhone):
         # PhoneUI.launch passes the SIMCTL_CHILD_* receipt flag through to the
         # app. The app logs only a digest of the signed nonce in DEBUG builds.
         # With the Mac app closed the daemon serves the phone over rd/1, whose
-        # view shows its frame rate only with the meter flag (browser.meter).
+        # viewer (MacScreenRdView) shows its frame rate only with the meter flag (browser.meter).
         # Settings, then its Screen Sharing row, as a person gets there. The page itself is not
         # opened by launch argument: the app builds the Screen Sharing service only once the
         # account resolves, and a page pushed before that stays blank (run 45757908357: a
@@ -379,8 +379,9 @@ class PairSharePhone(ScreenProofPhone):
                                f"{state}; frame rate above zero seen: {fps_seen})")
 
     def screen_view(self):
-        """WebRTC draws into screen.view; rd/1 (the Mac app closed) into browser.stream."""
-        for identifier in ("screen.view", "browser.stream"):
+        """WebRTC draws into screen.view; rd/1 (the Mac app closed) into the Mac screen viewer's
+        macScreen.stream (MacScreenRdView, since #51849), or browser.stream on a build before it."""
+        for identifier in ("screen.view", "macScreen.stream", "browser.stream"):
             found = self.ui.find(lambda node, i=identifier: (node.get("AXIdentifier") == i
                                                             or node.get("AXUniqueId") == i))
             if len(found) > 1:
