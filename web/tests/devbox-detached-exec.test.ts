@@ -1,9 +1,9 @@
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { DetachedExecLost, detachedExec, type DetachedExecVm } from "../scripts/cmux-vm-image/detached-exec";
+import { runChild } from "./helpers/run-child";
 
 /** A guest that is this machine: each exec is one `sh -c`, like the provider's. */
 function localVm(hooks: { beforeCall?: (command: string, n: number) => void } = {}): DetachedExecVm & { calls: string[] } {
@@ -13,7 +13,7 @@ function localVm(hooks: { beforeCall?: (command: string, n: number) => void } = 
     async exec({ command, env, timeoutMs }) {
       calls.push(command);
       hooks.beforeCall?.(command, calls.length);
-      const r = spawnSync("sh", ["-c", command], { env: { ...process.env, ...env }, timeout: timeoutMs, encoding: "utf8" });
+      const r = await runChild("sh", ["-c", command], { env: { ...process.env, ...env }, timeout: timeoutMs });
       return { statusCode: r.status, stdout: r.stdout, stderr: r.stderr };
     },
   };
@@ -94,7 +94,7 @@ describe("detachedExec", () => {
     };
     const r = await detachedExec(vm, `echo run >> ${dir}.count; echo ok`, { dir, budgetMs: 10_000, ...fast });
     expect(r).toMatchObject({ code: 0, stdout: "ok" });
-    expect(spawnSync("wc", ["-l", `${dir}.count`], { encoding: "utf8" }).stdout.trim().split(" ")[0]).toBe("1");
+    expect(readFileSync(`${dir}.count`, "utf8").trim().split("\n")).toEqual(["run"]);
   });
 
   test("polls that fail past the deadline throw with the provider's error named", async () => {

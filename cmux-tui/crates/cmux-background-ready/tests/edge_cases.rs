@@ -1,6 +1,6 @@
 //! The edge cases of the background ready copy, each as the sequence of decisions the app asks for:
 //! an update arriving while hidden, Quit Completely, a crash of the hidden process, two channels
-//! installed side by side, and logout and restart. The truth tables (truth_tables.rs) cover every
+//! installed side by side, logout and restart, and the login-time pre-read (WarmAtLogin). The truth tables (truth_tables.rs) cover every
 //! input; these say what a person gets in each case.
 
 use std::ffi::c_char;
@@ -11,7 +11,9 @@ use cmux_background_ready::ffi::*;
 const OFF: u8 = CMUX_BACKGROUND_READY_MODE_OFF;
 const AFTER_QUIT: u8 = CMUX_BACKGROUND_READY_MODE_AFTER_QUIT;
 const AT_LOGIN: u8 = CMUX_BACKGROUND_READY_MODE_AFTER_QUIT_AND_LOGIN;
+const WARM: u8 = CMUX_BACKGROUND_READY_MODE_WARM_AT_LOGIN;
 const ON: [u8; 2] = [AFTER_QUIT, AT_LOGIN];
+const ALL: [u8; 4] = [OFF, AFTER_QUIT, AT_LOGIN, WARM];
 
 fn on_quit(mode: u8, origin: u8, update_installs: bool, quit_completely: bool) -> u8 {
     cmux_background_ready_on_quit(mode, origin, update_installs, quit_completely)
@@ -34,6 +36,87 @@ fn setting_off_is_todays_quit() {
     }
     assert!(!cmux_background_ready_registers_login_item(OFF));
     assert_eq!(cmux_background_ready_at_launch(OFF, false), CMUX_BACKGROUND_READY_LAUNCH_NORMAL);
+}
+
+/// With the setting off nothing is registered: no login item and no pre-read agent, and no Quit
+/// Completely row.
+#[test]
+fn setting_off_registers_nothing() {
+    assert!(!cmux_background_ready_registers_login_item(OFF));
+    assert!(!cmux_background_ready_registers_preread_agent(OFF));
+    assert!(!cmux_background_ready_offers_quit_completely(OFF));
+    // Neither does an unreadable value: it parses as Off.
+    let garbage = c"warmAtLogin!";
+    let mode = unsafe { cmux_background_ready_mode_parse(garbage.as_ptr()) };
+    assert_eq!(mode, OFF);
+    assert!(!cmux_background_ready_registers_preread_agent(mode));
+}
+
+/// Warm at Login is the pre-read alone: a quit quits (nothing stays running, so there is no Quit
+/// Completely), the pre-read agent is registered and the login item is not, and a stale login item
+/// that fires under it unregisters and exits: the mode never starts the app.
+#[test]
+fn warm_at_login_is_the_read_alone() {
+    assert!(cmux_background_ready_registers_preread_agent(WARM));
+    assert!(!cmux_background_ready_registers_login_item(WARM));
+    assert!(!cmux_background_ready_offers_quit_completely(WARM));
+    for origin in 0..=4 {
+        for update in [false, true] {
+            for completely in [false, true] {
+                assert_eq!(on_quit(WARM, origin, update, completely), CMUX_BACKGROUND_READY_EXIT);
+            }
+        }
+    }
+    assert_eq!(cmux_background_ready_at_launch(WARM, false), CMUX_BACKGROUND_READY_LAUNCH_NORMAL);
+    assert_eq!(
+        cmux_background_ready_at_launch(WARM, true),
+        CMUX_BACKGROUND_READY_LAUNCH_EXIT_AND_UNREGISTER
+    );
+}
+
+/// Switching between any two values: the pre-read agent is registered exactly while the value is
+/// Warm at Login, so switching away from it (to Off or either after-quit value) unregisters it, and
+/// the login item and the agent are never both registered.
+#[test]
+fn switching_modes_unregisters_the_agent() {
+    for from in ALL {
+        for to in ALL {
+            assert_eq!(
+                cmux_background_ready_registers_preread_agent(to),
+                to == WARM,
+                "{from} -> {to}"
+            );
+            if from == WARM && to != WARM {
+                assert!(
+                    !cmux_background_ready_registers_preread_agent(to),
+                    "{from} -> {to} keeps the agent"
+                );
+            }
+            assert!(
+                !(cmux_background_ready_registers_preread_agent(to)
+                    && cmux_background_ready_registers_login_item(to)),
+                "mode {to} registers both"
+            );
+        }
+    }
+}
+
+/// Two channels installed side by side each have their own pre-read agent: the label is per bundle
+/// id, so one channel's register or unregister never touches the other's.
+#[test]
+fn two_channels_have_their_own_agent_label() {
+    use cmux_background_ready::preread_agent_label;
+    let nightly = preread_agent_label("com.cmuxterm.app.nightly");
+    let stable = preread_agent_label("com.cmuxterm.app");
+    let tagged = preread_agent_label("com.cmuxterm.app.debug.my-tag");
+    assert_eq!(nightly, "com.cmuxterm.app.nightly.launch-preread");
+    assert_eq!(stable, "com.cmuxterm.app.launch-preread");
+    assert_ne!(nightly, stable);
+    assert_ne!(tagged, stable);
+    assert_ne!(tagged, nightly);
+    // And the decision is per channel: NIGHTLY warm at login, stable off.
+    assert!(cmux_background_ready_registers_preread_agent(WARM));
+    assert!(!cmux_background_ready_registers_preread_agent(OFF));
 }
 
 /// An update arrives while the copy is hidden: the hidden process exits so the installer runs, and
@@ -75,7 +158,7 @@ fn quit_with_update_installing_on_quit_exits() {
 /// Restart to Update records an explicit quit: it exits in every mode.
 #[test]
 fn restart_to_update_exits() {
-    for mode in [OFF, AFTER_QUIT, AT_LOGIN] {
+    for mode in ALL {
         assert_eq!(
             on_quit(mode, CMUX_BACKGROUND_READY_QUIT_EXPLICIT, true, false),
             CMUX_BACKGROUND_READY_EXIT
@@ -167,7 +250,7 @@ fn two_channels_decide_apart() {
 /// restart, the login mode's copy starts hidden with no window and no Chromium until it is first shown.
 #[test]
 fn logout_and_restart() {
-    for mode in [OFF, AFTER_QUIT, AT_LOGIN] {
+    for mode in ALL {
         for update in [false, true] {
             assert_eq!(
                 on_quit(mode, CMUX_BACKGROUND_READY_QUIT_POWER_OFF, update, false),
