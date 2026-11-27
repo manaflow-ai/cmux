@@ -1,4 +1,3 @@
-public import CmuxNextActions
 import Foundation
 
 /// What a joined machine's menu does (its "…" button). Each is a registered action
@@ -20,9 +19,6 @@ public nonisolated enum JoinedMachineAction: String, CaseIterable, Sendable {
 /// What the App shows around a joined machine's actions: Revoke's question, and why an action
 /// cannot run (Labs off, a change already running).
 extension JoinedMachineAction {
-    /// The action catalog id used by the row menu, palette and app binder.
-    public var actionID: ActionID { ActionID(rawValue: "machine.joined.\(rawValue)") }
-
     /// Revoke's question: its title, its body (the heartbeat bound) and its button.
     public static func revokePrompt(_ name: String) -> (title: String, body: String, button: String) {
         (JoinedMachineStrings.revokeTitle(name), JoinedMachineStrings.revokeBody, JoinedMachineStrings.revokeButton)
