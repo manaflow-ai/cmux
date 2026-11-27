@@ -27,18 +27,18 @@ extension SessionConsentResponder {
             mint: { call in await mintSession(call, auth: auth) })
     }
 
-    /// The web route call with NIGHTLY's current tokens (`Authorization: Bearer`, `X-Stack-Refresh-Token`);
+    /// The web route call (`cmux cloud install-post`, Rust sends it) with NIGHTLY's current tokens (`Authorization: Bearer`, `X-Stack-Refresh-Token`);
     /// `(0, empty)` when NIGHTLY has no tokens or the call failed. Nothing here logs a token or the answer.
     static func mintSession(_ call: SessionConsentMintCall, auth: CloudAuth) async -> (status: Int, body: Data) {
         guard let tokens = try? await auth.tokens() else { return (0, Data()) }
-        var request = URLRequest(url: call.url, timeoutInterval: 20)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(tokens.access)", forHTTPHeaderField: "Authorization")
-        request.setValue(tokens.refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        request.httpBody = call.body
-        guard let (body, response) = try? await URLSession.cloudNoStore.data(for: request) else { return (0, Data()) }
-        return ((response as? HTTPURLResponse)?.statusCode ?? 0, body)
+        guard var origin = URLComponents(url: call.url, resolvingAgainstBaseURL: false) else { return (0, Data()) }
+        origin.path = ""
+        origin.query = nil
+        guard let originURL = origin.url else { return (0, Data()) }
+        let transport = InstallHTTPTransport(baseURL: originURL, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO)
+        guard let answer = try? await transport.post(call.url.path, json: call.body, bearer: tokens.access,
+                                                     headers: ["X-Stack-Refresh-Token": tokens.refresh]) else { return (0, Data()) }
+        return (answer.status, answer.body)
     }
 }
 
