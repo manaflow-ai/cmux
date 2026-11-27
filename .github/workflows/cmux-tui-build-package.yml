@@ -1012,7 +1012,7 @@ jobs:
           acpmux_group=("acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone $acpmux_features")
           if [[ "$LTO" == thin ]]; then
             lead_bins+=" acpmux-standalone"
-            lead+=" -p acpmux-standalone --bin acpmux-standalone $acpmux_features"
+            lead+=" -p acpmux-standalone --bin acpmux-standalone $(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t" acpmux-standalone)"
             acpmux_group=()
           fi
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \

@@ -10,18 +10,6 @@ This page takes you from nothing to an agent that works for you on a cmux Cloud 
 
 > cmux-next is in preview. The app needs a Mac today. A Cloud machine costs money while it runs and stops costing when you pause or delete it; Plans and credits says how billing works.
 
-## Choose your way in
-
-- New to cmux or agents: use In the app. Home and Chief explain each step and show the one card you need when something is missing.
-- Comfortable in a terminal: use From the CLI. The commands are short, repeatable, and print a session_id you can use from another terminal.
-- Have an agent working for you already: use Point an agent at this page. The Markdown copy gives it the same sequence without requiring a person to translate the UI.
-- Starting away from your desk: set up the Mac first, then use From your phone. Pairing is the only phone setup; the working check is a message sent from the iPhone and answered in the same chat.
-- Building a team or an integration: start with Cloud machines, Machines, and MCP. They explain machine state, repeatable repository setup, and the protocol surfaces behind the app.
-
-## Know when you are ready
-
-You are set up when the same Cloud chat has a session_id, its first reply, and a second reply after you send more work. Save that session_id; it is the handle you use to return from the CLI, Chief, or your phone.
-
 ## Point an agent at this page
 
 The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The link is this page as plain Markdown, in the cmux repository, so any agent can read it without signing in. The agent reads it and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine.
@@ -99,5 +87,4 @@ The phone is working when the message you sent from it gets an answer in that ch
 
 - Move a chat you already have to Cloud with cmux cloud move, and bring it back with cmux cloud bring-back.
 - Run cmux setup list for every setup task: trust a folder, add another machine, connect GitHub, turn on Computer Use.
-- Stuck or slow? Run cmux cloud diagnostics, then cmux acp machine status. Read the named machine and next action before retrying.
-- Want to see a running service? Open its port in a browser with cmux cloud open-browser, or use the phone for the chat while the Mac keeps the connection.
+- Stuck? Run cmux cloud diagnostics and read what it names.

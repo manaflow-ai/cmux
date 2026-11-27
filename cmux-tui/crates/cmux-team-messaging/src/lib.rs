@@ -32,9 +32,6 @@
 //!   feedback summary and implementation PRs, and a thread's `Open RFD` back-link, never naming a
 //!   target the viewer cannot read; search-before-work, offering an existing open thread instead of
 //!   a duplicate post.
-//! - [`shared_doc`]: phase 3's shared-document projection: RFD 0077 roles capped by space grants,
-//!   suggestions with a one-way state machine, RFD drafts that land through a PR, and bounded,
-//!   deduplicated live updates.
 //! - [`service::Messenger`]: preview a draft (destination, audience, wake mode, before send), then
 //!   send it once: the same idempotency key is the same message.
 //!
@@ -58,7 +55,6 @@ pub mod presence;
 pub mod refs;
 pub mod service;
 pub mod session_info;
-pub mod shared_doc;
 
 pub use backend::{BackendError, ForumBackend, PresenceBackend, RoomBackend, StoredMessage};
 pub use delivery::{AnswerState, DeliveryMode, DeliveryState, Route, route};

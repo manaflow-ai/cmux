@@ -423,17 +423,6 @@ def difference(a: bytes, b: bytes) -> float:
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
 
 
-def warn_duration(clip_id: str, spec: dict) -> None:
-    """The cut includes the steps between the first and last clip marks, even unmarked ones.
-    Only count explicit waits. Command time, sampled frames and end holds are known at render time."""
-    marked = [i for i, step in enumerate(spec["steps"]) if step.get("clip") is True]
-    waits = [step.get("wait") for step in spec["steps"][marked[0]:marked[-1] + 1]]
-    seconds = sum(wait for wait in waits if type(wait) in (int, float))
-    if seconds >= MAX_SECONDS:
-        print(f"::warning title=What's New clip::{clip_id}: declared waits in the cut span {seconds:g} s "
-              f"(clip limit {MAX_SECONDS:g} s); check the rendered duration")
-
-
 def timeline(spec: dict, frames: list[Path], crop: str, still: bool = False) -> list[tuple[Path, float]]:
     """(frame, seconds) at the capture's own pace: runs of alike frames merged, the first frame held
     `lead` and the last `hold`, the whole between MIN_SECONDS and MAX_SECONDS.
@@ -833,7 +822,6 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
                 (tours / f"{clip_id}.json").unlink(missing_ok=True)
                 print(f"::warning title=What's New clip::{clip_id}: not a tour: {error}")
                 continue
-        warn_duration(clip_id, spec)
         row = {"id": clip_id, "category": category, "roles": roles}
         if iphone:
             row["app"] = "iphone"
@@ -1077,51 +1065,31 @@ def publish_auto(rows: list[dict], results: Path, scratch: Path, tip: str = "", 
     A clip left out gets a failure marker at failed_path ({"tip": TIP, "spec": its spec's SHA-256}), which
     the next plan reads to put that row after the ones not tried yet. A marker that cannot be written is a
     warning: the row then plans as before."""
-    outcomes = [{"id": row["id"], "role": role, "status": "unpublished",
-                 "reason": "publisher stopped before confirming this clip"}
-                for row in rows for role in row["roles"]]
-    try:
-        return _publish_clips(outcomes, results, scratch, tip, specs)
-    finally:
-        counts = {status: sum(clip["status"] == status for clip in outcomes)
-                  for status in ("published", "rejected", "no_tour", "unpublished")}
-        receipt = {"kind": "whats-new-clip-delivery", "tip": tip, "counts": {"planned": len(outcomes), **counts},
-                   "clips": outcomes}
-        # Both publish jobs tee stdout into their step summary. Keep the JSON on one log line for readback.
-        print(f"\nWhat's New clips: {counts['published']}/{len(outcomes)} planned roles published, "
-              f"{counts['rejected']} rejected, {counts['no_tour']} without a tour, "
-              f"{counts['unpublished']} unconfirmed.")
-        print("\n```json", json.dumps(receipt), "```", sep="\n")
-
-
-def _publish_clips(outcomes: list[dict], results: Path, scratch: Path, tip: str, specs: Path | None) -> list[str]:
     files, problems, failed = [], [], []
     # tour.py names a tour's folder by the slug of its file's name (40 characters at most).
     folder = tour_module().slug
-    for clip in outcomes:
-        clip_id, role = clip["id"], clip["role"]
-        local = scratch / f"{clip_id}-{role}.webp"
-        pictures = scratch / f"{clip_id}-{role}-frames"
-        tour_dir = results / role / folder(clip_id)
-        if not tour_dir.is_dir():
-            # The tour never ran: its app did not build ("no app at SHA; its befores wait") or the step
-            # ran out of time. Nothing says the spec fails, so no marker: markers put the befores of a
-            # commit that does not compile behind every other row, past PLAN_LIMIT (2026-11-16).
-            clip.update(status="no_tour", reason="its tour did not run; it waits for the next tour")
-            problems.append(f"{clip_id} {role}: {clip['reason']}")
-            continue
-        try:
-            render_tour(clip_id, tour_dir, local, pictures, role=role)
-            frames = sorted(pictures.glob("*.png"))
-            if not frames:
-                raise ClipError("the encoder kept no frames to check")
-        except (ClipError, OSError, ValueError) as error:
-            clip.update(status="rejected", reason=str(error))
-            problems.append(f"{clip_id} {role}: {error}")
-            if ID.fullmatch(clip_id) and role in AUTO_ROLES:
-                failed.append((clip_id, role))
-            continue
-        files.append((f"whats-new/{clip_id}/clip-auto-{role}.webp", local, clip, frames))
+    for row in rows:
+        for role in row["roles"]:
+            local = scratch / f"{row['id']}-{role}.webp"
+            pictures = scratch / f"{row['id']}-{role}-frames"
+            tour_dir = results / role / folder(row["id"])
+            if not tour_dir.is_dir():
+                # The tour never ran: its app did not build ("no app at SHA; its befores wait") or the step
+                # ran out of time. Nothing says the spec fails, so no marker: markers put the befores of a
+                # commit that does not compile behind every other row, past PLAN_LIMIT (2026-11-16).
+                problems.append(f"{row['id']} {role}: its tour did not run (no app); it waits for the next tour")
+                continue
+            try:
+                render_tour(row["id"], tour_dir, local, pictures, role=role)
+                frames = sorted(pictures.glob("*.png"))
+                if not frames:
+                    raise ClipError("the encoder kept no frames to check")
+            except (ClipError, OSError, ValueError) as error:
+                problems.append(f"{row['id']} {role}: {error}")
+                if ID.fullmatch(row["id"]) and role in AUTO_ROLES:
+                    failed.append((row["id"], role))
+                continue
+            files.append((f"whats-new/{row['id']}/clip-auto-{role}.webp", local, row["id"], role, frames))
     if files:
         pr_media = pr_media_module()
         if pr_media.privacy_module().ocr_binary() is None:
@@ -1129,16 +1097,11 @@ def _publish_clips(outcomes: list[dict], results: Path, scratch: Path, tip: str,
         # One check for all of them: a refusal names paths and kinds only, and uploads nothing. Each frame is
         # named under its clip's path, so a refusal says which clip and frame.
         pr_media.check_privacy([(f"{path}.frames/{frame.name}", frame)
-                                for path, _, _, frames in files for frame in frames], REPO)
-        for path, local, clip, _ in files:
-            clip_id, role = clip["id"], clip["role"]
-            data = local.read_bytes()
+                                for path, _, _, _, frames in files for frame in frames], REPO)
+        for path, local, clip_id, role, _ in files:
             pr_media.put_file(REPO, BRANCH, path, local, f"What's New clip: {clip_id} ({role}, nightly tour)",
                               checked=True)
-            clip.pop("reason")
-            clip.update(status="published", url=auto_url(clip_id, role), sha256=hashlib.sha256(data).hexdigest(),
-                        bytes=len(data))
-            print(clip["url"])
+            print(auto_url(clip_id, role))
     if failed:
         markers = {}
         for clip_id, role in failed:
@@ -1159,11 +1122,7 @@ def check(specs: Path = SPECS, highlights: Path = HIGHLIGHTS) -> list[str]:
         if not (highlights / f"{path.stem}.md").is_file():
             problems.append(f"{path.name}: no highlight {path.stem}.md")
         try:
-            spec = json.loads(path.read_text())
-            errors = spec_problems(spec)
-            problems += [f"{path.name}: {p}" for p in errors]
-            if not errors:
-                warn_duration(path.stem, spec)
+            problems += [f"{path.name}: {p}" for p in spec_problems(json.loads(path.read_text()))]
         except json.JSONDecodeError as error:
             problems.append(f"{path.name}: {error}")
     for path in sorted(highlights.glob("*.md")):

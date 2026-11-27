@@ -131,7 +131,6 @@ pub mod github_budget;
 pub mod github_lane_mint;
 #[cfg(unix)]
 pub mod github_mcp;
-pub mod github_pool;
 pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;

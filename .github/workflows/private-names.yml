@@ -66,8 +66,6 @@ jobs:
           # The job token is shared by every run in this repo and runs out; the checker falls back to these.
           PR_READ_TOKENS: ${{ steps.bot-token.outputs.token }} ${{ steps.route-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           # A read every token's budget refused waits for the soonest reset inside this bound, not a capped 60 s
           # that ends red for a rerun the next hour turns green (runs 45960905805, 45960538227: 3 of 3 tokens 403).
           PRIVATE_NAMES_READ_BOUND_S: '300'
@@ -118,21 +116,4 @@ jobs:
             echo "::error::private-names could not fetch its checker with either App token (rate limit or access); rerun this check"
             exit 1
           fi
-          # The changed files' contents come from the head commit over git, which costs no REST quota; the
-          # checker used to read each one through the contents API (one read per changed file, per push and
-          # per title or body edit). The wrapper comes from the base commit, never the pull request's tree: no
-          # code from the pull request runs here. A failed fetch leaves every file on the REST read, as before.
-          gitdir="$RUNNER_TEMP/head.git"
-          git init --quiet --bare "$gitdir"
-          git -C "$gitdir" remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          wrapper="$RUNNER_TEMP/private_names_local.py"
-          if [ -n "${HEAD_SHA:-}" ] && [ -n "${BASE_SHA:-}" ] \
-              && git -C "$gitdir" -c "http.https://github.com/.extraheader=$auth" fetch --quiet --no-tags --depth=1 \
-                --filter=blob:none origin "$HEAD_SHA" "$BASE_SHA" \
-              && git -C "$gitdir" cat-file blob "$BASE_SHA:scripts/ci/private_names_local.py" > "$wrapper" 2>/dev/null; then
-            python3 -I "$wrapper" "$checker" "$gitdir" "$HEAD_SHA" "$GITHUB_REPOSITORY" "$PR_NUMBER"
-          else
-            echo "::notice::no git read of the head commit (the fetch failed or the base has no wrapper yet); each file is read through the API"
-            python3 -I "$checker" check-pr "$GITHUB_REPOSITORY" "$PR_NUMBER"
-          fi
+          python3 -I "$checker" check-pr "$GITHUB_REPOSITORY" "$PR_NUMBER"

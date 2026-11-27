@@ -469,7 +469,6 @@ async fn a_prompt_to_a_listed_hub_chat_runs_there_through_the_hub() {
         daemon_id: "inst_b".into(),
         harness: "fake".into(),
         state: "idle".into(),
-        stuck_reason: None,
         last_seen_at: 1,
         ..Default::default()
     };
@@ -503,97 +502,6 @@ async fn a_prompt_to_a_listed_hub_chat_runs_there_through_the_hub() {
 fn prompt_target_is_listed(hub: &Arc<Hub>, key: &str) -> Option<()> {
     let (host, _) = key.split_once('/')?;
     hub.mesh_book_has_host(host).then_some(())
-}
-
-/// A child with no peer link can report through its journal even if its own tools
-/// cannot open sockets. The starter owns both paging and delivery.
-#[tokio::test]
-async fn a_hub_only_sandbox_refusal_reaches_the_starters_chat() {
-    let b = machine_b();
-    let child = call(
-        &b,
-        method::SESSION_NEW,
-        json!({
-            "cwd": std::env::temp_dir(), "mcpServers": [],
-            "_meta": {"acpmux": {"harness": "fake", "name": "blocked-child"}}
-        }),
-    )
-    .await["sessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let a = machine_b();
-    let parent = call(
-        &a,
-        method::SESSION_NEW,
-        json!({
-            "cwd": std::env::temp_dir(), "mcpServers": [],
-            "_meta": {"acpmux": {"harness": "fake", "name": "starter"}}
-        }),
-    )
-    .await["sessionId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let dir = tempfile::tempdir().unwrap();
-    a.mesh.set(Arc::new(Loopback::new(&b, dir.path(), "person-1")));
-    let key = format!("machine-b/{child}");
-    a.set_mesh_book(
-        std::collections::BTreeMap::from([("machine-b".into(), 1)]),
-        vec![crate::mesh::BookSession {
-            name: "blocked-child".into(),
-            session_id: child.clone(),
-            host: "machine-b".into(),
-            daemon_id: "inst_b".into(),
-            harness: "fake".into(),
-            state: "idle".into(),
-            ..Default::default()
-        }],
-    );
-    assert_eq!(crate::hub::watches::resolve(&a, &key).unwrap(), key);
-    let mut events = a.subscribe();
-    a.watches
-        .add(crate::hub::watches::Watch {
-            id: "hub-failure-report".into(),
-            to: parent.clone(),
-            sessions: vec![key.clone()],
-            until: vec!["blocked".into()],
-            match_text: None,
-            once: true,
-            caller: None,
-            active: true,
-            cursors: [(key, Default::default())].into_iter().collect(),
-            offline: Default::default(),
-            ..Default::default()
-        })
-        .unwrap();
-    let remote = b.resolve(&child).unwrap();
-    b.append(
-        &remote,
-        "mux",
-        "harness_sandbox_failed",
-        json!({
-            "error": "cannot create .git/index.lock: Permission denied", "remote": true
-        }),
-    );
-    a.start_watches();
-    let report = tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            let event = events.recv().await.unwrap();
-            if event.session_id == parent
-                && event.record.kind == "user_message"
-                && let Some(text) = event.record.msg["text"].as_str()
-                && text.contains("index.lock")
-            {
-                break text.to_owned();
-            }
-        }
-    })
-    .await
-    .expect("hub-only refusal never reached the starter");
-    assert!(report.contains("blocked") && report.contains("Full access"), "{report}");
-    a.shutdown_all().await;
-    b.shutdown_all().await;
 }
 
 /// `acpmux history HOST/NAME` for a session only the hub reaches reads its turns there, as

@@ -320,7 +320,6 @@ async fn each_caller_runs_its_v1_path_on_a_daemon_without_the_list() {
                     daemon_id: "inst_b".into(),
                     harness: "claude".into(),
                     state: "idle".into(),
-                    stuck_reason: None,
                     last_seen_at: crate::store::now_ms(),
                     ..Default::default()
                 };

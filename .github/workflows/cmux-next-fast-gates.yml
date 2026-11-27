@@ -155,9 +155,6 @@ jobs:
             && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
             reuse=reused
             if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
-            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
-            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
-            git config --unset-all extensions.worktreeConfig || true
           fi
           if [[ $reuse == fresh ]]; then
             find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -515,7 +512,6 @@ jobs:
             # guard_delta.py after #61088, run 45997666983).
             /tests/test_egress_gate.py
             /tests/test_outbound_hosts.py
-            /tests/guard_delta.py
             /tests/test_classic_cloud_routes.py
             /tests/guard_delta.py
             /docs/mdm/

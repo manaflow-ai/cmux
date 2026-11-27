@@ -281,7 +281,7 @@ pub(super) fn pair_inline(
             client_join_ticket: String::new(),
             daemon_join_ticket: String::new(),
             created_at: now,
-            route: std::sync::Arc::new(super::CircuitRoute::new(now)),
+            last_activity: now,
             client: Some(client.clone()),
             daemon: Some(standby.peer.clone()),
             ready: true,

@@ -322,17 +322,8 @@ export const AGENT_SIGN_IN_FILES = [
  * (its terminal launchers put it back per launch), so an acpmux chat had no route at all and ran on whatever
  * login sat in HOME. The route is therefore pinned in each agent's managed layer: root-owned, read on every
  * start, and above user settings. Claude Code ranks `apiKeyHelper` over CLAUDE_CODE_OAUTH_TOKEN and a /login
- * session, so a login a user or an older copy left in HOME is never used. Only a key the person exports
- * themselves still wins, which is theirs to do.
- *
- * Codex's managed layer defines the `cmux` provider (so no user config can point it elsewhere) but does not
- * select it: the selection is the system config's default (`/etc/codex/config.toml`, Codex's lowest layer).
- * Codex's managed layer outranks every `-c` flag and `--profile`, so a `model_provider` there made acpmux's own
- * mode (`-c model_provider="openai"`, codex_cloud_auth.rs, Leo 2026-11-10: "I want to be able to have that work
- * for if somebody has a ChatGPT subscription") a no-op: every Codex chat with a person's own ChatGPT sign-in ran
- * the `cmux` provider with no key and failed its first turn on "Missing environment variable:
- * `OPENAI_API_KEY`." (cloud-journey-prod codex stub reply, job 140491383987, image 58845c13). Team mode is
- * unchanged: acpmux picks it and the image's `~/.codex/config.toml` selects `cmux` too.
+ * session, and Codex's managed config overrides `~/.codex/config.toml`, so a login a user or an older copy
+ * left in HOME is never used. Only a key the person exports themselves still wins, which is theirs to do.
  */
 export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array<{ path: string; target: string; text: string; mode: number }> {
   const env = vmGuestModelPlaneEnv(alias);
@@ -347,6 +338,7 @@ export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array
   const codex = [
     "# cmux Cloud machine: Codex reaches models only through the machine's coderouter edge, which adds the",
     "# per-machine credential. Managed by the image (web/scripts/cmux-vm-image/bake.ts); do not edit.",
+    'model_provider = "cmux"',
     "check_for_update_on_startup = false",
     "",
     "[model_providers.cmux]",
@@ -369,17 +361,9 @@ export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array
     'trust_level = "trusted"',
     "",
   ].join("\n");
-  const codexDefault = [
-    "# cmux Cloud machine: Codex's default provider is the machine's coderouter edge (defined in managed_config.toml).",
-    "# A default, not a pin: a user config or acpmux's own mode (-c model_provider) picks another. Managed by the image",
-    "# (web/scripts/cmux-vm-image/bake.ts); do not edit.",
-    'model_provider = "cmux"',
-    "",
-  ].join("\n");
   return [
     { path: `${AGENT_MODEL_ROUTE_DIR}/claude-managed-settings.json`, target: "/etc/claude-code/managed-settings.json", text: `${JSON.stringify(claude, null, 2)}\n`, mode: 0o644 },
     { path: `${AGENT_MODEL_ROUTE_DIR}/codex-managed_config.toml`, target: "/etc/codex/managed_config.toml", text: codex, mode: 0o644 },
-    { path: `${AGENT_MODEL_ROUTE_DIR}/codex-config.toml`, target: "/etc/codex/config.toml", text: codexDefault, mode: 0o644 },
   ];
 }
 
@@ -447,26 +431,22 @@ export function agentModelRouteUnitFiles(): Array<{ path: string; text: string; 
 }
 
 /**
- * Fails unless every staged route file exists, parses, points at the edge, and carries no credential, and none is
- * in its agent's path (the sync script puts it there on a machine with the edge). `root` prefixes every
+ * Fails unless both staged route files exist, parse, point at the edge, and carry no credential, and neither is
+ * in its agent's managed path (the sync script puts it there on a machine with the edge). `root` prefixes every
  * path (tests).
  */
 export function agentModelRouteCheckCommand(root = ""): string {
-  const [claudeFile, codexFile, codexDefaultFile] = agentModelRouteFiles();
+  const [claudeFile, codexFile] = agentModelRouteFiles();
   const claude = sq(`${root}${claudeFile!.path}`);
   const codex = sq(`${root}${codexFile!.path}`);
-  const codexDefault = sq(`${root}${codexDefaultFile!.path}`);
-  const files = `${claude} ${codex} ${codexDefault}`;
+  const files = `${claude} ${codex}`;
   return [
     `test -s ${claude}`,
     `test -s ${codex}`,
-    `test -s ${codexDefault}`,
-    // The managed layer defines the provider and never selects it (agentModelRouteFiles): a selection there outranks own mode.
-    `python3 -I -c 'import json, sys, tomllib; s = json.load(open(sys.argv[1])); c = tomllib.load(open(sys.argv[2], "rb")); d = tomllib.load(open(sys.argv[3], "rb")); sys.exit(0 if s["env"]["ANTHROPIC_BASE_URL"].startswith("https://") and s["apiKeyHelper"] and "model_provider" not in c and c["model_providers"]["cmux"]["base_url"].startswith("https://") and d["model_provider"] == "cmux" else 1)' ${files}`,
+    `python3 -I -c 'import json, sys, tomllib; s = json.load(open(sys.argv[1])); c = tomllib.load(open(sys.argv[2], "rb")); sys.exit(0 if s["env"]["ANTHROPIC_BASE_URL"].startswith("https://") and s["apiKeyHelper"] and c["model_provider"] == "cmux" and c["model_providers"]["cmux"]["base_url"].startswith("https://") else 1)' ${files}`,
     `! grep -Eq 'CLAUDE_CODE_OAUTH_TOKEN|sk-ant-|sk-proj-|crt_|refresh_token|access_token' ${files}`,
     `test ! -e ${sq(`${root}${claudeFile!.target}`)}`,
     `test ! -e ${sq(`${root}${codexFile!.target}`)}`,
-    `test ! -e ${sq(`${root}${codexDefaultFile!.target}`)}`,
     `sh -n ${sq(`${root}${AGENT_MODEL_ROUTE_SYNC_PATH}`)}`,
     "echo agent-model-route-baked",
   ].join(" && ");

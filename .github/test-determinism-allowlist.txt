@@ -6,6 +6,9 @@ Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTransportDrainT
 tests/test_ci_sparkle_build_monotonic.sh	live-network-host	release pretag guard intentionally probes the published appcast and soft-passes offline
 Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxRetryAfterPolicyTests.swift	sleep-then-assert	virtual-clock injection makes these large delays non-blocking and deterministic
 web/tests/vm-publication-pool-db.test.ts	sleep-then-assert	deadline-bounded database pool wait has no fixed sleep
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift	sleep-then-assert	bounded QUIC reconnect and retirement readiness probe from main
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLivenessTests.swift	sleep-then-assert	upstream IROH liveness timing test; replace with event-driven readiness
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxRelayCredentialInstallerTests.swift	sleep-then-assert	upstream credential rotation timing test; replace with event-driven readiness
 web/tests/iroh-dashboard-controller.test.ts	sleep-then-assert	upstream dashboard render timing tests; replace with event-driven readiness
 Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/DiagnosticLogTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/TerminalWorkIntervalTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
@@ -14,6 +17,15 @@ Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorSignIn
 Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorSignInPreflightTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorTimeoutTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/AuthCoordinatorTokenTouchingPhaseCancellationTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxConnectivityEngineTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxConnectivityPeerSessionTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohClientRuntimeTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohEndpointServerTests+Capacity.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohHostRuntimeFailedRestartTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohHostRuntimePolicyTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohOnlineAdmissionRegistryOfflineTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohRegistryContextProviderStalenessTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohServerSessionTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryReportingTests/TransportSentryReporterTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/CancellationIgnoringTokenProvider.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCSessionPipelinedTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
@@ -231,6 +243,8 @@ webviews/test/composer-upload-first-send.test.tsx	wall-clock-window	waits Date.n
 # Duration bounds (clock.now - start < .seconds(N)): grandfathered so it fails only on new findings.
 # RetryButtonHoldTests (a 1 s wall-clock bound that failed CI at 1.29 s) was the case that showed the gap.
 Packages/Shared/CmuxAuthRuntime/Tests/CmuxAuthRuntimeTests/StackRateLimitBoundaryTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohClientSessionTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLivenessTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCStalledWriteRecoveryTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/iOS/CmuxMobileSSH/Tests/CmuxMobileSSHTests/SSHHandshakeDeadlineTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
 Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AcpmuxLaunchReadyWaitTests.swift	assert-on-duration	debt the widened gate first saw; remove once determinized
@@ -394,6 +408,7 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudCreateRetryKeyTests.swift	as
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/StagedUpdatePrewarmTests.swift	sleep-then-assert	the 300 ms pause is a window for an install that must not happen before the pre-warm ends (c138f228); nothing signals an install that does not happen, and a slower runner only lengthens the window, which correct code still passes
 Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/CEFLaunchPrepOffMainTests.swift	sleep-then-assert	the 300 ms pause is a window for launch prep that must not run before the first frame (ac0fad38); nothing signals prep that does not happen, and a slower runner only lengthens the window, which correct code still passes
 Packages/macOS/CmuxRemote/Tests/CmuxRemoteComputerUseTests/MachineNameTests.swift	assert-on-duration	debt (b6fff4f6): a 1 s wall-clock bound on the machine name read; assert it makes no blocking call instead
+Packages/Shared/CmuxIrohTransport/Tests/CmuxIrohTransportTests/CmxIrohOnlineAdmissionRegistryCachedPairTests.swift	yield-count-poll	polls bounded by a Task.yield() count; convert to a deadline-bounded poll (#13903)
 tests/test_dev_worktree.py	sleep-then-assert	1.1 s puts files a whole second older than the index (mtime granularity, not synchronization); the 50 ms one gives the dedupe time past index.lock before the stop, and a slower runner only makes the stop later in the clone
 tests/test_nightly_next_network_bounds.py	git-temp-repo-maintenance	the hit is a sample script string the network-bounds check must reject; the test runs no git
 tests/test_nightly_next_network_bounds.py	git-write-without-fixture	the hit is a sample script string the network-bounds check must reject; the test runs no git

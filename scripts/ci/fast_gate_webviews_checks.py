@@ -113,10 +113,6 @@ TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 # config that fails to load prints stack frames that differ between the base's run and the merge's (#46890's fast
 # gate read the base's own `Resources/markdown-viewer` ENOENT as five new findings). The name is kept, the stamp dropped.
 VITE_TEMP = re.compile(r"\.timestamp-\d+-[0-9a-f]+\.(m?js)\b")
-# A Node error object a crashed tool prints (`{ errno: -110, code: 'ETIMEDOUT', pid: 1276995, ... }`) names its own
-# process id, which differs between the base's run and the merge's, so the base's crash read as the merge's new
-# finding `pid: 1276995,` (lane/tmm-list-flip's web lint, 11-27). The field is kept, the number dropped.
-PID = re.compile(r"\b(pid['\"]?\s*[:=]\s*)\d+")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
 # message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
@@ -194,10 +190,8 @@ def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str
 
 
 def key(line: str, root: str = "") -> str:
-    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers, timings, process ids and Vite's
-    temp config stamp dropped."""
-    text = VITE_TEMP.sub(r".timestamp.\1", PID.sub(r"\1<pid>", unroot(line, root).strip()))
-    return TIMING.sub("<time>", LINE_REF.sub(r"\1", text))
+    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers, timings and Vite's temp config stamp dropped."""
+    return TIMING.sub("<time>", LINE_REF.sub(r"\1", VITE_TEMP.sub(r".timestamp.\1", unroot(line, root).strip())))
 
 
 def unroot(text: str, root: str) -> str:

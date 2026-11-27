@@ -735,15 +735,6 @@ class NeverBoundTests(unittest.TestCase):
                  ("VM API: secret-tenant-words", "VM API: other"),
                  ("TypeError: secret-tenant-words is not a function", "TypeError"),
                  ("the machine network is unavailable", "the machine network is unavailable"),
-                 # ownhost/CloudProvider.ts: the step and its fixed tail, the status and the daemon's code token.
-                 ("own-host: find VM: no readable answer", "own-host: find VM: no readable answer"),
-                 ("own-host: create VM: HTTP 503 (host_full)", "own-host: create VM: HTTP 503 (host_full)"),
-                 ("own-host: create VM: HTTP 530", "own-host: create VM: HTTP 530"),
-                 ("own-host: resume VM: the host answered refused", "own-host: resume VM: the host answered refused"),
-                 ("own-host: no TLS edge rules", "own-host: no TLS edge rules"),
-                 ("own-host: create VM: HTTP 500 (Secret Tenant Words)", "own-host: create VM: other"),
-                 ("own-host: find VM: secret-tenant-words", "own-host: find VM: other"),
-                 ("own-host: secret-tenant-words: no readable answer", "own-host: other"),
                  (None, "other"))
         for message, want in cases:
             with self.subTest(message=message):

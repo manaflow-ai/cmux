@@ -1,5 +1,4 @@
 import CmuxNextCloud
-import CmuxNextHomeModel
 public import CmuxNextDaemon
 public import Foundation
 public import os
@@ -142,8 +141,8 @@ public final class HomeCloudLease {
             let token = try await tokens.accessToken(forceRefresh: forceRefresh)
             try Task.checkCancellation()
             // The token must be the account asked for: the user may have switched while it was read.
-            let check = try? HomeRules.call("cloud.lease_check", LeaseCheckRequest(
-                token: token, expectedUserId: expectedUserID, apiBaseUrl: apiBaseURL.absoluteString, nowMs: Self.nowMs(Date()))) as LeaseCheck
+            let check: LeaseCheck? = HomeRust.call("cloud.lease_check", LeaseCheckRequest(
+                token: token, expectedUserId: expectedUserID, apiBaseUrl: apiBaseURL.absoluteString, nowMs: Self.nowMs(Date())))
             guard let check, check.kind != "noOrigin" else { throw Refusal.noOrigin }
             guard check.kind == "lease", let origin = check.origin, let subject = check.subject, let expiresAt = check.expiresAt else {
                 throw Refusal.otherAccount
@@ -186,7 +185,7 @@ public final class HomeCloudLease {
     /// An IPv6 host (a tailnet `fd7a:115c:a1e0::/48` address) keeps its brackets.
     /// The rule is cmux-home-rules' `cloud.origin`.
     public nonisolated static func origin(_ url: URL) -> String? {
-        let reply = try? HomeRules.call("cloud.origin", ["url": url.absoluteString]) as OriginReply
+        let reply: OriginReply? = HomeRust.call("cloud.origin", ["url": url.absoluteString])
         return reply?.origin
     }
 
@@ -195,7 +194,7 @@ public final class HomeCloudLease {
     /// A claim that is not finite, or later than 30 days from `now`, reads
     /// as missing (the lease then uses `fallbackExpiry`); `cloud.jwt_claims`.
     public nonisolated static func expiry(ofJWT token: String, now: Date = Date()) -> UInt64? {
-        let reply = try? HomeRules.call("cloud.jwt_claims", ClaimsRequest(token: token, nowMs: nowMs(now))) as ClaimsReply
+        let reply: ClaimsReply? = HomeRust.call("cloud.jwt_claims", ClaimsRequest(token: token, nowMs: nowMs(now)))
         return reply?.expiresAt
     }
 

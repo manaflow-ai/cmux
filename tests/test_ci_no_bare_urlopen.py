@@ -122,7 +122,6 @@ GH_HTTP_READERS = (
     "ci_receipt.py",
     "cmux_machine_channel_head_built.py",
     "pr_red_checks_comment.py",
-    "proof_record.py",
     "tooling_reuse.py",
 )
 # Files that name api.github.com and call deadline_http.request themselves (one try per read), per file, on

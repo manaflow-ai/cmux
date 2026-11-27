@@ -133,12 +133,7 @@ fn reason(reply: &Result<Value, RpcError>) -> Option<&str> {
 /// What an owner's answer says of its progress.
 fn outcome(reply: &Result<Value, RpcError>) -> Outcome {
     match reason(reply) {
-        // A Mac whose pool is low or paced (`github_pool.rs`) ran nothing; another Mac's pool may
-        // still serve it. A `github.budget.caller` refusal is this session's and stays.
-        Some(
-            "client.not_sent" | "client.busy" | "github.busy" | "github.budget.pool"
-            | "github.budget.pace",
-        ) => Outcome::NotRun,
+        Some("client.not_sent" | "client.busy" | "github.busy") => Outcome::NotRun,
         Some("client.ended" | "client.timeout") => Outcome::Lost,
         _ => Outcome::Answered,
     }
@@ -190,15 +185,7 @@ mod tests {
             assert_eq!(failover(&r, &Ok(json!({}))), Next::Done);
             assert_eq!(failover(&r, &err("github.command_failed")), Next::Done);
             assert_eq!(failover(&r, &Err(RpcError::new(-32040, "no"))), Next::Done);
-            // A caller over its own hourly reads is over on every Mac: no other owner is asked.
-            assert_eq!(failover(&r, &err("github.budget.caller")), Next::Done);
-            for not_run in [
-                "client.not_sent",
-                "client.busy",
-                "github.busy",
-                "github.budget.pool",
-                "github.budget.pace",
-            ] {
+            for not_run in ["client.not_sent", "client.busy", "github.busy"] {
                 assert_eq!(failover(&r, &err(not_run)), Next::Try, "{action:?} {not_run}");
             }
         }

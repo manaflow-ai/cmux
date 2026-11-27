@@ -16,7 +16,7 @@
 //! (`hybrid_stream`, `hybrid_frame`) and surfaces with agent CLI lines never sync.
 
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
@@ -316,33 +316,14 @@ fn end_line(surface: u64) -> Vec<u8> {
     format!("{{\"event\":\"viewport-sync-end\",\"surface\":{surface}}}\n").into_bytes()
 }
 
-/// A surface's [`StreamOut`] as the phone's lines, in order. With
-/// [`viewport_sync::skip_superseded`] on, it looks ahead at what is queued: a switch to the
-/// datagrams supersedes every stream batch and repaint before it (the phone repaints from the
-/// datagrams on the switch), so those go as their scrolled-off rows only.
+/// A surface's [`StreamOut`] as the phone's lines, in order.
 async fn forward(
     mut stream: mpsc::Receiver<StreamOut>,
     surface: u64,
     lines: mpsc::Sender<Vec<u8>>,
     pseq: bool,
 ) {
-    let skip = viewport_sync::skip_superseded();
-    let mut ahead: VecDeque<StreamOut> = VecDeque::new();
-    loop {
-        if ahead.is_empty() {
-            let Some(out) = stream.recv().await else { return };
-            ahead.push_back(out);
-        }
-        if skip {
-            // Bounded: the driver still waits on this queue once it is full.
-            while ahead.len() < OUTPUT_QUEUE
-                && let Ok(out) = stream.try_recv()
-            {
-                ahead.push_back(out);
-            }
-            drop_superseded(&mut ahead);
-        }
-        let Some(out) = ahead.pop_front() else { continue };
+    while let Some(out) = stream.recv().await {
         let line = match out {
             StreamOut::Output { bytes, .. } => output_line(surface, &bytes),
             StreamOut::History(rows) => history_line(surface, &rows),
@@ -353,27 +334,6 @@ async fn forward(
             return;
         }
     }
-}
-
-/// Before the last switch to the datagrams queued: stream batches become their scrolled-off
-/// rows (none: dropped) and repaints go; a batch without its rows stays as it is.
-fn drop_superseded(ahead: &mut VecDeque<StreamOut>) {
-    let Some(at) = ahead.iter().rposition(|out| matches!(out, StreamOut::Switched(Path::Datagram))) else {
-        return;
-    };
-    let superseded =
-        |out: &StreamOut| matches!(out, StreamOut::Output { rows: Some(_), .. } | StreamOut::Repaint(_));
-    if !ahead.iter().take(at).any(superseded) {
-        return;
-    }
-    let tail = ahead.split_off(at);
-    let head = std::mem::take(ahead);
-    ahead.extend(head.into_iter().filter_map(|out| match out {
-        StreamOut::Output { rows: Some(rows), .. } => (!rows.is_empty()).then_some(StreamOut::History(rows)),
-        StreamOut::Repaint(_) => None,
-        other => Some(other),
-    }));
-    ahead.extend(tail);
 }
 
 impl<D: Datagrams> ViewportLink<D> {
@@ -590,37 +550,6 @@ mod tests {
             self.held.lock().unwrap().push(inbox);
             Some(FakeIo { sent: Arc::clone(&self.sent), inbound })
         }
-    }
-
-    #[test]
-    fn a_switch_to_the_datagrams_drops_the_stream_batches_queued_before_it() {
-        let batch = |n: u64, rows: Option<&[u8]>| StreamOut::Output {
-            batch: n,
-            bytes: vec![b'x'; 8],
-            rows: rows.map(<[u8]>::to_vec),
-        };
-        let mut ahead: VecDeque<StreamOut> = VecDeque::from(vec![
-            batch(1, Some(b"")),
-            batch(2, Some(b"row\r\n")),
-            batch(3, None),
-            StreamOut::Switched(Path::Datagram),
-            StreamOut::History(b"later\r\n".to_vec()),
-        ]);
-        drop_superseded(&mut ahead);
-        assert_eq!(
-            Vec::from(ahead),
-            vec![
-                StreamOut::History(b"row\r\n".to_vec()),
-                batch(3, None),
-                StreamOut::Switched(Path::Datagram),
-                StreamOut::History(b"later\r\n".to_vec()),
-            ]
-        );
-        // Batches after the last switch, or with no switch queued, stay.
-        let mut ahead: VecDeque<StreamOut> =
-            VecDeque::from(vec![StreamOut::Switched(Path::Stream), batch(4, Some(b""))]);
-        drop_superseded(&mut ahead);
-        assert_eq!(ahead.len(), 2);
     }
 
     fn b64(bytes: &[u8]) -> String {

@@ -7,7 +7,7 @@ import os
 /// `kSecUseAuthenticationUI` does not stop the login Keychain's prompt; only this switch does.
 ///
 /// The switch is the process's, so this guard is process-wide too: one static depth count, the last
-/// one out restores it. CmuxDeviceHub and CmuxPhonePush each keep an internal copy,
+/// one out restores it. CmuxDeviceHub, CmuxIrxTransport and CmuxPhonePush each keep an internal copy,
 /// and the cmux NEXT app uses its own `LoginKeychain`; a process that linked two of them would have
 /// two counts, and one could turn the switch back on under the other's guard. On iOS there is no
 /// login Keychain and `body` just runs.

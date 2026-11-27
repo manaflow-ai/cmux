@@ -139,7 +139,7 @@ async fn connect_time(lane_policy: LanePolicy) -> Duration {
     took
 }
 
-fn paused<F: Future>(f: F) -> F::Output {
+fn paused<F: std::future::Future>(f: F) -> F::Output {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .start_paused(true)

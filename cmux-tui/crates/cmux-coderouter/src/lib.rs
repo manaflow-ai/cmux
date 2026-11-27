@@ -861,19 +861,6 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
     out.body(Body::from_stream(answer.bytes_stream()))
         .unwrap_or_else(|_| Response::new(Body::empty()))
 }
-/// Whether a request came from a web page: an `Origin`, or the fetch metadata a browser
-/// attaches to every request (`sec-fetch-site`, `-dest`, `-user`). Node's built-in fetch
-/// (undici) sends a lone `sec-fetch-mode: cors` on every call and nothing else, so that one
-/// header alone is a CLI on this machine (pi, or any Node OpenAI/Anthropic SDK client), not a
-/// page: refusing it 403'd every pi turn on the cmux route (fork-hammer, 2026-11-22).
-fn from_a_browser(headers: &HeaderMap) -> bool {
-    headers.contains_key("origin")
-        || headers.keys().any(|name| {
-            let name = name.as_str();
-            name.starts_with("sec-fetch-") && name != "sec-fetch-mode"
-        })
-}
-
 async fn authorize(
     method: Method,
     path: &str,
@@ -886,7 +873,10 @@ async fn authorize(
     if header_bytes > HEADER_LIMIT {
         return Err(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE);
     }
-    if method == Method::OPTIONS || from_a_browser(&headers) {
+    if method == Method::OPTIONS || headers.contains_key("origin") {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if headers.keys().any(|name| name.as_str().starts_with("sec-fetch-")) {
         return Err(StatusCode::FORBIDDEN);
     }
     let hosts =

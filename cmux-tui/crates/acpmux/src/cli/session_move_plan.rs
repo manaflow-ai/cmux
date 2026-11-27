@@ -12,9 +12,8 @@
 //!   checks out what this machine has. A detached HEAD is refused; so are uncommitted changes, unless `--carry-changes` (they go with the chat,
 //!   `session_move_carry.rs`) or `--leave-dirty` (they then stay on this machine and the move's
 //!   record says so). `leave_dirty` below is either: the folder may be dirty.
-//! - A checkout with no `origin`, or one whose `origin` is not an owner/name remote (a local
-//!   path, a `file://` URL, a nested group the target cannot clone by name), has nowhere to push
-//!   a branch the target can fetch (and a move never adds a remote to it): its branches and tags go as a `git bundle` and become a fresh repository at the same path
+//! - A checkout with no `origin` has nowhere to push a branch (and a move never adds a remote to
+//!   it): its branches and tags go as a `git bundle` and become a fresh repository at the same path
 //!   under the target's home as its top folder (`Folder::Bundle`), with no remote; uncommitted
 //!   changes go as for any branch.
 //! - Any other folder under this machine's home maps to the same path under the target's home
@@ -193,8 +192,12 @@ pub(crate) fn plan_folder(
         if !plain_branch(branch) {
             return Err(format!("branch {branch:?} is not a plain branch name"));
         }
-        // An origin that is not an owner/name remote goes as no origin does: as a bundle.
-        let repo = c.origin.as_deref().and_then(repo_slug);
+        let repo = match c.origin.as_deref() {
+            Some(url) => Some(repo_slug(url).ok_or_else(|| {
+                format!("origin of {} is not an owner/name remote", c.top.display())
+            })?),
+            None => None,
+        };
         if c.dirty && !leave_dirty {
             return Err(format!(
                 "{} has uncommitted changes: commit them, pass --carry-changes to bring them, or --leave-dirty to move without them",
@@ -206,8 +209,7 @@ pub(crate) fn plan_folder(
             return Err(format!("subfolder {subdir:?} is not a plain path"));
         }
         let (Some(repo), Some(url)) = (repo, c.origin.as_deref()) else {
-            // No owner/name origin: nowhere to push, so the repository itself goes
-            // (`Folder::Bundle`).
+            // No origin: nowhere to push, so the repository itself goes (`Folder::Bundle`).
             let top = same_under_home(&c.top, home, target_home)?;
             return Ok(Folder::Bundle { top, branch: branch.to_owned(), subdir, dirty: c.dirty });
         };

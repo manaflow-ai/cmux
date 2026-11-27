@@ -64,13 +64,13 @@ pub fn dump() -> serde_json::Value {
     }
 }
 
-/// The system allocator's own count (glibc `mallinfo2`), in a gnu build on glibc's malloc: the bytes the
+/// The system allocator's own count (glibc `mallinfo2`), in a `system-alloc` build: the bytes the
 /// program holds (`inUse`) against the bytes free but kept (`free`), which is the line between a
 /// heap that is live data and one that is the allocator's retention. Then `malloc_trim(0)` gives
 /// the kept bytes back, and `trimmed` is what it could return.
 #[cfg(not(feature = "dhat-heap"))]
 fn glibc_malloc() -> Option<serde_json::Value> {
-    #[cfg(all(not(feature = "mimalloc-gnu"), target_os = "linux", target_env = "gnu"))]
+    #[cfg(all(feature = "system-alloc", target_os = "linux", target_env = "gnu"))]
     {
         // SAFETY: mallinfo2 and malloc_trim read and trim glibc's arenas under their own locks.
         let before = unsafe { libc::mallinfo2() };

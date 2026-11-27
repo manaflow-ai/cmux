@@ -102,7 +102,6 @@ public final class ScreenshotsModel {
     public func setSources(_ newSources: [ScreenshotSource]) {
         guard newSources != sources else { return }
         let json = ScreenshotsFFI.json(newSources.map {
-            // main-actor-ok: one small rule object per screenshot folder (a handful), parsed once per sources change
             ["id": $0.id, "label": $0.label, "folder": $0.folder.path, "acceptsDrops": $0.acceptsDrops, "rule": (try? JSONSerialization.jsonObject(with: Data($0.rule.json.utf8))) ?? [:]] as [String: Any]
         })
         let plan = ScreenshotsFFI.object(ScreenshotsFFI.bytes(json) { cmux_screenshots_pane_set_sources(pane.pointer, $0, $1) })

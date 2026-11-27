@@ -783,10 +783,6 @@
         "ty": "string",
         "required": true
       },
-      "/session/harnessSandboxError": {
-        "ty": "string",
-        "nullable": true
-      },
       "/session/harnessSandboxFailed": {
         "ty": "uint64",
         "nullable": true
@@ -32402,10 +32398,6 @@
         "ty": "string",
         "required": true
       },
-      "/data/session/harnessSandboxError": {
-        "ty": "string",
-        "nullable": true
-      },
       "/data/session/harnessSandboxFailed": {
         "ty": "uint64",
         "nullable": true
@@ -35560,10 +35552,6 @@
         "ty": "string",
         "required": true
       },
-      "/data/harnessSandboxError": {
-        "ty": "string",
-        "nullable": true
-      },
       "/data/harnessSandboxFailed": {
         "ty": "uint64",
         "nullable": true
@@ -37390,10 +37378,6 @@
       "/data/sessions/*/harness": {
         "ty": "string",
         "required": true
-      },
-      "/data/sessions/*/harnessSandboxError": {
-        "ty": "string",
-        "nullable": true
       },
       "/data/sessions/*/harnessSandboxFailed": {
         "ty": "uint64",
@@ -39348,10 +39332,6 @@
       "/data/sessions/*/harness": {
         "ty": "string",
         "required": true
-      },
-      "/data/sessions/*/harnessSandboxError": {
-        "ty": "string",
-        "nullable": true
       },
       "/data/sessions/*/harnessSandboxFailed": {
         "ty": "uint64",

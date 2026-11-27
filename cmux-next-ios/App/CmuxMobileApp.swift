@@ -44,7 +44,6 @@ struct CmuxMobileApp: App {
         MobileDuress.startIfRequested()
         // `CMUX_MOBILE_LAUNCH_MARKS=1`: resume-after-switch marks for ResumeFromSwitchUITests.
         ResumeMarks.startIfRequested()
-        AnimationFrameBench.installIfRequested()
         // Opt-in transition measurements for SwipeBackWholePageUITests.
         WholePageProbe.startIfRequested()
         #endif

@@ -31,26 +31,6 @@ def comment(body, assoc="COLLABORATOR", login="someone", kind="User", at="2026-1
             "created_at": at, "html_url": "u"}
 
 
-class ReadRetry(unittest.TestCase):
-    def test_a_passing_refusal_is_asked_again(self):
-        # One 502 used to turn a passed build into "proof record not read (HTTPError): rerun this job".
-        import functools
-        from unittest import mock
-        http = pr.gh_http.deadline_http
-        answers = [(502, b"", http.Headers({})), (200, json.dumps([comment("x")]).encode(), http.Headers({}))]
-        seen = []
-
-        def fake(req, seconds, **kwargs):
-            seen.append(req.full_url)
-            return answers.pop(0)
-
-        retrying = functools.partial(pr.gh_http.request, sleep=lambda s: None, log=lambda line: None)
-        with mock.patch.object(http, "request", side_effect=fake), mock.patch.object(pr.gh_http, "request", retrying):
-            got = pr.pr_comments("o/r", 7, "t")
-        self.assertEqual([c["body"] for c in got], ["x"])
-        self.assertEqual(len(seen), 2)
-
-
 class Record(unittest.TestCase):
     def test_round_trip(self):
         body = pr.render(RECORD, "summary")

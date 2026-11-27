@@ -299,6 +299,8 @@ PY
 # compile only on Apple platforms run in auth-refresh-tests.yml on a Mac.
 select_packages() {
   PACKAGES=(
+    CmuxIrohTransport
+    CmuxIrxTransport
     CmuxUpdater
     CmuxHomeRender
     CmuxMobileBilling
@@ -655,7 +657,7 @@ run_package_tests() {
     # share global process resources (CmuxPushRegistration: its URLProtocol
     # stubs, as when it was part of CmuxAuthRuntime); run each suite in its
     # own Swift Testing process.
-    CmuxAuthRuntime|CmuxPushRegistration)
+    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport|CmuxPushRegistration)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
     *)

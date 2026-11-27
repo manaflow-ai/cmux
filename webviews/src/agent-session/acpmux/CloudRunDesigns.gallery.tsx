@@ -17,7 +17,7 @@ const base = {
 } satisfies Omit<CloudRunDesignsProps, "design">;
 
 const openList: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /^Computer/ });
+  await ctx.click({ role: "button", name: /^Environment/ });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
 };
 

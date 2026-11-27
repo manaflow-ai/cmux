@@ -35,7 +35,6 @@ impl Hub {
             .filter_map(|s| {
                 let m = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (m.status != SessionStatus::Closed).then(|| {
-                    let stuck_reason = mesh_failure_reason(&m);
                     let title = m.title.as_deref().and_then(heartbeat_meta);
                     let title_source =
                         title.as_ref().and(m.title_source.as_deref()).and_then(heartbeat_meta);
@@ -45,13 +44,9 @@ impl Hub {
                         name: m.name.clone(),
                         session_id: s.id.clone(),
                         harness: m.harness.clone(),
-                        // A watched chat whose app exited (`app_exit.rs`); a harness sandbox
-                        // refusal or a BLOCKED reply is `failed` (`mesh_failure_reason`).
-                        state: stuck_reason.as_ref().map_or_else(
-                            || super::app_exit::row_status(s, m.status),
-                            |_| "failed".into(),
-                        ),
-                        stuck_reason,
+                        // A watched chat whose app exited (`app_exit.rs`).
+                        state: super::app_exit::row_status(s, m.status),
+                        stuck_reason: None,
                         cwd: crate::mesh::heartbeat_cwd(&m.cwd.to_string_lossy()),
                         title,
                         title_source,
@@ -199,24 +194,6 @@ impl Hub {
             n => Err(format!("{key:?} names {n} sessions here; send to its session id")),
         }
     }
-}
-
-/// Keep the mesh heartbeat's failure projection in step with the local row projection without
-/// constructing a full summary for every session. Only the harness's persisted sandbox refusal
-/// and an explicit BLOCKED reply are failures; arbitrary prose and ordinary turn errors remain
-/// their normal state.
-fn mesh_failure_reason(meta: &crate::store::SessionMeta) -> Option<String> {
-    let raw = if meta.harness_sandbox.failing {
-        meta.harness_sandbox.error.as_deref()
-    } else if !matches!(meta.status, SessionStatus::Idle | SessionStatus::Ready) {
-        // A previous BLOCKED reply is ordinary preview text while a new turn is running (or
-        // waiting for input); do not project that stale reply as a fresh heartbeat failure.
-        None
-    } else {
-        meta.preview.as_deref().and_then(crate::session_liveness::blocked_reply)
-    }?;
-    let masked = crate::secret_scan::mask(raw);
-    Some(masked.chars().take(512).collect())
 }
 
 /// Whether `host` is this machine's name on the mesh or its host name (never the "host"

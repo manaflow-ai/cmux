@@ -177,11 +177,8 @@ jobs:
                 --parent "$parent" > "$RUNNER_TEMP/overlays-$parent.txt" &&
               (while read -r commit path; do git -C "$at" checkout -q "$commit" -- "$path" || exit 1; done \
                 < "$RUNNER_TEMP/overlays-$parent.txt") &&
-              # Only build the entries this parent actually renders. An unrelated broken gallery file must not
-              # suppress every authentic before image for the planned highlights.
-              entries_at=$(jq -r --arg parent "$parent" '[.[] | select(.parent == $parent) | .entry] | unique | join(",")' "$out/plan.json") &&
               (cd "$at/webviews" && bun install --frozen-lockfile &&
-                bun scripts/gallery/manifest.ts --entries "$entries_at" --themes pair --widths normal --frame component \
+                bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
                   --out "$RUNNER_TEMP/cases-$parent.json") &&
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
                 --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&

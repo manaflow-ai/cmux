@@ -8,8 +8,8 @@
     {"title": "Show it", "cmux": ["workspace", "name:Panes", "focus"], "wait": 1},
     {"title": "Two panes", "cmux": ["action", "run", "splitRight"], "wait": 1.5},
     {"title": "Split", "cmux": ["action", "run", "splitDown"], "wait": 1.5},
-    {"title": "Install the theme", "cmux": ["theme", "install", "github.com/teamleaderleo/teal-twin-theme@1.1.1", "--yes"], "wait": 2, "clip": true},
-    {"title": "Its light theme file", "cmux": ["settings", "set", "appearance.themeFile", "teal-twin-light"], "wait": 1.5, "clip": true},
+    {"title": "Install the theme", "cmux": ["theme", "install", "github.com/teamleaderleo/teal-twin-theme@1.1.1", "--yes"], "wait": 5, "clip": true},
+    {"title": "Its light theme file", "cmux": ["settings", "set", "appearance.themeFile", "teal-twin-light"], "wait": 3, "clip": true},
     {"title": "End", "wait": 0.3}
   ],
   "crop": [0, 0, 0.85, 0.85]

@@ -57,19 +57,6 @@ pub(crate) const MAX_STREAM_WINDOW: usize = 6 << 20;
 /// or `M` suffix is KiB or MiB), clamped to
 /// [`MIN_STREAM_WINDOW`]..=[`MAX_STREAM_WINDOW`]. For benches and tuning.
 pub const STREAM_WINDOW_ENV: &str = "CMUX_WG_STREAM_WINDOW";
-/// Set to `1` (or `on`, `true`) to carry data on tunnel TCP SYNs: a connect
-/// holds its SYN up to [`SYN_DATA_HOLD`] for the first write, which rides
-/// on it, and a listener reads a SYN's data and replies once its SYN|ACK is
-/// out. Off by default. A peer without it acknowledges only the SYN and the
-/// data is sent again after the handshake, once.
-pub const SYN_DATA_ENV: &str = "CMUX_WG_SYN_DATA";
-/// How long a connect with [`SYN_DATA_ENV`] holds its SYN for a first write.
-pub(crate) const SYN_DATA_HOLD: Duration = Duration::from_millis(30);
-
-/// Whether [`SYN_DATA_ENV`] is on.
-pub(crate) fn syn_data_from_env() -> bool {
-    std::env::var(SYN_DATA_ENV).is_ok_and(|value| matches!(value.trim(), "1" | "on" | "true"))
-}
 /// Largest chunk moved from a smoltcp socket into a stream at once.
 pub(crate) const INBOUND_CHUNK_BYTES: usize = 16 * 1024;
 /// Queued chunks per direction per connection before backpressure.
@@ -570,10 +557,6 @@ impl TcpStack {
         );
         // Keystrokes are latency-bound; the OS dial path disables Nagle too.
         socket.set_nagle_enabled(false);
-        if syn_data_from_env() {
-            socket.set_syn_data(true);
-            socket.set_syn_data_hold(smol_duration(SYN_DATA_HOLD));
-        }
         socket.set_congestion_control(congestion);
         socket.set_min_rto(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_MIN_RTO.as_micros()).unwrap_or(u64::MAX),

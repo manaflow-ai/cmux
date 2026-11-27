@@ -333,66 +333,6 @@ export function retryTargetIn(rows: readonly AcpmuxRow[]): RetryTarget {
   return NO_RETRY_TARGET;
 }
 
-/// One `retryTargetIn` scan, kept for the next snapshot's (`retryScanOf`): the rows it read, the
-/// index of their last retryable prompt (-1: none) and of the first turn summary after it (-1: none).
-export type RetryScan = {
-  readonly rows: readonly AcpmuxRow[];
-  readonly prompt: number;
-  readonly footer: number;
-  readonly target: RetryTarget;
-};
-
-function retryScanFrom(rows: readonly AcpmuxRow[], prompt: number, footer: number, last?: RetryScan): RetryScan {
-  let target = NO_RETRY_TARGET;
-  if (prompt >= 0) {
-    const row = rows[prompt]!;
-    const summary = footer >= 0 ? rows[footer]! : undefined;
-    const footerId =
-      summary && offersRetry(summary) && summary.retryRowId === row.id && !isEmptyFooter(summary)
-        ? summary.id
-        : undefined;
-    // The same ids give the last target back, so what keys on it sees no change.
-    target =
-      last && last.target.promptId === row.id && last.target.footerId === footerId
-        ? last.target
-        : footerId
-          ? { promptId: row.id, footerId }
-          : { promptId: row.id };
-  }
-  return { rows, prompt, footer, target };
-}
-
-const firstSummaryFrom = (rows: readonly AcpmuxRow[], from: number) => {
-  for (let at = from; at < rows.length; at += 1) if (rows[at]!.kind === "turnSummary") return at;
-  return -1;
-};
-
-/// `retryTargetIn(rows)` (its oracle, test/retry-target-scan.test.ts), reading only the rows after
-/// those `rows` kept of `last.rows` (prefixFlatMap.ts `keptPrefix`, which the client says of each
-/// snapshot). The transcript asked `retryTargetIn` on every rows change, a streamed token too, and
-/// it walked back over the whole chat when no prompt there can be retried (another agent's chat, a
-/// long turn of work after the prompt): 0.6 ms at 100k rows, 5 to 10 ms at 1M, per frame. Now a token
-/// costs the rows it changed. Only an edit that takes away the last retryable prompt itself walks
-/// back from the change, as `retryTargetIn` would.
-export function retryScanOf(rows: readonly AcpmuxRow[], last?: RetryScan): RetryScan {
-  if (last && last.rows === rows) return last;
-  const kept = last ? keptPrefix(last.rows, rows) : 0;
-  // A retryable prompt in the rows past the kept ones is the last one: its footer is past it too.
-  for (let at = rows.length - 1; at >= kept; at -= 1)
-    if (isRetryablePrompt(rows[at]!)) return retryScanFrom(rows, at, firstSummaryFrom(rows, at + 1), last);
-  if (!last || last.prompt >= kept) {
-    // No scan to start from, or its prompt was in the rows that changed: walk back from the change.
-    for (let at = kept - 1; at >= 0; at -= 1)
-      if (isRetryablePrompt(rows[at]!)) return retryScanFrom(rows, at, firstSummaryFrom(rows, at + 1), last);
-    return retryScanFrom(rows, -1, -1, last);
-  }
-  // The last scan's prompt is kept and still the last. Its footer is the same row while that row is
-  // kept; else no summary came between the prompt and the kept rows' end, so it is the first after.
-  if (last.prompt < 0) return retryScanFrom(rows, -1, -1, last);
-  const footer = last.footer >= 0 && last.footer < kept ? last.footer : firstSummaryFrom(rows, kept);
-  return retryScanFrom(rows, last.prompt, footer, last);
-}
-
 /// Where the transcript draws its one Retry: on the reply footer when that footer shows and offers
 /// it (the person's last prompt's turn ended with a footer that has something at rest, or failed),
 /// else under the prompt, as the prompt's Retry was drawn before Retry moved to the footer, so

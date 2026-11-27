@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - Packages/Shared/CmuxAuthRuntime/**
+      - Packages/Shared/CmuxIrxTransport/**
       - Packages/macOS/CmuxPhonePush/**
       - vendor/stack-auth-swift-sdk-prerelease/**
       - .github/workflows/auth-refresh-tests.yml
@@ -42,3 +43,5 @@ jobs:
       # CmuxPhonePush runs on Linux too; its Keychain migrations need Security.
       - name: Exercise the phone push Keychain migrations
         run: swift test --package-path Packages/macOS/CmuxPhonePush --filter 'PhonePushSharedStateTests/(sharedPushStateIsDeviceOnly|phonePushKeyMaterialIsDeviceOnly)'
+      - name: Verify retired session watcher completion over loopback
+        run: swift test --package-path Packages/Shared/CmuxIrxTransport --filter 'IrxLiveQUICTests.keepaliveAndAutoRedial'

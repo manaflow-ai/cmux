@@ -1372,7 +1372,7 @@ CENSUS_REPO, CENSUS_REF, CENSUS_FOLDER = "manaflow-ai/cmuxterm-hq", "reconciler-
 
 
 def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None, whole: bool = False):
-    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (any 2xx status), or LookError. With a
+    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError. With a
     REPO the JSON goes on stdin (`lane-gh call TOOL REPO -`): one argv string holds at most 128 KiB on Linux
     (MAX_ARG_STRLEN), and the census copy state_put carries runs to PUBLISH_MAX, so in argv every publish of a
     receipts file past 128 KiB failed with E2BIG and the host's census copy stood still for hours. A tool with no
@@ -1389,11 +1389,8 @@ def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None,
         answer = json.loads(done.stdout)
     except ValueError:
         raise LookError(f"lane-gh call {tool}: not JSON: {tail(done.stdout)}") from None
-    # Any 2xx is an answer: state_put says 201 for a written commit, and reading only 200 as success logged
-    # "publish exited 1" for every census publish that landed, hiding the ones that really failed.
-    status = answer.get("status") if isinstance(answer, dict) else None
-    if not isinstance(status, int) or not 200 <= status < 300:
-        raise LookError(f"lane-gh call {tool}: not answered 2xx: {tail(json.dumps(answer))}")
+    if not isinstance(answer, dict) or answer.get("status") != 200:
+        raise LookError(f"lane-gh call {tool}: not answered 200: {tail(json.dumps(answer))}")
     data = answer.get("data")
     if whole:
         return data  # a list answer too (a contents folder listing)

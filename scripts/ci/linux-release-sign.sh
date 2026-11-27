@@ -72,6 +72,6 @@ rm -rf "$lr/binaries"
 # The .deb and .rpm of these binaries, uploaded and named in the payload before it is signed (the file
 # is written once, so only its first signing can name them). No archive key needed: the signed release
 # file vouches for them. Delivery, not a gate: a failure signs the file without packages.
-bash scripts/ci/timeout.sh 600 scripts/ci/linux-packages.sh "$lr/payload.json" "$lr/built" "$lr/packages" ||
+timeout 600 scripts/ci/linux-packages.sh "$lr/payload.json" "$lr/built" "$lr/packages" ||
   echo "::warning::the .deb and .rpm of $GITHUB_SHA were not built; its release file names none"
 scripts/ci/cmux-machine-channel-point.sh "$lr/payload.json" "$lr" $mode

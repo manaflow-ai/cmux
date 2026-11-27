@@ -428,24 +428,16 @@ def main():
     _check(DAEMON not in all_needs(all_jobs, "mark-tree-commits"),
            f"mark-tree-commits does not wait for the daemon tests ({sorted(all_needs(all_jobs, 'mark-tree-commits'))})")
     _check(set(tree_publishers) <= set(needs(mark)), f"mark-tree-commits follows every tree publisher ({needs(mark)})")
-    # A nightly-next push marks too: it publishes the build commit's tree while that commit's
-    # feat-cmux-next run coalesced into it (run 45987983838 waited 17.9 min for the marker).
-    for ref in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next"):
-        branch = ref.rsplit("/", 1)[-1]
-        for event in ("push", "workflow_dispatch"):
-            for published in ("success", "skipped"):
-                values = context(ref, event=event, daemon_result=None)
-                values.update({f"needs.{name}.result": published for name in tree_publishers})
-                _check(runs(all_jobs, "mark-tree-commits", values),
-                       f"a {branch} {event} marks its commits with publish {published}, its daemon tests still queued")
-            failed = context(ref, event=event, daemon_result=None)
-            failed.update({f"needs.{name}.result": "failure" for name in tree_publishers})
-            _check(not runs(all_jobs, "mark-tree-commits", failed),
-                   f"a {branch} {event} whose publish failed marks nothing")
-    for ref in ("refs/heads/main", "refs/heads/lane/x"):
-        values = context(ref, event="push", daemon_result=None)
-        values.update({f"needs.{name}.result": "success" for name in tree_publishers})
-        _check(not runs(all_jobs, "mark-tree-commits", values), f"a {ref} push marks nothing")
+    for event in ("push", "workflow_dispatch"):
+        for published in ("success", "skipped"):
+            values = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
+            values.update({f"needs.{name}.result": published for name in tree_publishers})
+            _check(runs(all_jobs, "mark-tree-commits", values),
+                   f"a feat-cmux-next {event} marks its commits with publish {published}, its daemon tests still queued")
+        failed = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
+        failed.update({f"needs.{name}.result": "failure" for name in tree_publishers})
+        _check(not runs(all_jobs, "mark-tree-commits", failed),
+               f"a feat-cmux-next {event} whose publish failed marks nothing")
 
     # The run that ends unpublished still reports, whichever job would have published.
     notify = all_jobs["notify-unpublished-tree"]

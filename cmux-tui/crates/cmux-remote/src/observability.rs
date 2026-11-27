@@ -116,7 +116,7 @@ mod tests {
             provider: String,
             selected_path: Option<OldPath>,
         }
-        let mut new = read;
+        let mut new = read.clone();
         new.selected_path.as_mut().unwrap().outer = Some(OuterPathSnapshot {
             proxy: Some("HTTP proxy p:3128".into()),
             tls_inspected: true,

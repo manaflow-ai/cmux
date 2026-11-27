@@ -322,8 +322,6 @@ mod composer_attachments;
 mod first_turn_fence;
 #[path = "transfer_cli/move_matrix.rs"]
 mod move_matrix;
-#[path = "transfer_cli/place_duress.rs"]
-mod place_duress;
 #[path = "transfer_cli/place_set.rs"]
 mod place_set;
 #[path = "transfer_cli/session_move.rs"]

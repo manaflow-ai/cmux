@@ -77,18 +77,18 @@ fetch() { # <relative object path> <destination file>
     --connect-timeout 15 --max-time 900 -o "$2" "${CI_CACHE_R2_PUBLIC_URL%/}/$1"
 }
 
-unpack() { # <extension> <archive> <into>
+unpack() { # <extension> <archive>
   if [[ "$1" == "tar.zst" ]]; then
     # Consume padding through EOF, otherwise bsdtar exits early and zstd
     # receives SIGPIPE, turning a valid restore into a miss under pipefail.
     zstd -dc "$2" | {
       local tar_status=0
-      tar -xf - -C "$3" || tar_status=$?
+      tar -xf - -C "$dir" || tar_status=$?
       cat > /dev/null
       return "$tar_status"
     }
   else
-    tar -xzf "$2" -C "$3"
+    tar -xzf "$2" -C "$dir"
   fi
 }
 
@@ -116,23 +116,14 @@ PY2
       continue
     fi
     if fetch "$namespace/objects/$candidate.$extension" "$work/archive" 2>/dev/null; then
-      # Unpack beside the directory and rename it into place only once whole. A step killed mid-unpack
-      # (timeout-minutes on a slow runner) never reaches any cleanup here, and half a cargo target left in
-      # place failed the build on missing .rmeta files (machine channel run 46003645716, aarch64 leg); now
-      # such a kill leaves the directory as it was and only the staging directory behind.
-      local staging stale
-      mkdir -p "$(dirname "$dir")"
-      # An earlier killed restore's staging directory: a persistent runner workspace would keep it for good.
-      for stale in "${dir%/}".r2-restoring.*; do [[ -d "$stale" ]] && rm -rf "$stale"; done
-      staging="$(mktemp -d "${dir%/}.r2-restoring.XXXXXX")"
-      if unpack "$extension" "$work/archive" "$staging"; then
-        rm -rf "$dir"
-        mv "$staging" "$dir"
+      rm -rf "$dir"
+      mkdir -p "$dir"
+      if unpack "$extension" "$work/archive"; then
         rm -rf "$work"
         return 0
       fi
       # A truncated or corrupt archive must not leave half a cache behind.
-      rm -rf "$staging"
+      rm -rf "$dir"
       echo "r2-cache: could not unpack $candidate.$extension"
     fi
   done

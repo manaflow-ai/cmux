@@ -81,18 +81,8 @@ fn pages(m: &str) -> bool {
 
 /// The params of an events read that go across. The session is the target's; nothing else is
 /// taken from the asker.
-const EVENT_PARAMS: &[&str] = &[
-    "afterSeq",
-    "beforeSeq",
-    "limit",
-    "kinds",
-    "maxBytes",
-    "recordMaxBytes",
-    "match",
-    "promptIndex",
-    "subagent",
-    "waitLogs",
-];
+const EVENT_PARAMS: &[&str] =
+    &["afterSeq", "beforeSeq", "limit", "kinds", "maxBytes", "promptIndex", "subagent", "waitLogs"];
 
 /// The params of `m` that go across: a page's, a history's count of turns, else none.
 fn crossing(m: &str) -> &'static [&'static str] {

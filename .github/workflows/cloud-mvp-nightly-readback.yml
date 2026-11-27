@@ -87,8 +87,9 @@ jobs:
           BUILD: ${{ inputs.build }}
         run: |
           set -uo pipefail
-          # build= selects the feed's newest build; avoid an empty array under macOS Bash 3.2 + nounset.
-          scripts/measure/cloud-mvp-nightly-readback.sh "build=$BUILD"
+          args=()
+          if [ -n "$BUILD" ]; then args+=("build=$BUILD"); fi
+          scripts/measure/cloud-mvp-nightly-readback.sh "${args[@]}"
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           case "$status" in

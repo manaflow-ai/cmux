@@ -36,10 +36,10 @@ const shown: Play = async (ctx) => {
 };
 
 /// The chat menu open on the chat's Cloud rows, where Auto and Keep in Cloud sit. The submenu is
-/// "Move to…" when the host names a place the chat can move, else "Computer" (#51769 renamed it).
+/// "Move to…" when the host names a place the chat can move, else "Environment".
 const menu: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Chat actions" });
-  await ctx.click({ role: "menuitem", name: /^(Computer|Move to…)$/ });
+  await ctx.click({ role: "menuitem", name: /^(Environment|Move to…)$/ });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemcheckbox"]'));
 };
 

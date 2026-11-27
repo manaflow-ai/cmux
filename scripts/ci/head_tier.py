@@ -18,7 +18,7 @@ head before any merge. How a draft gets the full tier: mark it ready for review 
 not listen to `labeled` (it would start on every label of every PR), so there the label takes effect at the next
 push: push a commit (an empty one does) after adding it.
 
-Heavy-at-land rule (on unless the repository variable CI_HEAVY_AT_LAND is 0; Leo, 2026-11-26: "de facto, im asking
+Heavy-at-land rule (off unless the repository variable CI_HEAVY_AT_LAND is 1; Leo, 2026-11-26: "de facto, im asking
 for 99% fewer minutes of ci time, period."): a pull request from this repository runs the full tier only on the
 `labeled` event that adds `ready-to-land` or `full-ci`; every other head that would be full (later pushes while
 `full-ci` stays on, stacked pull requests on other bases, ask-rule heads) gets the cheap tier. Off, nothing changes.
@@ -471,7 +471,7 @@ def same_repo(event: dict) -> bool:
 
 
 def land_handoff(event: dict) -> bool:
-    """Heavy-at-land rule (CI_HEAVY_AT_LAND, default on; cmux#ci-min-per-pr-30): whether EVENT is the one event
+    """Heavy-at-land rule (CI_HEAVY_AT_LAND, default off; cmux#ci-min-per-pr-30): whether EVENT is the one event
     that hands a ready pull request to land, `ready-to-land` or `full-ci` being added. Only that event keeps the
     full tier; every other push of the pull request, the landing ones and stacked pull requests on other bases
     included, runs the cheap tier, so a heavy job runs once per landing attempt instead of on every head (merged
@@ -702,7 +702,7 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
     labelled_switch = os.environ.get("CI_LABELLED_BASE_MERGE_SKIP", "1")
     rerun_switch = os.environ.get("CI_RED_BASE_MERGE_RERUN", "1")
     full_carry_switch = os.environ.get("CI_FULL_CI_BASE_MERGE_CARRY", "1")
-    heavy_at_land_switch = os.environ.get("CI_HEAVY_AT_LAND", "1")
+    heavy_at_land_switch = os.environ.get("CI_HEAVY_AT_LAND", "0")
     labels = labels_of(event)
     pull = event_name in ("pull_request", "pull_request_target")
     if pull and full_carry_rule_applies(event, full_carry_switch):

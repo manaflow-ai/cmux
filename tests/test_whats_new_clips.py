@@ -2,7 +2,6 @@
 """scripts/cmux-next/media/whats-new-clips.py: specs, cutting a capture to its clip steps, the
 idle-clip refusal, the clip's length, and the highlight's clip line. Encoding (ffmpeg, img2webp)
 and the fleet capture are not run here."""
-import hashlib
 import re
 import importlib.util, io, json, sys, tempfile, unittest
 from pathlib import Path
@@ -130,20 +129,6 @@ class SpecTests(unittest.TestCase):
         }
         for words, bad in cases.items():
             self.assertTrue(any(words in p for p in clips.spec_problems(bad)), words)
-
-    def test_declared_waits_warn_at_the_limit_without_failing_the_spec_check(self):
-        steps = [{"title": "Setup", "wait": 20}, {"title": "Start", "wait": 5, "clip": True},
-                 {"title": "Between", "wait": 2}, {"title": "End cut", "wait": 1, "clip": True},
-                 {"title": "Cleanup", "wait": 20}]
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp, "demo.json")
-            Path(tmp, "demo.md").touch()
-            for between, warned in [(2, True), (1.5, False)]:
-                steps[2]["wait"] = between
-                path.write_text(json.dumps({**SPEC, "steps": steps}))
-                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
-                    self.assertEqual(clips.check(Path(tmp), Path(tmp)), [])
-                self.assertEqual("declared waits in the cut span 8 s" in stdout.getvalue(), warned)
 
     def test_the_capture_state_drops_the_clip_marks(self):
         state = clips.capture_state({**SPEC, "settings": {"a": 1}})
@@ -831,56 +816,6 @@ class NightlyTourTests(unittest.TestCase):
             clips.tour_frames(SPEC, no_times, Path("/t"), Path("/u"))
         with self.assertRaisesRegex(clips.ClipError, "did not run every step"):
             clips.tour_frames(SPEC, {"steps": [], "error": "launch: no app"}, Path("/t"), Path("/u"))
-
-    def test_successful_publish_reports_every_planned_role_rejected(self):
-        names = ["fade-inactive-panes", "theme-flourishes"]
-        tip = "7682aa4571235d820f8e136c90202e2d93cabd1e"
-
-        def render(clip_id, *args, **kwargs):
-            # Run the real quality checks on an idle crop and a ten-second changing crop.
-            frames = [Path(str(i)) for i in range(10)]
-            pixels = [bytes([0])] * 5 + [bytes([0 if clip_id == names[0] else 255])] * 5
-            with mock.patch.object(clips, "gray", side_effect=pixels):
-                clips.timeline({**SPEC, "frameInterval": 1}, frames, "crop")
-
-        media = mock.Mock()
-        with tempfile.TemporaryDirectory() as tmp:
-            tour_folders(Path(tmp), names, ["after"])
-            plan = Path(tmp, "plan.json")
-            plan.write_text(json.dumps([{"id": name, "roles": ["after"]} for name in names]))
-            with mock.patch.object(clips, "render_tour", render), mock.patch.object(clips, "pr_media_module", return_value=media), \
-                    mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
-                self.assertEqual(clips.main(["publish-auto", "--plan", str(plan), "--results", tmp, "--tip", tip]), 0)
-        receipt = json.loads(stdout.getvalue().split("```json\n")[1].splitlines()[0])
-        self.assertEqual((receipt["kind"], receipt["tip"]), ("whats-new-clip-delivery", tip))
-        self.assertEqual(receipt["counts"], {"planned": 2, "published": 0, "rejected": 2, "no_tour": 0, "unpublished": 0})
-        self.assertEqual([(c["id"], c["role"], c["status"]) for c in receipt["clips"]],
-                         [(name, "after", "rejected") for name in names])
-        self.assertIn("every frame of the clip is alike", receipt["clips"][0]["reason"])
-        self.assertIn("10.0 s; at most 8", receipt["clips"][1]["reason"])
-        media.put_file.assert_not_called()
-        media.put_files.assert_called_once()  # failure markers are not published clips
-
-    def test_delivery_receipt_preserves_confirmed_writes_when_a_later_upload_fails(self):
-        media = mock.Mock()
-        media.put_file.side_effect = [None, RuntimeError("upload failed")]
-
-        def render(clip_id, tour_dir, out, keep, role):
-            out.write_bytes(b"clip")
-            keep.mkdir()
-            (keep / "0000.png").touch()
-
-        with tempfile.TemporaryDirectory() as tmp:
-            tour_folders(Path(tmp), ["better"], ["before", "after"])
-            rows = [{"id": "better", "roles": ["after", "before"]}, {"id": "later", "roles": ["before"]}]
-            with mock.patch.object(clips, "render_tour", render), mock.patch.object(clips, "pr_media_module", return_value=media), \
-                    mock.patch("sys.stdout", new_callable=io.StringIO) as stdout, self.assertRaisesRegex(RuntimeError, "upload failed"):
-                clips.publish_auto(rows, Path(tmp), Path(tmp))
-        receipt = json.loads(stdout.getvalue().split("```json\n")[1].splitlines()[0])
-        self.assertEqual(receipt["counts"], {"planned": 3, "published": 1, "rejected": 0, "no_tour": 1, "unpublished": 1})
-        self.assertEqual(receipt["clips"][0], {"id": "better", "role": "after", "status": "published", "bytes": 4,
-                         "url": clips.auto_url("better", "after"), "sha256": hashlib.sha256(b"clip").hexdigest()})
-        self.assertEqual([c["status"] for c in receipt["clips"][1:]], ["unpublished", "no_tour"])
 
     def test_publish_auto_renders_each_role_from_its_tour_folder_and_uploads_nothing_without_ocr(self):
         rendered = []

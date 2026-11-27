@@ -9,7 +9,11 @@ def git(*args):
     return subprocess.check_output(["git", *args], text=True).strip()
 
 
-GENERATED_CONTRACT_FILES: set[Path] = set()
+GENERATED_CONTRACT_FILES = {
+    # quicktype emits one monolithic Codable model file for this wire contract;
+    # schema additions must change its generated line count atomically.
+    Path("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift"),
+}
 
 
 def main():

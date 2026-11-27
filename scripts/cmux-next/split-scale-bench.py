@@ -983,11 +983,6 @@ def finish(results):
                        and all(f["pass"] for f in results["flatness"].values()))
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
-    # The per-PR table: every cell x transition, first frame ms and blank frames, worst row first (report-only).
-    rows = ssm.row_table(results)
-    results["row_table"], results["row_table_ok"] = rows, ssm.row_table_ok(rows)
-    row_markdown = ssm.row_table_markdown(rows)
-    print("SPLIT-ROW-TABLE-BEGIN\n" + row_markdown + "\nSPLIT-ROW-TABLE-END", flush=True)
     timeline = frame_timeline(results)
     if opts.json:
         with open(opts.json + ".tmp", "w") as handle:
@@ -995,7 +990,7 @@ def finish(results):
         os.replace(opts.json + ".tmp", opts.json)
     if opts.md:
         with open(opts.md, "w") as handle:
-            handle.write(row_markdown + "\n\n```\n" + text + "\n```\n")
+            handle.write("```\n" + text + "\n```\n")
             if timeline:
                 handle.write("\nThe app's own frame timeline (frame_timing.py --table):\n\n```\n" + timeline + "\n```\n")
     pack_frames()

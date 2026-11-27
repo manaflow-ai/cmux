@@ -203,33 +203,6 @@ The changes are in `src/socket/tcp/congestion/cubic.rs`,
 `cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
 
-## Data on the SYN
-
-`Socket::set_syn_data(true)`, off by default, carries data on the SYN both
-ways. cmux-wg turns it on for tunnel TCP with `CMUX_WG_SYN_DATA=1`; both
-ends of the tunnel run this stack, so the phone's first request rides on its
-SYN and the Mac replies from SYN-RECEIVED, a round trip before the
-handshake's last ACK.
-
-Connecting, bytes written before the SYN goes out ride on it, up to one
-segment less 40 bytes of options. `set_syn_data_hold(d)` holds the SYN up to
-`d` for that first write; zero sends it at once. A peer that takes the data
-acknowledges it in its SYN|ACK. One that ignores it acknowledges only the
-SYN, and the data is sent again as ordinary data after the handshake: each
-byte is delivered once either way.
-
-Listening, data on a peer's SYN is kept in the receive buffer and
-acknowledged by the SYN|ACK. It becomes readable, and replies may be sent,
-only once that SYN|ACK has gone out (`syn_data_acked()`). An RST then closes
-the socket instead of returning it to LISTEN, since the data was accepted.
-There is no TCP Fast Open cookie (RFC 7413): the tunnel underneath
-authenticates the peer. The detectors are
-`test_syn_data_peer_ignores_it_falls_back_without_double_delivery`,
-`test_syn_data_peer_takes_it_and_replies_before_the_last_ack`,
-`test_syn_data_hold_waits_for_the_first_write`,
-`test_syn_data_hold_ends_with_a_bare_syn` and
-`test_syn_data_off_keeps_the_plain_handshake`.
-
 ## Taken from upstream main
 
 These commits are on smoltcp main but in no release yet; they are applied

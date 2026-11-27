@@ -8100,14 +8100,6 @@
         "harness": {
           "type": "string"
         },
-        "harnessSandboxError": {
-          "default": null,
-          "description": "The refused operation, redacted and bounded; cleared on recovery.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "harnessSandboxFailed": {
           "default": null,
           "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
@@ -9088,14 +9080,6 @@
         },
         "harness": {
           "type": "string"
-        },
-        "harnessSandboxError": {
-          "default": null,
-          "description": "The refused operation, redacted and bounded; cleared on recovery.",
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "harnessSandboxFailed": {
           "default": null,

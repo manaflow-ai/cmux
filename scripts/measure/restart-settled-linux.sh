@@ -91,10 +91,6 @@ if [[ "$only" != terminal ]]; then
     if [[ "${PROFILE:-}" == 1 || "${WIRE_TRACE:-}" == 1 ]]; then
       grep -E "^wire |relaunch long tasks|^  round |^    [0-9]+-[0-9]+ |profile|^ +[0-9.]+ ms " "$out/chat-$link.log" | head -n 3000 || true
     fi
-    # RES_TRACE=1: each round's resource timings and user-timing marks (the `RES` block, two-space lines under it).
-    if [[ "${RES_TRACE:-}" == 1 ]]; then
-      awk '/^RES /{on=1; print; next} on && /^  /{print; next} {on=0}' "$out/chat-$link.log" | head -n 3000 || true
-    fi
   done
 fi
 

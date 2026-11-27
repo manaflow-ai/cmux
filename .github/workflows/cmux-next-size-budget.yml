@@ -107,9 +107,6 @@ jobs:
             && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
             reuse=reused
             if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
-            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
-            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
-            git config --unset-all extensions.worktreeConfig || true
           fi
           if [[ $reuse == fresh ]]; then
             find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -134,8 +131,7 @@ jobs:
             printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           fi
           git checkout -q -f --detach "$SHA"
-          # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
-          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
+          [[ $reuse == fresh ]] || git sparse-checkout reapply
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       - name: The base, and whether a web input changed
@@ -447,9 +443,6 @@ jobs:
             && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
             reuse=reused
             if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
-            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
-            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
-            git config --unset-all extensions.worktreeConfig || true
           fi
           if [[ $reuse == fresh ]]; then
             find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -474,8 +467,7 @@ jobs:
             printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           fi
           git checkout -q -f --detach "$SHA"
-          # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
-          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
+          [[ $reuse == fresh ]] || git sparse-checkout reapply
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       - name: Check the size budget

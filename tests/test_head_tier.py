@@ -13,19 +13,6 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-# CI_HEAVY_AT_LAND is on by default; tests of the other rules read decide() with it off, and the heavy-at-land
-# tests set it themselves.
-_HEAVY_AT_LAND = unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"})
-
-
-def setUpModule() -> None:
-    _HEAVY_AT_LAND.start()
-
-
-def tearDownModule() -> None:
-    _HEAVY_AT_LAND.stop()
-
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
@@ -265,16 +252,6 @@ class LandTierTests(unittest.TestCase):
             self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
         with unittest.mock.patch.dict(os.environ, {"CI_HEAVY_AT_LAND": "0"}):
             self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
-
-    def test_heavy_at_land_is_on_when_the_variable_is_unset(self) -> None:
-        ev = land_event(labels=("full-ci",))
-        with unittest.mock.patch.dict(os.environ, {"CI_IDLE_BASE_MERGE_SKIP": "0", "CI_SYNC_MERGE_CHEAP": "0",
-                                                   "CI_GREEN_BASE_MERGE_SKIP": "0", "CI_LAND_CARRY": "0"}):
-            os.environ.pop("CI_HEAVY_AT_LAND", None)
-            self.assertEqual(head_tier.decide("pull_request", ev)[0], "cheap")
-        for workflow in ("ci.yml", "cmux-next.yml", "cmux-tui-spec.yml", "pr-router.yml"):
-            text = (ROOT / ".github" / "workflows" / workflow).read_text()
-            self.assertIn("CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}", text, workflow)
 
     def test_the_router_starts_only_cheap_callees_then_everything_on_the_land_label(self) -> None:
         ev = land_event()

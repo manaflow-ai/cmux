@@ -84,11 +84,7 @@ class WorkflowTest(unittest.TestCase):
         cls.router = load("pr-router.yml")["jobs"]
 
     def test_it_is_dispatched_with_a_pr_and_its_head(self) -> None:
-        self.assertEqual(set(self.on), {"workflow_dispatch", "push"})
-        # The push only registers the workflow (tests/test_ci_workflows_registered.py): its own path, and no job runs.
-        self.assertEqual(self.on["push"], {"branches": ["feat-cmux-next"],
-                                           "paths": [".github/workflows/ios-fast-verdict-dispatch.yml"]})
-        self.assertEqual(self.jobs["resolve"]["if"], "${{ github.event_name == 'workflow_dispatch' }}")
+        self.assertEqual(set(self.on), {"workflow_dispatch"})
         inputs = self.on["workflow_dispatch"]["inputs"]
         self.assertTrue(inputs["pr"]["required"])
         self.assertTrue(inputs["sha"]["required"])

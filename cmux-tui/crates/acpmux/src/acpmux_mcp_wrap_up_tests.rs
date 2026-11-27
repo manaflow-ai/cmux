@@ -43,8 +43,7 @@ fn a_long_recap_is_kept_whole_or_cut_at_a_sentence_and_said_so() {
     let longer = "This sentence is forty characters long. ".repeat(40);
     let result = call(&json!({"recap": longer}));
     assert_eq!(result["isError"], false, "{result}");
-    let drawn = box_of(&json!({"recap": longer})).unwrap();
-    let recap = drawn["recap"].as_str().unwrap();
+    let recap = result["structuredContent"]["recap"].as_str().unwrap();
     assert!(recap.ends_with("long.") && recap.chars().count() <= RECAP_CEILING, "{recap}");
     let text = result["content"][0]["text"].as_str().unwrap();
     let note = format!(
@@ -136,11 +135,7 @@ fn the_ask_rules_out_clicking_tabs_and_asking_again() {
 fn a_string_where_a_list_goes_is_read_as_a_list_and_said_so() {
     let one = call(&json!({"recap": "Done.", "learned": "Use pnpm, not npm."}));
     assert_eq!(one["isError"], false, "{one}");
-    assert_eq!(one["structuredContent"]["facts"], 1, "{one}");
-    assert_eq!(
-        shown(json!({"recap": "Done.", "learned": "Use pnpm, not npm."}))["learned"],
-        json!(["Use pnpm, not npm."])
-    );
+    assert_eq!(one["structuredContent"]["learned"], json!(["Use pnpm, not npm."]), "{one}");
     let text = one["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("learned given as one string; read as a list of it"), "{text}");
     let lines = shown(json!({"recap": "Done.", "learned": "Use pnpm.\n\n  Rebase first.\n"}));
@@ -158,8 +153,8 @@ fn summary_and_other_aliases_are_taken_as_their_field_and_said_so() {
     let summary = "The scheduler grant works end to end. In smoke run 44913484985, both Mac jobs ran on cmux18 under per-run labels the scheduler granted.";
     let result = call(&json!({"summary": summary}));
     assert_eq!(result["isError"], false, "{result}");
-    assert_eq!(box_of(&json!({"summary": summary})).unwrap()["recap"], summary);
-    assert!(shown(json!({"summary": summary})).get("trimmed").is_none());
+    assert_eq!(result["structuredContent"]["recap"], summary);
+    assert!(result["structuredContent"].get("trimmed").is_none());
     let text = result["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("summary taken as recap"), "{text}");
     assert_eq!(
@@ -171,64 +166,6 @@ fn summary_and_other_aliases_are_taken_as_their_field_and_said_so() {
     // The field itself wins over an alias sent beside it.
     assert_eq!(shown(json!({"recap": "Done.", "summary": "Other."}))["recap"], "Done.");
     assert!(check(&json!({"summary": "  "})).is_err());
-}
-
-/// RFD 0087 (cmuxterm-hq#22593), measured over 2,884 wrap_up calls: 91% of the answer's bytes
-/// were a copy of the call's own input. The answer says the box was drawn and with what in it,
-/// and carries not one word of the recap, ask, actions or facts back to the agent; `box_of`
-/// still builds the whole box for the one drawer that reads a result (`code_mode.rs`).
-#[test]
-fn the_answer_says_the_box_was_drawn_and_echoes_none_of_it() {
-    let recap = "Landed the echo cut. The suite is green; the row on hq#15832 is not posted yet.";
-    let ask = "Post the row now?";
-    let args = json!({
-        "recap": recap,
-        "ask": ask,
-        "actions": ["Yes, post it", "Not now"],
-        "learned": ["A wrap-up answer echoed its own input."],
-    });
-    let result = call(&args);
-    assert_eq!(result["isError"], false, "{result}");
-    assert_eq!(
-        result["structuredContent"],
-        json!({"drawn": true, "question": true, "answers": 2, "facts": 1})
-    );
-    let answer = result.to_string();
-    for echoed in [recap, ask, "Yes, post it", "A wrap-up answer echoed its own input."] {
-        assert!(!answer.contains(echoed), "echoed {echoed}: {answer}");
-    }
-    // The cut is in the structured answer — the part a session's context keeps — and its
-    // cost is now constant: a 4-field receipt that does not grow with the input. (The
-    // `content` sentence is the same fixed text either way, so for a very short call the
-    // whole answer can still outweigh the call; what used to scale with the input no longer
-    // does.)
-    let structured = result["structuredContent"].to_string();
-    assert!(structured.len() < 64, "{structured}");
-    let bigger = call(&json!({
-        "recap": format!("{recap} {}", recap.repeat(6)),
-        "ask": ask,
-        "actions": ["Yes, post it", "Not now"],
-        "learned": ["A wrap-up answer echoed its own input."],
-    }));
-    assert_eq!(
-        bigger["structuredContent"].to_string(),
-        structured,
-        "the receipt grew with the input"
-    );
-    assert!(result["content"][0]["text"].as_str().unwrap().contains("End your turn now"));
-    // Without an ask the answer says so, and a refusal still refuses.
-    let plain = call(&json!({"recap": "Done."}));
-    assert_eq!(
-        plain["structuredContent"],
-        json!({"drawn": true, "question": false, "answers": 0, "facts": 0})
-    );
-    assert_eq!(call(&json!({}))["isError"], true);
-    // The box itself is whole for `code_mode.rs`, aliases and trims applied.
-    assert_eq!(
-        box_of(&json!({"summary": " Done. ", "question": "Open?", "options": ["Yes"]})).unwrap(),
-        json!({"recap": "Done.", "ask": "Open?", "actions": ["Yes"]})
-    );
-    assert!(box_of(&json!({})).is_none());
 }
 
 #[test]
@@ -286,4 +223,13 @@ fn the_schema_says_what_a_typed_action_is() {
             .unwrap()
             .contains("customize")
     );
+}
+
+#[test]
+fn the_call_answers_with_what_it_showed() {
+    let result = call(&json!({"recap": "Done.", "ask": "Open a PR?"}));
+    assert_eq!(result["isError"], false);
+    assert_eq!(result["structuredContent"]["ask"], "Open a PR?");
+    assert!(result["content"][0]["text"].as_str().unwrap().contains("End your turn now"));
+    assert_eq!(call(&json!({}))["isError"], true);
 }

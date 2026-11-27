@@ -46,12 +46,6 @@ fi
 phase="${JOURNEY_PHASE:-}"
 status=0
 regressed=0
-# Set when a failed run's final attempt has a red that is not capacity (cloud-journey.ts --capacity-only): a run the
-# platform only turned away (the team's machines all in use by other journeys, a create refused at the cap, a rate
-# limit) says nothing about the deploy, so the verdict is not-run, which NOW's cloud_deploy_gate skips, not red,
-# which outweighs every older pass (cmux-vm.yml run 46001354720: quota_headroom 5/5 on both attempts while
-# cmux-platform's deploy journeyed on the same team). cmux-platform journey-after-deploy.sh reads the same codes so.
-own_red=0
 # JOURNEY_DEADLINE_EPOCH (backend.yml journey-staging: its job's start plus 47 min): the epoch second the whole
 # script must be done by, so a slow run ends as a red with its summary and verdict instead of a step-timeout kill
 # with neither. Each journey run is stopped (SIGTERM, which runs its cleanup) JOURNEY_TAIL_S before it, and a
@@ -87,13 +81,13 @@ rust_run() { # label, ts dir, extra args...
   local t0; t0="$(date +%s)"
   if ! bounded "$CMUX_PATH" "${args[@]}" "$@"; then
     if ! room_for_retry $(( $(date +%s) - t0 )) "$label (Rust driver)"; then
-      status=1; own_red=1
+      status=1
     else
       { printf '### %s%s, Rust driver (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
       echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label (Rust driver) failed once; running it again"
       rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
       sleep "${JOURNEY_RETRY_DELAY_S:-15}"
-      if bounded "$CMUX_PATH" "${args[@]}" "$@"; then :; else status=1; own_red=1; fi
+      if bounded "$CMUX_PATH" "${args[@]}" "$@"; then :; else status=1; fi
     fi
   fi
   { printf '### %s%s, Rust driver (cmux cloud journey)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
@@ -160,14 +154,7 @@ run() { # label, extra args...
       if bounded bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; failed=1; fi
     fi
   fi
-  if [ "$failed" = 1 ]; then
-    annotate_failed "$label" "$dir"
-    if bun "$here/cloud-journey.ts" --capacity-only "$dir/journey.json"; then
-      echo "::warning title=Cloud journey not run::$TARGET ${phase:+$phase }$label: every red is capacity (the team had no room or was rate limited), not this commit's"
-    else
-      own_red=1
-    fi
-  fi
+  if [ "$failed" = 1 ]; then annotate_failed "$label" "$dir"; fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
   # The send's Chrome trace (Perfetto), where journey-live uploads it: $RUNNER_TEMP/<target>/send-trace.json for the
   # test team's run, send-trace-<phase-label>.json for the others. Tracing never fails the journey.
@@ -195,5 +182,5 @@ if [ -n "${PRODUCT_TEAM:-}" ]; then
 fi
 if [ "$phase" = baseline ]; then exit 0; fi
 if [ "$regressed" = 1 ]; then verdict regressed; exit 3; fi
-if [ "$status" = 0 ]; then verdict pass; elif [ "$own_red" = 0 ]; then verdict not-run; else verdict red; fi
+if [ "$status" = 0 ]; then verdict pass; else verdict red; fi
 exit "$status"

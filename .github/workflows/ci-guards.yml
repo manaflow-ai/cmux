@@ -200,8 +200,7 @@ jobs:
         run: python3 tests/test_ci_fleet_ios_build.py
 
       # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
-      # and .github/ (an allowlist with reasons that only shrinks). On a pull request it reads only the changed files
-      # and the shell files that source them (tests/guard_delta.py); a branch's own run reads them all.
+      # and .github/ (an allowlist with reasons that only shrinks).
       - name: Validate no guessable shared-temp names
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_noclobber_sweep.py

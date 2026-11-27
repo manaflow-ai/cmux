@@ -40,6 +40,48 @@ name = "DiagnosticReport#currentSchemaVersion"
 policy = "unreviewed"
 
 [[format]]
+file = "Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohBrokerBackpressureGate.swift"
+const = "recordVersion"
+name = "CmxIrohBrokerBackpressureGate#recordVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohCustomPrivatePathStore.swift"
+const = "recordVersion"
+name = "CmxIrohCustomPrivatePathStore#recordVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohCustomRelayCredentialStore.swift"
+const = "recordVersion"
+name = "CmxIrohCustomRelayCredentialStore#recordVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohCustomRelayProfileStore.swift"
+const = "recordVersion"
+name = "CmxIrohCustomRelayProfileStore#recordVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohIdentityRepository.swift"
+const = "recordVersion"
+name = "CmxIrohIdentityRepository#recordVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohRelayPolicyCache.swift"
+const = "recordVersion"
+name = "CmxIrohRelayPolicyCache#recordVersion"
+policy = "unreviewed"
+
+[[format]]
+file = "Packages/Shared/CmuxIrohTransport/Sources/CmuxIrohTransport/CmxIrohRelayPreferenceStore.swift"
+const = "recordVersion"
+name = "CmxIrohRelayPreferenceStore#recordVersion"
+policy = "unreviewed"
+
+[[format]]
 file = "Packages/iOS/CmuxConversation/Sources/CmuxConversationCore/ConversationHistoryDatabase.swift"
 const = "schemaVersion"
 name = "ConversationHistoryDatabase#schemaVersion"
