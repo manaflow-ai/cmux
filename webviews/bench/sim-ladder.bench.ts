@@ -321,8 +321,15 @@ async function launchChrome(): Promise<{
   const exe = chrome || shell;
   if (!exe) throw new Error("sim-ladder: no Chrome (set CMUX_CHROME_HEADLESS_SHELL or install google-chrome)");
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "sim-ladder-"));
+  // Chrome dies with this process. An abort (SIGABRT, an OOM kill, `timeout -s KILL`) skips close() below, and Chrome
+  // lived on: a tabs 50/200/500 run aborted at its x200 rung left 348 Chrome processes holding 26 GB and the session's
+  // pids cap, so the next run and every shell in that session failed to fork. setpriv's death signal reaches the
+  // browser process; its renderers exit when the browser's IPC closes. Bun.spawn forks from the main thread, which
+  // lives as long as the process, so the signal fires only when the bench is gone.
+  const setpriv = Bun.which("setpriv");
   const proc = Bun.spawn(
     [
+      ...(setpriv ? [setpriv, "--pdeathsig", "KILL"] : []),
       exe,
       ...(shell ? [] : ["--headless=new"]),
       "--remote-debugging-port=0",

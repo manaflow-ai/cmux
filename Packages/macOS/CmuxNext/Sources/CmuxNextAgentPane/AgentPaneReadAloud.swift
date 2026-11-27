@@ -116,7 +116,8 @@ public final class AgentPaneReadAloud {
     }
 
     private func changed() {
-        for view in views.allObjects { send(to: view) }
+        // Held per pane to one per turn, and while nobody sees it (``AgentPaneShownPushes``).
+        for view in views.allObjects { view.shownPushes.push("readAloud", to: view) { [weak self] in self?.send(to: $0) } }
         onChange?()
     }
 }
