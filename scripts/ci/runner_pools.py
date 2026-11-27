@@ -687,6 +687,22 @@ def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: 
 # not full (label_evidence()). A few idle runners are a reading's noise (one finishing its job, one about to take the
 # next); hundreds are room the queue is not using. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
 OWNED_IDLE_HEADROOM = 4
+# How long a job may wait on the Freestyle rung before its pools move to the owned GCP label after it. The Blacksmith
+# cutoff (simple_pool_picker.BLACKSMITH_STALL_MINUTES, 10) held Freestyle-led pools on a rung that started nothing for
+# ten minutes or more, while the GCP pool behind it starts a job in seconds: 2026-11-26 19:40-20:30Z, 19 jobs started
+# on cmux-freestyle-linux-x64 at p50 3.9 min and p95 13.7 min, and 20 still waited at 20:35Z, the oldest 28 min, 16 of
+# them in this repository (cmux-next.yml fast tier (cargo) x7). Every Linux job should start within 2 min
+# (cmuxterm-hq goals/ci-linux-on-pool.md), the bound cmuxterm-hq's own Freestyle pool overflows at
+# (cmuxterm-hq#29236). Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it."
+OWNED_FREESTYLE_STALL_MINUTES = 2
+
+
+def owned_stalled(label: str, queued: int, oldest: float) -> bool:
+    """Whether an owned lead's queue waited its cutoff: OWNED_FREESTYLE_STALL_MINUTES on the Freestyle rung, the
+    Blacksmith rule (simple_pool_picker.blacksmith_stalled()) on every other owned label."""
+    if owned_freestyle(label):
+        return queued > 0 and oldest >= OWNED_FREESTYLE_STALL_MINUTES
+    return simple_pool_picker.blacksmith_stalled(queued, oldest)
 
 
 def owned_idle(load: Mapping[str, Any]) -> int | None:
@@ -761,7 +777,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 # read cmux-fleet-linux-x64 1 queued, oldest 0 min, 884 running, a start at 09:03Z; at 35 min old,
                 # 0 + 35 crossed the cutoff, the label was marked full, and linux, linux_2, linux_8, linux_16 and
                 # linux_32 ran on Blacksmith until 10:25Z. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
-                if not simple_pool_picker.blacksmith_stalled(queued, oldest):
+                if not owned_stalled(label, queued, oldest):
                     continue
                 idle = owned_idle(load)
                 if idle is not None and idle > OWNED_IDLE_HEADROOM:
