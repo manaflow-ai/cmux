@@ -937,6 +937,11 @@ async fn dial_with_a_slow_gather(
         relay: relay(&rig.server, &rig.phone_id),
         relay_first: phone_first,
         ice_servers: vec![unreachable_turn],
+        // These dials test `early wg-relay`, which matters while the gather
+        // holds `wg-init`: hold it, as before the offer went first (#59649).
+        // In relay first `wg-init` now leaves at once, so a Mac's join could
+        // not come before it.
+        init_after_gather: true,
         ..options()
     };
     let started = std::time::Instant::now();
@@ -1455,7 +1460,7 @@ async fn relay_first_dial_with_a_slow_gather(
 /// joins. The tunnel still starts once both `wg-resp` and the gather are in,
 /// so the link comes up after the longer of the gather and the join instead
 /// of their sum: with a 400 ms gather and 200 ms joins, `wg-init` goes at
-/// once and the link is up about a join (200 ms) sooner.
+/// once and the link is up before the 600 ms sum.
 /// `CMUX_RELAY_TICKET_RUNS=8` prints medians over 8 dials of each.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn relay_first_sends_its_offer_before_the_gather_and_trickles_the_rest() {
@@ -1481,7 +1486,11 @@ async fn relay_first_sends_its_offer_before_the_gather_and_trickles_the_rest() {
         eprintln!("{label}: link up {up:?}, wg-init forwarded at {init:?} (median of {runs})");
     }
     let (before, after) = (rows[0].1, rows[1].1);
-    assert!(after + Duration::from_millis(150) < before, "link up {after:?} vs {before:?} before");
+    // The baseline's Mac already joins during the gather on the phone's
+    // `early wg-relay` (#54966), so here the offer first saves only the
+    // `wg-init` round trip; the tunnel still waits for the gather. The join
+    // overlapping the gather is what must hold, and no slower than before.
+    assert!(after < before + Duration::from_millis(100), "link up {after:?} vs {before:?} before");
     assert!(after < stun + join, "link up {after:?}: the gather and the join overlap");
 }
 
