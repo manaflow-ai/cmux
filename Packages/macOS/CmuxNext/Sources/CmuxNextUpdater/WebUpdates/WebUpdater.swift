@@ -514,12 +514,13 @@ public final class WebUpdater {
     /// The tree of `pointer` by `cas/1`, kept as `trees/<key>`, or nil (the archive is fetched).
     func treeByCas(_ pointer: WebUpdatePointer) async -> URL? {
         guard let casFetch, let cas = pointer.cas, let casBase = pointer.casBase(base: base) else { return nil }
+        let casStore = store
         let held = [state.active, state.previous].compactMap { $0 }.filter { $0.key != pointer.key }
-        let have = await Self.existingTrees(held.map { store.tree(for: $0.key).root })
-        let (out, chunks) = store.casStaging()
+        let have = await Self.existingTrees(held.map { casStore.tree(for: $0.key).root })
+        let staging = casStore.casStaging()
+        let out = staging.tree, chunks = staging.chunks
         let request = CasRequest(manifest: cas.manifest, pack: cas.pack, base: casBase, have: have, chunks: chunks, out: out,
                                  allowsConstrained: allowsConstrained, allowsExpensive: allowsExpensive)
-        let store = store
         let report: CasReport
         switch await casFetch(request) {
         case .success(let got): report = got
@@ -530,7 +531,7 @@ public final class WebUpdater {
         }
         await Self.removeStaging([chunks])
         do {
-            let tree = try await store.install(tree: out, pointer: pointer)
+            let tree = try await casStore.install(tree: out, pointer: pointer)
             lastFetch = FetchOutcome(key: pointer.key, by: .cas, cas: report, archiveBytes: pointer.size)
             return tree
         } catch {

@@ -97,12 +97,9 @@ nonisolated public struct WebUpdateStore: Sendable {
     /// Checks `staged` (a tree `cas/1` assembled for `pointer`) against the pointer's tree digest
     /// and abi, the same checks an unpacked archive passes, and keeps it as `trees/<key>`.
     @concurrent public func install(tree staged: URL, pointer: WebUpdatePointer) async throws(WebUpdateRefusal) -> URL {
-        do {
-            return try keep(staged, pointer: pointer)
-        } catch {
-            try? FileManager.checked.removeItem(at: staged)
-            throw error
-        }
+        let kept = Result { () throws(WebUpdateRefusal) -> URL in try keep(staged, pointer: pointer) }
+        if case .failure = kept { try? FileManager.checked.removeItem(at: staged) }
+        return try kept.get()
     }
 
     /// Moves the checked `staging` tree to `trees/<key>`.
