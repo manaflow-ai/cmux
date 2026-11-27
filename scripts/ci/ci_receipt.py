@@ -448,11 +448,17 @@ def lane_oidc_token(env=os.environ) -> str:
     return json.loads(body)["value"]
 
 
+# The lookup crosses the same slow controller path as a record (see RECORD_DEADLINE_S): on 2026-11-27 10:1xZ six of
+# 33 dispatched land runs gave up at the old 20 s ("reading the answer: past the 20 s deadline") and re-ran the fast
+# gates, which costs minutes; waiting up to a minute for a receipt is cheaper than the gates it saves.
+LOOKUP_DEADLINE_S = 60
+
+
 def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT) -> dict:
     request = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), method="POST", headers={
         "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
     try:
-        status, body, _ = deadline_http.request(request, 20)
+        status, body, _ = deadline_http.request(request, LOOKUP_DEADLINE_S)
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise Rejected(f"the controller did not answer: {error}") from error
     try:
