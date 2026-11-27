@@ -64,6 +64,30 @@ nonisolated public struct WebUpdateStore: Sendable {
             throw .transfer("no staging folder: \(error.localizedDescription)")
         }
         try await Self.unpack(archive, into: staging)
+        return try keep(staging, pointer: pointer)
+    }
+
+    /// A fresh staging folder (not created) and a chunk store beside it, for one `cas/1` fetch
+    /// (``WebUpdater/CasFetch``). Both are `staging-*`, so ``prune(keeping:)`` removes leftovers.
+    public func casStaging() -> (tree: URL, chunks: URL) {
+        let id = UUID().uuidString
+        return (base.appending(path: "staging-\(id)", directoryHint: .isDirectory),
+                base.appending(path: "staging-\(id)-chunks", directoryHint: .isDirectory))
+    }
+
+    /// Checks `staged` (a tree `cas/1` assembled for `pointer`) against the pointer's tree digest
+    /// and abi, the same checks an unpacked archive passes, and keeps it as `trees/<key>`.
+    @concurrent public func install(tree staged: URL, pointer: WebUpdatePointer) async throws(WebUpdateRefusal) -> URL {
+        do {
+            return try keep(staged, pointer: pointer)
+        } catch {
+            try? FileManager.default.removeItem(at: staged)
+            throw error
+        }
+    }
+
+    /// Moves the checked `staging` tree to `trees/<key>`.
+    func keep(_ staging: URL, pointer: WebUpdatePointer) throws(WebUpdateRefusal) -> URL {
         let unpacked = WebUpdateTree(root: staging)
         guard try unpacked.outputDigest() == pointer.outputs else { throw .integrity("tree digest") }
         guard unpacked.abi == pointer.abi else { throw .integrity("tree abi") }
