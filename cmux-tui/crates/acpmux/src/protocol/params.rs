@@ -226,9 +226,9 @@ keyed! {
     /// `_acpmux/chat/route.set`.
     ChatRouteSetParams: ["sessionId", "routeId", "when"];
     /// `_acpmux/draft_get`.
-    DraftGetParams: ["sessionId", "attachments"];
+    DraftGetParams: ["sessionId"];
     /// `_acpmux/draft_set`.
-    DraftSetParams: ["sessionId", "text", "attachments"];
+    DraftSetParams: ["sessionId", "text"];
     /// `_acpmux/forum/rules`.
     ForumRulesParams: [];
     /// `_acpmux/handoff_discard`.
