@@ -24,6 +24,7 @@ fn shared_chunks_are_counted_once_and_attributed_to_both_roots() {
     shifted.extend_from_slice(&common);
     std::fs::write(b.path().join("z"), &shifted).unwrap();
     std::fs::write(a.path().join("own"), noise(2, 1 << 20)).unwrap();
+    #[cfg(unix)]
     std::os::unix::fs::symlink(a.path().join("x"), a.path().join("link")).unwrap();
 
     let r = measure(
@@ -39,4 +40,26 @@ fn shared_chunks_are_counted_once_and_attributed_to_both_roots() {
     assert!(ra.shared >= (2 << 20) - 300_000 && ra.shared <= 2 << 20, "a shared {}", ra.shared);
     assert_eq!(ra.shared, rb.shared);
     assert!(r.zstd_ratio > 0.95, "noise does not compress: {}", r.zstd_ratio);
+}
+
+/// Unix counts a hardlinked inode's blocks once. Windows has no stable inode or
+/// allocated-byte API in `std`, so each name falls back to its apparent size.
+#[test]
+fn allocated_counts_hardlinks_portably() {
+    let root = tempfile::tempdir().unwrap();
+    let bytes = noise(3, 1 << 20);
+    std::fs::write(root.path().join("x"), &bytes).unwrap();
+    std::fs::hard_link(root.path().join("x"), root.path().join("x2")).unwrap();
+
+    let r = measure(
+        &[("root".into(), root.path().into())],
+        &Options { sample_every: 1, zstd_level: 3, threads: 2, public: None },
+    );
+    assert_eq!(r.files, 2);
+    assert_eq!(r.logical, (bytes.len() * 2) as u64);
+    if cfg!(unix) {
+        assert!(r.allocated < r.logical, "hardlink counted twice: {}", r.allocated);
+    } else {
+        assert_eq!(r.allocated, r.logical);
+    }
 }
