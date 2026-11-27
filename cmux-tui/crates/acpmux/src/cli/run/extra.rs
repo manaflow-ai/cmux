@@ -212,9 +212,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             } else {
                 println!(
                     "{} restored (unarchived: {}, log back: {})",
-                    v["sessionId"].as_str().unwrap_or("?"),
-                    v["unarchived"],
-                    v["rehydrated"],
+                    v.get("sessionId").and_then(Value::as_str).unwrap_or("?"),
+                    v.get("unarchived").unwrap_or(&Value::Null),
+                    v.get("rehydrated").unwrap_or(&Value::Null),
                 );
             }
             Ok(())
@@ -2224,30 +2224,30 @@ fn print_transcript_report(v: &Value) {
 
 /// The text form of a `_acpmux/history_delete` or `_acpmux/history_offload` report.
 fn print_lifecycle_report(v: &Value) {
-    let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+    let num = |key: &str| v.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let flag = |key: &str| v.get(key).and_then(Value::as_bool) == Some(true);
+    let mb = |key: &str| num(key) as f64 / 1_048_576.0;
     println!(
         "{} chats {} ({} offloaded{}), {:.1} MB to {:.1} MB, {:.1} MB freed",
-        v["archived"].as_u64().unwrap_or(0),
-        if v["dryRun"].as_bool() == Some(true) {
-            "would be archived (dry run)"
-        } else {
-            "archived"
-        },
-        v["offloaded"].as_u64().unwrap_or(0),
-        if v["cloud"].as_bool() == Some(true) { "" } else { "; cloud history not set up" },
+        num("archived"),
+        if flag("dryRun") { "would be archived (dry run)" } else { "archived" },
+        num("offloaded"),
+        if flag("cloud") { "" } else { "; cloud history not set up" },
         mb("bytesBefore"),
         mb("bytesAfter"),
         mb("bytesFreed"),
     );
-    for chat in v["chats"].as_array().into_iter().flatten() {
+    for chat in v.get("chats").and_then(Value::as_array).into_iter().flatten() {
+        let text = |key: &str| chat.get(key).and_then(Value::as_str).unwrap_or("");
+        let id = text("id");
         println!(
             "  {}  {}  {}",
-            chat["id"].as_str().unwrap_or("?"),
-            chat["reason"].as_str().unwrap_or(""),
-            chat["name"].as_str().unwrap_or(""),
+            if id.is_empty() { "?" } else { id },
+            text("reason"),
+            text("name"),
         );
     }
-    println!("skipped: {}", v["skipped"]);
+    println!("skipped: {}", v.get("skipped").unwrap_or(&Value::Null));
 }
 
 fn print_history_report(v: &Value, verb: &str, key: &str) {
