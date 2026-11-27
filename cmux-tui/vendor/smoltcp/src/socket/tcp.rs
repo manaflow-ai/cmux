@@ -941,9 +941,20 @@ pub struct Socket<'a> {
     /// cmux patch: this listening socket took data from the peer's SYN; it is
     /// in the receive buffer and the SYN|ACK acknowledges it.
     syn_data_in: bool,
+    /// cmux patch: the SYN|ACK acknowledging `syn_data_in` has been sent.
+    syn_data_acked: bool,
+    /// cmux patch: how long a connecting socket with `syn_data` holds its
+    /// SYN for the first write (`set_syn_data_hold`).
+    syn_data_hold: Duration,
+    /// cmux patch: until when this connect's SYN waits for that write.
+    syn_hold_until: Option<Instant>,
 }
 
 const DEFAULT_MSS: usize = 536;
+
+/// cmux patch: the most option bytes our SYN carries (MSS, window scale,
+/// SACK permitted, timestamps, padding), kept free when data rides on it.
+const SYN_OPTIONS_MAX: usize = 40;
 
 /// cmux patch: the IP packet size every IPv6 path carries (RFC 8200's minimum
 /// link MTU). Black-hole fallback sends segments that fit it.
@@ -1047,6 +1058,9 @@ impl<'a> Socket<'a> {
 
             syn_data: false,
             syn_data_in: false,
+            syn_data_acked: false,
+            syn_data_hold: Duration::ZERO,
+            syn_hold_until: None,
         }
     }
 
@@ -1216,13 +1230,29 @@ impl<'a> Socket<'a> {
         self.syn_data
     }
 
+    /// cmux patch: with `syn_data`, a connect holds its SYN up to `hold`
+    /// for the first write so the write rides on it. Zero (the default)
+    /// sends the SYN at once.
+    pub fn set_syn_data_hold(&mut self, hold: Duration) {
+        self.syn_data_hold = hold;
+    }
+
+    /// cmux patch: the connect's SYN is waiting for the first write
+    /// (`set_syn_data_hold`).
+    fn syn_held(&self, now: Instant) -> Option<Instant> {
+        match self.syn_hold_until {
+            Some(until) if self.syn_data_open() && self.tx_buffer.is_empty() && now < until => {
+                Some(until)
+            }
+            _ => None,
+        }
+    }
+
     /// cmux patch: a listening socket took data from the peer's SYN and its
     /// SYN|ACK, which acknowledges that data, has been sent. The data may be
     /// read, and replies sent, from now on.
     pub fn syn_data_acked(&self) -> bool {
-        self.state == State::SynReceived
-            && self.syn_data_in
-            && self.remote_last_seq != self.local_seq_no
+        self.state == State::SynReceived && self.syn_data_acked
     }
 
     /// cmux patch: the socket connects with data on its SYN and the SYN is
@@ -2072,6 +2102,8 @@ impl<'a> Socket<'a> {
         self.repaired_below = None;
         self.window_before_cut = None;
         self.syn_data_in = false;
+        self.syn_data_acked = false;
+        self.syn_hold_until = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
@@ -2212,6 +2244,9 @@ impl<'a> Socket<'a> {
         self.local_seq_no = seq;
         self.remote_last_seq = seq;
         self.remote_rewound = 0;
+        if self.syn_data && self.syn_data_hold > Duration::ZERO {
+            self.syn_hold_until = Some(cx.now() + self.syn_data_hold);
+        }
         Ok(())
     }
 
@@ -2355,8 +2390,10 @@ impl<'a> Socket<'a> {
             State::FinWait1 | State::FinWait2 => true,
             // cmux patch: a connection opened with SYN data is handed to its
             // owner before it is established; its receive half is open.
+            // Until the SYN|ACK acknowledging SYN data is out, that data
+            // stays put: the stale-SYN rule (`recv_error_check`) holds.
             State::SynSent if self.syn_data => true,
-            State::SynReceived if self.syn_data_acked() => true,
+            State::SynReceived => self.syn_data_acked(),
             // If we have something in the receive buffer, we can receive that.
             _ if self.can_recv() => true,
             _ => false,
@@ -3651,12 +3688,23 @@ impl<'a> Socket<'a> {
 
         // If we want to send a SYN and we haven't done so, do it!
         if matches!(self.state, State::SynSent | State::SynReceived) && !data_in_flight {
-            return true;
+            // cmux patch: unless the SYN waits for the first write.
+            return self.syn_held(cx.now()).is_none();
         }
+
+        // cmux patch: past its SYN, a handshake sends data only as a listener
+        // that took SYN data (`set_syn_data`), behind its unacknowledged
+        // SYN|ACK, which takes one sequence number before the data.
+        let syn_len = match self.state {
+            State::SynSent => return false,
+            State::SynReceived if !self.syn_data_acked() => return false,
+            State::SynReceived => 1,
+            _ => 0,
+        };
 
         // max sequence number we can send.
         let max_send_seq =
-            self.local_seq_no + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
+            self.local_seq_no + syn_len + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
 
         // Max amount of octets we can send.
         let capped_send_seq = if max_send_seq >= self.remote_last_seq {
@@ -3978,6 +4026,33 @@ impl<'a> Socket<'a> {
             // We never transmit anything in the LISTEN state.
             State::Listen => return Ok(()),
 
+            // cmux patch: a listener that took SYN data sends replies after its
+            // SYN|ACK, before the handshake's last ACK (`set_syn_data`).
+            State::SynReceived
+                if self.syn_data_acked() && self.remote_last_seq != self.local_seq_no =>
+            {
+                let options_len = repr.header_len() - TCP_HEADER_LEN;
+                let local_mss =
+                    self.capped_mss(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
+                let effective_mss = local_mss.min(self.remote_mss).saturating_sub(options_len);
+                // The SYN|ACK takes the sequence number before the first byte.
+                let offset = self.remote_last_seq - (self.local_seq_no + 1);
+                let win_right_edge = self.local_seq_no + 1 + self.remote_win_len;
+                let win_limit = if win_right_edge >= self.remote_last_seq {
+                    win_right_edge - self.remote_last_seq
+                } else {
+                    0
+                };
+                let size = win_limit
+                    .min(effective_mss)
+                    .min(self.cwnd_remaining())
+                    .min(self.tx_buffer.len().saturating_sub(offset));
+                repr.payload = self.tx_buffer.get_allocated(offset, size);
+                if !repr.payload.is_empty() && offset + size == self.tx_buffer.len() {
+                    repr.control = TcpControl::Psh;
+                }
+            }
+
             // We transmit a SYN in the SYN-SENT state.
             // We transmit a SYN|ACK in the SYN-RECEIVED state.
             State::SynSent | State::SynReceived => {
@@ -3989,6 +4064,17 @@ impl<'a> Socket<'a> {
                     repr.ack_number = None;
                     repr.window_scale = Some(self.remote_win_shift);
                     repr.sack_permitted = true;
+                    // cmux patch: data written before the SYN rides on it, up
+                    // to a segment less the SYN's options (`set_syn_data`).
+                    if self.syn_data && !self.tx_buffer.is_empty() {
+                        let local_mss =
+                            self.capped_mss(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
+                        // Both ends sit on the same tunnel, so its MTU, not
+                        // the 536-byte default, bounds the peer's segment.
+                        let room = local_mss.saturating_sub(SYN_OPTIONS_MAX);
+                        let size = room.min(self.tx_buffer.len());
+                        repr.payload = self.tx_buffer.get_allocated(0, size);
+                    }
                 } else {
                     repr.sack_permitted = self.remote_has_sack;
                     repr.window_scale = self.remote_win_scale.map(|_| self.remote_win_shift);
@@ -4244,6 +4330,10 @@ impl<'a> Socket<'a> {
         };
         self.remote_last_ack = repr.ack_number;
         self.remote_last_win = repr.window_len;
+        // cmux patch: the SYN|ACK acknowledging SYN data is out (`set_syn_data`).
+        if repr.control == TcpControl::Syn && repr.ack_number.is_some() {
+            self.syn_data_acked |= self.syn_data_in;
+        }
 
         if !repr.payload.is_empty() {
             self.rack.on_send(
@@ -4319,6 +4409,9 @@ impl<'a> Socket<'a> {
         } else if self.state == State::Closed {
             // Socket was aborted, we have an RST packet to transmit.
             PollAt::Now
+        } else if let Some(until) = self.syn_held(cx.now()) {
+            // cmux patch: the SYN waits for the first write, or until then.
+            PollAt::Time(until)
         } else if self.seq_to_transmit(cx) {
             // We have a data or flag packet to transmit.
             PollAt::Now
@@ -5037,6 +5130,173 @@ mod test {
     // =========================================================================================//
     // Tests for the SYN-RECEIVED state.
     // =========================================================================================//
+
+    // cmux patch: data on the SYN, end to end between two sockets.
+
+    fn owned(tcp: &TcpRepr) -> TcpRepr<'static> {
+        TcpRepr {
+            src_port: tcp.src_port,
+            dst_port: tcp.dst_port,
+            control: tcp.control,
+            seq_number: tcp.seq_number,
+            ack_number: tcp.ack_number,
+            window_len: tcp.window_len,
+            window_scale: tcp.window_scale,
+            max_seg_size: tcp.max_seg_size,
+            sack_permitted: tcp.sack_permitted,
+            sack_ranges: tcp.sack_ranges,
+            timestamp: tcp.timestamp,
+            payload: Box::leak(tcp.payload.to_vec().into_boxed_slice()),
+        }
+    }
+
+    /// Move the next segment `from` sends to `to` (and `to`'s immediate
+    /// reply back). Returns the segment's control and payload, if one went.
+    fn hop(from: &mut TestSocket, to: &mut TestSocket) -> Option<(TcpControl, Vec<u8>)> {
+        let mut out: Option<(IpRepr, TcpRepr<'static>)> = None;
+        let _ = from.socket.dispatch(&mut from.cx, |_, _, (ip, tcp)| {
+            out = Some((ip, owned(&tcp)));
+            Ok::<(), ()>(())
+        });
+        let (ip, tcp) = out?;
+        if to.socket.accepts(&mut to.cx, &ip, &tcp)
+            && let Some((reply_ip, reply)) = to.socket.process(&mut to.cx, &ip, &tcp)
+        {
+            let reply = owned(&reply);
+            if from.socket.accepts(&mut from.cx, &reply_ip, &reply) {
+                let _ = from.socket.process(&mut from.cx, &reply_ip, &reply);
+            }
+        }
+        Some((tcp.control, tcp.payload.to_vec()))
+    }
+
+    fn syn_data_pair(server_takes_it: bool) -> (TestSocket, TestSocket) {
+        let mut client = socket_syn_sent();
+        client.socket.set_syn_data(true);
+        let mut server = socket();
+        let mut addrs = heapless::Vec::<IpCidr, IFACE_MAX_ADDR_COUNT>::new();
+        addrs.push(IpCidr::new(REMOTE_ADDR.into(), 24)).unwrap();
+        server.cx.set_ip_addrs(addrs);
+        server.socket.set_syn_data(server_takes_it);
+        // As cmux-wg's sockets: Nagle would hold a reply behind the SYN|ACK.
+        server.socket.set_nagle_enabled(false);
+        client.socket.set_nagle_enabled(false);
+        server.socket.listen(REMOTE_PORT).unwrap();
+        (client, server)
+    }
+
+    fn drain(socket: &mut TestSocket) -> Vec<u8> {
+        let mut got = vec![];
+        while socket.socket.can_recv() {
+            let mut buffer = [0u8; 64];
+            let count = socket.socket.recv_slice(&mut buffer).unwrap();
+            got.extend_from_slice(&buffer[..count]);
+        }
+        got
+    }
+
+    #[test]
+    fn test_syn_data_peer_ignores_it_falls_back_without_double_delivery() {
+        let (mut client, mut server) = syn_data_pair(false);
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        // The data rides on the SYN; the peer acknowledges only the SYN.
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"hello".to_vec()));
+        assert_eq!(server.socket.state(), State::SynReceived);
+        assert_eq!(server.socket.recv_queue(), 0);
+        let syn_ack = hop(&mut server, &mut client).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert_eq!(client.socket.state(), State::Established);
+        // Sent again as ordinary data, once.
+        let resent = hop(&mut client, &mut server).unwrap();
+        assert_eq!(resent.1, b"hello".to_vec());
+        for _ in 0..8 {
+            hop(&mut server, &mut client);
+            hop(&mut client, &mut server);
+        }
+        assert_eq!(server.socket.state(), State::Established);
+        assert_eq!(drain(&mut server), b"hello".to_vec());
+        assert!(client.socket.tx_buffer.is_empty());
+        assert_eq!(client.socket.local_seq_no, LOCAL_SEQ + 1 + 5);
+    }
+
+    #[test]
+    fn test_syn_data_peer_takes_it_and_replies_before_the_last_ack() {
+        let (mut client, mut server) = syn_data_pair(true);
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"hello".to_vec()));
+        // Kept, but not readable until the SYN|ACK acknowledging it is out.
+        assert_eq!(server.socket.state(), State::SynReceived);
+        assert!(!server.socket.syn_data_acked());
+        assert!(server.socket.recv_slice(&mut [0u8; 8]).is_err());
+        assert!(
+            !client.socket.may_send(),
+            "the SYN is out: later writes wait"
+        );
+        let syn_ack = hop(&mut server, &mut client).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert!(server.socket.syn_data_acked());
+        assert_eq!(client.socket.state(), State::Established);
+        assert!(
+            client.socket.tx_buffer.is_empty(),
+            "the SYN|ACK acknowledged it"
+        );
+        assert_eq!(drain(&mut server), b"hello".to_vec());
+        // The listener replies before the handshake's last ACK arrives.
+        assert_eq!(server.socket.send_slice(b"world"), Ok(5));
+        let reply = hop(&mut server, &mut client).unwrap();
+        assert_eq!(reply.1, b"world".to_vec());
+        assert_eq!(server.socket.state(), State::SynReceived);
+        for _ in 0..8 {
+            hop(&mut client, &mut server);
+            hop(&mut server, &mut client);
+        }
+        assert_eq!(server.socket.state(), State::Established);
+        assert_eq!(drain(&mut client), b"world".to_vec());
+        assert_eq!(drain(&mut server), b"");
+        assert!(server.socket.tx_buffer.is_empty());
+        // Nothing was sent twice.
+        assert_eq!(client.socket.remote_last_seq, LOCAL_SEQ + 1 + 5);
+    }
+
+    #[test]
+    fn test_syn_data_hold_waits_for_the_first_write() {
+        let (mut client, mut server) = syn_data_pair(true);
+        let start = client.cx.now();
+        client.socket.syn_hold_until = Some(start + Duration::from_millis(20));
+        // Held: no SYN until a write or the hold's end.
+        assert!(hop(&mut client, &mut server).is_none());
+        assert_eq!(
+            client.socket.poll_at(&mut client.cx),
+            PollAt::Time(start + Duration::from_millis(20))
+        );
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"hello".to_vec()));
+    }
+
+    #[test]
+    fn test_syn_data_hold_ends_with_a_bare_syn() {
+        let (mut client, mut server) = syn_data_pair(true);
+        let start = client.cx.now();
+        client.socket.syn_hold_until = Some(start + Duration::from_millis(20));
+        assert!(hop(&mut client, &mut server).is_none());
+        client.cx.set_now(start + Duration::from_millis(20));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, vec![]));
+    }
+
+    #[test]
+    fn test_syn_data_off_keeps_the_plain_handshake() {
+        let mut client = socket_syn_sent();
+        assert!(!client.socket.may_send());
+        assert!(client.socket.send_slice(b"hello").is_err());
+        let mut server = socket();
+        server.socket.listen(REMOTE_PORT).unwrap();
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, vec![]));
+    }
 
     #[test]
     fn test_syn_received_ack() {
