@@ -413,7 +413,9 @@ extension SidebarListViewComponents {
             // Under a dropped card on its way to its slot, a leaving row goes at once (`isUnderCard`).
             let underCard = isUnderCard(view.frame, cards)
             if adopting, !suppressed.contains(key), !underCard {
-                // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
+                // A row the drop or the model took away fades where it is (its slot closes on the rows' spring),
+                // without the selection fill: that is on the new selected row already (no second one).
+                view.isSelected = false
                 leaving.append((view, view.frame))
             } else if suppressed.contains(key) || !animate || placeholder || replaced || underCard {
                 recycle(view)

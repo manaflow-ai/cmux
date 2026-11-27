@@ -2159,6 +2159,11 @@ public protocol ChannelHandleProtocol: AnyObject, Sendable {
     func send(data: Data) async throws 
     
     /**
+     * As send, with chunk progress and cancellation scoped to this write.
+     */
+    func sendObserved(data: Data, watch: ChannelWriteWatch) async throws 
+    
+    /**
      * Payload bytes this channel has queued for the transport so far. It moves while a long
      * write is taken by the link and stops when the link stalls: a request's deadline reads it
      * as progress, not a wall clock (`DaemonClient` on iOS).
@@ -2288,6 +2293,26 @@ open func send(data: Data)async throws   {
 }
     
     /**
+     * As send, with chunk progress and cancellation scoped to this write.
+     */
+open func sendObserved(data: Data, watch: ChannelWriteWatch)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_channelhandle_send_observed(
+                    self.uniffiCloneHandle(),
+                    FfiConverterData.lower(data),FfiConverterTypeChannelWriteWatch_lower(watch)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_void,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_void,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+    /**
      * Payload bytes this channel has queued for the transport so far. It moves while a long
      * write is taken by the link and stops when the link stalls: a request's deadline reads it
      * as progress, not a wall clock (`DaemonClient` on iOS).
@@ -2343,6 +2368,152 @@ public func FfiConverterTypeChannelHandle_lift(_ handle: UInt64) throws -> Chann
 #endif
 public func FfiConverterTypeChannelHandle_lower(_ value: ChannelHandle) -> UInt64 {
     return FfiConverterTypeChannelHandle.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Progress and cancellation for one outgoing message. While waiting to write, its progress
+ * includes the serialized writes ahead of it.
+ */
+public protocol ChannelWriteWatchProtocol: AnyObject, Sendable {
+    
+    func cancel() 
+    
+    /**
+     * Whether this write or one ahead of it queued bytes since the previous observation.
+     */
+    func takeProgress()  -> Bool
+    
+}
+/**
+ * Progress and cancellation for one outgoing message. While waiting to write, its progress
+ * includes the serialized writes ahead of it.
+ */
+open class ChannelWriteWatch: ChannelWriteWatchProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_channelwritewatch(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_channelwritewatch_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_channelwritewatch(handle, $0) }
+    }
+
+    
+
+    
+open func cancel()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_channelwritewatch_cancel(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Whether this write or one ahead of it queued bytes since the previous observation.
+     */
+open func takeProgress() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_channelwritewatch_take_progress(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChannelWriteWatch: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ChannelWriteWatch
+
+    public static func lift(_ handle: UInt64) throws -> ChannelWriteWatch {
+        return ChannelWriteWatch(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ChannelWriteWatch) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChannelWriteWatch {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ChannelWriteWatch, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChannelWriteWatch_lift(_ handle: UInt64) throws -> ChannelWriteWatch {
+    return try FfiConverterTypeChannelWriteWatch.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChannelWriteWatch_lower(_ value: ChannelWriteWatch) -> UInt64 {
+    return FfiConverterTypeChannelWriteWatch.lower(value)
 }
 
 
@@ -27088,7 +27259,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_send() != 33874) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_send_observed() != 65000) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_sent_bytes() != 4104) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelwritewatch_cancel() != 17976) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelwritewatch_take_progress() != 45961) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_close() != 25269) {
@@ -27821,6 +28001,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_attachmentuploads_new() != 13417) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_channelwritewatch_new() != 60331) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_autochats_new() != 34463) {

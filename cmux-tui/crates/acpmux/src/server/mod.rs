@@ -1891,7 +1891,7 @@ pub async fn serve_ws_gated(
                     () = read_shutdown.closing() => {},
                     () = async {
                         // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
-                        let ended = ws_read_ahead::read_ahead(source, |frame| {
+                        let ended = ws_read_ahead::read_ahead(ws_read_ahead::idle_bound(source, ws_read_ahead::IDLE_BOUND), |frame| {
                             let (frames, in_tx) = (frames.clone(), in_tx.clone());
                             async move {
                                 match frame {

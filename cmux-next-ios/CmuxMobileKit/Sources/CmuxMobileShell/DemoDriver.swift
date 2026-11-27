@@ -223,6 +223,13 @@ struct DemoDriver {
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+        case "ws-chat-idle":
+            // The workspace's agent chat tab, as the app shows it, and nothing scripted after
+            // (SwipeBackWholePageUITests).
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
         case "ws-terminal-reattach":
             // The zsh tab, attached, then its link drops and stays down past the
             // quiet bound (`QuietStatusGate.threshold`): a reattach that is not a

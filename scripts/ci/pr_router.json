@@ -321,6 +321,32 @@
     "scripts/cmux-next/build-mobile-host.sh"
    ],
    "affects_why": "The Nightly's app compile reads the packages, vendored sources, resources, the Xcode project and the compile script with what it sources; the helpers read cmux-tui, cmux-next-ios/rust, Native/OptChat and DiffSidecar and the cargo config. nightly_pr_build.py route narrows it per build; nothing else changes what it builds."
+  },
+  "transcript-replay-perf-report.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "affects": [
+    "webviews/src/agent-session/**",
+    "webviews/bench/transcript-replay*",
+    "webviews/bench/browsers.ts",
+    "webviews/bench/godFixture.ts",
+    "webviews/bench/perfRow.ts",
+    "webviews/bench/replayLogs.ts",
+    "webviews/bench/stability.ts",
+    "webviews/bench/support/sharedBuilds.ts",
+    "webviews/test/support/foldFrameReport.ts",
+    "webviews/test/support/paintedFrames.ts",
+    "scripts/measure/replay-under-load.sh",
+    "webviews/bench/replay-under-load*",
+    "scripts/ci/transcript_replay_report.py",
+    ".github/workflows/transcript-replay-perf-report.yml"
+   ],
+   "affects_why": "webviews/bench/transcript-replay-ab.sh replays the long chat into the agent pane built from webviews/src/agent-session (and what it imports) at the merge base and the head, with the head's bench and its imports (browsers, godFixture, perfRow, replayLogs, stability, support/sharedBuilds, test/support foldFrameReport and paintedFrames); the duress reading runs scripts/measure/replay-under-load.sh and its bench; the summary is scripts/ci/transcript_replay_report.py. A change touching none of them moves no number in the report.",
+   "skip_docs_only": true
   }
  }
 }
