@@ -75,11 +75,6 @@ pub(super) fn route(hub: &Hub, target: &str) -> Option<Route> {
     if peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
         return None;
     }
-    // A peer named as this machine is this daemon: ssh to it is a login to ourselves, which
-    // (gcp lane VM, 2026-11-24) failed its publickey on every retry of 416 deliveries.
-    if peer.name == crate::pairing::machine_name() {
-        return None;
-    }
     let destination = crate::peer::ssh_target(&peer.url).ok()?.destination;
     plain_key(&key).then(|| Route { host: peer.name.clone(), destination, key })
 }
@@ -229,8 +224,14 @@ async fn carry_by(
     if cooldown().cooling(&route.host, std::time::Instant::now()) {
         return None;
     }
+    // The joined machine name reads the local machine record.
+    let machine = crate::qos::off_worker(crate::pairing::machine_name);
+    // A peer named as this machine is this daemon: ssh to it is a login to ourselves, which
+    // (gcp lane VM, 2026-11-24) failed its publickey on every retry of 416 deliveries.
+    if route.host == machine {
+        return None;
+    }
     let from = sender(delivery, |id| hub.session_name(id));
-    let machine = crate::pairing::machine_name();
     let message = message(&delivery.request, &from, &machine)?;
     let argv = crate::cli::hosts::ssh_argv(&route.destination, &script(&route.key, &message.flags))
         .ok()?;

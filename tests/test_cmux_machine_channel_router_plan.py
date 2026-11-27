@@ -121,7 +121,8 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         out = self.tmp / "out"
         out.write_text("")
         env = {**os.environ, "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-               "HEAD_REPO": head_repo, "GITHUB_BASE_REF": "feat-cmux-next"}
+               "HEAD_REPO": head_repo, "GITHUB_BASE_REF": "feat-cmux-next",
+               "MACHINE_CHANNEL_PR_HEAD_ALL": "1"}
         for k in ("HEAD_SHA", "GH_TOKEN", "GITHUB_RUN_ID", "MACHINE_CHANNEL_PR_HEAD_QUIET_MIN"):
             env.pop(k, None)
         env.update(extra or {})
@@ -170,6 +171,18 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         step = next(s for s in load(ROUTER)["jobs"]["route"]["steps"] if s.get("id") == "machine-channel")
         self.assertEqual(step["env"]["MACHINE_CHANNEL_PR_HEAD_QUIET_MIN"],
                          "${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_QUIET_MIN || '30' }}")
+
+    def test_only_the_merge_trains_tip_builds_by_default(self) -> None:
+        self.merge_ref("webviews/app.ts", "")
+        off = {"MACHINE_CHANNEL_PR_HEAD_ALL": "0", "MACHINE_CHANNEL_PR_HEAD_QUIET_MIN": "0"}
+        self.assertEqual(self.plan(extra={**off, "HEAD_REF": "lane/x"})["build"], "false")
+        self.assertEqual(self.plan(extra=off)["build"], "false")
+        self.assertEqual(self.plan(extra={**off, "HEAD_REF": "lane/merge-train"})["build"], "true")
+        self.assertEqual(self.plan(extra={**off, "MACHINE_CHANNEL_PR_HEAD_ALL": "1", "HEAD_REF": "lane/x"})["build"], "true")
+
+    def test_the_router_passes_the_all_heads_switch(self) -> None:
+        step = next(s for s in load(ROUTER)["jobs"]["route"]["steps"] if s.get("id") == "machine-channel")
+        self.assertEqual(step["env"]["MACHINE_CHANNEL_PR_HEAD_ALL"], "${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_ALL || '0' }}")
 
     def test_a_head_behind_the_base_builds_nothing(self) -> None:
         # The base moved a tree input after the head forked: the head's key is not the merge's.
