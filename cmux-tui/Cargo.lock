@@ -11,6 +11,7 @@ dependencies = [
  "acpmux-client",
  "acpmux-core",
  "acpmux-hot",
+ "acpmux-list-types",
  "aho-corasick",
  "anyhow",
  "arc-swap",
@@ -109,6 +110,7 @@ dependencies = [
  "hpke",
  "imbl",
  "inotify",
+ "jpeg-encoder",
  "jsonschema",
  "libc",
  "memchr",
@@ -188,6 +190,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-book",
  "acpmux-client",
+ "acpmux-list-types",
  "arc-swap",
  "cmux-scope",
  "libc",
@@ -1942,6 +1945,7 @@ dependencies = [
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
+ "cmux-message-preview",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -2018,6 +2022,7 @@ dependencies = [
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
+ "acpmux-list-types",
  "base64",
  "cmux-local-auth",
  "cmux-sdk",
@@ -2535,6 +2540,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -3451,6 +3457,7 @@ dependencies = [
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
+ "cmux-cas",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -6459,6 +6466,12 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
 ]
+
+[[package]]
+name = "jpeg-encoder"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b454d911ac55068f53495488d8ccd0646eaa540c033a28ee15b07838afafb01f"
 
 [[package]]
 name = "js-sys"

@@ -1,7 +1,7 @@
 import React, { memo } from "react";
 import { useStableCallback } from "./stableCallback";
 
-import { HomeAge, HomeInbox, type HomeInboxActions, type HomeInboxLook } from "./HomeInbox";
+import { HomeInbox, type HomeInboxActions, type HomeInboxLook, HomeAge } from "./HomeInbox";
 import { useT } from "./i18n";
 
 import { type WatchedAsk } from "./needsYou/model";
@@ -9,6 +9,8 @@ import type { AttentionTab } from "./needsYou/attentionTabs";
 import { activityTime, type AcpmuxSessionEntry, projectLabel } from "./sessionList";
 import { HOME_LABELS, homeLists } from "./homeListsModel";
 import { pressToOpen } from "../../ui/pressToOpen";
+import { settledShelf } from "./settledChats";
+import { SettledShelf } from "./SettledShelf";
 import { WithFacts } from "./chips/FactsHoverCard";
 /// The lists under a new chat's composer. Each row opens its session. Renders
 /// nothing when neither list has a row, so the home is the hero and composer alone.
@@ -22,6 +24,8 @@ export function HomeLists({
   onAnswer,
   look,
   shortcuts = true,
+  onUnsettle,
+  holds = holdsNone,
 }: {
   sessions: AcpmuxSessionEntry[];
   currentId?: string;
@@ -36,12 +40,18 @@ export function HomeLists({
   look?: HomeInboxLook;
   /// False while the home's own chat shows an ask card, which takes the permission shortcuts.
   shortcuts?: boolean;
+  /// Unsettles a chat from the Settled shelf; without it the home has no shelf.
+  onUnsettle?: (entry: AcpmuxSessionEntry) => void;
+  /// Whether the pane holds a chat, which only then has Unsettle on the shelf (SettledShelf.tsx).
+  holds?: (entry: AcpmuxSessionEntry) => boolean;
 }) {
   const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
+  const settled = onUnsettle ? settledShelf(sessions, currentId) : NO_SETTLED;
   const t = useT();
+  // homeListsShown (homeListsModel.ts) answers the same question for the pane's `data-home-lists`.
   // One select for every row, calling the latest `onSelect`: a parent's new closure draws no row.
   const select = useStableCallback((sessionId: string) => onSelect(sessionId));
-  if (waiting.length === 0 && review.length === 0) return null;
+  if (waiting.length === 0 && review.length === 0 && settled.total === 0) return null;
   return (
     <div className="acpmux-home">
       <HomeInbox
@@ -77,9 +87,21 @@ export function HomeLists({
           ))}
         </HomeList>
       )}
+      {onUnsettle && (
+        <SettledShelf
+          rows={settled.rows}
+          total={settled.total}
+          onSelect={select}
+          onUnsettle={onUnsettle}
+          holds={holds}
+        />
+      )}
     </div>
   );
 }
+
+const NO_SETTLED = { rows: [], total: 0 };
+const holdsNone = () => false;
 
 function HomeList({ label, children }: { label: string; children: React.ReactNode }) {
   return (
