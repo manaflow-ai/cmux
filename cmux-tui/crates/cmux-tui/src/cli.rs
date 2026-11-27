@@ -335,6 +335,8 @@ mod setup;
 mod share_cli;
 mod shorthand;
 #[cfg(unix)]
+mod sign_clones;
+#[cfg(unix)]
 mod skew;
 #[cfg(unix)]
 mod stale_app;
@@ -360,6 +362,8 @@ mod theme_scheme;
 mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
+#[cfg(unix)]
+mod usage_insights;
 #[cfg(unix)]
 mod video;
 #[cfg(unix)]
@@ -676,6 +680,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "teleport",
     "evacuate",
     "video",
+    "usage",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -1166,6 +1171,7 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| safe_mode::run_if_requested(args))
+        .or_else(|| sign_clones::run_if_requested(args))
         .or_else(|| ps_gc::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
@@ -1176,6 +1182,7 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| pack::run_if_requested(args))
         .or_else(|| video::run_if_requested(args))
+        .or_else(|| usage_insights::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))
