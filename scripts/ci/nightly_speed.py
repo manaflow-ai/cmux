@@ -1313,8 +1313,7 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
                 + (f" Unattributed: {reasons}." if reasons else "")]
         if "matched_prs" in prs:
             out.append(f"Provider-verified PRs: {prs['matched_prs']} matched, {prs.get('unmatched_prs', 0)} unmatched; "
-                       f"{prs.get('excluded_commits', 0)} commits excluded. Waits end at the first verified feed; "
-                       "unverified feeds are excluded and make coverage partial.")
+                       f"{prs.get('excluded_commits', 0)} commits excluded. Waits end at the first verified feed.")
         if prs.get("rows"):
             out += ["", f"Slowest and unattributed {len(prs['rows'])} of {prs.get('count', 0)} (every row: "
                         "`nightly_speed.py check --json`).", "",
