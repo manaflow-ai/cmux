@@ -8,11 +8,13 @@ records GITHUB_SHA, the run's own commit, moves only forward and only to a daemo
 """
 
 import os
+import subprocess
 import unittest
 
 import yaml
 
 from test_cmux_tui_tree_critical_path import evaluate
+from test_ci_reused_sparse_checkout import Fixture, git, git_fixture_env
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
@@ -93,9 +95,29 @@ class KeeperWhilePublisherRuns(unittest.TestCase):
                 self.assertFalse(evaluate(self.keeper["if"], dict(values, **{field: value})))
         self.assertFalse(evaluate(self.keeper["if"], values, cancelled=True))
 
+    def test_keeper_repairs_a_reused_sparse_checkout_before_reading_tree_keys(self):
+        steps = self.keeper["steps"]
+        checkout = next(i for i, step in enumerate(steps)
+                        if step.get("uses", "").startswith("actions/checkout@"))
+        repair = steps[checkout + 1]
+        self.assertEqual(repair["name"], "Repair a reused self-hosted checkout")
+        self.assertEqual(repair["if"], "runner.os == 'Linux'")
+        self.assertIn("cmux_tui_channel_keeper.py", steps[checkout + 2]["run"])
+        fx = Fixture()
+        self.addCleanup(fx.close)
+        git(fx.ws, "sparse-checkout", "set", "--cone", "a")
+        for environment in ("github-hosted", "self-hosted"):
+            with self.subTest(environment=environment):
+                self.assertFalse((fx.ws / "b/y").exists())
+                env = git_fixture_env.fixture_env({**os.environ, "RUNNER_ENVIRONMENT": environment})
+                result = subprocess.run(["bash", "-e", "-c", repair["run"]],
+                                        cwd=fx.ws, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((fx.ws / "b/y").exists(), environment == "self-hosted")
+
     def test_keeper_uses_existing_tested_only_forward_writer(self):
         commands = [s.get("run", "") for s in self.keeper["steps"]]
-        self.assertEqual([s for s in commands if s], [
+        self.assertEqual([s for s in commands if "cmux_tui_channel_keeper.py" in s], [
             "python3 scripts/ci/cmux_tui_channel_keeper.py drive --point-only --limit 300"])
         self.assertFalse(self.keeper["concurrency"]["cancel-in-progress"])
         self.assertNotEqual(self.keeper["concurrency"]["group"],
