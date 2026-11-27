@@ -660,7 +660,7 @@ jobs:
         run: ./scripts/ci/macos-cross.sh cctools
 
       - name: Download the Mac-built xcframework
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: CCmuxAppFFI.xcframework
           path: ${{ runner.temp }}/macos-cross/mac
@@ -746,7 +746,7 @@ jobs:
         && scripts/cmux-next/repin-app-ffi.sh ${{ github.sha }} ${{ needs.build.outputs.checksum }}
         && scripts/cmux-next/check-app-ffi-pin.sh --verify-release
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: CCmuxAppFFI.xcframework
           path: ${{ runner.temp }}/assets
