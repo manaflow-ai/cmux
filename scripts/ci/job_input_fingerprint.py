@@ -108,7 +108,10 @@ SWIFT_TEST = (
     "cmux-tui/crates/cmux-server-core/tests/fixtures/app-service-agent.plist", "cmux-helper.entitlements",
     "scripts/sign-cmux-bundle-helpers.sh",
 ) + route.SWIFT_JOB_INPUTS + route.BUNDLE_INPUTS
-GENERATED = ("scripts/ci/defaults_guard.py", "docs/mdm", "docs/configuration.md") + route.BUNDLE_INPUTS
+# generated-files-linux.sh: the generated-files steps' bodies, moved out of the workflow. toolchain-r2.sh
+# restores the bun and node both jobs build the web bundles with.
+GENERATED = ("scripts/ci/defaults_guard.py", "scripts/ci/cmux-next-steps/generated-files-linux.sh",
+             "scripts/ci/toolchain-r2.sh", "docs/mdm", "docs/configuration.md") + route.BUNDLE_INPUTS
 # generated-files compares the exports with the base's (HEAD^1) settings sources and exports.
 SETTINGS_BASE = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings", "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests",
