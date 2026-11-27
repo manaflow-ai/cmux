@@ -19,6 +19,7 @@ import {
   type RailShow,
 } from "./threadMinimap/railShow";
 import { useSyncExternalStore } from "react";
+import type { SessionInfoPlacement } from "./session-info/sessionInfoModel";
 import {
   defaultDetailOf,
   presentationOfDetail,
@@ -29,7 +30,7 @@ import {
 } from "./chatDetail";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { experimentArm, isArm } from "../../experiments/experiment";
+import { isArm, experimentArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -57,6 +58,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { hiddenSessionInfoSections, type PickableSessionInfoSection } from "./session-info/shownSections";
 import { configureKeyStyle } from "../../ui/keyStyle";
 import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
@@ -117,7 +119,8 @@ export interface ChatDisplay {
   /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
-  sessionInfo: "push" | "overlay";
+  /// `inline` draws it as a band atop the transcript, in the chat's flow (sessionInfoModel.ts).
+  sessionInfo: SessionInfoPlacement;
   /// The prompt rail edge; its context menu writes the same saved setting.
   railSide: "left" | "right";
   /// cmux's Minimal Mode (`sidebar.minimal`, the palette's Enable Minimal Mode), which the chat
@@ -143,6 +146,9 @@ export interface ChatDisplay {
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
 /// The host sends a value saved under the row's old key under this one (Swift RenamedSettingKeys).
 export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.sessionInfo.placement";
+/// A saved Session Info placement; anything else is the default, `overlay`.
+export const sessionInfoPlacementOf = (value: unknown): SessionInfoPlacement =>
+  value === "push" || value === "inline" ? value : "overlay";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
@@ -174,6 +180,9 @@ export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// the rule's gate. Off by default because Leo, 2026-11-22: "hm im not necessarily sure if people
 /// will be wanting to do the send pop by default". Not part of ChatDisplay: no row is measured again.
 export const SEND_POP_KEY = "agentPane.display.sendPop";
+/// A sent prompt scrolls to the top of the transcript, with room under it for the reply (off by default;
+/// Leo, cmux#56827: "sent message scrolls to top"). Read by VirtualTranscript's room under the rows.
+export const SEND_SCROLLS_TO_TOP_KEY = "agentPane.display.sendScrollsToTop";
 /// Settings > Agent Chat > Running Tray Handle, the middle by default: where along the composer's top
 /// edge the hat's tuck chevron and, tucked, its pull tab sit (subagents/TrayPullTab.tsx; Leo,
 /// 2026-11-04: "I also wonder if we'd want the grabber/dogear/whatever design thing on maybe the left…
@@ -418,7 +427,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     codeLigatures: !declaresFirstFamily(values[CHAT_FONT_FACES_KEY], codeFamily),
-    sessionInfo: values[SESSION_INFO_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    sessionInfo: sessionInfoPlacementOf(values[SESSION_INFO_PLACEMENT_KEY]),
     railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
     minimal: values[MINIMAL_MODE_KEY] === true,
     environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
@@ -598,6 +607,7 @@ let minimapOn = false;
 let statusPillsOn = false;
 let headerBreadcrumbOn = false;
 let subagentOfOn = false;
+let sendScrollsToTopOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -611,6 +621,9 @@ let autoCloudOn = false;
 let defaultImage = "auto";
 let commandLabels = "null";
 let promptCoachOn = true;
+/// The Session Info sections the person turned off (session-info/shownSections.ts), none by default.
+const NO_HIDDEN_SECTIONS: readonly PickableSessionInfoSection[] = [];
+let sessionInfoHidden: readonly PickableSessionInfoSection[] = NO_HIDDEN_SECTIONS;
 let environmentCardOn = false;
 let changesPillOn = false;
 let modelPickerStyle: ModelPickerStyle = "list";
@@ -677,6 +690,7 @@ export function setChatDisplay(value: unknown): void {
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
+  const sendScrollsToTop = raw[SEND_SCROLLS_TO_TOP_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
   setCompactShortTurns(raw[COMPACT_SHORT_TURNS_KEY] === true);
@@ -705,6 +719,8 @@ export function setChatDisplay(value: unknown): void {
   const image = typeof storedImage === "string" && CLOUD_ENVIRONMENT_ID.test(storedImage) ? storedImage : "auto";
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
+  const hiddenSections = hiddenSessionInfoSections(raw);
+  const sameHiddenSections = hiddenSections.join(",") === sessionInfoHidden.join(",");
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
   const changesPill = raw[CHANGES_PILL_KEY] === true;
   const pickerStyle: ModelPickerStyle = raw[MODEL_PICKER_STYLE_KEY] === "menu" ? "menu" : "list";
@@ -736,6 +752,7 @@ export function setChatDisplay(value: unknown): void {
     statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
     subagentOf === subagentOfOn &&
+    sendScrollsToTop === sendScrollsToTopOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
     show === railShow &&
@@ -750,9 +767,11 @@ export function setChatDisplay(value: unknown): void {
     coach === promptCoachOn &&
     environmentCard === environmentCardOn &&
     changesPill === changesPillOn &&
-    pickerStyle === modelPickerStyle
+    pickerStyle === modelPickerStyle &&
+    sameHiddenSections
   )
     return;
+  if (!sameHiddenSections) sessionInfoHidden = hiddenSections.length === 0 ? NO_HIDDEN_SECTIONS : hiddenSections;
   picked = pickedNow;
   commandLabels = labels;
   promptCoachOn = coach;
@@ -763,6 +782,7 @@ export function setChatDisplay(value: unknown): void {
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
   subagentOfOn = subagentOf;
+  sendScrollsToTopOn = sendScrollsToTop;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
   railShow = show;
@@ -925,6 +945,11 @@ export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
+const sessionInfoHiddenSnapshot = () => sessionInfoHidden;
+/// The Session Info sections the person turned off (`agentPane.display.sessionInfo.sections.<id>`
+/// false): SessionInfo.tsx draws none of them. Not part of ChatDisplay: no transcript row moves.
+export const useSessionInfoHiddenSections = (): readonly PickableSessionInfoSection[] =>
+  useSyncExternalStore(subscribe, sessionInfoHiddenSnapshot, sessionInfoHiddenSnapshot);
 const environmentCardSnapshot = () => environmentCardOn;
 /// Whether the chat draws its Environment card at its top right (ENVIRONMENT_CARD_KEY).
 export const useEnvironmentCardOn = (): boolean =>
@@ -933,6 +958,10 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
+const sendScrollsToTopSnapshot = () => sendScrollsToTopOn;
+/// Whether a sent prompt scrolls to the transcript's top (SEND_SCROLLS_TO_TOP_KEY).
+export const useSendScrollsToTop = (): boolean =>
+  useSyncExternalStore(subscribe, sendScrollsToTopSnapshot, sendScrollsToTopSnapshot);
 const modelPickerStyleSnapshot = () => modelPickerStyle;
 /// What a click on the model chip opens (MODEL_PICKER_STYLE_KEY): the harness columns or the compact menu.
 export const useModelPickerStyle = (): ModelPickerStyle =>
