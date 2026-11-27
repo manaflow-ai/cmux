@@ -497,6 +497,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // participant's own client (the Chief's brain); the
                         // CLI's `cmux chief` only reads them.
                         | "conversation.typing"
+                        // A review posts under the person's own GitHub
+                        // account from the diff viewer; agents leave drafts
+                        // (`git.review.comment`), as MCP's EXCLUDED says.
+                        | "git.review.post"
                         | "conversation.draft"
                         // `cmux chief engine|stop` and the chat's /model,
                         // /effort and Ctrl+C send these (cli/chief), outside
