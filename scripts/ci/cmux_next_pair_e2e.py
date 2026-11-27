@@ -939,11 +939,20 @@ STACK_LINE = re.compile(r"Stack project ")
 
 
 def grant_capture(app):
-    """Grants the app's executables (its main one, Contents/Resources/bin) screen capture with
-    scripts/measure/cu-driver-eval/tcc-grant.sh; one line saying what happened."""
-    exes = sorted(p for p in glob.glob(os.path.join(app, "Contents/MacOS/*")) +
-                  glob.glob(os.path.join(app, "Contents/Resources/bin/*"))
-                  if os.path.isfile(p) and os.access(p, os.X_OK))
+    """Grants the app's executables screen capture with scripts/measure/cu-driver-eval/tcc-grant.sh:
+    its main one, Contents/Resources/bin, and the Screen Sharing helper app in Contents/Library
+    (`<app> Helper.app`, plans/cmux-next/screen-sharing-helper.md), which does the capture with the
+    app closed. The app runs that helper from a staged copy under ~/Library/Application Support/
+    cmux-next/screen-sharing/; the helper's bundle-id row (with its designated requirement, the
+    same bytes) covers that copy, and a copy already staged is granted by path too. One line
+    saying what happened, naming how many helper executables were covered."""
+    helpers = glob.glob(os.path.join(app, "Contents/Library/*.app/Contents/MacOS/*")) + glob.glob(
+        os.path.expanduser("~/Library/Application Support/cmux-next/screen-sharing/**/Contents/MacOS/*"),
+        recursive=True)
+    helpers = [p for p in helpers if os.path.isfile(p) and os.access(p, os.X_OK)]
+    exes = sorted(set(p for p in glob.glob(os.path.join(app, "Contents/MacOS/*")) +
+                      glob.glob(os.path.join(app, "Contents/Resources/bin/*"))
+                      if os.path.isfile(p) and os.access(p, os.X_OK)) | set(helpers))
     if not exes:
         return "no executables found"
     tool = os.path.join(ROOT, "scripts/measure/cu-driver-eval/tcc-grant.sh")
@@ -953,7 +962,8 @@ def grant_capture(app):
         return f"not granted ({type(error).__name__})"
     granted = sum(1 for line in done.stdout.splitlines() if line.startswith("tcc-grant.sh: granted"))
     tail = redact(done.stderr.strip().splitlines()[-1])[:200] if done.stderr.strip() else ""
-    return f"{granted} of {len(exes)} granted (exit {done.returncode}){'; ' + tail if tail else ''}"
+    return (f"{granted} of {len(exes)} granted, {len(helpers)} of them the Screen Sharing helper's "
+            f"(exit {done.returncode}){'; ' + tail if tail else ''}")
 
 
 def build_space_for_tag(tag):
