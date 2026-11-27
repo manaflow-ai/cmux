@@ -477,7 +477,9 @@ final class TabCell {
     /// (`retimeInner`): no part is removed (it hides), nothing fades, and the title's geometry is
     /// recorded in `pathTitle` instead of applied. `form`: the path's form at this sample
     /// (`TabChromeVisibility.path`); nil lays out the rest form of the width.
-    func layoutParts(slotWidth: CGFloat, onPath: Bool, form: TabChromeVisibility? = nil) {
+    /// `yielding`: the second pass for a title the marks squeezed below its minimum, where `metrics.crowdedMarks`
+    /// gives the title their room.
+    func layoutParts(slotWidth: CGFloat, onPath: Bool, form: TabChromeVisibility? = nil, yielding: Bool = false) {
         let slot = CGRect(x: 0, y: 0, width: slotWidth, height: layer.bounds.height)
         let m = metrics
         // The pill leaves the gap to the next tab at its trailing side (the
@@ -539,7 +541,7 @@ final class TabCell {
         // slot; the unread or status mark, the loading indicator and the other marks draw in the
         // trailing cluster (TabCell+TrailingMarks). A tab too narrow for its title has no
         // trailing room, so there they keep the icon's corner as before.
-        let marksOnIcon = !visibility.showsTitle
+        let marksOnIcon = !visibility.showsTitle || (yielding && m.crowdedMarks == .onIcon)
         // Agent identity can be a custom image or symbol as well as a brand mark. Working keeps
         // that artwork under a small spinner badge; browser loading still replaces its favicon.
         let spinnerOnIcon = marksOnIcon && spinnerLayer != nil
@@ -620,9 +622,17 @@ final class TabCell {
             // rest (a narrow selected tab) keeps the status beside it.
             let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
                 ? statusSlotRect(pillWidth: bounds.width, midY: midY) : nil
-            let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
+            let visibleEnd: CGFloat
+            if yielding, m.crowdedMarks == .onIcon {
+                // The marks drew on the icon above; the trailing badges give the title their room.
+                hideTrailingBadges()
+                visibleEnd = titleEnd
+            } else {
+                visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
                                                  statusHidden: visibility.closeReplacesStatus,
-                                                 animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant)
+                                                 animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant,
+                                                 statusOnly: yielding && m.crowdedMarks == .dropBadges)
+            }
             // The marquee fades glyphs out across the icon-title gap.
             let textWidth = titleWidth()
             let visibleWidth = visibleEnd - titleX
@@ -657,21 +667,36 @@ final class TabCell {
             // Leo 2026-11-23: "what the hell? you guys still didnt merge stuff for fixing this..." (a 1-2 px sliver of a
             // clipped title beside the icon). Marks that leave the title less than ~3 characters hide it: the icon
             // alone, never a sliver. A title shorter than that (an "A") still shows.
-            let minTitle = min(textWidth, max(m.titleMinVisibleWidth, ceil(titleFont.pointSize * 0.55 * 3)))
-            if visibleWidth < minTitle { titleLayer.opacity = 0 }
+            //
+            // Leo 2026-11-27: "ok why dont your tabs have any names/letters showing up? that intentional?". A crowded
+            // agent tab's status, machine and presence marks took all of its title room, so the title hid. The marks
+            // give way first (`metrics.crowdedMarks`, by default onto the icon) when that leaves the title its minimum.
+            let minTitle = min(textWidth, max(m.titleMinVisibleWidth, ceil(titleFont.pointSize * 0.55 * m.titleMinCharacters)))
+            if visibleWidth < minTitle {
+                if !yielding, m.crowdedMarks != .trailing, visibleEnd < titleEnd - 0.5, titleEnd - titleX >= minTitle {
+                    layoutParts(slotWidth: slotWidth, onPath: onPath, form: form, yielding: true)
+                    return
+                }
+                titleLayer.opacity = 0
+            }
         } else {
             titleLayer.opacity = 0
-            for badge in [machineLayer, machineIconLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
-            if let countPillLayer {
-                countPillLayer.removeAnimation(forKey: "opacity")
-                countPillLayer.opacity = 0
-            }
+            hideTrailingBadges()
             if onPath {
                 pathTitle = nil
             } else {
                 titleFade.stopMarquee(animated: false)
                 titleLayer.mask = nil
             }
+        }
+    }
+
+    /// Hides the badges a titled tab draws beside its title (they have no place on the icon).
+    func hideTrailingBadges() {
+        for badge in [machineLayer, machineIconLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
+        if let countPillLayer {
+            countPillLayer.removeAnimation(forKey: "opacity")
+            countPillLayer.opacity = 0
         }
     }
 
