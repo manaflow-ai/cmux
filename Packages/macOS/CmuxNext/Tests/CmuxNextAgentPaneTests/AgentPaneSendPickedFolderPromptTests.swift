@@ -33,7 +33,7 @@ struct AgentPaneSendPickedFolderPromptTests {
 
     /// A pane with no root for `folder` (a project outside the fresh workspace) and one root of its
     /// own (`root`), on a stand-in acpmux.
-    private func pane(home: Bool = false, connected: Bool = true, maximumSendBytes: Int = 64 << 20) async throws -> Pane {
+    private func pane(home: Bool = false, connected: Bool = true) async throws -> Pane {
         let server = AcpmuxStandInServer()
         try await server.start()
         let base = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
@@ -46,9 +46,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         let root = AcpmuxPathPolicy.canonical(rooted) ?? rooted
         let clock = Clock()
         let inbox = AgentPaneRelayedAllowTests.PageInbox()
-        var limits = AgentPaneTransport.Limits()
-        limits.maximumOutstandingBytes = maximumSendBytes
-        let transport = AgentPaneTransport(limits: limits, gestures: AgentPaneUserGestures(now: { clock.now }))
+        let transport = AgentPaneTransport(limits: AgentPaneTransport.Limits(), gestures: AgentPaneUserGestures(now: { clock.now }))
         transport.promptJournal = nil // Tests attach their own journal when persistence is relevant.
         transport.deliver = { event, done in inbox.deliver(event.frames); done() }
         let model = AgentPaneModel(host: NoHost(), transport: transport)
@@ -395,16 +393,16 @@ struct AgentPaneSendPickedFolderPromptTests {
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func aTrustSendFailureKeepsTheFolderForReconnect(overflow: Bool) async throws {
-        let pane = try await pane(maximumSendBytes: 1024)
+        let pane = try await pane()
         defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
         let transport = pane.model.transport
         let socket = try #require(transport.socket)
         let ids = try #require(transport.requestIds)
         transport.grant(pane.folder) // The native picker grants the root before its trust send.
-        if !overflow { socket.close(code: 1000, reason: "", error: nil) }
+        if overflow { socket.fillOutboundForTests() } else { socket.close(code: 1000, reason: "", error: nil) }
         // Exercise a failure after the picker has queued its host request, at the actual send.
         let host = AgentPaneTransport.PendingHostSend(connection: pane.id, requestID: ids.hostID(), folder: pane.folder, daemon: transport.trustDaemon, journal: transport.promptJournal,
-            frame: overflow ? String(repeating: " ", count: 1025) : "{}", reply: nil)
+            frame: "{}", reply: nil)
         await transport.sendHost(host, socket: socket, ids: ids)
         try await startAfterDeferredTrust(pane)
     }

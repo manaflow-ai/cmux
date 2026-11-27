@@ -16,6 +16,8 @@
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
+//! - [`tab_state`]: the tab state machine, the reducer from an engine's navigation events to
+//!   the state the chrome renders (`BrowserTabStateMachine`).
 //! - [`password_fill`]: when a tab fills saved passwords, and what it sends Chromium's switch
 //!   (`PasswordFillPolicy`, `PasswordFillState`).
 //! - [`url_filter`]: an organization's URL blocklist and allowlist in Chrome's filter format
@@ -28,6 +30,7 @@ pub mod download_policy;
 pub mod links;
 pub mod ops;
 pub mod password_fill;
+pub mod tab_state;
 pub mod url_filter;
 
 #[cfg(test)]
@@ -42,5 +45,7 @@ mod download_policy_tests;
 mod links_tests;
 #[cfg(test)]
 mod password_fill_tests;
+#[cfg(test)]
+mod tab_state_tests;
 #[cfg(test)]
 mod url_filter_tests;

@@ -44,7 +44,7 @@
  *   agent display (1920x1080), so a viewer sees a desktop, not an empty black root window. Its
  *   start fails loudly when the display still shows no window (DESKTOP_CHECK_SCRIPT).
  */
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_UID, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_UID, DEVBOX_WORK_USER } from "../../services/vms/workUser";
 import { firstUseInstallPhases } from "./browser-probe";
 import { CURRENT_BIN, type InputsLock, type RolesManifest, rolesManifest, sq, storeEntry } from "./lock";
 

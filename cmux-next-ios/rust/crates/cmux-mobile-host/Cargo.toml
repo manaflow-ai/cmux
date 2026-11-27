@@ -17,6 +17,9 @@ bytes.workspace = true
 cmux-build-space.workspace = true
 # Silence bounds for a cloud prompt and a mailbox round trip (src/cloud_acp.rs, src/mailbox_apply.rs).
 cmux-deadline.workspace = true
+# The `bundle` service (src/bundle.rs): attachments as sealed content-defined chunks.
+cmux-bundle.workspace = true
+blake3 = "1"
 # The Chief's push body as words, not Markdown (src/notify.rs).
 cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true
@@ -24,6 +27,7 @@ cmux-mobile-link.workspace = true
 cmux-relay-snapshot.workspace = true
 # Mac output to phone paint (src/output_paint.rs): its ring and window math.
 cmux-output-paint.workspace = true
+cmux-egress.workspace = true
 cmux-rd-core.workspace = true
 # This Mac's interface table, for which interfaces a session uses (src/netwatch.rs).
 cmux-transport.workspace = true
@@ -32,6 +36,7 @@ cmux-rd-engine.workspace = true
 cmux-rd-proto.workspace = true
 # The `tabs` service's frames, producer and sessions (src/tab_snapshots.rs).
 cmux-tab-snapshots.workspace = true
+cmux-phone-page.workspace = true
 # Viewport state sync (src/viewport_sync.rs): the host's screen model and its diffs, and the
 # overlay datagram port they go on.
 cmux-terminal-projection.workspace = true
@@ -46,6 +51,7 @@ reqwest.workspace = true
 # The local link's one-shot mDNS query on each interface, and the Mac's
 # answer to a QU question on port 5353 beside mdns-sd (src/local_link.rs).
 socket2 = { version = "0.6", features = ["all"] }
+rustls.workspace = true
 # P-256 verification of the phone's pairing keys (src/pairing.rs); already in
 # the graph through rustls.
 ring = "0.17"
@@ -74,6 +80,12 @@ required-features = ["fake-backend"]
 
 [dev-dependencies]
 cmux-fault.workspace = true
+# The relay-cache catch-up rows (tests/catch_up_conditions.rs): the phone's reader.
+cmux-mobile-core.workspace = true
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+# Seeded-secret test (tests/seeded_secret.rs): gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 # Paused time for the silence-bound tests (src/mailbox_apply.rs).
 tokio = { workspace = true, features = ["test-util"] }
 cmux-mobile-link = { workspace = true, features = ["testing"] }

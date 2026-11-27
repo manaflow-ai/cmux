@@ -136,7 +136,7 @@ impl Hub {
                 && super::transfer::is_plain_id(prepare_id)
                 && super::transfer::is_plain_id(session_id)
                 && session_id == body["sessionId"].as_str().unwrap_or("")
-                && !manifest.get("base").is_some_and(|b| !b.is_null())
+                && manifest.get("base").is_none_or(|b| b.is_null())
         };
         let unplain = || RpcError::invalid_params("move: the stage names no plain prefix");
         let pulled_id = pull.map(|p| field(p, "transferId").as_str().unwrap_or(""));
@@ -155,7 +155,7 @@ impl Hub {
                 "this machine names no webRoots, so no moved chat may work here",
             ));
         }
-        let guard = Guard::parse(&json!({"control": "peer", "roots": roots})).await?;
+        let guard = Guard::from_config_roots(&roots).await?;
         let dial = self.transfer_dial().ok_or_else(|| {
             pull_error("no_route", "this daemon has no hub carrier to the source")
         })?;

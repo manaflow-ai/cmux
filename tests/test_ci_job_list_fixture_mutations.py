@@ -336,7 +336,7 @@ class ResolverGaps(unittest.TestCase):
                                  "runs-on reads blacksmith")
 
     def test_a_literal_json_matrix_control_on_the_nightly_pool_stays_green(self) -> None:
-        pool = self.routing.runs_on_text(self.routing.DOC["jobs"]["published-in"], "published-in")
+        pool = self.routing.runs_on_text(self.routing.DOC["jobs"]["decide"], "decide")
         doc = self._control_doc(self._literal([pool]))
         self.assertIn("json-control-fixture-nightly", self.routing.credentialed_control_jobs(doc))
         self.assertEqual(self.routing.control_route_failures(doc), {})

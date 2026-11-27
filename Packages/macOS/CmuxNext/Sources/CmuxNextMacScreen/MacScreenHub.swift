@@ -189,6 +189,18 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         }
     }
 
+    /// Whether the pane asks again on its own (``MacScreenPaneModel/retriesOnItsOwn(_:)``): the stream failed, the host
+    /// dropped off the hub, quit or signed out, or the hub could not start an approved session. Not a person's own end
+    /// (Disconnect, the host's Stop or Mac Screen off, a share that moved), an expired Ask (asking again prompts the
+    /// host's person), a consent or a removal.
+    var retriesOnItsOwn: Bool {
+        switch self {
+        case .failed, .peerOffline, .signedOut, .approveFailed, .other: true
+        case .permissionRevoked, .accessChanged, .viewerRemoved, .hostRemoved, .deviceRemoved, .sharingOff, .hostStopped,
+             .viewerDisconnected, .expired, .consentRequired, .moved: false
+        }
+    }
+
     /// The viewer lost its access (a card titled Access Removed), rather than a session that ended.
     var removesAccess: Bool {
         switch self {
@@ -211,7 +223,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case .signedOut: L.t("macScreen.hub.reason.signedOutOrQuit", "A Mac in this session signed out of cmux or quit it.")
         case .peerOffline: String(format: L.t("macScreen.hub.reason.offline", "%@ went offline."), host)
         case .failed: L.t("macScreen.hub.reason.failed", "The screen stream could not start.")
-        case .approveFailed: String(format: L.t("macScreen.hub.reason.approveFailed", "%@ allowed the session, but it couldn’t start. Try again."), host)
+        case .approveFailed: String(format: L.t("macScreen.hub.reason.approveFailed", "%@ allowed the session, but it couldn’t start."), host)
         case .expired: String(format: L.t("macScreen.hub.reason.expired", "%@ did not answer in time."), host)
         case .consentRequired: String(format: L.t("macScreen.hub.reason.consentRequired", "%@ hasn’t allowed screen sharing from this device."), host)
         case .moved: L.t("macScreen.hub.reason.moved", "Screen sharing moved to another device.")

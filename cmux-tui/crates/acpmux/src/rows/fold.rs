@@ -27,8 +27,6 @@ pub enum RowKind {
     Thought,
     /// One tool call, from its start to its end.
     Tool,
-    /// The agent's checklist (a `plan` update), changed in place until the next prompt.
-    Plan,
     /// A compaction, running or ended.
     Compaction,
     /// Where a turn ended (`turn_result`): its status, and where a fork can start.
@@ -95,9 +93,6 @@ pub struct RowHead {
     /// A notice's record kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
-    /// A checklist's entries as the agent sent them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plan: Option<Value>,
 }
 
 /// One row: its head and its text (a prompt's, reply's or thought's words, a tool call's output).
@@ -161,6 +156,7 @@ const NOTICE_KINDS: &[&str] = &[
     "forked",
     "fork_start_failed",
     "host_notice",
+    "moved",
     // A model name read as its catalog id, or a turn retried under it (`hub/model_alias.rs`).
     "model_rewrite",
     "model_reroute",
@@ -193,8 +189,6 @@ pub struct RowTable {
     open_thought: Option<usize>,
     /// Each tool call's row by its call id.
     tools: HashMap<String, usize>,
-    /// The checklist row the next plan update changes.
-    plan: Option<usize>,
     /// The compaction row still running.
     compaction: Option<usize>,
     /// Each turn's prompt row, for its `forkable` at the turn's end.
@@ -301,7 +295,8 @@ impl RowTable {
 
     fn agent(&mut self, rec: &EventRecord, update: &Value, out: &mut Vec<Patch>) {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or(rec.kind.as_str());
-        if SEGMENT_QUIET_UPDATES.contains(&kind) {
+        // An old log's agent to-do list (`plan`) is read past: cmux shows none (`todo_tools.rs`).
+        if SEGMENT_QUIET_UPDATES.contains(&kind) || kind == "plan" {
             return;
         }
         if kind != "agent_message_chunk" {
@@ -314,7 +309,6 @@ impl RowTable {
             "agent_message_chunk" => self.reply(rec, update, out),
             "agent_thought_chunk" => self.thought(rec, update, out),
             "tool_call" | "tool_call_update" => self.tool(rec, update, kind == "tool_call", out),
-            "plan" => self.plan(rec, update, out),
             "compaction" => self.compaction(rec, update, out),
             // A Stop hook sent the agent back (`claude_stdio` `stop_hook_feedback`): one notice line
             // with its reason, so the reply after it reads as the hook's doing.
@@ -383,8 +377,6 @@ impl RowTable {
         let msg = &rec.msg;
         let steer = msg.get("steer").and_then(Value::as_bool) == Some(true);
         if !steer {
-            // A prompt starts a new checklist.
-            self.plan = None;
             if let Some(turn) = owned(msg, "turnId") {
                 self.open_turn(turn);
             }
@@ -566,25 +558,6 @@ impl RowTable {
         }
     }
 
-    fn plan(&mut self, rec: &EventRecord, update: &Value, out: &mut Vec<Patch>) {
-        let entries = update.get("entries").cloned().unwrap_or(Value::Null);
-        let cleared = entries.as_array().is_some_and(Vec::is_empty);
-        if let Some(at) = self.plan {
-            self.change(at, out, |h| {
-                let before = (h.plan.clone(), h.hidden);
-                h.plan = Some(entries);
-                h.hidden = cleared;
-                before != (h.plan.clone(), h.hidden)
-            });
-            return;
-        }
-        if cleared {
-            return;
-        }
-        let head = self.head(rec, format!("plan@{}", rec.seq), RowKind::Plan);
-        self.plan = Some(self.insert(RowHead { plan: Some(entries), ..head }, String::new(), out));
-    }
-
     fn compaction(&mut self, rec: &EventRecord, update: &Value, out: &mut Vec<Patch>) {
         let state = owned(update, "state").or_else(|| owned(update, "status"));
         let running = state.as_deref().is_none_or(|s| s == "running");
@@ -642,7 +615,6 @@ impl RowTable {
             tool_kind: None,
             status: None,
             notice: None,
-            plan: None,
         }
     }
 

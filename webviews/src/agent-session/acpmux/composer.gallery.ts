@@ -1473,8 +1473,8 @@ export default agentPaneEntry({
           return Boolean(
             failed?.querySelector(".acpmux-file-chip__name")?.textContent === "build-logs.zip" &&
             failed.getAttribute("title")?.includes("build-logs.zip") &&
-            failed.querySelectorAll(".acpmux-attachment-remove").length === 1 &&
-            !failed.querySelector(".acpmux-attachment-retry"),
+            failed.querySelectorAll("button").length === 1 &&
+            failed.querySelectorAll(".acpmux-attachment-remove").length === 1,
           );
         });
       },
@@ -1829,7 +1829,7 @@ export default agentPaneEntry({
       },
     },
     "attachment-inline-image-failed": {
-      note: "Inline view: a kept draft's image whose bytes cannot be drawn says Couldn't load image in the prompt's text, as the strip's does, with Retry and its x.",
+      note: "Inline view: a kept draft's image whose bytes cannot be drawn says Couldn't load image in the prompt's text, as the strip's does, with only its x: drawing the same bytes again draws nothing more, so there is no Retry.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
@@ -1842,8 +1842,8 @@ export default agentPaneEntry({
         const chip = ctx.find({ selector: tile });
         if (chip.querySelector(".acpmux-attachment-failed-text")?.textContent !== "Couldn't load image")
           throw new Error("an inline image that cannot be drawn must say Couldn't load image");
-        if (!chip.querySelector("button.acpmux-attachment-retry"))
-          throw new Error("an inline image that cannot be drawn must offer Retry");
+        if (chip.querySelectorAll("button").length !== 1)
+          throw new Error("an inline image that cannot be drawn must offer no button but its remove");
         if (!chip.querySelector("button.acpmux-attachment-remove[aria-label]"))
           throw new Error("an inline image that cannot be drawn must keep its remove button");
         await ctx.hover({ selector: tile });
@@ -1893,7 +1893,7 @@ export default agentPaneEntry({
       },
     },
     "attachment-failed": {
-      note: "A file the composer could not attach stays in the strip saying why (here the app could not save it), with Retry and its ×, instead of a placeholder that never loads.",
+      note: 'A file whose upload failed (here the app could not save it: the disk is full) keeps loading while it is uploaded again on its own; once that has lasted (at once here) its tile says "Still trying to upload…" and why in its tooltip, with only its ×, never a Retry (Leo, 2026-11-22: "vacuous decisions like that should be just done").',
       snapshot: chat(finished),
       native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
       play: async (ctx) => {
@@ -1910,11 +1910,18 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-failed").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment[data-still-trying]").length === 2);
+        for (const tile of ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment[data-still-trying]")) {
+          const title = tile.getAttribute("title") ?? "";
+          if (!title.startsWith("Still trying to upload") || !title.includes("The disk is full."))
+            throw new Error(`a still-trying tile's tooltip must say so and why, not ${JSON.stringify(title)}`);
+          if (tile.getAttribute("aria-busy") !== "true") throw new Error("a still-trying tile keeps loading");
+          if (tile.querySelectorAll("button").length !== 1) throw new Error("a still-trying tile offers only its ×");
+        }
       },
     },
     "image-original-failed": {
-      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, with a Retry badge whose tooltip says why.",
+      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, the original is uploaded again on its own, and once that has lasted (at once here) a small mark in its corner says so, its tooltip why; no Retry.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
@@ -1932,11 +1939,13 @@ export default agentPaneEntry({
         });
         pasteFiles(ctx, [file]);
         await ctx.waitFor(() =>
-          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-retry"),
+          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-still"),
         );
-        const badge = ctx.find({ selector: ".acpmux-attachment-original-retry" });
+        const badge = ctx.find({ selector: ".acpmux-attachment-original-still" });
         if (!badge.getAttribute("title")?.includes("The disk is full."))
-          throw new Error("the Retry badge's tooltip must say why the original failed");
+          throw new Error("the still-uploading mark's tooltip must say why the original failed");
+        if (badge.closest("button") || badge.querySelector("button"))
+          throw new Error("the still-uploading mark is no button: there is nothing to decide");
       },
     },
     draft: {

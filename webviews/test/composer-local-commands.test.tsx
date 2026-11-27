@@ -238,11 +238,13 @@ test("the set is per harness, and never holds a command that sends to the model"
       expect(localCommandNames(harness)).not.toContain(sends);
 });
 
-test("/help mid-turn opens the / menu at once: nothing is sent", async () => {
+// `/help` is cmux's own sheet now (HelpSheet.tsx, #50541), ahead of the harness's local commands.
+test("/help mid-turn opens the help sheet at once: nothing is sent", async () => {
   const run = await composer(working(), "/help");
   await enter(run.field);
   expect(run.sent).toEqual([]);
-  expect(run.field.textContent).toBe("/");
+  expect(run.field.textContent).toBe("");
+  expect(document.querySelector(".acpmux-help-sheet")).not.toBeNull();
 });
 
 test("Codex's /diff mid-turn runs at once: the chat's changes open, nothing is sent", async () => {

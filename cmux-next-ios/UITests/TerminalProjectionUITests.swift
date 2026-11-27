@@ -219,20 +219,19 @@ final class TerminalProjectionUITests: XCTestCase {
             XCTAssertEqual(counts.mac, 0, "\(name) resized the Mac (\(counts))")
         }
         XCTAssertGreaterThanOrEqual(gestured.gestures, 3, "pinch and double tap zoomed (\(gestured))")
-        XCTAssertEqual(named["type abc into htop"]?.mac, 1, "typing into htop fits it with exactly one resize")
-        XCTAssertLessThan(named["type abc into htop"]?.columns ?? 120, 120, "fitted: htop at the phone's columns")
-        XCTAssertEqual(named["q (htop exits)"]?.mac, 1, "htop exiting releases the phone's grid")
-        XCTAssertEqual(named["htop again (remembered)"]?.mac, 1, "htop again fits at once (remembered)")
-        XCTAssertEqual(named["htop again (remembered)"]?.unsettled, 0, "no frame of htop at the Mac's grid before it fits")
-        XCTAssertLessThan(again.columns, 120, "htop again is at the phone's columns")
+        // Leo, 2026-11-25: "why would the Mac on an iPhone connection ALWAYS be resized down anyways!?"
+        XCTAssertEqual(named["type abc into htop"]?.mac, 0, "typing into htop resized the Mac")
+        XCTAssertEqual(named["type abc into htop"]?.columns, 120, "htop stays at the Mac's grid, scaled")
+        XCTAssertEqual(named["q (htop exits)"]?.mac, 0, "htop exiting resized the Mac")
+        XCTAssertEqual(named["htop again (remembered)"]?.mac, 0, "htop again resized the Mac")
+        XCTAssertEqual(again.columns, 120, "htop again is at the Mac's grid, scaled")
     }
 
-    /// The fallback (Leo, 2026-11-17: "Fall back if need be"): a Mac that
-    /// keeps its grid (Prefer this Mac) never answers the phone's claim.
-    /// htop typed into (claimed, remembered), quit and started again: the
-    /// Mac's PTY never resizes, and the held frames show at the Mac's grid
-    /// (zoomed) once the hold gives up (`fitHoldLimit`, 1.5 s), with no frame
-    /// at a wrong grid. Each stage's first right frame (ms) is in the note.
+    /// A Mac that keeps its grid (Prefer this Mac): the phone claims nothing
+    /// while it projects, so nothing waits for an answer. htop typed into,
+    /// quit and started again: the Mac's PTY never resizes and htop shows at
+    /// the Mac's grid (zoomed) at once, with no frame at a wrong grid. Each
+    /// stage's first right frame (ms) is in the note.
     @MainActor
     func testAMacThatKeepsItsSizeFallsBackToItsGridZoomed() throws {
         XCUIDevice.shared.orientation = .portrait
@@ -284,10 +283,10 @@ final class TerminalProjectionUITests: XCTestCase {
             XCTAssertEqual(counts["mac"], 0, "\(name): a Mac that keeps its size never resizes (\(counts))")
             XCTAssertEqual(counts["cols"], 120, "\(name): htop at the Mac's grid (\(counts))")
         }
-        XCTAssertGreaterThan(again["cl"] ?? 0, typed["cl"] ?? 0, "htop again claims at once (remembered)")
+        XCTAssertEqual(again["cl"], typed["cl"], "htop again claims nothing")
         let settle = again["st"] ?? -1
-        XCTAssertGreaterThanOrEqual(settle, 1_400, "the held frames wait for the claim's answer (fitHoldLimit 1.5 s)")
-        XCTAssertLessThanOrEqual(settle, 3_000, "with no answer, the held frames show at the Mac's grid by 1.5 s + 1.5 s margin")
+        XCTAssertGreaterThanOrEqual(settle, 0)
+        XCTAssertLessThan(settle, 1_400, "no frame waits for a claim's answer")
         XCTAssertEqual(again["uf"], 0, "no frame of htop at a wrong grid (counted from the attach on), held or after")
     }
 

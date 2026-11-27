@@ -245,6 +245,12 @@ pub struct Chat {
     /// person asks again.
     #[serde(default)]
     pub declined: bool,
+    /// When the person asked for the wish this holder was last told (the lease answer's
+    /// `moveAt`, or the view's `move.at` for a move asked from this daemon). A wish told with
+    /// another time is the person asking again: a new wish. None while no wish is told, and
+    /// from a store that does not say the time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wish_at: Option<u64>,
 }
 
 impl Chat {
@@ -270,6 +276,7 @@ impl Chat {
             copy: CopyState::Stored,
             copied_at: 0,
             declined: false,
+            wish_at: None,
         }
     }
 

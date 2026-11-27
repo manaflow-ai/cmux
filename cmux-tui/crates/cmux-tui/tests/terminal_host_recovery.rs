@@ -29,8 +29,7 @@ use cmux_tui_core::terminal_host_runtime::{
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
-#[path = "support/private_state.rs"]
-mod private_state;
+use crate::private_state;
 
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
 

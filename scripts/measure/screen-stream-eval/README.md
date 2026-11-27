@@ -424,9 +424,9 @@ Network privacy refuses LAN addresses to the binaries a step starts (Apple's own
 exempt, so a shell probe proves nothing), while the tailnet path between two Macs on one LAN is direct,
 inside WireGuard. The summary's link then says `lan via tailnet`.
 
-A third-party viewer target (its `caps` prints `viewer-grants`, as `moonlight` does) also needs
-Screen Recording and Accessibility on the viewer Mac, where `cmux-rd observe` posts input and
-captures the display: that half then takes the same grant check and launcher as the host.
+The `apple-high`, `apple-standard`, and `moonlight` targets declare `viewer-grants` because their
+viewers use `cmux-rd observe` to post input and capture the display. For these targets the viewer
+checks Screen Recording and Accessibility and uses the same launcher as the host.
 
 The host Mac runs everything as usual (scene, marker, host bound to `lan`, OCR, results), and waits
 up to 30 minutes for the viewer Mac. Submit the viewer half first and the host half once the viewer's
@@ -485,8 +485,13 @@ launcher's Screen Recording grant, signs in to the device hub, turns sharing on,
 session; it tells the viewer half its path through the peer server (a file under `/tmp` named by the run
 token's hash). Both apps sign in with `CMUX_STAGE_TABLE_AUTH_FILE`, else the Mac's
 `~/rd-hub-rig/private/creds.env` (the Mac Screen rig's agent test-account file), else
-`~/.secrets/cmuxterm-dev.env` (the CI dev account the pair e2e signs in with). Without any of them on
-either Mac, or when a build or sign-in fails, the run keeps Apple's leg and the cmux rows end at decode, and
+`~/.secrets/cmuxterm-dev.env` (the CI dev account the pair e2e signs in with). With none of those files,
+a half sent with `cmux-ci run --sign-in agent` signs its app in from the step's own agent session
+(`CMUX_CI_SIGNIN_FILE`): `stage-signin.py` writes the session's refresh token into the app's own token
+store before launch, as `scripts/ci/cmux_next_pair_e2e.py` does, and the store is removed when the step
+ends. Send both halves with `--sign-in agent` (the viewer half without `--vnc-login`: a step takes one, and
+it reads the fleet login from its keychain); only a submitter that holds the agent account can send it.
+Without a file or a session on either Mac, or when a build or sign-in fails, the run keeps Apple's leg and the cmux rows end at decode, and
 a `SCREEN-STREAM-EVAL-STAGE ... no app viewer` line says why. A shaped leg
 (`wifi-away`) needs `sudo -n` on the host for mac-holds.sh; without it that leg fails and the table
 holds the rest. Trust as above, except that this server runs any command it is handed, so the token

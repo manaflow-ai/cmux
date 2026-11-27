@@ -14,6 +14,10 @@
 //! | `browser_rules_cef_link_placement` | `{disposition, userGesture, click, now, mapping}` | [`LinkPlacement`] |
 //! | `browser_rules_window_placement` | `{request, links}` | [`LinkPlacement`] |
 //! | `browser_rules_window_decide` | `{request, candidates, links}` | [`WindowDecision`] |
+//! | `browser_rules_tab_state_new` | `{state}` (absent: a new tab) | the [`TabStateMachine`] |
+//! | `browser_rules_tab_state_apply` | `{machine, event}` or `{machine, events}` | `{machine, changed}` |
+//! | `browser_rules_tab_state_security` | `{url}` | the scheme-level [`SecurityState`](crate::tab_state::SecurityState) |
+//! | `browser_rules_tab_state_committed_security` | `{url, hasOnlySecureContent, certificateBypassed}` | the [`SecurityState`](crate::tab_state::SecurityState) |
 //! | `browser_rules_url_filter_blocks` | `{blocklist, allowlist, url}` or `{.., urls}` | a bool, or one per URL |
 //! | `browser_rules_url_filter_is_empty` | `{blocklist, allowlist}` | a bool |
 //! | `browser_rules_agent_url_refuses` | `{url}` or `{urls}` | a bool, or one per URL |
@@ -30,6 +34,7 @@ use crate::links::{
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
 };
 use crate::password_fill::{self, PasswordFillState};
+use crate::tab_state::{self, NavigationEvent, TabState, TabStateMachine};
 use crate::url_filter::{UrlFilter, UrlFilterLists};
 use crate::{address, agent_url, calculator};
 use serde::Deserialize;
@@ -110,6 +115,33 @@ struct WindowOpRequest {
     candidates: Vec<WindowCandidate>,
     #[serde(default)]
     links: LinkContext,
+}
+
+#[derive(Deserialize)]
+struct TabStateNewRequest {
+    #[serde(default)]
+    state: TabState,
+}
+
+#[derive(Deserialize)]
+struct TabStateApplyRequest {
+    #[serde(default)]
+    machine: TabStateMachine,
+    #[serde(default)]
+    event: Option<NavigationEvent>,
+    #[serde(default)]
+    events: Option<Vec<NavigationEvent>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SecurityRequest {
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    has_only_secure_content: bool,
+    #[serde(default)]
+    certificate_bypassed: bool,
 }
 
 #[derive(Deserialize)]
@@ -245,6 +277,36 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
             let WindowOpRequest { request, candidates, links } = parse(request)?;
             let decision: WindowDecision = links::decide_window(&request, &candidates, &links);
             Ok(encode(&decision))
+        }
+        "browser_rules_tab_state_new" => {
+            let TabStateNewRequest { state } = parse(request)?;
+            Ok(encode(&TabStateMachine::new(state)))
+        }
+        "browser_rules_tab_state_apply" => {
+            let TabStateApplyRequest { mut machine, event, events } = parse(request)?;
+            let events = match (event, events) {
+                (Some(event), None) => vec![event],
+                (None, Some(events)) => events,
+                _ => return Err(OpError::Invalid("one of event or events".into())),
+            };
+            let mut changed = false;
+            for event in events {
+                changed |= machine.apply(event);
+            }
+            Ok(json!({"machine": encode(&machine), "changed": changed}))
+        }
+        "browser_rules_tab_state_security" => {
+            let SecurityRequest { url, .. } = parse(request)?;
+            Ok(encode(&tab_state::security(url.as_deref())))
+        }
+        "browser_rules_tab_state_committed_security" => {
+            let SecurityRequest { url, has_only_secure_content, certificate_bypassed } =
+                parse(request)?;
+            Ok(encode(&tab_state::committed_security(
+                url.as_deref(),
+                has_only_secure_content,
+                certificate_bypassed,
+            )))
         }
         "browser_rules_url_filter_blocks" => {
             let UrlFilterRequest { lists, url, urls } = parse(request)?;
