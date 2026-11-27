@@ -28,6 +28,7 @@ pub mod backdrop_placement;
 pub mod cache;
 pub mod diagnostics;
 pub mod domains;
+pub mod editor_import;
 pub mod effective;
 pub mod explain;
 pub mod font_faces;
