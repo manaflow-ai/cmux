@@ -1051,6 +1051,10 @@ jobs:
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
         uses: ./.github/actions/pr-media-publish
         env:
+          # hot-verify-ci.py retries timed-out reads with these identities. The action's Publish step
+          # overwrites GH_TOKEN from github-token, so pass the alternates explicitly through this step.
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
           OUT: ${{ steps.stage.outputs.out }}

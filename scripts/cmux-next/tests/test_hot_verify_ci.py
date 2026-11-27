@@ -414,6 +414,31 @@ class Comment(unittest.TestCase):
                 hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
             self.assertEqual(slept, [])
 
+    def test_a_read_timeout_retries_with_an_alternate_token(self) -> None:
+        calls = []
+        timed_out = subprocess.TimeoutExpired(["gh", "api"], hv.GH_TIMEOUT_SECONDS)
+
+        def run(argv, **kw):
+            calls.append((argv, kw))
+            if len(calls) == 1:
+                raise timed_out
+            return subprocess.CompletedProcess(argv, 0, "ok\n", "")
+
+        with mock.patch.dict(hv.os.environ, {"GH_TOKEN": "primary", "GH_TOKEN_SPARE": "spare",
+                                              "GH_TOKEN_SPARES": "spare third"}, clear=True), \
+                mock.patch.object(hv.subprocess, "run", side_effect=run), redirect_stderr(io.StringIO()):
+            self.assertEqual(hv.gh("api", "repos/manaflow-ai/cmux/pulls/7"), "ok\n")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][1]["env"], None)
+        self.assertEqual(calls[1][1]["env"]["GH_TOKEN"], "spare")
+
+    def test_a_write_timeout_is_refused_without_a_retry(self) -> None:
+        timed_out = subprocess.TimeoutExpired(["gh", "api"], hv.GH_TIMEOUT_SECONDS)
+        with mock.patch.object(hv.subprocess, "run", side_effect=timed_out) as run:
+            with self.assertRaisesRegex(hv.Refused, "timed out"):
+                hv.gh("api", "-X", "POST", "repos/manaflow-ai/cmux/issues/7/comments", body="{}")
+        self.assertEqual(run.call_count, 1)
+
 
 class Workflow(unittest.TestCase):
     """The workflow's wiring that the script relies on (text checks; the house guards check the rest)."""
