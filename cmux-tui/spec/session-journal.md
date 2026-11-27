@@ -163,10 +163,83 @@ Successful bounded replay queues its final `stream_end` after every admitted
 record, so completion cannot overtake or discard the replay tail. Overflow and
 cancellation remain destructive. `start` and `cursor` are mutually exclusive.
 
-Each committed subject is also inserted into an append-only
-`(kind, id, sequence)` index in the record transaction. Retained catch-up for
-exact subjects, such as one `agent_tree`, reads only matching sequences. Live
-delivery uses the bounded in-memory fanout and checks each new record once.
+**Subject rows.** Each committed subject also gets a row in an append-only
+`(kind, id, sequence)` index. A later commit writes these rows, not the record
+transaction: the commit of the record that ends a period of 100 records, a
+segment seal, a daemon stop, the release of the session after that stop, a
+registry open and a rollback's check of a session that no daemon owns each
+write the rows of every record after the mark
+(`meta.journal_subject_rows_through`) and move the mark in that same commit.
+A store that has no index yet gets the index and the rows of every active
+record in the one transaction that makes the index. A store that has the
+index and no mark is the store of a build that wrote the rows in the record
+transaction: an open gives it a mark at its newest active record and writes
+no row. A record that an open's migration appends, before the store has the
+number of this schema, gets its rows in its own transaction. A
+read by subject takes the index and, when the index does not fill the page,
+for every active record after the mark the subjects that the record itself
+names, in one statement: it gives what an index written in the record
+transaction gives. The write and the read parse a stored record's subjects
+with one function, so a damaged record's subject that the write skips is
+skipped by the read too, and each skip is counted in a log line.
+Retained catch-up for exact subjects, such as one `agent_tree`, reads the
+matching sequences of the index, and the records after the mark (fewer than
+a period) only for a page that the index does not fill. Live delivery uses
+the bounded in-memory fanout and checks each new record once.
+
+While a record is after the mark, `meta.schema_version` is 16: schema 15 with
+subject rows due. A build that does not know the mark reads the index alone,
+so it must not open that store, and it refuses 16. The transaction of the
+first record that gets no subject rows sets the 16; a stop, the release of
+the session after it, and an open put the 15 back in the commit that writes
+the rows. A stop whose journal writer did not end in the stop's time writes
+no rows, and the release after it writes none: that writer can still append,
+and it holds the store's connection while it does. That store stays at 16.
+After such a stop, and after a crash, the store stays at 16 until a build
+that knows the mark opens it, or until a rollback's check (`cmux-tui
+__store-schemas --stored`) writes the rows: for a session that no daemon
+owns, the check takes the session's guard and makes the same commit, so one
+session that ended with no stop does not refuse a rollback. For a store at
+16 whose guard is held (a daemon owns the session, or a host sweep or a
+reset holds the guard for a short time), the check reads 15 and writes
+nothing: the owner's stop writes the rows when its journal writer ends in
+time; a short holder writes none, and the next check or open does. That
+check makes no store file; SQLite can make its 2 side files next to the
+store for the time of the write. The write changes the store file, and that
+is its price against the check's rule to leave the folder of a closed store
+as found: a second call of the reset command that comes after it refuses
+one time. A write that fails leaves the store as it was and reads 16, and
+each later read of that store by a check tries the write again, with a wait
+of 500 ms at most for the store's write lock. A store at 16 whose name is a
+link, or whose session folder is a link, gets no guard question and no
+write, and the check ends with an error: the guard has the name of the
+folder, and the write would follow the link into a file of another folder.
+The limit of that rule: the look at the 2 names and the open for the write
+are 2 steps, and a name that becomes a link between them is followed. When
+the check cannot ask the guard (a lock file is not there, or the lock of the
+session-locks directory stays busy past its bound), or when another
+connection holds the store's write lock past 500 ms, it gives no number and
+ends with an error: it did not read 16 with the guard held, so the app says
+that it cannot tell whether the kept build reads the data, and does not roll
+back. The folder that a session reset left in the state root when it did not
+end (`.reset-<session>-<kind>-<id>.deleting`) has no guard file of its name.
+The check reads it as each other folder, and each number in it counts as it
+is, with one exception: a 16 there counts as 15, with no guard question and
+no write. So one such folder does not make each check end with an error
+until the next reset of that session deletes it. The limit: a reset that
+runs now puts the folder back under the session's name when its look after
+the rename finds a changed folder, and a check that read the folder between
+that rename and that look gave a number that is too small for a build that
+does not know the mark. That is not chance only: the check's own plain read
+of a store that is not at rest makes or writes the 2 side files, and that is
+a change for the reset's look. The next check reads the folder under its
+session name and asks the guard. A folder whose
+name is only near that form gets the guard question as a session does.
+
+So 16 is not a plain schema
+number: the next schema change takes 17 and its rows-due number is 18, and the
+open of that build writes the subject rows of a store left at 16 before it
+migrates the store.
 
 Filters are optional. Filter dimensions are ANDed, entries within one
 dimension are ORed, and filtered records still advance the cursor:

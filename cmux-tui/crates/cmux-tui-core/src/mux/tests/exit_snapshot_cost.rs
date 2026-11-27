@@ -102,7 +102,9 @@ fn startup_prefetch_covers_every_page_a_terminal_end_writes() {
     assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
 
     let written = {
-        let _registry = mux.workspace_registry.lock().unwrap();
+        let registry = mux.workspace_registry.lock().unwrap();
+        // A later commit writes the end's subject rows: here, the stop's.
+        registry.write_journal_subject_tail().unwrap();
         let connection = mux.registry_connection.get();
         let mut statement = connection
             .prepare(

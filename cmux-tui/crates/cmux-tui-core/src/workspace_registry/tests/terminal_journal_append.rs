@@ -215,3 +215,133 @@ fn terminal_output_survives_immutable_segment_round_trip() {
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
+
+/// One retained `terminal.output` record's content and stream coverage.
+struct TerminalOutputChunk {
+    stream_offset_start: u64,
+    stream_offset_end: u64,
+    bytes: Arc<[u8]>,
+}
+
+/// A record-boundary window over one terminal generation's output stream.
+struct TerminalOutputRecordsWindow {
+    chunks: Vec<TerminalOutputChunk>,
+    /// More retained records follow this window (the byte budget cut it).
+    truncated: bool,
+}
+
+/// The `terminal.output` records of one generation with bytes after `after`,
+/// in stream order, honoring record boundaries: the first matching record is
+/// always included whole, later records only while the accumulated content
+/// stays within `max_bytes`. The records come from a page by subject of the
+/// terminal, the journal's one read by subject.
+fn terminal_output_records_after(
+    registry: &WorkspaceRegistry,
+    terminal_id: &str,
+    generation: &str,
+    after: u64,
+    max_bytes: u64,
+) -> TerminalOutputRecordsWindow {
+    let terminal = JournalSubject { kind: "terminal".into(), id: terminal_id.into() };
+    let page = session_journal::query_session_journal_after_subjects(
+        &registry.connection.get(),
+        0,
+        1024,
+        &[terminal],
+    )
+    .unwrap();
+    let offset = |record: &SessionJournalRecord, field: &str| {
+        record.payload[field].as_str().unwrap().parse::<u64>().unwrap()
+    };
+    let mut window = TerminalOutputRecordsWindow { chunks: Vec::new(), truncated: false };
+    let mut total_bytes = 0_u64;
+    for record in &page.records {
+        let of_generation =
+            record.authority.as_ref().is_some_and(|authority| authority.generation == generation);
+        if record.kind != "terminal.output"
+            || !of_generation
+            || offset(record, "stream_offset_end") <= after
+        {
+            continue;
+        }
+        let bytes = record.terminal_output.clone().expect("the record has its content");
+        let stream_offset_start = offset(record, "stream_offset_start");
+        let stream_offset_end = offset(record, "stream_offset_end");
+        if let Some(previous) = window.chunks.last() {
+            assert_eq!(stream_offset_start, previous.stream_offset_end, "an offset gap");
+        }
+        let byte_count = u64::try_from(bytes.len()).unwrap();
+        if !window.chunks.is_empty() && total_bytes + byte_count > max_bytes {
+            window.truncated = true;
+            break;
+        }
+        total_bytes += byte_count;
+        window.chunks.push(TerminalOutputChunk { stream_offset_start, stream_offset_end, bytes });
+    }
+    window
+}
+
+#[test]
+fn terminal_output_window_resumes_exactly_and_honors_record_boundaries() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-output-window").unwrap();
+    commit_terminal_topology(&mut registry, "terminal-output-window-seed");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let first: &[u8] = b"first \x1b[31mred\x1b[0m\r\n";
+    let second: &[u8] = b"second plain\r\n";
+    let third: &[u8] = b"third \x1b[1mbold\x1b[0m\r\n";
+    append_terminal_output_for_test(
+        &mut registry,
+        &terminal_id,
+        INCARNATION_ONE,
+        &[first, second, third],
+    );
+    let total = u64::try_from(first.len() + second.len() + third.len()).unwrap();
+    assert_eq!(
+        registry.terminal_stream_latest(terminal_id.as_str()).unwrap(),
+        Some((INCARNATION_ONE.to_string(), total))
+    );
+    let window = |generation: &str, after: u64, max_bytes: u64| {
+        terminal_output_records_after(&registry, terminal_id.as_str(), generation, after, max_bytes)
+    };
+
+    // The full window is contiguous and record-aligned.
+    let full = window(INCARNATION_ONE, 0, 1 << 20);
+    assert!(!full.truncated);
+    let offsets = full
+        .chunks
+        .iter()
+        .map(|chunk| (chunk.stream_offset_start, chunk.stream_offset_end))
+        .collect::<Vec<_>>();
+    let first_end = u64::try_from(first.len()).unwrap();
+    let second_end = first_end + u64::try_from(second.len()).unwrap();
+    assert_eq!(offsets, vec![(0, first_end), (first_end, second_end), (second_end, total)]);
+    assert_eq!(full.chunks[0].bytes.as_ref(), first);
+
+    // A cursor at a record boundary resumes exactly after it.
+    let resumed = window(INCARNATION_ONE, first_end, 1 << 20);
+    assert_eq!(resumed.chunks.first().map(|chunk| chunk.stream_offset_start), Some(first_end));
+
+    // A mid-record cursor never splits the record: the window starts at the
+    // boundary of the record containing the cursor.
+    let mid = window(INCARNATION_ONE, first_end + 1, 1 << 20);
+    assert_eq!(mid.chunks.first().map(|chunk| chunk.stream_offset_start), Some(first_end));
+
+    // The byte budget truncates at record boundaries and reports truncation.
+    let budgeted = window(INCARNATION_ONE, 0, u64::try_from(first.len()).unwrap());
+    assert!(budgeted.truncated);
+    assert_eq!(budgeted.chunks.len(), 1);
+    assert_eq!(budgeted.chunks[0].stream_offset_end, first_end);
+
+    // Even a budget below one record returns the first record whole.
+    let tiny = window(INCARNATION_ONE, 0, 1);
+    assert!(tiny.truncated);
+    assert_eq!(tiny.chunks.len(), 1);
+    assert_eq!(tiny.chunks[0].bytes.as_ref(), first);
+
+    // A cursor at the stream head returns an empty, non-truncated window,
+    // and a foreign generation owns no records.
+    let drained = window(INCARNATION_ONE, total, 1 << 20);
+    assert!(drained.chunks.is_empty() && !drained.truncated);
+    let foreign = window("20000000000040008000000000000001", 0, 1 << 20);
+    assert!(foreign.chunks.is_empty() && !foreign.truncated);
+}

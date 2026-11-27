@@ -883,18 +883,7 @@ fn copy_index_rows(
     sequences: &[u64],
 ) -> anyhow::Result<()> {
     let range = [i64::try_from(start)?, i64::try_from(end)?];
-    staging.execute(
-        "INSERT OR IGNORE INTO main.journal_subject_index(sequence, kind, id)
-         SELECT kept.sequence,
-                json_extract(subject.value, '$.kind'),
-                json_extract(subject.value, '$.id')
-         FROM main.output_cleanup_records AS kept,
-              json_each(kept.index_json, '$.subjects') AS subject
-         WHERE kept.sequence BETWEEN ?1 AND ?2
-           AND json_type(subject.value, '$.kind') = 'text'
-           AND json_type(subject.value, '$.id') = 'text'",
-        range,
-    )?;
+    super::super::session_journal::subject_rows::write_rows_of_staged_records(staging, range)?;
     let columns = table_columns(staging, "main", "journal_event_index")?;
     if columns.len() != DERIVED_EVENT_COLUMNS.len()
         || !DERIVED_EVENT_COLUMNS.iter().all(|name| columns.iter().any(|c| c == name))

@@ -51,25 +51,17 @@ impl WorkspaceRegistry {
 
 impl WorkspaceRegistry {
     /// Distinct subject ids of one kind that records in `start..=end` name.
-    /// It reads the append-only subject index, so it works for a range whose
-    /// records do not decode.
+    /// It reads the subject rows, so it works for a range whose records do
+    /// not decode. A journal row of the range that has no subject rows yet
+    /// gives the ids that its subject rows give after their write
+    /// (`subject_rows`).
     pub(crate) fn journal_subject_ids_in_range(
         &self,
         kind: &str,
         start: u64,
         end: u64,
     ) -> anyhow::Result<Vec<String>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT DISTINCT id FROM journal_subject_index
-             WHERE kind = ?1 AND sequence >= ?2 AND sequence <= ?3",
-        )?;
-        let ids = statement
-            .query_map(params![kind, i64::try_from(start)?, i64::try_from(end)?], |row| {
-                row.get::<_, String>(0)
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(ids)
+        subject_rows::ids_in_range(&self.connection.get(), kind, start, end)
     }
 }
 

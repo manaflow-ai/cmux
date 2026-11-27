@@ -28,6 +28,14 @@
 //! store the check reads as it did before, and that read can make the 2
 //! files.
 //!
+//! The last 3 rows are for a registry at the number 16: its journal has
+//! subject rows due. For a session that no daemon owns, the check takes the
+//! session's guard and writes those rows itself. That guard has the name of
+//! the session's folder, so the check must not write through a link: a
+//! store name or a session folder that is a link names a file of another
+//! folder. And a folder that a session reset left has no guard: its 16
+//! counts as 15 with no write.
+//!
 //! No row here measures a time, and no row waits. A row that needs a store
 //! file with an old time or with a time ahead sets that time. Each call gets
 //! its config file and its log file in the test folder, and each reset call
@@ -664,4 +672,176 @@ fn the_check_of_a_file_that_is_no_store_answers_as_before() {
     assert!(stderr.contains("file is not a database"), "stderr: {stderr}");
     let files = side_files(&session);
     assert!(files.is_empty(), "the check of a file that is no store made a side file: {files:?}");
+}
+
+/// The number of a registry whose journal has subject rows due. For a
+/// session that no daemon owns, the check takes the session's guard and
+/// writes those rows itself: the store then holds the number 15.
+const ROWS_DUE: i64 = 16;
+
+/// Words of the error that the check gives when its look at the 2 names (the
+/// session's folder and the store) finds a link, before it asks a guard. No
+/// other error of the check has these words.
+const THE_WORDS_OF_THE_LOOK: &str = "the store or its session folder is reached through a link";
+
+/// A name that the reset command gives the folder of a session before it
+/// deletes it: the exact form, with the kind and a UUID of version 4.
+const LEFT_BY_A_RESET: &str =
+    ".reset-session-7-session-6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f.deleting";
+
+/// A test folder, its state root and the folder of its one session. The
+/// session is closed, as [`a_state_root_with_a_closed_session`] makes it,
+/// and its registry holds the number 16 and is at rest: it has no side file,
+/// and the time of the last write of its file is long ago. The 2 lock files
+/// of the session's guard are in the state root: the open of the session
+/// made them and its close left them. So the check can ask the guard, and it
+/// finds no owner.
+fn a_state_root_with_a_closed_session_at_16(
+    session: &str,
+) -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let (folder, state) = a_state_root_with_a_closed_session(session);
+    let file = the_registry_file(&state);
+    let session_dir = file.parent().unwrap().to_path_buf();
+    let store = Connection::open(&file).unwrap();
+    let rows = store
+        .execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [ROWS_DUE.to_string()])
+        .unwrap();
+    drop(store);
+    assert_eq!(rows, 1, "the registry of the closed session has no stored schema number");
+    let files = side_files(&session_dir);
+    assert!(files.is_empty(), "the closed registry at 16 has a side file: {files:?}");
+    set_written(&file, long_ago());
+    let locks = state.join("session-locks");
+    let mut guard = session_dir.file_name().unwrap().to_os_string();
+    guard.push(".lock");
+    for lock in [locks.join(guard), locks.join(".coordinator.lock")] {
+        assert!(lock.is_file(), "the lock file {} is not there", lock.display());
+    }
+    (folder, state, session_dir)
+}
+
+/// The time of the last write of the store file `file`, in seconds and
+/// nanoseconds, and each file of its folder with its length, in the order of
+/// the names.
+fn the_time_and_the_folder_of(file: &Path) -> ((i64, i64), Vec<(String, u64)>) {
+    let store = fs::metadata(file).unwrap();
+    let files = files_with_lengths_and_times(file.parent().unwrap())
+        .into_iter()
+        .map(|(name, length, _, _)| (name, length))
+        .collect();
+    ((store.mtime(), store.mtime_nsec()), files)
+}
+
+/// One run of the rollback check over the state root `state`, whose one
+/// registry holds the number 16 and is reached through a link. `name` is the
+/// store's name in the session's folder, and `file` is the store file that
+/// it names, in a folder that is not in the state root. The check must not
+/// write through a link: it ends with exit 1, with no answer and with an
+/// error that names the session's folder. After the check the store file
+/// has the same bytes and the same time of the last write, and its folder
+/// has the same files with the same lengths. A write that commits gives the
+/// store file the number 15 and a new time.
+///
+/// The times of the other files are not compared: the check reads the
+/// number of a store whose name is a link with a plain read, and a plain
+/// read writes the `-shm` file again.
+///
+/// The error must be the error of the check's look at the 2 names
+/// ([`THE_WORDS_OF_THE_LOOK`]). An error of the guard question or of the
+/// write names the session's folder too and writes nothing, so without these
+/// words such an error passes the row.
+fn the_check_is_an_error_and_writes_nothing_through_the_link(
+    folder: &Path,
+    state: &Path,
+    name: &Path,
+    file: &Path,
+) {
+    assert_eq!(fs::canonicalize(name).unwrap(), file, "the store's name does not name the file");
+    assert!(!file.starts_with(state), "the store file is in the state root: {}", file.display());
+    let bytes = fs::read(file).unwrap();
+    let before = the_time_and_the_folder_of(file);
+    let (code, answer, stderr) = rollback_check(folder, state);
+    let same_bytes = fs::read(file).unwrap() == bytes;
+    assert_eq!(
+        (code, answer, same_bytes, the_time_and_the_folder_of(file)),
+        (Some(1), Value::Null, true, before),
+        "the check of a store at 16 that is reached through a link: its exit code, its answer, \
+         whether the store file has the same bytes as before, the time of the last write of the \
+         store file, and each file of its folder with its length (left: after the check; \
+         right: what the row wants, with the time and the files as before the check); stderr: \
+         {stderr}"
+    );
+    let session = name.parent().unwrap().file_name().unwrap().to_string_lossy().into_owned();
+    assert!(stderr.contains(&session), "the error does not name the session's folder: {stderr}");
+    assert!(
+        stderr.contains(THE_WORDS_OF_THE_LOOK),
+        "the error is not the error of the look at the 2 names: {stderr}"
+    );
+}
+
+/// The registry's name in the session's folder is a link to a store file at
+/// 16 in a folder that is not in the state root. The session's guard is the
+/// guard of the folder that holds the link, not of the store that the link
+/// names, and SQLite follows the link for a write. The store has the 2 files
+/// of a plain read, as a store that an earlier check read one time through
+/// the link. The check must give an error and write nothing.
+#[test]
+fn the_check_of_a_store_at_16_whose_name_is_a_link_is_an_error_and_writes_nothing() {
+    let (folder, state, session_dir) = a_state_root_with_a_closed_session_at_16("link-row-store");
+    let name = session_dir.join(REGISTRY_FILE);
+    let kept = state.parent().unwrap().join("kept");
+    fs::create_dir(&kept).unwrap();
+    let file = kept.join(REGISTRY_FILE);
+    fs::rename(&name, &file).unwrap();
+    std::os::unix::fs::symlink(&file, &name).unwrap();
+    a_plain_read_leaves_its_two_files(&file);
+    the_check_is_an_error_and_writes_nothing_through_the_link(folder.path(), &state, &name, &file);
+}
+
+/// The session's folder in the state root is a link to a folder that is not
+/// in the state root, and the registry in that folder holds 16. The check
+/// lists a folder that is a link as a session, and the guard that it can ask
+/// has the name of the link. The check must give an error and write nothing.
+/// The store is at rest and its name is a plain file, so the check reads its
+/// number with the read that makes no file.
+#[test]
+fn the_check_of_a_store_at_16_whose_session_folder_is_a_link_is_an_error_and_writes_nothing() {
+    let (folder, state, session_dir) = a_state_root_with_a_closed_session_at_16("link-row-folder");
+    let kept = state.parent().unwrap().join("kept");
+    fs::rename(&session_dir, &kept).unwrap();
+    std::os::unix::fs::symlink(&kept, &session_dir).unwrap();
+    let name = session_dir.join(REGISTRY_FILE);
+    let file = kept.join(REGISTRY_FILE);
+    the_check_is_an_error_and_writes_nothing_through_the_link(folder.path(), &state, &name, &file);
+}
+
+/// A session reset renames the session's folder to a name of its own, then
+/// deletes it. A reset that did not end leaves that folder in the state
+/// root, and no guard file has its name. Here such a folder holds a registry
+/// at 16, next to a session at 14. The check reads the folder and counts its
+/// 16 as 15, with no guard question and no write: it gives 15 and changes no
+/// file of the 2 folders. A check that does not read the folder gives 14,
+/// and a check that asks the guard for it ends with an error.
+#[test]
+fn the_check_of_a_store_at_16_in_a_folder_that_a_reset_left_gives_15_and_writes_nothing() {
+    let folder = tempfile::tempdir().unwrap();
+    let state = folder.path().join("sessions");
+    let session = a_closed_store_at_rest(&state, 14);
+    let left = state.join(LEFT_BY_A_RESET);
+    fs::rename(a_closed_store_at_rest(&folder.path().join("made"), ROWS_DUE), &left).unwrap();
+    let before = (files_with_lengths_and_times(&session), files_with_lengths_and_times(&left));
+    let (code, answer, stderr) = rollback_check(folder.path(), &state);
+    let after = (files_with_lengths_and_times(&session), files_with_lengths_and_times(&left));
+    assert_eq!(
+        (code, answer),
+        (Some(0), json!({ "workspace_registry": 15 })),
+        "the check of a folder that a reset left with a store at 16, next to a session at 14; \
+         stderr: {stderr}"
+    );
+    assert_eq!(
+        before, after,
+        "the check changed a file; each file of the session's folder and of the folder that the \
+         reset left, with its length and its time of the last write, before the check (left) \
+         and after it (right)"
+    );
 }

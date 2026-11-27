@@ -308,9 +308,11 @@ fn a_store_that_changes_after_its_read_is_read_again_before_the_numbers() {
     let (code, first, stderr) = check(root.path(), &["--within-ms", "0", "--place", ""]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert_eq!(counts_of(&first), Some((3, 1)), "{first}");
-    set_number(root.path(), "session-0", 16);
+    // Not 16: that is the number of a registry with journal subject rows
+    // due, for which the check asks the session's guard.
+    set_number(root.path(), "session-0", 17);
     let (code, last, stderr) = check(root.path(), &["--place", &place_of(&first)]);
-    assert_eq!((code, last), (Some(0), json!({ "workspace_registry": 16 })), "stderr: {stderr}");
+    assert_eq!((code, last), (Some(0), json!({ "workspace_registry": 17 })), "stderr: {stderr}");
 }
 
 /// A session that starts after the first call, with a name that sorts
@@ -1067,6 +1069,51 @@ fn a_folder_of_the_reset_that_is_gone_at_the_next_call_is_no_error() {
     assert_eq!(second, Some(wanted.clone()));
     fs::remove_dir_all(sessions.join(reset_name("session-9"))).unwrap();
     assert_eq!(stored_from(&sessions, None, Some(&wanted), now_ms).unwrap(), the_number(17));
+}
+
+/// Each file of `folder`: its name, its length and its time of the last
+/// write, sorted by name.
+fn files_of(folder: &Path) -> Vec<(String, u64, SystemTime)> {
+    let mut files: Vec<(String, u64, SystemTime)> = fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            let metadata = entry.metadata().unwrap();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            (name, metadata.len(), metadata.modified().unwrap())
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// The registry number 16 says that journal subject rows are due: the check
+/// then asks the guard of the session whether a daemon owns it. A folder
+/// with the exact name of a reset has no guard file, and a 16 in it counts
+/// as 15 with no guard question. That holds for the exact name only. Here
+/// the folder's name is only near a reset's name (its id is no UUID), so it
+/// is a folder as each other: no guard file has its name, the check cannot
+/// ask, and it ends with an error that names the folder and gives no number.
+/// It changes no file of that folder. The control before it: with 15 in the
+/// same folder the check gives the number.
+#[test]
+fn a_store_at_16_in_a_folder_with_a_name_near_a_resets_name_is_an_error() {
+    let root = state_root_of(&[13]);
+    let near = ".reset-session-7-session-not-a-uuid.deleting";
+    session(root.path(), near, 15);
+    let (code, answer, stderr) = check(root.path(), &[]);
+    assert_eq!((code, answer), (Some(0), json!({ "workspace_registry": 15 })), "stderr: {stderr}");
+    set_number(root.path(), near, 16);
+    let folder = sessions_of(root.path()).join(near);
+    let before = files_of(&folder);
+    assert_eq!(before.len(), 1, "the folder holds the registry's file only: {before:?}");
+    let (code, answer, stderr) = check(root.path(), &[]);
+    assert_eq!(
+        (code, answer, files_of(&folder)),
+        (Some(1), Value::Null, before),
+        "the exit code, the answer, the files of the folder; stderr: {stderr}"
+    );
+    assert!(stderr.contains(near), "the error does not name the folder: {stderr}");
 }
 
 /// The text of a place that has a `pass` part is the same place after the

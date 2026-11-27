@@ -275,6 +275,13 @@ success-output = "final"
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
 
+# The late subject rows tests (workspace_registry/session_journal/tests/late_subject_rows.rs and
+# mux/tests/late_subject_rows_stop.rs) print WAL frames and times (their late_subject_rows
+# lines); a fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/::late_subject_rows(_stop)?::/)'
+success-output = "final"
+
 # The live automation journey (tests/automation_live_journey.rs) runs a real runner on the real
 # clock: up to 100 s for a minute slot, 150 s with the runner off, then the catch-up and a failed
 # run, about 5 minutes in all. Outside a fleet step keyed automation-live it returns at once. Its

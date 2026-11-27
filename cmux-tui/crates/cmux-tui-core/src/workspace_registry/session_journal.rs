@@ -17,6 +17,7 @@ use subjects::{collect_patch_subjects, collect_subjects};
 pub(crate) use subjects::{expand_topology_subjects, terminal_topology_subjects_batch};
 
 pub(crate) mod salvage;
+pub(crate) mod subject_rows;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
 /// How long one call of the legacy kind backfill decodes
@@ -151,25 +152,6 @@ pub(crate) struct SessionJournalSubjectPage {
     pub(crate) records: Vec<SessionJournalRecord>,
 }
 
-/// One retained `terminal.output` record's content and stream coverage
-/// (test-only: shipped builds read output from output_store.rs).
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct TerminalOutputChunk {
-    pub(crate) stream_offset_start: u64,
-    pub(crate) stream_offset_end: u64,
-    pub(crate) bytes: Arc<[u8]>,
-}
-
-/// A record-boundary window over one terminal generation's output stream.
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct TerminalOutputRecordsWindow {
-    pub(crate) chunks: Vec<TerminalOutputChunk>,
-    /// More retained records follow this window (the byte budget cut it).
-    pub(crate) truncated: bool,
-}
-
 /// A short-lived WAL reader owned by one subscriber thread. It never shares
 /// the registry writer connection or its mutex.
 pub(crate) struct SessionJournalReader {
@@ -240,7 +222,6 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
             |row| row.get::<_, bool>(0),
         )
     };
-    let subject_index_existed = table_exists("journal_subject_index")?;
     let event_index_existed = table_exists("journal_event_index")?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS session_journal (
@@ -278,14 +259,6 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
          CREATE INDEX IF NOT EXISTS session_journal_by_correlation_sequence
            ON session_journal(correlation_id, sequence)
            WHERE correlation_id IS NOT NULL;
-         CREATE TABLE IF NOT EXISTS journal_subject_index (
-           sequence INTEGER NOT NULL CHECK(sequence > 0),
-           kind TEXT NOT NULL,
-           id TEXT NOT NULL,
-           PRIMARY KEY(sequence, kind, id)
-         ) WITHOUT ROWID;
-         CREATE INDEX IF NOT EXISTS journal_subject_index_by_subject_sequence
-           ON journal_subject_index(kind, id, sequence);
          CREATE TABLE IF NOT EXISTS journal_event_index (
            event_id TEXT PRIMARY KEY NOT NULL,
            sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
@@ -312,18 +285,11 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            BEFORE DELETE ON session_journal
          BEGIN
            SELECT RAISE(ABORT, 'session journal is append-only');
-         END;
-         CREATE TRIGGER IF NOT EXISTS journal_subject_index_reject_update
-           BEFORE UPDATE ON journal_subject_index
-         BEGIN
-           SELECT RAISE(ABORT, 'journal subject index is append-only');
-         END;
-         CREATE TRIGGER IF NOT EXISTS journal_subject_index_reject_delete
-           BEFORE DELETE ON journal_subject_index
-         BEGIN
-           SELECT RAISE(ABORT, 'journal subject index is append-only');
          END;",
     )?;
+    // The subject table, its mark, and the subject rows of a store that had
+    // no table yet.
+    subject_rows::create_schema(transaction)?;
     // Every append writes its event index row in the same transaction, so an
     // existing index can only lack a tail left by a build that predates it.
     // Repairing from its highest sequence keeps this open-time step a seek
@@ -339,17 +305,6 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
         },
         [],
     )?;
-    if !subject_index_existed {
-        transaction.execute_batch(
-            "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
-               SELECT journal.sequence,
-                      json_extract(subject.value, '$.kind'),
-                      json_extract(subject.value, '$.id')
-               FROM session_journal AS journal, json_each(journal.subjects_json) AS subject
-               WHERE json_type(subject.value, '$.kind') = 'text'
-                 AND json_type(subject.value, '$.id') = 'text';",
-        )?;
-    }
     ensure_session_journal_content_schema(transaction)?;
     ensure_journal_event_index_schema(transaction)?;
     transaction.execute_batch(output_cleanup::PRUNED_RANGES_SCHEMA)?;
@@ -921,13 +876,8 @@ pub(crate) fn append_journal_record(
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
         ])?;
-    transaction
-        .prepare_cached(
-            "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
-         SELECT ?1, json_extract(value, '$.kind'), json_extract(value, '$.id')
-         FROM json_each(?2)",
-        )?
-        .execute(params![sequence, subjects_json])?;
+    // No subject row here: a later commit writes them (`subject_rows`).
+    subject_rows::after_append(transaction, sequence)?;
     u64::try_from(sequence).context("journal sequence is negative")
 }
 
@@ -1081,80 +1031,6 @@ impl WorkspaceRegistry {
         let next_offset =
             u64::try_from(next_offset).context("terminal journal offset is negative")?;
         Ok(Some((generation, next_offset)))
-    }
-
-    /// Retained live `terminal.output` records of one generation with bytes
-    /// after `after`, in stream order, honoring record boundaries: the first
-    /// matching record is always included whole, later records only while the
-    /// accumulated content stays within `max_bytes`.
-    ///
-    /// Records archived into sealed journal segments are not served here:
-    /// sealing is checkpoint-aligned, so archived output is covered by a
-    /// retained vt-replay snapshot (a checkpoint blob for live terminals, the
-    /// terminal exit snapshot for exited ones) and readers see the coverage
-    /// clamp through the window's start offset.
-    #[cfg(test)]
-    pub(crate) fn terminal_output_records_after(
-        &self,
-        terminal_id: &str,
-        generation: &str,
-        after: u64,
-        max_bytes: u64,
-    ) -> anyhow::Result<TerminalOutputRecordsWindow> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
-                    occurred_at_ms, committed_at_ms, producer_json, authority_json,
-                    causation_id, correlation_id, causation_depth, subjects_json,
-                    sensitivity, payload_json, content, resource_revision,
-                    previous_resource_revision
-             FROM session_journal
-             WHERE kind = 'terminal.output'
-               AND EXISTS (
-                 SELECT 1 FROM journal_subject_index AS subject
-                 WHERE subject.sequence = session_journal.sequence
-                   AND subject.kind = 'terminal' AND subject.id = ?1
-               )
-               AND json_extract(authority_json, '$.generation') = ?2
-               AND CAST(json_extract(payload_json, '$.stream_offset_end') AS INTEGER) > ?3
-             ORDER BY sequence ASC",
-        )?;
-        let rows = statement.query_map(
-            params![
-                terminal_id,
-                generation,
-                i64::try_from(after).context("terminal stream offset exceeds SQLite range")?,
-            ],
-            stored_record_row,
-        )?;
-        let mut chunks: Vec<TerminalOutputChunk> = Vec::new();
-        let mut total_bytes = 0_u64;
-        let mut truncated = false;
-        for row in rows {
-            let record = decode_record(row?)?;
-            let bytes = record
-                .terminal_output
-                .clone()
-                .context("terminal output record omitted its content")?;
-            let stream_offset_start = decimal_payload_u64(&record.payload, "stream_offset_start")?;
-            let stream_offset_end = decimal_payload_u64(&record.payload, "stream_offset_end")?;
-            if let Some(previous) = chunks.last() {
-                anyhow::ensure!(
-                    stream_offset_start == previous.stream_offset_end,
-                    "terminal output stream window contains an offset gap"
-                );
-            }
-            let byte_count = u64::try_from(bytes.len())?;
-            if !chunks.is_empty()
-                && total_bytes.checked_add(byte_count).is_none_or(|total| total > max_bytes)
-            {
-                truncated = true;
-                break;
-            }
-            total_bytes = total_bytes.saturating_add(byte_count);
-            chunks.push(TerminalOutputChunk { stream_offset_start, stream_offset_end, bytes });
-        }
-        Ok(TerminalOutputRecordsWindow { chunks, truncated })
     }
 }
 
@@ -1617,7 +1493,7 @@ pub(crate) fn query_session_journal_sequences(
     Ok(records.into_values().collect())
 }
 
-fn query_session_journal_after_subjects(
+pub(super) fn query_session_journal_after_subjects(
     connection: &Connection,
     sequence: u64,
     limit: usize,
@@ -1643,38 +1519,7 @@ fn query_session_journal_after_subjects(
         sequence <= head_sequence,
         "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
     );
-    let requested_json = canonical_json(&serde_json::to_value(subjects)?)?;
-    let mut statement = connection.prepare_cached(
-        "SELECT DISTINCT indexed.sequence
-         FROM json_each(?1) AS requested
-         JOIN journal_subject_index AS indexed
-           INDEXED BY journal_subject_index_by_subject_sequence
-           ON indexed.kind = json_extract(requested.value, '$.kind')
-          AND indexed.id = json_extract(requested.value, '$.id')
-         WHERE indexed.sequence > ?2
-         ORDER BY indexed.sequence ASC
-         LIMIT ?3",
-    )?;
-    let sequences = statement
-        .query_map(
-            params![
-                requested_json,
-                i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
-                i64::try_from(limit).context("journal page limit exceeds SQLite range")?,
-            ],
-            |row| row.get::<_, i64>(0),
-        )?
-        .map(|row| {
-            u64::try_from(row?).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    0,
-                    rusqlite::types::Type::Integer,
-                    Box::new(error),
-                )
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    drop(statement);
+    let sequences = subject_rows::sequences_after(connection, sequence, limit, subjects)?;
     let records = query_session_journal_sequences(connection, &sequences)?;
     let scanned_through = if sequences.len() == limit {
         sequences.last().copied().unwrap_or(sequence)

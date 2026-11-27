@@ -175,8 +175,27 @@ impl Mux {
     /// leases go first: this owner keeps listening until it exits, so no new
     /// owner binds the socket before it is removed here.
     pub fn release_ownership(&self, socket_path: &Path) {
+        // The stop's rule: no write of the subject rows while the journal's
+        // writer can still append. A writer that did not end in the stop's
+        // time has the registry's connection for each of its commits, so a
+        // write here would wait for it with no end time, and a row of that
+        // writer could come after it. The store stays at the number that
+        // says rows are due then, until this build opens the session again
+        // or a rollback's check writes the rows.
+        let writer_ended = self.journal_ingress.writer_ended();
         {
             let mut registry = self.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
+            // The last write of this owner's registry before the session is
+            // free for another owner, under the registry's lock: a journal
+            // row that came after the stop's write gets its subject rows,
+            // and the store has its plain schema number again. With no such
+            // row it writes nothing.
+            let written = if writer_ended { registry.write_journal_subject_tail() } else { Ok(0) };
+            if let Err(error) = written {
+                eprintln!(
+                    "cmux-tui: write journal subject rows at the session's release: {error:#}"
+                );
+            }
             drop(registry.lease.take());
             drop(registry.session_guard.take());
         }
@@ -287,10 +306,25 @@ impl Mux {
             self.capture_shutdown_checkpoint();
         }
         lap("shutdown.screen_checkpoint");
-        if let Err(error) = self.journal_ingress.close_and_join() {
+        let joined = self.journal_ingress.close_and_join();
+        if let Err(error) = &joined {
             eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
         }
         lap("shutdown.journal_writer");
+        // The journal's writer ended, so its rows of this run are in: the
+        // subject rows that are due go in now, and an older build can open
+        // the store again. A writer that did not end can still append: then
+        // nothing is written here, and nothing at the release of the
+        // session. Another writer of the registry can still
+        // append after this write; the release of the session writes the
+        // subject rows of such a row (`release_ownership`).
+        if joined.is_ok() {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Err(error) = registry.write_journal_subject_tail() {
+                eprintln!("cmux-tui: write journal subject rows during {context}: {error:#}");
+            }
+        }
+        lap("shutdown.journal_subject_rows");
     }
 
     /// Publish that every owner needed by canonical server lifecycle commands

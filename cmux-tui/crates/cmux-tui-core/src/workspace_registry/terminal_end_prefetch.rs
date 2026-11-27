@@ -6,7 +6,7 @@
 //! anyone (`terminal.adopt_hosts`, 0.8-1.5 s for 462 terminals on a 41.6 GB
 //! registry). 60% of that was cold page reads: each end appends a journal
 //! record whose subjects (the terminal, its tabs, panes, screens and
-//! workspaces) go into `journal_subject_index_by_subject_sequence`, keyed by
+//! workspaces) go into the subject rows' index (`subject_rows`), keyed by
 //! random public ids, so every insert lands on a leaf no earlier step read.
 //!
 //! A background thread started right after the registry opens reads those
@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use super::open_registry_database_read_only;
+use super::session_journal::subject_rows;
 
 /// Reader threads: an SSD serves random reads in parallel; 316 ms serial
 /// became about 160 ms with 16 on the nightly registry, and the reads also
@@ -67,24 +68,21 @@ pub(crate) fn terminal_end_prefetch_keys(
     Ok(keys)
 }
 
-/// The probe of one key: it reads the leaf the key's next insert lands on.
-const SUBJECT_PROBE: &str = "SELECT sequence FROM journal_subject_index WHERE kind = ?1 AND id = ?2
-     ORDER BY sequence DESC LIMIT 1";
+/// The probe of one event-log key: it reads the leaf the key's next insert
+/// lands on. The probe of a journal subject is `subject_rows::warm_leaves`.
 const EVENT_PROBE: &str = "SELECT revision FROM terminal_events WHERE terminal_id = ?1
      ORDER BY revision DESC LIMIT 1";
 
 /// Read every key of `shard` on `connection`, two prepared statements.
 fn probe_all(connection: &Connection, shard: &[PrefetchKey]) -> anyhow::Result<()> {
-    let mut subjects = connection.prepare(SUBJECT_PROBE)?;
+    let is_event_log = |key: &&PrefetchKey| key.0 == "terminal_events";
     let mut events = connection.prepare(EVENT_PROBE)?;
-    for (kind, id) in shard {
-        let mut rows = if kind == "terminal_events" {
-            events.query([id])?
-        } else {
-            subjects.query([kind, id])?
-        };
+    for (_, id) in shard.iter().filter(is_event_log) {
+        let mut rows = events.query([id])?;
         let _ = rows.next()?;
     }
+    let subjects = shard.iter().filter(|key| !is_event_log(key));
+    subject_rows::warm_leaves(connection, subjects.map(|(kind, id)| (kind.as_str(), id.as_str())))?;
     Ok(())
 }
 

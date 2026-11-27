@@ -1562,7 +1562,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
         .unwrap()
         .parse()
         .unwrap();
-    let newer = supported + 1;
+    let newer = supported + 2; // + 1 is this schema with subject rows due: it opens
     let registry_id: String = connection
         .query_row("SELECT value FROM meta WHERE key = 'registry_id'", [], |row| row.get(0))
         .unwrap();

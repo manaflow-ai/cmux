@@ -66,6 +66,7 @@ mod journal_seal_cost;
 mod journal_vacuum_backlog;
 mod kitty_budget;
 mod kitty_reservation;
+mod late_subject_rows_stop;
 mod layout_apply_focus;
 mod layout_sizes;
 #[cfg(unix)]

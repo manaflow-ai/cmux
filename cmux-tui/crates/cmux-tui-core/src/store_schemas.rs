@@ -12,13 +12,22 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
+use crate::workspace_registry::is_pending_reset_dir_name;
+use crate::workspace_registry::session_journal::subject_rows::{
+    ROWS_DUE_SCHEMA_VERSION, schema_of_stored_number, stored_number_for_a_rollback,
+};
+
+const REGISTRY: &str = "workspace_registry";
+
 /// Every store a rollback checks: its name, its file in a session directory,
 /// and the newest schema this build reads.
 const STORES: &[(&str, &str, i64)] = &[
     (
-        "workspace_registry",
+        REGISTRY,
         crate::workspace_registry::WORKSPACE_REGISTRY_FILE,
-        crate::workspace_registry::SCHEMA_VERSION,
+        // The number of a store whose journal has subject rows due: this
+        // build opens it, a build that does not know the number refuses it.
+        crate::workspace_registry::session_journal::subject_rows::ROWS_DUE_SCHEMA_VERSION,
     ),
     (
         "conversation_store",
@@ -30,6 +39,52 @@ const STORES: &[(&str, &str, i64)] = &[
 /// The newest schema of every store this build reads.
 pub fn readable() -> BTreeMap<String, i64> {
     STORES.iter().map(|(name, _, version)| ((*name).to_string(), *version)).collect()
+}
+
+/// A stopwatch for one part of a rollback check. In a test build its end
+/// counts the part and adds its time for the thread, so that a test can
+/// assert how many times each part ran and print where the time went
+/// ([`take_parts`]). In the product it holds nothing and does nothing.
+pub(crate) struct Part {
+    #[cfg(test)]
+    began: Instant,
+}
+
+impl Part {
+    pub(crate) fn start() -> Self {
+        Self {
+            #[cfg(test)]
+            began: Instant::now(),
+        }
+    }
+
+    /// Ends the part `name`. A part that an error leaves is not counted.
+    pub(crate) fn end(self, name: &'static str) {
+        #[cfg(test)]
+        PARTS.with(|parts| {
+            let mut parts = parts.borrow_mut();
+            let part = parts.entry(name).or_insert((0, Duration::ZERO));
+            part.0 += 1;
+            part.1 += self.began.elapsed();
+        });
+        #[cfg(not(test))]
+        let _ = name;
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The parts that the checks of this thread ended: how many times, and
+    /// their time in all.
+    static PARTS: std::cell::RefCell<BTreeMap<&'static str, (u64, Duration)>> =
+        const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// The parts that the checks of this thread ended since the last call: for
+/// each name how many times, and their time in all.
+#[cfg(test)]
+pub(crate) fn take_parts() -> BTreeMap<&'static str, (u64, Duration)> {
+    PARTS.with(|parts| std::mem::take(&mut *parts.borrow_mut()))
 }
 
 /// What a check of the stored schemas found.
@@ -46,6 +101,18 @@ pub enum Stored {
 /// A store that no session has written yet is absent. A store that cannot be
 /// read is an error: the caller must not guess.
 ///
+/// It is a read for its caller, and it can write: the registry of a session
+/// that no daemon owns, left with journal subject rows due, gets those rows
+/// here (`stored_number_for_a_rollback`). That write changes derived rows
+/// and the stored number only, and it makes no store file: SQLite can make
+/// its 2 side files next to the store for the time of the write. A write
+/// that does not commit is tried again at each later read of that store (2
+/// reads at most in one call, and each later call), each time with a wait
+/// of 500 ms at most for the store's write lock. When the check cannot tell
+/// whether a daemon owns such a session, that is an error too, and so is
+/// such a store that is reached through a link ([`read_session`] has that
+/// rule, the price of the write and the limits).
+///
 /// `end` is the check's end time. The caller of the check ends its process
 /// after a fixed time, and a check that is ended gives no answer. So before
 /// each session after the first, the check reads the clock; at or after
@@ -54,8 +121,18 @@ pub enum Stored {
 /// The check keeps nothing between 2 calls: a call after it starts at the
 /// first session again, in the same order (the session folders sorted by
 /// path), and is faster only because the files are in the file cache. With
-/// no `end` it reads each session. A caller that carries a place from one
-/// call to the next uses [`stored_from`].
+/// no `end` it reads each session. The write for a session is a part of
+/// that session's read, and the clock is read only between 2 sessions: a
+/// check that stops at `end` made the write of each session that it read,
+/// and no write for a session after them. A call after it finds those
+/// stores written. A caller that carries a place from one call to the next
+/// uses [`stored_from`].
+///
+/// The folder that a session reset left in the state root when it did not
+/// end (`is_pending_reset_dir_name`) is read and counted as each other
+/// folder. No guard file has its name, so a registry number 16 in it counts
+/// as 15, with no guard question and no write ([`read_session`] has the
+/// rule and its limit).
 pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<Stored> {
     stored_from(state_root, end, None, 0).map(|(stored, _)| stored)
 }
@@ -297,11 +374,59 @@ fn in_reset(session: &Path) -> bool {
 /// the newest schema of each. `in_delete` is for a folder that the reset
 /// deletes while the check runs: a store that cannot be read and whose file
 /// is then gone is no store and no error.
+///
+/// The read of a session can write: the registry of the state root
+/// `state_root` whose stored number says that journal subject rows are due
+/// (16) gets the number that [`stored_number_for_a_rollback`] gives for it.
+/// That function asks the session's guard, and it writes those rows when no
+/// daemon owns the session. The store then holds 15, so a later read of the
+/// same store in the same check asks no guard and writes nothing: one store
+/// gets that write one time at most, when the write commits.
+///
+/// The price of the write: it changes the store file, against the rule of
+/// [`schema_version`] to leave the folder of a closed store as found. A
+/// second call of the reset command that comes after it refuses one time,
+/// and the first call gives a new text then.
+///
+/// A registry at 16 whose name is a link or whose session folder is a link,
+/// in a folder that is not a reset's folder, gets no guard question and no
+/// write, and the check ends with an error ([`reached_with_no_link`]).
+/// The guard has the name of the session folder, and SQLite's open for the
+/// write follows a link: the write would go into a file of another folder,
+/// under a guard that is not the guard of that file. The limit: the look at
+/// the 2 names and the open for the write are 2 steps, and a name that
+/// becomes a link between them is followed. The look also does not see a
+/// store file that has 2 names (a hard link): the write goes into that file.
+///
+/// A folder whose name is exactly a name that the reset command gives
+/// ([`is_pending_reset_dir_name`]: the kind and the canonical id) has no
+/// guard file of its name. The check reads it as each other folder, and each
+/// number in it counts as it is, with one exception: a registry number 16
+/// there counts as 15 ([`schema_of_stored_number`]), with no guard question
+/// and no write. With the guard question, one folder that a reset left with
+/// a store at 16 would make each check end with an error until the next
+/// reset of that session deletes the folder. A folder whose name is only
+/// near a reset's name ([`in_reset`] is true for it, the exact form is not)
+/// gets the guard question as a session does: a 16 there is an error.
+///
+/// The limit of the exception: a folder that a reset left with the mark 16
+/// counts as 15. A reset that runs now puts the folder back under the
+/// session's name when its look after the rename finds a changed folder. A
+/// check that read the folder between that rename and that look gave a
+/// number that is too small for a build that does not know the mark. That
+/// is not chance only: the check's own plain read of a store that is not at
+/// rest makes or writes the 2 side files, and that is a change for the
+/// reset's look. The next check reads the folder under its session name and
+/// asks the guard.
 fn read_session(
+    state_root: &Path,
     session: &Path,
     in_delete: bool,
     found: &mut BTreeMap<String, i64>,
 ) -> anyhow::Result<()> {
+    // No guard file has the name of a folder that a reset left.
+    let left_by_a_reset =
+        session.file_name().and_then(OsStr::to_str).is_some_and(is_pending_reset_dir_name);
     for (name, file, _) in STORES {
         let path = session.join(file);
         // A store can go away after the listing (a session that is
@@ -315,11 +440,40 @@ fn read_session(
             Err(error) => return Err(error),
         };
         if let Some(version) = version {
+            let version = if *name != REGISTRY {
+                version
+            } else if left_by_a_reset {
+                schema_of_stored_number(version)
+            } else {
+                if version == ROWS_DUE_SCHEMA_VERSION {
+                    reached_with_no_link(session, &path)?;
+                }
+                stored_number_for_a_rollback(state_root, session, &path, version)?
+            };
             let newest = found.entry((*name).to_string()).or_insert(version);
             *newest = (*newest).max(version);
         }
     }
     Ok(())
+}
+
+/// An error when the registry `store` at 16 of the session folder `session`
+/// is reached through a link: `session` is no directory by itself, or
+/// `store` is no plain file by itself (`symlink_metadata`: a name that is a
+/// link is neither). [`read_session`] has the reason and the limit.
+fn reached_with_no_link(session: &Path, store: &Path) -> anyhow::Result<()> {
+    let by_itself = |path: &Path| {
+        std::fs::symlink_metadata(path).with_context(|| format!("look at {}", path.display()))
+    };
+    if by_itself(session)?.is_dir() && by_itself(store)?.is_file() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "the rollback check cannot tell whether an older build can open {}: journal subject rows \
+         are due in it, and the store or its session folder is reached through a link, so the \
+         check asks no guard and writes no rows",
+        store.display()
+    )
 }
 
 /// The name of the session folder `session`; nil when it is not UTF-8,
@@ -454,7 +608,7 @@ pub fn stored_from(
             let next = name_of(last).map(|after| Place { root, after, found, since_ms, pass });
             return Ok((Stored::NotReady { sessions: sessions.len(), sessions_read }, next));
         }
-        read_session(session, false, &mut found)?;
+        read_session(state_root, session, false, &mut found)?;
         last_read = Some(session);
     }
     // The last session folder that the calls read: nil only for a name that
@@ -489,7 +643,7 @@ pub fn stored_from(
                 looks_left = LOOKS_FOR_EACH_CLOCK_READ;
             }
             if changed {
-                read_session(session, reset, &mut found)?;
+                read_session(state_root, session, reset, &mut found)?;
                 read_one = true;
             }
             looks_left = looks_left.saturating_sub(1);
@@ -520,6 +674,10 @@ pub fn stored_from(
 /// other store, and each store for which that read gives an error or is not
 /// sure, gets the plain read, and the plain read's number or error is the
 /// answer. On a system that is not unix each store gets the plain read.
+///
+/// One store is not left as found, and that is a said price: a registry at
+/// 16 of a session that no daemon owns gets its subject rows, and that write
+/// changes the store file one time ([`read_session`]).
 fn schema_version(path: &Path) -> anyhow::Result<Option<i64>> {
     #[cfg(unix)]
     {
@@ -710,20 +868,30 @@ fn version_at_rest(path: &Path) -> Option<Option<i64>> {
 /// nil when the store has no schema yet. `path` is the store's file, for the
 /// text of an error.
 fn stored_version(name: &Path, flags: OpenFlags, path: &Path) -> anyhow::Result<Option<i64>> {
+    let part = Part::start();
     let connection = Connection::open_with_flags(name, flags)
         .with_context(|| format!("open {}", path.display()))?;
     connection.busy_timeout(Duration::from_millis(500))?;
+    part.end("read: the open");
+    // The first statement of a connection reads the store's schema.
+    let part = Part::start();
     let has_meta: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
         [],
         |row| row.get(0),
     )?;
+    part.end("read: the schema and the meta table's name");
     if !has_meta {
         return Ok(None);
     }
+    let part = Part::start();
     let value: Option<String> = connection
         .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0))
         .optional()?;
+    part.end("read: the number");
+    let part = Part::start();
+    drop(connection);
+    part.end("read: the close");
     value
         .map(|value| {
             value.parse::<i64>().with_context(|| format!("{} schema is invalid", path.display()))

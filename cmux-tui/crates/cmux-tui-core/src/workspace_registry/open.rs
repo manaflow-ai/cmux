@@ -346,7 +346,10 @@ impl WorkspaceRegistry {
             .as_deref()
             .map(str::parse::<i64>)
             .transpose()
-            .context("workspace registry schema is invalid")?;
+            .context("workspace registry schema is invalid")?
+            // The number of a store with subject rows to write names this
+            // schema; the write at this open's end puts the plain number back.
+            .map(session_journal::subject_rows::schema_of_stored_number);
         // Existing registries may carry the pre-multiview terminal-to-workspace
         // foreign key even when a development build already stamped the
         // current schema number. Revalidate and normalize every existing DB.
@@ -710,6 +713,16 @@ impl WorkspaceRegistry {
             tx.commit()?;
         }
         timings.lap("registry.resource_invariants");
+        // The subject rows that the last run did not write (it ended with no
+        // stop step), and those of the journal rows of this open: after this
+        // commit no journal row is after the mark, and the schema number is
+        // the plain one. The last write of an open, in a commit of its own.
+        {
+            let tx = connection.unchecked_transaction()?;
+            session_journal::subject_rows::write_tail(&tx)?;
+            tx.commit()?;
+        }
+        timings.lap("registry.journal_subject_rows");
         let generation = try_new_uuid_v4()?;
         Ok(Self {
             connection: RegistryConnection::new(connection, database_path.as_deref()),
