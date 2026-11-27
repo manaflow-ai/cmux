@@ -205,18 +205,24 @@ impl Supervisor {
             if !inner.mirror.apps.get(&app).is_some_and(|r| r.installed) {
                 return Err(error("scope.missing", "the app is not installed"));
             }
+            // `storage:synced`: the app's replica of its cloud rows (synced.rs).
+            let synced = grant.scopes.contains(super::storage::SYNCED_SCOPE);
             let answer = {
                 let storage = self.storage();
                 let storage = storage
                     .as_ref()
                     .ok_or_else(|| error("operation.failed", "app storage is unavailable"))?;
                 storage
-                    .call(&app, &op, &params)
+                    .call(&app, &op, &params, synced)
                     .map(|value| json!({ "value": value }))
                     .map_err(|e| error(e.code, e.message))
             };
             drop(inner);
-            let rebinds = matches!(op.as_str(), "app.storage.set" | "app.storage.delete")
+            let writes = matches!(op.as_str(), "app.storage.set" | "app.storage.delete");
+            if synced && answer.is_ok() && writes {
+                self.appkv_wrote();
+            }
+            let rebinds = writes
                 && params.get("key").and_then(Value::as_str)
                     == Some(super::page_keys::OVERRIDES_KEY);
             if answer.is_ok() && rebinds {

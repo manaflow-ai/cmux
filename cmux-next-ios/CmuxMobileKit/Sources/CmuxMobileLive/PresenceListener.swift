@@ -54,6 +54,9 @@ public final class PresenceListener {
     static let pingInterval: Duration = .seconds(15)
     static let pingTimeout: Duration = .seconds(5)
     static let helloTimeout = PresenceTiming.helloTimeout
+    /// Presence down at least this long before its return redials the links
+    /// (`LiveCoordinator.presenceOutageMin`; ``PresenceTiming/outageMin``).
+    static let outageMin = PresenceTiming.outageMin
 
     /// The socket's retry after `failures` failures in a row (``PresenceTiming/retryDelay(afterFailures:)``).
     static func retryDelay(afterFailures failures: Int) -> Duration {
