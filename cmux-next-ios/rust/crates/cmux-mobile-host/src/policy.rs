@@ -977,6 +977,8 @@ mod tests {
             // Latest screen first (attach-replay-history-rows-v1): screen only, then a chunk more.
             br#"{"cmd":"attach-surface","cols":80,"id":"m2","replay_history_rows":0,"rows":24,"surface":7}"#,
             br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":2000,"surface":7}"#,
+            // A reattach in one write (attach-identity-v1): fenced by the boot and the terminal.
+            br#"{"cmd":"attach-surface","cols":54,"expected_generation":"gen-1","expected_terminal_id":"term_a","id":"m2","replay_history_rows":0,"rows":38,"surface":7}"#,
             // A window far up the history (attach-replay-history-window-v1).
             br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":4000,"replay_history_start":0,"surface":7}"#,
             br#"{"bytes":"bHMK","cmd":"send","id":"m3","surface":7}"#,

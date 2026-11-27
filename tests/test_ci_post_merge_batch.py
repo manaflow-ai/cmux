@@ -294,6 +294,28 @@ class RateLimitTest(unittest.TestCase):
         self.assertEqual(pmb.rate_limit_wait(0, None, 30), 30)
         self.assertEqual(pmb.rate_limit_wait(0, 1, 0), 0)
 
+    def test_a_read_answered_5xx_is_tried_again(self) -> None:
+        # A probe's read of its origin run that GitHub answered 5xx used to refuse the probe and end the bisect.
+        got, slept = self.call([(1, "gh: Server Error (HTTP 502)"), (1, "HTTP 503: Service Unavailable"), (0, '{"id": 7}')], 0)
+        self.assertEqual(got, {"id": 7})
+        self.assertEqual(slept, list(pmb.READ_RETRY_WAITS))
+
+    def test_a_read_still_5xx_after_its_retries_fails(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.call([(1, "HTTP 502")] * (len(pmb.READ_RETRY_WAITS) + 1), 0)
+
+    def test_a_write_answered_5xx_is_not_retried_here(self) -> None:
+        replies = [(1, "HTTP 500: Failed to run workflow dispatch")]
+
+        def fake_run(argv, **_):
+            code, text = replies.pop(0)
+            return subprocess.CompletedProcess(argv, code, stdout="", stderr=text)
+
+        slept: list[float] = []
+        with self.assertRaises(RuntimeError):
+            pmb.gh_api("repos/x/y/dispatches", method="POST", fields={}, run=fake_run, sleep=slept.append, tokens=["t"])
+        self.assertEqual(slept, [])
+
     def test_a_spent_token_falls_to_the_next_before_waiting(self) -> None:
         limited = "gh: API rate limit exceeded for installation ID 1. (HTTP 403)"
         replies = [(1, limited), (0, '{"jobs": []}')]
@@ -325,6 +347,16 @@ class RateLimitTest(unittest.TestCase):
             finally:
                 pmb.list_runs = saved
             self.assertIn("suites= drill ", out.read_text())
+
+    def test_a_probe_is_judged_against_its_known_good_commit(self) -> None:
+        # A bisect probe's suite judges its reds against `good` (gallery-health's `base`): a standing red
+        # there too is not the probed merge's, so the bisect hunts only the red that is new.
+        for good, base in (("c" * 40, "c" * 40), ("", "")):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                pmb.main(["plan", "--github-output", str(out), "--summary", str(Path(tmp) / "s"), "--mode", "probe",
+                          "--suite", "drill", "--probe-sha", "a" * 40, "--good", good])
+                self.assertIn(f"base={base}\n", out.read_text())
 
 class BisectTest(unittest.TestCase):
     def walk(self, commits: list[str], culprit: str) -> tuple[str, int]:
@@ -401,7 +433,11 @@ class WiringTest(unittest.TestCase):
             job = jobs[key]
             self.assertEqual(job["uses"], f"./.github/workflows/{suite.workflow}", key)
             self.assertEqual(job["if"], f"contains(needs.plan.outputs.suites, ' {key} ')", key)
-            self.assertEqual(job["with"], {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
+            # sha and only always; a suite may take more of plan's outputs (gallery-health's base, cmux#57172).
+            self.assertEqual({k: v for k, v in job["with"].items() if k in ("sha", "only")},
+                             {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
+            for k, v in job["with"].items():
+                self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
 
@@ -412,7 +448,9 @@ class WiringTest(unittest.TestCase):
             inputs = on["workflow_call"]["inputs"]
             self.assertTrue({"sha", "only"} <= set(inputs), key)
             for job_id in suite.jobs:
-                gate = str(callee["jobs"][job_id].get("if", ""))
+                # A gateway job's id ends in -fleet while its manifest id does not (cmux#56548).
+                callee_id = job_id if job_id in callee["jobs"] else f"{job_id}-fleet"
+                gate = str(callee["jobs"][callee_id].get("if", ""))
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
 
@@ -482,6 +520,66 @@ class GuardTest(unittest.TestCase):
 
         self.assertTrue(pmb.merged_by_teammate("o/r", "7", api=unreadable))
         self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
+
+    def test_an_agents_revert_is_handed_to_autoland_and_a_teammates_is_not(self) -> None:
+        # Goal base-batch-reverts-culprit: "reverts it with no person". The label is next_autoland's hand-off.
+        calls = []
+        line = pmb.hand_off("o/r", 12, "", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls, [("repos/o/r/issues/12/labels", {"method": "POST", "fields": {"labels": ["ready-to-land"]}})])
+        self.assertIn("ready-to-land", line)
+        calls.clear()
+        self.assertIn("Held for lucasr1b", pmb.hand_off("o/r", 12, "lucasr1b", api=lambda path, **kw: calls.append(path)))
+        self.assertEqual(calls, [])
+
+        def refused(path, **kw):
+            raise RuntimeError("gh api: 403")
+
+        self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
+
+    def _conflict_api(self, tip_conclusion: str, comments=()):
+        calls = []
+        job = "web / Web tests 1/2"
+
+        def api(path, **kw):
+            calls.append((path, kw))
+            if "/workflows/" in path:
+                return {"workflow_runs": [
+                    {"id": 90, "display_title": "batch next", "status": "completed", "head_sha": "b" * 40, "created_at": "2"},
+                    {"id": 50, "display_title": "batch next", "status": "completed", "head_sha": "a" * 40, "created_at": "1"},
+                ]}
+            if path.startswith("repos/o/r/actions/runs/90/jobs"):
+                return {"jobs": [{"name": job, "status": "completed", "conclusion": tip_conclusion}]}
+            if path.endswith("/comments?per_page=100"):
+                return list(comments)
+            if kw.get("method") == "POST":
+                return {"html_url": "https://x/c/1"}
+            return {}
+
+        args = Namespace(repo="o/r", branch="feat-cmux-next", origin="60", job=job, manifest=str(pmb.MANIFEST), good="c" * 40,
+                         server_url="https://github.com", run_id="70", dry_run=False)
+        return api, calls, args
+
+    def test_a_conflicted_revert_already_fixed_forward_stops_quietly(self) -> None:
+        # Goal base-batch-reverts-culprit: b672c956's revert conflicted because #59537 had fixed it forward.
+        api, calls, args = self._conflict_api("success")
+        line = pmb.revert_conflict(args, "d" * 40, "123", [], api=api)
+        self.assertIn("fixed forward, nothing to revert", line)
+        self.assertFalse([c for c in calls if c[1].get("method") == "POST"])
+
+    def test_a_conflicted_revert_still_red_tells_the_culprits_pr_once(self) -> None:
+        api, calls, args = self._conflict_api("failure")
+        culprit = pmb.git("rev-parse", "HEAD~1").strip()
+        line = pmb.revert_conflict(args, culprit, "123", ["scripts/ci/post_merge_batch.py"], api=api)
+        posts = [c for c in calls if c[1].get("method") == "POST"]
+        self.assertEqual([p[0] for p in posts], ["repos/o/r/issues/123/comments"])
+        body = posts[0][1]["fields"]["body"]
+        self.assertIn(pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job), body)
+        self.assertIn("`web / Web tests 1/2`", body)
+        self.assertIn("told #123's owner", line)
+        mark = pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job)
+        api, calls, args = self._conflict_api("failure", comments=[{"body": mark}])
+        self.assertIn("already told", pmb.revert_conflict(args, culprit, "123", [], api=api))
+        self.assertFalse([c for c in calls if c[1].get("method") == "POST"])
 
 
 class PushTest(unittest.TestCase):
@@ -616,3 +714,150 @@ class PushTokenTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DispatchProbeRetryTests(unittest.TestCase):
+    probe = pmb.Probe("web", "web / Web tests (2/4)", "web-tests", "f" * 40, "a" * 40, "b" * 40, "1")
+    title = f"probe web web-tests at {'f' * 40}"
+
+    def fake(self, answers: list, listed: list[dict] | None = None):
+        calls: list[str] = []
+
+        def api(path, method="GET", **_):
+            calls.append(method)
+            if method == "GET":
+                return {"workflow_runs": listed or []}
+            answer = answers.pop(0)
+            if answer:
+                raise RuntimeError(f"gh api POST {path}: {answer}")
+            return None
+        return api, calls
+
+    def test_a_5xx_is_retried_until_the_dispatch_goes_through(self) -> None:
+        api, calls = self.fake(["gh: Failed to run workflow dispatch (HTTP 500)", "gh: Server Error (HTTP 502)", None])
+        waits: list[float] = []
+        with unittest.mock.patch("sys.stderr"):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=waits.append)
+        self.assertEqual((calls, waits), (["POST", "GET", "POST", "GET", "POST"], [15, 45]))
+
+    def test_a_5xx_whose_run_started_is_not_dispatched_again(self) -> None:
+        api, calls = self.fake(["gh: Server Error (HTTP 502)"], listed=[{"display_title": self.title, "status": "queued"}])
+        with unittest.mock.patch("sys.stderr"):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
+        self.assertEqual(calls, ["POST", "GET"])
+
+    def test_other_errors_and_a_lasting_5xx_raise(self) -> None:
+        api, calls = self.fake(["gh: Not Found (HTTP 404)"])
+        with self.assertRaises(RuntimeError):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
+        self.assertEqual(calls, ["POST"])
+        api, calls = self.fake(["gh: Server Error (HTTP 502)"] * 3)
+        with self.assertRaises(RuntimeError), unittest.mock.patch("sys.stderr"):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
+        self.assertEqual(calls.count("POST"), 3)
+
+
+class JudgeOriginUnreadableTest(unittest.TestCase):
+    def judge(self, tries: int):
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="f" * 40, suite="web", job="web / Web tests (2/4)", only="web-tests", probe_sha="f" * 40,
+                         good="a" * 40, bad="b" * 40, origin="60", tries=str(tries), pieces="", dry_run=False,
+                         summary=None, github_output=None)
+        sent: list = []
+
+        def gh_api(path, *a, **k):
+            raise RuntimeError(f"gh api {path}: API rate limit exceeded (HTTP 403)")
+
+        with mock.patch.object(pmb, "run_jobs", return_value=[]), mock.patch.object(pmb, "gh_api", gh_api), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=[]):
+            return pmb.cmd_judge(args), sent
+
+    def test_an_unreadable_origin_runs_the_same_probe_again(self) -> None:
+        code, sent = self.judge(0)
+        self.assertEqual(code, 0)
+        self.assertEqual([(p.sha, p.good, p.bad, p.origin, p.tries) for p in sent], [("f" * 40, "a" * 40, "b" * 40, "60", 1)])
+
+    def test_an_origin_unreadable_past_the_retries_is_refused(self) -> None:
+        code, sent = self.judge(pmb.MAX_PROBE_RETRIES)
+        self.assertEqual((code, sent), (1, []))
+
+
+class KnownVerdictTest(unittest.TestCase):
+    commits = [c * 40 for c in "abcdefghi"]  # a good ... i bad
+
+    def judge(self, earlier: dict[str, str]):
+        """A probe at e (good a, bad i) failed; earlier finished probe runs gave the verdicts in earlier."""
+        a, e, i = "a" * 40, "e" * 40, "i" * 40
+        job = "web / Web tests (2/4)"
+        runs = [{"id": 100 + n, "status": "completed", "display_title": f"{pmb.PROBE} web web-tests at {sha * 40}"} for n, sha in enumerate(earlier)]
+        jobs = {100 + n: [{"name": job, "conclusion": c}] for n, c in enumerate(earlier.values())}
+        jobs[70] = [{"name": job, "conclusion": "failure"}]
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha=e, suite="web", job=job, only="web-tests", probe_sha=e, good=a, bad=i, origin="60",
+                         tries="0", pieces="", dry_run=False, summary=None, github_output=None)
+        sent: list = []
+        out: dict = {}
+        with mock.patch.object(pmb, "run_jobs", lambda repo, rid: jobs.get(int(rid), [])), \
+                mock.patch.object(pmb, "gh_api", lambda *a, **k: {"id": 60}), \
+                mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "probe_refusal", return_value=""), \
+                mock.patch.object(pmb, "suite_verdicts", lambda js, suites: {j["name"]: ("web", j["conclusion"]) for j in js}), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=self.commits):
+            self.assertEqual(pmb.cmd_judge(args), 0)
+        return sent, out
+
+    def test_no_earlier_probe_dispatches_the_next_one(self) -> None:
+        sent, out = self.judge({})
+        self.assertEqual([p.sha for p in sent], ["c" * 40])  # b..e, its middle
+        self.assertEqual(out["culprit"], "")
+
+    def test_earlier_verdicts_are_read_instead_of_probed_again(self) -> None:
+        # e failed (this run); c passed and d failed earlier: d is the culprit with no new probe.
+        sent, out = self.judge({"c": "success", "d": "failure"})
+        self.assertEqual(sent, [])
+        self.assertEqual((out["culprit"], out["good"]), ("d" * 40, "c" * 40))
+
+    def test_an_earlier_probe_without_verdict_is_probed_again(self) -> None:
+        sent, _ = self.judge({"c": "cancelled"})
+        self.assertEqual([p.sha for p in sent], ["c" * 40])
+
+
+class ListRunsLookbackTest(unittest.TestCase):
+    """The judge pages past probes until it holds LOOKBACK_BATCHES batch runs older than its own run."""
+
+    def runs_api(self, kinds: str, calls: list):
+        runs = [{"id": 1000 - i, "display_title": f"{'batch' if k == 'b' else 'probe'} x", "created_at": f"2026-11-27T{23 - i // 60:02d}:{59 - i % 60:02d}:00Z"}
+                for i, k in enumerate(kinds)]
+
+        def api(path, **_kw):
+            calls.append(path)
+            page = int(path.rpartition("&page=")[2]) if "&page=" in path else 1
+            return {"workflow_runs": runs[(page - 1) * pmb.RUNS_PAGE: page * pmb.RUNS_PAGE]}
+        return api
+
+    def test_pages_past_probes_to_the_batches_it_needs(self) -> None:
+        calls: list = []
+        # 250 runs, a batch every 50th; run 1000 (the judging batch) is excluded, so page 1 holds one older
+        # batch run and three need page 2.
+        api = self.runs_api("".join("b" if i % 50 == 0 else "p" for i in range(250)), calls)
+        got = pmb.list_runs("o/r", "feat", api=api, before=1000, batches=3)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sum(map(pmb.is_batch, got)), 3)
+        self.assertTrue(all(r["id"] < 1000 for r in got))
+        self.assertTrue(pmb.is_batch(got[-1]))
+
+    def test_stops_at_the_last_page_and_at_the_page_cap(self) -> None:
+        calls: list = []
+        self.assertEqual(len(pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 150, calls), batches=3)), 150)
+        self.assertEqual(len(calls), 2)
+        calls = []
+        pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 2000, calls), batches=3)
+        self.assertEqual(len(calls), pmb.MAX_RUNS_PAGES)
+
+    def test_one_page_without_batches(self) -> None:
+        calls: list = []
+        self.assertEqual(len(pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 250, calls))), 100)
+        self.assertEqual(len(calls), 1)
