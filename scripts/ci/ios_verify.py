@@ -338,7 +338,8 @@ def visual_diff_line(record: dict, proof_url: str | None) -> str | None:
     captures = record.get("captures") or []
     if record.get("verdict") != "pass" or baseline.get("source") != "nightly" or not captures:
         return None
-    if proof_record.problems(record) or not proof_url or not VISUAL_DIFF_URL.fullmatch(proof_url):
+    if (not re.fullmatch(r"[0-9a-f]{40}", str(baseline.get("nightly_sha") or ""))
+            or proof_record.problems(record) or not proof_url or not VISUAL_DIFF_URL.fullmatch(proof_url)):
         return None
     if not all(c.get("verdict") in ("same", "changed")
                and type(c.get("diff_ratio")) in (int, float) and 0 <= c["diff_ratio"] <= 1 for c in captures):
