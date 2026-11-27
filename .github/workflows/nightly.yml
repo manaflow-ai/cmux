@@ -5553,57 +5553,7 @@ jobs:
           REPUBLISHED_CEF: ${{ needs.republish-nightly-next.outputs.cef }}
           REPUBLISHED_LANGUAGE_PACKS: ${{ needs.republish-nightly-next.outputs.language_packs }}
           REPUBLISHED_SOURCE_ARCHIVE: ${{ needs.republish-nightly-next.outputs.source_archive }}
-        run: |
-          set -euo pipefail
-          run_id=
-          cef=false source_archive=false
-          # Language packs (CMUX-570) are on unless CMUX_NEXT_LANGUAGE_PACKS is 0; a recovered build's
-          # packs stay in its own run (language_packs_run), a republished one's come from its receipt.
-          language_packs=true language_packs_run=
-          [ "${LANGUAGE_PACKS:-}" = 0 ] && language_packs=false
-          [ "${CEF_ON_DEMAND:-}" = 1 ] && cef=true
-          [ "${PUBLISH_SOURCE_ARCHIVE:-}" = 1 ] && source_archive=true
-          if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_TREE" = ok ]; then
-            source=own build="$OWN_BUILD" build_sha="$OWN_BUILD_SHA" tip_sha="$OWN_TIP_SHA"
-            behind="$OWN_BEHIND" behind_hours="$OWN_BEHIND_HOURS" pattern="cmux-nightly-variant-*"
-            tested_pattern="cmux-nightly-tested-*"
-          elif [ "$RECOVERED" = true ] && [ "$RECOVERED_VERIFIED" = success ]; then
-            source=recovered build="$RECOVERED_BUILD" build_sha="$RECOVERED_BUILD_SHA" tip_sha="$RECOVERED_TIP_SHA"
-            behind="$RECOVERED_BEHIND" behind_hours="$RECOVERED_BEHIND_HOURS" pattern="cmux-nightly-recovered-variant-*"
-            tested_pattern="cmux-nightly-recovered-tested-*" run_id="$RECOVERED_RUN_ID"
-            language_packs_run="$RECOVERED_RUN_ID"
-            echo "::notice title=Publishing an earlier nightly-next build::this run's build was not accepted in time; publishing build $build from run $RECOVERED_RUN_ID"
-          elif [ "${REPUBLISHED:-}" = success ]; then
-            # Published as a recovered build: the lineage and webview gate read its run.
-            source=recovered build="$REPUBLISHED_BUILD" build_sha="$REPUBLISHED_BUILD_SHA" tip_sha="$REPUBLISHED_TIP_SHA"
-            behind="$REPUBLISHED_BEHIND" behind_hours="$REPUBLISHED_BEHIND_HOURS" pattern="cmux-nightly-republished-variant-*"
-            tested_pattern="cmux-nightly-republished-tested-*" run_id="$REPUBLISHED_RUN_ID"
-            [ "${REPUBLISHED_CEF:-}" = true ] && cef=true || cef=false
-            [ "${REPUBLISHED_LANGUAGE_PACKS:-}" = true ] && language_packs=true || language_packs=false
-            [ "${REPUBLISHED_SOURCE_ARCHIVE:-}" = true ] || source_archive=false
-            echo "::notice title=Republishing a verified nightly-next build::build $build from run $REPUBLISHED_RUN_ID, with this run's publication tooling"
-          else
-            echo "nothing accepted to publish" >&2
-            exit 1
-          fi
-          [[ "$build" =~ ^[0-9]+$ && "$build_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid build $build at $build_sha" >&2; exit 1; }
-          {
-            echo "source=$source"
-            echo "build=$build"
-            echo "build_sha=$build_sha"
-            echo "build_short_sha=${build_sha:0:7}"
-            echo "tip_sha=$tip_sha"
-            echo "behind=$behind"
-            echo "behind_hours=$behind_hours"
-            echo "variant_pattern=$pattern"
-            echo "tested_pattern=$tested_pattern"
-            echo "run_id=$run_id"
-            echo "cef=$cef"
-            echo "language_packs=$language_packs"
-            echo "language_packs_run=$language_packs_run"
-            echo "source_archive=$source_archive"
-          } >> "$GITHUB_OUTPUT"
-          echo "NIGHTLY_BUILD=$build" >> "$GITHUB_ENV"
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-select-build.sh
 
       - *github-token-for-git
       - name: Checkout publish ref
@@ -7383,24 +7333,25 @@ jobs:
           BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
           GH_DOWNLOAD_TOKEN: ${{ github.token }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh
-      # Not the rolling-name DMG, a second copy of the build's DMG. Why: docs/ci/nightly-workflow-notes.md#note-32
+      # Not the rolling-name DMG (note-32). Fed: no DMG, R2 has it. Why: docs/ci/nightly-workflow-notes/2026-11-27-variant-from-r2.md
       - name: Upload nightly variant artifacts
         if: ${{ !env.LEFT_SLOT }}
         id: one-up-variant
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-nightly-variant-arm64
+        with: &one-up-variant
+          name: ${{ steps.upload_next_appcasts.outputs.feed_written == 'true' && 'cmux-nightly-feed-files-arm64' || 'cmux-nightly-variant-arm64' }}
           path: |
             final-dmg/*
             !final-dmg/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
+            ${{ steps.upload_next_appcasts.outputs.feed_written == 'true' && '!final-dmg/*.dmg' || '' }}
           if-no-files-found: error
           retention-days: 3
           overwrite: true
       - name: Upload nightly variant artifacts (retry)
         if: "!cancelled() && steps.one-up-variant.outcome == 'failure' && (!env.LEFT_SLOT)"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with: {name: cmux-nightly-variant-arm64, path: "final-dmg/*\n!final-dmg/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg", if-no-files-found: error, retention-days: 3, overwrite: true}
+        with: *one-up-variant
       - name: Upload tested DMG digests
         if: ${{ !env.LEFT_SLOT }}
         id: one-up-tested
@@ -7461,8 +7412,40 @@ jobs:
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
 
   # Delta trust boundary and topology: docs/ci/nightly-workflow-notes/2026-11-27-nightly-next-deltas-job.md
-  nightly-next-deltas:
+  # The signing Mac's 237 MB variant upload, off it. Why: docs/ci/nightly-workflow-notes/2026-11-27-variant-from-r2.md
+  nightly-next-variant-from-r2:
     needs: [decide, nightly-next-one]
+    if: "!cancelled() && needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.left != 'true'"
+    environment: ${{ needs.decide.outputs.environment }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {persist-credentials: false, sparse-checkout: scripts}
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with: {name: cmux-nightly-feed-files-arm64, path: feed-files}
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with: {name: cmux-nightly-tested-arm64, path: tested}
+      - name: Rebuild the variant artifact from R2
+        env:
+          CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+          NIGHTLY_BUILD: ${{ needs.nightly-next-one.outputs.build }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          PUBLISH_TOOLING: scripts
+          FEED_FILES: feed-files
+          TESTED: tested
+          OUT: variant
+        run: bash scripts/ci/nightly-steps/variant-from-r2.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with: {name: cmux-nightly-variant-arm64, path: variant/, if-no-files-found: error, retention-days: 3, compression-level: 0, overwrite: true}
+
+  nightly-next-deltas:
+    needs: [decide, nightly-next-one, nightly-next-variant-from-r2]
     if: "!cancelled() && needs.nightly-next-one.outputs.deltas == 'true' && needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.left != 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
@@ -7758,7 +7741,7 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, nightly-next-one]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, nightly-next-one, nightly-next-variant-from-r2]
     if: "always() && (github.event_name == 'workflow_dispatch' && inputs.nightly_next_restore_notes == '' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && (needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'))"
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-build.md
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
@@ -7928,20 +7911,7 @@ jobs:
         # Why: docs/ci/nightly-workflow-notes/2026-11-26-dispatch-published-in-1.md
         # A 422 "twirp error resource_exhausted" is GitHub failing to read the workflow file (45798252585): tried again like a 5xx.
         env: *dispatch-pools
-        run: |
-          set -uo pipefail
-          started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          ask() { gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" \
-            -f nightly_next_post_publish="$(cat "$RUNNER_TEMP/dispatch-input.json")" 2>"$RUNNER_TEMP/dispatch.err"; }
-          ask && exit 0
-          cat "$RUNNER_TEMP/dispatch.err" >&2
-          grep -qE 'HTTP 5[0-9][0-9]|twirp error resource_exhausted' "$RUNNER_TEMP/dispatch.err" || exit 1
-          sleep 30
-          n="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow nightly.yml --event workflow_dispatch --branch "$GITHUB_REF_NAME" \
-            --created ">=$started" --json displayTitle \
-            --jq '[.[] | select(.displayTitle | startswith("Finish a published nightly-next build"))] | length')" || n=0
-          [ "${n:-0}" -gt 0 ] 2>/dev/null && { echo "A tail run started despite the error."; exit 0; }
-          ask || { cat "$RUNNER_TEMP/dispatch.err" >&2; exit 1; }
+        run: bash -e scripts/ci/nightly-steps/dispatch-published-in.sh
 
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-in-3.md
   published-in:
