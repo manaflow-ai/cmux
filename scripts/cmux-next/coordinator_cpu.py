@@ -1,6 +1,6 @@
 """Measure the visible coordinator's CEF process while twenty ACP children update at 1 Hz."""
 import argparse
-from collections import Counter, defaultdict
+from collections import defaultdict
 import json
 from pathlib import Path
 import platform
@@ -12,6 +12,8 @@ import time
 
 import bench_memory as bm
 from bench_acpmux_chat_memory import Rpc
+from bench_background import parse_cpu_time
+from bench_power import profile_summary
 from chat_renderer_crash import chat_pages, evaluate
 from idle_cost_load import new_session, open_workspace
 
@@ -41,11 +43,10 @@ def cpu_point(pid):
     began = time.monotonic()
     value = subprocess.check_output(["/bin/ps", "-p", str(pid), "-o", "time="], text=True).strip()
     wall = (began + time.monotonic()) / 2
-    days, _, clock = value.rpartition("-")
-    seconds = 0.
-    for field in clock.split(":"):
-        seconds = 60 * seconds + float(field)
-    return {"wall": wall, "epoch": time.time(), "cpu": seconds + int(days or 0) * 86400}
+    seconds = parse_cpu_time(value)
+    if seconds is None:
+        raise RuntimeError(f"cannot read CPU time for renderer {pid}: {value!r}")
+    return {"wall": wall, "epoch": time.time(), "cpu": seconds}
 
 
 def cpu_window(pid, intervals):
@@ -69,8 +70,10 @@ def tick_receipt(rpc, sid, start, stop):
             continue
         params = event["msg"]["params"]
         child = params.get("_meta", {}).get("acpmux", {}).get("subagent")
+        if isinstance(child, dict):
+            child = child.get("id")
         match = re.fullmatch(r"Checking part, tick (\d+)", params.get("update", {}).get("title", ""))
-        if child and match:
+        if isinstance(child, str) and child and match:
             ticks[child].append((int(match[1]), when))
     if len(ticks) != CHILDREN:
         raise RuntimeError(f"daemon received ticks from {len(ticks)} children in the measured window")
@@ -99,13 +102,9 @@ def js_profile(app, browser, out):
     finally:
         command("Profiler.disable")
     (out / "coordinator.cpuprofile").write_text(json.dumps(profile))
-    nodes = {n["id"]: n["callFrame"] for n in profile["nodes"]}
-    weights = Counter()
-    for key, duration in zip(profile["samples"], profile["timeDeltas"]):
-        frame = nodes[key]
-        weights[(frame["functionName"], frame["url"], frame["lineNumber"] + 1, frame["columnNumber"] + 1)] += duration
-    return [{"function": key[0], "url": key[1], "line": key[2], "column": key[3], "self_us": us}
-            for key, us in weights.most_common(20)]
+    if not profile.get("samples") or len(profile["samples"]) != len(profile.get("timeDeltas", [])):
+        raise RuntimeError("V8 returned an empty or incomplete CPU profile")
+    return profile_summary(profile)
 
 
 def measure(app, bundle, out):
@@ -118,6 +117,7 @@ def measure(app, bundle, out):
                    stdout=subprocess.DEVNULL, timeout=300)
     rpc = Rpc(chats.env["ACPMUX_SOCKET"])
     try:
+        rpc.call("initialize", {"protocolVersion": 1})
         seed = tail(rpc, session, 30)
         marker = f"Row {HISTORY_ROWS // 2 - 1}:"
         if not any(marker in str(e["msg"]) for e in seed):

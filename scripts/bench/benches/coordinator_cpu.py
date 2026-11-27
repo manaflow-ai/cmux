@@ -21,13 +21,18 @@ class CoordinatorCPU(Bench):
                                 display=True, timeout=3600)
         if result.exit_code:
             raise BenchError(f"coordinator-cpu failed on fleet job {result.job_id}: {result.log_path}")
+        if result.worker != ctx.args["worker"]:
+            raise BenchError(f"expected worker {ctx.args['worker']}, fleet ran on {result.worker}")
         self.ingest(ctx, result.log_path)
 
     def ingest(self, ctx: Context, path: Path) -> None:
         text = Path(path).read_text()
         marker = "COORDINATOR-CPU "
         rows = [line.split(marker, 1)[1] for line in text.splitlines() if marker in line]
-        data = json.loads(rows[-1] if rows else text)
+        try:
+            data = json.loads(rows[-1] if rows else text)
+        except json.JSONDecodeError as error:
+            raise BenchError(f"{path}: missing COORDINATOR-CPU result or invalid report JSON") from error
         if ctx.build.get("sha") and ctx.build["sha"] != data["app_sha"]:
             raise BenchError(f"expected {ctx.build['sha']}, measured {data['app_sha']}")
         ctx.host.update({"role": "fleet", "name": data["machine"]})
