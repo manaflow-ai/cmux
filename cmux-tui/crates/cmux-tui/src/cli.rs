@@ -211,6 +211,8 @@ mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
 #[cfg(unix)]
+mod vm_exec_input;
+#[cfg(unix)]
 mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
@@ -357,6 +359,8 @@ mod theme_scheme;
 mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
+#[cfg(unix)]
+mod usage_insights;
 #[cfg(unix)]
 mod video;
 #[cfg(unix)]
@@ -673,6 +677,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "teleport",
     "evacuate",
     "video",
+    "usage",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -1161,6 +1166,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| pack::run_if_requested(args))
         .or_else(|| video::run_if_requested(args))
+        .or_else(|| usage_insights::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))

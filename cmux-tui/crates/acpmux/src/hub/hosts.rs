@@ -921,7 +921,7 @@ impl Hub {
         // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
         // no prompt starts in between. When recovery wrote a status (a recovered turn, which may
         // also have ended by now; a permission asked again), it stands. Else the status loaded from
-        // disk is replaced as a turn's end does (`turns.rs` `finish_turn`): `waiting` while
+        // disk is replaced as a turn's end does (`turns/finish.rs` `finish_turn`): `waiting` while
         // something still asks the person, `ready` otherwise, read under the permissions lock
         // that an answer takes.
         if session.status_changes.load(Ordering::SeqCst) == changes && session.turn().is_none() {
@@ -1107,6 +1107,7 @@ impl Hub {
                     let next_raised = work.next_raised;
                     let s = session.clone();
                     let c = child.clone();
+                    let install_turn = self.harness_turn(session).await;
                     tokio::spawn(async move {
                         // New prompts queue behind the recovered turn.
                         let guard = s.turn_lock.lock().await;
@@ -1186,7 +1187,7 @@ impl Hub {
                         hub.schedule_auto_resume(&s, &turn_id, cut);
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
-                            hub.start_carried(&s, &c, &turn_id, carried, None);
+                            hub.start_carried(&s, &c, &turn_id, carried, None, install_turn);
                             if raised {
                                 hub.recovered_floor(&s, Control::Web);
                             }
