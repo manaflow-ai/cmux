@@ -255,30 +255,42 @@ impl Daemon {
             command.env("PATH", path);
         }
         command.args(["daemon", "run", "--log", "warn"]);
-        let mut fds = [-1i32; 2];
-        if let Some(key) = key {
+        // The key comes from a file, not a pipe: the daemon reads fd 3 to its end, and a pipe's
+        // write end, made without close-on-exec, was inherited by whatever another test thread
+        // spawned meanwhile, so the daemon waited (before it listens) until that process
+        // exited: "daemon mx-claude-t never listened". `File` opens close-on-exec; only the
+        // daemon's fd 3 (a dup2, which clears it) stays open across its exec.
+        let key_file = key.map(|key| {
+            let path = home.with_extension("key");
+            std::fs::write(&path, format!("{key}\n")).expect("person key file");
+            let file = std::fs::File::open(&path).expect("person key file");
+            let _ = std::fs::remove_file(&path);
+            file
+        });
+        if let Some(file) = &key_file {
+            use std::os::fd::AsRawFd;
             use std::os::unix::process::CommandExt;
             command.args(["--person-key-fd", "3"]);
-            // SAFETY: a fresh pipe; both ends are owned here.
-            assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-            let line = format!("{key}\n");
-            // SAFETY: the write end is open; the line fits the pipe buffer.
-            let n = unsafe { libc::write(fds[1], line.as_ptr().cast(), line.len()) };
-            assert_eq!(n as usize, line.len());
-            // SAFETY: closing our own write end.
-            unsafe { libc::close(fds[1]) };
-            let read_end = fds[0];
+            let read_end = file.as_raw_fd();
             // SAFETY: only dup2 between fork and exec (async-signal-safe).
             unsafe {
                 command.pre_exec(move || {
-                    if libc::dup2(read_end, 3) < 0 {
+                    // dup2 onto itself keeps close-on-exec: clear it then.
+                    let kept = if read_end == 3 {
+                        libc::fcntl(3, libc::F_SETFD, 0)
+                    } else {
+                        libc::dup2(read_end, 3)
+                    };
+                    if kept < 0 {
                         return Err(std::io::Error::last_os_error());
                     }
                     Ok(())
                 });
             }
         }
-        let child = command
+        // Beside the home, not in it: what the daemon said when it never listens.
+        let stderr = home.with_extension("stderr");
+        let mut child = command
             .env("ACPMUX_HOME", &home)
             .env("ACPMUX_SOCKET", &socket)
             // No agent hosts: a host outlives its daemon, and this test kills only the daemon.
@@ -287,18 +299,21 @@ impl Daemon {
             .envs(vars.iter().copied())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::fs::File::create(&stderr).expect("daemon stderr"))
             .spawn()
             .expect("spawn daemon");
-        if fds[0] >= 0 {
-            // SAFETY: the child has its own copy on fd 3; this is ours.
-            unsafe { libc::close(fds[0]) };
-        }
+        // The child has its own copy on fd 3; this one is ours.
+        drop(key_file);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
         while tokio::net::UnixStream::connect(&socket).await.is_err() {
-            assert!(tokio::time::Instant::now() < deadline, "daemon {tag} never listened");
+            let exited = child.try_wait().expect("the daemon's state");
+            if exited.is_some() || tokio::time::Instant::now() >= deadline {
+                let said = std::fs::read_to_string(&stderr).unwrap_or_default();
+                panic!("daemon {tag} never listened (exit: {exited:?}); its stderr:\n{said}");
+            }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+        let _ = std::fs::remove_file(&stderr);
         Self { home, socket, child }
     }
 }
