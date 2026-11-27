@@ -76,8 +76,6 @@ fn is_git_pack(path: &str) -> bool {
 
 /// The most files one readahead batch asks for, by default ([`crate::tune::readahead_files`]).
 const BATCH_FILES: usize = crate::tune::DEFAULT_READAHEAD_FILES;
-/// The most bytes one readahead batch asks for, by default ([`crate::tune::readahead_bytes`]).
-const BATCH_BYTES: u64 = crate::tune::DEFAULT_READAHEAD_BYTES;
 /// The most entries one readahead pick looks at, skipped ones included, so a fault never walks a
 /// big folder for nothing.
 const BATCH_SCAN: usize = 4096;
@@ -597,7 +595,8 @@ fn marked(manifest: &Lower, folder: u32) -> bool {
 /// a project (its sources) are left for their own faults, as most are never read.
 ///
 /// `skip` names what is not to be read (a hidden path, and for a file a cached one); a skipped
-/// folder is not looked into. The faulting file's size counts against [`BATCH_BYTES`], the batch
+/// folder is not looked into. The faulting file's size counts against
+/// [`crate::tune::readahead_bytes`], the batch
 /// holds at most [`BATCH_FILES`] files with the faulting one, and a pick looks at most
 /// [`BATCH_SCAN`] entries. Each folder is looked into once, so no file is picked twice.
 fn read_ahead(manifest: &Lower, index: u32, skip: impl Fn(u32, &Entry) -> bool) -> Vec<u32> {

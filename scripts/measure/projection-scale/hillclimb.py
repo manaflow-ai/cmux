@@ -88,6 +88,8 @@ class Climb:
             cmd += ["--scratch", self.args.scratch]
         env = {**os.environ, **{k: str(v) for k, v in setting.items()}}
         got = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "measure.log").write_text(got.stdout + got.stderr)
         rows_path = dest / "rows.jsonl"
         rows = [json.loads(line) for line in rows_path.read_text().splitlines() if line.strip()] \
             if rows_path.exists() else []
@@ -106,7 +108,8 @@ class Climb:
         best = dict(DEFAULTS)
         base = self.run(best)
         if base is None:
-            raise SystemExit(f"the defaults' run failed; see {self.out / 'tries' / '1'}")
+            log = (self.out / "tries" / "1" / "measure.log").read_text().splitlines()[-30:]
+            raise SystemExit("the defaults' run failed:\n" + "\n".join(log))
         best_score = base
         for _round in range(self.args.rounds):
             moved = False
