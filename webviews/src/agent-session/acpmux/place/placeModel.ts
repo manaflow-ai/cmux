@@ -4,6 +4,7 @@
 import type { HybridBlocked, HybridBlockedWhy, SlotHolder } from "../hybrid/hybridModel";
 import type { StringKey } from "../i18n";
 import { hybridStartOf, type HybridStart } from "../hybrid/hybridModel";
+import { computerStatusOf, type ComputerStatus } from "../auto/computerStatus";
 
 export type PlaceMode = "local" | "cloud" | "auto";
 export type PlaceAt = "local" | "cloud";
@@ -60,6 +61,8 @@ export interface PlaceState {
   readonly start?: HybridStart;
   /// Keep Running (high priority) under a known plan (Rust `priority::control`'s `keep`, `priority::view`).
   readonly keep?: PlaceKeep;
+  /// RFD 0080's one computer status for the chat (Rust `cloud_computer_status_live`): what the status line says.
+  readonly status?: ComputerStatus;
 }
 
 /// Keep Running's state for one chat: asked for (`priority`), holding a slot (`lit`) or waiting for one, and the plan's slots.
@@ -220,6 +223,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
   const holders = holdersOf(raw.holders);
   const start = hybridStartOf(raw.start);
   const keep = keepOf(raw.keep);
+  const status = computerStatusOf(raw.status);
   return {
     mode: raw.mode as PlaceMode,
     at: raw.at === "cloud" ? "cloud" : "local",
@@ -229,6 +233,7 @@ export function placeOf(value: unknown): PlaceState | undefined {
     ...(holders ? { holders } : {}),
     ...(start ? { start } : {}),
     ...(keep ? { keep } : {}),
+    ...(status ? { status } : {}),
   };
 }
 

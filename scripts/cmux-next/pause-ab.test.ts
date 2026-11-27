@@ -3,8 +3,42 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, pairsOf, parseWaitOutput, historyTurnStatus, waitVerdict, percentile, pool, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, laterCapabilities, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { Api, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
+import {
+  GUEST_CMUX,
+  accountCensus,
+  failedCreateIsTransient,
+  failureFacts,
+  stubRestart,
+  stubStop,
+  aggregate,
+  startingSpans,
+  startingTable,
+  gapLine,
+  gapSchedule,
+  guestLine,
+  integrate,
+  markdownTable,
+  pairTable,
+  pairsOf,
+  parseWaitOutput,
+  historyTurn,
+  historyTurnStatus,
+  waitVerdict,
+  percentile,
+  pool,
+  vmUnavailableTurns,
+  parseGuestUpdate,
+  parseReportState,
+  missingCapability,
+  reportLine,
+  stalePauseAbMachines,
+  jwtExpiresAt,
+  oidcMint,
+  sessionExpiresAt,
+  type MachineResult,
+  laterCapabilities,
+} from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -312,6 +346,13 @@ describe("waitVerdict (run 45869919450: acp wait exit 1 after a resume, right re
     expect(historyTurnStatus(h, "[pab t turn 3]")).toBeNull();
     expect(historyTurnStatus("not json", "[pab t turn 1]")).toBeNull();
   });
+  test("historyTurn says why a turn failed", () => {
+    const h = `{"turns":[{"prompt":"[pab t turn 1] Run","status":"failed","error":"the daemon restarted before this turn settled","detail":"outcome_unknown"},{"prompt":"[pab t turn 2] Run","status":"completed"}]}`;
+    expect(historyTurn(h, "[pab t turn 1]")).toEqual({ status: "failed", why: "the daemon restarted before this turn settled; outcome_unknown" });
+    expect(historyTurn(h, "[pab t turn 2]")).toEqual({ status: "completed", why: "" });
+    const v = waitVerdict({ code: "1", text: reply, werr: "", turnStatus: "failed (outcome_unknown)", nonce, waitFails: 0 });
+    expect(v).toEqual({ kind: "reply", note: "acp wait exit 1; history lists the turn failed (outcome_unknown)" });
+  });
   test("exit 0 with the nonce is a reply; without it a failure", () => {
     expect(waitVerdict({ code: "0", text: reply, werr: "", turnStatus: null, nonce, waitFails: 0 })).toEqual({ kind: "reply" });
     expect(waitVerdict({ code: "0", text: "other", werr: "", turnStatus: null, nonce, waitFails: 0 }).kind).toBe("fail");
@@ -347,5 +388,54 @@ describe("laterCapabilities (run 45898762249 attempt 2: turn 1 read a just-resta
     expect(laterCapabilities(old, { capabilities: null, version: null }, 5)).toEqual({});
     expect(laterCapabilities({ arm: "aggressive", capabilities: null, daemon_version: null }, full, 2)).toEqual({});
     expect(laterCapabilities({ arm: "turn_end", capabilities: full.capabilities, daemon_version: "x" }, full, 3)).toEqual({});
+  });
+});
+
+describe("sign-in refresh", () => {
+  test("sessionExpiresAt reads ISO, epoch seconds and a missing end", () => {
+    expect(sessionExpiresAt("2026-11-27T05:00:00.000Z")).toBe(Date.parse("2026-11-27T05:00:00.000Z"));
+    expect(sessionExpiresAt("1795000000")).toBe(1795000000_000);
+    expect(sessionExpiresAt("?")).toBe(Infinity);
+    expect(sessionExpiresAt("")).toBe(Infinity);
+  });
+  test("jwtExpiresAt reads exp, and never for a token that is no JWT", () => {
+    const body = Buffer.from(JSON.stringify({ exp: 1795000000 })).toString("base64url");
+    expect(jwtExpiresAt(`h.${body}.s`)).toBe(1795000000_000);
+    expect(jwtExpiresAt("opaque")).toBe(Infinity);
+  });
+  test("an Api with oidcMint signs in again when its session is about to end", async () => {
+    let n = 0;
+    const fetchJson = (async (_m: string, url: string) => {
+      if (url.includes("audience=")) return { status: 200, body: { value: `gh-${n}` } };
+      n += 1;
+      const end = new Date(Date.now() + (n === 1 ? 30_000 : 3_600_000)).toISOString();
+      return { status: 200, body: { access_token: `tok-${n}`, user: "u", session_expires_at: end } };
+    }) as any;
+    const mint = oidcMint("https://api.example", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "b" }, [], fetchJson);
+    const api = new Api("https://api.example");
+    const first = await mint();
+    api.bearer = first.token;
+    api.expiresAt = first.expiresAt;
+    api.remint = mint;
+    await api.fresh();
+    expect(api.bearer).toBe("tok-2");
+    await api.fresh();
+    expect(api.bearer).toBe("tok-2");
+  });
+});
+
+describe("startingSpans (aggressive's 25.1 s starting p50 vs hq#21300's 8.4 s p95)", () => {
+  const at = (sec: number, status: string) => ({ at: sec * 1000, status });
+  test("each start's upper bound runs from the sample before it to the first one after it, with its origin", () => {
+    const samples = [at(0, "running"), at(5, "pausing"), at(10, "starting"), at(15, "running"), at(20, "paused"), at(60, "paused"),
+      at(65, "starting"), at(70, "starting"), at(100, "starting"), at(105, "running")];
+    expect(startingSpans(samples)).toEqual([{ from: "pausing", s: 10 }, { from: "paused", s: 45 }]);
+  });
+  test("the table splits a fast mode from a slow one per origin", () => {
+    const m = (arm: string, samples: { at: number; status: string }[]) => ({ arm, skipped: undefined, samples }) as never;
+    const fast = [at(0, "paused"), at(5, "starting"), at(10, "running")];
+    const slow = [at(0, "paused"), at(5, "starting"), at(45, "running")];
+    const t = startingTable([m("aggressive", fast), m("aggressive", slow), m("aggressive", fast)], ["aggressive"]);
+    expect(t.split("\n")[2]).toBe("| aggressive | paused | 3 | 10 | 10 | 1 | 45 |");
   });
 });
