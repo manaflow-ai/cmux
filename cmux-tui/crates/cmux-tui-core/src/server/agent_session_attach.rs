@@ -1547,7 +1547,8 @@ pub use proxy::shares::room::{set_link_share_app_scheme, start_link_share_bridge
 pub(crate) use proxy::shares::{
     TRANSFER_FIELD, abort_transferred_chat_shares, close_chat_shares, close_listed_chat_shares,
     close_unlisted_chat_shares, detach_transferred_chat_shares, finish_transferred_chat_shares,
-    freeze_transferred_chat_shares, open_chat_shares, stage_transferred_chat_shares,
+    freeze_transferred_chat_shares, open_chat_shares, reconcile_transferred_chat_shares,
+    stage_transferred_chat_shares,
 };
 
 #[cfg(test)]

@@ -1378,7 +1378,9 @@ fn share_snapshot_rejects_mutations_until_confirmed_abort_even_after_restart() {
     // The close/list sweeps cannot delete the room while acpmux is finishing the move.
     super::close_chat_shares(&source, SESSION);
     assert!(super::export_transferred_chat_shares(&source, SESSION).is_some());
-    super::abort_transferred_chat_shares(&source, SESSION).unwrap();
+    // The watchdog can abort without sending a cmux reply. The next named sharing
+    // request must use the durable local status and release the persisted freeze.
+    fake.set_transfer_blocked(SESSION, false);
     ok_data(&owner.request(mutations[0].clone()));
     assert!(super::export_transferred_chat_shares(&source, SESSION).is_none());
 }
@@ -1761,4 +1763,23 @@ fn a_begin_without_a_prepare_sends_todays_params() {
                                        "transfer_id":"xfer_1","have":0}));
     assert_code(&export, "agent_transfer.unknown_transfer");
     fake.no_frame();
+}
+
+#[test]
+fn another_source_operation_is_refused_without_waiting_or_calling_acpmux() {
+    let fake = FakeAcpmux::start("xshare-source-busy");
+    let home = Home::new("share-source-busy");
+    let mux = persistent_mux(&fake, &home);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "share-source-busy");
+    let operation = mux.agent_transfers.source_operation(SESSION);
+    let guard = operation.lock().unwrap();
+    assert_code(
+        &client.request(json!({"cmd":"agent-transfer-begin","surface":surface})),
+        "agent_transfer.busy",
+    );
+    fake.no_frame();
+    drop(guard);
+    ok_data(&client.request(json!({"cmd":"agent-transfer-begin","surface":surface})));
+    skip_begin(&fake);
 }
