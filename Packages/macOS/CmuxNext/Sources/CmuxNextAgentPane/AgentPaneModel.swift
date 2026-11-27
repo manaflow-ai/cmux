@@ -1076,6 +1076,18 @@ public final class AgentPaneModel {
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):
+            // A native drop on another machine names the host-side path token instead of
+            // streaming bytes through the page. Consume that one-shot token before the normal
+            // staged uploader, whose batch target quite intentionally rejects unknown tokens.
+            switch stage {
+            case .begin(let name, _, let batchToken?, _)
+                where AgentPaneDroppedPaths.isPutToken(batchToken):
+                return await putDropped(token: batchToken, name: name)
+            case .cancel(let token) where AgentPaneDroppedPaths.isPutToken(token):
+                return cancelDroppedPut(token)
+            default:
+                break
+            }
             // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says
             // whether it can take one. Refusing it as unsupported told the page this host is too old
             // to stream, so a recording over the one-frame size failed with Retry (#28647).

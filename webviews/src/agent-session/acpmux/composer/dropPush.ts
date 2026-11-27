@@ -8,7 +8,7 @@
 // - a chat on another machine has the host put each file there straight from its path
 //   (`uploadDropped`: `chat.upload.begin` naming the push's token), so no byte of it crosses the
 //   page bridge; a paste, or a drop with no path, still uploads through the bridge.
-import type { LinkItem } from "../attachments";
+import type { KnownPaths, LinkItem } from "../attachments";
 import type { UploadCancelled, UploadProgressReport, UploadResult } from "../cloudUploads";
 import { translate } from "../i18n";
 
@@ -154,8 +154,8 @@ function nextPush(ms: number): Promise<void> {
 /// know them. Undefined when neither does.
 export function pushedDropPaths(
   files: readonly File[],
-  ask: () => Promise<LinkItem[] | undefined>,
-): Promise<LinkItem[] | undefined> {
+  ask: () => Promise<KnownPaths | undefined>,
+): Promise<KnownPaths | undefined> {
   const now = takeLocal(files);
   if (now) return Promise.resolve(now);
   // The host pushed these files for a chat on another machine: nothing links, and nothing waits.
@@ -164,7 +164,7 @@ export function pushedDropPaths(
     let done = false;
     let asked = false;
     let waited = false;
-    const finish = (items: LinkItem[] | undefined) => {
+    const finish = (items: KnownPaths | undefined) => {
       if (done) return;
       done = true;
       waiting.delete(wake);

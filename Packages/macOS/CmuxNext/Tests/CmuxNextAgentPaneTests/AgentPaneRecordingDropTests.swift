@@ -27,7 +27,6 @@ struct AgentPaneRecordingDropTests {
             model.droppedPaths = AgentPaneDroppedPaths(now: { clock.now })
             model.hasHandshake = true
             model.onLocalPaths = { true }
-            model.hasHandshake = true
             model.chatUploadFolders = ChatUploadFolders(root: saved)
             model.replyLinks.mouseHeld = { true }
             model.replyLinks.startDrag = { [weak self] in self?.dragged.append($0); return true }

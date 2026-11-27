@@ -218,7 +218,7 @@ import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { type UploadCancelled, type UploadProgressReport, uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
-import { uploadDropped } from "./composer/dropPush";
+import { pushedDropPaths, uploadDropped } from "./composer/dropPush";
 import { useToolCards } from "./toolCards/toolCardStore";
 import {
   COMPUTER_USE_PREVIEW_RESERVE,
@@ -2333,7 +2333,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is.
   const localPaths = useCallback(
-    (kind: DroppedKind, files: File[], gestureAt?: number) => droppedPaths(kind, files, callNative, gestureAt),
+    (kind: DroppedKind, files: File[], gestureAt?: number) =>
+      kind === "drop"
+        ? pushedDropPaths(files, () => droppedPaths(kind, files, callNative, gestureAt))
+        : droppedPaths(kind, files, callNative, gestureAt),
     [],
   );
   const searchFiles = useCallback<FileSearchSource>(

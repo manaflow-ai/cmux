@@ -140,6 +140,9 @@ extension AgentPaneView {
             model.droppedPaths.stashSource(
                 urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop,
                 madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
+            // Finder may invoke this callback without a current person-input event. A local chat
+            // still needs the path payload to arrive with the drop so it can link the file in place.
+            if model.dropsGoAsLocalPaths { pushDroppedPaths() }
             // WebKit: the drop's event is in dispatch. Chromium: the page host keeps the event from
             // the native drop (`droppedEvent`). A page-window drop has no event and earns no gesture,
             // while its paths remain linkable from the record above.
@@ -147,8 +150,8 @@ extension AgentPaneView {
             let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
             guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
             model.transport.gestures.record(click: false)
-            // A remote chat also gets the drop's paths pushed with the gesture, so its host can put
-            // each file from this Mac without first copying bytes through the page.
+            // Push a remote drop with the gesture. Its one-shot tokens let the host put each file
+            // from this Mac without exposing its bytes to the page.
             if model.remoteChat { pushDroppedPaths() }
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
@@ -381,11 +384,12 @@ extension AgentPaneView {
 }
 
 extension AgentPaneView {
-    /// Gives a remote chat the native drop's file paths and one-use put tokens immediately. Local
-    /// chats continue to use the base `chat.attach.dropped` path lookup.
+    /// Gives a native drop's paths to the page immediately. Local chats link them in place; remote
+    /// chats receive one-use put tokens so their host can put each file from this Mac.
     func pushDroppedPaths() {
-        guard model.remoteChat,
-              let payload = model.droppedPaths.pushed(local: false),
+        let local = model.dropsGoAsLocalPaths
+        guard model.remoteChat || local,
+              let payload = model.droppedPaths.pushed(local: local),
               let script = AgentPaneDroppedPaths.pushScript(payload) else { return }
         evaluateScript(script)
     }
