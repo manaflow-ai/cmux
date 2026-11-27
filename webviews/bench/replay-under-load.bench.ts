@@ -61,6 +61,13 @@ const PROFILE = argv.includes("--profile");
 /// task over 8 ms to its owner. Tracing costs the page time of its own, so a traced run's busy % reads high.
 const TRACE = flag("--trace");
 const PAINTER = flag("--painter") ?? "react";
+/// REPLAY_REACT_PROFILE=1 (or --react-profile): build the pane on React's profiling build and record, per commit, the
+/// render time React reports and each component's self time, plus every long animation frame's scripts and the record
+/// kinds sent in its window. The reading gains `react_profile`. Off by default: the profiling build costs time of its
+/// own, so a profiled run's frame p95 is not the before/after number, only where the slow frames' time went.
+const REACT_PROFILE = argv.includes("--react-profile") || process.env.REPLAY_REACT_PROFILE === "1";
+/// A frame gap at least this long is a slow frame for the profile (two frames at 60 Hz read as 33.3 ms).
+const SLOW_FRAME_MS = 25;
 /// Fewer gaps than this in the window is no frame p95 (the goal's sensor holds the same floor, perf_sensor.py).
 const MIN_FRAMES = 60;
 /// frameTally.ts BUCKET_MS and BUCKETS: bucket i holds gaps in [i * 0.1, (i + 1) * 0.1) ms; BUCKETS holds 100 ms+.
@@ -73,7 +80,7 @@ if (
   !["react", "dom-floor", "worker"].includes(PAINTER)
 ) {
   console.error(
-    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker]",
+    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker] [--react-profile]",
   );
   process.exit(2);
 }
@@ -134,7 +141,234 @@ type Reading = {
   longest_task_ms: number;
   chromium: string;
   at: string;
+  react_profile?: ReactProfile;
 };
+
+type Named = { name: string; ms: number; count: number };
+type ReactProfile = {
+  commits: number;
+  commit_render_ms_p50: number | null;
+  commit_render_ms_p95: number | null;
+  commits_over_8ms: number;
+  slow_frames: number;
+  /** Self render time by component, over every commit in the window. */
+  components_all: Named[];
+  /** Self render time by component, in commits inside a slow frame (a gap of SLOW_FRAME_MS or more). */
+  components_slow: Named[];
+  /** Long animation frames' scripts, by invoker and source function, with their forced style and layout. */
+  loaf_scripts: (Named & { forced_layout_ms: number })[];
+  loaf: { count: number; ms: number; render_ms: number; style_layout_ms: number; script_ms: number };
+  /** Record kinds the stand-in sent inside slow frames, against every frame. */
+  kinds_slow: Named[];
+  kinds_all: Named[];
+  slowest: { at: number; gap_ms: number; render_ms: number; top: [string, number][]; kinds: string[] }[];
+};
+
+/// The page half of --react-profile: a DevTools hook React's profiling build reports each commit to, and observers for
+/// frames and long animation frames. Runs before the pane's bundle (addInitScript), so React finds the hook.
+function installReactProfiler() {
+  type Fiber = {
+    tag: number;
+    type: unknown;
+    child: Fiber | null;
+    sibling: Fiber | null;
+    alternate: Fiber | null;
+    actualDuration?: number;
+    actualStartTime?: number;
+    memoizedProps: unknown;
+  };
+  const w = window as unknown as Record<string, unknown>;
+  const commits: { at: number; render: number; top: [string, number][]; self: Record<string, number> }[] = [];
+  const frames: number[] = [];
+  const loaf: unknown[] = [];
+  const nameOf = (f: Fiber): string | null => {
+    const t = f.type as { displayName?: string; name?: string; type?: unknown; render?: unknown } | string | null;
+    if (typeof t === "function") return (t as { displayName?: string }).displayName || t.name || "anonymous";
+    if (t && typeof t === "object") {
+      const inner = (t.type ?? t.render) as { displayName?: string; name?: string } | undefined;
+      return t.displayName || inner?.displayName || inner?.name || null;
+    }
+    return null;
+  };
+  w.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+    supportsFiber: true,
+    isDisabled: false,
+    renderers: new Map(),
+    inject() {
+      return 1;
+    },
+    checkDCE() {},
+    onScheduleFiberRoot() {},
+    onPostCommitFiberRoot() {},
+    onCommitFiberUnmount() {},
+    onCommitFiberRoot(_id: number, root: { current: Fiber }) {
+      const host = root.current;
+      const start = host.actualStartTime ?? 0;
+      const render = host.actualDuration ?? 0;
+      const self: Record<string, number> = {};
+      // A fiber rendered in this commit when its start time is this commit's; a bailed-out one keeps an older start.
+      const stack: Fiber[] = host.child ? [host.child] : [];
+      while (stack.length) {
+        const f = stack.pop()!;
+        if (f.sibling) stack.push(f.sibling);
+        const rendered = (f.actualStartTime ?? -1) >= start;
+        if (!rendered) continue;
+        let kids = 0;
+        for (let c = f.child; c; c = c.sibling) if ((c.actualStartTime ?? -1) >= start) kids += c.actualDuration ?? 0;
+        const own = Math.max(0, (f.actualDuration ?? 0) - kids);
+        const name = nameOf(f);
+        if (name && own > 0) self[name] = (self[name] ?? 0) + own;
+        else if (!name && own > 0) self["(host elements)"] = (self["(host elements)"] ?? 0) + own;
+        if (f.child) stack.push(f.child);
+      }
+      const top = Object.entries(self)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+        .map(([n, ms]) => [n, Math.round(ms * 100) / 100] as [string, number]);
+      commits.push({ at: performance.now(), render, top, self });
+    },
+  };
+  const tick = (t: number) => {
+    frames.push(t);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) loaf.push((e as unknown as { toJSON(): unknown }).toJSON());
+    }).observe({ type: "long-animation-frame", buffered: true });
+  } catch {
+    // No long-animation-frame in this Chromium: the commits still count.
+  }
+  w.__reactProfile = { commits, frames, loaf, origin: performance.timeOrigin };
+}
+
+/** Folds the page's commits, frames and long animation frames, and the stand-in's sends, into a ReactProfile (pure). */
+export function summarizeReactProfile(
+  raw: {
+    commits: { at: number; render: number; top: [string, number][]; self: Record<string, number> }[];
+    frames: number[];
+    loaf: {
+      startTime: number;
+      duration: number;
+      renderStart: number;
+      styleAndLayoutStart: number;
+      scripts?: {
+        invoker?: string;
+        sourceFunctionName?: string;
+        duration: number;
+        forcedStyleAndLayoutDuration?: number;
+      }[];
+    }[];
+    origin: number;
+  },
+  sends: { wall: number; kind: string }[],
+  from: number,
+  to: number,
+): ReactProfile {
+  const r2 = (x: number) => Math.round(x * 10) / 10;
+  const commits = raw.commits.filter((c) => c.at >= from && c.at <= to);
+  const frames = raw.frames.filter((t) => t >= from && t <= to);
+  const slow: [number, number][] = [];
+  for (let i = 1; i < frames.length; i++)
+    if (frames[i]! - frames[i - 1]! >= SLOW_FRAME_MS) slow.push([frames[i - 1]!, frames[i]!]);
+  const inSlow = (t: number) => slow.find(([a, b]) => t > a && t <= b);
+  const add = (into: Map<string, Named>, name: string, ms: number) => {
+    const row = into.get(name) ?? { name, ms: 0, count: 0 };
+    row.ms += ms;
+    row.count += 1;
+    into.set(name, row);
+  };
+  const all = new Map<string, Named>();
+  const slowC = new Map<string, Named>();
+  for (const c of commits)
+    for (const [name, ms] of Object.entries(c.self)) {
+      add(all, name, ms);
+      if (inSlow(c.at)) add(slowC, name, ms);
+    }
+  const pageSends = sends
+    .map((s) => ({ at: s.wall - raw.origin, kind: s.kind }))
+    .filter((s) => s.at >= from && s.at <= to);
+  const kindsAll = new Map<string, Named>();
+  const kindsSlow = new Map<string, Named>();
+  for (const s of pageSends) {
+    add(kindsAll, s.kind, 0);
+    if (inSlow(s.at)) add(kindsSlow, s.kind, 0);
+  }
+  const scripts = new Map<string, Named & { forced_layout_ms: number }>();
+  const loafs = raw.loaf.filter((l) => l.startTime >= from && l.startTime <= to);
+  let loafMs = 0,
+    renderMs = 0,
+    styleMs = 0,
+    scriptMs = 0;
+  for (const l of loafs) {
+    loafMs += l.duration;
+    const end = l.startTime + l.duration;
+    if (l.renderStart > 0) renderMs += end - l.renderStart;
+    if (l.styleAndLayoutStart > 0) styleMs += end - l.styleAndLayoutStart;
+    for (const s of l.scripts ?? []) {
+      scriptMs += s.duration;
+      const name = `${s.invoker ?? "?"} :: ${s.sourceFunctionName || "?"}`;
+      const row = scripts.get(name) ?? { name, ms: 0, count: 0, forced_layout_ms: 0 };
+      row.ms += s.duration;
+      row.count += 1;
+      row.forced_layout_ms += s.forcedStyleAndLayoutDuration ?? 0;
+      scripts.set(name, row);
+    }
+  }
+  const sorted = <T extends Named>(m: Map<string, T>, n = 15) =>
+    [...m.values()]
+      .sort((a, b) => b.ms - a.ms || b.count - a.count)
+      .slice(0, n)
+      .map((row) => ({
+        ...row,
+        ms: r2(row.ms),
+        ...("forced_layout_ms" in row
+          ? { forced_layout_ms: r2((row as { forced_layout_ms: number }).forced_layout_ms) }
+          : {}),
+      }));
+  const renders = commits.map((c) => c.render).sort((a, b) => a - b);
+  const q = (p: number) =>
+    renders.length ? r2(renders[Math.min(renders.length - 1, Math.ceil(p * renders.length) - 1)]!) : null;
+  const slowest = slow
+    .map(([a, b]) => {
+      const inside = commits.filter((c) => c.at > a && c.at <= b);
+      const top = new Map<string, number>();
+      for (const c of inside) for (const [n, ms] of c.top) top.set(n, (top.get(n) ?? 0) + ms);
+      return {
+        at: r2(b),
+        gap_ms: r2(b - a),
+        render_ms: r2(inside.reduce((s, c) => s + c.render, 0)),
+        top: [...top.entries()]
+          .sort((x, y) => y[1] - x[1])
+          .slice(0, 6)
+          .map(([n, ms]) => [n, r2(ms)] as [string, number]),
+        kinds: pageSends.filter((s) => s.at > a && s.at <= b).map((s) => s.kind),
+      };
+    })
+    .sort((x, y) => y.gap_ms - x.gap_ms)
+    .slice(0, 12);
+  return {
+    commits: commits.length,
+    commit_render_ms_p50: q(0.5),
+    commit_render_ms_p95: q(0.95),
+    commits_over_8ms: renders.filter((x) => x >= 8).length,
+    slow_frames: slow.length,
+    components_all: sorted(all),
+    components_slow: sorted(slowC),
+    loaf_scripts: sorted(scripts) as (Named & { forced_layout_ms: number })[],
+    loaf: {
+      count: loafs.length,
+      ms: r2(loafMs),
+      render_ms: r2(renderMs),
+      style_layout_ms: r2(styleMs),
+      script_ms: r2(scriptMs),
+    },
+    kinds_slow: sorted(kindsSlow, 20),
+    kinds_all: sorted(kindsAll, 20),
+    slowest,
+  };
+}
 
 async function taskSeconds(cdp: CDPSession): Promise<number> {
   const { metrics } = (await cdp.send("Performance.getMetrics")) as {
@@ -225,7 +459,10 @@ async function run(): Promise<Reading> {
       },
     });
     releases.push(() => daemon.stop(true));
+    const sends: { wall: number; kind: string }[] = [];
     const emit = (event: EventRecord) => {
+      if (REACT_PROFILE && measuring)
+        sends.push({ wall: Date.now(), kind: String((event as { kind?: unknown }).kind ?? "?") });
       const text = JSON.stringify({
         jsonrpc: "2.0",
         method: "_acpmux/event",
@@ -244,8 +481,10 @@ async function run(): Promise<Reading> {
         build: {
           outDir: out,
           emptyOutDir: true,
-          ...(PROFILE || TRACE ? { minify: false } : {}),
+          ...(PROFILE || TRACE || REACT_PROFILE ? { minify: false } : {}),
         },
+        // React's profiling build fills each fiber's actualDuration, which the commit hook reads.
+        ...(REACT_PROFILE ? { resolve: { alias: { "react-dom/client": "react-dom/profiling" } } } : {}),
         logLevel: "error",
       });
     const statics = Bun.serve({
@@ -278,6 +517,7 @@ async function run(): Promise<Reading> {
         for (const entry of list.getEntries()) w.__long.push({ at: entry.startTime, ms: entry.duration });
       }).observe({ type: "longtask", buffered: true });
     });
+    if (REACT_PROFILE) await page.addInitScript(installReactProfiler);
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
     if (PROFILE || TRACE) {
@@ -373,6 +613,16 @@ async function run(): Promise<Reading> {
         ),
       [pageStart, pageEnd] as const,
     )) as { at: number; ms: number }[];
+    const reactProfile = REACT_PROFILE
+      ? summarizeReactProfile(
+          (await page.evaluate(() => (window as unknown as { __reactProfile: unknown }).__reactProfile)) as Parameters<
+            typeof summarizeReactProfile
+          >[0],
+          sends,
+          pageStart,
+          pageEnd,
+        )
+      : undefined;
     const frames = [...counts.values()].reduce((sum, n) => sum + n, 0);
     const over50 = [...counts.entries()].reduce((sum, [index, n]) => sum + (index * BUCKET_MS >= 50 ? n : 0), 0);
     const enough = frames >= MIN_FRAMES;
@@ -400,6 +650,7 @@ async function run(): Promise<Reading> {
       longest_task_ms: Math.round(Math.max(0, ...long.map((t) => t.ms))),
       chromium: browser.version(),
       at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
+      ...(reactProfile ? { react_profile: reactProfile } : {}),
     };
   } finally {
     for (const stop of releases.reverse()) {
