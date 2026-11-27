@@ -32,12 +32,6 @@ pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
 /// good; low was cheaper still but leaked reasoning into 3 of 12 lines and
 /// left 2 over the size limit.
 pub const DEFAULT_EFFORT: &str = "medium";
-/// Where a node goes when the compactor model declines it. Claude Sonnet 5
-/// declines in fewer safeguard categories than Sonnet 5.5 (no bio,
-/// reasoning-extraction or general-harms classifiers on the same scale), so a
-/// pasted exploit write-up or a log with odd content still gets its line.
-pub const DEFAULT_FALLBACK_MODEL: &str = "claude-sonnet-5";
-
 /// How one chat runs. Fixed for the life of the process: the compactor's
 /// system prompt heads every cached prefix, so it must not change per call.
 #[derive(Clone)]
@@ -48,10 +42,10 @@ pub struct Config {
     pub prompt: CompactPrompt,
     /// Compactor model id.
     pub model: String,
-    /// Model a declined node (`stop_reason: refusal`) is built with instead;
-    /// None keeps retrying the same call every `retry`. A refusal repeats on
-    /// every try, so without a fallback one message would block rule 3, and
-    /// with it every later turn, forever.
+    /// Model a declined node (`stop_reason: refusal`) is built with instead.
+    /// None by default: no other model is picked for the person; a declined
+    /// node keeps its input, cut to the room, as its line, so one message
+    /// never blocks rule 3.
     pub fallback_model: Option<String>,
     /// Also send the Messages API's server-side `fallbacks: "default"` (beta
     /// `server-side-fallback-2026-07-01`). Off by default: the team subrouter
@@ -95,7 +89,7 @@ impl Default for Config {
             agent: "OptChat".to_string(),
             prompt: CompactPrompt::Taelin,
             model: DEFAULT_MODEL.to_string(),
-            fallback_model: Some(DEFAULT_FALLBACK_MODEL.to_string()),
+            fallback_model: None,
             server_fallback: false,
             effort: Some(DEFAULT_EFFORT.to_string()),
             api_key: api_key(&base_url, |k| std::env::var(k).ok()),

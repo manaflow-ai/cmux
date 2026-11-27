@@ -67,6 +67,26 @@ def tip_run(id_, tree="t" * 40, sha=TIP):
 
 
 class FindTest(unittest.TestCase):
+    def test_a_head_that_skipped_its_build_takes_the_earlier_head_with_its_key(self):
+        # The plan skipped HEAD's build: EARLIER, the branch's previous head with the merge's key, built both.
+        earlier = "e" * 40
+        own = [{"id": 30, "head_sha": HEAD, "head_branch": "lane/x", "status": "completed"}]
+        branch = own + [{"id": 25, "head_sha": earlier, "head_branch": "lane/x"}]
+        calls = []
+
+        def api(path):
+            calls.append(path)
+            if path.startswith("commits/"):
+                return [pull()]
+            if "branch=lane%2Fx" in path:
+                return {"workflow_runs": branch}
+            if path.startswith("actions/workflows/"):
+                return {"workflow_runs": own}
+            return {"artifacts": BOTH if "/25/" in path else []}
+
+        self.assertEqual(run_find(api, keys={MERGE: "k1", HEAD: "k1", earlier: "k1"}), 25)
+        self.assertIsNone(run_find(api, keys={MERGE: "k1", HEAD: "k1", earlier: "k2"}))
+
     def test_same_tree_key_and_both_artifacts_take_the_run(self):
         api = Fake([pull()], [{"id": 7, "status": "completed"}], {7: BOTH})
         self.assertEqual(run_find(api), 7)
