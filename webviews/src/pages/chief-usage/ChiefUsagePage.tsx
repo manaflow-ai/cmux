@@ -1,7 +1,7 @@
 // The Chief Usage page (cmux-page://cmux.chief-usage/, plans/cmux-next/chief-usage-analytics-DESIGN.md):
 // token use, cost, cache hit and turn time of this Mac's Chiefs over time, from their usage
 // ledgers. The header picks the window and the breakdown's grouping and reads again on Refresh;
-// the body is a design (the shipped one is Ledger; the gallery shows the others).
+// the body is a design (Ledger ships).
 import { useSyncExternalStore, type ComponentType } from "react";
 import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";

@@ -392,7 +392,6 @@
 {"file":"agent-session/acpmux/subagents/AgentLine.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/subagents/AgentLine.tsx","kind":"title-attribute","count":2}
 {"file":"agent-session/acpmux/subagents/AgentRunCard.tsx","kind":"raw-button","count":1}
-{"file":"agent-session/acpmux/subagents/AgentsPill.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/subagents/BackgroundTaskTail.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/subagents/ChildAsk.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/subagents/ChildAsk.tsx","kind":"title-attribute","count":2}
@@ -410,7 +409,7 @@
 {"file":"agent-session/acpmux/subagents/SubagentGroup.tsx","kind":"raw-button","count":3}
 {"file":"agent-session/acpmux/subagents/SubagentGroup.tsx","kind":"title-attribute","count":3}
 {"file":"agent-session/acpmux/subagents/SubagentReportLine.tsx","kind":"raw-button","count":1}
-{"file":"agent-session/acpmux/subagents/subagents.css","kind":"own-shell","count":6}
+{"file":"agent-session/acpmux/subagents/subagents.css","kind":"own-shell","count":5}
 {"file":"agent-session/acpmux/subagents/SubagentStartedLine.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/subagents/SubagentTray.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/subagents/SubagentTray.tsx","kind":"title-attribute","count":2}
