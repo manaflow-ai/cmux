@@ -216,12 +216,9 @@ public final class LayoutModel {
     @ObservationIgnored var paneCloses: [PaneID: PaneCloseHold] = [:]
     /// The last pending close's order (`PaneCloseHold.sequence`).
     @ObservationIgnored var paneCloseSequence = 0
-    /// Fit-screen widths of shown column closes that landed while another close on their screen was
-    /// pending, not sent yet (`flushLandedCloseSizes`).
-    @ObservationIgnored var landedCloseWidths: [ColumnID: Double] = [:]
-    /// Even ratios of shown closes that landed while another close on their screen was pending, not
-    /// sent yet (`flushLandedCloseSizes`).
-    @ObservationIgnored var landedCloseRatios: [SplitID: Double] = [:]
+    /// Even ratios and fit-screen widths of shown closes that landed while another close on their
+    /// screen was pending, not sent yet (`flushLandedCloseSizes`).
+    @ObservationIgnored var landedCloseSizes = LandedCloseSizes()
     /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
     @ObservationIgnored public internal(set) var explicitReflowUntil: TimeInterval = 0
     static let explicitReflowWindow: TimeInterval = 0.6

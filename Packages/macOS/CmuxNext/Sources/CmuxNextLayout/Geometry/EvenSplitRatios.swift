@@ -14,7 +14,7 @@ public nonisolated enum EvenSplitRatios {
     }
 
     /// The ratio changes that give every cell of the same-axis chain under `top` an equal share
-    /// (a close, `CloseSizing`). Unchanged splits are left out.
+    /// (a close, `pane_close_split_changes`). Unchanged splits are left out.
     public static func changes(equalizing top: SplitNode, axis: SplitAxis) -> [SplitRatioChange] {
         var result: [SplitRatioChange] = []
         equalize(top, axis: axis, into: &result)

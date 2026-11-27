@@ -1,6 +1,6 @@
 /// A pane close shown in the key's turn (plans/cmux-next/close-animation/DESIGN.md): the pane
 /// leaves the shown screens, and with `layout.splitSizing` even its chain takes the sizes the close
-/// leaves (`CloseSizing`), in one layout. A column's only pane takes its column with it, and with
+/// leaves (`pane_close_split_changes`), in one layout. A column's only pane takes its column with it, and with
 /// `layout.newColumnWidth` fitScreen the columns left share the viewport again. Nothing is sent: the
 /// caller sends the close, and the daemon's tree without the pane then shows what is already shown.
 ///
@@ -19,7 +19,7 @@ extension LayoutModel {
     /// when another column stays (Leo 2026-10-25: "we should never block shit on the tab
     /// animation"; the column used to wait for the daemon's tree while its emptied strip played the
     /// tab's close), and so does a pane in a column with rows (its row's tree loses it; a row it
-    /// empties leaves the column, ``removingRowPane(_:from:)``). The screen's last pane leaves with
+    /// empties leaves the column). The screen's last pane leaves with
     /// the daemon's tree.
     ///
     /// - Parameter pane: The pane whose last tab (or which) closes.
@@ -138,6 +138,26 @@ extension LayoutModel {
         landedCloseSizes = flush.landed ?? LandedCloseSizes()
         for change in flush.ratios ?? [] { setSplitRatio(change.split, ratio: change.ratio, transaction: .make(), phase: .ended) }
         for resize in flush.widths ?? [] { setColumnWidth(resize.column, width: resize.width, transaction: .make(), phase: .ended) }
+    }
+
+    /// Sends the sizing intents for the panes and columns that left between two daemon trees
+    /// (Lawrence 2026-10-16, "panes should always equalize when we create and close them"): under
+    /// even sizing the closed pane's same-axis chain shares its space equally again; under fit-screen
+    /// the scrolling columns that fit the viewport share it after a column closes. `landed`: panes
+    /// whose close this window showed; their sizes are the landed close sizes (`noteLandedCloses`).
+    /// No call unless a sizing is on and a screen lost a pane.
+    func applyCloseSizing(from old: [LayoutScreen], to new: [LayoutScreen], landed: Set<PaneID> = []) {
+        struct Request: Encodable { var old, new: [PaneCloseReply.Screen], landed: [PaneID], sizing: PaneCloseReply.Sizing }
+        let sizing = closeSizing
+        let new = new.filter { screen in
+            old.first { $0.id == screen.id }.map { !Set($0.layout.panes).isSubset(of: screen.layout.panes) } ?? false
+        }
+        guard sizing.even || sizing.fits, !new.isEmpty else { return }
+        let old = old.filter { screen in new.contains { $0.id == screen.id } }
+        let request = Request(old: old.map(PaneCloseReply.Screen.init), new: new.map(PaneCloseReply.Screen.init), landed: Array(landed), sizing: sizing)
+        guard let sizes = PaneCloseReply.call("pane_close_sizing", request) else { return }
+        applySplitSizing(sizes.ratios ?? [])
+        for resize in sizes.widths ?? [] { setColumnWidth(resize.column, width: resize.width, transaction: .make(), phase: .ended) }
     }
 
     /// `layout` without `pane`: its sibling in its place, or, for a column's only pane, without its
