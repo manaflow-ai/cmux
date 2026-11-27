@@ -62,6 +62,28 @@ class SelectTests(unittest.TestCase):
         self.assertTrue(r["compile"])
         self.assertIn("workspaces-empty-mac-loads", r["flows"])
 
+    def test_every_crate_the_ffi_compiles_is_ios_affecting(self):
+        # The crates come from the FFI's Cargo graph (scripts/ci/ios_link_ffi_key.py), not a list: cmux-wg and
+        # cmux-felt were outside the old path walk (the 2026-11 audit: 254 shared-Rust PRs never built for iOS).
+        sys.path.insert(0, str(fs.REPO / "scripts/ci"))
+        import ios_link_ffi_key as key
+        sys.path.pop(0)
+        crates, roots = fs.ffi_closure(fs.REPO)
+        self.assertIn("cmux-tui/crates/cmux-wg", crates)
+        self.assertEqual(crates, key.closure("HEAD")[0])
+        for d in crates + [f"{r}/Cargo.lock" for r in roots]:
+            r = self.sel(d if d.endswith(".lock") else f"{d}/src/lib.rs")
+            self.assertTrue(r["compile"], d)
+            self.assertIn("compile-app-and-tests", r["flows"], d)
+
+    def test_redial_change_runs_the_reconnect_flow_on_a_paired_mac(self):
+        for path in ("cmux-tui/crates/cmux-remote/src/connection.rs", "cmux-tui/crates/cmux-tui/src/remote_runtime.rs"):
+            r = self.sel(path)
+            self.assertIn("reconnect-after-drop", r["flows"], path)
+            self.assertEqual(r["pair_e2e"], ["reconnect-drops=10,60"])
+            self.assertEqual(fs.sim_args(r, 1)[-1], "pair-e2e reconnect-drops=10,60")
+        self.assertNotIn("reconnect-after-drop", self.sel("cmux-tui/crates/cmux-tui/src/main.rs")["flows"])
+
     def test_shared_swift_package_the_app_links_is_ios_affecting(self):
         r = self.sel("Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/AuthCoordinator.swift")
         self.assertTrue(r["compile"])

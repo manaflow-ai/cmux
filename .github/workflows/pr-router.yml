@@ -134,6 +134,10 @@ jobs:
           # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
           # rule); 0 turns that off.
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          # A full-ci or ready-to-land label on a head that only merges the base onto a head whose full run passed
+          # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
+          # rule); 0 turns that off.
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
           # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
           CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
           # The previous head's Actions runs (actions: read), for that rule.

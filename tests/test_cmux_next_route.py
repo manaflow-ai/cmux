@@ -657,18 +657,25 @@ class PullRequestTiers(unittest.TestCase):
 
         ci-web type-checks, lints and tests the sources and proves with build-agent-pane-web.sh --check
         that the committed bundle matches them; the bundle is a `.copy` resource, so the app takes any
-        file set without a compile.
+        file set without a compile. The daemon embeds the built bundle (webviews/ is an input of the
+        daemon-test job since #48817), so a webviews source keeps the daemon tier, and with it the placement
+        flag `macos`; no app compile or package test runs.
         """
         for changed in (
             ["webviews/src/agent-session/pane.tsx"],
-            ["webviews/src/agent-session/acpmux/composerAttachments.css",
-             f"{PACKAGE}/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"],
+            # The bundle is build output (only GENERATED.md is committed), and a file under the agent-pane
+            # resource folder is read by CmuxNextAppTests since the web pieces suites (#50159, #50760) name that
+            # folder: committing one selects those tests, so it is no longer part of a web nit.
+            ["webviews/src/agent-session/acpmux/composerAttachments.css"],
             ["Resources/markdown-viewer/webviews-app/index.js", "docs/cmux-next.md"],
         ):
             with self.subTest(changed=changed):
                 result = tiers(changed)
-                for tier in ("macos", "scheme", "native", "swift", "generated", "daemon"):
+                reaches_daemon = any(path.startswith("webviews/") for path in changed)
+                for tier in ("scheme", "native", "swift", "generated"):
                     self.assertEqual(result[tier], "false", tier)
+                for tier in ("macos", "daemon"):
+                    self.assertEqual(result[tier], "true" if reaches_daemon else "false", tier)
 
     def test_a_web_change_beside_native_code_keeps_the_mac_tiers(self):
         result = tiers(["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextAgentPane/AgentPaneView.swift"])
@@ -691,9 +698,14 @@ class PullRequestTiers(unittest.TestCase):
         for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
             self.assertEqual(result[tier], "true", tier)
 
-        result = tiers(["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"])
+        # A CI file that routes itself (CI_SELF) beside a file a tier reads runs every tier, and a webviews
+        # source is one the daemon tier reads, so the web nit beside it is a markdown viewer bundle source here.
+        result = tiers(["scripts/ci/select_package_tests.py", "Resources/markdown-viewer/webviews-app/index.js"])
         for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
             self.assertEqual(result[tier], "false", tier)
+        result = tiers(["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"])
+        for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+            self.assertEqual(result[tier], "true", tier)
 
     def test_a_checks_job_tooling_input_runs_no_mac_tier(self):
         """A file the checks job's tests read and no build reads (a CI table, a lint, a git hook) is CI-only:
@@ -1149,7 +1161,8 @@ class BundleInputs(unittest.TestCase):
             self.assertEqual(entry["swift_targets"].split(), ["CmuxNextPagesTests"])
             inside = tiers(["webviews/src/pages/settings/components/ThemePicker.tsx",
                             "webviews/src/pages/settings/layout.css"])
-            self.assertEqual(mac_tiers(inside), [], "a page-internal edit is a web nit: ci-web covers it")
+            self.assertEqual(mac_tiers(inside), ["daemon"],
+                             "a page-internal edit is a web nit: ci-web covers it, the daemon tier embeds the bundle")
         self.assertTrue(self.route.matches("webviews/src/pages/a/b/main.tsx", "webviews/src/pages/*/main.tsx"),
                         "fnmatch's * crosses /: a pattern read is never narrower than the test")
         self.assertFalse(self.route.matches("webviews/src/pages/a/App.tsx", "webviews/src/pages/*/main.tsx"))
@@ -2098,8 +2111,9 @@ class HotOnlyRoute(unittest.TestCase):
 
     def test_web_only(self):
         result = self.assert_hot(["webviews/src/agent-session/pane.tsx", "webviews/src/agent-session/pane.css"], "web")
-        self.assertEqual(result["daemon"], "false")
-        self.assertEqual(result["macos"], "false")
+        # The daemon embeds the built bundle (webviews/ is a daemon-test input, #48817): its tier stays.
+        self.assertEqual(result["daemon"], "true")
+        self.assertEqual(result["macos"], "true")
 
     def test_daemon_rust_only_keeps_the_daemon_tier(self):
         for changed in (["cmux-tui/crates/acpmux/src/lib.rs"],
@@ -2237,24 +2251,18 @@ class HotAwareWorkflows(unittest.TestCase):
                           if "=" in line) if output.exists() else {}
             return done, values, summary.read_text(encoding="utf-8") if summary.exists() else ""
 
-    # cmux-next-guards.yml: tooling-tests never takes a Mac. Linux CI is one persistent pool (hq
-    # decisions/junctions.md 2026-11-20), so every pull request, hot-only or not, runs it on cmux-linux and the
-    # hot-route picker that kept a hot-only one off the minis is gone.
-
-    def test_tooling_tests_runs_on_linux_for_every_pull_request(self):
+    def test_tooling_tests_uses_linux_for_internal_and_fork_pull_requests(self):
         import yaml
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
         self.assertNotIn("hot-route", guards["jobs"])
-        job = guards["jobs"]["tooling-tests"]
-        # The window gate (base-coalesce.yml); no placement job. A pull request into feat-cmux-next runs them
-        # only with full-ci; its push runs them (#49046, affected-jobs.json).
-        self.assertEqual(job["needs"], "coalesce")
-        self.assertEqual(job["if"], "${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && "
-                                    "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != "
-                                    "'feat-cmux-next' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) }}")
-        self.assertTrue(job["runs-on"].endswith("|| 'cmux-linux' }}"), job["runs-on"])
-        self.assertNotIn("mini_runner", job["runs-on"])
-        self.assertNotIn("macos", job["runs-on"])
+        # The job's eligibility and coalescing are covered in test_ci_tooling_steps.
+        # A fork runs on hosted Linux. An internal change runs on the owned Linux pool.
+        self.assertEqual(
+            guards["jobs"]["tooling-tests"]["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+            "github.repository && 'ubuntu-24.04' || 'cmux-linux' }}",
+        )
 
     # fleet-test-compile.yml: the plan step.
 
