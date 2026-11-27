@@ -2353,20 +2353,16 @@ pub fn codex_session_flag_hooks_settings(
     let mut state = toml_edit::InlineTable::new();
     for &(event, command, timeout) in hooks {
         let label = codex_event_state_label(event)?;
-        let at = match events.iter().position(|(e, _)| *e == event) {
-            Some(at) => at,
-            None => {
-                events.push((event, Vec::new()));
-                events.len() - 1
-            }
+        if !events.iter().any(|(e, _)| *e == event) {
+            events.push((event, Vec::new()));
+        }
+        let Some((_, group)) = events.iter_mut().find(|(e, _)| *e == event) else {
+            anyhow::bail!("Codex hook event {event} was not recorded");
         };
-        let group = &mut events[at].1;
         let mut entry = toml_edit::InlineTable::new();
         entry.insert("trusted_hash", codex_trust_hash(label, command, timeout).into());
-        state.insert(
-            &format!("/<session-flags>/config.toml:{label}:{}:0", group.len()),
-            entry.into(),
-        );
+        let key = format!("/<session-flags>/config.toml:{label}:{}:0", group.len());
+        state.insert(&key, entry.into());
         group.push(format!(
             "{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}",
             toml_edit::Value::from(command),
