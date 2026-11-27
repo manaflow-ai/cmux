@@ -84,4 +84,4 @@ jobs:
           name: cloud-staging-test-sweep-${{ github.run_id }}
           path: ${{ runner.temp }}/test-sweep/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3

@@ -70,4 +70,4 @@ jobs:
           name: runnable-link-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/runnable-link.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

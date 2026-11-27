@@ -101,4 +101,4 @@ jobs:
           name: pause-ab-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/pause-ab/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3

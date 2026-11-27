@@ -98,7 +98,7 @@ jobs:
           name: nightly-pr-attribution
           path: ${{ runner.temp }}/nightly-pr-attribution.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 3
 
       - name: Update the speed issue in cmuxterm-hq
         if: steps.hq-token.outputs.token != ''

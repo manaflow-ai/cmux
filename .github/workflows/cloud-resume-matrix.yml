@@ -202,7 +202,7 @@ jobs:
             ${{ runner.temp }}/resume-matrix/**/journey.json
             ${{ runner.temp }}/resume-matrix/**/summary.md
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 1
 
   table:
     needs: machine
@@ -234,4 +234,4 @@ jobs:
         with:
           name: resume-matrix
           path: ${{ runner.temp }}/samples
-          retention-days: 30
+          retention-days: 3

@@ -119,7 +119,7 @@ jobs:
             ${{ runner.temp }}/cas-replay-w1/rows.jsonl
             ${{ runner.temp }}/w1.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   b1:
     name: cas/1 replay, row B1 (DerivedData seed restore bytes)
@@ -175,7 +175,7 @@ jobs:
             ${{ runner.temp }}/cas-replay-b1/rows.jsonl
             ${{ runner.temp }}/b1.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   u2:
     name: cas/1 replay, row U2 (Mac update bytes, 20 NIGHTLYs behind)
@@ -283,4 +283,4 @@ jobs:
             ${{ runner.temp }}/cas-replay-u2/rows.jsonl
             ${{ runner.temp }}/u2.json
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
