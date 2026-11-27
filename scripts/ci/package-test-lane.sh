@@ -236,7 +236,7 @@ ensure_parent() {
   # .git/shallow and truncates history for every worktree sharing it.
   local depth=()
   [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=2)
-  git fetch --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} "$remote" "$(git rev-parse HEAD)" || true
+  git fetch --no-recurse-submodules --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} "$remote" "$(git rev-parse HEAD)" || true
 }
 
 # A package whose manifest names GhosttyKit.xcframework has a binaryTarget on
@@ -1240,7 +1240,7 @@ run_compile_tests() {
   if ! git cat-file -e "$compile_base^{commit}" 2>/dev/null; then
     local depth=()
     [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
-    git fetch --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} \
+    git fetch --no-recurse-submodules --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} \
       "$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)" "$compile_base" \
       || { echo "compile-tests: could not fetch the merge base $compile_base" >&2; exit 3; }
   fi

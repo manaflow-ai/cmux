@@ -305,7 +305,7 @@ trap 'for tree in ${cleanup[@]+"${cleanup[@]}"}; do git -C "$root" worktree remo
 checkout() {
   local label="$1" sha="$2" tree="$work/$1-src" file depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-  git rev-parse --verify -q "$sha^{commit}" >/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$sha"
+  git rev-parse --verify -q "$sha^{commit}" >/dev/null || git fetch --no-recurse-submodules -q ${depth[@]+"${depth[@]}"} "$fetch_url" "$sha"
   git worktree add -q --detach "$tree" "$sha"
   cleanup+=("$tree")
   git -C "$tree" submodule update --init --depth 1 ghostty-next >/dev/null

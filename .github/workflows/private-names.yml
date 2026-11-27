@@ -128,7 +128,7 @@ jobs:
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           wrapper="$RUNNER_TEMP/private_names_local.py"
           if [ -n "${HEAD_SHA:-}" ] && [ -n "${BASE_SHA:-}" ] \
-              && git -C "$gitdir" -c "http.https://github.com/.extraheader=$auth" fetch --quiet --no-tags --depth=1 \
+              && git -C "$gitdir" -c "http.https://github.com/.extraheader=$auth" fetch --no-recurse-submodules --quiet --no-tags --depth=1 \
                 --filter=blob:none origin "$HEAD_SHA" "$BASE_SHA" \
               && git -C "$gitdir" cat-file blob "$BASE_SHA:scripts/ci/private_names_local.py" > "$wrapper" 2>/dev/null; then
             python3 -I "$wrapper" "$checker" "$gitdir" "$HEAD_SHA" "$GITHUB_REPOSITORY" "$PR_NUMBER"

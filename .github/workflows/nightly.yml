@@ -3490,7 +3490,7 @@ jobs:
         name: Add the workflow commit's new step scripts to an older build tree
         if: ((env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == '') && !env.LEFT_SLOT
         run: |
-          for try in 1 2 3; do git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=120 fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
+          for try in 1 2 3; do git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=120 fetch --no-recurse-submodules -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
           git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
 
       - &download-signing-inputs-paralle
@@ -4613,7 +4613,7 @@ jobs:
         name: Add the workflow commit's new step scripts to an older build tree
         if: hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
         run: |
-          for try in 1 2 3; do git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=120 fetch -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
+          for try in 1 2 3; do git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=120 fetch --no-recurse-submodules -q --no-tags --depth=1 origin "$GITHUB_SHA" && break; [ "$try" != 3 ] || exit 1; sleep $((try * 10)); done
           git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
       - &x75
         name: Verify bundled CLI commands run from the bundle alone

@@ -32,7 +32,7 @@ git -C "$root" rev-parse --path-format=absolute --git-common-dir | sed 's#$#/obj
 # not offered as commits the scratch repository has; it has none of their history, and the remote would
 # leave out objects it needs ("remote did not send all necessary objects"). --filter=blob:none: with no
 # commits to offer, the whole snapshot would come down (about 550 MB); the path diff reads trees only.
-git -C "$scratch" -c core.alternateRefsCommand=true fetch --quiet --no-tags --depth=1 --filter=blob:none "$(git -C "$root" remote get-url origin)" "$since" \
+git -C "$scratch" -c core.alternateRefsCommand=true fetch --no-recurse-submodules --quiet --no-tags --depth=1 --filter=blob:none "$(git -C "$root" remote get-url origin)" "$since" \
   || { echo "cannot fetch ${since:0:12}" >&2; exit 1; }
 names="$(git -C "$scratch" diff --name-only --no-renames "$since" "$head")"
 [[ -z "$names" ]] || printf '%s\n' "$names"

@@ -169,7 +169,7 @@ jobs:
           print(json.loads(base64.b64decode(json.load(sys.stdin)["payload"]))["commit"])' 2>/dev/null)" || chan=""
           build=true
           if [[ "$chan" =~ ^[0-9a-f]{40}$ && "$chan" != "$GITHUB_SHA" ]]; then
-            scripts/ci/timeout.sh 60 git fetch --no-tags --depth=200 origin "$chan" >/dev/null 2>&1 || true
+            scripts/ci/timeout.sh 60 git fetch --no-recurse-submodules --no-tags --depth=200 origin "$chan" >/dev/null 2>&1 || true
             if git merge-base --is-ancestor "$GITHUB_SHA" "$chan" 2>/dev/null; then
               echo "::notice title=machine channel is ahead::the channel names $chan, a later commit"
               build=false

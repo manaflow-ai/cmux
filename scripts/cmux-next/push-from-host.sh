@@ -277,8 +277,8 @@ echo "push-from-host: $SHA -> $BRANCH through $HOST" >&2
 HAVE="$("${SSH[@]}" bash -s -- "$HOST_REPO" "$BRANCH" <<'REMOTE'
 set -euo pipefail
 cd "$HOME/$1"
-git fetch -q --no-tags origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next" >&2
-git fetch -q --no-tags origin "+refs/heads/$2:refs/remotes/origin/$2" >&2 2>/dev/null || true
+git fetch --no-recurse-submodules -q --no-tags origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next" >&2
+git fetch --no-recurse-submodules -q --no-tags origin "+refs/heads/$2:refs/remotes/origin/$2" >&2 2>/dev/null || true
 for ref in refs/remotes/origin/feat-cmux-next "refs/remotes/origin/$2"; do
     git rev-parse --verify --quiet "$ref^{commit}" || true
 done
@@ -373,7 +373,7 @@ if [[ "$FREE_KB" =~ ^[0-9]+$ ]]; then
     fi
 fi
 if [[ -f "$RDIR/bundle" ]]; then
-    git fetch -q --no-tags "$RDIR/bundle" "refs/push-from-host/$NAME"
+    git fetch --no-recurse-submodules -q --no-tags "$RDIR/bundle" "refs/push-from-host/$NAME"
 fi
 if ! git cat-file -e "$SHA^{commit}" 2>/dev/null; then
     echo "push-from-host: $HOSTNAME does not have $SHA after the bundle; nothing was pushed." >&2
@@ -436,7 +436,7 @@ TRIES=1
 for (( TRY = 1; TRY <= TRIES; TRY++ )); do
     if (( REBASE )); then
         # The branch's head now. A new branch has none: nothing to rebase on.
-        if git fetch -q --no-tags origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>/dev/null; then
+        if git fetch --no-recurse-submodules -q --no-tags origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" 2>/dev/null; then
             if ! git -c user.name="$WHO" -c user.email="$MAIL" -c core.hooksPath=/dev/null \
                     rebase -q "refs/remotes/origin/$BRANCH" >&2; then
                 git rebase --abort >/dev/null 2>&1 || true

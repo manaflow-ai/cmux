@@ -38,7 +38,7 @@ out="$(mktemp -d /tmp/dab.XXXXXX)"
 trap 'git -C "$root" worktree remove --force "$out/base-src" >/dev/null 2>&1 || true; rm -rf "$out"' EXIT
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=50)
-git fetch -q ${depth[@]+"${depth[@]}"} origin "${base#origin/}" 2>/dev/null || true
+git fetch --no-recurse-submodules -q ${depth[@]+"${depth[@]}"} origin "${base#origin/}" 2>/dev/null || true
 base_sha="$(git rev-parse "$base")"
 head_sha="$(git rev-parse HEAD)"
 echo "daemon-restart-ab: A=$base ($base_sha) B=HEAD ($head_sha)"

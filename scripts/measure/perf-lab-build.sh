@@ -125,9 +125,9 @@ trap 'on_signal HUP' HUP
 # The commit's own tree, submodules and GhosttyKit. A failure here is the fleet's, not the commit's.
 [[ -d "$src/.git" ]] || git init -q "$src" || infra "cannot create $src"
 origin="$(git -C "$tip" remote get-url origin 2>/dev/null || true)"
-if ! { [[ -n "$origin" ]] && git -C "$src" fetch -q --no-tags "$origin" "$build_sha"; }; then
+if ! { [[ -n "$origin" ]] && git -C "$src" fetch --no-recurse-submodules -q --no-tags "$origin" "$build_sha"; }; then
   # The step's own checkout, when its origin cannot serve the commit (it has it when --ref descends from it).
-  git -C "$src" fetch -q --no-tags "$tip" "$build_sha" || infra "cannot fetch $build_sha"
+  git -C "$src" fetch --no-recurse-submodules -q --no-tags "$tip" "$build_sha" || infra "cannot fetch $build_sha"
 fi
 cd "$src"
 git -c advice.detachedHead=false checkout -q --force --detach "$build_sha" || infra "cannot check out $build_sha"

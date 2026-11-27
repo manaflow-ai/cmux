@@ -25,7 +25,7 @@ if [[ -z "$remote" ]]; then
   [[ "$remote" == */cmux || "$remote" == */cmux.git ]] || remote="${remote%/}/manaflow-ai/cmux.git"
 fi
 for sha in "$base" "$old"; do
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch -q --depth=1 "$remote" "$sha" || { echo "cannot fetch $sha" >&2; exit 2; }
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --no-recurse-submodules -q --depth=1 "$remote" "$sha" || { echo "cannot fetch $sha" >&2; exit 2; }
 done
 git cat-file -e "$base^{commit}" && git cat-file -e "$old^{commit}" || exit 2
 (git submodule status ghostty-next >/dev/null 2>&1 && [[ ! -f ghostty-next/build.zig ]]) && bash scripts/ci/init-submodule.sh ghostty-next

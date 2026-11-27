@@ -160,7 +160,7 @@ jobs:
           git -C "$repo" remote add origin "$REMOTE"
           # Commits and trees only, back far enough to find where the previous head
           # last met the base; the merge and the diffs below fetch only the blobs they read.
-          timeout 150 git -C "$repo" fetch -q --no-tags --filter=blob:none --shallow-since="4 days ago" origin \
+          timeout 150 git -C "$repo" fetch --no-recurse-submodules -q --no-tags --filter=blob:none --shallow-since="4 days ago" origin \
             "+refs/pull/$PR/head:refs/remotes/pr/head" "+refs/heads/$BASE_REF:refs/remotes/origin/base" \
             || decide false "Could not fetch the head and $BASE_REF: every check runs."
           [ "$(git -C "$repo" rev-parse refs/remotes/pr/head)" = "$AFTER" ] || decide false "The branch moved past $AFTER: every check runs."

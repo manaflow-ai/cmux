@@ -2196,7 +2196,7 @@ jobs:
           # nightly-next stalled. A rerun (attempt 2+) always tests, and any
           # failure to read the head or the tree tests as before.
           if [[ "$REF" == refs/heads/feat-cmux-next && "$RUN_ATTEMPT" == 1 ]] \
-             && git fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next 2>/dev/null; then
+             && git fetch --no-recurse-submodules --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next 2>/dev/null; then
             head_sha="$(git rev-parse FETCH_HEAD)"
             head_key="$(scripts/cmux-next/pin-cmux-tui.sh key --rev FETCH_HEAD 2>/dev/null || true)"
             if [[ "$head_sha" != "$SHA" && "$head_key" =~ ^[0-9a-f]{40}$ && "$head_key" != "$KEY" ]] \

@@ -124,7 +124,7 @@ if [[ -n "$fallback" && "${fallback_source:-}" =~ ^[0-9a-f]{40}$ ]]; then
   fallback_depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && fallback_depth=(--depth=1)
   git cat-file -e "$fallback_source^{commit}" 2>/dev/null \
-    || bash scripts/ci/timeout.sh 90 git fetch -q --no-tags ${fallback_depth[@]+"${fallback_depth[@]}"} origin "$fallback_source" 2>/dev/null || true
+    || bash scripts/ci/timeout.sh 90 git fetch --no-recurse-submodules -q --no-tags ${fallback_depth[@]+"${fallback_depth[@]}"} origin "$fallback_source" 2>/dev/null || true
   covers_rc=0
   covers="$(python3 scripts/ci/nightly_fallback_covers.py --app-commit "$TIP_SHA" --client-commit "$fallback_source" 2>/dev/null)" || covers_rc=$?
   missing="$(sed -n 's/^missing=//p' <<<"$covers" | head -1)"
