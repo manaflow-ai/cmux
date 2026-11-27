@@ -60,7 +60,7 @@ where
         {
             return Err(Fault::new("forbidden", "Cloud carrier refused mobile chat handshake"));
         }
-        if request["cmd"] == "identify"
+        if request.get("cmd").and_then(Value::as_str) == Some("identify")
             && !response
                 .pointer("/data/capabilities")
                 .and_then(Value::as_array)
@@ -95,7 +95,7 @@ pub async fn read_line<R: AsyncBufRead + Unpin>(
         if line.len().saturating_add(take) > MAX_NATIVE_LINE {
             return Err(Fault::new("bad_request", "Cloud carrier line is too large"));
         }
-        line.extend_from_slice(&chunk[..take]);
+        line.extend_from_slice(chunk.get(..take).unwrap_or(chunk));
         reader.consume(take + usize::from(newline.is_some()));
         if newline.is_some() {
             if line.last() == Some(&b'\r') {
