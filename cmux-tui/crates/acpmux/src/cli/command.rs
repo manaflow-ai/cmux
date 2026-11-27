@@ -999,11 +999,16 @@ pub enum Command {
     #[command(skip)]
     SessionHold {
         session: Option<String>,
+        #[arg(long)]
         held: bool,
+        #[arg(long)]
         fleet: bool,
+        #[arg(long, value_delimiter = ',')]
         allow: Vec<String>,
+        #[arg(long)]
         set_allow: Option<Vec<String>>,
         reason: Option<String>,
+        #[arg(long)]
         status: bool,
         hold_for: Option<String>,
     },

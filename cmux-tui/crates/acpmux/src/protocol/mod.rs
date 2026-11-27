@@ -647,6 +647,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chat_place", Request),
         untyped("_acpmux/chat_place_set", Request),
         untyped(method::MUX_PLACE_CHAT, Request),
+        untyped("_acpmux/chat_place", Request),
+        untyped("_acpmux/chat_place_set", Request),
         keyed::<params::MoveTargetsParams>("_acpmux/move_targets", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),

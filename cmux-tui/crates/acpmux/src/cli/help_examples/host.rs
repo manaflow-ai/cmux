@@ -357,6 +357,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[("Stop a Mac's Allows here at once", "acpmux machine approvals rm mac-a1b2c3")],
     ),
     (
+        "machine approvals grant",
+        &[(
+            "Record a standing pre-grant key for `acpmux allow --standing-grant`",
+            "acpmux machine approvals grant",
+        )],
+    ),
+    (
         "machine approvals enroll",
         &[
             (
