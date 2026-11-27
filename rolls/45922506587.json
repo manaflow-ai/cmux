@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45922506587",
+  "recorded_at": "2026-11-27T01:47:35Z",
+  "reason": "image inputs changed in 2f257b528e80745f0f2d69d09de8a9e3752876f4..5c6b764e9dd06b95240e9279a671817c1c79efa9; cmux-tui stays 348e8a8aff37 (latest build 3bb7a878c526 is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "348e8a8aff37009a312146c16aa19198274a3a1a",
+  "fixes": [
+    {
+      "sha": "5c6b764e9dd06b95240e9279a671817c1c79efa9",
+      "mergedAt": "2026-11-27T01:25:27Z",
+      "subject": "image roll probe: read the chat's launch, not acpmux's model listing; record launches atomically (#60090)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T01:47:35Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
