@@ -1164,7 +1164,9 @@ export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: 
           `one ${BURST_NAMES[kind]} commits this many transcript rows again`,
         );
         // A record whose one changed row the running turn's closed fold hides draws nothing anyone
-        // sees: the pane must not redraw for it (drawnRows.ts, `pane:row-hidden`).
+        // sees in its row: the pane must not redraw for it (drawnRows.ts, `pane:row-hidden`). A call's
+        // start or end still moves the live line (turns.ts `lineCall`), so tool_call misses this
+        // until the line hears calls without the pane.
         const hiddenPane = counted.map((b) => b.renders!.byComponent["pane:row-hidden"] ?? 0);
         row(
           {
