@@ -648,8 +648,19 @@ impl TransportProvider for RelayProvider {
         // An inline circuit (relay_standby.rs) carries its frames on this socket, so it takes
         // a circuit's message limit, not a control socket's.
         let limit = framing.websocket_message_limit(self.config.maximum_frame_bytes);
-        let control =
-            connect_provider_control(&endpoint, &self.credentials, limit, &self.tls).await?;
+        // A redial takes the standby socket the dial before left open (`relay_dial_standby.rs`;
+        // off by default), then leaves one for the next.
+        let standby = dial_standby::dial_standby_wanted();
+        let taken = if standby { dial_standby::take(&endpoint, limit).await } else { None };
+        let control = match taken {
+            Some(control) => control,
+            None => {
+                connect_provider_control(&endpoint, &self.credentials, limit, &self.tls).await?
+            }
+        };
+        if standby {
+            dial_standby::prime(&endpoint, &self.credentials, limit, &self.tls);
+        }
         Ok(Arc::new(RelayLinkGroup {
             description: route.clone(),
             evidence: CarrierEvidence::Relay {
