@@ -87,6 +87,7 @@ fn reference_find(needle: &Needle, text: &str) -> Option<usize> {
 /// Characters whose folding is not one ASCII byte, or is whitespace: `Σ` and both sigmas,
 /// `İ` (two characters lowered), the Kelvin sign (lowers to ASCII `k`), Unicode spaces.
 fn tricky_text() -> impl proptest::strategy::Strategy<Value = String> {
+    use proptest::strategy::Strategy as _;
     proptest::collection::vec(
         proptest::sample::select(vec![
             'a', 'b', 'K', 'k', 'S', 's', 'Σ', 'σ', 'ς', 'İ', 'i', '\u{307}', '\u{212A}', ' ',
@@ -98,6 +99,7 @@ fn tricky_text() -> impl proptest::strategy::Strategy<Value = String> {
 }
 
 fn tricky_words() -> impl proptest::strategy::Strategy<Value = Vec<String>> {
+    use proptest::strategy::Strategy as _;
     proptest::collection::vec(
         proptest::collection::vec(
             proptest::sample::select(vec![
