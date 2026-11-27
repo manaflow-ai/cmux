@@ -34,8 +34,9 @@
 //! (each fold's `current`), so until then its folds are these. An adoption of a host whose
 //! `host_started` comes after the checkpoint resumes from them (`kind_index.rs` keeps every
 //! `host_started`, so that is read without the log). A chat with no checkpoint gets one in the
-//! background when its host starts (`prime_adoption_checkpoint`), so no restart reads its whole
-//! log.
+//! background when its host starts (`prime_adoption_checkpoint`), or when a daemon reads its log
+//! with no host of it running (`journal.rs` `checkpoint_after_load`, saved under `UNSTARTED`),
+//! so no restart reads its whole log.
 
 use super::super::processes::SavedProcesses;
 use super::journal::{EnvFold, HostSeqFold, WorkFold};

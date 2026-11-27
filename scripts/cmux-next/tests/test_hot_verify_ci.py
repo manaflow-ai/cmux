@@ -843,10 +843,15 @@ class Workflow(unittest.TestCase):
         done, calls, _ = self.fake_gh_run("plan", "Dispatch the look", flaky, env)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(len(calls.splitlines()), 2)
-        # gh's own rate-limit answer still stops at once: the wrapper already waited on every pool.
-        done, calls, _ = self.fake_gh_run("plan", "Dispatch the look", 'echo "HTTP 403: API rate limit exceeded" >&2; exit 1\n', env)
-        self.assertNotEqual(done.returncode, 0)
+        # gh's own rate-limit answer still stops at once: the wrapper already waited (120 s at most) on every pool.
+        # The look is advisory, so a spent hour skips it green instead of a red (2026-11-24 runs slept ~24 min here).
+        done, calls, summary = self.fake_gh_run("plan", "Dispatch the look", 'echo "HTTP 403: API rate limit exceeded" >&2; exit 1\n', env)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(len(calls.splitlines()), 1)
+        self.assertIn("no look", summary)
+        # Any other refusal is still red after its retries.
+        done, calls, _ = self.fake_gh_run("plan", "Dispatch the look", 'echo "HTTP 422: no" >&2; exit 1\n', env)
+        self.assertNotEqual(done.returncode, 0)
 
     def test_the_rust_layer_reads_the_pr_only_to_send_a_dispatch(self) -> None:
         # 5 of 6 sampled rust layer reds on 2026-11-25 were this read out of quota with the dispatch switched off.

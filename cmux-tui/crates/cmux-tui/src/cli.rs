@@ -63,6 +63,8 @@ mod caller_browser;
 mod caller_scope;
 mod capability_cache;
 #[cfg(unix)]
+mod device_login;
+#[cfg(unix)]
 mod share_requests;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
@@ -1040,6 +1042,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `login` with no cmux app to answer (or `--device`): sign in by link, print a CMUX_TOKEN.
+    #[cfg(unix)]
+    if let Some(code) = device_login::run_if_requested(args) {
+        return code;
+    }
     // `login` and `logout` are `vm sign-in` and `vm sign-out`, which the Cloud alias below runs.
     #[cfg(unix)]
     let account_args;
@@ -1381,7 +1388,9 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore") => true,
+        Some(
+            "get" | "explain" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore",
+        ) => true,
         _ => false,
     }
 }
@@ -1744,8 +1753,8 @@ fn scan_globals(
     Ok((global, command))
 }
 
-/// `machine add|vault`'s value-less switches (`machine_join::own_switch`) and the chat
-/// commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
+/// `machine add|revoke|rotate|vault`'s value-less switches (`machine_join::own_switch`) and
+/// the chat commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
 fn own_switch(command: &[String], flag: &str) -> bool {
     #[cfg(unix)]
     {
