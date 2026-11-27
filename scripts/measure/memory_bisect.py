@@ -109,6 +109,12 @@ class Builder:
                         CARGO_INCREMENTAL="0")
         # The memory gate's target folder (memory-gate-linux.sh): the no-LTO profile would evict the cached release.
         self.env.setdefault("CARGO_TARGET_DIR", os.path.join(os.environ.get("RUNNER_TEMP", "/tmp"), "memory-gate-target"))
+        # What infinite-items-linux.sh sets up before it builds (the ghostty-next submodule a fast-checks snapshot
+        # leaves empty, the pinned Zig as CMUX_ZIG): without it every probe fails in ghostty-vt-sys's build script.
+        out = subprocess.run(["bash", "-c", 'source "$1" && measure_linux_build_env "$2" >&2 && env -0', "_",
+                              os.path.join(root, "scripts/measure/linux-build-env.sh"), root],
+                             env=self.env, check=True, stdout=subprocess.PIPE).stdout
+        self.env = dict(kv.split("=", 1) for kv in out.decode().split("\0") if "=" in kv)
         meta = subprocess.run(["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"],
                               cwd=os.path.join(root, "cmux-tui"), env=self.env, check=True, capture_output=True,
                               text=True).stdout
