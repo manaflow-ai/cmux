@@ -3173,6 +3173,7 @@
       },
       "requests": {
         "create-terminal": {
+          "allow_unadvertised_capability": "workspace-registry-v1",
           "name": "CreateTerminalRequest",
           "protocol": "TerminalSpawningRequest",
           "response": "CreateTerminalResult",
@@ -3234,6 +3235,7 @@
           }
         },
         "new-pane-right": {
+          "allow_unadvertised_capability": "viewport-splits-v1",
           "name": "NewColumnRequest",
           "protocol": "TerminalSpawningRequest",
           "response": "SurfaceCreated",

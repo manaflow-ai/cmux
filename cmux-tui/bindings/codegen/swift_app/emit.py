@@ -11,6 +11,9 @@ schema gates by a capability is generated with a doc line naming it; the caller 
 that does not serve it, as the hand-written types did. Family keys and Swift type names must be plain Swift
 identifiers: they become the output paths.
 
+The Swift binding may name an exact schema capability in allow_unadvertised_capability for a legacy
+request that the app already sent to daemons without that advertisement.
+
 Wire rules (the same JSON the hand-written types sent):
 - every field has an explicit coding key that is its wire name;
 - a required field is always encoded (a nil required-nullable field encodes `null`);
@@ -589,8 +592,12 @@ class _Renderer:
         if response not in (GENERATE, HAND_WRITTEN):
             out.append(f"    public typealias Response = {response}")
         out.append(f"    public static let command = {json.dumps(command)}")
-        if schema.get("capability"):
-            out.append(f"    public static let requiredCapability: String? = {json.dumps(schema['capability'])}")
+        capability = schema.get("capability")
+        if "allow_unadvertised_capability" in binding:
+            if not capability or binding["allow_unadvertised_capability"] != capability:
+                raise BindingError(f"{command}: allow_unadvertised_capability must name the command's schema capability")
+        elif capability:
+            out.append(f"    public static let requiredCapability: String? = {json.dumps(capability)}")
         for enum in nested:
             out += ["", *enum.lines("    ")]
         if fields:

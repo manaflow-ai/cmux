@@ -23,7 +23,7 @@ struct SplitLateStartTests {
     mode = sys.argv[1]
     print('{"ok":true}', file=sys.stderr, flush=True)
     splits, panes, held = [], {}, []
-    caps = ['terminal-placement-env-v1', 'terminal-env-v1', 'viewport-splits-v1']
+    caps = ['terminal-placement-env-v1', 'terminal-env-v1']
     if mode != 'legacy':
         caps.append('split-client-keys-v1')
     def reply(frame, data):
@@ -101,6 +101,14 @@ struct SplitLateStartTests {
         #expect(recorded["panes"]?.doubleValue == 1, "asking again makes no second pane")
         #expect(created.surface == SurfaceID(rawValue: 10), "the split answers the pane the first request started")
         #expect(created.terminalID == options.terminalID)
+    }
+
+    @Test func creationRequestsKeepTheirOriginalCapabilityChecks() throws {
+        try NewColumnRequest.requireServed(by: nil)
+        try CreateTerminalRequest.requireServed(by: nil)
+        #expect(throws: DaemonError.self) { try NewRowRequest.requireServed(by: nil) }
+        #expect(throws: DaemonError.self) { try CloseTabGroupRequest.requireServed(by: nil) }
+        #expect(throws: DaemonError.self) { try CloseTabsRequest.requireServed(by: nil) }
     }
 
     @Test func aRefusedSplitIsNotAskedAgain() async throws {

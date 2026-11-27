@@ -182,6 +182,16 @@ class RenderTests(unittest.TestCase):
     def test_a_command_without_a_capability_declares_none(self) -> None:
         self.assertNotIn("requiredCapability", rendered()["Layout/SwapPaneRequest.generated.swift"])
 
+    def test_legacy_request_can_still_be_sent_without_its_advertised_capability(self) -> None:
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["allow_unadvertised_capability"] = "layout-undo-v1"
+        self.assertNotIn("requiredCapability", rendered(bindings=bindings)["Layout/SetSplitRatioRequest.generated.swift"])
+
+        request["allow_unadvertised_capability"] = "renamed-v2"
+        with self.assertRaisesRegex(BindingError, "must name the command's schema capability"):
+            rendered(bindings=bindings)
+
     def test_required_fields_are_always_encoded_and_optional_ones_only_when_set(self) -> None:
         source = rendered()["Layout/SwapPaneRequest.generated.swift"]
         self.assertIn("        try container.encode(pane, forKey: .pane)\n", source)
