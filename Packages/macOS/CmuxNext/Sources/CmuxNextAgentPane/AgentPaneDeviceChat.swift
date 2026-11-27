@@ -20,6 +20,14 @@ public nonisolated struct AgentPaneDeviceChat: Hashable, Sendable {
     /// The most chats one push carries (the page shows a few cards).
     public static let maximumPushed = 24
 
+    /// Writes `next` over `cards` when they differ; false when they are the same, so the caller hands nothing to its
+    /// pages: a chat index change past the cards then costs one compare, never one per open page (hq#8697).
+    public static func replace(_ cards: inout [AgentPaneDeviceChat], with next: [AgentPaneDeviceChat]) -> Bool {
+        guard cards != next else { return false }
+        cards = next
+        return true
+    }
+
     var json: JSONValue {
         var object: [String: JSONValue] = ["key": .string(key), "harness": .string(harness),
                                            "updatedAt": .number((updatedAt.timeIntervalSince1970 * 1000).rounded())]
@@ -44,7 +52,7 @@ extension AgentPaneDeviceChat {
     /// Owes `view`'s page its device chats: they go once per turn, and only while the pane is seen
     /// (``AgentPaneShownPushes``), as the value of that moment.
     @MainActor static func owe(to view: AgentPaneView) {
-        view.shownPushes.push("deviceChats", to: view) { push($0.deviceChats, to: $0) }
+        view.shownPushes.push("deviceChats", to: view, newTabOnly: true) { push($0.deviceChats, to: $0) }
     }
 
     /// Pushes `chats` to `view`'s page (not an AgentPaneView extension: that type is at its size limit).

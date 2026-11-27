@@ -33,7 +33,7 @@ path = "junit.xml"
 # 120 s); a test that waits a fixed 30 s is a bug for its owner
 # (cx-ngrtv, cx-086x8), and leaves this list when it is fixed.
 [[profile.default.overrides]]
-filter = 'test(=cmux_next_owner_runs_300_terminals_with_a_256_open_file_soft_limit)'
+filter = 'test(=open_file_limit::cmux_next_owner_runs_300_terminals_with_a_256_open_file_soft_limit)'
 priority = 100
 # 101 s on a quiet start, 120 s when it started beside the 100-terminal tests
 # (4fa5d0fc348d): 240 s keeps a 2x margin; a hang still fails.
@@ -41,10 +41,10 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 
 [[profile.default.overrides]]
 filter = '''
-test(=cmux_next_daemon_idle_has_no_periodic_wakeups)
-| test(=cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder)
-| test(=daemon_usage_patterns_on_has_no_periodic_wakeups)
-| test(=terminal_creates_under_output_commit_effect_receipts_in_writer_batches)
+test(=idle_wakeups::cmux_next_daemon_idle_has_no_periodic_wakeups)
+| test(=idle_wakeups::cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder)
+| test(=idle_wakeups::daemon_usage_patterns_on_has_no_periodic_wakeups)
+| test(=journal_effect_intents::terminal_creates_under_output_commit_effect_receipts_in_writer_batches)
 | test(=machine_provider_runtime::tests::stale_connection_closed_event_preserves_the_current_connection)
 | test(=machine_provider_runtime::tests::snapshot_event_replaces_dynamic_ui_with_stable_machine_key)
 | test(=machine_provider_runtime::tests::initial_durable_replay_suppresses_the_legacy_snapshot_notice)
@@ -80,16 +80,42 @@ filter = '''
 (binary_id(acpmux::startup_load) & test(=a_restart_over_long_chats_loads_within_budget_and_keeps_queues_and_tails))
 | (binary_id(acpmux::claude_auth_env) & test(=a_hung_login_shell_holds_agents_at_most_three_seconds))
 | (binary_id(acpmux::durable_agents) & test(=a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_its_work))
-| (binary_id(cmux-tui::terminal_host_recovery) & test(=close_path::kitty_create::terminals_created_across_kitty_budget_buckets_start_fast_with_kitty_enabled))
-| (binary_id(cmux-tui::terminal_host_recovery) & test(=close_path::closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host))
-| (binary_id(cmux-tui::terminal_host_recovery) & test(=restart_with_many_live_terminals_answers_within_budget))
+| (binary_id(cmux-tui::it) & test(=terminal_host_recovery::close_path::kitty_create::terminals_created_across_kitty_budget_buckets_start_fast_with_kitty_enabled))
+| (binary_id(cmux-tui::it) & test(=terminal_host_recovery::close_path::closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host))
+| (binary_id(cmux-tui::it) & test(=terminal_host_recovery::restart_with_many_live_terminals_answers_within_budget))
 | (binary_id(cmux-tui-core) & test(=state::group_update_latency_tests::a_persons_requests_answer_while_busy_sessions_saturate_the_registry))
 | (binary_id(cmux-tui-core) & test(=state::group_update_latency_tests::ordinary_registry_writers_progress_while_personal_writes_stay_queued))
 | (binary_id(cmux-remote::interactive_latency_e2e) & test(=interactive_echo_stays_responsive_during_bidirectional_bulk_transfer))
 | (binary_id(acpmux::start_mode) & test(=the_policy_gate_round_trip_under_approve_all_is_measured))
+| binary_id(acpmux::stop_watchdog)
 '''
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
+
+# The stop watchdog's test (acpmux tests/stop_watchdog.rs) prints its STOP-WATCHDOG lines (each
+# home's held stops with and without `start`, and stops not held) on stderr; a fleet step shows
+# them only when a passing test's output is kept. It starts and stops a daemon twelve times over
+# each of two homes, the god one written first: 300 s is the margin under load; a hang still
+# fails.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/the_first_window_costs_the_same_at_every_scale$/)'
+# It prints the phone first window's bytes and daemon time at 10, 100 and 1,000
+# workspaces (1,000 /bin/cat terminals) for a PR's before/after table.
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
+
+[[profile.default.overrides]]
+filter = 'binary_id(acpmux::stop_watchdog)'
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
+success-output = "final"
+
+# The composer Send duress table (cmux-tui tests/composer_send_duress.rs) prints its table and
+# COMPOSER-SEND lines on stderr, kept for a passing run. Its scenarios run at once; the slowest
+# (100 Sends at a person's pace on lossy-10, then up to 150 s settling) sets the time: 480 s is the margin.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui::it) & test(/^composer_send_duress::/)'
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+success-output = "final"
 
 # The shell-integration fork counts on Linux: a count is the gap in the
 # system PID counter, so a process any other test starts in the window
@@ -126,14 +152,14 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 # The lifecycle latency test (perf-10x lifecycle) prints its LIFECYCLE lines
 # on stderr; a fleet step shows them only when a passing test's output is kept.
 [[profile.ci.overrides]]
-filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
+filter = 'test(=lifecycle_latency::lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
 
 # The long-holder tests (tests/agent_start_burst.rs) print the wait of each short request of
 # a terminal, and the daemon's thread and descriptor counts at the bound of the long
 # connections, on stderr; a fleet step shows them only when a passing test's output is kept.
 [[profile.ci.overrides]]
-filter = 'test(/^agent_start_long_holders_/)'
+filter = 'test(/^agent_start_burst::agent_start_long_holders_/)'
 success-output = "final"
 
 # The create cost tests (mux/tests/create_commit_cost.rs) print the counts of one create at
@@ -151,9 +177,9 @@ success-output = "final"
 # a passing test's output is kept.
 [[profile.ci.overrides]]
 filter = '''
-test(=holder_late_start::a_restart_of_a_large_session_reattaches_every_terminal)
-| test(=holder_late_start::a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal)
-| test(=holder_late_start::a_listener_with_a_connect_whose_client_is_gone_prints_what_the_system_gives)
+test(=holder_terminals::holder_late_start::a_restart_of_a_large_session_reattaches_every_terminal)
+| test(=holder_terminals::holder_late_start::a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal)
+| test(=holder_terminals::holder_late_start::a_listener_with_a_connect_whose_client_is_gone_prints_what_the_system_gives)
 '''
 success-output = "final"
 
@@ -185,7 +211,7 @@ success-output = "final"
 # windows. A fleet step shows them only when a passing test's output is kept; a pass with no
 # numbers does not say how far from the bound the daemon is.
 [[profile.ci.overrides]]
-filter = 'binary_id(cmux-tui::idle_wakeups)'
+filter = 'binary_id(cmux-tui::it) & test(/^idle_wakeups::/)'
 success-output = "final"
 
 # Fuzz catalog row h (cmux-remote tests/netdrop_fuzz_e2e.rs) and its red tests print their
@@ -249,15 +275,38 @@ success-output = "final"
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
 
+# The fleet-only VideoToolbox loss-recovery bench (cmux-encode/tests/encode.rs) prints the IDR and
+# first-loss-byte rows of the forced-IDR and acknowledged-LTR profiles; a step shows them only when
+# a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-encode::encode) & test(videotoolbox_loss_recovery_bench_idr_vs_ltr)'
+success-output = "final"
+
 # The live automation journey (tests/automation_live_journey.rs) runs a real runner on the real
 # clock: up to 100 s for a minute slot, 150 s with the runner off, then the catch-up and a failed
 # run, about 5 minutes in all. Outside a fleet step keyed automation-live it returns at once. Its
 # eprintln lines are the proof, so a passing run keeps its output.
 [[profile.default.overrides]]
-filter = 'binary_id(cmux-tui::automation_live_journey)'
+filter = 'binary_id(cmux-tui::it) & test(/^automation_live_journey::/)'
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 
 [[profile.ci.overrides]]
-filter = 'binary_id(cmux-tui::automation_live_journey)'
+filter = 'binary_id(cmux-tui::it) & test(/^automation_live_journey::/)'
 success-output = "final"
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+# One row of the rollback check (tests/store_schemas_in_its_time.rs) is for a store in WAL mode
+# whose `-wal` name is a link. It writes to stderr which names the session's folder holds, each
+# with its length, before the check's calls and after each, and the text of each error, in lines
+# that start with WAL-LINK-ROW. A passing row keeps its output, so a step's log shows those lines
+# on each system.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui::it) & test(=store_schemas_in_its_time::a_store_in_wal_mode_whose_wal_name_is_a_link_is_an_error_of_the_check)'
+success-output = "final"
+
+# The take-over gap test (tests/durable_agents/handoff_gap.rs) prints its HANDOFF_GAP line (the
+# gap of each take-over and the failed requests); a fleet step shows it only when a passing
+# test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(acpmux::durable_agents) & test(/^handoff_gap::/)'
+success-output = "final"

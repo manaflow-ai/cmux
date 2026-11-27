@@ -1,4 +1,4 @@
-/// `labs.previewFeatures` in cmux.json: surfaces still being shaped (the
+/// `labs.previewFeatures` in cmux.json: surfaces still being shaped (the App Store, the
 /// agent pane's session coverage label and its Pull requests view). Off by
 /// default, so a default app shows only finished surfaces.
 /// The path and default are generated from schemas/settings/source/labs.json

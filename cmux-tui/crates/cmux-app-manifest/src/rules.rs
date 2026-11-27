@@ -49,6 +49,16 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
         }
     }
 
+    // A setting-backed entry's switch writes the person's cmux settings: only an app that ships
+    // with cmux may name one.
+    if m.get("setting").is_some() && !first_party {
+        out.push(Issue::error(
+            "/setting",
+            "setting.firstPartyOnly",
+            "only first-party apps may drive a cmux setting",
+        ));
+    }
+
     if let Some(implements) = m["implements"].as_object() {
         for (name, imp) in implements {
             let at = format!("/implements/{}", escape(name));
@@ -85,7 +95,13 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
             if name == "cmux.widget/1" {
                 widget_rules(&at, imp, &mut out);
             }
-            for (list, key) in [("commands", "name"), ("items", "id")] {
+            for (list, key) in [
+                ("commands", "name"),
+                ("items", "id"),
+                ("buttons", "action"),
+                ("actions", "id"),
+                ("chips", "id"),
+            ] {
                 let mut seen = std::collections::HashSet::new();
                 let entries = imp.pointer(&format!("/options/{list}")).and_then(Value::as_array);
                 for (i, entry) in entries.into_iter().flatten().enumerate() {
@@ -161,6 +177,8 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
     crate::presentation::check(m, first_party, &mut out);
     crate::deploy::check(m, first_party, &mut out);
     crate::toolbar::check(m, &mut out);
+    crate::menus::check(m, &mut out);
+    crate::keybindings::check(m, &mut out);
     crate::web_pane::check(m, &mut out);
     if !m["icon"].is_string() {
         out.push(Issue::warning(

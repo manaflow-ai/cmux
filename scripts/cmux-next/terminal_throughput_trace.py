@@ -271,6 +271,70 @@ def hop_lines(summary):
     return [line for _, line in sorted(lines, reverse=True)]
 
 
+BOUND_PCT = 85.0  # a stage this busy (running share of the burst window) is the one that caps the rate
+
+
+def _io_bytes(thread, prefixes):
+    return sum(c.get("bytes", 0) for name, c in thread.get("calls", {}).items() if name.startswith(prefixes))
+
+
+def stage_split(summary):
+    """PTY read against parse/render, from one terminal's trace summary (pure; terminal-throughput-quick.sh).
+
+    The PTY reader is the first hop after the writer: of the terminal's threads that read bytes, the one whose bytes are
+    nearest what the writer wrote (a later hop, such as NEXT's daemon-to-app socket, carries framing on top). Parse and
+    render are the terminal's threads that move no bytes; the busiest one is named and all of them summed. The bound is
+    whichever of the two runs at least BOUND_PCT of the window, else a hand-off between stages (no thread near a core)."""
+    if summary.get("error") or not summary.get("threads"):
+        return {"error": summary.get("error") or "no threads in the trace"}
+    writer = summary.get("writer_pid")
+    reads = ("read", "pread", "recv")
+    written = sum(_io_bytes(t, ("write", "pwrite", "send")) for t in summary["threads"] if t.get("pid") == writer)
+    terminal = [t for t in summary["threads"] if t.get("pid") != writer]
+    readers = [t for t in terminal if _io_bytes(t, reads)]
+    quiet = [t for t in terminal if not any(c.get("bytes") for c in t.get("calls", {}).values())]
+    got = {"window_s": summary.get("window_s")}
+    if readers:
+        pty = min(readers, key=lambda t: (abs(_io_bytes(t, reads) - written) if written else 0, -_io_bytes(t, reads)))
+        rows = [c for name, c in pty["calls"].items() if name.startswith(reads) and c.get("bytes")]
+        got["pty_read"] = {"thread": pty["thread"], "process": thread_process(pty["thread"]),
+                           "running_pct": pty.get("running_pct", 0.0),
+                           "blocked_in_read_pct": round(sum(c.get("blocked_pct", 0) for c in rows), 1),
+                           "mb_s": round(sum(c.get("mb_s", 0) for c in rows), 1)}
+    if quiet:
+        top = max(quiet, key=lambda t: t.get("running_pct", 0.0))
+        got["render"] = {"thread": top["thread"], "process": thread_process(top["thread"]),
+                         "running_pct": top.get("running_pct", 0.0),
+                         "all_pct": round(sum(t.get("running_pct", 0.0) for t in quiet), 1)}
+    pty_pct = got.get("pty_read", {}).get("running_pct", 0.0)
+    render_pct = got.get("render", {}).get("running_pct", 0.0)
+    if max(pty_pct, render_pct) < BOUND_PCT:
+        got["bound"] = "hand-off"
+    else:
+        got["bound"] = "pty-read" if pty_pct >= render_pct else "render"
+    return got
+
+
+def split_text(label, split):
+    """One terminal's stage_split as a fragment of the quick script's split line (pure)."""
+    if split.get("error"):
+        return f"{label} no split ({split['error'][:80]})"
+    short = lambda t: re.sub(r"\s*\([^()]*pid:\s*\d+\)\s*$", "", t["thread"])[:40] + f" [{t['process'][:24]}]"
+    parts = []
+    if "pty_read" in split:
+        p = split["pty_read"]
+        parts.append(f"pty read {p['running_pct']}% run, {p['blocked_in_read_pct']}% in read, {p['mb_s']} MB/s "
+                     f"({short(p)})")
+    else:
+        parts.append("pty read none seen")
+    if "render" in split:
+        r = split["render"]
+        parts.append(f"parse/render busiest {r['running_pct']}% ({short(r)}), all {r['all_pct']}%")
+    else:
+        parts.append("parse/render none seen")
+    return f"{label} " + ", ".join(parts) + f", bound {split['bound']}"
+
+
 class Recorder:
     """xcrun xctrace record over every process until stop(); then the exported tables, summarized."""
 

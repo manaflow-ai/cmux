@@ -234,7 +234,7 @@ impl KeyEncoder {
     /// Sync encoder options (DECCKM, kitty flags, ...) from a terminal.
     pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
         unsafe {
-            sys::ghostty_key_encoder_setopt_from_terminal(self.encoder, terminal.raw());
+            sys::ghostty_key_encoder_set_from_terminal(self.encoder, terminal.raw());
         }
     }
 
@@ -251,7 +251,7 @@ impl KeyEncoder {
             } else {
                 sys::GHOSTTY_OPTION_AS_ALT_FALSE
             };
-            sys::ghostty_key_encoder_setopt(
+            sys::ghostty_key_encoder_set(
                 self.encoder,
                 sys::GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT,
                 ptr::from_ref(&option_as_alt).cast(),
@@ -264,15 +264,12 @@ impl KeyEncoder {
             sys::ghostty_key_event_set_unshifted_codepoint(self.event, input.unshifted_codepoint);
             // The event borrows the utf8 buffer; `input` outlives the
             // encode call below, so the borrow is valid for its lifetime.
-            if input.utf8.is_empty() {
-                sys::ghostty_key_event_set_utf8(self.event, ptr::null(), 0);
+            let utf8 = if input.utf8.is_empty() {
+                sys::GhosttyString { ptr: ptr::null(), len: 0 }
             } else {
-                sys::ghostty_key_event_set_utf8(
-                    self.event,
-                    input.utf8.as_ptr() as *const std::os::raw::c_char,
-                    input.utf8.len(),
-                );
-            }
+                sys::GhosttyString { ptr: input.utf8.as_ptr(), len: input.utf8.len() }
+            };
+            sys::ghostty_key_event_set_utf8(self.event, utf8);
         }
 
         let mut buf = [0u8; 256];
@@ -281,7 +278,7 @@ impl KeyEncoder {
             sys::ghostty_key_encoder_encode(
                 self.encoder,
                 self.event,
-                buf.as_mut_ptr() as *mut std::os::raw::c_char,
+                buf.as_mut_ptr(),
                 buf.len(),
                 &mut written,
             )
@@ -293,7 +290,7 @@ impl KeyEncoder {
                 sys::ghostty_key_encoder_encode(
                     self.encoder,
                     self.event,
-                    big.as_mut_ptr() as *mut std::os::raw::c_char,
+                    big.as_mut_ptr(),
                     big.len(),
                     &mut written2,
                 )

@@ -1,3 +1,5 @@
+#if canImport(QuartzCore)
+import Foundation
 public import QuartzCore
 
 /// The spinner's drawing: a thin arc (``arcLength`` of the circle, round caps) that turns clockwise
@@ -9,6 +11,10 @@ public final class CmuxSpinnerLayer: CALayer {
     public static let arcLength: CGFloat = 0.72
     /// The key of the turning animation.
     public static let turnKey = "cmux.spinner.turn"
+    /// `-cmux-stills` (a screenshot run that compares its stills with a base run's): every arc
+    /// holds still at its start angle, as under Reduce Motion, so a still never catches a
+    /// different frame of the turn.
+    public static let holdsStill = ProcessInfo.processInfo.arguments.contains("-cmux-stills")
 
     /// The arc's ink.
     public var tint: CGColor? {
@@ -60,7 +66,7 @@ public final class CmuxSpinnerLayer: CALayer {
     public func turn(_ on: Bool) {
         arc.removeAnimation(forKey: Self.turnKey)
         removeAnimation(forKey: Self.turnKey)
-        guard on else { return }
+        guard on, !Self.holdsStill else { return }
         let spin = Self.turnAnimation(period: period)
         spin.beginTime = convertTime(Self.beginTime(period: period, mediaTime: CACurrentMediaTime()), from: nil)
         add(spin, forKey: Self.turnKey)
@@ -93,9 +99,7 @@ public final class CmuxSpinnerLayer: CALayer {
     /// The media time a turn of `period` must begin at for its phase now to be Unix time mod `period`.
     static func beginTime(period: CmuxSpinnerPeriod, mediaTime: CFTimeInterval,
                           unixTime: TimeInterval? = nil) -> CFTimeInterval {
-        let cycle = period.seconds
-        guard cycle > 0 else { return mediaTime }
-        let into = (unixTime ?? mediaTime + processEpoch).truncatingRemainder(dividingBy: cycle)
-        return mediaTime - (into < 0 ? into + cycle : into)
+        period.turnBegan(mediaTime: mediaTime, unixTime: unixTime ?? mediaTime + processEpoch)
     }
 }
+#endif

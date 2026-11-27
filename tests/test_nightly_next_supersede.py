@@ -68,10 +68,6 @@ def queued(last_moved=58.0):
             job("build-nightly-app", start=last_moved), job("signer-build", start=last_moved)]
 
 
-SIGN_OLD = "Sign nightly-next run 42925854615 attempt 1"
-SIGN_NEW = "Sign nightly-next run 42929616529 attempt 1"
-
-
 class RuleTests(unittest.TestCase):
     def judge(self, holder=None, jobs=None, others=None, *, tip=TIP, waiter_jobs=(), now=NOW):
         holder = holder or run(42925854615, OLD, "in_progress")
@@ -131,15 +127,15 @@ class RuleTests(unittest.TestCase):
                 self.assertFalse(ok, why)
 
     def test_live_titles_and_runs_in_no_shared_group(self):
-        # Live runs on nightly-next: 42952791964 (a sign stage) and 42941668554 (a loop retry). main's
-        # nightly.yml keys main push runs by run id and nightly-sign.yml per source run: never in these groups.
+        # Live run on nightly-next: 42941668554 (a loop retry). main's nightly.yml keys main push runs by run
+        # id and nightly-sign.yml per source run: never in these groups. A title the deleted sign stage used
+        # belongs to no group.
         sign = run(42952791964, OLD, "in_progress", event="workflow_dispatch",
                    title="Sign nightly-next run 42950072283 attempt 1")
         retry = run(42941668554, OLD, "in_progress", event="workflow_dispatch", title="Retry nightly-next (1 of 2)")
-        self.assertEqual((sup.group_of(sign), sup.sign_source(sign)), ("sign", 42950072283))
         self.assertEqual(sup.group_of(retry), "push")
         push = run(1, OLD, "in_progress")
-        for other in (push | {"head_branch": "main"}, retry | {"head_branch": "main"}, sign | {"head_branch": "main"},
+        for other in (sign, push | {"head_branch": "main"}, retry | {"head_branch": "main"}, sign | {"head_branch": "main"},
                       sign | {"path": ".github/workflows/nightly-sign.yml"},
                       push | {"path": ".github/workflows/nightly-sign.yml"}, push | {"event": "schedule"},
                       run(2, OLD, "in_progress", event="workflow_dispatch", title="Promote nightly-next to x"),
@@ -154,20 +150,6 @@ class RuleTests(unittest.TestCase):
         self.assertTrue(self.judge(others=[retry_waiter])[0])
         holder = run(8, OLD, "in_progress", event="workflow_dispatch", title="Retry nightly-next (2 of 2)")
         self.assertTrue(self.judge(holder=holder)[0])
-
-    def test_a_sign_stage_waiting_on_an_older_one_even_at_the_tip(self):
-        # A sign stage's head is the tip when its push run dispatched it, not the build it signs.
-        old = run(42930383771, TIP, "in_progress", event="workflow_dispatch", title=SIGN_OLD)
-        newer = run(42950000000, TIP, "pending", event="workflow_dispatch", title=SIGN_NEW, created=2)
-        ok, why, _ = self.judge(holder=old, others=[newer])
-        self.assertTrue(ok, why)
-        self.assertIn("sign group", why)
-        self.assertFalse(self.judge(holder=old, others=[])[0], "with nothing waiting it stays")
-        same = newer | {"display_title": "Sign nightly-next run 42925854615 attempt 2"}
-        self.assertFalse(self.judge(holder=old, others=[same])[0], "a sign stage of the same build is not later")
-        self.assertFalse(self.judge(holder=old)[0], "a push run is not in the sign group")
-        # The newest sign stage is pending, never a holder.
-        self.assertNotIn("pending", sup.HOLDER_STATUSES)
 
     def test_mains_20_minute_rule_still_applies(self):
         # A newer tip run already building: main's superseded_unstarted() decides, after its own 20 min.
@@ -359,7 +341,9 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
         self.assertNotIn("secrets.", json.dumps(job))
         rules = job["steps"][1]["with"]
-        self.assertEqual((rules["ref"], rules["sparse-checkout"].strip()), ("main", "scripts/ci/delivery_workflows.py"))
+        # main by branch name or by its full ref (refs/heads/main: never a tag of that name).
+        self.assertIn(rules["ref"], ("main", "refs/heads/main"))
+        self.assertEqual(rules["sparse-checkout"].split(), ["scripts/ci/delivery_workflows.py", ".gitmodules"])
         step = job["steps"][-1]
         self.assertTrue(step.get("continue-on-error"))
         self.assertIn("--rules .main-rules/scripts/ci/delivery_workflows.py --settle --chain \"$CHAIN\"", step["run"])

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chief.reactionClassifier.harness.help" : {
+      "comment" : "Chief reaction classifier (a416).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The agent that reads reactions, such as claude or codex. Empty uses the Chief's."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "リアクションを読むエージェント(claude、codexなど)。空欄ならChiefのものを使います。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الوكيل الذي يقرأ التفاعلات، مثل claude أو codex. الفراغ يستخدم وكيل Chief."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agent koji čita reakcije, npr. claude ili codex. Prazno koristi Chiefovog."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenten, der læser reaktioner, fx claude eller codex. Tom bruger Chiefs."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Agent, der Reaktionen liest, etwa claude oder codex. Leer nutzt den des Chiefs."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El agente que lee las reacciones, como claude o codex. Vacío usa el del Chief."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L'agent qui lit les réactions, par exemple claude ou codex. Vide utilise celui du Chief."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’agente che legge le reazioni, ad esempio claude o codex. Vuoto usa quello del Chief."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ភ្នាក់ងារដែលអានប្រតិកម្ម ដូចជា claude ឬ codex។ ទទេប្រើរបស់ Chief។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "반응을 읽는 에이전트(예: claude, codex). 비워 두면 Chief의 것을 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agenten som leser reaksjoner, for eksempel claude eller codex. Tom bruker Chiefs."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Agent, który czyta reakcje, np. claude lub codex. Puste używa agenta Chiefa."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O agente que lê as reações, como claude ou codex. Vazio usa o do Chief."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Агент, который читает реакции, например claude или codex. Пусто: агент Chief."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เอเจนต์ที่อ่านรีแอคชัน เช่น claude หรือ codex ว่างไว้จะใช้ของ Chief"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tepkileri okuyan ajan, örneğin claude veya codex. Boş bırakılırsa Chief'inki kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Агент, що читає реакції, наприклад claude або codex. Порожньо: агент Chief."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tác tử đọc cảm xúc, ví dụ claude hoặc codex. Để trống dùng của Chief."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "读取回应的代理，例如 claude 或 codex。留空则使用 Chief 的代理。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "讀取回應的代理，例如 claude 或 codex。留空則使用 Chief 的。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

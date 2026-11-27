@@ -36,7 +36,20 @@ if [[ "${1:-}" == toolchain ]]; then
   patch="${4:-}"
   scratch="$(mktemp -d "${TMPDIR:-/tmp}/cli-size.XXXXXX")"
   trees=()
-  have() { git -C "$root" cat-file -e "$1^{commit}" 2>/dev/null || git -C "$root" fetch -q origin "$1" 2>/dev/null; }
+  # The BASE and HEAD worktrees and the scratch folder go on every exit (a failed build, a TERM), not only after
+  # a run that succeeded: a leaked one holds two whole source trees. Never changes the status of the run.
+  # shellcheck disable=SC2329 # run by the trap below
+  cli_size_cleanup() {
+    local t
+    for t in ${trees[@]+"${trees[@]}"}; do git -C "$root" worktree remove --force "$t" 2>/dev/null || true; done
+    rm -rf -- "$scratch"
+    git -C "$root" worktree prune 2>/dev/null || true
+  }
+  trap cli_size_cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  source "$root/scripts/measure/fetch-commit.sh"
+  have() { measure_fetch_commit "$root" "$1" 2>/dev/null; }
   tree_at() {  # tree_at REF DIR: a worktree of REF, its ghostty-next shared with this checkout when the pins match
     local ref=$1 dir=$2
     git -C "$root" worktree add -q --detach "$dir" "$ref"
@@ -85,7 +98,6 @@ if [[ "${1:-}" == toolchain ]]; then
       --config "profile.release.package.cmux-tui-core.opt-level=\"$level\""
   done
   python3 "$root/scripts/measure/cli-size-speed.py" "$out" base head head-s head-z
-  for t in ${trees[@]+"${trees[@]}"}; do git -C "$root" worktree remove --force "$t" || true; done
   exit 0
 fi
 

@@ -32,6 +32,10 @@
           "re": "(?i)\\b(I|we)('ve| have)? (bought|purchased|paid for|upgraded|subscribed)\\b"
         },
         {
+          "type": "reply_not_matches",
+          "re": "(?i)(?:^|[^./])stripe"
+        },
+        {
           "type": "max_words",
           "n": 70
         },

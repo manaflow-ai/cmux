@@ -30,8 +30,8 @@ PERF_ROW-style JSON line per headline, and --out JSON with every sample. Headlin
   per_day          the least-squares slope over the simulated days (MB, disk MB) after creation.
 INFINITE-PERITEM lines give each role at each N: procs, threads, PSS MB and its MB per item over the empty
 pair, and idle wakeups/s. INFINITE-DISKGROW lines name the files whose bytes grow most per simulated day (paths
-with their ids folded to *, so a file per chat is one line), the next disk slope to bound. --terminal-host-model=holder runs the same counts with every terminal in the one
-holder process (CMUX_TUI_TERMINAL_HOST_MODEL=holder, off in the product) instead of a host per terminal.
+with their ids folded to *, so a file per chat is one line), the next disk slope to bound. --terminal-host-model=hosts runs the same counts with a terminal host per terminal
+process (CMUX_TUI_TERMINAL_HOST_MODEL=hosts, the default everywhere) and --terminal-host-model=holder the one holder process.
 --browser-tabs adds a browser tab to each workspace: headless cmux-tui keeps only its model (the page and
 its renderer are the app's), so it measures the daemon's share of a browser tab and no renderer.
 Measurement only: it signals and reads only the processes it started (its two daemons' trees).
@@ -117,15 +117,22 @@ def sample_proc(pid):
             csw = 0
             tids = os.listdir(f"/proc/{pid}/task")
             out["threads"] = len(tids)
+            per_tid = {}
             for tid in tids:
                 try:
+                    name, n = "?", 0
                     with open(f"/proc/{pid}/task/{tid}/status") as f:
                         for line in f:
-                            if line.startswith(("voluntary_ctxt", "nonvoluntary_ctxt")):
-                                csw += int(line.split()[1])
+                            if line.startswith("Name:"):
+                                name = line.split(None, 1)[1].strip() if len(line.split()) > 1 else "?"
+                            elif line.startswith(("voluntary_ctxt", "nonvoluntary_ctxt")):
+                                n += int(line.split()[1])
+                    csw += n
+                    per_tid[tid] = (name, n)
                 except OSError:
                     pass
             out["wakeups"] = csw
+            out["tid_wakeups"] = per_tid
         else:
             ps = subprocess.run(["ps", "-o", "rss=,time=", "-p", str(pid)], capture_output=True, text=True).stdout.split()
             out["rss"] = int(ps[0]) * 1024
@@ -222,8 +229,10 @@ def file_groups(disks):
 
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
-    where a role's per-process memory sits."""
+    where a role's per-process memory sits. Anonymous memory is split three ways: a thread's stack (the mapping
+    above a guard page), a malloc arena (glibc maps each at a 64 MB boundary) and the rest."""
     kinds, name = {}, None
+    prev_end, prev_guard = None, False
     try:
         exe = os.path.realpath(f"/proc/{pid}/exe")
         with open(f"/proc/{pid}/smaps") as f:
@@ -231,28 +240,34 @@ def smaps_kinds(pid):
                 head = line.split()
                 if head and "-" in head[0] and not head[0].endswith(":"):
                     path = head[5] if len(head) > 5 else ""
+                    start, end = (int(x, 16) for x in head[0].split("-"))
+                    anon = ("thread-stack" if prev_guard and prev_end == start else
+                            "arena" if start % (64 << 20) == 0 else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
-                            "stack" if path.startswith("[stack") else "anon" if not path else
+                            "stack" if path.startswith("[stack") else anon if not path else
                             "vdso" if path.startswith("[") else "file:" + os.path.basename(path))
+                    prev_end, prev_guard = end, not path and head[1].startswith("---")
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
     except (OSError, ValueError, IndexError):
         return {}
-    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:6])
+    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:8])
 
 
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
-    time.sleep(seconds)  # the idle window itself: nothing is sent
+    time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
     after = snapshot(top)
     roles = {}
     for pid, s in after.items():
         r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
                                          "wakeups": 0, "cmds": {}})
-        if IS_LINUX and "smaps_kb" not in r:
-            r["smaps_kb"] = smaps_kinds(pid)  # one process of the role, where its memory sits
+        r.setdefault("by_pss", []).append((s.get("pss") or s["rss"], pid))
         r["cmds"][s["cmd"]] = r["cmds"].get(s["cmd"], 0) + 1
+        named = r.setdefault("thread_names", {})
+        for name, _ in (s.get("tid_wakeups") or {}).values():
+            named[name] = named.get(name, 0) + 1
         r["count"] += 1
         r["threads"] += s.get("threads") or 0
         r["rss"] += s["rss"]
@@ -263,9 +278,24 @@ def idle_window(top, seconds, disks):
             r["cpu_s"] += max(0.0, s["cpu_s"] - b["cpu_s"])
             if s.get("wakeups") is not None and b.get("wakeups") is not None:
                 r["wakeups"] += max(0, s["wakeups"] - b["wakeups"])
+            # Which threads woke, by name (a daemon's 1,000 readers show as one name with a count of threads):
+            # the idle wakeups' owner without perf or strace.
+            names = r.setdefault("thread_wakeups", {})
+            old = b.get("tid_wakeups") or {}
+            for tid, (name, n) in (s.get("tid_wakeups") or {}).items():
+                woke = max(0, n - old.get(tid, (name, n))[1])
+                if woke:
+                    names[name] = names.get(name, 0) + woke
     for r in roles.values():
+        # The role's median process by PSS, where its memory sits: the first one found is the one-off (a
+        # bootstrap host among a thousand per-tab hosts).
+        by_pss = sorted(r.pop("by_pss"))
+        if IS_LINUX:
+            r["smaps_kb"] = smaps_kinds(by_pss[len(by_pss) // 2][1])
         r["cpu_pct"] = round(100 * r.pop("cpu_s") / seconds, 3)
         r["wakeups_per_s"] = round(r.pop("wakeups") / seconds, 2)
+        r["thread_wakeups"] = dict(sorted(r.get("thread_wakeups", {}).items(), key=lambda kv: -kv[1])[:8])
+        r["thread_names"] = dict(sorted(r.get("thread_names", {}).items(), key=lambda kv: -kv[1])[:6])
     total = {
         "pss_mb": round(sum(r["pss"] for r in roles.values()) / 1048576, 2),
         "rss_mb": round(sum(r["rss"] for r in roles.values()) / 1048576, 2),
@@ -378,12 +408,25 @@ class Run:
             ACPMUX_SESSION_CPU_CLASS="normal",
             CMUX_TUI_CONFIG=os.path.join(self.tui_root, "config.json"),
         )
-        # The terminal model under test, never the caller's: hosts (the product default) or the holder.
+        # The terminal model under test, never the caller's: the product default (a host per terminal),
+        # a host per terminal, or the holder.
         env.pop("CMUX_TUI_TERMINAL_HOST_MODEL", None)
-        if self.args.terminal_host_model == "holder":
-            env["CMUX_TUI_TERMINAL_HOST_MODEL"] = "holder"
+        if self.args.terminal_host_model != "product":
+            env["CMUX_TUI_TERMINAL_HOST_MODEL"] = self.args.terminal_host_model
         # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
+        if self.args.evict_idle_secs is not None:
+            env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
+        # Lazy start under test (cmux-tui mux/terminal_respawn/lazy.rs, CMUX_TUI_LAZY_START, off by default),
+        # never the caller's: with it on, a plain shell created in a workspace no client shows, and a lost one
+        # restored there, gets no shell or terminal host until its first need.
+        env.pop("CMUX_TUI_LAZY_START", None)
+        if self.args.lazy_start == "on":
+            env["CMUX_TUI_LAZY_START"] = "1"
+        # The caller's cap never leaks into an arm that did not ask for one.
+        env.pop("ACPMUX_RESIDENT_CAP", None)
+        if self.args.resident_cap:
+            env["ACPMUX_RESIDENT_CAP"] = str(self.args.resident_cap)
         return env
 
     def start(self):
@@ -403,7 +446,10 @@ class Run:
                                     "--socket", self.tui_sock, "--state", os.path.join(self.tui_root, "state"),
                                     # The app's owner reaps a closed tab's terminal after its grace (30 s,
                                     # local_owner.rs); a bare --headless reaps nothing. Fast-forwarded here.
-                                    "--terminal-reap-grace-seconds", str(self.args.reap_grace_secs)],
+                                    "--terminal-reap-grace-seconds", str(self.args.reap_grace_secs)]
+                                   # --free-idle-seconds: the daemon's own freeing timer (workspaces.freeing.*), shortened.
+                                   + (["--freeing-idle-seconds", str(self.args.free_idle_seconds)]
+                                      if self.args.free_idle_seconds else []),
                                    stdout=log_file, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                    env=self.env(), start_new_session=True)
         self.procs.append(tui)
@@ -457,7 +503,10 @@ class Run:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-        time.sleep(1)  # bench: let the daemons' own teardown end their children
+        # The daemons' own teardown ends their children: wait (5 s at most) until none of the recorded pids is left.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and any(os.path.exists(f"/proc/{pid}") for pid in own):
+            time.sleep(0.05)
         for pid in own:
             try:
                 os.kill(pid, signal.SIGKILL)
@@ -517,6 +566,9 @@ class Run:
         tree = tui.call("list-workspaces")
         listed = tree.get("workspaces", [])[-n:]
         self.workspaces = [w["id"] for w in listed]
+        # select-workspace takes the index in the session's list (a `workspace` id is ignored by it).
+        first = len(tree.get("workspaces", [])) - len(listed)
+        self.workspace_index = {w: first + i for i, w in enumerate(self.workspaces)}
         self.panes = [w["screens"][0]["panes"][0]["id"] for w in listed]
         self.browser_tabs = []
         for pane in self.panes if self.args.browser_tabs else []:
@@ -579,6 +631,41 @@ class Run:
             except (OSError, RuntimeError, ValueError) as exc:
                 self.error("attach", exc)
 
+    def open_probe(self, k):
+        """--open-probe K: opens K idle chats as the app does (attach, newest 400 records), each on a fresh
+        connection, after the last idle window so it moves no memory number. With --evict-idle-secs those
+        chats are evicted rows, so this is the open of an evicted chat; without it, of a resident one."""
+        picks = random.Random(self.count).sample(self.idle, min(k, len(self.idle)))
+        took = []
+        for sid in picks:
+            try:
+                c = Acp(self.acp_sock, timeout=60)
+                t0 = time.monotonic()
+                c.call("_acpmux/attach", {"sessionId": sid, "limit": 400})
+                took.append((time.monotonic() - t0) * 1000)
+                c.close()
+            except (OSError, RuntimeError, ValueError) as exc:
+                self.error("open probe", exc)
+        if not took:
+            return None
+        took.sort()
+        out = {"n": len(took), "p50": round(took[len(took) // 2], 2), "p95": round(took[int(len(took) * 0.95) - 1 if len(took) > 1 else 0], 2),
+               "max": round(took[-1], 2)}
+        # The daemon's own timing of each chat it made again (`_acpmux/status` evicted.rehydrate*): the
+        # rehydrate alone, without the attach's records and the socket.
+        try:
+            c = Acp(self.acp_sock, timeout=60)
+            ev = c.call("_acpmux/status", {}).get("evicted", {})
+            c.close()
+            out["rehydrate"] = {"n": ev.get("rehydrateSamples"), "p50_ms": round(ev.get("rehydrateP50Us", 0) / 1000, 3),
+                                "p99_ms": round(ev.get("rehydrateP99Us", 0) / 1000, 3),
+                                "evicted_now": ev.get("now"), "evictions": ev.get("evictions")}
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.error("status", exc)
+        print(f"INFINITE-OPEN {self.count} evict={self.args.evict_idle_secs} cap={self.args.resident_cap} "
+              f"{json.dumps(out)}", flush=True)
+        return out
+
     @staticmethod
     def drain(conn):
         try:
@@ -610,6 +697,26 @@ class Run:
         finally:
             tui.close()
 
+    def report_freed(self):
+        """--free-idle-seconds: how many of the run's terminal tabs the daemon's freeing timer parked (dead tabs
+        that start again on show), logged after each settle; no request parks anything here."""
+        if not (self.args.free_idle_seconds or self.args.lazy_start == "on") or not self.workspaces:
+            return
+        tui = Tui(self.tui_sock, timeout=300)
+        try:
+            ours = set(self.workspaces)
+            tabs = [tab for w in tui.call("list-workspaces").get("workspaces", []) if w.get("id") in ours
+                    for screen in w.get("screens", []) for pane in screen.get("panes", [])
+                    for tab in pane.get("tabs", []) if tab.get("kind", "pty") == "pty"]
+            freed = sum(1 for tab in tabs if tab.get("dead"))
+            self.parked = freed
+            what = "freeing timer" if self.args.free_idle_seconds else "lazy start"
+            log(f"N={self.count} {what}: {freed} of {len(tabs)} terminal tabs parked")
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.error("list-workspaces", exc)
+        finally:
+            tui.close()
+
     def work(self, sid, index):
         """A working chat: turns back to back while the day runs."""
         acp = Acp(self.acp_sock, timeout=120)
@@ -637,7 +744,7 @@ class Run:
         for step in range(steps):
             if step < a.switches and self.workspaces:
                 try:
-                    tui.call("select-workspace", workspace=rnd.choice(self.workspaces))
+                    tui.call("select-workspace", index=self.workspace_index[rnd.choice(self.workspaces)])
                 except (OSError, RuntimeError, ValueError) as exc:
                     self.error("select-workspace", exc)
             if step < a.tab_cycles and self.panes:
@@ -681,7 +788,7 @@ class Run:
                     os.kill(pid, signal.SIGSTOP)
                 except ProcessLookupError:
                     pass
-            time.sleep(a.sleep)  # bench: the simulated sleep
+            time.sleep(a.sleep)  # sleep-ok: the simulated machine sleep, its length is the scenario
             for pid in pids:
                 try:
                     os.kill(pid, signal.SIGCONT)
@@ -713,9 +820,44 @@ def perf_row(name, value, unit, floor=None):
 CPU_FLOOR_PCT, WAKEUPS_FLOOR = 0.1, 1.0
 
 
-def settle(args):
+def settle(args, top):
     # Past the (fast-forwarded) idle and reap timers, so idle agents have hibernated and closed terminals ended.
-    time.sleep(max(args.idle_child_secs, args.reap_grace_secs) + args.settle)  # bench: waiting out the timers
+    # --free-idle-seconds: past two freeing periods too (the daemon judges a terminal first seen at a pass one
+    # period after it started tracking), so the timer has parked every idle shell before the sample.
+    freeing = 2 * args.free_idle_seconds + 1 if args.free_idle_seconds else 0
+    # sleep-ok: the product's own timers have to run out; nothing can make them fire sooner
+    time.sleep(max(args.idle_child_secs, args.reap_grace_secs, freeing))
+    # Then their work: the trees' processes per role (the hibernated agents gone, the reaped terminals' shells gone)
+    # hold for --settle s. Bounded: past 6x --settle (at least 30 s) the window is sampled as it is, and logged.
+    roles = lambda: sorted((s["role"], s["cmd"]) for s in snapshot(top).values())
+    reads = max(2, int(args.settle / 0.25))
+    bound = max(30.0, 6 * args.settle)
+    deadline, last, same = time.monotonic() + bound, None, 0
+    while True:
+        now = roles()
+        same = same + 1 if now == last else 1
+        last = now
+        if same >= reads:
+            return
+        if time.monotonic() >= deadline:
+            log(f"settle: the process trees did not hold still for {args.settle} s within {bound:g} s; sampling anyway")
+            return
+        time.sleep(0.25)  # the poll interval of the process trees
+
+
+def dhat_mark(day):
+    """--dhat-mark-days: a dhat-heap cmux-tui (CMUX_TUI_DHAT_OUT, CMUX_TUI_DHAT_MARKS; heap_profile.rs) ends its
+    heap window here: it writes the window to <out>.<n> and removes the mark once written."""
+    out = os.environ.get("CMUX_TUI_DHAT_OUT")
+    if not out:
+        log("dhat mark: CMUX_TUI_DHAT_OUT is not set; no window ended")
+        return
+    mark = os.path.splitext(out)[0] + ".mark"
+    open(mark, "w").close()
+    deadline = time.monotonic() + 900
+    while os.path.exists(mark) and time.monotonic() < deadline:
+        time.sleep(1)  # the poll of the daemon's window write (bench only, bounded)
+    log(f"dhat mark: day {day} window {'written' if not os.path.exists(mark) else 'NOT written in 900 s'}")
 
 
 def run_count(args, count):
@@ -723,7 +865,7 @@ def run_count(args, count):
     result = {"count": count, "samples": []}
     try:
         run.start()
-        settle(args)
+        settle(args, run.top)
         empty = idle_window(run.top, args.window, run.disks)
         result["empty"] = empty
         log(f"N={count} empty {json.dumps(empty['total'])}")
@@ -734,20 +876,28 @@ def run_count(args, count):
                          "working": len(run.working), "drawn": len(run.drawn), "idle": len(run.idle),
                          "chat_tabs": len(run.chat_tabs), "browser_tabs": len(run.browser_tabs),
                          "workspaces": len(run.workspaces)}
-        settle(args)
+        settle(args, run.top)
+        run.report_freed()
         day0 = idle_window(run.top, args.window, run.disks)
         day0["day"] = 0
         result["samples"].append(day0)
         log(f"N={count} opened in {result['open_seconds']} s {json.dumps(result['mix'])}: {json.dumps(day0['total'])}")
+        if 0 in args.dhat_mark_days:
+            dhat_mark(0)
         for number in range(1, args.days + 1):
             t0 = time.monotonic()
             turns = run.day(number)
             spent = round(time.monotonic() - t0, 1)
-            settle(args)
+            settle(args, run.top)
+            run.report_freed()
             s = idle_window(run.top, args.window, run.disks)
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)
             log(f"N={count} day {number} ({spent} s, {turns} turns): {json.dumps(s['total'])}")
+            if number in args.dhat_mark_days:
+                dhat_mark(number)
+        if args.open_probe > 0:
+            result["open_ms"] = run.open_probe(args.open_probe)
     finally:
         result["errors"] = run.errors
         run.stop()
@@ -785,7 +935,9 @@ def report(results):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
                       f"cpu={v['cpu_pct']} "
-                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds} one_kb={v.get('smaps_kb', {})}", flush=True)
+                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds} one_kb={v.get('smaps_kb', {})} "
+                      f"woke={json.dumps(v.get('thread_wakeups', {}))} named={json.dumps(v.get('thread_names', {}))}",
+                      flush=True)
         grown = r["samples"][1:]
         if grown:
             # The slope over the days after creation (day 0 holds what the open made), per file group.
@@ -844,14 +996,22 @@ def main():
     p.add_argument("--idle-child-secs", type=int, default=5, help="ACPMUX_IDLE_CHILD_SECS (product: 120)")
     p.add_argument("--reap-grace-secs", type=int, default=5,
                    help="cmux-tui --terminal-reap-grace-seconds (the app's owner: 30)")
+    p.add_argument("--evict-idle-secs", type=int, default=None,
+                   help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (off when unset)")
+    p.add_argument("--resident-cap", type=int, default=0,
+                   help="ACPMUX_RESIDENT_CAP: keep at most this many chats in memory, the least recently used "
+                        "evicted past it (off when 0)")
+    p.add_argument("--open-probe", type=int, default=0,
+                   help="after the last day, time opening (attach) this many idle chats; prints INFINITE-OPEN")
     p.add_argument("--settle", type=float, default=5)
     p.add_argument("--window", type=float, default=10, help="idle window seconds per sample")
     p.add_argument("--sleep", type=float, default=3, help="simulated sleep a day (SIGSTOP), seconds")
     p.add_argument("--root-dir", default=None)
     p.add_argument("--keep", action="store_true")
     p.add_argument("--acpmux-log", default="warn", help="acpmux --log; at info, its hibernations are summarized")
-    p.add_argument("--terminal-host-model", choices=("hosts", "holder"), default="hosts",
-                   help="hosts: a __terminal-host per terminal (the product default); holder: "
+    p.add_argument("--terminal-host-model", choices=("product", "hosts", "holder"), default="product",
+                   help="product: the build's default (a host per terminal; the holder is off by default); hosts: "
+                        "CMUX_TUI_TERMINAL_HOST_MODEL=hosts, a terminal host per terminal; holder: "
                         "CMUX_TUI_TERMINAL_HOST_MODEL=holder, one holder process for every terminal")
     p.add_argument("--agent-holder", choices=("off", "on"), default="on",
                    help="on (the product default): ACPMUX_AGENT_HOLDER=1, the daemon keeps a copy of each harness's stdio and "
@@ -860,8 +1020,19 @@ def main():
     p.add_argument("--park-idle", action="store_true",
                    help="park every tab of the run's workspaces after the open and each day (park-tabs), as the app's "
                         "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
+    p.add_argument("--free-idle-seconds", type=int, default=0,
+                   help="start cmux-tui with --freeing-idle-seconds N: the daemon's own freeing timer parks every "
+                        "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, off by "
+                        "default), with no park-tabs request; 0 (default) leaves it off")
+    p.add_argument("--lazy-start", choices=("off", "on"), default="off",
+                   help="CMUX_TUI_LAZY_START for cmux-tui: on, a never-shown plain shell (new-workspace, new-tab, "
+                        "create-terminal in a workspace no client shows) gets no shell or host until its first need "
+                        "(show, input, attach); off (default) is the product default")
+    p.add_argument("--dhat-mark-days", default="",
+                   help="days after whose sample a dhat-heap cmux-tui ends a heap window (comma list; heap_profile.rs)")
     p.add_argument("--out")
     args = p.parse_args()
+    args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})
     global ARGS
     ARGS = args
     for path in (args.acpmux, args.tui):
@@ -872,7 +1043,8 @@ def main():
         raise SystemExit(f"infinite-items: no stand-in agent at {FAKE_AGENT}; run this script from its checkout")
     print(f"INFINITE-MACHINE host={platform.node()} platform={platform.platform()} cpus={os.cpu_count()} "
           f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} agent_holder={args.agent_holder} "
-          f"browser_tabs={int(args.browser_tabs)} park_idle={int(args.park_idle)}", flush=True)
+          f"browser_tabs={int(args.browser_tabs)} park_idle={int(args.park_idle)} "
+          f"free_idle_seconds={args.free_idle_seconds} lazy_start={args.lazy_start}", flush=True)
     results = []
     for count in (int(c) for c in args.counts.split(",")):
         try:

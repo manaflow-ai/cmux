@@ -115,7 +115,7 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
             Image(uuid: image["uuid"] as? String ?? "",
                   base: (image["base"] as? NSNumber)?.uint64Value ?? 0,
                   size: (image["size"] as? NSNumber)?.uint64Value ?? 0,
-                  name: (image["path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }
+                  name: (image["path"] as? String).map { ($0 as NSString).lastPathComponent }
                     ?? image["name"] as? String ?? "",
                   arch: image["arch"] as? String)
         }

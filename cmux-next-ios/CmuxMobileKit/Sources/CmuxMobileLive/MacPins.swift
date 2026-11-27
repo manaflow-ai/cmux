@@ -1,3 +1,4 @@
+import CmuxMobileTransport
 import CryptoKit
 import Foundation
 
@@ -32,6 +33,8 @@ public final class MacPins: @unchecked Sendable {
 
     /// Account deletion: this account's pins go.
     public func removeAll() {
+        let macs = lock.withLock { pins.keys.filter { !Self.isTunnelEntry($0) } }
+        if file != nil { for mac in macs { Self.tellLocalLink(mac: mac, key: nil) } }
         lock.withLock {
             pins = [:]
             if let file { try? FileManager.default.removeItem(at: file) }
@@ -46,6 +49,14 @@ public final class MacPins: @unchecked Sendable {
     public init(file: URL?) {
         self.file = file
         pins = file.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        // A file of pins (the app's, not a test's) tells the nearby-Mac filter each key at launch,
+        // before any auth: a dial with no internet trusts only an ad with the pinned key's tag.
+        if file != nil { for (mac, key) in pins where !Self.isTunnelEntry(mac) { Self.tellLocalLink(mac: mac, key: key) } }
+    }
+
+    /// Hands a pin change to the core's nearby-Mac filter (ultra-connectivity P7).
+    private static func tellLocalLink(mac: String, key: String?) {
+        LocalLinkPins.pair(mac: mac, identityKey: key)
     }
 
     /// The pinned key of `mac` (X9.63, lowercase hex), if any.
@@ -59,15 +70,40 @@ public final class MacPins: @unchecked Sendable {
             pins[mac.lowercased()] = key
             save()
         }
+        if file != nil { Self.tellLocalLink(mac: mac, key: key) }
     }
 
     /// The person removed `mac`: its next pairing pins again.
     public func forget(_ mac: String) {
         lock.withLock {
             pins[mac.lowercased()] = nil
+            pins[Self.tunnelEntry(mac)] = nil
+            save()
+        }
+        if file != nil { Self.tellLocalLink(mac: mac, key: nil) }
+    }
+
+    /// Whether `mac` once proved its identity over a tunnel's keys (a v2
+    /// `auth`): from then on a tunnel `auth` with it must be v2 again, so a v1
+    /// challenge (an advertisement stripped on the way) is refused.
+    public func bindsTunnel(_ mac: String) -> Bool {
+        lock.withLock { pins[Self.tunnelEntry(mac)] != nil }
+    }
+
+    /// Remembers that `mac` proved its identity over a tunnel's keys.
+    public func pinTunnelBinding(for mac: String) {
+        lock.withLock {
+            guard pins[Self.tunnelEntry(mac)] == nil else { return }
+            pins[Self.tunnelEntry(mac)] = "v2"
             save()
         }
     }
+
+    /// The entry beside a Mac's key pin that says it proves tunnel keys (a
+    /// device id never contains `#`).
+    private static func tunnelEntry(_ mac: String) -> String { "tunnel#" + mac.lowercased() }
+    /// A `tunnelEntry` record, not a Mac's key pin.
+    private static func isTunnelEntry(_ key: String) -> Bool { key.hasPrefix("tunnel#") }
 
     private func save() {
         guard let file, let data = try? JSONEncoder().encode(pins) else { return }
@@ -75,9 +111,15 @@ public final class MacPins: @unchecked Sendable {
         try? data.write(to: file, options: [.atomic, .completeFileProtection])
     }
 
-    /// The bytes a Mac's identity key signs (cmux-mobile-host `mac_proof_message`).
-    public static func proofMessage(mac: String, phone: String, phoneNonce: String, challenge: String) -> Data {
-        ApprovalPayload.joined("cmux-mobile-mac-identity-v1", [mac, phone, phoneNonce, challenge])
+    /// The bytes a Mac's identity key signs (cmux-mobile-host `mac_proof_message`,
+    /// or `mac_proof_message_v2` over the tunnel's keys).
+    public static func proofMessage(mac: String, phone: String, phoneNonce: String, challenge: String,
+                                    tunnel: TunnelKeys? = nil) -> Data {
+        guard let tunnel else {
+            return ApprovalPayload.joined("cmux-mobile-mac-identity-v1", [mac, phone, phoneNonce, challenge])
+        }
+        return ApprovalPayload.joined("cmux-mobile-mac-identity-v2",
+                                      [mac, phone, phoneNonce, challenge, tunnel.dialer, tunnel.answerer])
     }
 
     /// Whether `signature` (raw `r || s`, hex) by `key` (X9.63 hex) is valid over `message`.

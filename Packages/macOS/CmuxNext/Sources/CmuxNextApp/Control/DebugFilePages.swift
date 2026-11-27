@@ -29,7 +29,7 @@ enum DebugFilePages {
         var result: [String: JSONValue] = [:]
         if case .object(let plant)? = params["plant_draft"], let path = plant["path"]?.stringValue {
             let store = services.recoveryDrafts
-            let kept = store.update(id: QuitParticipantID.file(path: path), title: URL(fileURLWithPath: path).lastPathComponent,
+            let kept = store.update(id: QuitParticipantID.file(path: path), title: (path as NSString).lastPathComponent,
                                     contents: Data((plant["text"]?.stringValue ?? "").utf8), filePath: path)
             await store.writePending()
             guard kept == .kept else { return ["ok": false, "error": "the draft was not kept"] }

@@ -20,18 +20,30 @@ final class ChatMacLookUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         XCUIDevice.shared.appearance = .dark
 
+        // The band under the status bar is the regression Leo reported ("the top area is black and has
+        // no background nor theming"): it is sampled at the very top, not only mid-screen.
         let stock = try ground(fixture: "default")
+        let stockTop = try ground(fixture: "default", sampleY: 0.012)
+        XCTAssertTrue(Self.near(stockTop, (0, 0, 0)) || Self.near(stockTop, (255, 255, 255)),
+                      "stock top band is the stock ground, got \(stockTop)")
         XCTAssertTrue(Self.near(stock, (0, 0, 0)) || Self.near(stock, (255, 255, 255)),
                       "a Mac at its defaults leaves the stock chat ground, got \(stock)")
 
         let mocha = try ground(fixture: "mocha")
         XCTAssertTrue(Self.near(mocha, (0x1e, 0x1e, 0x2e)), "the chat's ground is the Mac theme's background, got \(mocha)")
 
+        let mochaTop = try ground(fixture: "mocha", sampleY: 0.012)
+        XCTAssertTrue(Self.near(mochaTop, (0x1e, 0x1e, 0x2e), tolerance: 16), "the top band wears the theme, not black, got \(mochaTop)")
+
+        let pictureTop = try ground(fixture: "mocha-wallpaper", sampleY: 0.012)
+        XCTAssertFalse(Self.near(pictureTop, (0, 0, 0)), "the picture continues into the top band, got \(pictureTop)")
         let picture = try ground(fixture: "mocha-wallpaper", sampleY: 0.30)
         XCTAssertFalse(Self.near(picture, (0, 0, 0)), "the Mac's picture shows behind the chat, got \(picture)")
         XCTAssertFalse(Self.near(picture, (0x1e, 0x1e, 0x2e)), "the picture shows through the theme's tint, got \(picture)")
 
         let solarized = try ground(fixture: "solarized-bubbles")
+        let solarizedTop = try ground(fixture: "solarized-bubbles", sampleY: 0.012)
+        XCTAssertTrue(Self.near(solarizedTop, (0xfd, 0xf6, 0xe3), tolerance: 16), "the light theme reaches the top band, got \(solarizedTop)")
         XCTAssertTrue(Self.near(solarized, (0xfd, 0xf6, 0xe3)), "a light Mac theme is the chat's ground on a dark phone, got \(solarized)")
 
         // Back to a Mac at its defaults, so later tests start from the stock chat.

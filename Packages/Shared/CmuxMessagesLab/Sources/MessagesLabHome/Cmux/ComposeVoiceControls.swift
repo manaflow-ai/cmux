@@ -61,9 +61,9 @@ final class ComposeVoiceControls: NSView {
         mic.isActive = listening
         let label = listening ? CmuxStrings.stopDictation : CmuxStrings.dictate
         mic.setAccessibilityLabel(label)
-        mic.toolTip = label
+        mic.setHomeToolTip(label)
         finish.setAccessibilityLabel(CmuxStrings.finishDictation)
-        finish.toolTip = CmuxStrings.finishDictation
+        finish.setHomeToolTip(CmuxStrings.finishDictation)
         needsLayout = true
     }
 

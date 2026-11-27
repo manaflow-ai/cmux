@@ -34,6 +34,13 @@ pub fn current_effort(m: &SessionMeta) -> Option<String> {
     current_option(m, "effort")
 }
 
+/// The effort a Claude Code process is spawned with (`--effort`): the one it reported, else a
+/// new chat's start effort (`SessionMeta::effort_request`). Not the pool's key
+/// (`pool::started_on`), whose spares start on the harness's own level.
+pub fn spawn_effort(m: &SessionMeta) -> Option<String> {
+    current_effort(m).or_else(|| m.effort_request.clone())
+}
+
 /// The option id a harness uses for thinking effort, given the name a
 /// client asked for. `effort` is the portable name; Codex calls it
 /// `reasoning_effort`.

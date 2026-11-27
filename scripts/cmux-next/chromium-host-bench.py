@@ -39,6 +39,7 @@ import argparse, json, os, pathlib, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -67,11 +68,13 @@ addEventListener('keydown', e => { if (e.key === 'p') { window.__pace(3000); ret
 addEventListener('mousedown', e => { document.getElementById('b').textContent = 'click ' + S.click.length; sample(S.click, e); }, true);
 function pct(list, q) { if (!list.length) return null; const s = [...list].sort((a, b) => a - b); return +s[Math.round(q * (s.length - 1))].toFixed(2); }
 function summary(list) { return {n: list.length, p50: pct(list, 0.5), p95: pct(list, 0.95), max: pct(list, 1)}; }
-function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2))}); }
+function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2)), focus: (document.activeElement || {}).id || null, paces: S.paces}); }
+S.paces = 0;
+addEventListener('focusin', report, true);
 window.__pace = function(ms) {
   S.raf = []; const box = document.getElementById('box'); box.classList.add('go');
   let last = null; const end = performance.now() + ms;
-  function tick(t) { if (last !== null) S.raf.push(t - last); last = t; if (t < end) requestAnimationFrame(tick); else { box.classList.remove('go'); report(); } }
+  function tick(t) { if (last !== null) S.raf.push(t - last); last = t; if (t < end) requestAnimationFrame(tick); else { box.classList.remove('go'); S.paces++; report(); } }
   requestAnimationFrame(tick);
 };
 window.__reset = function() { S.key = []; S.click = []; S.raf = []; report(); };
@@ -173,7 +176,9 @@ def drive(rpc, mode, title_of, key_target, mouse_target, click_point):
     row = {}
     # Focus the text field with one click first.
     rpc("debug.mouse", {**mouse_target, **click_point("t")})
-    time.sleep(0.3)  # test harness: focus lands
+    # Focus lands: the page reports the field as its active element.
+    if not wait(lambda: (probe_stats(title_of()) or {}).get("focus") == "t", 5, 0.05):
+        RESULT["notes"].append(f"{mode}: the click did not focus the text field within 5 s")
     for i in range(opts.count):
         rpc("debug.key", {**key_target, "key": "a", "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)})
         time.sleep(1 / 30)  # test harness: one key per two frames, so samples do not share a frame
@@ -185,8 +190,13 @@ def drive(rpc, mode, title_of, key_target, mouse_target, click_point):
     stats = wait(lambda: (probe_stats(title_of()) or {}).get("click", {}).get("n", 0) >= opts.count and probe_stats(title_of()), 10)
     row["click_to_raf_ms"] = (stats or {}).get("click")
     # Pacing: the key `p` starts a 3 s animation in the page; the page records its frame intervals.
+    paces = (probe_stats(title_of()) or {}).get("paces") or 0
     rpc("debug.key", {**key_target, "key": "p"})
-    time.sleep(3.6)  # test harness: the page animates for 3 s
+    # sleep-ok: the page's own 3 s animation runs with no reads of the app in it (they would land in its frames)
+    time.sleep(3.0)
+    # Then the page says the animation ended (its pace count went up) with the intervals in its title.
+    if not wait(lambda: ((probe_stats(title_of()) or {}).get("paces") or 0) > paces, 10, 0.05):
+        RESULT["notes"].append(f"{mode}: the pacing animation never reported its end")
     raw = (probe_stats(title_of()) or {}).get("raf_raw") or []
     row["raf_ms"] = percentiles(raw)
     if raw and RESULT.get("refresh_hz"):
@@ -250,8 +260,14 @@ def run_stress_pump(rpc):
 
 def run_helper(rpc, url, inproc_tab):
     # A pane of its own (the in-process page keeps the left one).
+    borders = lambda: [pane.get("border") for window in (rpc("debug.pane_chrome") or {}).get("windows") or []
+                       for pane in window.get("panes") or [] if isinstance(pane.get("border"), list)]
+    before = len(borders())
     rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
-    time.sleep(1)  # test harness: the split settles
+    # The split settles: one pane more, and the pane geometry (read below for the click points) holds still.
+    if not wait(lambda: len(borders()) > before, 10, 0.05):
+        RESULT["notes"].append("helper: splitRight added no pane within 10 s")
+    wait_stable(borders, "the pane geometry after the split", timeout=10, interval=0.05, raise_on_timeout=False)
     reply = rpc("debug.chromium_host", {"op": "open", "url": url}) or {}
     if reply.get("error"):
         RESULT["modes"]["helper"] = {"error": reply["error"]}

@@ -101,6 +101,13 @@ public struct AgentPaneHeaderHooks {
     /// Shows and focuses a tab that shows acpmux session `id` in any workspace or window, switching
     /// to it (Needs you's Jump to workspace, ``AgentPaneAskOpen``); false when no tab shows it.
     public var jumpToSession: @MainActor (String) -> Bool
+    /// Hands `reveal` (a ``AgentPaneView/revealTurn(_:)`` value) to the page of the tab that shows
+    /// acpmux session `id` already, the one ``showSession`` (else ``jumpToSession``) shows; false
+    /// when no tab shows it. Needs you's another chat's ask (``AgentPaneAskOpen``). Nil: none.
+    public var revealInSession: (@MainActor (_ session: String, _ reveal: String) -> Bool)?
+    /// ``openRight`` whose new tab's page gets `reveal` with its handshake (``revealInSession``).
+    /// Nil: no open takes a reveal.
+    public var openRightRevealing: (@MainActor (_ session: String, _ reveal: String) -> Bool)?
     /// Whether a tab in any workspace or window shows acpmux session `id` already, the one
     /// ``jumpToSession`` would switch to: the right-click's Go to Chat shows only then
     /// (``AgentPaneOfferOpen/goTo(_:sender:in:)``). None by default.
@@ -124,6 +131,9 @@ public struct AgentPaneHeaderHooks {
     public var moveToMachine: @MainActor (_ machine: String, _ session: String) -> Bool
     /// Whether the chat's tab still shows acpmux session `session` (a session-bound `action.run`).
     public var showsChat: @MainActor (String) -> Bool
+    /// Whether the chat is half of a terminal and chat pair, so its "..." offers Switch to Terminal
+    /// (`pane.tabState {terminalSwitch: true}`'s `terminalSwitch`, read as the menu opens). None by default.
+    public var switchesToTerminal: @MainActor () -> Bool
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -147,7 +157,8 @@ public struct AgentPaneHeaderHooks {
                 isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false },
                 moveTargets: @escaping @MainActor () -> [AgentPaneMoveTarget] = { [] },
                 moveToMachine: @escaping @MainActor (_ machine: String, _ session: String) -> Bool = { _, _ in false },
-                showsChat: @escaping @MainActor (String) -> Bool = { _ in false }) {
+                showsChat: @escaping @MainActor (String) -> Bool = { _ in false },
+                switchesToTerminal: @escaping @MainActor () -> Bool = { false }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
@@ -171,6 +182,7 @@ public struct AgentPaneHeaderHooks {
         self.moveTargets = moveTargets
         self.moveToMachine = moveToMachine
         self.showsChat = showsChat
+        self.switchesToTerminal = switchesToTerminal
     }
 
     /// The header's state (`pane.tabState`); `refresh` first asks for the pull request again.
@@ -296,18 +308,25 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unavailable", message: "Could not copy text")
             }
             return AgentPaneReply.success()
-        case .tabRowTools(let width):
-            tabRow.report(width: CGFloat(width)) // used only while the pane offered the row
+        case .tabRowTools(let width, let need):
+            tabRow.report(width: CGFloat(width), need: need.map { CGFloat($0) }) // used only while the pane offered the row
             return AgentPaneReply.success()
         case .tabRowToolsSet(let tools):
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
             setTabRowTools(tools)
             return AgentPaneReply.success()
+        case .customizationsMenu(let x, let y):
+            // Only a click of the person's opens it: a page cannot pop a menu on its own.
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            guard onCustomizationsMenuRequested?(CGPoint(x: x, y: y)) == true else {
+                return AgentPaneReply.failure(code: "unavailable", message: "No customizations menu")
+            }
+            return AgentPaneReply.success()
         case .tabRowToolsOpenMenu(let id, let menuItemID):
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
             onTabRowToolMenuRequested?(id, menuItemID)
             return AgentPaneReply.success()
-        case .tabState(let refresh):
+        case .tabState(let refresh, let terminalSwitch):
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
@@ -316,6 +335,7 @@ extension AgentPaneModel {
             state["moves"] = moves.ids
             state["moveReasons"] = moves.reasons
             state["moveTargets"] = header.moveTargets().map(\.reply)
+            if terminalSwitch { state["terminalSwitch"] = header.switchesToTerminal() }
             return AgentPaneReply.success(state)
         case .sideChat(let fork, let splitRight):
             return await AgentPaneSideChat.open(fork, splitRight: splitRight, in: self)
@@ -353,8 +373,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .offerOpen(let session, let sender):
             return AgentPaneOfferOpen.respond(session, sender: sender, in: self)
-        case .asksOpen(let session, let place):
-            return AgentPaneAskOpen.respond(session, at: place, in: self)
+        case .asksOpen(let session, let place, let there):
+            return AgentPaneAskOpen.respond(session, at: place, there: there, in: self)
         case .asksAnswer(let ask):
             return await ask.respond(in: self)
         case .newChatHere(let cwd):
@@ -423,9 +443,9 @@ extension AgentPaneModel {
 
 extension AgentPaneModel {
     /// Keeps the page's bottom stack (`pane.toastAvoidance`); a change moves the window's toasts.
-    func setToastAvoidance(_ rect: CGRect?) {
-        guard rect != toastAvoidance else { return }
-        toastAvoidance = rect
+    func setToastAvoidance(_ box: AgentPaneSessionInfoOverlay?) {
+        guard box != toastAvoidance else { return }
+        toastAvoidance = box
         onToastAvoidance?()
     }
 }

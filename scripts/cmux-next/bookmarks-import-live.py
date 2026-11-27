@@ -27,11 +27,12 @@ captured and drawn back to front, so the dialog and toast overlays show.
 GUI host only.
 Quits the app by PID and stops the tag's daemons at the end.
 """
-import argparse, glob, json, os, plistlib, sqlite3, subprocess, sys, tempfile, time
+import argparse, glob, hashlib, json, os, plistlib, sqlite3, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable, wait_until, StateWaitTimeout  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -249,19 +250,46 @@ def capture(name):
 manager_workspace = None
 
 
+def window_hash():
+    """A hash of the main window's pixels (debug.window_snapshot), or None where the build cannot snapshot."""
+    path = os.path.join(SCRATCH, "settle.png")
+    if os.path.exists(path):
+        os.remove(path)
+    rpc("debug.window_snapshot", {"path": path})
+    return hashlib.sha1(open(path, "rb").read()).hexdigest() if os.path.exists(path) else None
+
+
+def drawn(what):
+    """Until the window's pixels stop changing (screenshot only, so a timeout is logged, not failed)."""
+    try:
+        wait_stable(window_hash, what, timeout=15, interval=0.1, reads=3)
+    except StateWaitTimeout:
+        safe_print(f"note: {what} did not settle in 15 s (or the build has no debug.window_snapshot)", flush=True)
+
+
+def topology():
+    return rpc("snapshot.get").get("topology") or {}
+
+
 def open_manager():
     # The manager opens in the focused pane; Home has none, so the run makes one workspace for it.
     global manager_workspace
     if not manager_workspace:
         manager_workspace = rpc("action.run", {"action": "workspace.newAtBottom"}).get("created") or ["?"]
-        time.sleep(2.0)  # the workspace's first pane shows before the manager opens in it (screenshot only)
+        # The workspace's first pane shows before the manager opens in it (screenshot only).
+        wait_until(lambda: (topology().get("focus") or {}).get("pane"), "the new workspace's first pane", timeout=15,
+                   interval=0.2, raise_on_timeout=False)
+    before = json.dumps(topology(), sort_keys=True)
     rpc("action.run", {"action": "bookmark.manager"})
-    time.sleep(2.0)  # page load before the capture (screenshot only)
+    # The manager's tab opens, then its page loads and draws (screenshot only).
+    wait_until(lambda: json.dumps(topology(), sort_keys=True) != before, "the bookmark manager's tab", timeout=15,
+               interval=0.2, raise_on_timeout=False)
+    drawn("the bookmark manager page")
 
 
 def appearance(mode):
     rpc("debug.appearance", {"mode": mode})
-    time.sleep(1.0)  # let the window redraw before the capture (screenshot only)
+    drawn(f"the window redrawn in {mode}")
 
 
 firefox_db = make_profiles()

@@ -20,54 +20,6 @@ nonisolated extension AcpmuxPaneMethods {
     /// The URL schemes a `.scheme` field may report; any other scheme is dropped.
     static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
 
-    /// Replies filtered to the fields the pane renders; everything else is dropped, at every depth.
-    /// `_acpmux/status`: the pane reads only `peers[].name`, each peer's `transport` (the scheme
-    /// of its `url`) and whether it is `connected` (direct.ts; environments.ts peerKindsFromStatus,
-    /// peerConnectedFromStatus), and its link `state`, `lastSeen` (ms) and failed `attempts`, which
-    /// tell a chat on a machine that is not connected (with when it was last seen) from a deleted
-    /// one, and from one whose machine is still connecting (chatUnavailable.ts).
-    public static let replyShapes: [String: ReplyShape] = [
-        // The local/app connection's peer state snapshot; never transport URLs or credentials.
-        "_acpmux/peers": .object(["peers": .list(.object([
-            "name": .string, "state": .string, "lastSeen": .number, "error": .string,
-        ]))]),
-        "_acpmux/status": .object([
-            // What kind of device this machine is (`mac-mini`; cmux-device-kind): the glyph
-            // This Mac draws. One word from a fixed list, nothing that names the host.
-            "device": .string,
-            "peers": .list(.object([
-                "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
-                "state": .string, "lastSeen": .number, "attempts": .number,
-                // The same cached, one-minute health reading the native remote-machine sidebar
-                // displays. Keep only values needed for a warning and the budget verdict;
-                // URLs, host labels, disk readings and session counts stay out of the page.
-                "health": .object([
-                    "unsupported": .bool,
-                    // The peer's device kind, for its glyph.
-                    "device": .string,
-                    "load": .list(.number),
-                    "cpus": .number,
-                    "ram": .object(["freeBytes": .number]),
-                    "pressure": .object([
-                        "cores": .number,
-                        "load_limit": .number,
-                        "ok": .bool,
-                        "over": .list(.string),
-
-                    ]),
-                ]),
-            ])),
-        ]),
-        // Reconnect returns the same safe peer state needed by the offline copy's banner. The
-        // relay derives transport from `url` and drops the endpoint and all other metadata.
-        "_acpmux/peer_reconnect": .object([
-            "peers": .list(.object([
-                "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
-                "state": .string, "lastSeen": .number, "attempts": .number, "error": .string,
-            ])),
-        ]),
-    ]
-
     /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).
     static func filtered(_ value: Any, to shape: ReplyShape) -> Any? {
         switch shape {

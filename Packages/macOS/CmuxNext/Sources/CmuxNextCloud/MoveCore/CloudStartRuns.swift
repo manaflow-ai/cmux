@@ -49,8 +49,8 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
     private var runs: [Key: Run] = [:]
     /// Creations of a machine by name and account, each with its own token: two asks for one new
     /// name create one machine.
-    /// A creation's machine, and whether its own `create` made it (``creatingOwn(_:account:_:)``).
-    private var creations: [Creation: (token: UUID, task: Task<(Machine, Bool), any Error>)] = [:]
+    /// A creation's machine, whether its own `create` made it (``creatingOwn(_:account:_:)``), and whether another ask joined it.
+    private var creations: [Creation: (token: UUID, task: Task<(Machine, Bool), any Error>, joined: Bool)] = [:]
     /// Counts ``forgetAll()`` calls: a creation that ends after one is never handed out.
     private var forgets = 0
     /// Called when an ask joins a creation already going on (tests wait on it).
@@ -87,7 +87,8 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
 
     /// ``creating(_:account:_:)``, and whether this caller's own creation made the machine (`made`): `create`'s
     /// own answer (false: it found one made elsewhere) for the caller that started it, false for every caller
-    /// that joined it. Only a machine made by this very call can be known to run nothing of anyone's yet.
+    /// that joined it, and false for the starter too once another ask joined (that ask may run its agent there). Only a machine
+    /// made by this very call, for it alone, can be known to run nothing of anyone's yet, and only it may be deleted on a failure.
     public func creatingOwn(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> (Machine, Bool)) async throws -> (machine: Machine, made: Bool) {
         let key = Creation(name: name, account: account)
         let asked = forgets
@@ -96,16 +97,17 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
             return (machine, made)
         }
         if let running = creations[key] {
+            creations[key]?.joined = true
             joinedCreation(name)
             return try unforgotten(await running.task.value.0, false)
         }
         let token = UUID()
         // task-owner: one creation per name and account; removed when it ends or by forgetAll().
         let task = Task<(Machine, Bool), any Error> { @MainActor in try await create() }
-        creations[key] = (token, task)
+        creations[key] = (token, task, false)
         defer { if creations[key]?.token == token { creations[key] = nil } }
         let (machine, made) = try await task.value
-        return try unforgotten(machine, made)
+        return try unforgotten(machine, made && creations[key]?.joined != true)
     }
 
     /// The end of `key`'s run, or `pending` once `within` has passed (the run goes on): a kept
@@ -263,7 +265,7 @@ public final class CloudRefreshGate {
     private final class Batch {
         var task: Task<Bool, Never>?
         var queued = true
-        var waiters: Set<UUID> = []
+        var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     }
 
     private var tail: Batch?
@@ -285,26 +287,31 @@ public final class CloudRefreshGate {
             tail = batch
             // task-owner: batches; cancel() stops every read during service teardown.
             batch.task = Task { @MainActor in
+                var result = false
                 defer {
                     self.batches.removeValue(forKey: batchID)
                     if self.tail === batch { self.tail = nil }
+                    let waiters = batch.waiters.values
+                    batch.waiters.removeAll()
+                    for waiter in waiters { waiter.resume(returning: result) }
                 }
                 if let previous { _ = await previous.value }
                 batch.queued = false
                 guard !Task.isCancelled else { return false }
-                return await operation()
+                result = await operation()
+                return result
             }
         }
         let ticket = UUID()
-        batch.waiters.insert(ticket)
-        guard let task = batch.task else { return false }
-        defer { batch.waiters.remove(ticket) }
         let result = await withTaskCancellationHandler {
-            await task.value
+            await withCheckedContinuation { continuation in
+                // Registration cannot suspend: completion and cancellation remove each ticket once.
+                batch.waiters[ticket] = continuation
+            }
         } onCancel: {
             // task-owner: one main-actor cancellation handoff; no recurring work.
             Task { @MainActor in
-                batch.waiters.remove(ticket)
+                batch.waiters.removeValue(forKey: ticket)?.resume(returning: false)
                 if batch.waiters.isEmpty { batch.task?.cancel() }
             }
         }

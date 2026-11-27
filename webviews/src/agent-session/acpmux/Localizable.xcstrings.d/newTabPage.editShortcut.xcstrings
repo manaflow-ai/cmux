@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "newTabPage.editShortcut" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). انقر بزر الماوس الأيمن لتغيير الاختصار"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Desni klik za promjenu prečice"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Højreklik for at ændre genvejen"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Rechtsklick, um den Kurzbefehl zu ändern"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{kind} ({keys}). Right-click to change the shortcut"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Clic derecho para cambiar el atajo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Clic droit pour modifier le raccourci"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Clic destro per cambiare la scorciatoia"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind}({keys})。右クリックでショートカットを変更"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys})។ ចុចស្តាំដើម្បីប្តូរផ្លូវកាត់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind}({keys}). 오른쪽 클릭하여 단축키 변경"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Høyreklikk for å endre snarveien"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Kliknij prawym przyciskiem, aby zmienić skrót"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Clique com o botão direito para alterar o atalho"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Щёлкните правой кнопкой, чтобы изменить сочетание клавиш"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}) คลิกขวาเพื่อเปลี่ยนทางลัด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Kısayolu değiştirmek için sağ tıklayın"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Клацніть правою кнопкою, щоб змінити скорочення"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind} ({keys}). Nhấp chuột phải để đổi phím tắt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind}（{keys}）。右键点按可更改快捷键"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{kind}（{keys}）。按右鍵可更改快速鍵"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

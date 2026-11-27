@@ -1,6 +1,6 @@
 //! The JSON requests the app sends over the app FFI for the per-key rules
 //! (`cmux_layout_reducer_json` operations `focus_type_ahead`,
-//! `focus_child_window_key`), the per-agent-event cursor visibility rule
+//! `focus_child_window_key`, `focus_escape_exit`, `focus_work_context`), the per-agent-event cursor visibility rule
 //! (`agent_cursor_visibility`) and the input invariants of the debug
 //! monitor, `debug.focus` and the journal replay (`focus_input_world`,
 //! `focus_input_step`, `focus_debug_window`), and their responses. The focus machine itself
@@ -9,10 +9,12 @@
 
 use crate::agent_cursor_visibility::{self, Snapshot, Visibility};
 use crate::child_window::{self, Decision, Facts};
+use crate::escape_exit::{self, EscapeExit};
 use crate::event::{FocusEvent, Responder};
 use crate::invariants::{self, Model, Observation, Violation, WorldResult};
 use crate::state::Resolved;
 use crate::type_ahead::TypeAheadQueue;
+use crate::work_context::{self, WorkContextTrail};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -177,4 +179,74 @@ pub struct AgentCursorVisibilityRequest {
 
 pub fn agent_cursor_visibility(request: &AgentCursorVisibilityRequest) -> Visibility {
     agent_cursor_visibility::resolve(&request.target, &request.snapshot)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EscapeExitRequest {
+    #[serde(default)]
+    pub gesture: EscapeExit,
+    /// The key-down; none resets the gesture.
+    #[serde(default)]
+    pub key: Option<escape_exit::Key>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EscapeExitResponse {
+    pub gesture: EscapeExit,
+    /// What the key router does with the key (`pass` for a reset).
+    #[serde(flatten)]
+    pub outcome: escape_exit::Outcome,
+}
+
+/// `focus_escape_exit`: one key-down of browser focus mode's Esc Esc gesture.
+pub fn escape_exit(request: &EscapeExitRequest) -> EscapeExitResponse {
+    let mut gesture = request.gesture.clone();
+    let outcome = match &request.key {
+        Some(key) => gesture.handle(key),
+        None => {
+            gesture.reset();
+            escape_exit::Outcome::Pass
+        }
+    };
+    EscapeExitResponse { gesture, outcome }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkContextOp {
+    Record { entry: work_context::Entry },
+    Forget { tab: String },
+    Candidates { target: work_context::Target },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WorkContextRequest {
+    #[serde(default)]
+    pub trail: WorkContextTrail,
+    pub op: WorkContextOp,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkContextResponse {
+    /// `record`, `forget`: the trail after.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trail: Option<WorkContextTrail>,
+    /// `candidates`: the entries the rule reads, in its order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidates: Option<Vec<work_context::Entry>>,
+}
+
+/// `focus_work_context`: the work-context trail's ops.
+pub fn work_context(request: &WorkContextRequest) -> WorkContextResponse {
+    let mut trail = request.trail.clone();
+    match &request.op {
+        WorkContextOp::Record { entry } => trail.record(entry.clone()),
+        WorkContextOp::Forget { tab } => trail.forget(tab),
+        WorkContextOp::Candidates { target } => {
+            let candidates = trail.candidates(target).into_iter().cloned().collect();
+            return WorkContextResponse { trail: None, candidates: Some(candidates) };
+        }
+    }
+    WorkContextResponse { trail: Some(trail), candidates: None }
 }

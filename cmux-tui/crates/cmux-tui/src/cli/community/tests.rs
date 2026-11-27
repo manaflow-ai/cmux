@@ -11,7 +11,10 @@ use cmux_customize::community::Tier;
 use cmux_customize::{Customize, Roots};
 
 use super::super::{GlobalArgs, OutputMode};
-use super::{Consent, Git, RepoRef, Request, Routed, listed, parse, resolve_in, routed, run};
+use super::{
+    Consent, Git, RepoRef, Request, Routed, install_link, link_reference, listed, parse,
+    resolve_in, routed, run,
+};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -250,6 +253,56 @@ fn an_id_that_is_not_the_owners_is_refused() {
 }
 
 #[test]
+fn a_theme_fetches_its_font_pack_and_check_refuses_one_without_a_license() {
+    let base = tempfile::tempdir().unwrap();
+    let marker = MARKER.replace(" }", ", \"fontLicense\": \"OFL-1.1\" }");
+    let theme =
+        r#"{ "agentPane.display.font.faces": { "Pack Sans": "file:../fonts/Pack.woff2" } }"#;
+    let dir = repo(
+        base.path(),
+        &[
+            ("cmux-theme.json", &marker),
+            ("themes/dusk.json", theme),
+            ("fonts/Pack.woff2", "wOF2\0font"),
+            ("fonts/OFL.txt", "SIL OPEN FONT LICENSE Version 1.1"),
+            ("fonts/notes.txt", "not fetched"),
+        ],
+        "1.0.0",
+    );
+    assert_eq!(super::check_dir(&quiet(), &dir), 0);
+
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join("config")).unwrap();
+    fs::write(home.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let customize = Customize::open(Roots::under(home.path()));
+    let install = Request::Install { reference: "github.com/alice/dusk".into(), yes: true };
+    assert_eq!(
+        run(
+            &quiet(),
+            &customize,
+            &Git::local(base.path()),
+            Tier::Theme,
+            install,
+            &mut Consent::Answer(true)
+        ),
+        0
+    );
+    let fonts = home.path().join("config/fonts/theme-alice-dusk");
+    assert_eq!(fs::read(fonts.join("Pack.woff2")).unwrap(), b"wOF2\0font");
+    assert!(fonts.join("OFL.txt").is_file(), "the license text is fetched and copied");
+    assert!(!fonts.join("notes.txt").exists(), "only fonts and license texts are fetched");
+    let installed = fs::read_to_string(home.path().join("config/themes/dusk.json")).unwrap();
+    assert!(installed.contains("file:../fonts/theme-alice-dusk/Pack.woff2"), "{installed}");
+
+    // `cmux theme check DIR`: no license text, or no fontLicense, is refused.
+    fs::remove_file(dir.join("fonts/OFL.txt")).unwrap();
+    assert_eq!(super::check_dir(&quiet(), &dir), 1);
+    fs::write(dir.join("fonts/OFL.txt"), "SIL OPEN FONT LICENSE Version 1.1").unwrap();
+    fs::write(dir.join("cmux-theme.json"), MARKER).unwrap();
+    assert_eq!(super::check_dir(&quiet(), &dir), 1);
+}
+
+#[test]
 fn apps_install_and_theme_import_of_a_repository_are_routed() {
     let no_file = |_: &str| false;
     assert_eq!(
@@ -330,4 +383,53 @@ fn apps_install_of_a_theme_repository_installs_and_applies_it() {
     );
     let settings = fs::read_to_string(home.path().join("config/cmux-next.json")).unwrap();
     assert!(!settings.contains("\"dusk\""), "{settings}");
+}
+
+#[test]
+fn an_open_in_cmux_link_names_the_repository_and_its_pinned_commit() {
+    let sha = "193443b5c1da7526df8a506228441e72e31edc8b";
+    assert_eq!(
+        link_reference(&format!(
+            "cmux://apps/install?repo=github.com%2Fteamleaderleo%2Fteal-twin-theme&commit={sha}"
+        ))
+        .unwrap(),
+        format!("github.com/teamleaderleo/teal-twin-theme@{sha}")
+    );
+    // Any build's scheme; no commit follows releases.
+    assert_eq!(
+        link_reference("cmux-nightly://apps/install?repo=github.com/alice/dusk").unwrap(),
+        "github.com/alice/dusk"
+    );
+    for bad in [
+        "https://apps/install?repo=github.com/alice/dusk",
+        "cmux://apps/remove?repo=github.com/alice/dusk",
+        "cmux://apps/install",
+        "cmux://apps/install?repo=github.com/alice/dusk&yes=1",
+        "cmux://apps/install?repo=github.com/alice/dusk&repo=github.com/bob/x",
+        "cmux://apps/install?repo=github.com/alice/dusk@main",
+        "cmux://apps/install?repo=github.com/alice/dusk&commit=main",
+        "cmux://apps/install?repo=github.com/alice/dusk#x",
+        "cmux://apps/install?repo=127.0.0.1/a/b",
+        "cmux://apps/install?repo=%ZZ",
+    ] {
+        assert!(link_reference(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn apps_install_link_becomes_apps_install_of_the_reference_and_takes_no_yes() {
+    let args = words("--json apps install-link cmux://apps/install?repo=github.com/alice/dusk");
+    assert_eq!(
+        install_link(&args).unwrap().unwrap(),
+        words("--json apps install github.com/alice/dusk")
+    );
+    assert!(
+        install_link(&words(
+            "apps install-link cmux://apps/install?repo=github.com/alice/dusk --yes"
+        ))
+        .unwrap()
+        .is_err()
+    );
+    assert!(install_link(&words("apps install-link cmux://apps/install")).unwrap().is_err());
+    assert_eq!(install_link(&words("apps install github.com/alice/dusk")), None);
 }
