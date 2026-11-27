@@ -24,6 +24,10 @@
 name: cmux-next compile preflight
 
 on:
+  # Register the dispatch entrypoint when this workflow lands off main.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-compile-preflight.yml]
   workflow_call:
   workflow_dispatch:
 

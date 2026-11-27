@@ -127,6 +127,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_CREDENTIALS_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_SHARES_CAPABILITY);
         capabilities.extend_from_slice(agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES);
         capabilities.push(agent_transfer::AGENT_TRANSFER_HISTORY_LATER_CAPABILITY);
     }

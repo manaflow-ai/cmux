@@ -1820,8 +1820,13 @@ export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
     if (isLateSteer(row)) {
       if (lastCall >= row.at) break;
       late = at;
-    } else if (row.kind === "activity" && row.inBackground === undefined)
+    } else if (row.kind === "activity" && row.inBackground === undefined) {
       for (const item of row.items ?? []) if (item.tool) lastCall = Math.max(lastCall, item.tool.startedAt ?? row.at);
+    }
+    // A subagent the turn started is a call too, at its start line's time (the earliest of its group,
+    // runningTray.ts): its own Agent call may draw no row, and the steer before it read as late, so
+    // the start line drew over the steer once the turn ended (leo-0522-midturn-inbox, d-steer-order).
+    else if (row.kind === "subagentStarted" && row.inBackground === undefined) lastCall = Math.max(lastCall, row.at);
   }
   if (late < 0) return rows;
   // The agent's text just over the first late steer moves with the answer: the reply it was writing
@@ -2928,8 +2933,12 @@ function foldTailTurns(
   if (rows.length === 0) return [];
   const out: AcpmuxRow[] = [];
   let from = 0;
+  // The background turns already folded here: one's late row after another turn's (a subagent it
+  // started, done later) is a stretch of its own, and draws as it came under that fold, never a second
+  // "Worked for" of the same id.
+  const folded = new Set<string>();
   const flush = (to: number) => {
-    out.push(...foldTailTurn(rows.slice(from, to), expanded, endedBackground, clockOffset, agentFamily));
+    out.push(...foldTailTurn(rows.slice(from, to), expanded, endedBackground, clockOffset, agentFamily, folded));
     from = to;
   };
   // The background turn the stretch from `from` belongs to, once a row names it.
@@ -2957,11 +2966,17 @@ function foldTailTurn(
   endedBackground: ReadonlySet<string>,
   clockOffset: number,
   agentFamily: string | undefined,
+  folded: Set<string> = new Set(),
 ): AcpmuxRow[] {
   const lineAt = stretch.findIndex((row) => row.kind === BACKGROUND_TURN && row.background !== undefined);
   const line = lineAt >= 0 ? stretch[lineAt] : undefined;
   const background = line?.background?.id ?? stretch.find((row) => row.inBackground !== undefined)?.inBackground;
   if (background === undefined || !endedBackground.has(background)) return endedTail(stretch);
+  // A late row of a turn that already folded above (a subagent it started, done after the next turn
+  // began) draws as it came, as a late update before a line does: a second fold would draw that turn's
+  // "Worked for" twice, under one id (replay-lane-session, d-shift: the first one jumped 334px).
+  if (!line && folded.has(background)) return endedTail(stretch);
+  folded.add(background);
   // What came before its line (a late update of an earlier call) draws as it came.
   const before = line ? stretch.slice(0, lineAt) : [];
   const drawn = line ? stretch.slice(lineAt + 1) : stretch;
