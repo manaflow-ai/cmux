@@ -131,7 +131,8 @@ jobs:
             printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           fi
           git checkout -q -f --detach "$SHA"
-          [[ $reuse == fresh ]] || git sparse-checkout reapply
+          # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
+          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       - name: The base, and whether a web input changed
@@ -467,7 +468,8 @@ jobs:
             printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           fi
           git checkout -q -f --detach "$SHA"
-          [[ $reuse == fresh ]] || git sparse-checkout reapply
+          # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
+          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       - name: Check the size budget
