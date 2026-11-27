@@ -588,7 +588,12 @@ async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
         updated_at: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let relayed = |id: &str| {
@@ -1174,6 +1179,7 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
             host: "worker".into(),
             sessions: hub.mesh_rows().await,
             leaving: false,
+            health: None,
         })
         .await
         .unwrap();
@@ -1545,7 +1551,12 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         updated_at: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let mut as_lane = Client::local(&a);
@@ -1591,7 +1602,12 @@ async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_oth
         updated_at: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let proven = |session: &str| {
@@ -1656,7 +1672,12 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         updated_at: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let mut client = Client::local(&a);
