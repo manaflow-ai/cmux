@@ -73,17 +73,3 @@ extension AgentStatus {
         return id
     }
 }
-
-public struct ListAgentsRequest: DaemonRequest {
-    public struct Response: Decodable, Sendable, Equatable {
-        public var agents: [AgentStatus]
-    }
-    public static let command = "list-agents"
-    public var surface: SurfaceID?
-    public var state: AgentState?
-    public init(surface: SurfaceID? = nil, state: AgentState? = nil) {
-        self.surface = surface
-        self.state = state
-    }
-}
-
