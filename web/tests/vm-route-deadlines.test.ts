@@ -86,9 +86,9 @@ describe("remaining VM routes", () => {
     ["tunnelRevoke", 15_000, true],
     ["attach", 955_000, true],
     ["sessionOpen", 955_000, true],
-    // A create answers early enough to keep its whole provider deadline:
-    // "in progress" is then true (it ends running, or failed and refunded).
-    ["create", 25_000, true],
+    // The Mac app and CLI wait 16 min for a create and read any error as
+    // final, so a create they wait for answers its own outcome, by maxDuration.
+    ["create", 955_000, true],
   ];
   test.each(expected)("%s answers at %i ms (mutating %p) when the provider never answers", async (operation, budgetMs, mutating) => {
     const { answer, virtualMs, background } = await underDeadline(operation, Effect.never);
@@ -102,16 +102,48 @@ describe("remaining VM routes", () => {
     expect(background).toHaveLength(continues ? 1 : 0);
   });
 
-  test("a create answered in progress keeps its whole provider deadline before maxDuration", () => {
+  test("a create keeps its whole provider deadline, answered inline or in progress", () => {
     for (const elapsedMs of [0, 1_000, 24_000, 40_000]) {
-      for (const clientTimeoutMs of [undefined, 15_000, 120_000, 960_000]) {
+      for (const clientTimeoutMs of [undefined, 15_000, 120_000, 959_000, 960_000]) {
         const plan = vmRouteDeadlinePlan("create", { elapsedMs, clientTimeoutMs });
-        expect(plan.continueForMs).toBeGreaterThanOrEqual(VM_CREATE_RESERVE_AFTER_ANSWER_MS - Math.max(0, elapsedMs - 25_000));
+        // Either the answer waits out the whole create, or the continuation has it.
+        const window = Math.max(plan.answerWithinMs, plan.continueForMs);
+        expect(window).toBeGreaterThanOrEqual(VM_CREATE_RESERVE_AFTER_ANSWER_MS - Math.max(0, elapsedMs - 25_000));
         expect(elapsedMs + plan.answerWithinMs + plan.continueForMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.create.maxDurationMs - 5_000);
       }
     }
-    // Inside the first 25 s the reserve is whole.
-    expect(vmRouteDeadlinePlan("create", { elapsedMs: 2_000 }).continueForMs).toBeGreaterThanOrEqual(VM_CREATE_RESERVE_AFTER_ANSWER_MS);
+    // A client with a short budget still gets "in progress" with the reserve whole.
+    expect(vmRouteDeadlinePlan("create", { elapsedMs: 2_000, clientTimeoutMs: 120_000 }).continueForMs).toBeGreaterThanOrEqual(VM_CREATE_RESERVE_AFTER_ANSWER_MS);
+  });
+
+  // Production 2026-11-27: Freestyle creates took over 25 s (its start
+  // capacity queue). Each create answered 503 vm_operation_in_progress at
+  // 25 s; the Mac app and `cmux vm new` wait 16 min, know no such code, and
+  // showed "Couldn't create machine", even for the creates that then finished.
+  test("a create the client waits 16 min for answers its outcome, not in progress at 25 s", async () => {
+    for (const clientTimeoutMs of [undefined, 960_000, 959_400]) {
+      const slow = await underDeadline("create", Effect.sleep("40 seconds").pipe(Effect.as("vm-1")), 300, clientTimeoutMs);
+      expect(slow.answer?._tag === "Right" ? slow.answer.right : null).toBe("vm-1");
+      expect(slow.background).toHaveLength(0);
+    }
+  });
+
+  test("a create the provider refuses after 2 min answers that refusal inline", async () => {
+    const overloaded = providerFailure("create", new ProviderError("freestyle", "create", new FreestyleApiError(429, {
+      code: "INFRASTRUCTURE_OVERLOADED", message: "infrastructure overloaded: VM start capacity queue wait expired",
+    })));
+    const { answer, virtualMs } = await underDeadline("create", Effect.sleep("121 seconds").pipe(Effect.andThen(Effect.fail(overloaded))), 300, 959_400);
+    expect(virtualMs).toBe(121_000);
+    const response = await vmWorkflowErrorResponse(answer?._tag === "Left" ? answer.left : null);
+    expect(response?.status).toBe(503);
+    expect(await response!.json()).toMatchObject({ error: "vm_provider_capacity" });
+  });
+
+  test("a create whose client states a short budget still answers in progress inside it", async () => {
+    const { answer, virtualMs, background } = await underDeadline("create", Effect.never, 0, 120_000);
+    expect(virtualMs).toBe(25_000);
+    expect(answer?._tag === "Left" ? answer.left._tag : null).toBe("VmOperationDeadlineError");
+    expect(background).toHaveLength(1);
   });
 
   test("a create without an Idempotency-Key gets no answer deadline; with one it does", () => {
@@ -336,6 +368,36 @@ describe("continuation limits", () => {
       expect(line).not.toContain("abcdefghijklmnop");
     } finally {
       info.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  // Production 2026-11-27: 42 create continuations logged only
+  // "VmProviderOperationError: ", so the provider's refusal was invisible.
+  test("a failed continuation names the provider's status and code", async () => {
+    const lines: string[] = [];
+    const error = spyOn(console, "error").mockImplementation((...args: unknown[]) => { lines.push(args.map(String).join(" ")); });
+    try {
+      const overloaded = providerFailure("create", new ProviderError("freestyle", "create(snap) failed", new FreestyleApiError(429, {
+        code: "INFRASTRUCTURE_OVERLOADED", message: "infrastructure overloaded: VM start capacity queue wait expired",
+      })));
+      const background: Promise<unknown>[] = [];
+      await Effect.runPromise(Effect.gen(function* () {
+        const fiber = yield* Effect.fork(withVmAnswerDeadline(
+          Effect.sleep("2 seconds").pipe(Effect.andThen(Effect.fail(overloaded))),
+          { answerWithinMs: 1_000, onDeadline: () => Effect.fail("in progress"), continueForMs: 5_000, label: "/api/vm",
+            continuations, continueInBackground: (promise) => { background.push(promise); } },
+        ).pipe(Effect.either));
+        yield* TestClock.adjust(1_000);
+        yield* Fiber.join(fiber);
+        yield* TestClock.adjust(10_000);
+        yield* Effect.promise(() => Promise.all(background));
+      }).pipe(Effect.provide(TestContext.TestContext)));
+      const line = lines.find((entry) => entry.includes("continuation")) ?? "";
+      expect(line).toContain('"outcome":"failed"');
+      expect(line).toContain('"providerStatus":429');
+      expect(line).toContain('"providerCode":"INFRASTRUCTURE_OVERLOADED"');
+    } finally {
       error.mockRestore();
     }
   });
