@@ -16,6 +16,7 @@ struct State {
     active: usize,
     drainers: usize,
     committed: bool,
+    owner: Option<String>,
 }
 
 #[derive(Default)]
@@ -36,6 +37,11 @@ impl Drop for SendPermit {
 pub(crate) struct Drain(Arc<Admission>);
 
 impl Drain {
+    /// Only this owner's detached successor may join its already-fenced handoff.
+    pub(crate) fn owner(&self) -> String {
+        self.0.state.lock_or_recover().owner.clone().expect("drain owns update")
+    }
+
     pub(crate) fn commit(self) {
         self.0.state.lock_or_recover().committed = true;
     }
@@ -43,7 +49,12 @@ impl Drain {
 
 impl Drop for Drain {
     fn drop(&mut self) {
-        self.0.state.lock_or_recover().drainers -= 1;
+        let mut state = self.0.state.lock_or_recover();
+        state.drainers -= 1;
+        if state.drainers == 0 {
+            state.owner = None;
+        }
+        drop(state);
         self.0.changed.notify_waiters();
     }
 }
@@ -58,8 +69,32 @@ impl Admission {
         Ok(SendPermit(self.clone()))
     }
 
+    #[cfg(test)]
     async fn drain(self: &Arc<Self>, within: Duration) -> Result<Drain, RpcError> {
-        self.state.lock_or_recover().drainers += 1;
+        self.drain_owned(within, None).await
+    }
+
+    async fn drain_owned(
+        self: &Arc<Self>,
+        within: Duration,
+        owner: Option<&str>,
+    ) -> Result<Drain, RpcError> {
+        {
+            let mut state = self.state.lock_or_recover();
+            // A matching token joins one handoff; independent callers never become another
+            // restart owner, including after the first owner committed and dropped its guard.
+            if state.committed || (state.drainers > 0 && owner != state.owner.as_deref()) {
+                return Err(RpcError::new(
+                    -32000,
+                    "daemon update deferred: another updater owns the handoff",
+                )
+                .with_data(serde_json::json!({"reason":"update.deferred", "retryable":true})));
+            }
+            if state.drainers == 0 {
+                state.owner = Some(uuid::Uuid::now_v7().to_string());
+            }
+            state.drainers += 1;
+        }
         let guard = Drain(self.clone());
         let ready = async {
             loop {
@@ -90,8 +125,15 @@ pub(crate) fn deferred() -> RpcError {
 /// Before handing listeners away or asking a supervisor to stop. The guard reopens admission
 /// on every failure/cancellation; commit it only once shutdown has actually been requested.
 pub(crate) async fn prepare(hub: &crate::hub::Hub) -> Result<Drain, RpcError> {
+    prepare_owned(hub, None).await
+}
+
+pub(crate) async fn prepare_owned(
+    hub: &crate::hub::Hub,
+    owner: Option<&str>,
+) -> Result<Drain, RpcError> {
     let until = tokio::time::Instant::now() + WITHIN;
-    let guard = hub.update_admission.drain(WITHIN).await?;
+    let guard = hub.update_admission.drain_owned(WITHIN, owner).await?;
     if !super::shutdown_drain::flush_before_update(hub, until).await {
         return Err(deferred());
     }
@@ -132,6 +174,43 @@ pub(super) async fn hold_steered_end(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn only_one_updater_owns_a_handoff_and_its_successor_can_join() {
+        let gate = Arc::new(Admission::default());
+        let held = gate.admit().unwrap();
+        let first = gate.drain(Duration::from_secs(1));
+        tokio::pin!(first);
+        tokio::select! {
+            biased;
+            _ = &mut first => panic!("held send has not drained"),
+            () = tokio::task::yield_now() => {},
+        }
+        // Concurrent machine update/watcher cannot both pass the fence and restart the unit.
+        assert!(gate.drain(Duration::from_secs(1)).await.is_err());
+        drop(held);
+        let first = first.await.unwrap();
+        let owner = first.owner();
+        assert!(gate.drain(Duration::from_secs(1)).await.is_err());
+        assert!(gate.drain_owned(Duration::from_secs(1), Some("another-owner")).await.is_err());
+        let successor = gate.drain_owned(Duration::from_secs(1), Some(&owner)).await.unwrap();
+        drop(first);
+        assert!(gate.admit().is_err(), "successor still owns the admission fence");
+        successor.commit();
+        assert!(
+            gate.drain(Duration::from_secs(1)).await.is_err(),
+            "committed owner cannot restart twice"
+        );
+        assert!(gate.admit().is_err());
+
+        let retry = Arc::new(Admission::default());
+        let failed = retry.drain(Duration::from_secs(1)).await.unwrap();
+        drop(failed);
+        assert!(
+            retry.drain(Duration::from_secs(1)).await.is_ok(),
+            "failed handoff releases ownership"
+        );
+    }
 
     #[tokio::test(start_paused = true)]
     async fn update_drain_defers_without_losing_accepted_sends() {

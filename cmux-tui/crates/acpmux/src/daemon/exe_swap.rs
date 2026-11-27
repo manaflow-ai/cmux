@@ -225,7 +225,11 @@ impl Watch {
                 return std::future::pending().await;
             }
             retries.busy = false;
-            let mut steps = ExeSwap { installed: installed.clone(), args: args.clone() };
+            let mut steps = ExeSwap {
+                installed: installed.clone(),
+                args: args.clone(),
+                update_owner: drain.owner(),
+            };
             match tokio::task::spawn_blocking(move || {
                 cmux_supervise_core::make_before_break(&mut steps, READY_WITHIN)
             })
@@ -299,6 +303,7 @@ struct ExeSwap {
     installed: PathBuf,
     /// This daemon's own arguments, after its executable.
     args: Vec<String>,
+    update_owner: String,
 }
 
 impl Swap for ExeSwap {
@@ -349,6 +354,7 @@ impl Swap for ExeSwap {
             successor.env_remove(k);
         }
         let mut child = successor
+            .env("ACPMUX_HANDOVER_UPDATE_OWNER", &self.update_owner)
             .args(handover_args(&self.args))
             .stdin(cmux_process::Stdio::null())
             .stdout(stdout)

@@ -168,6 +168,11 @@ async fn take_over_holder(
     let side = listener_handover::Side::open(&home());
     #[cfg_attr(not(unix), allow(unused_mut))]
     let mut params = serde_json::json!({"reason": "handover: another daemon of this home starts", "graceful": true});
+    // A watcher-owned successor joins that same handoff rather than becoming a second
+    // updater. An explicit installer has no token and must acquire its own owner.
+    if let Ok(owner) = std::env::var("ACPMUX_HANDOVER_UPDATE_OWNER") {
+        params["updateOwner"] = serde_json::json!(owner);
+    }
     #[cfg(unix)]
     if let (Some(side), Some(map)) = (&side, params.as_object_mut()) {
         map.insert(listener_handover::PARAM.to_owned(), serde_json::json!(side.path()));

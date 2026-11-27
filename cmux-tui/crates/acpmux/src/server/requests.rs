@@ -4522,8 +4522,17 @@ async fn dispatch_request_with_identity(
             // turn leaves the daemon serving, with admission reopened by the guard's drop.
             let updating = params.get("restart").and_then(Value::as_bool) == Some(true)
                 || params.get("graceful").and_then(Value::as_bool) == Some(true);
-            let update_drain =
-                if updating { Some(super::update_drain::prepare(hub).await?) } else { None };
+            let update_drain = if updating {
+                Some(
+                    super::update_drain::prepare_owned(
+                        hub,
+                        params.get("updateOwner").and_then(Value::as_str),
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
             // Name who stopped it and why: the log's "a client asked it to" alone cannot tell an
             // app's update from another build's or a script's stop. `reason` is the client's own
             // word for its trigger (`shutdown_reason`); the daily count of the app's stops reads it.
