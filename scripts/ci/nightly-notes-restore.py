@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -59,7 +60,8 @@ def load_provenance(path: Path) -> dict:
         fail("provenance must be a JSON object")
     required = ("source_run", "source_attempt", "source_sha", "build", "notes_sha256",
                 "signature_sha256", "artifact_run", "artifact_attempt", "artifact_id",
-                "artifact_sha256", "artifact_name")
+                "artifact_sha256", "artifact_name", "source_record_artifact_id",
+                "source_record_artifact_sha256", "source_record_artifact_name")
     missing = [key for key in required if key not in value]
     if missing:
         fail(f"provenance is missing {', '.join(missing)}")
@@ -75,13 +77,15 @@ def load_provenance(path: Path) -> dict:
     for key in ("notes_sha256", "signature_sha256"):
         if not HEX.fullmatch(str(value[key])):
             fail(f"{key} must be a 64-character lowercase SHA-256 digest")
-    if not str(value["artifact_run"]).isdigit() or not str(value["artifact_attempt"]).isdigit() \
-            or not str(value["artifact_id"]).isdigit():
-        fail("artifact_run, artifact_attempt and artifact_id must be numeric")
-    if not HEX.fullmatch(str(value["artifact_sha256"])):
-        fail("artifact_sha256 must be a 64-character lowercase SHA-256 digest")
-    if not isinstance(value["artifact_name"], str) or not value["artifact_name"].strip():
-        fail("artifact_name must be a non-empty string")
+    for key in ("artifact_run", "artifact_attempt", "artifact_id", "source_record_artifact_id"):
+        if not str(value[key]).isdigit():
+            fail(f"{key} must be numeric")
+    for key in ("artifact_sha256", "source_record_artifact_sha256"):
+        if not HEX.fullmatch(str(value[key])):
+            fail(f"{key} must be a 64-character lowercase SHA-256 digest")
+    for key in ("artifact_name", "source_record_artifact_name"):
+        if not isinstance(value[key], str) or not value[key].strip():
+            fail(f"{key} must be a non-empty string")
     return value
 
 
@@ -140,15 +144,18 @@ def verify_withdrawal_status(build: str) -> None:
         with urllib.request.urlopen(request, timeout=20) as response:
             value = json.load(response)
     except urllib.error.HTTPError as error:
-        if error.code == 404:
-            value = []
-        else:
-            fail(f"withdrawal record read failed for {url}: HTTP {error.code}")
+        fail(f"withdrawal record read failed for {url}: HTTP {error.code}")
     except (OSError, json.JSONDecodeError) as error:
         fail(f"withdrawal record read failed for {url}: {error}")
     if not isinstance(value, list):
         fail(f"withdrawal record at {url} is not a JSON list")
-    if any(isinstance(entry, dict) and str(entry.get("build")) == build for entry in value):
+    for index, entry in enumerate(value):
+        if not isinstance(entry, dict) or not str(entry.get("build", "")).isdigit() \
+                or not str(entry.get("serve", "")).isdigit() \
+                or not isinstance(entry.get("reason"), str) or not entry["reason"].strip() \
+                or not isinstance(entry.get("pulledAt"), str) or not entry["pulledAt"].strip():
+            fail(f"withdrawal record at {url} has malformed entry {index}")
+    if any(str(entry["build"]) == build for entry in value):
         fail(f"build {build} is withdrawn in the protected pulled.json record")
 
 
@@ -165,6 +172,31 @@ def _gh_json(path: str) -> dict:
     return value
 
 
+def _download_artifact(repository: str, artifact_id: str, expected_sha256: str) -> bytes:
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact_id}/zip"],
+        check=False, capture_output=True,
+    )
+    if result.returncode:
+        fail(f"source artifact download failed: {result.stderr.decode(errors='replace').strip()}")
+    if digest(result.stdout) != expected_sha256:
+        fail("downloaded source artifact bytes do not match the trusted artifact digest")
+    return result.stdout
+
+
+def _check_artifact_metadata(artifact: dict, *, artifact_id: str, expected_name: str,
+                             expected_sha256: str, expected_run: str, expected_sha: str) -> None:
+    if artifact.get("digest") != f"sha256:{expected_sha256}":
+        fail(f"artifact metadata digest {artifact.get('digest')} does not match provenance sha256:{expected_sha256}")
+    if artifact.get("expired") is True or artifact.get("name") != expected_name:
+        fail("source artifact is expired or has the wrong name")
+    if str(artifact.get("id")) != artifact_id:
+        fail("source artifact metadata has the wrong id")
+    workflow_run = artifact.get("workflow_run") or {}
+    if str(workflow_run.get("id")) != expected_run or workflow_run.get("head_sha") != expected_sha:
+        fail("source artifact is not attached to the recorded artifact run and source SHA")
+
+
 def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: bytes) -> None:
     """Bind the local pair to the original nightly run and its immutable artifact."""
     required = ("artifact_run", "artifact_attempt", "artifact_id", "artifact_sha256", "artifact_name")
@@ -174,9 +206,12 @@ def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: 
     artifact_run = str(provenance["artifact_run"])
     artifact_attempt = str(provenance["artifact_attempt"])
     artifact_id = str(provenance["artifact_id"])
+    source_record_artifact_id = str(provenance["source_record_artifact_id"])
     if not artifact_run.isdigit() or not artifact_attempt.isdigit() or not artifact_id.isdigit() \
-            or not HEX.fullmatch(str(provenance["artifact_sha256"])):
-        fail("artifact_run, artifact_attempt, artifact_id and artifact_sha256 must identify the recorded artifact digest")
+            or not source_record_artifact_id.isdigit() \
+            or not HEX.fullmatch(str(provenance["artifact_sha256"])) \
+            or not HEX.fullmatch(str(provenance["source_record_artifact_sha256"])):
+        fail("artifact provenance must identify both the signed notes and publication record digests")
     repository = os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux")
     run_path = f"repos/{repository}/actions/runs/{provenance['source_run']}/attempts/{provenance['source_attempt']}"
     run = _gh_json(run_path)
@@ -194,12 +229,44 @@ def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: 
         fail(f"original source run failed trusted checks: {', '.join(failed)}")
     if run.get("status") != "completed":
         fail("original source run is not completed")
-    if run.get("conclusion") != "success":
-        jobs = _gh_json(f"repos/{repository}/actions/runs/{provenance['source_run']}/jobs?filter=latest&per_page=100")
-        published = any(job.get("name") in {"nightly-next-one", "publish-nightly"}
-                        and job.get("conclusion") == "success" for job in jobs.get("jobs", []))
-        if not published:
-            fail("original source run has no successful nightly publication job")
+    source_jobs = _gh_json(f"repos/{repository}/actions/runs/{provenance['source_run']}/jobs?filter=latest&per_page=100")
+    if not any(job.get("name") in {"nightly-next-one", "publish-nightly"}
+               and job.get("conclusion") == "success" for job in source_jobs.get("jobs", [])):
+        fail("original source run has no successful nightly publication job")
+    source_artifact = _gh_json(f"repos/{repository}/actions/artifacts/{source_record_artifact_id}")
+    _check_artifact_metadata(
+        source_artifact,
+        artifact_id=source_record_artifact_id,
+        expected_name=str(provenance["source_record_artifact_name"]),
+        expected_sha256=str(provenance["source_record_artifact_sha256"]),
+        expected_run=str(provenance["source_run"]),
+        expected_sha=str(provenance["source_sha"]),
+    )
+    try:
+        with zipfile.ZipFile(io.BytesIO(_download_artifact(
+                repository, source_record_artifact_id, str(provenance["source_record_artifact_sha256"])))) as bundle:
+            records = [name for name in bundle.namelist() if name.endswith(".json")]
+            if len(records) != 1:
+                fail("source publication artifact must contain exactly one JSON record")
+            record = json.loads(bundle.read(records[0]))
+    except (OSError, zipfile.BadZipFile, KeyError, json.JSONDecodeError) as error:
+        fail(f"invalid source publication artifact: {error}")
+    if not isinstance(record, dict):
+        fail("source publication artifact record must be a JSON object")
+    record_checks = {
+        "source_run": str(record.get("source_run")) == str(provenance["source_run"]),
+        "source_attempt": str(record.get("source_attempt")) == str(provenance["source_attempt"]),
+        "source_sha": record.get("source_sha") == provenance["source_sha"],
+        "build": record.get("publish_build") == provenance["build"],
+        "build SHA": record.get("publish_build_sha") == provenance["source_sha"],
+        "track": record.get("track") == "nightly-next",
+        "publish result": record.get("publish_result") == "success",
+        "publish refused": record.get("publish_refused") != "true",
+        "no publish": record.get("no_publish") != "true",
+    }
+    failed = [name for name, ok in record_checks.items() if not ok]
+    if failed:
+        fail(f"source publication record failed trusted checks: {', '.join(failed)}")
     tail = _gh_json(f"repos/{repository}/actions/runs/{artifact_run}/attempts/{artifact_attempt}")
     tail_checks = {
         "workflow": tail.get("path") == RELEASE_WORKFLOW,
@@ -207,46 +274,37 @@ def verify_source_record(provenance: dict, notes_bytes: bytes, signature_bytes: 
         "source SHA": tail.get("head_sha") == provenance["source_sha"],
         "repository": str((tail.get("repository") or {}).get("full_name", "")).lower() == repository.lower(),
         "head repository": str((tail.get("head_repository") or {}).get("full_name", "")).lower() == repository.lower(),
+        "attempt": str(tail.get("run_attempt")) == artifact_attempt,
+        "event": tail.get("event") == "workflow_dispatch",
         "completed": tail.get("status") == "completed",
     }
     failed = [name for name, ok in tail_checks.items() if not ok]
     if failed:
         fail(f"published tail failed trusted checks: {', '.join(failed)}")
     tail_jobs = _gh_json(f"repos/{repository}/actions/runs/{artifact_run}/jobs?filter=latest&per_page=100")
-    if not any(job.get("name") == "published-in" and job.get("conclusion") == "success"
+    if not any(job.get("name") == "sign-release-notes" and job.get("conclusion") == "success"
                for job in tail_jobs.get("jobs", [])):
-        fail("published tail has no successful published-in job")
+        fail("published tail has no successful sign-release-notes job")
     artifact = _gh_json(f"repos/{repository}/actions/artifacts/{artifact_id}")
-    expected_zip = f"sha256:{provenance['artifact_sha256']}"
-    if artifact.get("digest") != expected_zip:
-        fail(f"artifact metadata digest {artifact.get('digest')} does not match provenance {expected_zip}")
-    if artifact.get("expired") is True or artifact.get("name") != provenance["artifact_name"]:
-        fail("source artifact is expired or has the wrong name")
-    workflow_run = artifact.get("workflow_run") or {}
-    if str(workflow_run.get("id")) != artifact_run or workflow_run.get("head_sha") != provenance["source_sha"]:
-        fail("source artifact is not attached to the recorded artifact run and source SHA")
-    with tempfile.TemporaryDirectory(prefix="nightly-notes-artifact-") as scratch:
-        archive = Path(scratch) / "release-notes.zip"
-        result = subprocess.run(
-            ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact_id}/zip"],
-            check=False, capture_output=True,
-        )
-        if result.returncode:
-            fail(f"source artifact download failed: {result.stderr.decode(errors='replace').strip()}")
-        archive.write_bytes(result.stdout)
-        if digest(result.stdout) != provenance["artifact_sha256"]:
-            fail("downloaded source artifact bytes do not match the trusted artifact digest")
-        try:
-            with zipfile.ZipFile(archive) as bundle:
-                names = set(bundle.namelist())
-                build = str(provenance["build"])
-                expected = {f"{build}.json", f"{build}.json.sig"}
-                if not expected <= names:
-                    fail("source artifact does not contain the signed notes pair")
-                if bundle.read(f"{build}.json") != notes_bytes or bundle.read(f"{build}.json.sig") != signature_bytes:
-                    fail("local notes pair does not match the original signed artifact")
-        except (OSError, zipfile.BadZipFile, KeyError) as error:
-            fail(f"invalid source artifact: {error}")
+    _check_artifact_metadata(
+        artifact,
+        artifact_id=artifact_id,
+        expected_name=str(provenance["artifact_name"]),
+        expected_sha256=str(provenance["artifact_sha256"]),
+        expected_run=artifact_run,
+        expected_sha=str(provenance["source_sha"]),
+    )
+    try:
+        with zipfile.ZipFile(io.BytesIO(_download_artifact(repository, artifact_id, str(provenance["artifact_sha256"])))) as bundle:
+            names = set(bundle.namelist())
+            build = str(provenance["build"])
+            expected = {f"{build}.json", f"{build}.json.sig"}
+            if not expected <= names:
+                fail("source artifact does not contain the signed notes pair")
+            if bundle.read(f"{build}.json") != notes_bytes or bundle.read(f"{build}.json.sig") != signature_bytes:
+                fail("local notes pair does not match the original signed artifact")
+    except (OSError, zipfile.BadZipFile, KeyError) as error:
+        fail(f"invalid source artifact: {error}")
 
 
 def main() -> int:
