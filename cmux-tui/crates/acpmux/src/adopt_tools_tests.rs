@@ -52,7 +52,7 @@ fn adopted_claude_alarm_waits_for_confirmed_edit_and_shares_its_evidence() {
     assert!(failed.done.get("tampering").is_none());
 }
 
- #[test]
+#[test]
 #[test]
 fn a_codex_read_parsed_from_a_loop_never_titles_its_shell_variable() {
     let item = json!({
