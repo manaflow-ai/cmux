@@ -99,7 +99,11 @@ INPUTS: tuple[str, ...] = (
     ".github/workflows/cmux-next-guards.yml",
 )
 
-TIMEOUT_SECONDS = 600
+# Per check run; a red one's base rerun can take as long again, inside the job step's 10 minutes.
+TIMEOUT_SECONDS = 240
+# Where the checks' own code lives: an edit here may add a read, so a read outside INPUTS fails such a change.
+CODE_ROOTS = ("cmux-tui/scripts/", "cmux-tui/bindings/codegen/", "scripts/cmux-next/gen-phone-lane-fields.py",
+              "scripts/ci/spec_checks.py")
 
 
 def _pattern(glob: str) -> re.Pattern[str]:
@@ -126,10 +130,17 @@ class Result:
     reads: list[str] = field(default_factory=list)
 
 
+# This file as loaded, before a base rerun swaps the tree: the rerun runs the change's wrapper, never the base's copy
+# (which may lack `exec` or take other arguments).
+WRAPPER = Path(__file__).read_text()
+
+
 def run_one(repo: Path, check: Check, audit: bool) -> Result:
     with tempfile.TemporaryDirectory() as tmp:
         trace = Path(tmp) / "reads.txt"
-        command = [sys.executable, "-I", str(Path(__file__).resolve()), "exec", "--trace", str(trace)]
+        wrapper = Path(tmp) / "spec_checks_exec.py"
+        wrapper.write_text(WRAPPER)
+        command = [sys.executable, "-I", str(wrapper), "exec", "--trace", str(trace)]
         for folder in check.path:
             command += ["--path", folder]
         command += ["--", *check.argv]
@@ -233,7 +244,8 @@ def judge(repo: Path, checks: Sequence[Check], base: str | None, stream: IO[str]
     outside = [path for path in reads if not is_input(path) and "__pycache__" not in path.split("/")
                and not path.startswith(".git/")]
     if outside:
-        ran_code = {path for path in reads if path.endswith(".py")}
+        # The checks' own code (where a new read comes from), not Python they read as data (the Python SDK).
+        ran_code = {path for path in reads if path.endswith(".py") and path.startswith(CODE_ROOTS)}
         edits_code = bool(changed) and bool(ran_code & set(changed))
         level = "error" if edits_code else "warning"
         failed = failed or edits_code

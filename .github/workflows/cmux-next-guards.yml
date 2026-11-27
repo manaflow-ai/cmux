@@ -69,6 +69,11 @@ on:
       - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"
+      - "cmux-tui/spec/**"
+      - "cmux-tui/docs/**"
+      - "cmux-tui/bindings/**"
+      - "cmux-tui/frontends/README*.md"
+      - "cmux-tui/frontends/web/README*.md"
       - "docs/remote-agents-and-cloud.md"
       - "docs/cmux-next/customize-recipes.md"
       - "cmux-tui/crates/acpmux/README.md"
@@ -1421,7 +1426,8 @@ jobs:
   # spec_checks.py INPUTS; every run audits that list against the files the checks open; a pull request whose lint
   # failed is red there and skips this, tests/test_ci_path_route_skips_on_failure.py). About 35 s of stdlib Python,
   # every check at once. A red check runs again on the base (the merge commit's first parent): a red the base has too,
-  # with no line of its own, is a warning, not this change's. Own branches use the cmux-linux pool (the one label for
+  # with no line of its own, is a warning, not this change's. The spec inventory stops at its first problem, so while
+  # the base is red there a change's later problem shows only once the base is fixed (the push run judges it then). Own branches use the cmux-linux pool (the one label for
   # own-branch Linux jobs, or vars.CI_OVERFLOW_LINUX), fork pull requests Blacksmith; never a GitHub-hosted runner
   # for this repository. tests/test_cmux_next_guards_route.py, tests/test_ci_spec_checks.py.
   spec-checks:
@@ -1591,7 +1597,8 @@ jobs:
             echo "ios_placeholder=false" >> "$GITHUB_OUTPUT"
           fi
           # spec-checks' inputs (scripts/ci/spec_checks.py INPUTS): the same rule.
-          if [[ "$EVENT_NAME" != pull_request ]] || ! changed=$(git diff --name-only HEAD^1 HEAD) \
+          # --no-renames: a file moved out of the inputs lists its old path too (a rename alone lists the new one).
+          if [[ "$EVENT_NAME" != pull_request ]] || ! changed=$(git diff --no-renames --name-only HEAD^1 HEAD) \
               || ! spec=$(python3 -I scripts/ci/spec_checks.py route <<<"$changed"); then
             echo "spec_checks=true" >> "$GITHUB_OUTPUT"
           else

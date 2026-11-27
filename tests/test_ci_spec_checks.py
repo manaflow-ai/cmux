@@ -85,6 +85,18 @@ class TableTests(unittest.TestCase):
             self.assertFalse(spec_checks.routed([path]), path)
         self.assertFalse(spec_checks.routed([]))
 
+    def test_no_input_is_docs_only(self):
+        # The guards workflow carries the docs-only paths filter: a Markdown file the checks read that the filter
+        # drops would start no run for a change to it alone (review of the first head: spec/events.md).
+        import docs_only_paths  # noqa: PLC0415
+
+        tracked = subprocess.run(["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True,
+                                 check=True).stdout.splitlines()
+        inputs = [path for path in tracked if spec_checks.routed([path])]
+        self.assertTrue(inputs)
+        dropped = [path for path in inputs if docs_only_paths.docs_only([path])]
+        self.assertEqual(dropped, [], "put these back in scripts/ci/docs_only_paths.py DOCS_ONLY_PATHS")
+
     def test_every_check_script_is_an_input(self):
         for check in spec_checks.CHECKS:
             if check.argv[0] != "-m":
@@ -139,9 +151,9 @@ class AuditTests(unittest.TestCase):
         repo = repo_with({
             "cmux-tui/spec/inventory.json": "{}\n",
             "README.md": "x\n",
-            "reader.py": "open('cmux-tui/spec/inventory.json').read()\nopen('README.md').read()\n",
+            "cmux-tui/scripts/reader.py": "open('cmux-tui/spec/inventory.json').read()\nopen('README.md').read()\n",
         }, {})
-        checks = (spec_checks.Check("reader", ("reader.py",)),)
+        checks = (spec_checks.Check("reader", ("cmux-tui/scripts/reader.py",)),)
 
         def judge(changed):
             out = Path(tempfile.mkdtemp()) / "out.txt"
@@ -150,17 +162,42 @@ class AuditTests(unittest.TestCase):
             return rc, out.read_text()
 
         # A change that edits a check's code (where a new read comes from) fails on it.
-        rc, text = judge(["reader.py"])
+        rc, text = judge(["cmux-tui/scripts/reader.py"])
         self.assertEqual(rc, 1, text)
         self.assertIn("::error title=spec checks read audit", text)
         self.assertIn("  README.md", text)
-        self.assertIn("  reader.py", text)  # the check's own script is outside INPUTS here too
+        self.assertIn("  cmux-tui/scripts/reader.py", text)  # the check's own script is outside INPUTS here too
         self.assertNotIn("  cmux-tui/spec/inventory.json", text)
         # Any other change (or a push, with no diff) only warns: the read is not its doing.
         for changed in (None, ["cmux-tui/spec/inventory.json"]):
             rc, text = judge(changed)
             self.assertEqual(rc, 0, text)
             self.assertIn("::warning title=spec checks read audit", text)
+
+    def test_python_read_as_data_is_not_the_checks_code(self):
+        # The boundary check reads the Python SDK's sources as text: an edit there adds no read of the checks.
+        repo = repo_with({
+            "cmux-tui/bindings/python/cmux/client.py": "x = 1\n",
+            "README.md": "x\n",
+            "cmux-tui/scripts/check-reader.py": "open('cmux-tui/bindings/python/cmux/client.py').read()\n"
+                                                 "open('README.md').read()\n",
+        }, {})
+        checks = (spec_checks.Check("reader", ("cmux-tui/scripts/check-reader.py",)),)
+        for changed, want in ((["cmux-tui/bindings/python/cmux/client.py"], 0),
+                              (["cmux-tui/scripts/check-reader.py"], 1)):
+            out = Path(tempfile.mkdtemp()) / "out.txt"
+            with open(out, "w") as stream:
+                rc = spec_checks.judge(repo, checks, None, stream=stream, audit=True, changed=changed)
+            self.assertEqual(rc, want, (changed, out.read_text()))
+
+    def test_the_base_rerun_runs_this_wrapper_not_the_bases_copy(self):
+        # A base whose spec_checks.py lacks `exec` (or this change's arguments) still reruns the red check.
+        repo = repo_with({"check.py": CHECK, "broken": "old red\n",
+                          "scripts/ci/spec_checks.py": "import sys\nsys.exit('not this wrapper')\n"},
+                         {"other.txt": "x\n"})
+        rc, out = JudgeTests.judge(self, repo, "HEAD^1")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("red on the base", out)
 
     def test_a_check_runs_as_python3_script_would(self):
         # The script's folder leads sys.path (sibling imports), PYTHONPATH-style folders come from `path`.

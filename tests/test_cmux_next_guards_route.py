@@ -309,6 +309,9 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
             ("pull_request", "docs/cmux-next-ios.md", "false"),
             ("pull_request", "webviews/src/App.tsx", "false"),
             ("push", "docs/cmux-next-ios.md", "true"),
+            # A server file moved out of the inputs: its old path routes (git diff detects the rename otherwise).
+            ("pull_request", "rename:cmux-tui/crates/cmux-tui-core/src/server/kick.rs:cmux-tui/crates/kick/src/k.rs",
+             "true"),
         ]
         spec_checks = (ROOT / "scripts/ci/spec_checks.py").read_text()
         for event, changed, want in cases:
@@ -317,10 +320,19 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
                 subprocess.run(["git", "init", "-q", tmp], check=True)
                 Path(tmp, "scripts/ci").mkdir(parents=True)
                 Path(tmp, "scripts/ci/spec_checks.py").write_text(spec_checks)
+                moved = changed.split(":")[1:] if changed.startswith("rename:") else None
+                body = "".join(f"fn f{i}() {{}}\n" for i in range(40))
+                if moved:
+                    Path(tmp, moved[0]).parent.mkdir(parents=True)
+                    Path(tmp, moved[0]).write_text(body)
                 subprocess.run(git + ["add", "-A"], check=True)
                 subprocess.run(git + ["commit", "-qm", "base"], check=True)
-                Path(tmp, changed).parent.mkdir(parents=True, exist_ok=True)
-                Path(tmp, changed).write_text("change\n")
+                if moved:
+                    Path(tmp, moved[1]).parent.mkdir(parents=True)
+                    subprocess.run(git + ["mv", moved[0], moved[1]], check=True)
+                else:
+                    Path(tmp, changed).parent.mkdir(parents=True, exist_ok=True)
+                    Path(tmp, changed).write_text("change\n")
                 subprocess.run(git + ["add", "-A"], check=True)
                 subprocess.run(git + ["commit", "-qm", "change"], check=True)
                 out = Path(tmp, "github_output")
