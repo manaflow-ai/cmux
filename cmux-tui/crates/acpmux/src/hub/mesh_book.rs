@@ -18,6 +18,13 @@ const MAX_BOOK_ROWS: usize = 2048;
 pub(crate) struct MeshBook {
     /// `HOST/ID` to the hub's fields of it (`row_of`) and its row.
     rows: BTreeMap<String, (Bare, Arc<RemoteSession>)>,
+    /// Rows a read no longer lists, by `HOST/ID`, kept as they were (at most [`MAX_BOOK_ROWS`],
+    /// the longest gone dropped first): one that comes back as it left keeps its `updatedAt`.
+    /// A hub outage longer than a heartbeat's TTL drops every machine's rows from the book until
+    /// each one heartbeats again, and each came back stamped with this daemon's clock: 587 of 596
+    /// rows one read listed at 00:14:38Z on 2026-11-27, after a 503 from 00:14:16Z, had no field
+    /// changed.
+    left: BTreeMap<String, Bare>,
     /// Each machine listed, with its newest heartbeat (ms since the epoch).
     hosts: BTreeMap<String, u64>,
     /// The book reads so far: a row no read lists now has an older one (`Bare::read`).
@@ -121,10 +128,12 @@ struct Bare {
     handle: Option<String>,
     updated_at: Option<u64>,
     read: u64,
+    /// The `updatedAt` its row lists.
+    stamped: u64,
 }
 
 impl Bare {
-    fn of(fields: &Fields<'_>, read: u64) -> Self {
+    fn of(fields: &Fields<'_>, read: u64, stamped: u64) -> Self {
         let own = |s: Option<&str>| s.map(str::to_owned);
         Self {
             name: fields.name.into(),
@@ -140,6 +149,7 @@ impl Bare {
             handle: own(fields.handle),
             updated_at: fields.updated_at,
             read,
+            stamped,
         }
     }
 
@@ -333,11 +343,13 @@ impl Hub {
                     was.read = read;
                     continue;
                 }
-                let bare = Bare::of(&fields, read);
                 // When it last changed on its machine, as its heartbeat says. A hub or daemon that
                 // does not send it leaves the old reading: when this daemon first saw the row as it
-                // is now, which a restart of this daemon moves for every row at once.
-                let updated_at = fields.updated_at.unwrap_or(now);
+                // is now, kept for a row that left the book and came back unchanged (`left`); a
+                // restart of this daemon still moves every such row at once.
+                let back = book.left.remove(key.as_str()).filter(|was| was.builds(&fields));
+                let updated_at = fields.updated_at.or(back.map(|was| was.stamped)).unwrap_or(now);
+                let bare = Bare::of(&fields, read, updated_at);
                 let mut fields = row_of(&s.session_id, &fields);
                 fields.set("updatedAt", json!(updated_at));
                 let summary = Self::remote_summary(&s.host, fields);
@@ -355,14 +367,29 @@ impl Hub {
                 });
                 book.rows.insert(key.clone(), (bare, row));
             }
-            let mut gone: Vec<(String, Value)> = Vec::new();
-            book.rows.retain(|_, (bare, r)| {
-                let listed = bare.read == read;
-                if !listed {
+            let went: Vec<String> = book
+                .rows
+                .iter()
+                .filter(|(_, (bare, _))| bare.read != read)
+                .map(|(key, _)| key.clone())
+                .collect();
+            let mut gone: Vec<(String, Value)> = Vec::with_capacity(went.len());
+            for key in went {
+                if let Some((bare, r)) = book.rows.remove(&key) {
                     gone.push((r.peer.clone(), r.summary.value()));
+                    book.left.insert(key, bare);
                 }
-                listed
-            });
+            }
+            // Bounded: past the cap, the rows gone longest are forgotten.
+            if book.left.len() > MAX_BOOK_ROWS {
+                let mut by_read: Vec<(u64, String)> =
+                    book.left.iter().map(|(key, bare)| (bare.read, key.clone())).collect();
+                by_read.sort_unstable();
+                let cut = by_read.len() - MAX_BOOK_ROWS;
+                for (_, key) in by_read.into_iter().take(cut) {
+                    book.left.remove(&key);
+                }
+            }
             // A heartbeat's time alone changes no row: only a machine coming or going does.
             let moved = !book.hosts.keys().eq(hosts.keys());
             let (came, left) = if moved {
