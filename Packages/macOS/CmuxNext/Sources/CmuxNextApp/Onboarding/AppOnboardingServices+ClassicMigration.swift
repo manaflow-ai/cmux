@@ -60,11 +60,11 @@ extension AppOnboardingServices {
     ///   tree: a New Tab page workspace, closed when the migration brought workspaces
     ///   into its window, or Home, which stays.
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
-        guard classicMigrationRunsAtLaunch else { return }
+        guard classicMigrationRunsAtLaunch else { return owner.setup.classicSettled() }
         do {
-            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
-                                                   confirmation: { await self.confirmClassicImport($0, atLaunch: true) })
-            guard let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
+            let outcome = try await owner.setup.classicMigration(seam: owner.classicMigrationConfirmation, offer: \.setupOffer, dialog: { await self.confirmClassicImport($0, atLaunch: true) },
+                                                                 imported: { !$0.opened.isEmpty }) { try await migrateClassic(.automatic, firstWorkspace: firstWorkspace, confirmation: $0) }
+            guard owner.setup.classicAnswer != .declined, let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
             let registry = services.registry
             ClassicImportStrings.toast(notice, in: services.windows.active?.window,
                                        importAgain: notice == ClassicImportPreviewStrings.notImported ? { _ = registry.perform("workspace.importClassic") } : nil)

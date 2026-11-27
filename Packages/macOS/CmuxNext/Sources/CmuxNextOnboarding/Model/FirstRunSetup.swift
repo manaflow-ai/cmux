@@ -1,12 +1,14 @@
 public import Foundation
 public import Observation
+import AppKit
+import CmuxNextWakeups
 
 /// Whether Home shows the Set Up cmux card (goal next-first-run-setup; Lawrence 2026-10-09: "i do not want new
 /// window ... just drop user into main screen asap"). A first run starts it in place of the first-run windows:
 /// the Agents window and the CLI toast at launch mark themselves shown, so their rows on the card are the one
-/// place they are offered. Hide or every row done ends first-run setup, per channel (`defaults`), and marks this
-/// Mac's first launch finished (``OnboardingWindowPresenter/historyShownKey``). An explicit reopen keeps the card
-/// visible until Hide.
+/// place they are offered. The launch's classic import asks on its cmux Classic row (``askClassic(_:)``) instead of a
+/// dialog beside it. Hide or every row done ends first-run setup, per channel (`defaults`), and marks this Mac's first
+/// launch finished (``OnboardingWindowPresenter/historyShownKey``). An explicit reopen keeps the card visible until Hide.
 @MainActor
 @Observable
 public final class FirstRunSetup {
@@ -17,14 +19,20 @@ public final class FirstRunSetup {
     @ObservationIgnored private let defaults: UserDefaults
 
     /// `skipsOnboarding` (`--skip-onboarding`, `CMUX_NEXT_SKIP_ONBOARDING=1`): the card stays away for this launch
-    /// and starts on none, and a card still pending returns on the next launch that does not skip.
-    public init(defaults: UserDefaults = .standard, skipsOnboarding: Bool = false) {
+    /// and starts on none, and a card still pending returns on the next launch that does not skip. `cardWait`: how
+    /// long the launch's classic import waits for a card still being drawn (Home's chat starts after restore) before
+    /// its dialog asks instead.
+    public init(defaults: UserDefaults = .standard, skipsOnboarding: Bool = false, cardWait: Duration = .seconds(30)) {
         self.defaults = defaults
         self.skipsOnboarding = skipsOnboarding
+        self.cardWait = cardWait
         shows = !skipsOnboarding && ["pending", "reopened"].contains(defaults.string(forKey: Self.stateKey) ?? "")
     }
 
     @ObservationIgnored private let skipsOnboarding: Bool
+    @ObservationIgnored private let cardWait: Duration
+    /// Hands an ask to the dialog when no card was drawn within ``cardWait``.
+    @ObservationIgnored private let cardDeadline = DemandTimer(owner: "onboarding.classic-card-wait")
     /// Observed (not ignored): ``needsChiefAgent`` reads it, so a model made after a reader subscribed wakes it.
     private var agentsModel: AgentsStepModel?
 
@@ -99,15 +107,143 @@ public final class FirstRunSetup {
     /// or run the first-run windows (no card ever started).
     public enum Route: Equatable, Sendable { case startCard, cardOwns, windows }
 
-    /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does.
+    /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does. Decided
+    /// before the launch's classic migration: a card that shows waits for it (``awaitsClassic``) from here, before any
+    /// card is drawn, until ``classicMigration(seam:offer:dialog:screenReader:imported:_:)`` ends or ``classicSettled()`` says it does not run.
     public func route(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Route {
-        if begin(isFirstRun: isFirstRun, replacedKeys: replacedKeys, screenReader: screenReader) { return .startCard }
-        return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
+        let route: Route = begin(isFirstRun: isFirstRun, replacedKeys: replacedKeys, screenReader: screenReader) ? .startCard
+            : defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
+        if shows { awaitsClassic = true }
+        return route
+    }
+
+    /// The launch's classic migration does not run (not a shipping build): the card waits for it no longer.
+    public func classicSettled() {
+        awaitsClassic = false
+    }
+
+    /// What the launch's classic import would bring, shown on the card's cmux Classic row until answered.
+    public struct ClassicOffer: Equatable, Sendable {
+        public var workspaces: Int
+        /// The classic app that saved it, as its Dock names it (`ClassicImportPreviewStrings.appName`).
+        public var app: String
+        /// When it saved (seconds since 1970), and whether that app is still open (its autosave, not its quit save).
+        public var savedAt: Double
+        public var running: Bool
+        /// Import loads these pages, reconnects these hosts and resumes these chats, so the row says so first.
+        public var browserTabs: Int
+        public var sshWorkspaces: Int
+        public var agentChats: Int
+
+        public init(workspaces: Int, app: String, savedAt: Double, running: Bool, browserTabs: Int = 0, sshWorkspaces: Int = 0, agentChats: Int = 0) {
+            (self.workspaces, self.app, self.savedAt, self.running) = (workspaces, app, savedAt, running)
+            (self.browserTabs, self.sshWorkspaces, self.agentChats) = (browserTabs, sshWorkspaces, agentChats)
+        }
+
+        /// Import does more than make workspaces: it loads pages, connects to hosts or resumes chats.
+        public var resumes: Bool { browserTabs + sshWorkspaces + agentChats > 0 }
+    }
+
+    /// The cmux Classic row's offer while the launch's import asks, and after it was answered.
+    public private(set) var classic: ClassicOffer?
+    /// The row's answer: accepted or declined, nil while it asks (or before any ask).
+    public private(set) var classicAnswer: ClassicImportAnswer?
+    /// After Import: nil while the migration still runs, true once it brought the workspaces, false when it failed.
+    /// The row says Imported only from this, never from the click alone.
+    public private(set) var classicImported: Bool?
+    /// The launch's classic migration has not decided yet whether it asks: the card does not end before it has,
+    /// so a migration that reads slowly cannot lose its row (as an agent row waits for acpmux's read).
+    public private(set) var awaitsClassic = false
+    /// The answer to the ask on the row: nil when no card is left to ask on (the dialog asks then).
+    @ObservationIgnored private var classicReply: CheckedContinuation<ClassicImportAnswer?, Never>?
+    /// The cards drawn now (``SetupCardPageProvider``s not stopped): the row asks only while one is.
+    @ObservationIgnored private var cardsOpen = 0
+
+    /// Runs the launch's classic migration (`run`, given its confirmation): while the card shows, the card waits for
+    /// it and its cmux Classic row asks (``askClassic(_:)``, with `offer` of the daemon's preview); otherwise `dialog`
+    /// asks, as before. `seam` (a test's answer) wins over both. `imported` says whether an accepted import made anything (an import whose every
+    /// workspace failed returns without throwing): the row says Imported only then. With VoiceOver on when it asks (`screenReader`, read then: a card left pending by an
+    /// earlier launch still shows) the dialog asks, since VoiceOver cannot press the card's WebKit buttons
+    /// (manaflow-ai/cmux#37809).
+    public func classicMigration<Preview, T>(seam: (@MainActor (Preview) async -> ClassicImportAnswer)?,
+                                    offer: @escaping @MainActor (Preview) -> ClassicOffer,
+                                    dialog: @escaping @MainActor (Preview) async -> ClassicImportAnswer,
+                                    screenReader: @escaping @MainActor () -> Bool = FirstRunSetup.voiceOverOn,
+                                    imported: (T) -> Bool = { _ in true },
+                                    _ run: (@escaping @MainActor (Preview) async -> ClassicImportAnswer) async throws -> T) async rethrows -> T {
+        defer { awaitsClassic = false }
+        if let seam { return try await run(seam) }
+        if shows { awaitsClassic = true }
+        do {
+            let result = try await run { [weak self] plan in
+                if !screenReader(), let answer = await self?.askClassic(offer(plan)) { return answer }
+                return await dialog(plan)
+            }
+            if classicAnswer == .accepted { classicImported = imported(result) }
+            return result
+        } catch {
+            if classicAnswer == .accepted { classicImported = false }
+            throw error
+        }
+    }
+
+    /// Whether VoiceOver runs now (``classicMigration(seam:offer:dialog:screenReader:imported:_:)``'s default).
+    public static func voiceOverOn() -> Bool { NSWorkspace.shared.isVoiceOverEnabled }
+
+    /// The launch's classic import asks on the cmux Classic row: the answer is the person's own click there (Import,
+    /// or Skip, a No the migration keeps), or unanswered when the card leaves first (Hide: the next launch asks
+    /// again). Nil when no card shows, when none is drawn within ``cardWait`` (a cold launch draws it once Home's
+    /// chat starts, which can be after the migration asks), or when the last one drawn closes before an answer (its
+    /// page could not be made, or its window closed): the caller asks with its dialog, as before, so the migration
+    /// never waits on nothing.
+    public func askClassic(_ offer: ClassicOffer) async -> ClassicImportAnswer? {
+        guard shows, classicReply == nil else { return nil }
+        classic = offer
+        (classicAnswer, classicImported) = (nil, nil)
+        let answer = await withCheckedContinuation { reply in
+            classicReply = reply
+            guard cardsOpen == 0 else { return }
+            cardDeadline.schedule(after: cardWait) { @MainActor [weak self] in
+                guard let self, self.cardsOpen == 0 else { return }
+                self.resolveClassic(nil)
+            }
+        }
+        if answer == nil { classic = nil }
+        return answer
+    }
+
+    /// Ends the ask on the row with `answer` (nil: the dialog asks instead).
+    private func resolveClassic(_ answer: ClassicImportAnswer?) {
+        guard let reply = classicReply else { return }
+        classicReply = nil
+        cardDeadline.cancel()
+        reply.resume(returning: answer)
+    }
+
+    /// A card's provider started (``SetupCardPageProvider``).
+    func cardOpened() {
+        cardsOpen += 1
+    }
+
+    /// A card's provider stopped; with none left, an ask on the row goes back to the dialog.
+    func cardClosed() {
+        cardsOpen = max(0, cardsOpen - 1)
+        guard cardsOpen == 0 else { return }
+        resolveClassic(nil)
+    }
+
+    /// The cmux Classic row's button (Import or Skip), on the person's click; nothing when no import asks.
+    public func answerClassic(_ answer: ClassicImportAnswer) {
+        guard classicReply != nil, answer != .unanswered else { return }
+        classicAnswer = answer
+        resolveClassic(answer)
     }
 
     /// Hide, or first-run completion: the card leaves until explicitly reopened, and this Mac's first launch is finished.
+    /// An import still asking on the cmux Classic row is left unanswered, so the next launch asks again with its dialog.
     public func end() {
         guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
+        resolveClassic(.unanswered)
         defaults.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
         defaults.set("ended", forKey: Self.stateKey)
         shows = false
