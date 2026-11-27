@@ -69,7 +69,8 @@ env -u CMUX_NEXT_TUI_BIN -u CMUX_TUI_CLIENT_LOCAL -u CMUX_NEXT_LAUNCH_PREREAD_BI
 # an older publication removes a stale bundled reader rather than using it.
 fixture="$TMP/src"
 mkdir -p "$fixture/scripts/cmux-next" "$TMP/tree"
-cp "$ROOT/scripts/cmux-next/link-folded-hosts.sh" "$ROOT/scripts/cmux-next/write-daemon-capabilities.sh" "$fixture/scripts/cmux-next/"
+cp "$ROOT/scripts/cmux-next/link-folded-hosts.sh" "$ROOT/scripts/cmux-next/write-daemon-capabilities.sh" \
+  "$ROOT/scripts/cmux-next/write-cmux-tui-build-stamp.sh" "$fixture/scripts/cmux-next/"
 cp "$TMP/build/one/cmux-tui" "$TMP/tree/cmux-tui"
 cp "$TMP/build/one/cmux-launch-preread" "$TMP/tree/cmux-launch-preread"
 sha "$TMP/tree/cmux-tui" > "$TMP/tree/cmux-tui.sha256"
