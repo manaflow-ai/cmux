@@ -77,6 +77,11 @@ done
 [[ "$fps_trials" =~ ^[0-9]{1,2}$ && "$trials" =~ ^[0-9]{1,3}$ && "$samples" =~ ^[0-9]{1,3}$ ]] \
   || { echo "fps-trials=, trials= and samples= are counts" >&2; exit 2; }
 [[ "$inputs" =~ ^(key|click|scroll)(,(key|click|scroll))*$ ]] || { echo "inputs= lists key, click and scroll" >&2; exit 2; }
+# The synthetic sources exist only in bench builds (cmux-rd-host lib.rs: "macOS bench builds"); the NIGHTLY's
+# helper is a release build, so its `serve --source synthetic-still` prints no key, every trial sends the viewer
+# `peer_key: null` and fails "answer line: invalid type: null", and the run ends with no sample at all.
+[[ "$role" == viewer || "$host" != nightly || "$source" != synthetic ]] \
+  || { echo "screen-share-vs-pair.sh: host=nightly needs source=screen (the NIGHTLY's helper has no synthetic source; host=commit runs synthetic)" >&2; exit 2; }
 
 out=artifacts/screen-share-vs-pair
 work=$(mktemp -d "${TMPDIR:-/tmp}/ssvp.XXXXXX")
