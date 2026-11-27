@@ -180,11 +180,20 @@ jobs:
 
       - name: Sanitize persistent checkout metadata
         working-directory: ${{ github.workspace }}
+        env:
+          CMUX_FAST_CHECKS_COLD_CHECKOUT: ${{ vars.CMUX_FAST_CHECKS_COLD_CHECKOUT }}
         run: |
           mkdir -p -- .fast-checks-checkout
           cd .fast-checks-checkout
           # Keep the sticky disk's Git object store for fetch speed, but never
           # trust metadata written by a prior command or source snapshot.
+          # The prior run's detached HEAD, read as text before Git runs here (Git runs only once
+          # the config below is our own). checkout leaves HEAD at the commit it checked out.
+          prior=""
+          if [[ -f .git/HEAD && ! -L .git/HEAD ]]; then
+            prior="$(head -c 41 .git/HEAD | tr -d '\n')"
+            [[ "$prior" =~ ^[0-9a-f]{40}$ ]] || prior=""
+          fi
           if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
             rm -rf -- .git
           elif [[ -d .git ]]; then
@@ -212,6 +221,22 @@ jobs:
             url = https://github.com/manaflow-ai/cmux
             fetch = +refs/heads/*:refs/remotes/origin/*
           EOF
+              # An unborn HEAD (refs/heads/main) still failed checkout's `git reset --hard HEAD`
+              # ("ambiguous argument 'HEAD'"): checkout then deleted the disk and fetched cold
+              # anyway, 30-40 s of every run (run 46049698131: fetch 18:28:40 -> 18:29:14, after
+              # "Unable to clean or reset the repository"). Point HEAD at the prior commit when the
+              # store still has it, rebuild the index from that tree (no -u: files stay), and tag
+              # it, because a fetch offers only refs, never a bare HEAD, as haves: with the tag the
+              # fetch sends only what is new since the prior run. Set CMUX_FAST_CHECKS_COLD_CHECKOUT=1
+              # to keep the old cold checkout.
+              if [[ -n "$prior" && "${CMUX_FAST_CHECKS_COLD_CHECKOUT:-}" != 1 ]] \
+                && git cat-file -e "$prior^{commit}" 2>/dev/null \
+                && git read-tree "$prior" 2>/dev/null; then
+                printf '%s\n' "$prior" > .git/HEAD
+                git update-ref refs/tags/fast-checks-warm "$prior"
+              else
+                rm -f .git/index
+              fi
             fi
           fi
 
