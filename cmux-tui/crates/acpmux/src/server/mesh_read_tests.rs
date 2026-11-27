@@ -1775,3 +1775,49 @@ async fn a_read_whose_receiver_goes_silent_ends_at_the_silence_bound() {
     // The lease it took (at the first long-poll's end) was the last progress.
     assert!(took <= ANSWER_WAIT + READ_WAIT + Duration::from_secs(1), "{took:?}");
 }
+
+fn rss_kib() -> u64 {
+    let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    s.lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))
+        .and_then(|v| v.split_whitespace().next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Where a hub-only daemon's memory goes per mesh read (acpmux-memory-growth): RSS after N of
+/// each step of a health read.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "diagnostic"]
+async fn diagnose_per_read_memory() {
+    const N: usize = 1500;
+    let b = machine_b();
+    let mut report = vec![];
+    let base = rss_kib();
+    for _ in 0..N {
+        let _ = health_answer(&b).await;
+    }
+    report.push(("health_answer", rss_kib() - base));
+    let base = rss_kib();
+    for _ in 0..N {
+        let _ = crate::server::peer_status::host_health_with(&b, Origin::Peer, None).await;
+    }
+    report.push(("host_health_with", rss_kib() - base));
+    let base = rss_kib();
+    for _ in 0..N {
+        let (tx, mut rx) = super::super::relay_connection(&b);
+        let init = json!({"protocolVersion": 1, "clientCapabilities": {}});
+        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    report.push(("relay_conn_initialize", rss_kib() - base));
+    let base = rss_kib();
+    for _ in 0..N {
+        let (tx, mut rx) = super::super::relay_connection(&b);
+        let init = json!({"protocolVersion": 1, "clientCapabilities": {}});
+        super::super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.unwrap();
+        let _ = super::super::rpc_call(&tx, &mut rx, 2, "_acpmux/status", json!({})).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    report.push(("relay_conn_status", rss_kib() - base));
+    eprintln!("RSS_GROWTH_KIB over {N}: {report:?}");
+}
