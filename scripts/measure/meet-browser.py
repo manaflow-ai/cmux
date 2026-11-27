@@ -930,7 +930,7 @@ def main():
         cmux.stop()
     if want("cmux-chromium-fake"):
         if cmux.launch(["--cmux-measure-fake-media"]):
-            runs["cmux-chromium-fake"] = run_cmux(cmux, "cmux-chromium-fake", "chromium", True, False, log) | {
+            runs["cmux-chromium-fake"] = run_cmux(cmux, "cmux-chromium-fake", "chromium", True, True, log) | {
                 "flags": ["--cmux-measure-fake-media (requests CEF fake device and UI)"]}
         else:
             runs["cmux-chromium-fake"] = {"browser": "cmux chromium", "error": "the side copy gave no control socket"}
