@@ -31,7 +31,7 @@ A clip's spec is release-notes/next/clips/ID.json:
 
 - `caption` says what you can now do; it is the clip's alt text and the panel shows it under the
   clip (the highlight's title stays the item's title).
-- `settings`, `launch_args`, `frameInterval` and `steps` are a `cmux-ci capture` state (tour.py's
+- `settings`, `launch_args`, `env`, `frameInterval` and `steps` are a `cmux-ci capture` state (tour.py's
   step format). Steps without `"clip": true` set the scene up and are not in the clip; the clip runs
   from the first clip step's first frame to the frame the step after the last clip step starts at
   (or the stills), plus the frame before, so the clip opens on the state before the feature acts.
@@ -119,6 +119,8 @@ APPS = ("mac", "iphone")
 IPHONE_STEP_KEYS = {"title", "wait", "clip", "openurl"}
 IPHONE_MAX_WAIT = 30
 IPHONE_ENV = re.compile(r"CMUX_MOBILE_[A-Z0-9_]+")
+# A Mac spec's `env`: the app's CMUX_NEXT_* launch knobs (tour.py `env`).
+MAC_ENV = re.compile(r"CMUX_NEXT_[A-Z0-9_]+")
 OPENURL = re.compile(r"[a-z][a-z0-9+.-]*://\S+")
 # Seconds `simctl io recordVideo` has to say it started before the clip is given up.
 RECORD_START_TIMEOUT = 20
@@ -211,8 +213,13 @@ def spec_problems(spec: Any) -> list[str]:
         out.append('app: "mac" (the default) or "iphone"')
     elif app == "iphone":
         out += iphone_problems(spec)
-    elif "env" in spec or "appearance" in spec:
-        out.append("env, appearance: an iPhone spec's (\"app\": \"iphone\")")
+    elif "appearance" in spec:
+        out.append("appearance: an iPhone spec's (\"app\": \"iphone\")")
+    elif not (isinstance(spec.get("env", {}), dict) and all(isinstance(k, str) and MAC_ENV.fullmatch(k) and isinstance(v, str)
+                                                            for k, v in spec.get("env", {}).items())):
+        # A Mac tour's launch knobs (tour.py `env`: CMUX_NEXT_* only; {repo} is the checkout), e.g. a fixture classic
+        # cmux folder (CMUX_NEXT_CLASSIC_IMPORT_DIR) so a first run's scene has something to import.
+        out.append("env: a Mac spec's are CMUX_NEXT_* names to strings (the app's launch knobs; an iPhone spec's CMUX_MOBILE_*)")
     if not isinstance(spec.get("menus", False), bool) or (spec.get("menus") and app != "mac"):
         out.append("menus: true or false, a Mac clip's")
     # The acpmux harnesses the tour's daemon starts with (tour.py `harnessFixture`; {repo} is the checkout).
@@ -361,7 +368,7 @@ def capture_state(spec: dict) -> dict:
     """The `cmux-ci capture` steps file: the spec without what only this tool reads."""
     state = {"steps": [{k: v for k, v in step.items() if k != "clip"} for step in spec["steps"]],
              "frameInterval": spec.get("frameInterval", 1.0)}
-    for key in ("settings", "launch_args"):
+    for key in ("settings", "launch_args", "env"):
         if key in spec:
             state[key] = spec[key]
     return state
@@ -696,7 +703,7 @@ def tour_from_spec(spec: dict, title: str) -> dict:
     steps = [{**{k: v for k, v in step.items() if k not in CAPTURE_ONLY_STEP_KEYS}, "shot": False}
              for step in spec["steps"]]
     tour = {"title": title, "steps": steps}
-    for key in ("settings", "launch_args", "harnessFixture", "menus"):
+    for key in ("settings", "launch_args", "env", "harnessFixture", "menus"):
         if key in spec:
             tour[key] = spec[key]
     return tour
