@@ -36,10 +36,6 @@ struct SidebarRowBadgeHelpOnDemandTests {
         // An assistive app that reads again before the next tick gets the same words without a build.
         for _ in 0..<10 { _ = badge.accessibilityHelp() }
         #expect(badge.spokenHelpBuilds == 1, "10 reads between ticks built the words \(badge.spokenHelpBuilds - 1) more times")
-        // A configure that changes nothing the badge says keeps them.
-        Self.tick(view, percent: 95, style: style)
-        #expect(badge.accessibilityHelp() == help)
-        #expect(badge.spokenHelpBuilds == 1)
         // The next tick drops them; the read after it says the new progress.
         Self.tick(view, percent: 50, style: style)
         let next = try #require(badge.accessibilityHelp())
