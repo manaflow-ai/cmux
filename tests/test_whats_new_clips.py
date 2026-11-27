@@ -223,6 +223,16 @@ class TimelineTests(unittest.TestCase):
             plan = clips.timeline(SPEC, frames, "crop", still=True)
         self.assertEqual(plan, [(Path("f0.png"), clips.MIN_SECONDS)])
 
+    def test_clip_steps_that_wait_past_the_cap_are_refused_before_any_tour_runs(self):
+        long = {**SPEC, "steps": [{"title": "Scene", "wait": 2}, {"title": "Install", "wait": 5, "clip": True},
+                                  {"title": "Set", "wait": 3, "clip": True}]}
+        self.assertTrue(any("clip steps wait 8 s" in p for p in clips.spec_problems(long)))
+        fits = {**long, "steps": [{**s, "wait": min(s["wait"], 3)} for s in long["steps"]]}
+        self.assertFalse(any("clip steps wait" in p for p in clips.spec_problems(fits)))
+        # Every shipped spec fits: theme-flourishes (8 s), living-wallpapers (10 s), share-menu-to-chat (8 s)
+        # and ios-feed-hides-closed-tabs (14 s) never could.
+        self.assertEqual([p for p in clips.check() if "clip steps wait" in p], [])
+
     def test_a_clip_past_eight_seconds_is_refused(self):
         frames = [bytes([i * 7 % 256] * 64) for i in range(40)]
         with self.assertRaisesRegex(clips.ClipError, "at most 8"):
@@ -1256,7 +1266,7 @@ class WorkflowTests(unittest.TestCase):
         jobs = doc["jobs"]
         self.assertIn("plan --app iphone", next(s for s in jobs["plan"]["steps"] if s.get("id") == "plan")["run"])
         self.assertEqual(jobs["record"]["needs"], "plan")
-        self.assertEqual(jobs["record"]["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }}")
+        self.assertEqual(jobs["record"]["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }}")
         run = next(s for s in jobs["record"]["steps"] if s.get("id") == "record")["run"]
         self.assertTrue(run.startswith("set +e\n"))
         self.assertIn("--class simulator --script scripts/ci/cmux-next-ios-sim.sh", run)
@@ -1278,7 +1288,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("$id", key.group(1))
         self.assertIn("GITHUB_RUN_ID", key.group(1))
         self.assertIn('--queue-timeout "$QUEUE_S" --timeout "$RUN_S"', run)
-        bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=(\d+)", run))
+        # QUEUE_S may be "${CI_SIM_BENCH_QUEUE_S:-900}": the default is the bound read here.
+        bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=\"?(?:\$\{\w+:-)?(\d+)", run))
         self.assertLessEqual(int(bounds["QUEUE_S"]) + 5400 + int(bounds["RUN_S"]),
                              (jobs["record"]["timeout-minutes"] - 20) * 60)
         self.assertIn('"$client" cancel', run)
