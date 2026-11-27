@@ -45,7 +45,7 @@ enum ResizeStepLog {
     ]
 
     /// Whether the log writes `phase`'s lines: every phase, or a lean log's own (``lean``).
-    static func keeps(_ phase: String) -> Bool { true }
+    static func keeps(_ phase: String) -> Bool { !(leanOverride ?? lean) || leanPhases.contains(phase) }
 
     /// The step being timed: from its start until its run-loop turn has committed (``committed(_:)``).
     struct Step {
@@ -104,7 +104,7 @@ enum ResizeStepLog {
     /// One debug-level line, while the log streams; its own time is added to the open step's `log_us`. `step` defaults
     /// to the open step, else the last one.
     static func write(_ kind: ResizeStepTimes.StepKind, _ phase: String, _ ms: Double, step id: UInt64? = nil, detail: String = "") {
-        guard isStreaming else { return }
+        guard isStreaming, keeps(phase) else { return }
         let begun = DispatchTime.now().uptimeNanoseconds
         let number = id ?? step?.id ?? steps
         logger.debug("\(kind.rawValue, privacy: .public) step=\(number, privacy: .public) \(phase, privacy: .public) ms=\(ms, format: .fixed(precision: 3), privacy: .public)\(detail, privacy: .public)")
