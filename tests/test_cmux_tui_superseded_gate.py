@@ -78,7 +78,7 @@ class SupersededGateTest(unittest.TestCase):
                          "(github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || "
                          "github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == "
                          "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                         "'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
+                         "'ubuntu-24.04' || 'cmux-linux' }}")
         self.assertNotIn("environment", gate, "the gate must hold no secret")
         self.assertEqual(gate.get("continue-on-error"), "true", "a failed gate must not fail the run")
         mine, theirs = step(gate, "stale"), step(preflight, "stale")
