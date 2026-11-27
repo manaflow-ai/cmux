@@ -12,6 +12,7 @@ import {
   resetNewChatEntranceClaims,
   type NewChatEntrance,
 } from "./newChatEntrance";
+import { openDeclarations } from "../../layout/motionContract";
 import { settleReact } from "../../../test/support/domTeardown";
 
 type FakeAnimation = {
@@ -20,6 +21,7 @@ type FakeAnimation = {
   options: KeyframeAnimationOptions;
   playState: AnimationPlayState;
   currentTime: number | null;
+  finished: Promise<FakeAnimation>;
   pause(): void;
   play(): void;
   cancel(): void;
@@ -45,16 +47,25 @@ function installDom({ reduced = false } = {}): HTMLElement {
     keyframes: Keyframe[],
     options: KeyframeAnimationOptions,
   ) {
+    let settle: (cancelled: boolean) => void = () => {};
     const animation: FakeAnimation = {
       target: this,
       keyframes,
       options,
       playState: "running",
       currentTime: 0,
+      finished: new Promise<FakeAnimation>((resolve, reject) => {
+        settle = (cancelled) => (cancelled ? reject(new Error("AbortError")) : resolve(animation));
+      }),
       pause: () => void (animation.playState = "paused"),
       play: () => void (animation.playState = "running"),
-      cancel: () => void (animation.playState = "idle"),
+      cancel: () => {
+        animation.playState = "idle";
+        settle(true);
+      },
     };
+    // A cancel rejects `finished`; nothing here awaits it but the entrance's own declaration.
+    animation.finished.catch(() => {});
     animations.push(animation);
     return animation;
   };
@@ -195,6 +206,17 @@ test("sending the first message (the hero unmounts) cancels the entrance: the co
   paintFrame();
   await macrotask();
   expect(animations.every((animation) => animation.playState === "idle")).toBe(true);
+});
+
+test("the composer's rise is declared as the composer entering while it plays, and only then", async () => {
+  const container = installDom();
+  const entering = () => openDeclarations().filter((each) => each.event === "enter" && each.by === "new chat entrance");
+  await render(container, <Pane />);
+  const composer = container.querySelector(".acpmux-dock > .acpmux-composer");
+  expect(entering().map((each) => each.targets)).toEqual([[composer!]]);
+  await render(container, <Pane hero={false} />);
+  await macrotask();
+  expect(entering()).toEqual([]);
 });
 
 test("Reduce Motion: nothing animates, everything is drawn at rest", async () => {
