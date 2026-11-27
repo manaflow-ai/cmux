@@ -62,6 +62,9 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMethod?: string;
   /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
   cmuxAcpmuxMockSlowMs?: number;
+  /** The pause before each step of an unscripted turn (mockTurn), 350 ms when unset. A gallery play that
+   *  only needs finished turns behind its scene sets it low, so its setup turns cost no seconds of play. */
+  cmuxAcpmuxMockStepMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
   /** `fleet`: those listed sessions shaped as a fleet Mac's rows (mockFixture.ts `fleetListedSession`). */
@@ -1492,7 +1495,10 @@ export class MockAcpmuxSocket {
     if (failure) return this.failTurn(target, running, failure);
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
     for (const step of steps) {
-      if (!this.script) await this.delay(350);
+      if (!this.script) {
+        const { cmuxAcpmuxMockStepMs: stepMs } = globalThis as MockAuthGlobals;
+        await this.delay(typeof stepMs === "number" ? stepMs : 350);
+      }
       if (running.cancelled || this.closed) break;
       this.emit(target, step, step.atMs === undefined ? undefined : started + step.atMs);
     }

@@ -19,11 +19,14 @@ fn the_manifest_holds_what_a_copy_sends_and_never_a_secret() {
     assert_eq!(manifest.resolve(".env"), None, "a secret never reaches the manifest");
     assert_eq!(manifest.resolve("node_modules"), None, "a heavy folder stays here");
 
-    // Reads are answered from the file the manifest named; an edit since is `changed`.
+    // Reads are answered from the file the manifest named; an edit since is re-listed: its stat
+    // now and its new bytes (RFD 0007, hard case 7).
     assert_eq!(Source::whole(&listed, main), Part::ok(b"fn main() {}\n".to_vec()));
     assert_eq!(Source::read(&listed, main, 3, 4), Part::ok(b"main".to_vec()));
     std::fs::write(root.join("src/main.rs"), "fn main() { edited(); }\n").unwrap();
-    assert_eq!(Source::whole(&listed, main).status, wire::CHANGED);
+    let whole = Source::whole(&listed, main);
+    let (stat, bytes) = whole.restat().expect("an edit since the manifest is re-listed");
+    assert_eq!((stat.size, bytes), (24, &b"fn main() { edited(); }\n"[..]));
     // Anything that is not a file of the manifest is refused.
     assert_eq!(Source::whole(&listed, 0).status, wire::REFUSED);
     assert_eq!(Source::whole(&listed, 9999).status, wire::REFUSED);
@@ -61,6 +64,34 @@ fn each_chat_has_its_own_projection_and_its_name_is_one_the_machine_takes() {
     // The daemon's rule (cmux-tui-core projection.rs): 1-64 letters, digits, - or _.
     assert!(one.len() <= 64);
     assert!(one.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte)));
+}
+
+/// A file rewritten by rename after the manifest (git writes its index so: a new inode at the
+/// same path) is re-listed, not refused, and read at its new version; it keeps being answered
+/// with its stat now, so a machine that lost an answer gets it again.
+#[test]
+fn a_file_replaced_by_rename_after_the_manifest_is_re_listed_and_read() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(root.join("index"), "version one").unwrap();
+    let listed = list(&std::fs::canonicalize(root).unwrap()).unwrap();
+    let entry = listed.manifest.resolve("index").unwrap();
+    assert_eq!(Source::read(&listed, entry, 0, 64), Part::ok(b"version one".to_vec()));
+
+    std::fs::write(root.join("index.lock"), "v2").unwrap();
+    std::fs::rename(root.join("index.lock"), root.join("index")).unwrap();
+    for _ in 0..2 {
+        let part = Source::read(&listed, entry, 0, 64);
+        let (stat, bytes) = part.restat().expect("re-listed");
+        assert_eq!((stat.size, bytes), (2, &b"v2"[..]));
+        assert_eq!(stat.mode, 0o644);
+    }
+    let whole = Source::whole(&listed, entry);
+    assert_eq!(whole.restat().map(|(_, bytes)| bytes.to_vec()), Some(b"v2".to_vec()));
+    // A symlink put at its path is never read through.
+    std::fs::remove_file(root.join("index")).unwrap();
+    std::os::unix::fs::symlink("/etc/hostname", root.join("index")).unwrap();
+    assert_eq!(Source::read(&listed, entry, 0, 64).status, wire::FAILED);
 }
 
 #[test]
