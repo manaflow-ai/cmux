@@ -992,6 +992,7 @@ pub mod sidebar_drag_geometry;
 pub mod sidebar_drop;
 pub mod sidebar_edits;
 pub mod sidebar_face;
+pub mod sidebar_feeds;
 pub mod sidebar_hover_card_rules;
 pub mod sidebar_item_info;
 pub mod sidebar_launch_order;

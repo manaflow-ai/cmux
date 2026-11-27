@@ -45,6 +45,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
     Feature { name: crate::spec_exec::FEATURE, on: crate::spec_exec::enabled },
+    Feature { name: "consensus", on: super::surge_triage::consensus_enabled },
 ];
 
 /// The settings key of `feature`'s off switch.
