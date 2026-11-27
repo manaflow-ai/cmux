@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use cmux_remote_protocol::{
     Lane, OperationId, ProcessId, RequestId, RpcError, RpcEvent, RpcRequest, RpcResponse, Service,
-    ServiceControl, WorkspaceRequest, WorkspaceResponse,
+    ServiceControl, WorkspaceRequest, WorkspaceResponse, skew,
 };
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -495,12 +495,19 @@ pub struct ProcessEventStream {
 
 impl ProcessEventStream {
     pub async fn receive(&self) -> Result<Option<RpcEvent>, RpcError> {
-        let Some(encoded) = self.messages.receive().await.map_err(transport_error)? else {
-            return Ok(None);
-        };
-        serde_json::from_slice(&encoded)
-            .map(Some)
-            .map_err(|error| RpcError::new("protocol", error.to_string()))
+        loop {
+            let Some(encoded) = self.messages.receive().await.map_err(transport_error)? else {
+                return Ok(None);
+            };
+            match serde_json::from_slice(&encoded) {
+                Ok(event) => return Ok(Some(event)),
+                // A newer daemon's event type: skip it, the stream goes on.
+                Err(_) if skew::unknown_process_event_type(&encoded).is_some() => {
+                    skew::SKEW.skipped_event();
+                }
+                Err(error) => return Err(RpcError::new("protocol", error.to_string())),
+            }
+        }
     }
 
     pub async fn close(&self) -> Result<(), RpcError> {
@@ -549,7 +556,24 @@ async fn connect_rpc_channel(
             };
             let response = match serde_json::from_slice::<RpcResponse>(&encoded) {
                 Ok(response) => response,
-                Err(error) => break RpcError::new("transport", error.to_string()),
+                // A newer daemon's response shape fails the one request that
+                // asked, not every request on the channel.
+                Err(error) => match skew::message_id(&encoded) {
+                    Some(id) => {
+                        skew::SKEW.unsupported_response();
+                        RpcResponse {
+                            id,
+                            result: Err(RpcError::new(
+                                skew::UNSUPPORTED_RESPONSE,
+                                format!("this client cannot read the daemon's response: {error}"),
+                            )),
+                        }
+                    }
+                    None => {
+                        skew::SKEW.channel_reset();
+                        break RpcError::new("transport", error.to_string());
+                    }
+                },
             };
             if let Err(error) = route_response(response, &requests) {
                 failure_shutdown.send_replace(true);
