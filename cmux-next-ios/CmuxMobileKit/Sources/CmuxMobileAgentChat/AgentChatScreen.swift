@@ -1002,6 +1002,12 @@ public struct AgentChatBottomStack: View {
         // History (the chat opening, a reattach) brings its open ask and queue in place.
         .animation(store.lastChangeWasReplay ? nil : Animation.cmuxMobileSmooth.unlessReduceMotion, value: store.pendingPermission?.request.id)
         .animation(store.lastChangeWasReplay ? nil : Animation.cmuxMobileSmooth.unlessReduceMotion, value: store.queue)
+        // A message sent while the Mac is away (cmux#59189, offline-send): its row joins the stack
+        // and later turns from a pending bubble into a waiting row with Stop and Send now, both
+        // from the store outside any animation, while the composer stood ~100 pt off the dock's
+        // bottom for four frames and then closed the gap. On the stack's own spring, as the
+        // queue's rows are, the row and the composer move in one transaction.
+        .animation(store.lastChangeWasReplay ? nil : Animation.cmuxMobileSmooth.unlessReduceMotion, value: store.outgoing)
         .onChange(of: store.pendingPermission?.request.id) { _, new in
             surface.replyInsteadOfPermission = false
             // Never pull the composer out from under someone typing.

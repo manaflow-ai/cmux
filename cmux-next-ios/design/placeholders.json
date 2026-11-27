@@ -357,11 +357,5 @@
       "reason": "design gallery: skeleton variants drawn for review, not in a flow"
     }
   ],
-  "known_layout_shifts": [
-    {
-      "flow": "offline-send",
-      "max_shift_frames": 4,
-      "issue": "https://github.com/manaflow-ai/cmux/issues/59189"
-    }
-  ]
+  "known_layout_shifts": []
 }
