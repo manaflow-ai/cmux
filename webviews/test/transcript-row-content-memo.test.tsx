@@ -34,7 +34,10 @@ const keys = [
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/", pretendToBeVisual: true });
+  dom = new JSDOM("<!doctype html><main id=root></main>", {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -111,11 +114,41 @@ test("offscreen row bodies retain state without reconciling status changes and r
   }
 });
 
-test("the row frame pauses unseen and shelved clocks and keeps disclosure state on reveal", async () => {
+test("the row frame pauses unseen, scrolled-out and shelved clocks and keeps disclosure state on reveal", async () => {
   const root = createRoot(document.getElementById("root")!);
   let now = 1_000;
   const clock = () => now;
   let bodies = 0;
+  let intersection: IntersectionObserverCallback;
+  const targets = new Set<Element>();
+  Object.defineProperty(dom.window, "IntersectionObserver", {
+    configurable: true,
+    value: class {
+      constructor(callback: IntersectionObserverCallback) {
+        intersection = callback;
+      }
+      observe(node: Element) {
+        targets.add(node);
+      }
+      unobserve(node: Element) {
+        targets.delete(node);
+      }
+      disconnect() {
+        targets.clear();
+      }
+    },
+  });
+  const visible = (shown: boolean) => {
+    intersection(
+      [
+        {
+          target: document.querySelector("article")!,
+          isIntersecting: shown,
+        } as IntersectionObserverEntry,
+      ],
+      {} as IntersectionObserver,
+    );
+  };
   function Clock() {
     return <time>{usePageNow(true, clock)}</time>;
   }
@@ -187,11 +220,20 @@ test("the row frame pauses unseen and shelved clocks and keeps disclosure state 
       const event = new dom.window.Event("contentvisibilityautostatechange");
       Object.defineProperty(event, "skipped", { value: false });
       document.querySelector("article")!.dispatchEvent(event);
+      visible(true);
     });
     expect(pageClocks().subscribers).toBe(1);
     expect(document.querySelector("[data-recipient]")?.textContent).toBe("before-reveal");
     expect(document.querySelector("time")?.textContent).toBe("2000");
     await act(async () => document.querySelector("button")!.click());
+    await act(async () => visible(false));
+    expect(pageClocks().subscribers).toBe(0);
+    const offscreenBodies = bodies;
+    for (let tick = 0; tick < 20; tick++) await act(async () => render(`offscreen-${tick}`));
+    expect(bodies).toBe(offscreenBodies);
+    await act(async () => visible(true));
+    expect(document.querySelector("[data-recipient]")?.textContent).toBe("offscreen-19");
+    expect(pageClocks().subscribers).toBe(1);
     await act(async () => render("shelved", 60));
     expect(pageClocks().subscribers).toBe(0);
     const before = bodies;
@@ -207,6 +249,8 @@ test("the row frame pauses unseen and shelved clocks and keeps disclosure state 
     await act(async () => root.unmount());
   }
   expect(pageClocks().subscribers).toBe(0);
+  expect(targets.size).toBe(0);
+  delete (dom.window as unknown as Record<string, unknown>).IntersectionObserver;
 });
 
 test("a recreated reply passes both memo boundaries even when its row id and version repeat", async () => {

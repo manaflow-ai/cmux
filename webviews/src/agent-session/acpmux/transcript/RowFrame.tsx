@@ -8,7 +8,7 @@ import React, {
   type ErrorInfo,
 } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
-import { LiveUpdatesContext, useLiveUpdates } from "../../../ui/liveUpdates";
+import { LiveUpdatesContext, observeLiveVisibility, useLiveUpdates } from "../../../ui/liveUpdates";
 import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { markRecapEntrance } from "../conversation/turnEndFold";
@@ -96,7 +96,11 @@ const RowBody = React.memo(
 /// version (or another row in its frame) tries its renderer again.
 type RowBoundaryState = { id: string; version: number; failed: boolean };
 export class RowBoundary extends ReactComponent<{ row: AcpmuxRow; children?: React.ReactNode }, RowBoundaryState> {
-  state: RowBoundaryState = { id: this.props.row.id, version: this.props.row.version, failed: false };
+  state: RowBoundaryState = {
+    id: this.props.row.id,
+    version: this.props.row.version,
+    failed: false,
+  };
 
   static getDerivedStateFromProps(
     props: { row: AcpmuxRow },
@@ -286,7 +290,11 @@ export const RowFrame = React.memo(function RowFrame({
   // The height a skipped row is placed at, from its first mount; once it renders the browser keeps
   // its rendered height instead (`auto`), which the row's observer has measured by then.
   const [skipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
-  const [rendered, setRendered] = useState(!offscreen);
+  const [visible, setVisible] = useState(!offscreen);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (node) return observeLiveVisibility(node, setVisible);
+  }, []);
   const observerRef = useRef(observer);
   useLayoutEffect(() => {
     observerRef.current = observer;
@@ -306,7 +314,8 @@ export const RowFrame = React.memo(function RowFrame({
     node.classList.add(OFFSCREEN_ROW_CLASS);
     node.style.containIntrinsicHeight = skipHeight;
     return onceRendered(node, () => {
-      setRendered(true);
+      // Engines without IntersectionObserver keep the first-paint fallback.
+      if (!node.ownerDocument.defaultView?.IntersectionObserver) setVisible(true);
       node.classList.remove(OFFSCREEN_ROW_CLASS);
       node.style.containIntrinsicHeight = "";
       const rows = observerRef.current;
@@ -334,7 +343,7 @@ export const RowFrame = React.memo(function RowFrame({
   if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
   // The row a disclosure inside it is drawn in: its toggle's transition anchors on it (useDisclosure.ts).
   const content = (
-    <LiveUpdatesContext.Provider value={rendered && !shelved}>
+    <LiveUpdatesContext.Provider value={visible && !shelved}>
       <DisclosureRow.Provider value={row.id}>
         <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>
       </DisclosureRow.Provider>
@@ -490,7 +499,12 @@ export const RowFrame = React.memo(function RowFrame({
               "--cv-since-gap": `${gapBelow}px`,
             } as React.CSSProperties)
           : shelved > 0
-            ? { top: integralTop, marginTop: placedTop - integralTop, height: shelved, contentVisibility: "hidden" }
+            ? {
+                top: integralTop,
+                marginTop: placedTop - integralTop,
+                height: shelved,
+                contentVisibility: "hidden",
+              }
             : { top: integralTop, marginTop: placedTop - integralTop }
       }
       onFocus={() => onFocus(row.id)}

@@ -7,6 +7,7 @@
 // transcript's sub-session cards (conversation/SubsessionCallCard.tsx) read one's state live from
 // a small store fed from the session list, so a card never redraws its turn when a session changes.
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
+import { useLiveSubscription } from "../../../ui/liveUpdates";
 import type { StringKey, Translate } from "../i18n";
 import type { RetryState } from "./retryState";
 import { cloudHost, listed, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
@@ -350,7 +351,10 @@ function nameRow(entry: AcpmuxSessionEntry, sig: string, before: NameRow | undef
   const cwd = entry.cwd?.trim();
   const run =
     entry.model || entry.effort
-      ? { ...(entry.model && { model: entry.model }), ...(entry.effort && { effort: entry.effort }) }
+      ? {
+          ...(entry.model && { model: entry.model }),
+          ...(entry.effort && { effort: entry.effort }),
+        }
       : undefined;
   const place = cwd || host ? { ...(cwd && { cwd }), ...(host && { host }) } : undefined;
   let machine: MachineChat | undefined;
@@ -990,7 +994,7 @@ const EMPTY = new SubsessionStore();
 export function useSubsessionInfo(sessionId: string | undefined): SubsessionInfo | undefined {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const read = () => (sessionId ? store.get(sessionId) : undefined);
-  return useSyncExternalStore(store.subscribe, read, read);
+  return useSyncExternalStore(useLiveSubscription(store.subscribe), read, read);
 }
 
 /// A group's children from the same store as useSubsessionInfo. Keep the snapshot stable when
@@ -1007,7 +1011,7 @@ export function useSubsessionInfos(
       return previous;
     };
   }, [store, sessionIds]);
-  return useSyncExternalStore(store.subscribe, read, read);
+  return useSyncExternalStore(useLiveSubscription(store.subscribe), read, read);
 }
 
 /// Where a message's sender works: its folder (`cwd`), and the other machine it runs on (`host`,
@@ -1025,7 +1029,7 @@ const NO_CHATS: readonly MachineChat[] = [];
 export function useSenderPlace(sessionId: string | undefined): SenderPlace | undefined {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const read = () => (sessionId ? store.place(sessionId) : undefined);
-  return useSyncExternalStore(store.subscribeNames, read, read);
+  return useSyncExternalStore(useLiveSubscription(store.subscribeNames), read, read);
 }
 
 /// The chat a message's sender is: its own id when the message gives one, else the listed chat
@@ -1047,15 +1051,15 @@ export function useSenderChat(
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   // `name` may be the chat's id itself (a sender acpmux proved, incomingMessage.ts `lookup`).
   const readId = () => sessionId ?? (store.has(name.trim()) ? name.trim() : store.find(name));
-  const id = useSyncExternalStore(store.subscribeNames, readId, readId);
+  const id = useSyncExternalStore(useLiveSubscription(store.subscribeNames), readId, readId);
   const readHarness = () => (id ? store.harness(id) : undefined);
-  const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
+  const harness = useSyncExternalStore(useLiveSubscription(store.subscribeNames), readHarness, readHarness);
   const readHost = () => (id ? store.host(id) : undefined);
-  const host = useSyncExternalStore(store.subscribeNames, readHost, readHost);
+  const host = useSyncExternalStore(useLiveSubscription(store.subscribeNames), readHost, readHost);
   const readRun = () => (id ? store.run(id) : undefined);
-  const run = useSyncExternalStore(store.subscribeNames, readRun, readRun);
+  const run = useSyncExternalStore(useLiveSubscription(store.subscribeNames), readRun, readRun);
   const readEntry = () => (id ? store.sender(id) : undefined);
-  const entry = useSyncExternalStore(store.subscribeNames, readEntry, readEntry);
+  const entry = useSyncExternalStore(useLiveSubscription(store.subscribeNames), readEntry, readEntry);
   const displayName = entry?.displayName;
   const icon = entry?.icon;
   return {
@@ -1072,16 +1076,16 @@ export function useSenderChat(
 export function useMachineChats(host: string): readonly MachineChat[] {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const read = () => store.chatsOn(host);
-  return useSyncExternalStore(store.subscribeNames, read, read);
+  return useSyncExternalStore(useLiveSubscription(store.subscribeNames), read, read);
 }
 
 /** One identity path for preview cards and session lists. No body-text inference. */
 export function useSenderIdentity(sender: SenderReference, viewerSessionId?: string): SenderIdentity {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const readId = () => sender.sessionId ?? store.find(sender.name);
-  const id = useSyncExternalStore(store.subscribeNames, readId, readId);
+  const id = useSyncExternalStore(useLiveSubscription(store.subscribeNames), readId, readId);
   const read = () => (id ? store.sender(id) : undefined);
-  const entry = useSyncExternalStore(store.subscribeNames, read, read);
+  const entry = useSyncExternalStore(useLiveSubscription(store.subscribeNames), read, read);
   return useMemo(
     () =>
       resolveSenderIdentity(
@@ -1101,7 +1105,11 @@ export function useSenderIdentity(sender: SenderReference, viewerSessionId?: str
 /** A batch follows the same live session metadata and resolver as each message it contains. */
 export function useSenderIdentities(senders: readonly SenderReference[], viewerSessionId?: string): SenderIdentity[] {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
-  const entries = useSyncExternalStore(store.subscribeNames, store.senderEntries, store.senderEntries);
+  const entries = useSyncExternalStore(
+    useLiveSubscription(store.subscribeNames),
+    store.senderEntries,
+    store.senderEntries,
+  );
   return useMemo(
     () =>
       senders.map((sender) => {
