@@ -24,7 +24,7 @@ public import Foundation
 /// through the variables of ``environment``, which `CmuxNextApp.prepareLaunchEnvironment` sets in the
 /// app's own environment before anything starts, so every child inherits them.
 ///
-/// Not here, on purpose: the dev sign-in inputs `~/.config/cmux/dev-account` and
+/// Not here, on purpose: the dev sign-in inputs `~/.config/cmux-next/dev-account` and
 /// `~/.secrets/cmuxterm-dev.env` (inputs of this Mac, read by every dev build), managed (MDM) policy,
 /// the user's Ghostty config, and the user-mode server's `server.json` (one server per Mac, which a
 /// DEV build never registers). Everything a build stores under its bundle id (UserDefaults, Keychain
