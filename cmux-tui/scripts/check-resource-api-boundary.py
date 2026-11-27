@@ -47,6 +47,9 @@ class ScanRule:
     exact_names: frozenset[str] = frozenset()
     cli_literals_only: bool = False
     private_identity_exceptions: frozenset[str] = frozenset()
+    # Files (paths relative to the rule's path) whose `surface` is a
+    # customization surface, a part of the app a person customizes, not the legacy terminal resource.
+    customization_surface_paths: frozenset[str] = frozenset()
 
 
 # Every high-level package is scanned.  Tests, examples, generated manifest
@@ -115,6 +118,13 @@ SCAN_RULES = (
         # `cmux live` reads web-overlay.sh's state folder, `~/Library/Caches/cmux-next/web-slot`:
         # a file path on this Mac, not a resource identity.
         private_identity_exceptions=frozenset({"web-slot"}),
+        # `cmux customize docs [SURFACE]`, `customize_docs`'s `surface` and an extension's `surface`
+        # (sidebar, composer, widget, section, pane; #56371, #55701, #56817) name the part of the app
+        # a customization changes. That is not the terminal resource the `surface` rule retires, so
+        # only these files skip it; every other CLI module still fails on the word.
+        customization_surface_paths=frozenset(
+            {"customize.rs", "customize/docs.rs", "ext.rs", "ext/headless.rs", "mcp/customize_tools.rs"}
+        ),
     ),
 )
 
@@ -3414,6 +3424,14 @@ def _is_test_or_example(path: Path) -> bool:
     )
 
 
+def _is_customization_surface(path: Path, tui: Path, rule: ScanRule) -> bool:
+    try:
+        relative = path.relative_to(tui / rule.path).as_posix()
+    except ValueError:
+        return False
+    return relative in rule.customization_surface_paths
+
+
 def _files_for_rule(tui: Path, rule: ScanRule) -> Iterator[Path]:
     root = tui / rule.path
     if root.is_file():
@@ -3485,6 +3503,7 @@ def _scan_region(
     end: int,
     private_identity_exceptions: frozenset[str] = frozenset(),
     terminal_env_names: frozenset[str] = frozenset(),
+    customization_surface: bool = False,
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     region = text[start:end]
@@ -3507,6 +3526,9 @@ def _scan_region(
             # A terminal identity variable's name (`CMUX_SURFACE_ID`) is a
             # process-environment key the terminal carries, not vocabulary.
             if match.group(0) in terminal_env_names:
+                continue
+            # A customization surface (`cmux customize docs SURFACE`) names a part of the app.
+            if customization_surface and not re.fullmatch(r"CMUX_[A-Z0-9_]+", match.group(0)):
                 continue
             offset = start + match.start()
             message = f"legacy public resource word in {match.group(0)!r}; use terminal or browser"
@@ -3604,6 +3626,7 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
             if text is None:
                 continue
             regions: Iterable[tuple[int, int]]
+            customization_surface = _is_customization_surface(path, tui, rule)
             if rule.cli_literals_only:
                 regions = _rust_string_regions(text)
             else:
@@ -3617,6 +3640,7 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
                         end,
                         rule.private_identity_exceptions,
                         terminal_env_names,
+                        customization_surface,
                     )
                 )
     return sorted(set(diagnostics)), len(scanned)

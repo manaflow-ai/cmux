@@ -416,6 +416,30 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual(diagnostics[0].code, "boundary.surface")
             self.assertEqual(diagnostics[0].line, 1)
 
+    def test_cli_customization_surface_passes_only_in_customize_and_ext_modules(self) -> None:
+        # `cmux customize docs [SURFACE]` (#56371) names a part of the app, not the terminal resource.
+        help_text = 'const HELP: &str = "cmux customize docs [SURFACE]: one surface, like sidebar";\n'
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            cli = tui / "crates/cmux-tui/src/cli"
+            for name in ("customize.rs", "customize/docs.rs", "ext.rs", "ext/headless.rs",
+                         "mcp/customize_tools.rs"):
+                write(cli / name, help_text)
+            # Every other CLI module, a sibling in the same folder included, still fails on the word.
+            write(cli / "attach.rs", help_text)
+            write(cli / "mcp/tools.rs", help_text)
+            write(cli / "customize/pr.rs", help_text)
+            # An environment variable name is not a customization surface, even in those files.
+            write(cli / "ext.rs", help_text + 'const E: &str = "CMUX_SURFACE_HANDLE";\n')
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            failed = sorted({(str(diagnostic.path.relative_to(cli)), diagnostic.line) for diagnostic in diagnostics})
+            self.assertEqual(
+                failed, [("attach.rs", 1), ("customize/pr.rs", 1), ("ext.rs", 2), ("mcp/tools.rs", 1)]
+            )
+            self.assertTrue(all(diagnostic.code == "boundary.surface" for diagnostic in diagnostics))
+
     def test_cli_quotes_in_chars_and_comments_do_not_open_strings(self) -> None:
         prefixes = [
             "let quote = '\"'; let surface = 1;",
