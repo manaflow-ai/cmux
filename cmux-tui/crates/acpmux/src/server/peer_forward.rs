@@ -1387,6 +1387,7 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
 pub(super) fn strip_new_meta(p: &mut Value) {
     if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         m.remove("peer");
+        m.remove("cloudRegistryId");
         // A family lives on one daemon: this daemon's caller is no session there.
         m.remove(crate::hub::lineage::PARENT_FIELD);
         m.remove(crate::hub::lineage::TOOL_CALL_FIELD);

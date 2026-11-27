@@ -462,6 +462,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Proves each job-list fixture goes red with the pre-fix secret, job-header and environment reader and green with tests/workflow_jobs.py; run python3 tests/test_ci_job_list_fixture_mutations.py yourself after changing workflow_jobs.py or a job-list guard (no build)."
 
 [[test]]
+path = "tests/test_ci_job_own_home.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_killpg_tolerates_eperm.py"
 lane = "linux-guard"
 
@@ -1111,6 +1115,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_sparse_checkout_imports.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_spec_checks.py"
 lane = "linux-guard"
 
 [[test]]

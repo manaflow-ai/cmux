@@ -62,6 +62,17 @@ struct AgentPaneCloudStartTests {
         #expect(!model.transport.replacements.beginSandbox())
     }
 
+    @Test func aCloudOnlyGeminiPickKeepsItsModelForCloudStart() throws {
+        let params = Self.good.merging(["harness": "gemini", "model": "gemini-3.1-pro-preview"]) { $1 }
+        let ordinary = try #require(AgentPaneCloudStart(params: params))
+        let cloudOnly = try #require(AgentPaneCloudStart(params: params.merging(["cloudOnly": true]) { $1 }))
+        #expect(ordinary.allowsHybridStart)
+        #expect(!cloudOnly.allowsHybridStart)
+        let seed = cloudOnly.seed(cwd: "/home/cmux/paint")
+        #expect(seed.harness == "gemini")
+        #expect(seed.model == "gemini-3.1-pro-preview")
+    }
+
     private static func code(_ reply: [String: Any]) -> String? { (reply["error"] as? [String: Any])?["code"] as? String }
 
     private static let cancel = AgentPaneRequest(body: ["method": "cloud.signInCancel"])
