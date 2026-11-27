@@ -86,6 +86,84 @@ import Testing
         withExtendedLifetime(window) {}
     }
 
+    /// The app.links lines `body` makes `controller` note (ChatController.linkNotes).
+    private func notes(_ controller: ChatController, _ body: () throws -> Void) rethrows -> [String] {
+        var lines: [String] = []
+        controller.linkNotes = { lines.append($0) }
+        defer { controller.linkNotes = nil }
+        try body()
+        return lines
+    }
+
+    /// Every press on a link says where it went (goal agent-shortcut-found: run 45968907489's press on
+    /// "turn it on" logged nothing, so the walk could not tell what took it). No macro inside another:
+    /// the compiler rejects a recursive expansion.
+    @Test func aPressSaysWhereTheLinkWent() throws {
+        let (window, controller) = controller()
+        let message = try #require(controller.accessibilityElements(parent: controller.host).first)
+        let link = try #require(links(message).first)
+        let ref = PartRef(messageId: "msg_1", partIndex: 0)
+        var pressed = false
+        var lines = notes(controller) { pressed = link.accessibilityPerformPress() }
+        #expect(pressed)
+        #expect(lines == ["app link press on settings/start-agent-from-any-app taken by no app link handler: opened nothing"])
+        var app: [String] = []
+        controller.onAppLink = { app.append($0.absoluteString) }
+        lines = notes(controller) { pressed = link.accessibilityPerformPress() }
+        #expect(pressed)
+        #expect(lines == ["app link press on settings/start-agent-from-any-app handed to the app"])
+        #expect(app == [Self.anyApp])
+        // A web link goes to the system as before, and says nothing: it is no app link.
+        controller.onOpenLink = { _, _ in }
+        lines = notes(controller) { pressed = controller.openLink(.text(URL(string: Self.pr)), ref: ref) }
+        #expect(pressed)
+        #expect(lines.isEmpty)
+        lines = notes(controller) { pressed = controller.openLink(.text(nil), ref: ref) }
+        #expect(pressed)
+        #expect(lines == ["app link press refused by the link policy: opened nothing"])
+        lines = notes(controller) { pressed = controller.openLink(.text(URL(string: "cmux://nowhere/x")), ref: ref) }
+        #expect(pressed)
+        #expect(lines == ["app link press on nowhere/x is no app link: handed to the system"])
+        withExtendedLifetime(window) {}
+    }
+
+    @Test func aPressOnALinkWhoseTranscriptWentAwaySaysSo() {
+        let element = TranscriptLinkElement()
+        element.target = .text(URL(string: Self.anyApp))
+        #expect(!element.accessibilityPerformPress())
+        #expect(TranscriptLinkElement.orphanLine(element.target)
+            == "app link press on settings/start-agent-from-any-app taken by no transcript: opened nothing")
+    }
+
+    /// A click on the link opens it and says so; a click something before the link takes names the taker.
+    @Test func aClickOnTheLinkSaysWhatTookIt() throws {
+        let (window, controller) = controller()
+        var app: [String] = []
+        controller.onAppLink = { app.append($0.absoluteString) }
+        let message = try #require(controller.accessibilityElements(parent: controller.host).first)
+        let link = try #require(links(message).first)
+        let frame = controller.host.convert(window.convertFromScreen(link.accessibilityFrame()), from: nil)
+        let p = CGPoint(x: frame.midX, y: frame.midY)
+        var lines = notes(controller) { controller.clicked(p) }
+        #expect(lines == ["app link press on settings/start-agent-from-any-app handed to the app"])
+        #expect(app == [Self.anyApp])
+        lines = notes(controller) { controller.noteDroppedLinkClick(at: p, "the thread") }
+        #expect(lines == ["app link click on settings/start-agent-from-any-app taken by the thread: opened nothing"])
+        // Off any link a taker logs nothing (only a link's click is the walk's question).
+        #expect(controller.clickTaker(CGPoint(x: 1, y: 1)) != nil)
+        lines = notes(controller) { controller.clicked(CGPoint(x: 1, y: 1)) }
+        #expect(lines.isEmpty)
+        #expect(app == [Self.anyApp])
+        withExtendedLifetime(window) {}
+    }
+
+    @Test func theLinkLineNamesTheLinksHostAndPath() {
+        #expect(ChatController.linkLine(URL(string: "cmux://settings/start-agent-from-any-app?x=1"), "handed to the app")
+            == "app link press on settings/start-agent-from-any-app handed to the app")
+        #expect(ChatController.linkLine(nil, "refused") == "app link press refused")
+        #expect(ChatController.linkLine(URL(string: "cmux://a/b"), "taken", press: "click") == "app link click on a/b taken")
+    }
+
     /// AppKit advertises no AXPress for this element, so the press is also a named action: CuaDriver
     /// indexes only a node that lists one (the onboarding walk's shortcut/turn-on clicks it by index).
     @Test func eachLinkAdvertisesAnActionThatOpensIt() throws {

@@ -156,6 +156,19 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             "acpmux daemon history-offload --dry-run",
         )],
     ),
+    (
+        "daemon transcript-offload",
+        &[
+            (
+                "List the transcripts a pass would copy to cloud history",
+                "acpmux daemon transcript-offload --dry-run",
+            ),
+            (
+                "Bring back every transcript a pass removed",
+                "acpmux daemon transcript-offload --restore-all",
+            ),
+        ],
+    ),
     ("daemon schema", &[("Print the RPC schema as JSON", "acpmux daemon schema")]),
     (
         "daemon models",
