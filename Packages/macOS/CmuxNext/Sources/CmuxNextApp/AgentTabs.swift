@@ -187,6 +187,9 @@ final class AgentTabStore {
     let machineLink = AgentPaneMachineLink()
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
     var launchDeferred: Set<AgentTabKey> = []
+    /// Tabs whose shown page was let go to be built again in an older renderer (``AgentPageRendererPacking``): the
+    /// next build lies off the window until it painted, over the old page's picture.
+    var rebuiltAway: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
