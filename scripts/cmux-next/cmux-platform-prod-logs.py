@@ -66,6 +66,8 @@ ALL_ID_KEYS = frozenset(k for keys in ID_KEYS.values() for k in keys)
 # cloud.machine.edge_dns (cmux-platform#2242), so a read of the 2026-11-26 21:46Z signed-out machine could not say
 # whether its edge DNS check ran. A read's header now names each dropped msg that is a plain token (unlisted_msgs).
 # A template or computed msg is never here; add one only when it is a literal written by our code.
+# cloud.pass.slow, cloud.verify.slow and cloud.divergence.slow (CloudCore.ts boundedWait) name the machine whose
+# alarm pass outran PASS_WAIT_MS; read at 2026-11-27 10:38Z they were dropped while the drill team's object was overloaded.
 PLATFORM_MSGS = frozenset({
     "after-response work failed",
     "alarm time not finite",
@@ -135,6 +137,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.create.trace_unsent",
     "cloud.divergence.read",
     "cloud.divergence.read_failed",
+    "cloud.divergence.slow",
     "cloud.egress.failed",
     "cloud.egress.org_invalid",
     "cloud.egress.read",
@@ -190,6 +193,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.parked_wake",
     "cloud.parked_wake_failed",
     "cloud.pass.abandoned",
+    "cloud.pass.slow",
     "cloud.pause.page_cache",
     "cloud.person_layer.expired",
     "cloud.platform_stop_allocations_failed",
@@ -198,6 +202,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.pool.refused",
     "cloud.pool.spend_limit_set",
     "cloud.pool.warning",
+    "cloud.prune_probe.long",
+    "cloud.quota.vm_limit",
     "cloud.record.reconcile_failed",
     "cloud.record.stale",
     "cloud.record.unknown",
@@ -205,6 +211,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.spare.claimed",
     "cloud.spare.gateway_read",
     "cloud.spare.hold_refused",
+    "cloud.spare.promotion_failed",
     "cloud.spare.ready_failed",
     "cloud.spare.ready_told",
     "cloud.spare.replay_failed",
@@ -226,6 +233,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.submit.cut_off",
     "cloud.usage.report_failed",
     "cloud.usage.reported",
+    "cloud.verify.slow",
     "cloud.wake_echo.note_failed",
     "cloud.wake_served.note_failed",
     "cloud.work_machine.failed",
@@ -462,11 +470,16 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "mode": TOKEN, "attempt": INT, "total_ms": INT, "path": TOKEN, "fallback": TOKEN, "behind": INT,
                  "paused_for_ms": INT, "why": TOKEN, "exit": INT,
                  # cloud.approval.run's split (cmux-platform#2295): queued, re-admission, delivery and the run itself.
-                 "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT}
+                 "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT,
+                 # machines.spare.fill's refill timing (cmux-platform lane/spare-fill-log-timing, hq#31487): the create
+                 # call, claim to fill start, the fill's age; and how many spares a claim could take.
+                 "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT,
+                 # cloud.prune_probe.long (cmux-platform#2391): ledger rows pruneAt walked on one commit, and how many abandoned.
+                 "walked": INT, "abandoned": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
-PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running")
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running", "recycled", "found")
 
 # The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
 # ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
@@ -517,6 +530,38 @@ def trace_steps(steps):
 POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
 
 
+# A start trace's `kind`, who the start was for (cmux-platform CloudCore.ts startKind: a person's, CLOUD_SPARE_RUNNING_MS's
+# window resume, the channel refresh's, a warm's), and `before`, the VM's state before the call (Driver.ts powerBefore).
+# hq#31259 (2026-11-26): a paused VM's start p50 6.6 s, max 121 s, and the slow ones matched no person's submit or
+# claim; only these say which spare wake they were. Each is kept only as one of its fixed words, any other dropped.
+START_KINDS = frozenset({"person", "window", "refresh", "warm"})
+START_BEFORE = frozenset({"paused", "stopped", "pausing", "starting", "running", "other"})
+
+
+# cloud.start.first_reply (cmux-platform StartTrace.ts firstReplyOf): `steps`, each hop's ms of one real chat's start
+# (StartTrace.ts HOPS, hopDurations), `first`, the hop that opened its trace, and `cold`, the agent_start span's cold
+# flag. Without them a 140-180 s create reads only `ms` and `path` (production 2026-11-27 05:15-06:50Z, hq#32155,
+# hq#32203): boot, agent start and the model's own wait cannot be told apart. A hop not listed here is dropped.
+FIRST_REPLY_HOPS = ("click", "send", "api", "carrier", "placement", "provider_create", "restore", "wake", "boot",
+                    "network", "agent_auth", "agent_start", "model_request", "first_token")
+
+
+def first_reply_split(j):
+    """{steps, first, cold} from a first_reply line: listed hops with int ms, in HOPS order; anything else dropped."""
+    out = {}
+    steps = j.get("steps")
+    if isinstance(steps, dict):
+        kept = {h: steps[h] for h in FIRST_REPLY_HOPS if base.typed(INT, steps.get(h)) is not None}
+        if kept:
+            out["steps"] = kept
+    if j.get("first") in FIRST_REPLY_HOPS:
+        out["first"] = j["first"]
+    cold = base.typed(INT, j.get("cold"))
+    if cold is not None:
+        out["cold"] = cold
+    return out
+
+
 def power_split(power):
     """{listed key: ms} from a trace's power split; a non-int or unlisted key is dropped. None when nothing is left."""
     if not isinstance(power, dict):
@@ -533,6 +578,16 @@ UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
 CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
 HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
 # The bind agent's own state (cmux-platform#2182 NeverBoundProbe.ts guestAgentLines): fixed tokens only.
+# The class of the bind agent's last cloud or updater line when it logged no bind line (cmux-platform#2332
+# NeverBoundProbe agent_last): which bind_now step held it. Only these fixed tokens leave; anything else reads "other".
+AGENT_LAST = frozenset({
+    "bind_line", "install_key_failed", "wireguard_key_failed", "waiting_bind_file", "bound_file_unreadable",
+    "updater", "no_line", "cloud_other",
+    # cmux-platform NeverBoundProbe updaterClasses: which updater line it was.
+    "updater_flipped", "updater_channel_timeout", "updater_gate_refused", "updater_gate_unreadable",
+    "updater_failed", "updater_updating", "updater_current", "updater_connect_hold", "updater_busy", "updater_off",
+    "updater_exec_failed", "updater_first_ready", "updater_other",
+})
 AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
                         r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
 HOST_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
@@ -581,6 +636,16 @@ def probe_facts(out):
             facts["noise_identity"] = min(999, int(ln.split("=", 1)[1]))
         elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
             facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_journal_lines=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_journal_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_flips=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_flips"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_cloud_last="):
+            v = ln.split("=", 1)[1]
+            facts["agent_cloud_last"] = v if v in AGENT_LAST else "other"
+        elif ln.startswith("agent_last="):
+            v = ln.split("=", 1)[1]
+            facts["agent_last"] = v if v in AGENT_LAST else "other"
         elif ln.startswith("agent_bind="):
             v = ln.split("=", 1)[1]
             facts["agent_bind"] = v if AGENT_BIND.match(v) else "other"
@@ -700,6 +765,23 @@ CHIEF_UPDATE_TIMERS = frozenset({"systemd:cmux-chief-update.timer", "cmux-chief-
 DAEMON_VERSION = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,47}$")
 # How long the machine had run since its last power when the line was written: a coarse band, never the number.
 RUNNING_BANDS = ((3600, "lt1h"), (6 * 3600, "1h-6h"), (24 * 3600, "6h-24h"))
+# cloud.idle.kept `workload` process names (the guest's 15-character `comm`, cmux-host workload.rs) that are a
+# published program's own name, never a tenant's word: the image's tools and daemons, the package manager, the
+# shells and runtimes, the agent CLIs and the probe's `(network)` for a transfer above its rate. A machine that never
+# paused idle (2026-11-27, `workload` then `recent` every 3-5 min with no client) printed no name, so which of these
+# woke it could not be read. Any other name prints only as a count.
+KNOWN_WORKLOAD_NAMES = frozenset({
+    "(network)", "cmux", "cmux-host", "cmux-dns-check", "cmux-machine-he", "acpmux", "claude", "codex", "opencode",
+    "gemini", "pi", "sh", "bash", "dash", "zsh", "sleep", "env", "timeout", "sudo", "su", "systemctl", "resolvectl",
+    "journalctl", "curl", "wget", "tar", "gzip", "xz", "zstd", "unzip", "sha256sum", "git", "ssh", "python3",
+    "python", "node", "npm", "npx", "bun", "deno", "uv", "pip", "apt", "apt-get", "apt-check", "dpkg", "http",
+    "https", "store", "gpgv", "snapd", "snap", "packagekitd", "udisksd", "ModemManager", "networkd-dispat",
+    "systemd-hostnam", "systemd-machine", "systemd-timedat", "systemd-tmpfile", "cloud-init", "qemu-ga",
+    "fwupd", "fwupdmgr", "update-notifier", "ubuntu-advantag", "landscape-sysi", "motd-news", "man-db",
+})
+# cloud.idle.kept `recent`'s `active_at` (IdleKept.ts: the newest idle-clock time) and its age, in coarse bands.
+IDLE_ACTIVE_AT = frozenset({"input", "agent", "busy", "power"})
+ACTIVE_BANDS = ((60, "lt1m"), (300, "1m-5m"), (900, "5m-15m"), (3600, "15m-1h"))
 
 
 # cloud.machine.edge_dns's `guest` (cmux-platform#2293 NeverBoundProbe.ts edgeDnsGuestFacts): the guest's own DNS facts
@@ -773,7 +855,9 @@ def edge_dns_guest(g):
 def idle_kept(j):
     """cloud.idle.kept's typed projection: why, a timer_only flag for `workload`, the daemon version and a running
     band. The line's team and machine are ids and its process, port and timer names are the guest's own words: only
-    whether the names were exactly cmux-chief-update.timer leaves the line."""
+    whether the names were exactly cmux-chief-update.timer leaves the line, with `workload`'s busy and listening
+    counts and the process names that are a published program's (KNOWN_WORKLOAD_NAMES; any other is only counted),
+    and `recent`'s active_at and its age band."""
     why = j.get("why")
     out = {"msg": "cloud.idle.kept", "why": why if why in IDLE_KEPT_WHY else "other"}
     for k in ("team", "machine"):
@@ -786,6 +870,22 @@ def idle_kept(j):
         quiet = all(not w.get(k) for k in ("busy", "listening", "process_names", "ports"))
         out["timer_only"] = bool(quiet and isinstance(names, list) and names
                                  and all(isinstance(n, str) and n in CHIEF_UPDATE_TIMERS for n in names))
+        for k in ("busy", "listening"):
+            v = w.get(k)
+            if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+                out[k] = min(v, 100)
+        procs = w.get("process_names")
+        if isinstance(procs, list):
+            known = sorted({n for n in procs if isinstance(n, str) and n in KNOWN_WORKLOAD_NAMES})[:8]
+            out["names"] = known
+            out["names_other"] = sum(1 for n in procs if not (isinstance(n, str) and n in KNOWN_WORKLOAD_NAMES))
+    if why == "recent":
+        at = j.get("active_at")
+        if isinstance(at, str) and at in IDLE_ACTIVE_AT:
+            out["active_at"] = at
+        a = j.get("active_s")
+        if isinstance(a, int) and not isinstance(a, bool) and a >= 0:
+            out["active"] = next((band for limit, band in ACTIVE_BANDS if a < limit), "ge1h")
     d = j.get("daemon")
     if isinstance(d, str) and DAEMON_VERSION.match(d):
         out["daemon"] = base.tag(d) if base.ID_LIKE.search(d) else d
@@ -831,10 +931,17 @@ def work_machine(j):
 # phases' ms and providerTimingsMs's {fixed word: ms}; the VM's id and the mesh's id are dropped. Without it a
 # snapshot boot that stalled at the provider read as no line at all (cmux-platform live-fork create_overdue,
 # cmuxterm-hq run 45883744191: 3076 cmux-vm events scanned, the copy's create invisible).
-VM_EVENTS = frozenset({"vm_create"})
+#
+# The provider create queue (workers/cmux-vm src/limits/create-admission.ts, cmux#61073) adds its wait and the queue it
+# met (admitWaitMs, admitQueueMs, admitInFlight, admitQueued), and on a refusal its fixed reason and estimated wait;
+# vm_create_admission_unavailable is the line of a create sent without the queue because the queue could not be
+# reached. Without them a staging burst after the deploy could not say whether the queue held creates back at all.
+VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable"})
 VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
-               "providerTotalMs", "totalMs")
+               "providerTotalMs", "totalMs", "admitWaitMs", "admitQueueMs", "admitRetryAfterMs", "admitInFlight",
+               "admitQueued")
 VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
+VM_ADMISSION_REASONS = ("queue_full", "wait_expired")
 
 
 def vm_event(j):
@@ -850,6 +957,8 @@ def vm_event(j):
     variant = j.get("imageVariant")
     if variant in ("large", "base", "unlisted"):
         out["imageVariant"] = variant
+    if j.get("admission") in VM_ADMISSION_REASONS:
+        out["admission"] = j["admission"]
     timings = token_counts(j.get("providerTimingsMs"))
     if timings is not None:
         out["providerTimingsMs"] = timings
@@ -869,6 +978,20 @@ def vm_event_line(e):
         if isinstance(j, dict) and "msg" not in j and isinstance(j.get("event"), str):
             return j
     return None
+
+
+# cloud.spare.promotion_failed (cmux-platform#2318 CloudDO.spareFailedPromotion): a spare taken out of its person's pool
+# because its bind's edge name check stayed unresolved, with the image it booted. Only the image's build revision (its
+# first run of 8 lowercase hex, a cmux commit such as 2d3eba54) is kept, so the cold-start tables count bad spares per
+# image; the rest of the image's name is dropped.
+IMAGE_REV = re.compile(r"(?<![0-9a-f])([0-9a-f]{8})(?:[0-9a-f]*)(?![0-9a-z])")
+
+
+def image_rev(image):
+    if not isinstance(image, str) or len(image) > 96:
+        return None
+    m = IMAGE_REV.search(image)
+    return m.group(1) if m else None
 
 
 def public_log(j):
@@ -903,6 +1026,18 @@ def public_log(j):
         power = power_split(j.get("power"))
         if power is not None:
             out["power"] = power
+    if msg == "cloud.start.trace":
+        out.pop("kind", None)
+        if j.get("kind") in START_KINDS:
+            out["kind"] = j["kind"]
+        if j.get("before") in START_BEFORE:
+            out["before"] = j["before"]
+    if msg == "cloud.start.first_reply":
+        out.update(first_reply_split(j))
+    if msg == "cloud.spare.promotion_failed":
+        rev = image_rev(j.get("image"))
+        if rev is not None:
+            out["image_rev"] = rev
     if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
         out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:

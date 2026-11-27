@@ -407,12 +407,16 @@ public final class CloudPlaceFlows {
     }
 
     /// The chat's one `ComputerStatus` (RFD 0080's status line and popover rows), as Rust folds `place`'s `at`, `move` and
-    /// `start` (`cloud_computer_status_live`); nil when Rust answers nothing.
+    /// `start` (`cloud_computer_status_live`), with the app's two clocks while a move is in it; nil when Rust answers nothing.
     func computerStatus(session: String, place: [String: Any]) -> Any? {
         var facts: [String: Any] = ["session": session]
         for key in ["at", "move", "start"] { if let value = place[key] { facts[key] = value } }
+        // A move is stamped on `nowMs` (uptime); the page counts on Unix ms. Rust puts the stamps on Unix ms.
+        if facts["move"] != nil { facts["clock"] = ["monoMs": nowMs, "wallMs": UInt64(Date().timeIntervalSince1970 * 1000)] }
+        // main-actor-ok: the chat's at, move and start facts, three small objects, once per header read.
         guard JSONSerialization.isValidJSONObject(facts), let request = try? JSONSerialization.data(withJSONObject: facts),
               let reply = core("cloud_computer_status_live", request) else { return nil }
+        // main-actor-ok: Rust's one ComputerStatus for this chat (a status line and a few popover rows).
         return try? JSONSerialization.jsonObject(with: reply)
     }
 

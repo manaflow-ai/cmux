@@ -24,6 +24,8 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
     public let depth: Int
     /// When set, only subfolders whose names start with this are entered.
     public let folderPrefix: String?
+    /// The rule as the C ABI's JSON (what the pane's sources carry).
+    let json: String
     private let handle: RustHandle
 
     /// Makes a rule.
@@ -45,7 +47,8 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
         var json: [String: Any] = ["kinds": mask, "extraImageExtensions": extraImageExtensions.sorted(),
                                    "namePrefixes": namePrefixes, "depth": self.depth]
         if let folderPrefix { json["folderPrefix"] = folderPrefix }
-        handle = RustHandle(ScreenshotsFFI.bytes(ScreenshotsFFI.json(json)) { cmux_screenshots_rule_new($0, $1) }) {
+        self.json = ScreenshotsFFI.json(json)
+        handle = RustHandle(ScreenshotsFFI.bytes(self.json) { cmux_screenshots_rule_new($0, $1) }) {
             cmux_screenshots_rule_free($0)
         }
     }

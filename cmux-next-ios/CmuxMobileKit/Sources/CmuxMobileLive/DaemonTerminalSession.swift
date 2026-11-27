@@ -250,6 +250,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// daemon applies it.
     private var pasteNotSent: [Int: (notSent: @MainActor () -> Void, maybeSent: @MainActor () -> Void)] = [:]
     private var nextPaste = 0
+    /// File transfers can resume indefinitely; their pending terminal commands cannot.
+    /// These registrations share the typed-input expiry policy without queueing any bytes.
+    private var attachmentSubmissions: [UUID: (detachedAt: TimeInterval?, expire: @MainActor () -> Void)] = [:]
     #if canImport(CmuxMobileLinkFFI)
     /// The composer's Sends until the Mac answers them (Rust, `cmux-composer-send`). Each is one
     /// keyed `send` (the draft and its Return), made at the tap; every attempt, on any channel
@@ -423,7 +426,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private var pendingSize: (columns: Int, rows: Int)?
     /// The grid last asked for, put back after a reattach.
     private var lastSize: (columns: Int, rows: Int)?
-    private var attached = false
+    private var attached = false {
+        didSet {
+            if oldValue && !attached { markAttachmentSubmissionsDetached() }
+        }
+    }
     private var attaching = false
     /// A ``reconnect()`` came while an attach ran (the link was served meanwhile): the attach
     /// that is out may have looked for the link before it came, so one that ends waiting for the
@@ -637,13 +644,45 @@ public final class DaemonTerminalSession: TerminalSession {
     /// says "not sent" (they chose it). A held composer send comes back to the composer.
     /// Typing goes on queueing for the attach. A no-op while attached.
     public func discardHeldInput() {
-        guard !attached, !input.isEmpty else { return }
+        guard !attached, !input.isEmpty || !attachmentSubmissions.isEmpty else { return }
+        expireAttachmentSubmissions()
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let pastes = input.compactMap(\.paste)
         input.removeAll()
         log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) held typed bytes discarded by the person")
         pastes.forEach(pasteWasNotSent)
         reportHeldInput()
+    }
+
+    public func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID {
+        let id = UUID()
+        attachmentSubmissions[id] = (attached ? nil : now(), onExpire)
+        if !attached {
+            scheduleInputExpiry(after: gaveUp || refusingInput || ended ? 0
+                : (macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling))
+        }
+        return id
+    }
+
+    @discardableResult public func endAttachmentSubmission(_ id: UUID) -> Bool {
+        expireInput()
+        return attachmentSubmissions.removeValue(forKey: id) != nil
+    }
+
+    private func markAttachmentSubmissionsDetached() {
+        guard !attachmentSubmissions.isEmpty else { return }
+        let detachedAt = now()
+        for id in Array(attachmentSubmissions.keys) where attachmentSubmissions[id]?.detachedAt == nil {
+            attachmentSubmissions[id]?.detachedAt = detachedAt
+        }
+        scheduleInputExpiry(after: macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling)
+    }
+
+    private func expireAttachmentSubmissions(detachedOnly: Bool = true) {
+        let expired = attachmentSubmissions.filter { !detachedOnly || $0.value.detachedAt != nil }
+        // Remove first: callbacks may release their registration or cancel another send.
+        for id in expired.keys { attachmentSubmissions.removeValue(forKey: id) }
+        for submission in expired.values { submission.expire() }
     }
 
     /// Checks the held keys against the hold (``expireInput()``) after `delay`.
@@ -657,8 +696,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// A reply the terminal wrote by itself (a cursor or device report, a
     /// focus or mouse report): sent only while attached. Held through an
     /// outage it would be stale, and its drop is no key the person typed, so
-    /// it is never queued for a reattach, never refused and never makes the
-    /// "Keys typed while your Mac was unreachable" notice (Leo, 2026-11-12:
+    /// it is never queued for a reattach and never refused (Leo, 2026-11-12:
     /// "thjs chatters too often with connectivity").
     public func sendReply(_ bytes: Data) {
         guard !bytes.isEmpty, attached, !refusingInput else { return }
@@ -686,7 +724,9 @@ public final class DaemonTerminalSession: TerminalSession {
     private func expireInput() {
         heldKeysRecheck?.cancel()
         heldKeysRecheck = nil
+        if ended || refusingInput { expireAttachmentSubmissions(detachedOnly: false) }
         let typedAt = input.filter(\.detached).map(\.at)
+            + attachmentSubmissions.values.compactMap(\.detachedAt)
         let progressAge = linkProgress?.lastProgressAge()
         let offline = macOffline ? offlineSince : nil
         guard let reason = Self.heldInputExpiry(typedAt: typedAt, now: now(), gaveUp: gaveUp,
@@ -740,6 +780,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// Drops every queued key, refuses input until the next attach, and tells the screen.
     private func dropDetachedInput(reason: String) {
+        expireAttachmentSubmissions()
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let pastes = input.compactMap(\.paste)
         input.removeAll()
@@ -813,6 +854,7 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        expireAttachmentSubmissions(detachedOnly: false)
         gaveUpRetry?.cancel()
         gaveUpRetry = nil
         streamPosition = nil
@@ -932,6 +974,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func terminalGone(exitCode: Int? = nil, exited: Bool = false) {
         guard handler != nil, !ended else { return }
         ended = true
+        expireAttachmentSubmissions(detachedOnly: false)
         attached = false
         log.notice("surface \(self.surface, privacy: .public): terminal \(self.terminalID ?? "-", privacy: .public) is no longer on the Mac (exited=\(exited, privacy: .public))")
         if let client { self.client = nil; Task { await client.close() } }
@@ -1277,7 +1320,8 @@ public final class DaemonTerminalSession: TerminalSession {
     static let maxScrollFramesInFlight = 2
 
     /// Sends painted redraws to the Mac (`phone-frames` `paint`); the coordinator sets it.
-    public var paintSink: (@MainActor ([TerminalPaintTally.Sample], String?) async -> Void)?
+    /// It returns hostd's join of the report when the DEBUG overlay asked for it.
+    public var paintSink: (@MainActor ([TerminalPaintTally.Sample], String?) async -> TerminalPaintSummary?)?
     private var paintInFlight = false
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
@@ -1286,8 +1330,14 @@ public final class DaemonTerminalSession: TerminalSession {
         paintInFlight = true
         let program = programName
         Task { [weak self] in
-            await sink(samples, program)
+            let summary = await sink(samples, program)
             self?.paintInFlight = false
+            // The DEBUG overlay on this session's screen shows it.
+            if let self, let summary {
+                NotificationCenter.default.post(
+                    name: TerminalPaintSummary.didArrive, object: self, userInfo: ["summary": summary]
+                )
+            }
         }
     }
 
@@ -1696,6 +1746,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // the screen hears `.attached`, which forgets a held composer send.
             expireInput()
             attached = true
+            for id in Array(attachmentSubmissions.keys) { attachmentSubmissions[id]?.detachedAt = nil }
             settleReclaimHold()
             refusingInput = false
             everAttached = true
@@ -1939,6 +1990,11 @@ public final class DaemonTerminalSession: TerminalSession {
         case .sizeState(let state, let participant):
             sizing.apply(state, selfParticipant: participant)
             noteHostGridOwner()
+        case .openLink(let url, let terminal):
+            // The daemon sends it only on a channel attached to the terminal the program runs
+            // in; never held behind the reclaim hold, which is about the grid. The URL is never logged.
+            log.notice("surface \(self.surface, privacy: .public): a program in terminal \(terminal ?? "-", privacy: .public) opened a link: it opens on this phone")
+            handler?(.openLink(url))
         }
     }
 
@@ -2113,6 +2169,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func ended(reason: String?) {
         guard handler != nil, !ended else { return }
         ended = true
+        expireAttachmentSubmissions(detachedOnly: false)
         emitText("\r\n\u{1B}[2m[Detached\(reason.map { ": \($0)" } ?? "")]\u{1B}[0m\r\n")
         handler?(.exited(code: 0))
         attached = false
@@ -2225,6 +2282,11 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { [weak self] in
             guard let lane = try? await openInput() else { return }
             await lane.start()
+            // The Mac's splice marks every `set-client-info` with this phone's device id and
+            // `remote`: the daemon then knows the keys on this lane are this phone's, so a link a
+            // program opens right after them comes to this phone (`phone-open-link`). Until it
+            // answers, keys keep going on the attach channel.
+            _ = try? await lane.request("set-client-info", params: [:], deadline: .seconds(5))
             guard let self, self.client === main, self.attached, self.inputClient == nil else {
                 await lane.close()
                 return
@@ -2656,7 +2718,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// After the retries ran out, a fresh round starts on its own this long later (as well as on
     /// a keystroke, Retry or a new link), so a terminal never waits for the person to ask
     /// (Leo, 2026-11-22: "vacuous decisions like that should be just done").
-    var gaveUpRetryDelay: Duration = .seconds(30)
+    /// It was 30 s: a terminal whose round failed under a live link then sat dark that long, the
+    /// size of "intermittent 30s lag/disconnects on ios app on terminal" (Leo, 2026-11-21). Now
+    /// it is the backoff's own last step, so a terminal keeps retrying at the pace it already had.
+    var gaveUpRetryDelay: Duration = DaemonTerminalSession.defaultGaveUpRetryDelay
+    /// The backoff's longest step (8 s).
+    static let defaultGaveUpRetryDelay: Duration =
+        .milliseconds(Int64((defaultReattachBackoff.last ?? 8) * 1000))
     private var gaveUpRetry: Task<Void, Never>?
 
     private func scheduleGaveUpRetry() {
@@ -2841,7 +2909,10 @@ public final class DaemonTerminalSession: TerminalSession {
     static let minResumeBytes = 64 << 10
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability,
-                                     terminalResumeCapability, terminalResumeBoundedCapability]
+                                     terminalResumeCapability, terminalResumeBoundedCapability, phoneOpenLinkCapability]
+    /// `phone-open-link-v1`: this phone opens a link a program in the terminal asks a browser for
+    /// while the phone drives it (the daemon's `phone-open-link` event, `offer-link-to-phone`).
+    static let phoneOpenLinkCapability = "phone-open-link-v1"
 
     /// The Mac's daemon sends an agent CLI's terminal (Claude Code, Codex, opencode) as the
     /// cells that changed instead of its PTY bytes (`agent-cli-frame` events).

@@ -279,3 +279,36 @@ class WorkflowCallsIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LandTierTest(unittest.TestCase):
+    """--tier (app-compile-fleet): an unlabeled pull request head is deferred to land and the job ends at once."""
+
+    def read(self, answers, tier):
+        clock, urls = Clock(), []
+
+        def fetch(url, timeout):
+            urls.append(url)
+            clock.t += 1
+            return answers[min(len(urls) - 1, len(answers) - 1)]
+
+        word, why = f.read(SHA, REPO, "12", 2400, 300, fetch=fetch, now=clock.now, sleep=clock.sleep,
+                           phase="app-debug", tier=tier)
+        return word, why, urls, clock.t
+
+    def test_tier_asks_for_the_land_tier_and_ends_on_awaiting_land_in_one_read(self):
+        deferred = rec("awaiting_land", configuration="debug", reason="no ready-to-land or full-ci label")
+        word, why, urls, took = self.read([(200, deferred, None)], tier=True)
+        self.assertEqual((word, len(urls)), ("awaiting_land", 1))
+        self.assertIn("tier=1", urls[0])
+        self.assertIn("no ready-to-land", why)
+        self.assertLess(took, 5)
+
+    def test_a_labeled_head_is_still_waited_for(self):
+        running, done = rec("running", configuration="debug"), rec("pass", configuration="debug")
+        self.assertEqual(self.read([(200, running, None), (200, done, None)], tier=True)[0], "pass")
+
+    def test_without_tier_nothing_changes(self):
+        word, _why, urls, _took = self.read([(200, rec("pass", configuration="debug"), None)], tier=False)
+        self.assertEqual(word, "pass")
+        self.assertNotIn("tier=", urls[0])

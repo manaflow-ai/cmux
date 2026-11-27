@@ -3,8 +3,7 @@
 
 [[test]]
 path = "tests/test_web_coalesce.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_web_coalesce.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_web_complexity_scope.py"
@@ -16,6 +15,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_web_complexity_trusted_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_green_marker.py"
 lane = "linux-guard"
 
 [[test]]
