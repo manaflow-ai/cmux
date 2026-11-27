@@ -400,14 +400,13 @@ def read_tokens() -> list[str]:
 def gate_any(repo: str, pr: str, sha: str, tokens: list[str], bots: list[str], gate=None) -> tuple[str, str]:
     """gate_now with each token in turn; error (never a pass) only when every token's read failed."""
     gate = gate or gate_now
-    last: Exception | None = None
+    kind = "no token"
     for token in tokens:
         try:
             return gate(repo, pr, sha, token, bots)
         except Exception as e:  # noqa: BLE001 - the next token; unread stays an error state
-            print(f"{STATUS_CONTEXT}: read refused ({type(e).__name__}: {e})", file=sys.stderr)
-            last = e
-    return "error", f"UI proof not read ({type(last).__name__ if last else 'no token'}): rerun this job"
+            kind = proof_record.read_error(e)  # safe metadata only, never the response or token
+    return "error", f"UI proof not read ({kind}): see job log"
 
 
 def rerun_gate(repo: str, sha: str) -> str:
