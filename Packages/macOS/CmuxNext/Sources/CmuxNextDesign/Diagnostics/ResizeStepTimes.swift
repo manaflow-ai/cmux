@@ -91,6 +91,10 @@ public struct ResizeStepTimes {
         ResizeStepLog.write(ResizeStepLog.step?.kind ?? .window, phase(), ms, step: step, detail: detail())
     }
 
+    /// Probes that write their own facts just before each step's Core Animation commit while the log streams (the remote
+    /// Cocoa resize probe: each remote page's view and layer frames as that commit shows them), by owner; nil removes one.
+    public static var precommitProbes: [ObjectIdentifier: @MainActor () -> Void] = [:]
+
     /// The open step's number, while one is open and the log streams (for a fact reported later, ``note(_:ms:step:detail:)``).
     public static var openStep: UInt64? { ResizeStepLog.isStreaming ? ResizeStepLog.step?.id : nil }
 

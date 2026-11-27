@@ -49,6 +49,9 @@ enum Kind : uint32_t {
   kRemoteServer = 109,    // payload the host's bootstrap name (cmux_rc_client_connect)
   kRemoteAttached = 110,  // v0 1 the page's views are in cmux's view, 0 they left it
   kUnhandledKey = 111,    // a key down the page did not handle: v0 key code, flags = NSEventModifierFlags, ch, unmod
+  // diagnostics (the remote Cocoa resize probe, measurement builds): t0 the host's time, payload one line of the
+  // host's own window and page view frames
+  kDiag = 112,
 };
 
 struct Header {

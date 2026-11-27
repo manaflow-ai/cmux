@@ -126,6 +126,65 @@ void SendText(uint32_t kind, const std::string& text) {
   Send(h, text);
 }
 
+// The remote Cocoa resize probe (measurement builds, approaches/remote-cocoa): during a window drag the remote pages
+// sat off their panes by the panes' height change (slope 0.50 of the window's, r 1.00), and flipping cmux's container
+// changed nothing (rc-win-2-fix). Each line names this process's own view of the page at the moment it changes: the
+// geometry cmux sent (g_screen_rect, bottom-left screen points), the page window (g_window) and its content view, and
+// every WebContentsViewCocoa and RenderWidgetHostViewCocoa this process keeps (the in-process NSViews a remote page
+// keeps beside the ones in cmux), each as its frame in its window, its window's frame, and whether it and its
+// superview are flipped. cmux writes each line into its live-resize log beside the step it arrived in (kDiag).
+NSString* DiagRect(NSRect r) {
+  return [NSString stringWithFormat:@"%.1f,%.1f,%.1f,%.1f", r.origin.x, r.origin.y, r.size.width, r.size.height];
+}
+
+void DiagViews(const char* why);
+
+NSMutableSet<NSValue*>* g_diag_watched = nil;
+
+void DiagWatch(NSView* view) {
+  if (!g_diag_watched) g_diag_watched = [NSMutableSet set];
+  NSValue* key = [NSValue valueWithNonretainedObject:view];
+  if ([g_diag_watched containsObject:key]) return;
+  [g_diag_watched addObject:key];
+  view.postsFrameChangedNotifications = YES;
+  [NSNotificationCenter.defaultCenter addObserverForName:NSViewFrameDidChangeNotification
+                                                  object:view
+                                                   queue:nil
+                                              usingBlock:^(NSNotification*) { DiagViews("view_frame"); }];
+}
+
+void DiagViews(const char* why) {
+  if (!g_remote) return;
+  NSMutableString* line = [NSMutableString stringWithFormat:@"why=%s geo=%@", why, DiagRect(g_screen_rect)];
+  if (g_window) {
+    [line appendFormat:@" win=%@ content=%@ content_flipped=%d", DiagRect(g_window.frame),
+                       DiagRect(g_window.contentView.frame), g_window.contentView.isFlipped ? 1 : 0];
+  }
+  for (NSWindow* window in NSApp.windows) {
+    NSMutableArray<NSView*>* stack = [NSMutableArray array];
+    if (window.contentView) [stack addObject:window.contentView];
+    while (stack.count) {
+      NSView* view = stack.lastObject;
+      [stack removeLastObject];
+      NSString* name = NSStringFromClass([view class]);
+      const bool rwhv = [name hasSuffix:@"RenderWidgetHostViewCocoa"];
+      const bool wcvc = [name hasSuffix:@"WebContentsViewCocoa"];
+      if (rwhv || wcvc) {
+        DiagWatch(view);
+        [line appendFormat:@" %s=%@ in_win=%ld win_frame=%@ flipped=%d super_flipped=%d hidden=%d",
+                           rwhv ? "rwhv" : "wcvc", DiagRect([view convertRect:view.bounds toView:nil]),
+                           (long)window.windowNumber, DiagRect(window.frame), view.isFlipped ? 1 : 0,
+                           view.superview.isFlipped ? 1 : 0, view.isHiddenOrHasHiddenAncestor ? 1 : 0];
+      }
+      for (NSView* sub in view.subviews) [stack addObject:sub];
+    }
+  }
+  cmux_host::Header h;
+  h.kind = cmux_host::kDiag;
+  h.t0 = Now();
+  Send(h, std::string(line.UTF8String));
+}
+
 void CloseHost() {
   if (g_closing) return;
   g_closing = true;
@@ -160,6 +219,7 @@ void TryHosting() {
     h.kind = cmux_host::kRemoteAttached;
     h.v[0] = 1;
     Send(h);
+    DiagViews("attached");
     return;
   }
   if (g_context || !g_browser || !g_set_layer_hosting) return;
@@ -218,6 +278,10 @@ void PlaceWindow() {
                                                                          g_screen_rect.size.height)];
     g_parent.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     g_window.contentView = g_parent;
+    [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidResizeNotification
+                                                    object:g_window
+                                                     queue:nil
+                                                usingBlock:^(NSNotification*) { DiagViews("window_resize"); }];
     [g_window orderFrontRegardless];
   } else if (!NSEqualRects(g_window.frame, g_screen_rect)) {
     [g_window setFrame:g_screen_rect display:NO];
@@ -435,6 +499,7 @@ void HandleFrame(cmux_host::Header h, std::string payload) {
       if (g_window) PlaceWindow();
       CreateBrowserIfReady();
       ScheduleHosting();
+      DiagViews("geometry");
       break;
     case cmux_host::kMouse:
     case cmux_host::kWheel:

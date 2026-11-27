@@ -27,6 +27,8 @@ public final class ChromiumHostPageView: NSView {
     private var remote: CALayer?
     private var tracking: NSTrackingArea?
     private var lastGeometry: ChromiumHostGeometry?
+    /// The remote Cocoa resize probe's last layer chain (written again only when it changes).
+    private var lastProbeChain = ""
     /// Remote Cocoa: the page's views go into ``remoteContainer``; nothing is forwarded.
     var remoteCocoa = false {
         didSet { if remoteCocoa, remoteContainer.superview == nil { addSubview(remoteContainer) } }
@@ -97,6 +99,74 @@ public final class ChromiumHostPageView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         reportGeometry()
+        if window == nil {
+            ResizeStepTimes.precommitProbes[ObjectIdentifier(self)] = nil
+        } else {
+            ResizeStepTimes.precommitProbes[ObjectIdentifier(self)] = { [weak self] in self?.probeRemoteGeometry() }
+        }
+    }
+
+    // MARK: The remote Cocoa resize probe (measurement builds)
+
+    /// During a window drag the remote pages sat off their panes by the panes' height change (slope 0.50 of the window's,
+    /// r 1.00), and flipping ``remoteContainer`` changed nothing (approaches/remote-cocoa rc-win-2-fix). Just before each
+    /// step's commit this writes what that commit shows, from this pane down to the compositor's layer: this view, the
+    /// container, the page's `WebContentsViewCocoa` and `RenderWidgetHostViewCocoa` (each its frame in the window,
+    /// bottom-left points, and whether it is flipped), the render view's backing layer, its geometry-flipped layer
+    /// (`ui::DisplayCALayerTree`), and that layer's sublayers (the `CALayerHost`: frame, position, anchor point,
+    /// context id). `pane_top - rwhv_top` and the layers' offsets give where this process puts the page's top.
+    private func probeRemoteGeometry() {
+        guard remoteCocoa, window != nil else { return }
+        func r(_ rect: NSRect) -> String { String(format: "%.1f,%.1f,%.1f,%.1f", rect.minX, rect.minY, rect.width, rect.height) }
+        var line = " pane=\(r(convert(bounds, to: nil))) cont=\(r(remoteContainer.convert(remoteContainer.bounds, to: nil)))"
+        line += " root=\(r(root.frame)) root_gf=\(root.isGeometryFlipped ? 1 : 0)"
+        line += " cont_flipped=\(remoteContainer.isFlipped ? 1 : 0)"
+        line += " cont_layer=\(remoteContainer.layer.map { r($0.frame) + " gf=\($0.isGeometryFlipped ? 1 : 0)" } ?? "-")"
+        if let page = remoteContainer.subviews.first {
+            line += " wcvc=\(r(page.convert(page.bounds, to: nil))) wcvc_in_cont=\(r(page.frame)) wcvc_flipped=\(page.isFlipped ? 1 : 0)"
+            line += " wcvc_layer=\(page.layer.map { r($0.frame) + " gf=\($0.isGeometryFlipped ? 1 : 0)" } ?? "-")"
+        }
+        guard let rwhv = pageKeyView else { return ResizeStepTimes.note("rc_geom", ms: 0, detail: line) }
+        line += " rwhv=\(r(rwhv.convert(rwhv.bounds, to: nil))) rwhv_in_super=\(r(rwhv.frame)) rwhv_flipped=\(rwhv.isFlipped ? 1 : 0)"
+        line += " rwhv_super_flipped=\(rwhv.superview?.isFlipped == true ? 1 : 0)"
+        ResizeStepTimes.note("rc_geom", ms: 0, detail: line)
+        guard let background = rwhv.layer else { return }
+        var layers = " bg=\(r(background.frame)) bg_bounds=\(r(background.bounds)) bg_gf=\(background.isGeometryFlipped ? 1 : 0)"
+        var host: CALayer?
+        for (i, sub) in (background.sublayers ?? []).enumerated() {
+            layers += " sub\(i)=\(r(sub.frame)) gf=\(sub.isGeometryFlipped ? 1 : 0) mask=\(sub.autoresizingMask.rawValue)"
+            for (j, leaf) in (sub.sublayers ?? []).enumerated() {
+                let context = (leaf.value(forKey: "contextId") as? NSNumber)?.uint32Value ?? 0
+                layers += " leaf\(i).\(j)=\(NSStringFromClass(type(of: leaf))):\(r(leaf.frame))"
+                layers += String(format: " pos=%.1f,%.1f anchor=%.2f,%.2f", leaf.position.x, leaf.position.y,
+                                 leaf.anchorPoint.x, leaf.anchorPoint.y)
+                layers += " ctx=\(context) mask=\(leaf.autoresizingMask.rawValue)"
+                if sub.isGeometryFlipped, host == nil { host = leaf }
+            }
+        }
+        if let host {
+            // Where the compositor's layer (the page hangs from its origin) and one point along its y land in the window's
+            // top layer, beside this pane's top and bottom there: whether it sits at the pane's top, and which way its y
+            // runs on screen.
+            var top: CALayer = host
+            var chain: [String] = []
+            while let up = top.superlayer {
+                chain.append("\(NSStringFromClass(type(of: up))):\(up.isGeometryFlipped ? 1 : 0):\(r(up.frame))")
+                top = up
+            }
+            let origin = host.convert(CGPoint.zero, to: top)
+            let along = host.convert(CGPoint(x: 0, y: 1), to: top)
+            let paneTop = root.convert(CGPoint(x: 0, y: root.bounds.maxY), to: top)
+            let paneBottom = root.convert(CGPoint(x: 0, y: root.bounds.minY), to: top)
+            layers += String(format: " host_origin=%.1f,%.1f host_y1=%.1f,%.1f pane_top=%.1f pane_bottom=%.1f top_gf=%ld",
+                             origin.x, origin.y, along.x, along.y, paneTop.y, paneBottom.y, top.isGeometryFlipped ? 1 : 0)
+            let joined = chain.joined(separator: "|")
+            if joined != lastProbeChain {
+                lastProbeChain = joined
+                ResizeStepTimes.note("rc_chain", ms: 0, detail: " " + joined)
+            }
+        }
+        ResizeStepTimes.note("rc_layers", ms: 0, detail: layers)
     }
 
     public override func layout() {

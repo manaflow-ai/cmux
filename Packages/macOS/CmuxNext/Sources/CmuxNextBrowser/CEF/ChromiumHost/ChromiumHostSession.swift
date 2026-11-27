@@ -311,6 +311,11 @@ public final class ChromiumHostSession {
             }
         case .unhandledKey:
             handleUnhandledKey(frame)
+        case .diag:
+            // The remote Cocoa resize probe: the host's line, with its time and the hop to here (ms), beside this step.
+            let now = DispatchTime.now().uptimeNanoseconds
+            ResizeStepTimes.note("rc_host", ms: now > frame.t0 ? Double(now - frame.t0) / 1_000_000 : 0,
+                                 detail: " host_t=\(frame.t0) cmux_t=\(now) \(frame.text)")
         case .context:
             contextID = UInt32(bitPattern: frame.v[0])
             view.show(contextID: contextID)

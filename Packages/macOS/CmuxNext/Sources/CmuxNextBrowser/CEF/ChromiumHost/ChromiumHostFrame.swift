@@ -17,6 +17,9 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
         /// Remote Cocoa (fork API 37): the host's bootstrap name, whether the page's views are in cmux, a key the page
         /// did not handle.
         case remoteServer = 109, remoteAttached = 110, unhandledKey = 111
+        /// Diagnostics (the remote Cocoa resize probe, measurement builds): one line of the host's window and page view
+        /// frames, at the host's time `t0`.
+        case diag = 112
     }
 
     static let headerSize = 64

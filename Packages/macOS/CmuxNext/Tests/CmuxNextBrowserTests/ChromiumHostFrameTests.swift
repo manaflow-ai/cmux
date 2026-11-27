@@ -65,6 +65,7 @@ import Testing
         #expect(ChromiumHostFrame.Kind.remoteServer.rawValue == 109)
         #expect(ChromiumHostFrame.Kind.remoteAttached.rawValue == 110)
         #expect(ChromiumHostFrame.Kind.unhandledKey.rawValue == 111)
+        #expect(ChromiumHostFrame.Kind.diag.rawValue == 112)
     }
 
     /// A view id crosses as two 32-bit halves (v0 low, v1 high), as the host reassembles it.

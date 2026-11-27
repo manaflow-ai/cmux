@@ -110,6 +110,7 @@ enum ResizeStepLog {
         let ms = Double(DispatchTime.now().uptimeNanoseconds &- open.start) / 1_000_000
         ResizeStepTimes.keep(open.kind, "step_precommit", ms)
         write(open.kind, "step_precommit", ms)
+        if isStreaming { for probe in ResizeStepTimes.precommitProbes.values { probe() } }
     }
 
     /// After Core Animation's commit (before waiting, or as a run exits): the step ends, and the turn's busy time is
