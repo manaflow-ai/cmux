@@ -250,8 +250,8 @@ pub(super) const GUIDES: &[Guide] = &[
         topic: "Script cmux Computer Use: several app steps in one cmux_exec call",
         keywords: &["cu", "computer", "desktop", "gui"],
         text: "In cmux_exec, `cu.<tool>(args)` is `cmux.cu_<tool>(args)` (cmux Computer Use, \
-        built in): chain list_windows, get_ui_tree, click, type_text, press_key, set_value, \
-        scroll, wait and the rest with loops and conditions in ONE script. Each call is its own \
+        built in): pass a known title or app name as window_id. Use list_windows for discovery. Chain \
+        reads and actions with loops and conditions in ONE script. Each call is its own \
         Computer Use call (its own call id, the person's settings and approval cards apply to \
         each). In a script an acting call skips its settle screenshot unless you pass \
         observe: true; read back with get_ui_tree or screenshot instead. A tool's result is its \
@@ -262,8 +262,8 @@ pub(super) const GUIDES: &[Guide] = &[
         `cu.find(tree, {role, name})` finds an element in a get_ui_tree result (a RegExp \
         matches, `cu.findAll` lists, `cu.elements(tree)` flattens); act on its `id` as \
         element_id. Roles are plain: button, text_field, text, checkbox, link. \
-        Fill and submit a form: `const [w] = (await cu.list_windows({app_id: \"com.apple.Safari\"\
-        })).windows; const window_id = w.window_id; const t = await cu.get_ui_tree({window_id}); \
+        Fill and submit a form: `const t = await cu.get_ui_tree({window_id: \"Sign up\"}); \
+        const window_id = t.window_id; \
         await cu.set_value({window_id, element_id: cu.find(t, {role: \"text_field\", name: \
         /email/i}).id, value: \"ada@example.com\"}); await cu.click({window_id, element_id: \
         cu.find(t, {role: \"button\", name: \"Submit\"}).id}); return await \

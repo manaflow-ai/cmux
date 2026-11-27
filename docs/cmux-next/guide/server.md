@@ -21,10 +21,10 @@ The machine must accept your SSH key, and its host key must already be in your k
 
 ## Install on this machine
 
-On the Linux box or Mac itself, one line installs cmux and starts the service:
+On the Linux box or Mac itself, one line installs cmux and starts the service. It saves the installer in a new private folder, checks it against the SHA-256 the line carries, and runs it only when it matches:
 
 ```bash
-curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server
+d="$(mktemp -d)" && curl -fsSL https://cmux.com/tui/install-static/f2cbb6f11bd4743973c3f492e8fe2d1c4700c114784394da909890adec3e57de.sh -o "$d/install.sh" && echo "f2cbb6f11bd4743973c3f492e8fe2d1c4700c114784394da909890adec3e57de  $d/install.sh" | $(command -v sha256sum || echo shasum -a 256) -c && sh "$d/install.sh" --server; rm -rf "$d"
 ```
 
 To see what it would do first, add --dry-run. To install one exact build, add --commit SHA; --channel stable or --channel nightly picks the latest build of that channel. With cmux already installed, run cmux server install.

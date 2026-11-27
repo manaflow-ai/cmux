@@ -28,6 +28,7 @@
 - [Keyboard shortcuts](keyboard-shortcuts.md): Default keyboard shortcuts in cmux-next.
 - [CLI and MCP reference](cli.md): Every cmux CLI command and which are also MCP tools.
 - [MCP server](mcp.md): Give Claude Code, Codex, or any MCP client control of cmux.
+- [API versions and the compatibility promise](api-versions.md): Pin the cmux socket or the cmux Cloud API to a date, and it keeps answering the way it did for at least 12 months after it changes.
 - [Settings reference](settings.md): Every setting, its key, and its default.
 - [Network requirements for the iPhone app](network-requirements.md): The hosts, ports and protocols the cmux iPhone app and your Mac need to connect, in the order they try them, for IT admins.
 
