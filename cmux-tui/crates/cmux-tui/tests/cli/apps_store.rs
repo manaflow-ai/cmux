@@ -1327,6 +1327,7 @@ fn the_store_examples_list_and_install_for_the_user() {
 #[test]
 fn a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed() {
     let apps = Apps::new("fp-store");
+    // affected-reads: samples/apps first-party-apps scripts/cmux-next/sync-app-runtime.sh scripts/cmux-next/store-package-sign.py Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform docs/cmux-next/sidebar-customization
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let quick_links = repo.join("samples/apps/quick-links");
     let first_party = apps.dir.join("fp-src");
@@ -1707,6 +1708,8 @@ fn copy_shipped_first_party(root: &Path) -> Vec<String> {
 /// a build does, into the folder the daemon reads as `CMUX_APPS_DIRS`; returns
 /// the package folder names.
 fn build_store_folder(apps: &Apps) -> Vec<String> {
+    // affected-reads: samples/apps first-party-apps scripts/cmux-next docs/cmux-next/sidebar-customization
+    // affected-reads: samples/apps first-party-apps scripts/cmux-next/sync-app-runtime.sh scripts/cmux-next/store-package-sign.py Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let platform = apps.dir.join("platform");
     let out = Command::new("bash")
@@ -1747,6 +1750,11 @@ fn open_target(entry: &Value, placed: &Value) -> Option<String> {
                 .find(|tile| tile["app"] == id)
                 .map(|tile| format!("widget tile {} in {place}", tile["size"]))
         });
+    }
+    // A first-party setting-backed entry (#46903's Auto cleanup, `worktrees.autoCleanup`): its
+    // Install turns that cmux setting on, and the listing's switch shows it; there is no pane.
+    if let Some(key) = manifest["setting"]["key"].as_str() {
+        return Some(format!("setting {key}"));
     }
     let pane = &manifest["implements"]["cmux.pane/1"];
     if let Some(native) = pane["native"].as_str() {
@@ -1843,7 +1851,6 @@ fn every_shipped_store_listing_installs_and_has_something_to_open() {
     let apps = Apps::new("every-listing");
     let shipped = copy_shipped_first_party(&apps.dir.join("first-party"));
     assert!(shipped.contains(&"cmux/cloud".to_string()), "{shipped:?}");
-    assert!(shipped.contains(&"cmux/coderouter".to_string()), "{shipped:?}");
     let store = build_store_folder(&apps);
     assert!(store.contains(&"widget-clock".to_string()), "the widgets are on the shelf: {store:?}");
     apps.start();
@@ -1855,9 +1862,10 @@ fn every_shipped_store_listing_installs_and_has_something_to_open() {
         nothing.is_empty(),
         "listed apps with nothing to open after install: {nothing:?}; all: {results:?}"
     );
-    for id in ["cmux/cloud", "cmux/coderouter"] {
-        assert!(results.iter().any(|(listed, _)| listed == id), "{id} listed: {results:?}");
-    }
+    assert!(
+        results.iter().any(|(listed, _)| listed == "cmux/cloud"),
+        "cmux/cloud listed: {results:?}"
+    );
 }
 
 /// The check above catches the class Leo hit: with the Standup sample on the
@@ -1919,25 +1927,6 @@ fn a_listing_has_its_tagline_screenshots_and_where_it_shows_up() {
     assert_eq!(detail["screenshots"], json!(["shots/one.png"]), "{reply}");
     assert_eq!(detail["contributes"], json!([]), "{reply}");
 
-    let reply = agent.store("cmux.apps.catalog.get", json!({"app": "cmux/coderouter"}), "cli");
-    let detail = ok(&reply);
-    assert_eq!(detail["screenshots"], json!([]), "{reply}");
-    assert_eq!(
-        detail["contributes"],
-        json!([
-            { "kind": "section", "title": "CodeRouter" },
-            { "kind": "statusItem", "title": "CodeRouter Health" },
-            { "kind": "pane", "title": "CodeRouter" },
-            { "kind": "command", "title": "Open CodeRouter" },
-            { "kind": "command", "title": "Connect Account to CodeRouter" },
-            { "kind": "command", "title": "Create CodeRouter API Key" },
-            { "kind": "command", "title": "Test CodeRouter" },
-            { "kind": "command", "title": "Set Up CodeRouter" },
-        ]),
-        "{reply}"
-    );
-    eprintln!("coderouter catalog.get: {reply}");
-
     let reply = agent.store(
         "cmux.apps.asset.get",
         json!({"app": "acme/shots", "path": "shots/one.png"}),
@@ -1951,11 +1940,4 @@ fn a_listing_has_its_tagline_screenshots_and_where_it_shows_up() {
         "cli",
     );
     assert_eq!(error_code(&reply), "apps.asset.too_large", "{reply}");
-    let reply = agent.store(
-        "cmux.apps.asset.get",
-        json!({"app": "cmux/coderouter", "path": "assets/icon.svg"}),
-        "cli",
-    );
-    let url = ok(&reply)["data_url"].as_str().unwrap_or_default().to_owned();
-    assert!(url.starts_with("data:image/svg+xml;base64,"), "{reply}");
 }

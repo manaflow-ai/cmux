@@ -87,8 +87,17 @@ const CPU_CLOCK = process.env.CLOCK === "cpu";
 /// burst of one right after the same burst of the other (`pairedLiveRound`), and prints both runs' rows: the god
 /// ones with `god` in their names, as FIXTURE=god does. No open phase. bench/god-ratio-ab.sh runs it this way.
 const PAIRED = process.env.PAIRED === "1";
+/// `RENDERS=1` counts, per burst record, the components React committed again (perf.ts `renders`, counted by
+/// `useCountedRender` and `acpmuxPerf.render`): the pane, its header and composer, each transcript row and its content.
+/// It emits `transcript_replay.long.<kind>.renders_per_record` (every component) and `.row_renders_per_record` (the
+/// transcript's `row:` frames) and prints each kind's components. An appended record that touches one row commits one
+/// row and nothing else. Counting turns the pane's perf measurement on, so a RENDERS run's ms rows are not clean ones.
+const RENDERS = process.env.RENDERS === "1";
 /// `INVALIDATIONS=1` prints, per burst, what restyled the page and the rows React drew (`invalidations`).
 const INVALIDATIONS = process.env.INVALIDATIONS === "1";
+/// `SPLIT=1` prints, per burst, the ms per record of each main-thread phase (script, style, layout, forced
+/// layout, paint, layerize, GC, other) and the components React drew per record (`split`).
+const SPLIT = process.env.SPLIT === "1";
 /// `HEAP_SNAPSHOT=FILE` writes a heap snapshot (DevTools' .heapsnapshot) of the burst log's page once its replay
 /// has settled, right after the heap row is read: what holds the heap that row reports.
 const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
@@ -121,6 +130,12 @@ const BUDGET = {
   slope: 0.1,
   heapMb: 64,
   idleMsPerS: 1,
+  /// Pane redraws per record for a record whose one changed row the running turn's closed fold hides.
+  hiddenPaneRenders: 0.1,
+  /// Transcript renders per streamed token, as counted: each render counts twice (VirtualTranscript's
+  /// `useCountedRender` at commit and `acpmuxPerf.render` in the body), so 2.4 is 1.2 real renders a
+  /// token. A token is one render; more is a second pass a layout read or a listener queued.
+  tokenTranscriptRenders: 2.4,
 } as const;
 const webviews = path.resolve(import.meta.dir, "..");
 
@@ -364,6 +379,96 @@ async function invalidations(cdp: CDPSession, run: () => Promise<void>, page: Pa
   return `style recalcs ${per(recalcs)}/rec, ${per(styled)} elements/rec; renders ${rows}${top}`;
 }
 
+/// SPLIT=1: where a burst's main-thread time went, from a DevTools timeline trace: per record, the ms of
+/// each renderer main-thread phase (script, style, layout, pre-paint, paint, layerize, GC), and the rest of
+/// its tasks' time as `other`. Phases nest in tasks, so each is summed only outside another phase.
+async function split(cdp: CDPSession, run: () => Promise<void>, page: Page, records: number): Promise<string> {
+  type Ev = { name: string; ph: string; ts: number; dur?: number; tid: number; pid: number };
+  const events: Ev[] = [];
+  const onData = (data: { value: object[] }) => events.push(...(data.value as Ev[]));
+  cdp.on("Tracing.dataCollected", onData);
+  await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+  await cdp.send("Tracing.start", {
+    traceConfig: {
+      recordMode: "recordAsMuchAsPossible",
+      includedCategories: ["devtools.timeline", "v8", "disabled-by-default-devtools.timeline"],
+    },
+    transferMode: "ReportEvents",
+  });
+  await run();
+  await paint(page, 2);
+  const done = new Promise<void>((resolve) => cdp.once("Tracing.tracingComplete", () => resolve()));
+  await cdp.send("Tracing.end");
+  await done;
+  cdp.off("Tracing.dataCollected", onData);
+  const phase: Record<string, string> = {
+    FunctionCall: "script",
+    EvaluateScript: "script",
+    TimerFire: "script",
+    FireAnimationFrame: "script",
+    EventDispatch: "script",
+    "V8.Execute": "script",
+    RunMicrotasks: "script",
+    v8__run_microtasks: "script",
+    UpdateLayoutTree: "style",
+    Layout: "layout",
+    PrePaint: "prepaint",
+    Paint: "paint",
+    Layerize: "layerize",
+    Commit: "commit",
+    MinorGC: "gc",
+    MajorGC: "gc",
+    ScavengeTask: "gc",
+  };
+  // The main thread: the one with the most RunTask time in the renderer that ran CrRendererMain.
+  const tasks = events.filter((e) => e.ph === "X" && e.name === "RunTask");
+  const byThread = new Map<string, number>();
+  for (const t of tasks) byThread.set(`${t.pid}:${t.tid}`, (byThread.get(`${t.pid}:${t.tid}`) ?? 0) + (t.dur ?? 0));
+  const main = [...byThread.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const on = events
+    .filter((e) => e.ph === "X" && `${e.pid}:${e.tid}` === main)
+    .sort((a, b) => a.ts - b.ts || (b.dur ?? 0) - (a.dur ?? 0));
+  const sums = new Map<string, number>();
+  let taskUs = 0;
+  // Outermost-phase accounting: a phase event inside another phase's span counts to the outer one, except
+  // style/layout forced from script, which count to themselves and come off script.
+  const stack: { end: number; kind: string }[] = [];
+  for (const e of on) {
+    const end = e.ts + (e.dur ?? 0);
+    while (stack.length && stack.at(-1)!.end <= e.ts) stack.pop();
+    if (e.name === "RunTask" && stack.length === 0) taskUs += e.dur ?? 0;
+    const kind = phase[e.name];
+    if (!kind) continue;
+    const outer = stack.find((s) => s.kind !== "task")?.kind;
+    if (outer === undefined) sums.set(kind, (sums.get(kind) ?? 0) + (e.dur ?? 0));
+    else if (outer === "script" && (kind === "style" || kind === "layout" || kind === "gc")) {
+      sums.set(kind, (sums.get(kind) ?? 0) + (e.dur ?? 0));
+      sums.set("script", (sums.get("script") ?? 0) - (e.dur ?? 0));
+      sums.set(`${kind}(forced)`, (sums.get(`${kind}(forced)`) ?? 0) + (e.dur ?? 0));
+    }
+    stack.push({ end, kind });
+  }
+  const known = [...sums.entries()].filter(([k]) => !k.includes("(")).reduce((a, [, v]) => a + v, 0);
+  sums.set("other", taskUs - known);
+  const per = (us: number) => (us / 1000 / records).toFixed(3);
+  const renders = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+    string,
+    number
+  >;
+  const drawn = Object.entries(renders)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 16)
+    .map(([name, count]) => `${name.slice(0, 40)}=${(count / records).toFixed(2)}`)
+    .join(" ");
+  return (
+    `renders/rec ${drawn}\n    task ${per(taskUs)} ms/rec: ` +
+    [...sums.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} ${per(v)}`)
+      .join(", ")
+  );
+}
+
 async function heapMb(cdp: CDPSession): Promise<number> {
   await cdp.send("HeapProfiler.collectGarbage");
   const { usedSize } = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
@@ -479,6 +584,8 @@ type BurstResult = {
   /// PROBE=1: what one record cost besides time (foldFrameReport.ts): geometry reads from script, the
   /// layouts script forced, transcript rows React drew again, and the most layout objects and restyled
   /// elements one pass touched. Work per update that follows the rows in view shows here.
+  /// RENDERS=1: committed renders per record by component (`row:<id>` counts as `row`), and their sum (events apart).
+  renders?: { total: number; byComponent: Record<string, number> };
   probe?: {
     reads: number;
     forced: number;
@@ -486,8 +593,55 @@ type BurstResult = {
     contentRenders: number;
     layoutObjects: number;
     styled: number;
+    /// The trace's main-thread ms per record by phase: where the time no script profile names goes.
+    phases: { script: number; style: number; layout: number; paint: number };
   };
 };
+/// Names of perf.ts `renders` that count something other than one more component commit: the transcript's anchor
+/// passes, scroll flushes and layout flags, a row's mount (`mount:`), RowFrame's commit (`frame:`), which is the
+/// same render `row:` already counted, and the pane's notes on records whose row is hidden (`record:`, `pane:`). They print, but stay out of a record's render total.
+const RENDER_EVENTS = /^(transcript:|layout\.|frame:|mount:|pane:|record:)/;
+/// Names whose part after the first `:` is one row's id: each folds into its kind (`row:a`, `row:b` count as `row`).
+const PER_ROW = new Set(["row", "content", "notice", "frame", "mount"]);
+/// A burst's render counts (perf.ts `renders`) per record, by component (pure): `total` sums components' commits,
+/// events (`RENDER_EVENTS`) apart; `byComponent` lists both, most first.
+export function rendersPerRecord(
+  counts: Record<string, number>,
+  records: number,
+): { total: number; byComponent: Record<string, number> } {
+  const per = (value: number) => Math.round((value / Math.max(records, 1)) * 100) / 100;
+  const groups = new Map<string, number>();
+  let total = 0;
+  for (const [name, count] of Object.entries(counts)) {
+    const head = name.split(":")[0]!;
+    const group = PER_ROW.has(head) ? head : name;
+    groups.set(group, (groups.get(group) ?? 0) + count);
+    if (!RENDER_EVENTS.test(name)) total += count;
+  }
+  const byComponent = Object.fromEntries(
+    [...groups.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => [name, per(count)]),
+  );
+  return { total: per(total), byComponent };
+}
+/// One row per record kind of `bursts` (RENDERS=1), means over its bursts (pure): pane and transcript renders per
+/// record, the share of records whose one changed row the running turn's closed fold hides (`record:row-hidden`), and
+/// the pane renders per record those hidden ones still cost (`pane:row-hidden`), which should be 0.
+export function kindRenderTable(
+  bursts: readonly Pick<BurstResult, "kind" | "renders">[],
+): { kind: string; pane: number; transcript: number; hiddenShare: number; hiddenPane: number }[] {
+  const byKind = new Map<string, Record<string, number>[]>();
+  for (const burst of bursts)
+    if (burst.renders) byKind.set(burst.kind, [...(byKind.get(burst.kind) ?? []), burst.renders.byComponent]);
+  const mean = (all: Record<string, number>[], name: string) =>
+    Math.round((all.reduce((sum, each) => sum + (each[name] ?? 0), 0) / all.length) * 100) / 100;
+  return [...byKind.entries()].map(([kind, all]) => ({
+    kind,
+    pane: mean(all, "pane"),
+    transcript: mean(all, "transcript"),
+    hiddenShare: mean(all, "record:row-hidden"),
+    hiddenPane: mean(all, "pane:row-hidden"),
+  }));
+}
 /// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
 /// script work over every row; one that grows with them is the page's own (style, layout).
 const domSize = (page: Page) =>
@@ -700,6 +854,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       };
       const records = burst.toSeq - burst.fromSeq + 1;
       let probe: BurstResult["probe"];
+      let renders: BurstResult["renders"];
       if (PROBE) {
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
         const cost = await measureToggle(page, burst.kind, playBurst, () => paint(page, 2), cdp);
@@ -717,7 +872,24 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           contentRenders: per(sum("content:")),
           layoutObjects: cost.layoutObjectsMax ?? 0,
           styled: cost.styleElementsMax ?? 0,
+          phases: {
+            script: per(cost.scriptMs ?? 0),
+            style: per(cost.styleMs ?? 0),
+            layout: per(cost.layoutMs ?? 0),
+            paint: per(cost.paintMs ?? 0),
+          },
         };
+      } else if (RENDERS) {
+        await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
+        await playBurst();
+        await paint(page, 2);
+        const counts = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.() ?? {})) as Record<
+          string,
+          number
+        >;
+        renders = rendersPerRecord(counts, records);
+      } else if (SPLIT) {
+        console.log(`  ${burst.kind} at ${burst.rows} rows: ${await split(cdp, playBurst, page, records)}`);
       } else if (INVALIDATIONS) {
         await page.evaluate(() => (window as any).cmuxAcpmuxDebug?.renders?.());
         console.log(`  ${burst.kind} at ${burst.rows} rows: ${await invalidations(cdp, playBurst, page, records)}`);
@@ -742,6 +914,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
       bursts.push({
         dom,
         ...(probe ? { probe } : {}),
+        ...(renders ? { renders } : {}),
         kind: burst.kind,
         rows: burst.rows,
         msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
@@ -970,6 +1143,61 @@ export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: 
         },
         `one ${BURST_NAMES[kind]} costs more main-thread time than a frame's work`,
       );
+      const counted = longLive.bursts.filter((b) => b.kind === kind && b.renders);
+      if (counted.length) {
+        const totals = counted.map((b) => b.renders!.total);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.renders_per_record`,
+            p50: median(totals),
+            p95: worst(totals),
+            unit: "count",
+            floor: 0.5,
+          },
+          `one ${BURST_NAMES[kind]} commits this many components again`,
+        );
+        const rowRenders = counted.map((b) => b.renders!.byComponent.row ?? 0);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.row_renders_per_record`,
+            p50: median(rowRenders),
+            p95: worst(rowRenders),
+            unit: "count",
+            floor: 0.5,
+          },
+          `one ${BURST_NAMES[kind]} commits this many transcript rows again`,
+        );
+        // A record whose one changed row the running turn's closed fold hides draws nothing anyone
+        // sees in its row: the pane must not redraw for it (drawnRows.ts, `pane:row-hidden`). A quiet
+        // call's start or end moves only the live line, which hears it without the pane
+        // (liveCallLine.ts); a shell's or an edit's still redraws it.
+        const hiddenPane = counted.map((b) => b.renders!.byComponent["pane:row-hidden"] ?? 0);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.hidden_pane_renders_per_record`,
+            p50: median(hiddenPane),
+            p95: worst(hiddenPane),
+            unit: "count",
+            target: BUDGET.hiddenPaneRenders,
+            floor: 0.05,
+          },
+          `one ${BURST_NAMES[kind]} whose row sits under the running turn's closed fold still redraws the pane`,
+        );
+        if (kind === "token") {
+          const transcript = counted.map((b) => b.renders!.byComponent.transcript ?? 0);
+          row(
+            {
+              name: "transcript_replay.long.token.transcript_renders_per_record",
+              p50: median(transcript),
+              p95: worst(transcript),
+              unit: "count",
+              target: BUDGET.tokenTranscriptRenders,
+              floor: 0.5,
+            },
+            "one streamed token renders the transcript more than once",
+          );
+        }
+      }
       const growth = Math.round(slope(points) * 1000) / 1000;
       row(
         {
@@ -1176,7 +1404,16 @@ if (import.meta.main) {
               (burst.probe
                 ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
                   `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
-                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}`
+                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}; ms script ` +
+                  `${burst.probe.phases.script} style ${burst.probe.phases.style} layout ${burst.probe.phases.layout} ` +
+                  `paint ${burst.probe.phases.paint}`
+                : "") +
+              (burst.renders
+                ? ` renders per record ${burst.renders.total}: ` +
+                  Object.entries(burst.renders.byComponent)
+                    .slice(0, Number(process.env.RENDERS_TOP) || 12)
+                    .map(([name, count]) => `${name}=${count}`)
+                    .join(" ")
                 : ""),
           );
         // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.
@@ -1222,6 +1459,18 @@ if (import.meta.main) {
         console.log(`transcript-replay: ${log.name} FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    if (RENDERS)
+      for (const live of lives) {
+        const table = kindRenderTable(live.bursts);
+        if (!table.length) continue;
+        console.log(`transcript-replay: ${live.log} renders per record by kind`);
+        console.log("  kind         pane  transcript  hidden-row share  pane per hidden record");
+        for (const each of table)
+          console.log(
+            `  ${each.kind.padEnd(12)} ${String(each.pane).padStart(4)}  ${String(each.transcript).padStart(10)}  ` +
+              `${String(each.hiddenShare).padStart(16)}  ${String(each.hiddenPane).padStart(22)}`,
+          );
+      }
     const { rows, misses } = judge(opens, lives, BURST_LOG);
     for (const each of rows) perfRow(each);
     for (const miss of misses) console.log(`transcript-replay: ${miss}`);

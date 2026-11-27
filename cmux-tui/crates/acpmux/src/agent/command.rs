@@ -18,7 +18,7 @@ pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v4";
 /// Reserved legacy projection marker. A profile cannot control internal
 /// environment projection even if an older config used this valid env name.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
-/// Claude Code's switch for its TaskCreate and TaskUpdate tools in a `-p`
+/// Claude Code's switch for its to-do tools (TaskCreate, TaskUpdate) in a `-p`
 /// session (Claude Code 2.1.312 offers neither them nor TodoWrite without it).
 const TODO_TOOLS_ENV: &str = "CLAUDE_CODE_ENABLE_TODO_TOOLS";
 
@@ -81,6 +81,9 @@ pub(crate) async fn harness_command_ready(
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
 /// A tool call's bound (`CMUX_DEADLINE` and the tool that set it): never an agent's.
 pub(crate) const CALL_BOUND_ENV: [&str; 2] = ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"];
+/// Where `lane-gh` finds its broker's socket (its default: the `ssh -R` forward's `broker.sock`).
+#[cfg(unix)]
+const LANE_GH_SOCKET_ENV: &str = "LANE_GH_SOCKET";
 
 pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
     cmd.get_envs()
@@ -206,6 +209,11 @@ fn build_harness_command(
     let sr2_person = env.remove(crate::sr2_priority::PERSON_ENV).as_deref() == Some("1");
     // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.
     let opencode_ask = env.remove(crate::opencode_ask::MARKER).is_some();
+    // The person's `agents.envExclude` (agent_env.rs): removed last, below.
+    let env_exclude = env
+        .remove(crate::agent_env::EXCLUDE_MARKER)
+        .map(|marker| crate::agent_env::patterns(&marker))
+        .unwrap_or_default();
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
@@ -316,6 +324,15 @@ fn build_harness_command(
             // Its caller token and the socket it is for (hub/person.rs (a)); the cmux CLI's caller.
             .envs(crate::person_tokens::caller_env(id))
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
+        // RFD 0060 Weft move 3 (`laneGhCarrier`, off by default): lane-gh over the carrier forward
+        // this daemon holds, while one of its owners is healthy; a profile's own value wins.
+        #[cfg(unix)]
+        if let Some(socket) = crate::cli::host_broker_forward::healthy_held_socket()
+            && !cmd.as_std().get_envs().any(|(k, _)| k == LANE_GH_SOCKET_ENV)
+            && !env.contains_key(LANE_GH_SOCKET_ENV)
+        {
+            cmd.env(LANE_GH_SOCKET_ENV, socket);
+        }
         // This daemon's own acpmux, by absolute path: a login profile's PATH may find an older
         // one, which proves no caller (`cli_caller.rs`, bench round 4 A5).
         if let Some(bin) = crate::cli_caller::own_bin() {
@@ -348,6 +365,21 @@ fn build_harness_command(
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     let launch =
         crate::harness_limits::launch_args(codex_launch, args, session.map(|_| (cwd, &env)));
+    // `agents.sandbox.network` `allow` (agent_sandbox.rs): a chat's Codex sandbox reaches the
+    // network. A remote chain's launch runs only what its plan checked.
+    let launch = if codex_launch && session.is_some() && !remote_environment {
+        let home = env.get("CODEX_HOME").map(std::path::PathBuf::from);
+        crate::agent_sandbox::codex_args(crate::agent_sandbox::Sandbox::current(), launch, || {
+            crate::harness_limits::codex_sets(
+                args,
+                cwd,
+                home,
+                crate::agent_sandbox::CODEX_NETWORK_KEY,
+            )
+        })
+    } else {
+        launch
+    };
     // A remote chain's sandboxed launch runs only what its plan checked: no hook.
     let codex = (!remote_environment && codex_launch).then(|| (program.clone(), launch.clone()));
     let (launch, codex) = match codex {
@@ -363,6 +395,19 @@ fn build_harness_command(
     // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));
+    }
+    // The exec router's shims first (`placement/exec_router.rs`): on a Cloud machine with run
+    // VMs on, a heavy build any process of this session starts (a script's, `make`'s, a
+    // helper's) goes where the run VM placer sends it, not only Claude Code's own Bash calls.
+    if session.is_some() && !remote_environment {
+        let current = command_env_with(&cmd, true)
+            .into_iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v)
+            .unwrap_or_default();
+        if let Some(path) = crate::placement::exec_router::session_path(&current) {
+            cmd.env("PATH", path);
+        }
     }
     // A machine a Mac lends GitHub: git's helper and the gh shim ask the Mac for a short-lived
     // App token (`github_session_env.rs`). The person's own git and gh auth still answer first.
@@ -403,13 +448,11 @@ fn build_harness_command(
     if claude_code {
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        // Claude Code 2.1 offers its task tools (TaskCreate, TaskUpdate) in a
-        // `-p` session only when asked, and has no TodoWrite there: without
-        // them a chat keeps no list for the agent pane's checklist
-        // (claude_stdio/task_plan.rs). A value the profile or login set wins.
-        if get(TODO_TOOLS_ENV).is_none() {
-            cmd.env(TODO_TOOLS_ENV, "1");
-        }
+        // Claude Code 2.1 offers its to-do tools (TaskCreate, TaskUpdate) in a
+        // `-p` session only when asked, and has no TodoWrite there. cmux shows
+        // no agent to-do list (`todo_tools.rs`), so the switch is never on,
+        // whatever the profile, the login or the daemon's env set.
+        cmd.env_remove(TODO_TOOLS_ENV);
         // Claude Code's own cross-session messaging (ListAgents, SendMessage to other sessions,
         // its inbox socket) is off: its peer list is every Claude Code of the machine, whichever
         // daemon started it, and a message it holds shows nowhere; an agent here messages others
@@ -422,10 +465,16 @@ fn build_harness_command(
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
-        // Interactive or background (subrouter_priority.rs), after the lines already set.
+        // The sr and sr2 launchers reach their gateway with no base URL of their own.
+        let launcher = [Some(program.as_str()), Some(name), family]
+            .into_iter()
+            .flatten()
+            .any(|p| crate::sr2_priority::is_sr2_launcher(p) || is_sr_launcher(p));
+        // Interactive or background (subrouter_priority.rs), after the lines already set; only
+        // on a gateway's route, never on a direct Anthropic request.
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        if let Some(headers) = crate::subrouter_priority::custom_headers(get) {
+        if let Some(headers) = crate::subrouter_priority::custom_headers(get, launcher) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
         // sr2 cost labels (sr2_cost_labels.rs), over the lines set just above.
@@ -439,10 +488,10 @@ fn build_harness_command(
         cmd.env_remove(crate::sr2_priority::PERSON_ENV);
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        let launcher = crate::sr2_priority::is_sr2_launcher(program)
+        let sr2_launcher = crate::sr2_priority::is_sr2_launcher(program)
             || crate::sr2_priority::is_sr2_launcher(name)
             || family.is_some_and(crate::sr2_priority::is_sr2_launcher);
-        if let Some(headers) = crate::sr2_priority::custom_headers(get, launcher, sr2_person) {
+        if let Some(headers) = crate::sr2_priority::custom_headers(get, sr2_launcher, sr2_person) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
     }
@@ -479,6 +528,15 @@ fn build_harness_command(
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
     }
+    // `agents.envExclude`, last: whoever set a name (the daemon, the login shell, a profile,
+    // `agents.env`, acpmux above), the agent never gets it; acpmux's session wiring stays.
+    if !env_exclude.is_empty() {
+        for (key, _) in command_env_with(&cmd, !remote_environment) {
+            if crate::agent_env::excluded(&key, &env_exclude) {
+                cmd.env_remove(&key);
+            }
+        }
+    }
     // The hosted and direct translators take the hook home from this launch. Only the
     // selected local plugin enables its callbacks, regardless of inherited or profile env.
     cmd.env_remove(crate::bg_hook::HOME_ENV);
@@ -507,6 +565,13 @@ fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
             "{CONFIG_ENV} is not a JSON object: kept as it is, so OpenCode is not asked to ask before each tool"
         ),
     }
+}
+
+/// Whether `program` (or a profile name) is the subrouter launcher: `sr` (`sr claude ...`) or
+/// the `claude-sr` profile named for it, which runs through the subrouter gateway.
+fn is_sr_launcher(program: &str) -> bool {
+    let base = std::path::Path::new(program.trim()).file_name().and_then(|n| n.to_str());
+    base.is_some_and(|b| b == "sr" || b == "claude-sr")
 }
 
 /// How Claude Code started from `profile` writes its question previews
@@ -692,6 +757,26 @@ mod tests {
     }
 
     use super::*;
+
+    /// `agents.envExclude` (agent_env.rs) removes its names from the agent's whole env, the
+    /// profile's and the inherited ones, last; acpmux's own session wiring and the marker stay out.
+    #[test]
+    fn env_exclude_removes_names_last_but_keeps_acpmux_wiring() {
+        let p = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": {"SECRET_TOKEN": "x", "SECRET_OTHER": "y", "KEEP": "1", "PATH": "/usr/bin",
+                (crate::agent_env::EXCLUDE_MARKER): "SECRET_*,HOME,ACPMUX_*"}
+        }))
+        .unwrap();
+        let cmd =
+            harness_command("t", &p, &std::env::temp_dir(), None, Some(("s1", "n1"))).unwrap();
+        let env = command_env(&cmd);
+        let has = |k: &str| env.iter().any(|(n, _)| n == k);
+        assert!(!has("SECRET_TOKEN") && !has("SECRET_OTHER") && !has("HOME"));
+        assert!(has("KEEP"));
+        assert!(has("ACPMUX_SESSION_ID") && has("ACPMUX_SOCKET"));
+        assert!(!has(crate::agent_env::EXCLUDE_MARKER));
+    }
 
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
     /// must not, or the fleet's orphan reaper ends the agent once the bound passes.

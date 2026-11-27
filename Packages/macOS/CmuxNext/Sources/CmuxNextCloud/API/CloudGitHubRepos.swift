@@ -92,7 +92,7 @@ extension CloudOwnerAPIClient {
     /// repositories it reaches. Never throws: a check that does not answer is ``CloudGitHubApp/unknown``.
     /// `reauthDetail` is the server's reason a ``CloudGitHubApp/needsReauth`` connection gave, when it gave one.
     public func gitHubAppStatus(team: String) async -> (app: CloudGitHubApp, reposScope: String?, reauthDetail: String?) {
-        guard let path = CloudGitHubApp.path(team: team), let answer = await person(path) else { return (.unknown, nil, nil) }
+        guard let answer = await gitHubStatus(team: team) else { return (.unknown, nil, nil) }
         return (CloudGitHubApp(status: answer.status, body: answer.body), CloudGitHubApp.reposScope(status: answer.status, body: answer.body),
                 CloudGitHubApp.reauthDetail(status: answer.status, body: answer.body))
     }
@@ -100,14 +100,23 @@ extension CloudOwnerAPIClient {
     /// Where Settings' Reconfigure opens for `team`'s ready GitHub connection (``CloudGitHubApp/reconfigureURL(status:body:)``);
     /// nil when it is not ready or the status route did not answer.
     public func gitHubReconfigureURL(team: String) async -> URL? {
-        guard let path = CloudGitHubApp.path(team: team), let answer = await person(path) else { return nil }
+        guard let answer = await gitHubStatus(team: team) else { return nil }
         return CloudGitHubApp.reconfigureURL(status: answer.status, body: answer.body)
     }
 
-    /// `GET /v1/integrations/github/repos?team=&query=` with the person's own session.
+    /// `GET /v1/integrations/github/repos?team=&query=` with the person's own session (the daemon's `owner.github_repos`,
+    /// rows read as ``CloudGitHubRepos/parse(status:body:)`` reads them).
     public func gitHubRepos(team: String, query: String?) async -> Result<CloudGitHubRepos, CloudGitHubRepos.Failure> {
-        guard let path = CloudGitHubRepos.path(team: team, query: query), let answer = await person(path) else { return .failure(.unavailable) }
-        return CloudGitHubRepos.parse(status: answer.status, body: answer.body)
+        guard CloudGitHubApp.path(team: team) != nil else { return .failure(.unavailable) }
+        var args: [String: any Sendable] = ["team": team]
+        if let text = query?.trimmingCharacters(in: .whitespacesAndNewlines).prefix(256), !text.isEmpty { args["query"] = String(text) }
+        do {
+            return CloudGitHubRepos.parse(status: 200, body: try await daemon("owner.github_repos", args, timeout: Self.personWait))
+        } catch CloudAPIError.http(_, let code?, _, _, _) where code == "github.not_connected" || code == "needs_reauth" {
+            return .failure(.notConnected)
+        } catch {
+            return .failure(.unavailable)
+        }
     }
 
     /// `integration.connect {provider: "github"}` on `/v1/ops`, as the person, in ``teamID``'s team (`x-cmux-team`), under
@@ -118,45 +127,43 @@ extension CloudOwnerAPIClient {
     /// it (``CloudGitHubConnects/Answer/connected``), and for an owner the App is installed on already it answers GitHub's
     /// authorize page instead of the install page, so the person only approves and comes straight back (#55104).
     public func gitHubConnect(key: String, returnTo: String? = nil, repo: String? = nil) async -> CloudGitHubConnects.Answer {
-        var params = ["provider": "github"]
-        if let returnTo { params["return_to"] = returnTo }
-        if let repo { params["repo"] = repo }
-        let body: [String: Any] = ["op": "integration.connect", "params": params, "origin": "user", "idempotency_key": key]
-        guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else {
-            CloudGitHubConnects.logger.notice("github connect: no answer (return link \(returnTo != nil, privacy: .public))")
-            return .noAnswer
+        var args: [String: any Sendable] = ["idempotencyKey": key]
+        if let returnTo { args["returnTo"] = returnTo }
+        if let repo { args["repo"] = repo }
+        let failure: CloudAPIError
+        do {
+            if let answer = CloudGitHubConnects.reply(try await daemon("owner.github_connect", args, timeout: Self.personWait)) { return answer }
+            failure = .decoding("cloud.owner.github_connect: no install page")
+        } catch {
+            failure = error as? CloudAPIError ?? .decoding("cloud.owner.github_connect")
         }
-        let result = CloudGitHubConnects.answer(status: answer.status, body: answer.body)
-        if case .page = result {} else {
-            // Why it opened nothing: the HTTP status and the API's error code and whether it replayed (no tokens, no page).
-            let reply = (try? JSONSerialization.jsonObject(with: answer.body)) as? [String: Any]
-            let code = ((reply?["error"] as? [String: Any])?["code"] as? String) ?? "-"
-            let replayed = reply?["replayed"] as? Bool == true
-            CloudGitHubConnects.logger.notice("github connect: HTTP \(answer.status, privacy: .public) error \(code, privacy: .public) replayed \(replayed, privacy: .public) return link \(returnTo != nil, privacy: .public)")
-        }
-        return result
+        let answer = CloudGitHubConnects.answer(failure)
+        // Why it opened nothing: the HTTP status and the API's error code (no tokens, no page).
+        let why = if case .http(let status, let code, _, _, _) = failure { "HTTP \(status) error \(code ?? "-")" } else { "no answer" }
+        CloudGitHubConnects.logger.notice("github connect: \(why, privacy: .public) (return link \(returnTo != nil, privacy: .public))")
+        return answer
     }
 
-    /// One GET of `path` (a POST of `post` in ``teamID``'s team when given) with only Authorization (the Worker's
-    /// invocation log masks it) and the build space (the build's public tag); nil when it did not answer, or when a
-    /// misconfigured dev build has no space to send.
-    func person(_ path: String, post: Data? = nil) async -> (status: Int, body: Data)? {
-        guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path),
-              let access = try? await accessToken() else { return nil }
-        var request = URLRequest(url: url, timeoutInterval: 15)
-        request.httpMethod = post == nil ? "GET" : "POST"
-        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        guard (try? buildSpace.apply(to: &request)) != nil else { return nil }
-        if let post {
-            request.httpBody = post
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
-        }
-        let session = session, prepared = request, label = "\(request.httpMethod ?? "GET") \(url.path)"
-        guard let answer = try? await withDeadline(.seconds(15), label: label, { try await session.data(for: prepared) }),
-              let http = answer.1 as? HTTPURLResponse else { return nil }
-        return (http.statusCode, answer.0)
+    /// `integration.list` on `/v1/read` in ``teamID``'s team: whether a GitHub connection this person sees is pending
+    /// (Settings' Connect, or another launch's); nil when it did not answer.
+    public func gitHubConnectPending() async -> Bool? {
+        guard let data = try? await daemon("owner.github_list", [:], timeout: Self.bound(Self.personWait)),
+              let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return reply["pending"] as? Bool
     }
+
+    /// The status route's status and body for `team` (the daemon's `owner.github_app`, `raw`); nil when it did not
+    /// answer, or for a team that is not a `team_…` id.
+    func gitHubStatus(team: String) async -> (status: Int, body: Data)? {
+        guard CloudGitHubApp.path(team: team) != nil,
+              let data = try? await daemon("owner.github_app", ["team": team, "raw": true], timeout: Self.bound(Self.personWait)),
+              let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let status = reply["status"] as? Int else { return nil }
+        let body = reply["body"].flatMap { $0 is NSNull ? nil : (try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed)) }
+        return (status, body ?? Data())
+    }
+
+    /// How long one of the person's GitHub calls waits, as before (a slower answer is no answer).
+    static let personWait: Duration = .seconds(15)
 }
 
 /// Each team's Connect GitHub from the picker this launch, as Settings' Connect GitHub keeps its own: the installation
@@ -216,16 +223,25 @@ public final class CloudGitHubConnects {
         return answer
     }
 
-    /// The `/v1/ops` reply: `{ok, value: {authorize_url, connection: {id}}}` with a page ``CloudGitHubApp/installationURL(_:)`` allows.
-    nonisolated static func answer(status: Int, body: Data) -> Answer {
-        guard status < 500, status != 408, status != 429 else { return .noAnswer }
-        let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
-        guard (200..<300).contains(status), let reply, reply["error"] == nil || reply["error"] is NSNull, reply["ok"] as? Bool != false,
-              let value = reply["value"] as? [String: Any] else { return .refused }
-        if value["connected"] as? Bool == true, let id = (value["connection"] as? [String: Any])?["id"] as? String, !id.isEmpty { return .connected }
-        guard let raw = value["authorize_url"] as? String, let url = CloudGitHubApp.installationURL(raw),
-              let id = (value["connection"] as? [String: Any])?["id"] as? String, !id.isEmpty else { return .refused }
+    /// The daemon's `owner.github_connect` answer: `{connected: true, connection}` (an active connection already covers the
+    /// repository: nothing to open) or `{authorize_url, connection}` with a page ``CloudGitHubApp/installationURL(_:)``
+    /// allows; nil for anything else (a settings page carries no state, so it is never a connect page).
+    nonisolated static func reply(_ answer: Data) -> Answer? {
+        guard let reply = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any],
+              let id = reply["connection"] as? String, !id.isEmpty else { return nil }
+        if reply["connected"] as? Bool == true { return .connected }
+        guard let raw = reply["authorize_url"] as? String, let url = CloudGitHubApp.installationURL(raw) else { return nil }
         return .page(url)
+    }
+
+    /// A connect that gave no page: a 408, 429 or 5xx, a timeout, no cmux or no sign-in may have run (the key stays);
+    /// any other refusal, or a reply this client will not use, is refused.
+    nonisolated static func answer(_ failure: CloudAPIError) -> Answer {
+        switch failure {
+        case .http(let status, _, _, _, _): status >= 500 || status == 408 || status == 429 ? .noAnswer : .refused
+        case .timedOut, .transport, .notSignedIn, .noBackend: .noAnswer
+        default: .refused
+        }
     }
 }
 
@@ -255,7 +271,7 @@ public struct CloudGitHubPicker {
               let team = MacInstallIdentity.team(ofToken: token) else { return nil }
         let auth = auth
         let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-        return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace), team)
+        return (CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO), team)
     }
 
     /// `github.status`: ready, not connected, or unavailable and why.
@@ -267,6 +283,8 @@ public struct CloudGitHubPicker {
         let status = Status(app, reposScope: scope, reauthDetail: detail)
         // A completion the API refused is the last word on a team that is still not connected: say so where Connect is.
         if case .notConnected = status, let refusal = auth.gitHubChanges.refusal { return .linkRefused(reason: refusal.reason) }
+        // An organization's owners were asked to install the App: say so until it is approved (the status turns ready).
+        if case .requested(let asked) = auth.gitHubChanges.phase, status == .notConnected || status == .linking { return .requested(owner: asked) }
         return status
     }
 
@@ -284,6 +302,9 @@ public struct CloudGitHubPicker {
         case error
         /// The last completion the API refused (an expired state, a non-owner's request); `reason` is the API's, if any.
         case linkRefused(reason: String?)
+        /// The person asked an organization's owners to install the App (GitHub's `setup_action=request`); `owner` is the
+        /// organization when known. Connected once an owner approves.
+        case requested(owner: String?)
         case unavailable(Unavailable)
 
         /// The status route's answer for a signed-in person.
@@ -303,7 +324,7 @@ public struct CloudGitHubPicker {
         public var state: String {
             switch self {
             case .ready: "ready"
-            case .notConnected, .needsReauth, .linking, .error, .linkRefused: "not_connected"
+            case .notConnected, .needsReauth, .linking, .error, .linkRefused, .requested: "not_connected"
             case .unavailable: "unavailable"
             }
         }
@@ -315,6 +336,7 @@ public struct CloudGitHubPicker {
             case .linking: "linking"
             case .error: "error"
             case .linkRefused: "link_refused"
+            case .requested: "requested"
             case .ready, .notConnected, .unavailable: nil
             }
         }
@@ -405,13 +427,16 @@ public struct CloudGitHubPicker {
     /// settings page can never add an organization's repository, nor does GitHub's save there carry a state to finish
     /// anything with), so the API is asked for it: an active connection that covers it answers ``Connect/connected``,
     /// and an owner with the App installed answers GitHub's authorize page, whose redirect the app finishes (#55104).
-    public func connect(repo: String? = nil) async -> Connect {
+    ///
+    /// `addAccount`: the picker's Add organization. A connected team gets GitHub's install page too (its account chooser
+    /// lists the organizations the App is not on yet), as a new connection beside the first, instead of the first one's
+    /// settings page.
+    public func connect(repo: String? = nil, addAccount: Bool = false) async -> Connect {
         // A saved sign-in still being restored is not signed out: no sign-in to start for it.
         guard auth.isSignedIn else { return .unavailable(auth.isRestoring ? .unreachable : .signedOut) }
         auth.gitHubChanges.forgetRefusal() // a new Connect starts over: the last refused link no longer applies
-        guard let owner = await owner(), let path = CloudGitHubApp.path(team: owner.team),
-              let status = await owner.client.person(path) else { return .unavailable(.unreachable) }
-        if let known = Self.connectFromStatus(status: status.status, body: status.body, repo: repo) { return known }
+        guard let owner = await owner(), let status = await owner.client.gitHubStatus(team: owner.team) else { return .unavailable(.unreachable) }
+        if !addAccount || repo != nil, let known = Self.connectFromStatus(status: status.status, body: status.body, repo: repo) { return known }
         let client = owner.client
         if auth.gitHubChanges.count != connects.seenChanges { connects.forgetPages(); connects.seenChanges = auth.gitHubChanges.count }
         if let repo {

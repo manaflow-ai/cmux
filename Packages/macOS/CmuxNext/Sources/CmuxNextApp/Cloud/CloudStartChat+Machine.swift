@@ -48,7 +48,7 @@ extension CloudStartChat {
     /// never be copied to one of them.
     static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws { // the rule: cmux-cloud-start-core `start`
         guard let check = CloudStartCore().checkAccount(asked, now: now, listCurrent: listCurrent) else { return }
-        throw CloudMove.Failure(message: check == .accountChanged ? CloudMoveStrings.startChatAccountChanged : CloudMoveStrings.startChatListUnread)
+        throw CloudMove.Failure(message: check == .accountChanged ? CloudMoveStrings.startChatAccountChanged : CloudMoveStrings.startChatListUnread, sendAgain: check != .accountChanged) // a list not read yet may pass later (recover ListUnread: rerun)
     }
 
     /// The machine for the send `start`, connected, and the plan's keys. Only a machine of the list
@@ -65,7 +65,7 @@ extension CloudStartChat {
         let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
         // The install token and the session's access token are two reads of their own: together, not one after the other (cmux#45953).
         let reserved = start.reservationKey != nil
-        async let installRead = { @MainActor in reserved ? try await cloud.installIdentity.installToken() : nil }()
+        async let installRead = { @MainActor in ensureProject || reserved ? try await cloud.installIdentity.installToken() : nil }() // the ensure's credential too
         async let accessRead = { @MainActor in ensureProject || reserved ? try await cloud.auth.tokens().access : nil }()
         let access = try? await accessRead, install = try await installRead
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.platformUserID,
