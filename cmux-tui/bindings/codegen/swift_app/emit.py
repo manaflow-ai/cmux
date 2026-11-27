@@ -78,7 +78,7 @@ _TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "flatten", "f
 _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
-    "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation", "flatten",
+    "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation", "flatten", "omit",
 })
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "encode_when", "update"})
 _ENCODE_MODES = {"always": True, "if_present": False}
@@ -503,6 +503,19 @@ class _Renderer:
             raise BindingError(f"{command}: protocol must be one of {', '.join(PROTOCOLS)}")
         nested: list[_Enum] = []
         schema_fields, order = request["fields"], list(binding.get("order", ()))
+        omit = binding.get("omit", ())
+        if not isinstance(omit, (list, tuple)) or any(not isinstance(wire, str) or not wire for wire in omit):
+            raise BindingError(f"{command}.omit: a list of non-empty wire names is required")
+        if len(set(omit)) != len(omit):
+            raise BindingError(f"{command}.omit: a wire field is listed twice")
+        for wire in omit:
+            if wire not in schema_fields:
+                raise BindingError(f"{command}.omit names {wire!r}, which the schema does not have")
+            if schema_fields[wire]["presence"] == "required":
+                raise BindingError(f"{command}.omit names {wire!r}, which the schema requires")
+        if set(omit) & set(order):
+            raise BindingError(f"{command}.omit cannot remove a field named in order")
+        schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in omit}
         mutation = binding.get("mutation", False)
         if mutation not in (True, False):
             raise BindingError(f"{command}: mutation is true or false")
@@ -516,6 +529,7 @@ class _Renderer:
             raise BindingError(f"{command}: flatten maps a Swift property name to its binding")
         if len(set(order)) != len(order):
             raise BindingError(f"{command}: the order names a field twice")
+        claimed_flatten_wires: set[str] = set()
         for name, spec in flatten.items():
             if not _IDENTIFIER.fullmatch(name) or name == MUTATION:
                 raise BindingError(f"{command}.flatten: {name!r} is not a Swift property name")
@@ -523,11 +537,17 @@ class _Renderer:
             if spec.get("type") not in self.flatten:
                 raise BindingError(f"{command}.flatten.{name}: type must be one the top-level flatten registry names")
             wires, statement = self.flatten[spec["type"]]
+            overlap = sorted(claimed_flatten_wires & set(wires))
+            if overlap:
+                raise BindingError(
+                    f"{command}.flatten.{name}: wire fields overlap an earlier flattened value: {', '.join(overlap)}"
+                )
             taken = [wire for wire in wires if wire in schema_fields]
             if not taken:
                 raise BindingError(f"{command}.flatten.{name}: the schema has none of {spec['type']}'s wire names")
             if any(schema_fields[wire]["presence"] == "required" for wire in taken):
                 raise BindingError(f"{command}.flatten.{name}: a flattened field must be optional in the schema")
+            claimed_flatten_wires.update(wires)
             schema_fields = {wire: item for wire, item in schema_fields.items() if wire not in taken}
             optional = spec.get("optional", False)
             default = spec.get("default")

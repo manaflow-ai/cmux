@@ -2368,6 +2368,7 @@
             "title",
             "pinned",
             "marked_unread",
+            "keep_awake",
             "mutation"
           ],
           "flatten": {
@@ -3176,6 +3177,9 @@
           "protocol": "TerminalSpawningRequest",
           "response": "CreateTerminalResult",
           "mutation": true,
+          "omit": [
+            "detached"
+          ],
           "doc": [
             "Spawns a terminal inside a workspace (a new screen/pane when it is empty)."
           ],
