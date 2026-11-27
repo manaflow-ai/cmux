@@ -763,7 +763,7 @@ function coldOpenRoughAbove(
   if (cache.size > 0 || kept || resizing || view.height <= 0) return undefined;
   const openAt = view.openAt;
   if (openAt && rows.some((row) => row.id === openAt.rowId)) return undefined;
-  return (HISTORY_VIEWPORTS + 2) * view.height;
+  return 3 * view.height;
 }
 
 /// The layouts of the chats this page's transcripts showed (conversation/keptLayouts.ts).

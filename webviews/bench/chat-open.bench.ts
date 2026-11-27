@@ -982,8 +982,9 @@ try {
     // and with its callees), and how long it sat idle (a timer, a frame or an await between the two).
     if (profileAttach && latestAt) {
       const tail = Number(process.env.PROFILE_TAIL ?? 0);
-      const from = tail ? latestAt - profileStart : profileAttach - profileStart;
-      const to = latestAt - profileStart + tail;
+      const pre = process.env.PROFILE_PRE === "1";
+      const from = pre ? 0 : tail ? latestAt - profileStart - tail : profileAttach - profileStart;
+      const to = pre ? profileAttach - profileStart : latestAt - profileStart;
       const windowSelf = new Map<string, number>();
       const windowTotal = new Map<string, number>();
       let idle = 0;
