@@ -184,7 +184,7 @@ Worker was deployed before its database migration; the message names it), `membe
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `POST /v1/diagnostics/connectivity-incidents` | One state of a major connectivity incident (0.15.0; "Connectivity incidents" below) → `202 {accepted:true, route:"team"\|"test", note?:"duplicate"\|"rate_limited"}`; `403 not_team` / `email_unverified` for anyone whose verified Stack email is not on a cmux team domain; `409 conflict` for an incident id another account used; `502 user_unavailable` when Stack cannot be asked (retry) |
-| `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
+| `GET /v1/health` | → `{ok:true, version, capabilities, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `capabilities` includes `sealed-chunk-cache-v1` from API 0.19.0; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
 | `GET /v1/teams/:teamId/hub` | → `{ingressColo, hubColo, locationHint}`: diagnostics added in 0.6.0. Where this request entered Cloudflare, where the caller's hub runs (since 0.10.0 the hub is the caller's, whatever `teamId` names; the caller must still be a member of it), and the region a hub created by this request would get (`null` when unknown) |
 
 Every response carries `Server-Timing` (0.8.0): the steps it waited on, for example
@@ -800,6 +800,32 @@ split wins.
   creates no table and places as before. No frame, field, header or status
   is new: old phones' `link_stat` feeds it as is, and an extra field in it is
   ignored as before.
+
+## Sealed chunk cache (API 0.19.0, `sealed-chunk-cache-v1`)
+
+The Worker can store opaque attachment chunks for one authenticated device pair. The relay never has a
+pair key and never verifies the BLAKE3 keyed hash. It checks only the lowercase hexadecimal syntax and
+the size bound, so the two devices remain the source of truth.
+
+- **Pair admission:** every request carries `sessionId` and `deviceId` as query parameters or
+  `X-Cmux-Chunk-Session` and `X-Cmux-Chunk-Device` headers, plus that device's own
+  `x-cmux-relay-ticket` (the one the hub stamped on its signals, as for the WebSocket relay). The Worker
+  authenticates the Stack token, asks the caller's `TeamHub` for that session's other device with the
+  ticket, and names a cache by the owner key, build space and sorted device ids. A missing or wrong
+  ticket, or another device's, gets `403 not_in_session`. A device cannot name another pair's namespace.
+- **Put/get:** `PUT /v1/chunks/<64 lowercase hex>` stores an opaque body up to 256 KiB plus 64 bytes.
+  A new chunk returns `201`, and an existing id returns `200` without writing. `GET` returns the bytes
+  or `404`. `LINK_RELAY_MODE=off` returns `503 relay_off` for these routes too.
+- **Presence:** `POST /v1/chunks/have` accepts `{ "ids": [ ... ] }` with at most 1024 ids and returns
+  `{ "have": [true, false, ...] }` in the same order.
+- **Batch transfer:** `POST /v1/chunks/get` accepts the same body and returns one binary response. Each
+  present chunk is `[32-byte id][u32 big-endian length][sealed bytes]`; missing ids are omitted.
+- **Retention:** each pair has a 64 MiB cache, evicts least-recently-read chunks, and expires entries
+  after seven days through a Durable Object alarm. Reads touch LRU state in batches. The cache is scoped
+  per pair, never shared between users.
+- **Compatibility:** `/v1/health` advertises `sealed-chunk-cache-v1` and API version `0.19.0`. New
+  clients skip these routes when the capability is absent. An older Worker returns `404`, so clients
+  fall back to direct transfer.
 
 ### When no path works
 
