@@ -7,6 +7,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import os
 import tempfile
 import unittest
@@ -254,6 +255,34 @@ class Parity(unittest.TestCase):
             errors, _ = parity.check(root, table)
             self.assertEqual(len(errors), 1)
             self.assertIn("unreadable", errors[0])
+
+    def test_a_design_scale_alias_reads_the_generated_value_and_a_native_override_is_recorded_drift(self):
+        # DesignTokens forwards to DesignScale, which gen-design-scale-swift.py writes at build time; the
+        # checker runs the generator and reads it. A NativeOverride is drift the generator records.
+        with tempfile.TemporaryDirectory() as root:
+            table = self.tree(root)
+            tokens = os.path.join(root, "src/CmuxNextDesignTokens/DesignTokens.swift")
+            with open(tokens, encoding="utf-8") as handle:
+                text = handle.read()
+            text = re.sub(r"(space1: CGFloat = )\S+", r"\1DesignScale.space1", text)
+            text = re.sub(r"(radiusControl: CGFloat = )\S+", r"\1DesignScale.NativeOverride.radiusControl", text)
+            write(root, "src/CmuxNextDesignTokens/DesignTokens.swift", text)
+            with open(table, encoding="utf-8") as handle:
+                data = json.load(handle)
+            data["drift"] = []
+            with open(table, "w", encoding="utf-8") as handle:
+                json.dump(data, handle)
+            generated = ("public enum DesignScale {\n    public static let space1: CGFloat = {space}\n"
+                         "    public static let radiusControl: CGFloat = 8\n"
+                         "    public nonisolated enum NativeOverride {\n"
+                         "        public static let radiusControl: CGFloat = 6\n    }\n}\n")
+            for space, want in ((4, []), (5, ["differs: spacing.steps[name=1].px"])):
+                parity._GENERATED.pop(root, None)
+                write(root, parity.GENERATOR, "import sys, os\nout = sys.argv[sys.argv.index('--swift-out') + 1]\n"
+                      f"open(os.path.join(out, {parity.GENERATED_FILE!r}), 'w').write({generated.replace('{space}', str(space))!r})\n")
+                errors, summary = parity.check(root, table)
+                self.assertEqual([e.split(" <->")[0] for e in errors if "space1" in e], want, errors)
+            self.assertNotIn("radiusControl", " ".join(errors))
 
     def test_the_repository_table_passes(self):
         errors, summary = parity.check(REPO, os.path.join(REPO, parity.TABLE))
