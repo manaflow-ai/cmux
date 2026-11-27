@@ -43,7 +43,7 @@ STALE = "::error::Generated cmux-next files are stale. Regenerate them as the st
 class Expr:
     """A small evaluator of the GitHub Actions expressions these job conditions use:
     literals, property paths (with `.*.`), !, ==, !=, &&, || (operand-valued),
-    parentheses, cancelled() and contains(). Loose equality as GitHub does it:
+    parentheses, cancelled(), contains() and startsWith(). Loose equality as GitHub does it:
     values of different types compare as numbers (null and '' are 0)."""
 
     TOKEN = re.compile(r"\s*(?:(\d+)|'((?:[^']|'')*)'|(&&|\|\||==|!=|!|\(|\)|,)|([A-Za-z_][A-Za-z0-9_.*-]*))")
@@ -180,13 +180,18 @@ REPO = "manaflow-ai/cmux"
 NEXT = "refs/heads/feat-cmux-next"
 
 
+def live_labels(labels):
+    """path_route's labels output: the pull request's live labels, comma-fenced (cmux#57329)."""
+    return "," + "".join(label + "," for label in labels)
+
+
 def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=(), linux="0"):
     """path_route's own expression context: its route step, the tree probes and the marker upload.
     linux is vars.CI_GENERATED_FILES_LINUX: "0" is the Mac fallback mode the fold cases below cover."""
     return {"vars": {"CI_GENERATED_FILES_LINUX": linux}, "github": {"event_name": event, "ref": ref,
                        "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "labels": [{"name": label} for label in labels]}}},
             "steps": {"route": {"outputs": {"generated": generated, "swift": swift, "swift_targets": targets,
-                                            "daemon": daemon}},
+                                            "daemon": daemon, "labels": "," + ",".join(labels) + ","}},
                       "tree": {"outputs": {"tree_state": tree}}, "tree-final": {"outputs": {}},
                       "marker-upload": {"outcome": marker}}}
 
@@ -252,7 +257,8 @@ class GeneratedFoldTest(unittest.TestCase):
             host = Expr(host_expr, rctx).value()
             tree_state = Expr(tree_expr, rctx).value()
             outputs = {"generated": generated, "swift": swift, "swift_targets": targets, "daemon": daemon,
-                       "tree_state": tree_state, "generated_host": host}
+                       "tree_state": tree_state, "generated_host": host,
+                       "labels": Expr(self.route["outputs"]["labels"], rctx).value()}
             head = "someone/fork" if fork else REPO
             ctx = {"github": {"event_name": event, "ref": ref, "repository": REPO,
                               "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "head": {"repo": {"full_name": head}},
@@ -450,7 +456,13 @@ class GeneratedFoldTest(unittest.TestCase):
                           self.step(self.swift, name)["if"])
         self.assertEqual(self.swift["outputs"]["generated_files"],
                          "${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}")
-        self.assertEqual(self.daemon["outputs"]["generated_files"], "${{ steps.generated-files-verdict.outputs.verdict }}")
+        # daemon-test reuses a pass too (docs/ci/cmux-next-workflow-notes/2026-11-25-daemon-reuse.md).
+        self.assertEqual(self.daemon["outputs"]["generated_files"], self.swift["outputs"]["generated_files"])
+        key = self.step(self.daemon, "Fingerprint this job's inputs")["run"]
+        self.assertIn('--extra "generated_base=$([[ "$CMUX_NEXT_FOLD_GENERATED" != true ]] || git rev-parse HEAD^1)"', key)
+        for name in ("Record this pass for the same inputs", "Save the pass"):
+            self.assertIn("(env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh')",
+                          self.step(self.daemon, name)["if"])
 
     def test_the_exports_cache_accepts_a_folded_push(self):
         cache = self.jobs["swift-exports-cache"]

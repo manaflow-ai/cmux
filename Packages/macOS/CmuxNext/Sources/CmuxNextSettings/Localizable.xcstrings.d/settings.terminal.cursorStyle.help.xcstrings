@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.terminal.cursorStyle.help" : {
+      "comment" : "Settings row help for the terminal cursor style.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The terminal cursor's shape. Unset, the Ghostty config's cursor-style."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "شكل مؤشر الطرفية. إذا لم يُحدَّد، يُستخدم cursor-style من إعدادات Ghostty."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oblik kursora terminala. Ako nije postavljeno, cursor-style iz Ghostty konfiguracije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formen på terminalmarkøren. Hvis den ikke er angivet, bruges cursor-style fra Ghostty-konfigurationen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Form des Terminal-Cursors. Nicht gesetzt: cursor-style aus der Ghostty-Konfiguration."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La forma del cursor del terminal. Sin definir, el cursor-style de la configuración de Ghostty."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La forme du curseur du terminal. Non définie : le cursor-style de la configuration Ghostty."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La forma del cursore del terminale. Se non impostato, il cursor-style della configurazione di Ghostty."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナルのカーソルの形です。未設定なら Ghostty の設定の cursor-style を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រូបរាងនៃទស្សន៍ទ្រនិចអត្ថបទក្នុងទែមីណាល់។ ពេលមិនបានកំណត់ ប្រើ cursor-style ពីការកំណត់ Ghostty។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "터미널 커서의 모양입니다. 설정하지 않으면 Ghostty 설정의 cursor-style을 씁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formen på terminalmarkøren. Hvis den ikke er angitt, brukes cursor-style fra Ghostty-konfigurasjonen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kształt kursora terminala. Gdy nie ustawiono, cursor-style z konfiguracji Ghostty."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O formato do cursor do terminal. Se não definido, o cursor-style da configuração do Ghostty."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Форма курсора терминала. Если не задано, cursor-style из конфигурации Ghostty."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รูปร่างของเคอร์เซอร์เทอร์มินัล หากไม่ได้ตั้งค่า จะใช้ cursor-style จากการกำหนดค่า Ghostty"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal imlecinin şekli. Ayarlanmazsa Ghostty yapılandırmasındaki cursor-style kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Форма курсора терміналу. Якщо не задано, cursor-style із конфігурації Ghostty."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hình dạng con trỏ của terminal. Khi chưa đặt, dùng cursor-style trong cấu hình Ghostty."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "终端光标的形状。未设置时使用 Ghostty 配置的 cursor-style。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終端機游標的形狀。未設定時使用 Ghostty 設定的 cursor-style。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
