@@ -3053,11 +3053,7 @@ enum RelayAllocation {
 
 /// Start both relay protocols on the same gather clock. A usable allocation
 /// goes straight into wg-init. The other can trickle into the live tunnel.
-async fn gather_dial(
-    socket: &UdpSocket,
-    options: &DialOptions,
-    early: Option<EarlyTurn>,
-) -> GatherDial {
+async fn gather_dial(socket: &UdpSocket, options: &DialOptions, early: Option<EarlyTurn>) -> GatherDial {
     let mut pending = tokio::task::JoinSet::new();
     if !hop::configured(options) {
         let (gathered, allocated) = match early {
@@ -3164,7 +3160,14 @@ impl Prepared {
         // join runs while the Mac gathers and answers instead of after
         // `wg-resp` (PROTOCOL.md "Early relay ticket"). An older hub ignores it.
         let ticket_early = self.own_relay_now || relay_offer.as_deref() == Some(RELAY_FIRST);
-        InitOffer { endpoints: self.own_endpoints.clone(), relayed, relayed_tls, relay_offer, ticket_early, hop }
+        InitOffer {
+            endpoints: self.own_endpoints.clone(),
+            relayed,
+            relayed_tls,
+            relay_offer,
+            ticket_early,
+            hop,
+        }
     }
 }
 
@@ -3273,8 +3276,14 @@ pub(super) fn dial_wireguard<'a>(
                 (InitOffer::first(options, port), None)
             }
         };
-        let InitOffer { endpoints, relayed, relayed_tls, relay_offer, ticket_early: ask_ticket_early, hop: hop_address } =
-            init;
+        let InitOffer {
+            endpoints,
+            relayed,
+            relayed_tls,
+            relay_offer,
+            ticket_early: ask_ticket_early,
+            hop: hop_address,
+        } = init;
         let mut prepared = prepared;
         // A proxy refused TURN over TLS (sign-in the link cannot do, a policy).
         // With no UDP that works either (UDP off, STUN silent, or no STUN server
@@ -3398,9 +3407,7 @@ pub(super) fn dial_wireguard<'a>(
         // the socket only once STUN is done with it (bounded by its clock).
         let prepared = match prepared {
             Some(prepared) => prepared,
-            None => {
-                prepare_gathered(options, gather.as_mut().await)?
-            }
+            None => prepare_gathered(options, gather.as_mut().await)?,
         };
         drop(gather);
         let Prepared { own_endpoints, stun, turn, hop, pending, own_relay_now, turn_missed } = prepared;
