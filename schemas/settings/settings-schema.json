@@ -136839,8 +136839,9 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "click",
+        "never",
+        "always"
       ],
       "agent_refusal" : "network",
       "agent_settable" : false,
