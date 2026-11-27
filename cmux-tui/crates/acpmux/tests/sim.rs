@@ -27,6 +27,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "SIM_FAULTS",
     "SIM_RESEND",
     "SIM_KNOWN_GAPS",
+    "SIM_LEAK_TRACE",
 ]);
 
 #[path = "sim/agent.rs"]
@@ -46,6 +47,9 @@ mod world;
 
 use std::collections::BTreeMap;
 use world::{Faults, Options};
+
+/// The most seeds one test process runs (see the assert in `seeds_hold_the_delivery_invariants`).
+const SEEDS_PER_PROCESS: u64 = 500;
 
 fn env_u64(name: &str) -> Option<u64> {
     std::env::var(name).ok().and_then(|v| v.trim().parse().ok())
@@ -121,6 +125,15 @@ fn seeds_hold_the_delivery_invariants() {
         return;
     }
     let seeds = env_u64("SIM_SEEDS").unwrap_or(64);
+    // Every hub a seed builds outlives its simulation (about 13 MB and 2 fds a seed, one
+    // `acpmux-audit` thread a hub; SIM_LEAK_TRACE=1 shows it): 4000 seeds in one process reached
+    // 31 GB and filled a pool host's disk with swap (acpmux-sim-sweep run 45768539377). Until
+    // what keeps them is found, a process runs at most this many and the sweep runs chunks.
+    assert!(
+        seeds <= SEEDS_PER_PROCESS,
+        "SIM_SEEDS={seeds} is over {SEEDS_PER_PROCESS} in one process: run chunks of at most \
+         that many with SIM_SEED_BASE offsets (acpmux-sim-sweep.yml), each seed's hubs stay alive"
+    );
     let base = env_u64("SIM_SEED_BASE").unwrap_or(0);
     let started = std::time::Instant::now();
     let mut simulated = std::time::Duration::ZERO;
@@ -131,8 +144,30 @@ fn seeds_hold_the_delivery_invariants() {
     let known_gaps = matches!(std::env::var("SIM_KNOWN_GAPS").as_deref(), Ok("1"));
     // Seeds that fail only by a known gap: they hold once its cause is taken away.
     let mut shown: BTreeMap<String, Vec<u64>> = BTreeMap::new();
+    let trace_leaks = std::env::var_os("SIM_LEAK_TRACE").is_some();
     for seed in base..base + seeds {
         let run = world::run(seed, &opts);
+        if trace_leaks {
+            let (alive, built) = world::left_alive();
+            let count = |d: &str| std::fs::read_dir(d).map_or(0, |r| r.count());
+            let mut names: BTreeMap<String, usize> = BTreeMap::new();
+            if let Ok(tasks) = std::fs::read_dir("/proc/self/task") {
+                for t in tasks.flatten() {
+                    let n = std::fs::read_to_string(t.path().join("comm")).unwrap_or_default();
+                    *names.entry(n.trim().to_owned()).or_default() += 1;
+                }
+            }
+            let rss = std::fs::read_to_string("/proc/self/status")
+                .unwrap_or_default()
+                .lines()
+                .find(|l| l.starts_with("VmRSS"))
+                .map(str::to_owned)
+                .unwrap_or_default();
+            eprintln!(
+                "leak seed {seed}: hubs alive {alive}/{built} fds {} {rss} threads {names:?}",
+                count("/proc/self/fd")
+            );
+        }
         simulated += run.simulated;
         if let Err(failure) = invariants::check(&run) {
             let known =
