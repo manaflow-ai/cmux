@@ -395,6 +395,14 @@ jobs:
     permissions:
       contents: read
 
+  nightly-pr-build:
+    name: nightly pr build
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'nightly-pr-build.yml') }}
+    uses: ./.github/workflows/nightly-pr-build.yml
+    permissions:
+      contents: read
+
   classic-api-guard:
     name: classic API guard
     needs: route
@@ -445,6 +453,11 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-fast-gates.yml') }}
     uses: ./.github/workflows/cmux-next-fast-gates.yml
+    # Reusable workflows do not receive repository secrets implicitly (including status-post fallbacks).
+    secrets:
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
+      CI_POOL_TOKEN_1: ${{ secrets.CI_POOL_TOKEN_1 }}
+      CI_POOL_TOKEN_2: ${{ secrets.CI_POOL_TOKEN_2 }}
     permissions:
       contents: read
       pull-requests: read
