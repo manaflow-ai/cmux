@@ -117,7 +117,9 @@ exempt = {"early-nightly-webviews", "build-live-code-variant", "sign-live-code-v
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "verify-nightly-identity-legacy-pool",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked",
           # Builds the deltas after the feed from nightly-next-one's own build_sha (already the resolved commit).
-          "nightly-next-deltas"}
+          "nightly-next-deltas",
+          # Checks out only scripts/ (the R2 reader); its DMG is nightly-next-one's tested one, by digest.
+          "nightly-next-variant-from-r2"}
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"

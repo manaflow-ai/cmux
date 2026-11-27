@@ -107,6 +107,9 @@ HOSTED_LOOP_JOBS = {
                                    "an ephemeral JIT VM; on the signer it held the whole Mac",
     "keep-published-dsyms": "downloads and retains symbols with release credentials; on the signer its API and R2 work "
                             "held the whole Mac",
+    # 84 s of a 237 MB upload on the signer after the feed (run 46065369073); the DMG is already on R2.
+    "nightly-next-variant-from-r2": "reads the tested DMG back from R2 with the nightly-next R2 keys and uploads the "
+                                    "variant artifact; on the signer the upload held the whole Mac",
 }
 # The secret-free runner preflight ahead of decide left GitHub-hosted Ubuntu on 2026-11-18: the org-wide hosted
 # queue held it 1h25m+ (run 44207617943), and every nightly with it, while the nightly Macs were idle. It now runs on
@@ -289,7 +292,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
         # Leo's override covers this one job only, and only on an ephemeral VM: no variable, pick or one-mini mode may
         # put the release App key on a mini without the whole-Mac claim, so its route is the literal JIT label on every
         # attempt (the fork branch keeps GitHub-hosted Ubuntu).
-        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github", "keep-published-dsyms"})
+        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github", "keep-published-dsyms",
+                                                 "nightly-next-variant-from-r2"})
         for name in HOSTED_LOOP_JOBS:
             job = JOBS[name]
             resolved = workflow_jobs.resolve(job, name)
@@ -305,7 +309,9 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertEqual(resolved.environments_unresolved, set())
                 self.assertNotIn("pick-nightly-sign-runner", json.dumps(job))
                 # It stays in the loop run, which the next decide reads (tests/test_nightly_next_tail_off_push_group).
-                self.assertIn("needs.published-build.outputs.cross_run != 'true'", str(job.get("if")))
+                # nightly-next-variant-from-r2 runs before published-build, only after this run's own feed write.
+                self.assertIn("needs.published-build.outputs.cross_run != 'true'" if name != "nightly-next-variant-from-r2"
+                              else "needs.nightly-next-one.outputs.feed_written == 'true'", str(job.get("if")))
                 ids = [step.get("id") for step in steps(name)]
                 self.assertNotIn(CLAIM_GATE_ID, ids)
                 self.assertFalse(any(CLAIM in str(step.get("run", "")) for step in steps(name)))

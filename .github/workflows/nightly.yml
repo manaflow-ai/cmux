@@ -7416,7 +7416,7 @@ jobs:
   nightly-next-variant-from-r2:
     needs: [decide, nightly-next-one]
     if: "!cancelled() && needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.left != 'true'"
-    environment: ${{ needs.decide.outputs.environment }}
+    environment: release-next
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 20
     permissions:
