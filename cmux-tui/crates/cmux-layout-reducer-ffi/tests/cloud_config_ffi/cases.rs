@@ -1,4 +1,4 @@
-//! `cloud_config_*`, `cloud_auth_*` and `cloud_vm_agent_key_*` through the C ABI: the app sends
+//! `cloud_config_*` and `cloud_auth_*` through the C ABI: the app sends
 //! its facts and acts on the answer (cmux-cloud-config holds the rules and their cases).
 
 use cmux_layout_reducer_ffi::{ERR_INVALID, OK, cmux_layout_reducer_json};
@@ -315,32 +315,6 @@ fn auth_rules_answer_from_what_the_app_read() {
     assert_eq!(keys["keys"], json!({"CMUX_DEV_AUTH_PROFILE": "agent"}));
     let (_, masked) = call(c"cloud_auth_mask", &json!({"email": "leo@example.com"}));
     assert_eq!(masked["masked"], "l***@example.com");
-}
-
-#[test]
-fn the_agent_key_mint_is_planned_and_read_here() {
-    let (code, planned) = call(
-        c"cloud_vm_agent_key_request",
-        &json!({"backend": {"kind": "production"}, "params": {"ttlSeconds": 3600, "maxVms": 2}}),
-    );
-    assert_eq!(code, OK);
-    assert_eq!(planned["request"]["url"], "https://vm.cmux.dev/v1/agent-keys");
-    assert_eq!(planned["request"]["body"]["scopes"], json!(["vm:read", "vm:write", "vm:exec"]));
-    let (_, refused) = call(
-        c"cloud_vm_agent_key_request",
-        &json!({"backend": {"kind": "production"}, "params": {"maxVms": 99}}),
-    );
-    assert_eq!(refused["refusal"]["code"], "invalid_params");
-    let (_, minted) = call(
-        c"cloud_vm_agent_key_answer",
-        &json!({"status": 201, "body": "{\"key\":\"vmk_s\",\"id\":\"vmk_1\"}", "baseUrl": "https://vm.cmux.dev", "teamId": "t"}),
-    );
-    assert_eq!(minted["result"]["teamId"], "t");
-    let (_, signed_out) = call(
-        c"cloud_vm_agent_key_answer",
-        &json!({"status": 401, "body": "", "baseUrl": "https://vm.cmux.dev", "teamId": "t"}),
-    );
-    assert_eq!(signed_out["refusal"]["appText"], "notSignedIn");
 }
 
 #[test]

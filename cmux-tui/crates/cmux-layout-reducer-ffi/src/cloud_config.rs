@@ -1,21 +1,20 @@
 //! `cmux-cloud-config` over the JSON channel: which Cloud the app talks to
-//! (`cloud_config_*`), the auth rules around its Keychain I/O (`cloud_auth_*`),
-//! the install identity's rules (`cloud_identity_*`) and the VM agent-key mint
-//! (`cloud_vm_agent_key_*`). The app reads its bundle,
+//! (`cloud_config_*`), the auth rules around its Keychain I/O (`cloud_auth_*`)
+//! and the install identity's rules (`cloud_identity_*`). The app reads its bundle,
 //! environment, files and the Keychain, sends the facts and acts on the answer;
 //! it does the HTTP call itself.
 
 use std::collections::BTreeMap;
 
-use cmux_cloud_config::{agent_key, auth, config, identity, install_key_slots};
+use cmux_cloud_config::{auth, config, identity, install_key_slots};
 use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::ERR_INVALID;
 
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
-    [&b"cloud_config_"[..], b"cloud_auth_", b"cloud_identity_", b"cloud_vm_agent_key_"]
+    [&b"cloud_config_"[..], b"cloud_auth_", b"cloud_identity_"]
         .iter()
         .any(|prefix| operation.starts_with(prefix))
 }
@@ -454,40 +453,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 request.own_email.as_deref(),
             );
             json!({ "rows": rows })
-        }
-        b"cloud_vm_agent_key_request" => {
-            #[derive(Deserialize)]
-            struct Request {
-                backend: config::Backend,
-                #[serde(default)]
-                params: Map<String, Value>,
-            }
-            let request: Request = read(request)?;
-            match agent_key::request(&request.backend, &request.params) {
-                Ok(request) => json!({ "request": request }),
-                Err(refusal) => json!({ "refusal": refusal }),
-            }
-        }
-        b"cloud_vm_agent_key_answer" => {
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct Request {
-                status: u16,
-                #[serde(default)]
-                body: String,
-                base_url: String,
-                team_id: String,
-            }
-            let request: Request = read(request)?;
-            match agent_key::answer(
-                request.status,
-                request.body.as_bytes(),
-                &request.base_url,
-                &request.team_id,
-            ) {
-                Ok(fields) => json!({ "result": fields }),
-                Err(refusal) => json!({ "refusal": refusal }),
-            }
         }
         _ => return Err(ERR_INVALID),
     };

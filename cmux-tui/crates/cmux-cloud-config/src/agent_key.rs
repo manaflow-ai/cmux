@@ -1,9 +1,9 @@
 //! A cmux VM agent key's mint (`POST /v1/agent-keys` on the cmux VM API, workers/cmux-vm
 //! src/api/agents.ts): the request body, where it goes, and how the answer reads. One set of rules
-//! for both mint paths: the app's `vm.agent_key.create` (it holds the Stack session, asks
-//! [`request`] and [`answer`] over the app FFI and does the HTTP call), and the `cmux vm token
-//! create` CLI with its own credential (a session token or a team key), which builds the same
-//! body with [`body`] and reads the app's refusals with [`outcome`].
+//! for both mint paths: the app's `vm.agent_key.create` (it holds the Stack session and runs
+//! `cmux cloud vm-agent-key-mint`, which plans with [`request`] and reads with [`answer`]), and
+//! the `cmux vm token create` CLI with its own credential (a session token or a team key),
+//! which builds the same body with [`body`] and reads the app's refusals with [`outcome`].
 //!
 //! An agent key holds only `vm:read`, `vm:write` and `vm:exec`, reaches only the VMs it creates,
 //! has a VM count and a USD/h budget, and expires within a day.
@@ -99,7 +99,7 @@ fn exact_integer(value: &Value) -> Option<u64> {
     format!("{n:.0}").parse().ok()
 }
 
-/// What the app sends: `POST <url>` with `body`, `Authorization: Bearer <session>`,
+/// What `cmux cloud vm-agent-key-mint` sends for the app: `POST <url>` with `body`, `Authorization: Bearer <session>`,
 /// `x-cmux-team-id: <team>` and `content-type: application/json`, within 20 s.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,8 +110,8 @@ pub struct Request {
     pub timeout_seconds: u32,
 }
 
-/// The mint request for this build's Cloud: the VM API for `backend`, never another (the app
-/// sends its Stack session only there).
+/// The mint request for this build's Cloud: the VM API for `backend`, never another (the app's
+/// Stack session goes only there, or to its runtime selection's VM API).
 pub fn request(backend: &Backend, params: &Map<String, Value>) -> Result<Request, Refusal> {
     let base_url = vm_api_base_url(backend).to_owned();
     Ok(Request {

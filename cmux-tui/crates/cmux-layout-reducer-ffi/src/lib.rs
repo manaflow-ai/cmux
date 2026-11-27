@@ -57,7 +57,6 @@
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
-//! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
 //! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
 //! ticket, signaling frames, follow mode's focus producer, viewer demand, the
 //! cursor shape delivery);

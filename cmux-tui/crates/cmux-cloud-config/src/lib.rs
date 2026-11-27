@@ -4,7 +4,7 @@
 //! Keychain, asks here, and acts on the answer; the `cmux vm` CLI links the
 //! same rules in process. Served to the app over the app FFI's JSON channel
 //! (`cmux-layout-reducer-ffi`, ops `cloud_config_*`, `cloud_auth_*`,
-//! `cloud_identity_*`, `cloud_vm_agent_key_*`, `cloud_handoff_*`).
+//! `cloud_identity_*`, `cloud_handoff_*`).
 //!
 //! - [`config`]: which Cloud a build talks to, from the runtime selection (the
 //!   backend, the callback scheme, the token store's names, the sign-in URL,

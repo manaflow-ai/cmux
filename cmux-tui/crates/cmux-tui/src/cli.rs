@@ -126,6 +126,8 @@ mod cloud_start_chat;
 #[cfg(unix)]
 mod cloud_team_keys;
 #[cfg(unix)]
+mod cloud_vm_agent_key;
+#[cfg(unix)]
 mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
@@ -1183,6 +1185,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_apps_relay::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
+        .or_else(|| cloud_vm_agent_key::run_if_requested(args))
         .or_else(|| machine_request::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| mobile_pair_requests::run_if_requested(args))
