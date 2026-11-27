@@ -646,6 +646,11 @@
 .acpmux-home-title+.acpmux-home-meta{margin-left:auto}
 /* A long folder name cuts with an ellipsis (its whole path is the tooltip) instead of pushing the age and chevron off the row (#28079). */
 .acpmux-home-project{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The Settled shelf (SettledShelf.tsx): one "Settled N" row that opens to the settled chats, each with Unsettle. */
+.acpmux-settled-label{flex:none;color:var(--agent-muted);font-weight:var(--weight-emphasis)}
+.acpmux-settled-row{display:flex;align-items:center;gap:var(--ds-space-1);padding-right:var(--ds-space-1)}
+.acpmux-settled-row>.acpmux-home-row{flex:1;min-width:0}
+.acpmux-settled-unsettle{flex:none}
 /* The inbox (HomeInbox.tsx): each ask, the chat it is in under it, and its answers in place. */
 .acpmux-home-inbox .acpmux-home-label{display:flex;align-items:baseline;gap:var(--ds-space-1)}
 .acpmux-home-inbox-count{color:var(--agent-muted);font-variant-numeric:tabular-nums}
