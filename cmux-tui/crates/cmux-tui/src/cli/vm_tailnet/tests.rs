@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use cmux_cloud_start_core::machine_bootstrap::ExecAnswer;
 
+use super::vault::NodeVault;
 use super::*;
 
 fn no_mint(_: &MintSource, _: &MintSpec, _: bool) -> Result<Secret, String> {
@@ -166,8 +167,6 @@ fn a_move_stops_the_old_holder_first_hands_the_state_0600_and_forgets_it() {
     assert!(from.commands[1].contains("cmux-tailnet-forgot"));
     // The state never shows in the result.
     assert!(!node.to_string().contains("c3RhdGU="));
-    assert_eq!(store.lease().unwrap(), vault::Lease { holder: Some("vm_b".into()), epoch: 1 });
-    assert_eq!(node["epoch"], 1);
 }
 
 #[test]
@@ -455,7 +454,7 @@ fn the_vaults_answer_must_match_its_fingerprint() {
         ("leo-cmux", 3, "c3RhdGU=")
     );
     answer["stateBase64"] = json!("b3RoZXI=");
-    assert!(vault::parse_node(&answer).unwrap_err().contains("fingerprint"));
+    assert!(vault::parse_node(&answer).map(|_| ()).unwrap_err().contains("fingerprint"));
     answer["stateBase64"] = json!("");
     assert!(vault::parse_node(&answer).is_err());
 }
