@@ -386,16 +386,24 @@ export function runCloudMachine(machine: CloudMachine, call: Call = postNative):
     );
 }
 
-/// A pick of a row from the kept list (lastSeenAt set) never acts on it: one fresh read first, then
-/// the machine as that read lists it, or none while the list is still the kept one or no longer
-/// lists the machine (the pick then does nothing).
-export async function freshCloudMachine(
-  machine: CloudMachine,
-  call: Call = postNative,
-): Promise<CloudMachine | undefined> {
-  await refreshCloudMachines(call);
-  if (lastSeenAt !== undefined) return undefined;
-  return machines.find((candidate) => candidate.id === machine.id);
+/// What a fresh read said of a kept row's machine (freshCloudMachine): listed (act on it as listed), the
+/// app still answering the kept list (cmux Cloud unreachable: nothing is done), or no longer listed.
+export type FreshCloudPick = { state: "fresh"; machine: CloudMachine } | { state: "unreachable" } | { state: "gone" };
+
+/// A pick of a row from the kept list (lastSeenAt set) never acts on it: one fresh read first
+/// (`{fresh: true}`: the app waits for the server rather than answering the kept list again), then
+/// the machine as that read lists it.
+export async function freshCloudMachine(machine: CloudMachine, call: Call = postNative): Promise<FreshCloudPick> {
+  await readCloudPlanFresh(call);
+  if (lastSeenAt !== undefined) return { state: "unreachable" };
+  const listed = machines.find((candidate) => candidate.id === machine.id);
+  return listed ? { state: "fresh", machine: listed } : { state: "gone" };
+}
+
+/// Retry over the kept list: one fresh read, resolved once the app answered it (the server's list, or the
+/// kept one again when cmux Cloud is still unreachable).
+export async function retryCloudMachines(call: Call = postNative): Promise<void> {
+  await readCloudPlanFresh(call);
 }
 
 /// After a pause or resume the app runs the action in the background and its list catches up

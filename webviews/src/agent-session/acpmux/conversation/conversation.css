@@ -113,6 +113,11 @@
   --cv-row-font-size: calc(var(--cv-font-size) * 13 / 14);
   --cv-row-chip-height: 16px;
   --cv-row-glyph: 16px;
+  /* "Worked for" and the "N new messages" tag on its line keep the prose's size, the 14 they drew before the
+     row metric (#57402) took the other rows to 13: one size for the pair (Leo, 2026-11-27, of the shrunken
+     footer: "why did this get changed smaller font size than before? wasn't the original size
+     uncontroversial?"). */
+  --cv-worked-font-size: var(--cv-font-size);
   /* "Worked for"'s rule: this much under its words and this much over the next row. */
   --cv-worked-rule-above: 2px;
   --cv-worked-rule-below: 6px;
@@ -2954,7 +2959,7 @@ body {
   align-items: center;
   gap: var(--grid-gap);
   font-family: var(--cv-font);
-  font-size: var(--cv-row-font-size);
+  font-size: var(--cv-worked-font-size);
   line-height: 20px;
   letter-spacing: var(--cv-tracking, var(--instrument-type-chat-tracking, 0px));
   color: var(--cv-activity-text);
@@ -4443,7 +4448,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   text-overflow: clip;
   transition: color var(--cv-fold-duration) var(--cv-fold-ease);
 }
-.cv-thought__preview:is(.is-open, .is-closing) {
+.cv-thought__preview.is-open {
   display: block;
   -webkit-line-clamp: none;
 }
@@ -6598,26 +6603,6 @@ a.cv-sha:focus-visible {
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
-/* A failed turn's mark (TurnRows.tsx `endMark`, G04) in the failure ink (failedTurnMark.experiment.ts):
-   its own 24 square in the 32 footer line, the buttons' size, after them, so it never moves them. */
-.cv-turn-actions .cv-turn-end-mark {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--cv-footer-button);
-  height: var(--cv-footer-row);
-  color: var(--cv-footer-ink);
-  font-size: var(--text-caption);
-  letter-spacing: var(--text-caption--letter-spacing);
-  white-space: nowrap;
-}
-.cv-turn-actions .cv-turn-end-mark--failed {
-  color: var(--agent-status-failure);
-}
-.cv-turn-actions .cv-turn-end-mark--word {
-  padding-inline: calc(var(--ds-space-1) * 0.5);
-}
 .cv-iconbtn.cv-turn-continue:disabled,
 .cv-user__queued-hover .cv-message-retry .cv-iconbtn:disabled {
   opacity: 0.5;
@@ -7194,8 +7179,8 @@ a.cv-sha:focus-visible {
     animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
   }
   /* A row's entry holds nothing once it ends (backwards, not both): its end is the row's own rest
-     (opacity 1, no translate), and a translate held past it would win over the one a fold ride
-     moves the row by (conversation/foldRide.ts), leaving a live notice still while rows move. */
+     (opacity 1, no translate), and a translate held past it would win over the one a row's glide
+     moves it by, leaving a live notice still while rows move. */
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
@@ -7611,19 +7596,33 @@ a.cv-sha:focus-visible {
   margin-inline: 0;
   display: flex;
   flex-direction: column;
-  /* .ui-glass with the popover level's tint and blur (ImageViewer.tsx; the Dialog takes no data-glass-level): light enough that the pane reads behind it as a
-     backdrop under the blur (Leo, 2026-11-05: "this screenshot preview has too much opacity"). The page
+  /* .ui-glass as a lightbox scrim (ImageViewer.tsx, ReplyMedia.tsx, VideoPlayback.tsx; the Dialog takes no
+     data-glass-level): the pane stays in view behind the image at a lowered opacity, as a lightbox's
+     dimmed page does, not frosted out under the popover level's 72% and 24 px blur (Leo, 2026-11-05: "this
+     screenshot preview has too much opacity"; 2026-11-27: "the screenshots thing needs to not opaque out
+     everything else. just have what normal standards are for this. some lowered opaity?"). The page
      color is clear in a translucent window, so Reduce Transparency's solid fill is the opaque surface. */
   /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--cmux-surface-solid, var(--agent-page-bg));
-  --glass-tint: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) var(--ds-glass-popover-tint), transparent);
-  --glass-backdrop: var(--ds-glass-popover-blur);
+  --glass-tint: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) var(--acpmux-media-scrim-tint), transparent);
+  --glass-backdrop: var(--acpmux-media-scrim-blur);
+  --acpmux-media-scrim-tint: 50%;
+  /* glass-raw-blur-allow: a lightbox scrim's softening (the pane stays legible as shapes, the bar's words read over it), not a glass level */
+  --acpmux-media-scrim-blur: blur(4px);
   color: var(--agent-text);
   outline: none;
   /* Image viewing is a direct response to a click: show the already decoded image in its final
    * stage immediately. The dialog's close transition still uses its own token. */
   --ui-popup-open: 0s;
   --ui-dialog-open: 0s;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-image-viewer {
+    --acpmux-media-scrim-blur: none;
+  }
+}
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-image-viewer {
+  --acpmux-media-scrim-blur: none;
 }
 .acpmux-image-viewer-backdrop {
   position: fixed;
@@ -9258,7 +9257,8 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   overflow: hidden;
   white-space: nowrap;
 }
-.cv-worked__toggle:is(:hover, :focus-visible) * {
+/* With nothing under the fold yet (`disabled`, WorkingFor.tsx) the label opens nothing, so it does not light. */
+.cv-worked__toggle:not(:disabled):is(:hover, :focus-visible) * {
   color: var(--cv-text);
 }
 .cv-worked__toggle:focus-visible {
