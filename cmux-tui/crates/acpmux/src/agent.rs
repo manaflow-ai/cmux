@@ -287,6 +287,28 @@ pub enum Attached {
 /// How long `kill` lets the agent's process group exit after SIGTERM.
 pub(crate) const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
 
+/// Logs how one stop of agent `name` ended: on its SIGTERM within `grace` (`by = "term"`), or
+/// past it, to the SIGKILL (`by = "kill"`), and how long it took. The data a stop's grace is
+/// derived from: the hibernation's `exit_ms` counts its locks and drain too, and a stop cut at
+/// the grace hides how long the agent would have taken.
+fn log_stop(
+    name: &str,
+    path: &'static str,
+    grace: std::time::Duration,
+    began: std::time::Instant,
+    on_term: bool,
+) {
+    let ms = |d: std::time::Duration| u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+    tracing::info!(
+        agent = %name,
+        path,
+        grace_ms = ms(grace),
+        stop_ms = ms(began.elapsed()),
+        by = if on_term { "term" } else { "kill" },
+        "agent stopped"
+    );
+}
+
 /// How often the reader checks that the agent process is still running, where the kernel gives
 /// no exit event for it (`agent/leader_exit.rs`).
 const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
@@ -1573,13 +1595,18 @@ impl ChildAgent {
             // Its caller ends that host by its nonce (`host_unended`). The send goes on in its
             // own task past the bound, so a host whose queue clears later still takes it.
             let link = h.link();
+            let began = std::time::Instant::now();
             let mut send = tokio::spawn(async move { link.terminate(grace).await });
             let told = tokio::time::timeout(grace, &mut send).await;
             if matches!(told, Ok(Ok(Ok(())))) {
                 // The host's exit entry ends the wait; the bound covers a
                 // host that cannot report it.
-                let _ =
-                    tokio::time::timeout(grace + std::time::Duration::from_secs(1), exited).await;
+                let on_term =
+                    tokio::time::timeout(grace + std::time::Duration::from_secs(1), exited)
+                        .await
+                        .is_ok();
+                // The host escalates on its own past `grace`: an exit after it is a kill's.
+                log_stop(&self.name, "hosted", grace, began, on_term && began.elapsed() <= grace);
             }
             return;
         }
@@ -1609,14 +1636,17 @@ impl ChildAgent {
         if let Some(pg) = pgid {
             crate::job::ctrl_break(pg as u32);
         }
-        let _ = tokio::time::timeout(grace, async {
+        let began = std::time::Instant::now();
+        let on_term = tokio::time::timeout(grace, async {
             // The exit watcher may hold this lock while it reaps, and frees
             // it once the child is gone; otherwise wait on the exit here.
             if let Some(child) = self.child.lock().await.as_mut() {
                 let _ = child.wait().await;
             }
         })
-        .await;
+        .await
+        .is_ok();
+        log_stop(&self.name, "direct", grace, began, on_term);
         // Then the job ends, stragglers included (SIGKILL on Unix, by the guard's drop).
         #[cfg(windows)]
         self.kill_job();

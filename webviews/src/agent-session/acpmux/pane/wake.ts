@@ -4,10 +4,14 @@ import { type ScrollAnchor } from "../VirtualTranscript";
 
 /// The handshake's `wake` (AgentPaneWakeState.swift): what a released page held that acpmux does not.
 /// `scrollAnchor`: the transcript's place, null at its latest message, undefined when unknown.
-export function readWake(
-  value: unknown,
-):
-  | { composer: ComposerWake; scrollAnchor?: ScrollAnchor | null; subagentDrafts?: unknown; folds?: unknown }
+export function readWake(value: unknown):
+  | {
+      composer: ComposerWake;
+      scrollAnchor?: ScrollAnchor | null;
+      subagentDrafts?: unknown;
+      folds?: unknown;
+      subagentPane?: string;
+    }
   | undefined {
   if (!value || typeof value !== "object") return undefined;
   const wake = value as {
@@ -18,6 +22,7 @@ export function readWake(
     atLatest?: unknown;
     subagentDrafts?: unknown;
     folds?: unknown;
+    subagentPane?: unknown;
   };
   const anchor = wake.scrollAnchor as { rowId?: unknown; offset?: unknown } | null | undefined;
   return {
@@ -34,5 +39,7 @@ export function readWake(
           : undefined,
     subagentDrafts: wake.subagentDrafts,
     folds: wake.folds,
+    // The subagent a subagent's pane showed (App.tsx `subagentPaneNow`): the page built again shows it.
+    ...(typeof wake.subagentPane === "string" && wake.subagentPane ? { subagentPane: wake.subagentPane } : {}),
   };
 }

@@ -30,6 +30,7 @@ use crate::row::{Phase, Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Version 14 checkpoints the recent tool-call index and overflow flag for late terminal answers.
 /// Version 13 preserves event times and permission receipts for sized row consumers. Version 12
 /// writes no plan rows: an agent to-do list (`plan`) is read past, as cmux shows none (acpmux
 /// `todo_tools.rs`). Version 11 writes each row's phase (entering, live, settled, leaving) and takes rows back by
@@ -37,7 +38,7 @@ use std::collections::BTreeMap;
 /// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
 /// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
 /// version rebuilds from raw.
-pub const VERSION: u32 = 13;
+pub const VERSION: u32 = 14;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 /// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
