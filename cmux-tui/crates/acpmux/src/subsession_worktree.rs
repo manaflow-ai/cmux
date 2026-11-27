@@ -569,7 +569,6 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(root = %worktree.root.display(), "worktree not removed: {e}");
             return;
         }
-
         #[cfg(test)]
         before_path_removal(&worktree.root);
         // The made folder, emptied, stays at its path while its registration and branch go:
