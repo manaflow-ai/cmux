@@ -2647,6 +2647,18 @@
      "nullable": false,
      "since": 12,
      "description": "How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks."
+    },
+    "saved_tab_groups": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "SavedTabGroupRecord"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Legacy inline saved groups accepted by tree readers; current daemons provide these through list-saved-tab-groups."
     }
    },
    "additional_properties": false
@@ -6567,7 +6579,7 @@
      "presence": "optional",
      "nullable": false,
      "since": 12,
-     "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab."
+     "description": "The terminal's public id (`term_\u2026`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab."
     },
     "state": {
      "type": {
@@ -30937,7 +30949,7 @@
       "presence": "optional",
       "nullable": false,
       "since": 12,
-      "description": "The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab."
+      "description": "The terminal's public id (`term_\u2026`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab."
      },
      "state": {
       "type": {

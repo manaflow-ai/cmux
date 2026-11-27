@@ -2012,6 +2012,8 @@ export type Tree = {
   "pane_revision"?: bigint;
   "registry_id"?: string;
   "removed"?: Array<Id>;
+  /** Legacy inline saved groups accepted by tree readers; current daemons provide these through list-saved-tab-groups. */
+  "saved_tab_groups"?: Array<SavedTabGroupRecord>;
   "seq"?: bigint;
   "terminal_revision"?: bigint;
   "total"?: bigint;

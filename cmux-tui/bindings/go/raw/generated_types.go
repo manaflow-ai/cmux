@@ -18840,19 +18840,21 @@ type Tree struct {
 	// The sidebar workspace groups.
 	Groups *[]WorkspaceGroup `json:"groups,omitempty"`
 	// How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks.
-	LinesWrittenBeforeRead *uint64     `json:"lines_written_before_read,omitempty"`
-	Next                   *uint64     `json:"next,omitempty"`
-	Order                  *[]ID       `json:"order,omitempty"`
-	PaneRevision           *uint64     `json:"pane_revision,omitempty"`
-	RegistryID             *string     `json:"registry_id,omitempty"`
-	Removed                *[]ID       `json:"removed,omitempty"`
-	Seq                    *uint64     `json:"seq,omitempty"`
-	TerminalRevision       *uint64     `json:"terminal_revision,omitempty"`
-	Total                  *uint64     `json:"total,omitempty"`
-	TreeRevision           *string     `json:"tree_revision,omitempty"`
-	Unchanged              *bool       `json:"unchanged,omitempty"`
-	WorkspaceRevision      *uint64     `json:"workspace_revision,omitempty"`
-	Workspaces             []Workspace `json:"workspaces"`
+	LinesWrittenBeforeRead *uint64 `json:"lines_written_before_read,omitempty"`
+	Next                   *uint64 `json:"next,omitempty"`
+	Order                  *[]ID   `json:"order,omitempty"`
+	PaneRevision           *uint64 `json:"pane_revision,omitempty"`
+	RegistryID             *string `json:"registry_id,omitempty"`
+	Removed                *[]ID   `json:"removed,omitempty"`
+	// Legacy inline saved groups accepted by tree readers; current daemons provide these through list-saved-tab-groups.
+	SavedTabGroups    *[]SavedTabGroupRecord `json:"saved_tab_groups,omitempty"`
+	Seq               *uint64                `json:"seq,omitempty"`
+	TerminalRevision  *uint64                `json:"terminal_revision,omitempty"`
+	Total             *uint64                `json:"total,omitempty"`
+	TreeRevision      *string                `json:"tree_revision,omitempty"`
+	Unchanged         *bool                  `json:"unchanged,omitempty"`
+	WorkspaceRevision *uint64                `json:"workspace_revision,omitempty"`
+	Workspaces        []Workspace            `json:"workspaces"`
 }
 
 func (value *Tree) UnmarshalJSON(data []byte) error {
@@ -18860,24 +18862,25 @@ func (value *Tree) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Tree: expected object")
 	}
 	var fields struct {
-		Changed                optionalNonNullJSON[[]Workspace]      `json:"changed"`
-		Delta                  optionalNonNullJSON[bool]             `json:"delta"`
-		Epoch                  optionalNonNullJSON[string]           `json:"epoch"`
-		Generation             optionalNonNullJSON[string]           `json:"generation"`
-		Groups                 optionalNonNullJSON[[]WorkspaceGroup] `json:"groups"`
-		LinesWrittenBeforeRead optionalNonNullJSON[uint64]           `json:"lines_written_before_read"`
-		Next                   optionalNonNullJSON[uint64]           `json:"next"`
-		Order                  optionalNonNullJSON[[]ID]             `json:"order"`
-		PaneRevision           optionalNonNullJSON[uint64]           `json:"pane_revision"`
-		RegistryID             optionalNonNullJSON[string]           `json:"registry_id"`
-		Removed                optionalNonNullJSON[[]ID]             `json:"removed"`
-		Seq                    optionalNonNullJSON[uint64]           `json:"seq"`
-		TerminalRevision       optionalNonNullJSON[uint64]           `json:"terminal_revision"`
-		Total                  optionalNonNullJSON[uint64]           `json:"total"`
-		TreeRevision           optionalNonNullJSON[string]           `json:"tree_revision"`
-		Unchanged              optionalNonNullJSON[bool]             `json:"unchanged"`
-		WorkspaceRevision      optionalNonNullJSON[uint64]           `json:"workspace_revision"`
-		Workspaces             *[]Workspace                          `json:"workspaces"`
+		Changed                optionalNonNullJSON[[]Workspace]           `json:"changed"`
+		Delta                  optionalNonNullJSON[bool]                  `json:"delta"`
+		Epoch                  optionalNonNullJSON[string]                `json:"epoch"`
+		Generation             optionalNonNullJSON[string]                `json:"generation"`
+		Groups                 optionalNonNullJSON[[]WorkspaceGroup]      `json:"groups"`
+		LinesWrittenBeforeRead optionalNonNullJSON[uint64]                `json:"lines_written_before_read"`
+		Next                   optionalNonNullJSON[uint64]                `json:"next"`
+		Order                  optionalNonNullJSON[[]ID]                  `json:"order"`
+		PaneRevision           optionalNonNullJSON[uint64]                `json:"pane_revision"`
+		RegistryID             optionalNonNullJSON[string]                `json:"registry_id"`
+		Removed                optionalNonNullJSON[[]ID]                  `json:"removed"`
+		SavedTabGroups         optionalNonNullJSON[[]SavedTabGroupRecord] `json:"saved_tab_groups"`
+		Seq                    optionalNonNullJSON[uint64]                `json:"seq"`
+		TerminalRevision       optionalNonNullJSON[uint64]                `json:"terminal_revision"`
+		Total                  optionalNonNullJSON[uint64]                `json:"total"`
+		TreeRevision           optionalNonNullJSON[string]                `json:"tree_revision"`
+		Unchanged              optionalNonNullJSON[bool]                  `json:"unchanged"`
+		WorkspaceRevision      optionalNonNullJSON[uint64]                `json:"workspace_revision"`
+		Workspaces             *[]Workspace                               `json:"workspaces"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode Tree: %w", err)
@@ -18949,6 +18952,12 @@ func (value *Tree) UnmarshalJSON(data []byte) error {
 	}
 	if fields.Removed.set {
 		decoded.Removed = &fields.Removed.value
+	}
+	if fields.SavedTabGroups.null {
+		return fmt.Errorf("decode Tree: non-nullable field saved_tab_groups is null")
+	}
+	if fields.SavedTabGroups.set {
+		decoded.SavedTabGroups = &fields.SavedTabGroups.value
 	}
 	if fields.Seq.null {
 		return fmt.Errorf("decode Tree: non-nullable field seq is null")

@@ -3504,6 +3504,9 @@ pub struct Tree {
     pub registry_id: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub removed: Option<Vec<Id>>,
+    /// Legacy inline saved groups accepted by tree readers; current daemons provide these through list-saved-tab-groups.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub saved_tab_groups: Option<Vec<SavedTabGroupRecord>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub seq: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

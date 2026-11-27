@@ -28,7 +28,9 @@ Swift expression: the field decodes leniently, missing means the default), `opti
 Swift condition on properties read before it; false reads nil), `prefer` (a wire key read first, this field's
 own key the fallback; the preferred key is omitted from the struct). A schema string constrained to `decimal uint64`
 that the binding types `UInt64` reads leniently as that decimal string or, from an older daemon, a number. Encoding is always synthesized; decoding is synthesized unless a
-property uses one of these read options.
+property uses one of these read options. `flatten_union: true` projects an untagged union of schema
+objects into one read-only snapshot: fields absent from any variant become optional unless defaulted,
+and shared fields must have the same schema type. It never supplies an encoding shape.
 """
 
 from __future__ import annotations
@@ -88,7 +90,8 @@ _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revi
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
 # optional although the schema requires it (an app that still reads an older daemon that left it out).
 _READ_FIELD_KEYS = _FIELD_KEYS | {"default", "optional", "lenient", "when", "prefer"}
-_OBJECT_KEYS = frozenset({"$comment", "type", "result", "doc", "conformances", "order", "fields", "extra", "init", "omit"})
+_OBJECT_KEYS = frozenset({"$comment", "type", "result", "doc", "conformances", "order", "fields", "extra", "init", "omit",
+                          "flatten_union"})
 _EXTRA_KEYS = frozenset({"type", "default", "doc"})
 DEFAULT_CONFORMANCES = ("Decodable", "Sendable", "Equatable")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -560,13 +563,43 @@ class _Renderer:
         return out
 
 
+    def read_union(self, where: str, target: Mapping[str, Any], binding: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Project object variants into a read-only snapshot; variant-only fields become optional.
+
+        This preserves the app's single PaneSnapshot for the schema's LivePane | DeadPane.
+        It is not a union validator or an encoding shape: incompatible shared types are refused.
+        """
+        if {"Encodable", "Codable"} & set(binding.get("conformances", DEFAULT_CONFORMANCES)):
+            raise BindingError(f"{where}: flatten_union is only for read-only snapshots")
+        variants = [self._object(variant) for variant in target["variants"]]
+        if not variants or any(variant is None for variant in variants):
+            raise BindingError(f"{where}: flatten_union needs object variants")
+        fields: dict[str, Any] = {}
+        for variant in variants:
+            for wire, spec in variant["fields"].items():
+                if wire in fields and fields[wire]["type"] != spec["type"]:
+                    raise BindingError(f"{where}.{wire}: union variants have incompatible field types")
+                fields.setdefault(wire, dict(spec))
+        for wire, spec in fields.items():
+            members = [variant["fields"].get(wire) for variant in variants]
+            if any(member is None or member["presence"] != "required" for member in members):
+                spec["presence"] = "optional"
+            spec["nullable"] = any(member is not None and member["nullable"] for member in members)
+        return {"kind": "object", "fields": fields}
+
     def read_type(self, where: str, name: str, binding: Mapping[str, Any]) -> list[str]:
         """A schema object (a type, or a command's result) as a standalone Swift struct the app reads."""
+        if "flatten_union" in binding and (not isinstance(binding["flatten_union"], bool) or "type" not in binding):
+            raise BindingError(f"{where}: flatten_union is a boolean on a schema type binding")
         if ("type" in binding) == ("result" in binding):
             raise BindingError(f"{where}: name exactly one of type (a schema type) or result (a command)")
         if "type" in binding:
             target = self.ir.types.get(binding["type"])
             source = binding["type"]
+            if binding.get("flatten_union"):
+                if target is None or target["kind"] != "untagged_union":
+                    raise BindingError(f"{where}: flatten_union needs an untagged union type")
+                target = self.read_union(where, target, binding)
             if target is None or target["kind"] != "object":
                 raise BindingError(f"{where}: the schema has no object type {binding['type']}")
         else:

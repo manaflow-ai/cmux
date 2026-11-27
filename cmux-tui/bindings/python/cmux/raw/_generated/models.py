@@ -2598,6 +2598,7 @@ class Tree:
     pane_revision: Union[int, MissingType] = field(default=MISSING)
     registry_id: Union[str, MissingType] = field(default=MISSING)
     removed: Union[List[Id], MissingType] = field(default=MISSING)
+    saved_tab_groups: Union[List[SavedTabGroupRecord], MissingType] = field(default=MISSING)
     seq: Union[int, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
     total: Union[int, MissingType] = field(default=MISSING)

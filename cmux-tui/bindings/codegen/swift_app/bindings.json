@@ -3141,7 +3141,7 @@
           }
         },
         "PaneSnapshot": {
-          "type": "LivePane",
+          "type": "Pane",
           "conformances": [
             "Sendable",
             "Hashable",
@@ -3159,7 +3159,8 @@
             "active_tab",
             "focused_at",
             "tabs",
-            "tab_groups"
+            "tab_groups",
+            "dead"
           ],
           "fields": {
             "id": {
@@ -3188,8 +3189,16 @@
               "doc": [
                 "Tab groups in this strip, in strip order (`tab-groups-v1`)."
               ]
+            },
+            "dead": {
+              "type": "Bool",
+              "default": "false",
+              "doc": [
+                "Serialized only when the tree references a pane missing from state."
+              ]
             }
-          }
+          },
+          "flatten_union": true
         },
         "DaemonTree": {
           "type": "Tree",
@@ -3210,7 +3219,7 @@
             "terminal_revision",
             "workspaces",
             "groups",
-            "savedTabGroups",
+            "saved_tab_groups",
             "personal"
           ],
           "omit": [
@@ -3246,17 +3255,17 @@
               "doc": [
                 "Ordered sidebar groups (`workspace-groups-v1`)."
               ]
-            }
-          },
-          "extra": {
-            "savedTabGroups": {
+            },
+            "saved_tab_groups": {
               "type": "[SavedTabGroupSnapshot]",
               "default": "[]",
               "doc": [
                 "Session-wide saved tab groups (`saved-tab-groups-v1`). Not part of `list-workspaces`:",
                 "`DaemonConnection.snapshot()` fills it from `list-saved-tab-groups`."
               ]
-            },
+            }
+          },
+          "extra": {
             "personal": {
               "type": "PersonalState?",
               "default": "nil",

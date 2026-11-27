@@ -28,6 +28,18 @@ import Testing
         #expect(pane.tabGroups.isEmpty)
         #expect(pane.activeTab == 0)
         #expect(pane.focusedAt == 0)
+        #expect(pane.dead)
+        let live = try JSONDecoder().decode(PaneSnapshot.self, from: Data(#"{"id":1}"#.utf8))
+        #expect(!live.dead)
+        #expect(PaneSnapshot(id: 1, dead: true).dead)
+    }
+
+    @Test func legacyInlineSavedGroupsStillDecode() throws {
+        let tree = try JSONDecoder().decode(DaemonTree.self, from: Data(
+            #"{"saved_tab_groups":[{"id":"saved_1","name":"Saved"}]}"#.utf8))
+        #expect(tree.savedTabGroups.count == 1)
+        #expect(tree.savedTabGroups.first?.name == "Saved")
+        #expect(try JSONDecoder().decode(DaemonTree.self, from: Data(#"{}"#.utf8)).savedTabGroups.isEmpty)
     }
 
     @Test func sharedAndPersonalGroupsUseTheSameSnapshot() throws {

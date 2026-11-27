@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2fb034113925fd2d3e35bad5e825e38190bc6a15ed1868eca2c86de5950df2c1";
+pub const ir_sha256 = "2d49bc388a33c7dfebbdfaf6baa961f2332441e14d73cfe86ed2025e1857f318";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3757,6 +3757,8 @@ pub const Tree = struct {
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
     removed: ?[]const Id = null,
+    /// Legacy inline saved groups accepted by tree readers; current daemons provide these through list-saved-tab-groups.
+    saved_tab_groups: ?[]const SavedTabGroupRecord = null,
     seq: ?u64 = null,
     terminal_revision: ?u64 = null,
     total: ?u64 = null,
@@ -3777,6 +3779,7 @@ pub const Tree = struct {
         "pane_revision",
         "registry_id",
         "removed",
+        "saved_tab_groups",
         "seq",
         "terminal_revision",
         "total",

@@ -17957,6 +17957,11 @@ Result<Json> Codec<Tree>::encode(const Tree& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("removed", std::move(encoded).value());
     }
+    if (value.saved_tab_groups) {
+        auto encoded = encode_value(*value.saved_tab_groups);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("saved_tab_groups", std::move(encoded).value());
+    }
     if (value.seq) {
         auto encoded = encode_value(*value.seq);
         if (!encoded) return std::move(encoded).error();
@@ -18062,6 +18067,12 @@ Result<Tree> Codec<Tree>::decode(const Json& value) {
         auto decoded = decode_value<std::vector<Id>>(*field_removed);
         if (!decoded) return std::move(decoded).error();
         result.removed = std::move(decoded).value();
+    }
+    const Json* field_saved_tab_groups = value.find("saved_tab_groups");
+    if (field_saved_tab_groups) {
+        auto decoded = decode_value<std::vector<SavedTabGroupRecord>>(*field_saved_tab_groups);
+        if (!decoded) return std::move(decoded).error();
+        result.saved_tab_groups = std::move(decoded).value();
     }
     const Json* field_seq = value.find("seq");
     if (field_seq) {

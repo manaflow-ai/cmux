@@ -2342,7 +2342,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "2b39c2fa709e9f6047d2fa70e9e44893545a678519aeff8ddecc51874433e217",
+      "sha256": "fad511cc012c2b14679860cb0cb810b0a216b0c7542fb9f0f86619bfebe9d5a4",
       "size": 8753
     },
     {
@@ -3682,8 +3682,8 @@
     },
     {
       "path": "Tree.java",
-      "sha256": "7764697156cd30cbf4205cd919e95b4b457832d8dbb2194a5467c4a4b29ea1ec",
-      "size": 13502
+      "sha256": "84ed8b83f9c5d876e5fcb2aacfc820781aafc6ff88ccb057e4574023b14a7f47",
+      "size": 14518
     },
     {
       "path": "TreeChangedEvent.java",
@@ -3937,7 +3937,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2fb034113925fd2d3e35bad5e825e38190bc6a15ed1868eca2c86de5950df2c1",
+  "ir_sha256": "2d49bc388a33c7dfebbdfaf6baa961f2332441e14d73cfe86ed2025e1857f318",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

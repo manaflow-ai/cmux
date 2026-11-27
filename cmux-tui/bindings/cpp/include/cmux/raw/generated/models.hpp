@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2fb034113925fd2d3e35bad5e825e38190bc6a15ed1868eca2c86de5950df2c1";
+inline constexpr std::string_view kProtocolIrSha256 = "2d49bc388a33c7dfebbdfaf6baa961f2332441e14d73cfe86ed2025e1857f318";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -6707,6 +6707,7 @@ struct Tree {
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
     std::optional<std::vector<Id>> removed{};
+    std::optional<std::vector<SavedTabGroupRecord>> saved_tab_groups{};
     std::optional<std::uint64_t> seq{};
     std::optional<std::uint64_t> terminal_revision{};
     std::optional<std::uint64_t> total{};

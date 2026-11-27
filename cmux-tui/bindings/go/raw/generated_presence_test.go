@@ -10481,6 +10481,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "removed", true, "[]")
 	})
+	t.Run("Tree.SavedTabGroups", func(t *testing.T) {
+		var missing Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":[]}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.SavedTabGroups != nil {
+			t.Fatal("SavedTabGroups did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "saved_tab_groups", false, "")
+		var nullValue Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":[],\"saved_tab_groups\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field saved_tab_groups accepted null")
+		}
+		var presentValue Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":[],\"saved_tab_groups\":[]}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.SavedTabGroups == nil {
+			t.Fatal("SavedTabGroups lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "saved_tab_groups", true, "[]")
+	})
 	t.Run("Tree.Seq", func(t *testing.T) {
 		var missing Tree
 		if err := json.Unmarshal([]byte("{\"workspaces\":[]}"), &missing); err != nil {
@@ -70100,10 +70122,10 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1975
+	generatedFieldShapeCount               = 1976
 	generatedOptionalNullableFieldCount    = 1368
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 429
+	generatedOptionalNonnullableFieldCount = 430
 	generatedRequiredFieldCount            = 1662
 	generatedRequiredNonnullableFieldCount = 1484
 	generatedConstrainedFieldCount         = 139
