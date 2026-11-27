@@ -52,7 +52,7 @@ extension CloudService {
     func appServerCreate(name: String?, startedByPerson: Bool, ownCreate: Bool = false, asksFirst: Bool = true, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void,
-                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil, onAnswer: @MainActor (JSONValue) -> Void = { _ in }) async throws -> CloudMachine {
+                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil, onAnswer: @MainActor (JSONValue) -> Void = { _ in }, goneAttempt: Int = 1) async throws -> CloudMachine {
         let pinned = creation?.request ?? request, identity = installIdentity
         if let environment, let cli = move.cli {
             await onSent(); let id = try await CloudMoveCLI(binary: cli).machineInEnvironment(environment, key: pinned.idempotencyKey, platform: configuration.artifactsAPIBaseURL()?.absoluteString, access: try await identity.installToken()) // the platform's machine route verifies a team claim, which only the install token has
@@ -85,12 +85,12 @@ extension CloudService {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
             if !Task.isCancelled { creation?.renewKey(replacing: pinned.idempotencyKey) }
-            throw failure
+            guard persistSent == nil, !Task.isCancelled, CloudStartCore().createMachineGoneRetries(failure, attempt: goneAttempt) else { throw failure } // else its machine was gone before it answered: a new key asks again (`cloud.machine.create`'s contract), never "no such machine in this team"
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate, asksFirst: asksFirst, askedBy: askedBy, environment: environment, creation: creation, request: pinned.renewed, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer, goneAttempt: goneAttempt + 1)
         } catch is CloudPersonCreate.Unavailable where !pinned.wasSent && creation?.request.answeringRequest == nil && !Task.isCancelled && persistSent == nil {
             // The direct route refused before the op ran (no usable session, an older server): the relay takes it with a NEW key, never this one (a caller that keeps the key in its own ledger, `persistSent`, takes the new key from it).
-            var relay = pinned; relay.idempotencyKey = UUID().uuidString; creation?.renewKey(replacing: pinned.idempotencyKey)
-            return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment,
-                                             creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
+            creation?.renewKey(replacing: pinned.idempotencyKey); var relay = pinned; relay.idempotencyKey = UUID().uuidString
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment, creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
         }
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
         return machine

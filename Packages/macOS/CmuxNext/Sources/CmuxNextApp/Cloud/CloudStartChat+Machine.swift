@@ -56,7 +56,7 @@ extension CloudStartChat {
     /// for the chat (`pick`) and pinned to the send before anything runs there. `workspace`: the Mac
     /// workspace the send began in. `direct`: its create may go straight to the Cloud API as the person (``CloudMoveCLI/StartChatPlan/ownCreate(personsOwnRun:relayOnly:)``).
     func machine(for start: AgentPaneCloudStart, account: [String?], workspace: String?, connection: String?, cli: CloudMoveCLI, invocation: ActionInvocation,
-                 direct: Bool = true, pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
+                 direct: Bool = true, goneAttempt: Int = 1, pick: () async -> CloudWorkPick?) async throws -> (CloudMachineSession, CloudMoveCLI.StartChatPlan) {
         let machines = services.machines, cloud = services.cloud
         await CloudWait.firstList(loaded: { cloud.hasLoadedCurrentMachines }, signedIn: { cloud.isSignedIn }) { _ = await cloud.refresh() } // Rust's `list_wait`; the card shows the machine step meanwhile
         try await importKeptSends(cli)
@@ -102,10 +102,10 @@ extension CloudStartChat {
                 }
             } catch let failure as CloudAppOpFailure where !Task.isCancelled && CloudStartCore().isDefinitiveRefusal(failure) {
                 _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))
-                throw failure
+                if CloudStartCore().createMachineGoneRetries(failure, attempt: goneAttempt) { return try await machine(for: start, account: account, workspace: workspace, connection: connection, cli: cli, invocation: invocation, direct: direct, goneAttempt: goneAttempt + 1, pick: pick) } else { throw failure } // its machine gone before it answered: the ledger's new key asks again (`cloud.machine.create`'s contract), never "no such machine in this team"
             } catch is CloudPersonCreate.Unavailable where direct && !plan.createSent && !Task.isCancelled { // the direct route refused before the op ran: the ledger gives the start a new key, which the relay takes
                 _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))
-                return try await machine(for: start, account: account, workspace: workspace, connection: connection, cli: cli, invocation: invocation, direct: false, pick: pick)
+                return try await machine(for: start, account: account, workspace: workspace, connection: connection, cli: cli, invocation: invocation, direct: false, goneAttempt: goneAttempt, pick: pick)
             }
             invocation.arguments["machine"] = .string(created.machineID)
         }

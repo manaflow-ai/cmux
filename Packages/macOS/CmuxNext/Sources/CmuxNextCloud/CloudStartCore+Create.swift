@@ -13,6 +13,16 @@ extension CloudStartCore {
         return call("cloud_create_definitive_refusal", Request(code: failure.code), as: Reply.self)?.definitive ?? false
     }
 
+    /// Whether a create refused on try `attempt` (from 1) is asked again with a new key: the machine it made or
+    /// claimed was gone before it answered (`cloud.machine.not_found {machine}`, whose contract is "retry with a
+    /// new key"), within its bound. An FFI that does not answer asks no more.
+    public func createMachineGoneRetries(_ failure: CloudAppOpFailure, attempt: Int) -> Bool {
+        struct Request: Encodable { var code: String, message: String, machineNamed: Bool, attempt: Int }
+        struct Reply: Decodable { var retries: Bool }
+        let request = Request(code: failure.code, message: failure.message, machineNamed: failure.details?["machine"]?.stringValue != nil, attempt: max(attempt, 0))
+        return call("cloud_create_machine_gone_retries", request, as: Reply.self)?.retries ?? false
+    }
+
     /// The team an app-server create goes to: the install token's team `current`, or, once `request` was
     /// sent, the team of its first send, which `current` must still be (the key is scoped per team).
     /// Throws `changedTeam` otherwise, and when the FFI does not answer: never a second machine.
