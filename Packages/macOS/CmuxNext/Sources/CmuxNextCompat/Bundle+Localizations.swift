@@ -8,10 +8,12 @@ extension Bundle {
     /// match that is the development localization (en).
     public func localizedString(forKey key: String, value: String?, table: String?,
                                 preferredLocalizations: [String]) -> String {
+        #if canImport(Darwin)
         if #available(macOS 15.4, *) {
             return localizedString(forKey: key, value: value, table: table,
                                    localizations: preferredLocalizations.map(Locale.Language.init(identifier:)))
         }
+        #endif
         if let match = Bundle.preferredLocalizations(from: localizations, forPreferences: preferredLocalizations).first,
            let path = path(forResource: match, ofType: "lproj"), let localized = Bundle(path: path) {
             return localized.localizedString(forKey: key, value: value, table: table)

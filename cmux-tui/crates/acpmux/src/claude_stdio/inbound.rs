@@ -84,6 +84,11 @@ impl Translator {
                 .get("compact_result")
                 .and_then(Value::as_str)
                 .is_some_and(|result| result != "success");
+        // A user line of the chat's own (the prompt's echo, a steer, tool results, a hook's
+        // feedback) goes out as its next model call's request (`model_calls.rs`).
+        if kind == "user" && parent.is_none() {
+            self.model_clock.requested(super::prompt_cache::now_ms());
+        }
         // The turn's last assistant line on the main loop: Claude Code's own API error or not.
         if kind == "assistant" && parent.is_none() {
             *self.api_error.lock().await = super::api_error::text(line);
@@ -98,6 +103,14 @@ impl Translator {
             "system" if sub == "init" => {
                 if let Some(s) = line.get("session_id").and_then(Value::as_str) {
                     *self.session_id.lock().await = Some(s.to_owned());
+                }
+                // A durable cron this conversation made in an earlier process (`loops.rs`).
+                if let (Some(cwd), Some(s)) = (
+                    line.get("cwd").and_then(Value::as_str),
+                    line.get("session_id").and_then(Value::as_str),
+                ) && let Some(goal) = self.durable_loops(cwd, s).await
+                {
+                    out.push(upd(goal));
                 }
                 if let Some(m) = line.get("model").and_then(Value::as_str) {
                     *self.model.lock().await = m.to_owned();
@@ -161,6 +174,8 @@ impl Translator {
                         if parent.is_none() {
                             let model = ev.pointer("/message/model").and_then(Value::as_str);
                             self.call_started(ev.pointer("/message/usage"), model).await;
+                            // The call's first byte (`model_calls.rs`).
+                            self.model_clock.started(super::prompt_cache::now_ms());
                         }
                         if parent.is_none()
                             && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
@@ -203,6 +218,8 @@ impl Translator {
                             Some("thinking_delta") => {
                                 if let Some(p) = parent {
                                     self.streamed_subagents.lock().await.insert(p.to_owned());
+                                } else {
+                                    self.model_clock.thought();
                                 }
                                 let t = d.get("thinking").and_then(Value::as_str).unwrap_or("");
                                 if !t.is_empty() {
@@ -942,6 +959,9 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                // The turn's cache misses by cause (RFD 0158 §1); the hub drops them when the
+                // alarm is off (`hub/cache_alarm.rs`).
+                let cache_misses = self.cache.take_turn_misses().to_json();
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -971,8 +991,15 @@ impl Translator {
                         claude.set("carried", next.clone());
                     }
                     let mut meta = json!({"claude": claude});
+                    let mut hm = serde_json::Map::new();
                     if let Some(dedupe) = dedupe_counts {
-                        meta.set("harnessMagic", json!({"dedupe": dedupe.to_json()}));
+                        hm.insert("dedupe".into(), dedupe.to_json());
+                    }
+                    if let Some(misses) = cache_misses {
+                        hm.insert("cacheAlarm".into(), misses);
+                    }
+                    if !hm.is_empty() {
+                        meta.set("harnessMagic", Value::Object(hm));
                     }
                     Ok(json!({"stopReason": stop, "_meta": meta}))
                 };

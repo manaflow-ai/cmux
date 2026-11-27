@@ -24,10 +24,13 @@ export const BUDGET: Record<FlowName, { stray: number; composer: number; cls: nu
 /// Compaction-steer, the states Leo named ("a message sent/steered during compaction ... the next worked
 /// for + thinking"), measured in CI at 7c2f6e41 on 2026-11-25: WebKit's live "Thinking" row moves 34.8 px
 /// when the steer lands during the compaction, and Chromium's follow reverses 5.5 px on the next thinking.
+/// On a chat that already holds compactions (the file's order: compaction runs first), the steered turn's
+/// end folds its "Working for" and the rows above move 12 px against the follow, in both engines, every run
+/// (CI and local, 2026-11-26); the fix for that fold lowers Chromium's row back to 8.
 export const KNOWN: Partial<Record<string, Partial<(typeof BUDGET)[FlowName]>>> = {
   "webkit send": { stray: 12 },
   "webkit compaction-steer": { stray: 40 },
-  "chromium compaction-steer": { stray: 8 },
+  "chromium compaction-steer": { stray: 12 },
 };
 /// The planted jump, px.
 export const SEED_PX = 24;

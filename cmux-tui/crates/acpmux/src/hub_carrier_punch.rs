@@ -10,7 +10,9 @@
 //!
 //! - Candidates ([`local_candidates`]): this machine's LAN IPv4 and global IPv6 addresses on the
 //!   listening port, and the router's mapping of that port when PCP or NAT-PMP grants one
-//!   ([`portmap`]). Tailscale's ranges stay Tailscale's.
+//!   ([`portmap`]). Tailscale's ranges stay Tailscale's; a container or VM bridge's
+//!   ([`host_bridge`]) is never offered, and a far candidate that is one of this machine's own
+//!   addresses ([`own_address`]) is never opened toward.
 //! - The offer ([`DIRECT_OFFER_SERVICE`]): one JSON line each way on a kept relay stream. A
 //!   machine from before it answers `service.unknown` and the dialer keeps to the relay.
 //! - The punch: each side connects from its listening port to each of the other's candidates,
@@ -136,13 +138,37 @@ pub fn local_candidates(
     out
 }
 
+/// Whether `name` is a bridge or virtual link a container or VM host keeps for its own guests
+/// (Docker's `docker0` and `br-*`, libvirt, LXD/LXC, podman, CNI, veth pairs). Its address is
+/// the same on every such host (Docker's 172.17.0.1), so no other machine reaches this one at
+/// it: offered, it sends the far side's punch into the far side's own bridge.
+pub fn host_bridge(name: &str) -> bool {
+    const PREFIXES: [&str; 11] = [
+        "docker", "br-", "veth", "virbr", "lxdbr", "lxcbr", "podman", "cni", "flannel", "cali",
+        "vnet",
+    ];
+    PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
+/// Whether `ip` is one of this machine's own addresses, on any interface, up or down: a socket
+/// binds to it. A connect to it reaches this machine, never the far one, so a far side's
+/// candidate that is one (another host's `docker0` 172.17.0.1, a VM template's address) is a
+/// connection to this machine's own listener.
+pub fn own_address(ip: IpAddr) -> bool {
+    std::net::UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
+}
+
 /// The far side's candidates this side opens toward: no wildcard, loopback only from loopback
-/// (tests), at most [`MAX_CANDIDATES`].
+/// (tests), none of this machine's own addresses, at most [`MAX_CANDIDATES`].
 fn usable_toward(candidates: &[SocketAddr]) -> Vec<SocketAddr> {
+    usable_toward_from(candidates, own_address)
+}
+
+fn usable_toward_from(candidates: &[SocketAddr], own: impl Fn(IpAddr) -> bool) -> Vec<SocketAddr> {
     let mut out: Vec<SocketAddr> = Vec::new();
     for c in candidates {
         let ip = c.ip();
-        let ok = c.port() != 0 && (candidate_ip(ip) || ip.is_loopback());
+        let ok = c.port() != 0 && (ip.is_loopback() || (candidate_ip(ip) && !own(ip)));
         if ok && !out.contains(c) && out.len() < MAX_CANDIDATES {
             out.push(*c);
         }
@@ -192,7 +218,11 @@ impl Punches {
             // A test's addresses as named, loopback included.
             return named.into_iter().map(|ip| SocketAddr::new(ip, port)).collect();
         }
-        let addresses = cmux_netwatch::usable().unwrap_or_default().into_iter().map(|(_, ip)| ip);
+        let addresses = cmux_netwatch::usable()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(name, _)| !host_bridge(name))
+            .map(|(_, ip)| ip);
         local_candidates(port, addresses, mapped)
     }
 

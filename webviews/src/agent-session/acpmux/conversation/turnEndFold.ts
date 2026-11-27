@@ -18,10 +18,11 @@
 // above it come down to meet the folded line. Reduce Motion, `data-agent-motion="off"` or no Web
 // Animations: the swap applies at once and nothing here runs. The work is bounded by the rows
 // mounted now (the view's window), never the whole chat.
+import { declareMove } from "../../../layout/motionContract";
 import {
+  MOTION_MS,
   MOTION_SETTLE,
   MOTION_SETTLE_MS,
-  MOTION_MS,
   MOTION_SPRING,
   MOTION_SPRING_STEP,
   MOTION_EASE_OUT,
@@ -35,7 +36,7 @@ import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPa
 import { LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
-import { turnEndCrossLook, turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
+import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook, turnEndCrossLook } from "./turnEndFoldLook.experiment";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
 /// rows that stay slide over it. `tuck`: the copies slide up under the folded line as they fade, as
@@ -314,6 +315,8 @@ export type TurnEndFold = {
   timer?: ReturnType<typeof setTimeout>;
   /// Stops the passes that follow the rows as they are placed again (the observer and listener).
   stop?: () => void;
+  /// Ends the fold's `turn-end` declaration (motionContract.ts), so the judge stops excusing it.
+  release?: () => void;
   /// Runs once when the fold is settled (its timer, a later fold, an unmount): the transcript reads
   /// and places its mounted rows again then (VirtualTranscript.tsx `settleMotion`).
   ended?: () => void;
@@ -717,6 +720,8 @@ export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | un
   fold.animations.clear();
   for (const copy of fold.copies) copy.remove();
   fold.copies.clear();
+  fold.release?.();
+  fold.release = undefined;
   thread?.removeAttribute(TURN_END_ATTR);
   const ended = fold.ended;
   fold.ended = undefined;
@@ -1244,6 +1249,29 @@ export function playTurnEnd(
   let easing = settleEasing;
   let grew = false;
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
+  // What the fold moves, declared while it plays (the contract's `turn-end`, motionContract.ts): every
+  // box it animates, filled in as the passes find them, and `strict`, so a box the fold does not play
+  // on is a shift even if the fold pushed it -- "No row above it moves, no row below it is pushed or
+  // pulled". The judge reads boxes after transforms, so these moves need declaring; a box that moved
+  // because the layout under it changed is not in here and is flagged. One map entry while it plays.
+  const played: Element[] = [];
+  // Except a row above everything the swap changed that the fold carries *up* (`risen`). The fold
+  // plays whatever the layout hands it, so declaring every box it animates declared the jump too: a
+  // turn that appended a row at its end lifted every row above it, and the fold slid them there
+  // gracefully, so the judge saw a declared move and the gate read 0 (measured on the judged
+  // scenario, base: the rows above rose 208 px, every frame of it marked targeted by this
+  // declaration). Coming *down* is the fold's own doing -- its work folds away and "everything above
+  // it comes down to meet the folded line" -- and stays declared; rising means the end added height
+  // under rows that were already drawn, which is the thing the contract forbids ("No row above it
+  // moves"), whether or not the fold made it pretty. `strict` and the scope are unchanged.
+  const risen = new Set<Element>();
+  fold.release = declareMove({
+    event: "turn-end",
+    scope: "targets",
+    targets: played,
+    strict: true,
+    by: "turn-end fold",
+  });
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
   // rows measured and placed again in the long frame the swap renders) plays from the start, so the
   // first painted frame is the fold's first, never most of the way there in one step.
@@ -1300,6 +1328,11 @@ export function playTurnEnd(
       lead > 0 ? (timing.fill === "forwards" || timing.fill === "both" ? "both" : "backwards") : timing.fill;
     const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay, ...(fill && { fill }) });
     fold.animations.add(animation);
+    // A row the fold carries up from above everything the swap changed is played, never declared.
+    if (risen.has(node)) {
+      const at = played.indexOf(node);
+      if (at >= 0) played.splice(at, 1);
+    } else if (!played.includes(node)) played.push(node);
     return animation;
   };
   /// A copy's ink going to 0 on the exit's clock, `offset` ms into it (a stagger's step). A copy whose
@@ -1326,6 +1359,7 @@ export function playTurnEnd(
       fill: "both",
     });
     fold.animations.add(animation);
+    if (!played.includes(copy)) played.push(copy);
     return animation;
   };
   // The rows the swap kept, by id; a row it took away left its copy, and its id may come back as
@@ -1488,6 +1522,14 @@ export function playTurnEnd(
     // Translate, clip and opacity never change a height, so these are the heights the loop read.
     const heights = boxes.length ? boxes.slice(0, nodes.length).map((box) => box.height) : nodes.map(heightOf);
     const copyHeights = boxes.length ? boxes.slice(nodes.length).map((box) => box.height) : copies.map(heightOf);
+    // The top of everything the swap changed: the highest row it took away (where it was drawn) or
+    // added (where it lands). What sits whole above this line is not the turn's; the fold may carry
+    // it down as the work folds away, and may not carry it up (`risen`).
+    let changedTop = Number.POSITIVE_INFINITY;
+    for (const row of gone) changedTop = Math.min(changedTop, row.top);
+    nodes.forEach((node, index) => {
+      if (!was.has(node.dataset.rowId!)) changedTop = Math.min(changedTop, tops[index]!);
+    });
     turnEndFoldPerf.passes += 1;
     turnEndFoldPerf.rowsRead += nodes.length + copies.length;
     turnEndFoldPerf.mostRowsRead = Math.max(turnEndFoldPerf.mostRowsRead, nodes.length + copies.length);
@@ -1664,17 +1706,20 @@ export function playTurnEnd(
       return before && !arrives(node, index) ? startTop(node, before.top) - tops[index]! : 0;
     });
     const progressAt = curveProgress(easing);
+    // Heights from the pass's reads (`heights`), never the rows' offsetHeight: this runs after the
+    // pass's first animation started, where each read forced a style pass (R2; cmux#48689 read
+    // 46,640 of them in one turn's end, turn-end-fold-restyle.browser.test.ts).
     const clearFraction = (index: number) => {
       if (!progressAt) return 1;
       const top = tops[index]!;
-      const bottom = top + nodes[index]!.offsetHeight;
+      const bottom = top + heights[index]!;
       let last = -1;
       for (let step = 0; step <= 200; step++) {
         const progress = progressAt(step / 200);
         const overlaps = nodes.some((other, k) => {
           if (k === index || drift[k] === 0 || arrives(other, k)) return false;
           const drawn = tops[k]! + drift[k]! * (1 - progress);
-          return Math.min(bottom, drawn + other.offsetHeight) - Math.max(top, drawn) > 0.5;
+          return Math.min(bottom, drawn + heights[k]!) - Math.max(top, drawn) > 0.5;
         });
         if (overlaps) last = step;
       }
@@ -1742,7 +1787,18 @@ export function playTurnEnd(
       if (!before) {
         // A row the swap added fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
-        const from = starts.get(node)?.opacity ?? 0;
+        // It holds at no ink while a kept row sliding into place still crosses its box, as a row that
+        // arrives does (above): the "Worked for" of the work after a steer lands under the steer, and
+        // the steer slides up out of that box as the rows above close the fold. Fading from the
+        // move's start, the line's ink drew inside the steer's box over the first frames (11.5 px
+        // in steer-fold-boundary-browser.test.ts's turn end; Leo, 2026-11-22, ask-6cbe3d05b7: the
+        // fold swept rows up past his steer). Read again each pass, as the arriving row's hold is.
+        const clear = ms * clearFraction(index);
+        const last = moving.get(node);
+        const running = !grew && last?.fades && (last.hold ?? 0) <= elapsed;
+        const hold = clear > elapsed ? clear : running ? (last.hold ?? 0) : 0;
+        holds = Math.max(holds, hold);
+        const from = hold > elapsed ? 0 : (starts.get(node)?.opacity ?? 0);
         // Its band is where it lands. Out of view it is drawn there at full ink instead: a fade no one
         // sees is a half-state to whoever scrolls to it (the closed "Worked for" of a turn that ended
         // above the view).
@@ -1750,8 +1806,9 @@ export function playTurnEnd(
           node,
           moving,
           { from: tops[index]!, to: tops[index]!, height: heights[index]! },
-          { delta: 0, fades: true, animations: [] },
+          { delta: 0, fades: true, animations: [], ...(hold > 0 && { hold }) },
           () => [[{ opacity: from }, { opacity: 1 }]],
+          hold > 0 ? { delay: hold, fill: "backwards" } : {},
         );
         return;
       }
@@ -1784,6 +1841,11 @@ export function playTurnEnd(
       // clock, so keeping their start and end ordered keeps every frame ordered too.
       if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
         covers.push({ top: from, bottom: tops[index]! + height });
+      // Whole-box above everything the swap changed, and the fold is carrying it up: played, not
+      // declared (`risen`), so the judge reads it as the shift it is. A row that came down with the
+      // work folding away, or one inside the turn, is the fold's own motion and stays declared.
+      if (Number.isFinite(changedTop) && from + height <= changedTop + 0.5 && delta > 0.5) risen.add(node);
+      else risen.delete(node);
       if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
       /// The band of this move, for `restart`'s gate: the start box, the landing box, and what the row
       /// sweeps between them. The row's box stayed in `covers` and in `path` above whether it animates

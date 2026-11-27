@@ -91,6 +91,10 @@ def bezier(data, points=None):
     return "cubic-bezier(%s)" % ", ".join("%g" % value for value in (points or data["easeOut"]))
 
 
+# The scale steps a look may set (schemas/agent-pane/style-tokens.json kind "duration").
+LOOK_STEPS = ("quick", "micro", "standard", "large")
+
+
 def css_block(data):
     lines = [BEGIN, ":root {"]
     for step in data["steps"]:
@@ -112,6 +116,20 @@ def css_block(data):
     lines.append("  --cmux-ease-settle: %s;" % bezier(data, data["settle"]["bezier"]))
     lines.append("  /* One turn of every spinner (`cmux-spin`); not a transition. */")
     lines.append("  --cmux-spinner-period: %sms;" % data["spinner"]["ms"])
+    lines.append("}")
+    # A look may set these on :root (cmux.agentPane.style/1, schemas/agent-pane/style-tokens.json); under
+    # animations off or Reduce Motion cmux's own values come back, at a specificity a look's :root never reaches.
+    lines.append("/* Off or reduced motion keeps cmux's own durations and easings, whatever a look sets. */")
+    lines.append(",\n".join(':root[data-%s-motion="%s"]' % (who, mode) for who in ("agent", "cmux") for mode in ("off", "reduced")) + " {")
+    for step in data["steps"]:
+        if step["name"] in LOOK_STEPS:
+            lines.append("  --cmux-motion-%s: %sms;" % (step["name"], step["ms"]))
+    lines.append("  --cmux-motion-settle: %sms;" % settle_ms)
+    lines.append("  --cmux-motion-send: %sms;" % data["send"]["ms"])
+    lines.append("  --cmux-ease-out: %s;" % bezier(data))
+    lines.append("  --cmux-ease-spring: %s;" % spring_linear(data))
+    lines.append("  --cmux-ease-settle: %s;" % bezier(data, data["settle"]["bezier"]))
+    lines.append("  --cmux-ease-send: %s;" % bezier(data, data["send"]["ease"]))
     lines += ["}", END]
     return "\n".join(lines)
 

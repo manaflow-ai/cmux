@@ -3,11 +3,16 @@ public import Foundation
 import Metal
 
 /// The GPU every live wallpaper draws on: the system's default device and one command queue,
-/// made once. Metal's device and command queue are safe to use from any thread.
-// crash-allow: immutable after init; MTLDevice and MTLCommandQueue are documented thread-safe.
+/// made once, with the scene engine's fixed bindings. Metal's device, command queue, sampler
+/// states and textures that nothing writes are safe to use from any thread.
+// crash-allow: immutable after init; MTLDevice, MTLCommandQueue and MTLSamplerState are documented thread-safe, and the clear texture is written once, in init, before it is shared.
 nonisolated final class LiveWallpaperGPU: @unchecked Sendable {
     let device: any MTLDevice
     let queue: any MTLCommandQueue
+    /// The scene engine's image sampler (fragment sampler 0); nil when Metal made none.
+    let sceneSampler: (any MTLSamplerState)?
+    /// The 1x1 clear texture a scene binds at fragment texture 0 when it shows no image; nil when Metal made none.
+    let sceneClear: (any MTLTexture)?
     /// The drawables' and stills' format: 8-bit, not sRGB (the program's epilogue encodes sRGB).
     static let pixelFormat = MTLPixelFormat.bgra8Unorm
 
@@ -20,6 +25,13 @@ nonisolated final class LiveWallpaperGPU: @unchecked Sendable {
     private init(device: any MTLDevice, queue: any MTLCommandQueue) {
         self.device = device
         self.queue = queue
+        let sampler = MTLSamplerDescriptor()
+        sampler.minFilter = .linear
+        sampler.magFilter = .linear
+        sampler.sAddressMode = .clampToEdge
+        sampler.tAddressMode = .clampToEdge
+        sceneSampler = device.makeSamplerState(descriptor: sampler)
+        sceneClear = LiveWallpaperSceneImage.texture(pixels: [0, 0, 0, 0], width: 1, height: 1, device: device)
     }
 }
 
@@ -51,9 +63,10 @@ public actor LiveWallpaperPrograms {
 
     public init() {}
 
-    /// `wallpaper`'s pipeline, building it the first time.
+    /// `wallpaper`'s pipeline, building it the first time. Every motion scene shares one: the scene
+    /// engine's (``LiveWallpaper/programKey``), so its library is built once for the app.
     func pipeline(for wallpaper: LiveWallpaper) async -> LiveWallpaperPipeline? {
-        let key = "\(wallpaper.id)|\(String(wallpaper.sourceDigest, radix: 16))"
+        let key = wallpaper.programKey
         if let running = builds[key] { return await running.value }
         // task-owner: one build per program for the process; kept so later callers join it
         let build = Task.detached(priority: .medium) { [self] () -> LiveWallpaperPipeline? in
@@ -108,7 +121,7 @@ public actor LiveWallpaperPrograms {
         guard let vertex = library.value.makeFunction(name: "vs_main"),
               let fragment = library.value.makeFunction(name: "fs_main") else { return .failure(.entryPoints) }
         let descriptor = MTLRenderPipelineDescriptor()
-        descriptor.label = "live-wallpaper.\(wallpaper.id)"
+        descriptor.label = wallpaper.isScene ? "live-wallpaper.scene-engine" : "live-wallpaper.\(wallpaper.id)"
         descriptor.vertexFunction = vertex
         descriptor.fragmentFunction = fragment
         descriptor.colorAttachments[0].pixelFormat = LiveWallpaperGPU.pixelFormat

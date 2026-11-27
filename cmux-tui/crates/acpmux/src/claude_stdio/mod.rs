@@ -309,6 +309,10 @@ mod elicitation_tests;
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod dedupe;
+/// Whether dedupe is on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use dedupe::enabled as dedupe_enabled;
+#[cfg(test)]
+pub(crate) use dedupe::enabled_with as dedupe_enabled_with;
 mod dedupe_shell;
 #[cfg(test)]
 mod dedupe_tests;
@@ -333,6 +337,10 @@ mod live_name_tests;
 mod loops;
 #[cfg(test)]
 mod loops_tests;
+// When each model call went out and came back, for the turn's Timeline (`model_calls.rs`).
+mod model_calls;
+#[cfg(test)]
+mod model_calls_tests;
 pub(crate) mod native_messaging;
 mod outbound;
 mod policy_gate;
@@ -736,6 +744,8 @@ pub struct Translator {
     context_from_compaction: AtomicBool,
     /// When the chat's prompt cache expires (`prompt_cache.rs`).
     cache: prompt_cache::CacheClock,
+    /// When the main loop's model call went out and came back (`model_calls.rs`).
+    model_clock: model_calls::ModelClock,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -882,6 +892,7 @@ impl Translator {
             turn_calls: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
             cache: Default::default(),
+            model_clock: Default::default(),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
@@ -1020,14 +1031,17 @@ impl Translator {
     /// Before the first system/init names the skills (a chat with no turn
     /// yet, such as the New Tab's deferred one), a command that Claude Code's
     /// `initialize` answer does not mark `builtin` is a skill: the person's,
-    /// a project's or a plugin's. Its bundled skills are `builtin`, so they
-    /// are tagged once the init names them.
+    /// a project's or a plugin's, when the answer marks any command at all
+    /// (an older Claude Code marks none, and gets no tags until its init).
+    /// Its bundled skills are `builtin`, so they are tagged once the init
+    /// names them.
     async fn commands_update(&self, always: bool) -> Option<Value> {
         let skills = self.skills.lock().await.clone();
-        let list: Vec<Value> = self
-            .slash_commands
-            .lock()
-            .await
+        let commands = self.slash_commands.lock().await;
+        // Only a Claude Code that marks its own commands `builtin` says which are skills before its
+        // init: an older one marks none, and then nothing is tagged until the init names the skills.
+        let marks_builtins = commands.iter().any(|c| c.get("builtin").is_some());
+        let list: Vec<Value> = commands
             .iter()
             .map(|c| {
                 let mut entry = json!({"name": c.get("name"), "description": c.get("description")});
@@ -1037,7 +1051,9 @@ impl Translator {
                     Some(skills) => {
                         skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
                     }
-                    None => c.get("builtin").and_then(Value::as_bool) != Some(true),
+                    None => {
+                        marks_builtins && c.get("builtin").and_then(Value::as_bool) != Some(true)
+                    }
                 };
                 if !name.is_empty() && skill {
                     entry.set("_meta", json!({"kind": "skill"}));
@@ -1045,6 +1061,7 @@ impl Translator {
                 entry
             })
             .collect();
+        drop(commands);
         let mut sent = self.sent_commands.lock().await;
         let unchanged = match sent.as_ref() {
             Some(before) => *before == list,

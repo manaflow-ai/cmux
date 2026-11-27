@@ -11,7 +11,8 @@
 //! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`), and ends a turn with the next-step
 //! box the person sees under the answer (`wrap_up`, `acpmux_mcp_wrap_up.rs`), and keeps the chat's
 //! goal and its done-when on any harness (`goal_set`, `goal_update`, `goal_get`,
-//! `acpmux_mcp_goal.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
+//! `acpmux_mcp_goal.rs`), reads its own packed history after a compaction (`chat_history`,
+//! `acpmux_mcp_history.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
 //! `watch_ls`, `watch_rm`, `acpmux_mcp_watch.rs`), and waits on or stops another session's turn,
 //! any session, not only its own sub-sessions (`wait`, `cancel`, `acpmux_mcp_control.rs`).
 //! `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
@@ -85,6 +86,8 @@ pub(crate) mod bridge;
 mod goal;
 #[path = "acpmux_mcp_guest.rs"]
 mod guest;
+#[path = "acpmux_mcp_history.rs"]
+mod history;
 #[path = "acpmux_mcp_pr.rs"]
 pub(crate) mod pr;
 /// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
@@ -127,6 +130,7 @@ pub(crate) fn tools() -> Value {
         list.push(who_else::tool());
         list.push(look::tool());
         list.extend(goal::tools());
+        list.push(history::tool());
         list.extend(watch::tools());
         list.extend(race::tools());
         list.push(send_status::tool());
@@ -144,13 +148,17 @@ pub(crate) fn tools() -> Value {
     all
 }
 
-/// The tools a chat calls in most turns, marked `_meta["anthropic/alwaysLoad"]` so Claude Code
-/// puts their schemas in the prompt instead of deferring them behind ToolSearch. Measured on
-/// fs-agent-lane-7 in the 24 h to 2026-11-23T11:00Z: 147 ToolSearch calls, each a whole round
-/// trip, and these six were 107 of the names they loaded (wrap_up 35, bg_output 21, who_else 20,
-/// bg_start 16, inbox_read 11, inbox_reply 4). Their schemas cost a few KB of cached prompt.
-pub(crate) const ALWAYS_LOADED: [&str; 6] =
-    [wrap_up::NAME, who_else::NAME, "bg_start", "bg_output", "inbox_read", "inbox_reply"];
+/// The tools marked `_meta["anthropic/alwaysLoad"]` so Claude Code puts their schemas in the prompt
+/// instead of deferring them behind ToolSearch. A schema here costs its tokens on every request; a
+/// deferred one costs one ToolSearch round trip (about a whole context) in each session that
+/// calls it, so a tool belongs here only while sessions calling it × context < its tokens ×
+/// requests. Measured on one lane VM in the 24 h to 2026-11-26T12:00Z (351 sessions, 142.9k
+/// requests, median context 73k), sessions calling each: bg_start 240 (563 tokens), bg_output 229
+/// (535), wrap_up 197 (962), who_else 129 (596), inbox_read 93 (417), inbox_reply 90 (424):
+/// ~500M tokens/day loaded (each counted alone) against ~71M/day deferred, so none stays (cut 1 of
+/// cmuxterm-hq goals/agents-most-lane-tokens-land-prs.md). Every tool is still listed by name and
+/// the instructions still name wrap_up and bg_start. Add one back only on that data.
+pub(crate) const ALWAYS_LOADED: [&str; 0] = [];
 
 /// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
 /// sign-in for them (`artifacts::advertised`).
@@ -334,6 +342,9 @@ fn instructions(tools: &Value) -> Option<String> {
     if crate::mcp_hint::names(tools).any(|n| goal::TOOLS.contains(&n)) {
         parts.push(goal::STEER);
     }
+    if crate::mcp_hint::names(tools).any(|n| n == history::NAME) {
+        parts.push(history::STEER);
+    }
     if crate::mcp_hint::names(tools).any(|n| n == "watch_add") {
         parts.push(watch::STEER);
     }
@@ -456,6 +467,9 @@ fn served_with(
                 }
                 if goal::TOOLS.contains(&name) {
                     return goal::call(&daemon, &session, name, &args).await;
+                }
+                if name == history::NAME {
+                    return history::call(&daemon, &session, &args).await;
                 }
                 if name == crate::github_status::TOOL {
                     let sources = crate::github_status::Sources::current();

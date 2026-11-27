@@ -1,6 +1,18 @@
 {
  "about": "One router per push (scripts/ci/pr_router.py, .github/workflows/pr-router.yml, RFD 0023). Each callee: the pull_request activity types and path filter that used to start it on its own, and optionally `affects`, the inputs it reads. Edit this file and pr-router.yml together; `python3 scripts/ci/pr_router.py check` says whether they agree.",
  "callees": {
+  "cmux-machine-channel.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "affects_why": "PR_HEAD_FAST_LANE (cmux-machine-channel.yml): a full-tier head (the land tier, once land-judge adds ready-to-land or full-ci; never a cheap or draft head) gets the Cloud machine channel's thin Linux pair built before merge, so the merge points the channel without its own cargo build. Its plan job builds only when the head's merge with the base changes the v2 tree key (scripts/cmux-next/cmux-tui-tree-inputs.txt, over a dozen roots and growing, so the key decides, not a path list), and only for this repository's heads.",
+   "land_handoff_only": true,
+   "land_handoff_only_why": "Built only on the land's own heads: the labeled event that adds ready-to-land or full-ci, or land's update-branch head of a ready-to-land PR. Both labels stay on a PR across later pushes (759 of 3,722 open PRs carried ready-to-land on 11-25), so gating on the full tier built about 168 PR heads an hour against about 17 merges (2026-11-26 04:47-06:05Z: 228 x86_64 + 221 aarch64 builds, 217 branches, 22 merges, about 2.5k machine-h/day).",
+   "skip_docs_only": true
+  },
   "cmux-next-size-budget.yml": {
    "types": [
     "opened",
@@ -60,7 +72,11 @@
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "cmux-next-ios/CmuxMobileKit/**",
     "scripts/ci/swift-linux-packages.txt",
+    "scripts/ci/swift-linux-targets.txt",
+    "scripts/ci/swift_linux_targets.py",
     "scripts/ci/package-test-lane.sh",
+    "scripts/ci/package-test-lane/**",
+    "scripts/ci/require_swift_test_execution.py",
     ".github/workflows/swift-linux-packages.yml"
    ],
    "affects": [
@@ -69,34 +85,44 @@
     "Packages/macOS/CmuxUpdater/**",
     "Packages/macOS/CmuxPhonePush/**",
     "Packages/macOS/CmuxNext/Package.swift",
+    "Packages/macOS/CmuxNext/Package.resolved",
+    "Packages/macOS/CmuxNext/LinuxAppFFI/**",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall/**",
     "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCopyMode/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFocus/**",
     "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalFind/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry/**",
     "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPanePlacementTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextCLIInstallTests/**",
     "Packages/macOS/CmuxNext/Tests/CmuxNextChromiumRuntimeTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextFocusTests/**",
     "Packages/macOS/CmuxNext/Tests/CmuxNextHostPressureTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalGeometryTests/**",
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "cmux-next-ios/CmuxMobileKit/**",
+    "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json",
     "scripts/ci/swift-linux-packages.txt",
+    "scripts/ci/swift-linux-targets.txt",
+    "scripts/ci/swift_linux_targets.py",
     "scripts/ci/package-test-lane.sh",
+    "scripts/ci/package-test-lane/**",
+    "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/swift-test-debug-info.sh",
     "scripts/ci/swiftpm-binary-module-guard.sh",
+    "scripts/ci/github-egress-direct.sh",
+    "scripts/ci/github-egress-run.sh",
+    "scripts/ci/app_ffi_linux.py",
+    "scripts/cmux-next/build-app-ffi.sh",
+    "cmux-tui/crates/**",
+    "cmux-tui/Cargo.lock",
     ".github/workflows/swift-linux-packages.yml"
    ],
-   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21), except CmuxNext's Linux shape: its three listed targets and their tests (2026-11-25); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9."
-  },
-  "web-validation.yml": {
-   "types": [
-    "opened",
-    "synchronize",
-    "reopened",
-    "ready_for_review"
-   ],
-   "skip_docs_only": true,
-   "affects": [
-    ".github/workflows/web-validation.yml"
-   ],
-   "affects_why": "On a pull request every job but the web-validation status job is skipped (`github.event_name != 'pull_request'`), and that job only echoes that ci-status owns pull request web validation: it reads no file of the change. Its own definition is the one input a pull request run can exercise. web-validation is not a required check (scripts/ci/required_status_checks.py; feat-cmux-next requires clippy and React Doctor). Last 300 merges: the old docs-only filter started it on 298, this on 0 (only a change to this workflow starts it)."
+   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21), except CmuxNext's Linux shape: the targets of linuxTargetNames and their tests, and CCmuxAppFFI, which it links as libcmux_app_ffi.a built from the cmux-tui crates by scripts/ci/app_ffi_linux.py over build-app-ffi.sh's headers (2026-11-26); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9. The ios-kit group also reads the connection contract fixture (rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json, cmux-next-ios/contract/README.md): a Rust change to it must run the Swift side."
   },
   "pr-pipeline.yml": {
    "types": [
@@ -108,11 +134,9 @@
    "draft": true,
    "table_jobs": [
     "linux",
-    "web-browser",
-    "mac",
-    "ios"
+    "web-browser"
    ],
-   "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. It starts on a full-tier head only (pr_router.py FULL_TIER_JOBS lists all four jobs): a cheap head, a draft or a ready head before `ready-to-land` or `full-ci` (head_tier.py), starts none of linux, web-browser, ios or mac; adding either label, or marking the draft ready, runs it on the same head before any merge. Until 11-25 it ran on drafts and cheap heads (`draft` let it), costing about 50k runner-minutes a day (Leo, 2026-11-21: \"de facto, im asking for 99% fewer minutes of ci time, period.\"). `draft` stays so a fast-track head (full tier, docs or tests only) still runs the steps it routes. Each job runs only when the change routes a step of it (the router's `table` output, pr-pipeline.yml's job `if:`s)."
+   "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. It starts on a full-tier head only (pr_router.py FULL_TIER_JOBS lists all four jobs): a cheap head, a draft or a ready head before `ready-to-land` or `full-ci` (head_tier.py), starts none of linux, web-browser, ios or mac; adding either label, or marking the draft ready, runs it on the same head before any merge. Until 11-25 it ran on drafts and cheap heads (`draft` let it), costing about 50k runner-minutes a day (Leo, 2026-11-21: \"de facto, im asking for 99% fewer minutes of ci time, period.\"). `draft` stays so a fast-track head (full tier, docs or tests only) still runs the steps it routes. Each job runs only when the change routes a step of it (the router's `table` output, pr-pipeline.yml's job `if:`s). The `mac` and `ios` jobs are not routed on a pull request since 2026-11-26: in 641 sampled merges over 30 days no Mac compile or Swift/iOS test job had a real catch (a red a later code change on the pull request turned green), and the two legs held 22.8k Mac minutes in the 10 hours to 2026-11-25T23Z, 85% of their jobs red (cmuxterm-hq docs/findings/2026-11-25-ci-value.md). After merge: cmux-next.yml's fast tier on the push and the post-merge batch's fast-tier suite (bisect and revert), cmux-next-ios-kit.yml and ios-reliability-matrix.yml on the push."
   },
   "screen-share-drop-gate.yml": {
    "types": [
@@ -136,6 +160,76 @@
     ".github/workflows/screen-share-drop-gate.yml"
    ],
    "affects_why": "The gate builds cmux-rd from cmux-rd-host (its own Cargo workspace, which pulls the link, proto and transport crates by path) and runs scripts/screen-share-netem.py from cmux-rd-host's tree; nothing else changes what it measures."
+  },
+  "ios-link-ffi-linux.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "cmux-next-ios/rust/**",
+    "cmux-next-ios/CmuxMobileKit/Package.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFIFFILinux/**",
+    "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLinkFFILinuxTests/**",
+    ".github/workflows/ios-link-ffi-linux.yml"
+   ],
+   "affects": [
+    "cmux-next-ios/rust/Cargo.lock",
+    "cmux-next-ios/rust/Cargo.toml",
+    "cmux-next-ios/rust/rust-toolchain.toml",
+    "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/**",
+    "cmux-next-ios/rust/scripts/build-linux-ffi.sh",
+    "cmux-next-ios/CmuxMobileKit/Package.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFIFFILinux/**",
+    "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLinkFFILinuxTests/**",
+    ".github/workflows/ios-link-ffi-linux.yml"
+   ],
+   "affects_why": "The linkage receipt (RFD 0051 route 2) breaks when the FFI surface, the checked-in binding, the kit manifest's Linux module, these tests, the script or the toolchain change. A change deeper in the crates the FFI compiles (cmux-mobile-link, cmux-tui/crates) is caught by the feat-cmux-next push run, which keeps the broad path filter, so a pull request touching only those does not start a 40-minute Rust and Swift build."
+  },
+  "cmux-next-compile-preflight.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review",
+    "labeled"
+   ],
+   "draft": true,
+   "affects_why": "No path filter, and its caller job in pr-router.yml has no `start` gate: the compile preflight runs on every tier (Leo, 2026-11-27: \"surely we can just have legit build fail preflight checks\"), and the callee's first step decides from web-bundle-key.py --routed, the exact web bundle inputs, whether to build."
+  },
+  "cmux-next-fast-gates.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review",
+    "labeled"
+   ],
+   "draft": true,
+   "affects_why": "No path filter (it had none as its own pull_request trigger): every head the router starts anything for starts it, and its jobs' own `if:`s keep their tier rules (a draft, a cheap or a not-yet-landing head skips resolve as before), so `draft` only lets those `if:`s decide. A head the router starts nothing for (head_tier's `none`: an idle or green-head base merge) starts none of its jobs; until 11-26 each such head still started its jobs (cmux-next-fast-gates.yml 32k runner-minutes in the 24 h to 2026-11-26; Leo, 2026-11-21: \"de facto, im asking for 99% fewer minutes of ci time, period.\"). `labeled` is listed as its trigger had it; the router turns an added ready-to-land or full-ci into ready_for_review and skips any other label."
+  },
+  "swift-logic-ratchet.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "edited",
+    "ready_for_review"
+   ],
+   "affects": [
+    "**/*.swift",
+    "scripts/cmux-next/swift-logic-lines.py",
+    "scripts/cmux-next/swift-logic-delta.py",
+    "scripts/cmux-next/arch_counts.py",
+    "plans/cmux-next/swift-logic-classes.tsv",
+    ".github/workflows/swift-logic-ratchet.yml"
+   ],
+   "affects_why": "swift-logic-delta.py --gate counts swift_logic_lines + mirror_lines (swift-logic-lines.py) at the base and the merge commit: it reads only Swift files, the class table plans/cmux-next/swift-logic-classes.tsv and its own counter. A change touching none of them moves neither number. Before: the 400 feat-cmux-next merges to 2026-11-25T23Z added 3,334 lines in 43 PRs, none asked why.",
+   "skip_docs_only": true
   }
  }
 }

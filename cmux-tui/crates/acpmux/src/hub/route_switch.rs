@@ -81,8 +81,9 @@ impl Hub {
         };
         let route = routes::find(dir.as_deref(), &id).map_err(|e| {
             route_error(&routes::RouteError::NotFound(format!(
-                "{e}: this {scope}'s route is gone; put its file back in ~/.config/cmux/routes \
-                 or pick another account in the chat's Account menu"
+                "{e}: this {scope}'s route is gone; put its file back in ~/.config/{next}/routes \
+                 or pick another account in the chat's Account menu",
+                next = cmux_config::NEXT_DIR
             )))
         })?;
         if !route.serves(&family) {
@@ -546,22 +547,5 @@ fn cloud_gateway(
 }
 
 #[cfg(test)]
-mod route_failure_tests {
-    use super::is_route_failure;
-
-    #[test]
-    fn overloads_with_or_without_a_status_are_route_failures() {
-        for m in [
-            "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
-            "Selected model is at capacity. overloaded",
-            "API Error: 529 overloaded_error",
-            "API Error: 503 no non-exhausted claude accounts available",
-            "You've reached your usage limit for this account",
-            "API Error: 500 Internal server error",
-            "connection refused",
-        ] {
-            assert!(is_route_failure(m), "{m}");
-        }
-        assert!(!is_route_failure("simulated internal error"));
-    }
-}
+#[path = "route_switch_route_failure_tests.rs"]
+mod route_failure_tests;

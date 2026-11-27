@@ -11,6 +11,7 @@
 // the clicked line: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as
 // the reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
 import { foldMs } from "./fold";
+import { scrollListBy } from "./motionOwner";
 
 /// The disclosures a click holds in place: every control that opens or closes something in its row
 /// (a button or a `role="button"` line with `aria-expanded`: a tool or sent message's line, Show
@@ -280,7 +281,7 @@ export function keepFold(anchor: FoldAnchor, scroller: HTMLElement, now = perfor
   const line = heldLine(anchor);
   if (!line || now > deadline(anchor)) return false;
   const moved = line.getBoundingClientRect().top - anchor.top;
-  if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
+  if (Math.abs(moved) >= 0.5) scrollListBy(scroller, moved);
   return true;
 }
 
