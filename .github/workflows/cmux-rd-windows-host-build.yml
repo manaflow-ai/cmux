@@ -57,7 +57,7 @@ jobs:
         with:
           name: cmux-rd-windows-exe
           path: cmux-tui/crates/cmux-rd-host/target/release/cmux-rd.exe
-          retention-days: 7
+          retention-days: 3
 
       - name: What it answers
         continue-on-error: true

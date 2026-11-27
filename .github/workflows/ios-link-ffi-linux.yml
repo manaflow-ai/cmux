@@ -118,4 +118,5 @@ jobs:
         with:
           name: pair-skew-logs
           path: ${{ runner.temp }}/pair-skew-logs
+          retention-days: 3
           if-no-files-found: ignore

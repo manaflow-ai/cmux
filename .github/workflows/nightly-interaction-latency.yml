@@ -109,5 +109,5 @@ jobs:
         with:
           name: nightly-interaction-latency
           path: ${{ runner.temp }}/state
-          retention-days: 90
+          retention-days: 3
           if-no-files-found: ignore
