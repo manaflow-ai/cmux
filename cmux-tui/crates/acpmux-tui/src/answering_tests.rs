@@ -90,3 +90,19 @@ async fn a_digit_still_picks_an_option_elsewhere() {
     app.on_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
     assert_eq!(sent(&mut requests).await, Some(json!({"Region": "EU"})), "{}", app.status);
 }
+
+/// cmux#41018: Esc in a reply with text keeps the question; Esc on an empty reply leaves it.
+#[tokio::test]
+async fn esc_with_typed_text_keeps_the_question() {
+    let question = json!({"harness": "claude", "agent": "deployer", "items": [{
+        "id": "q0", "prompt": "Note", "options": [], "multiSelect": false, "allowsOther": true}]});
+    let (mut app, _requests) = asking(question).await;
+    for c in "draft".chars() {
+        app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.answering.is_some(), "the question stays");
+    assert!(app.editor().is_empty(), "the typed answer is cleared");
+    app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.answering.is_none(), "a second Esc leaves it");
+}

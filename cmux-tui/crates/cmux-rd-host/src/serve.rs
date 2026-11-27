@@ -457,6 +457,36 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// What this session shares, for the app and for checks that compare the viewer's pick with
+/// the picture that arrives (`capturing`): the setup line's pick, the source it resolved to and
+/// the streamed size, in the mode this host applies (a `view` scope is view whatever the viewer
+/// asked).
+fn capturing_line(
+    setup: &Setup,
+    rect: Option<[u32; 4]>,
+    (width, height): (u32, u32),
+    mode: Mode,
+) -> AppLine {
+    AppLine {
+        capturing: Some(cmux_rd_proto::app_line::LineCapturing {
+            source: if setup.window.is_some() { "window" } else { "display" }.into(),
+            display: setup.display.clone(),
+            window: setup.window,
+            rect,
+            width,
+            height,
+            max_width: setup.max_width,
+            mode: match mode {
+                Mode::Control => "control",
+                Mode::View => "view",
+            }
+            .into(),
+            scope: setup.scope.clone(),
+        }),
+        ..AppLine::default()
+    }
+}
+
 /// When `candidates_done` goes to the app, which answers then: at the first host candidate
 /// (one is known at once, so a session never waits for STUN or TURN), or when gathering ends
 /// for a side with none (relay only). Once.
@@ -751,6 +781,7 @@ fn serve_session(
         caps: negotiated.caps.clone(),
     })?;
     carrier.send_control(&Control::Started { session })?;
+    say(capturing_line(setup, media.source_rect(), (width, height), mode));
     let reason = media.run(carrier, &mut table, session, &principal);
     media.release_input();
     media.close_upstreams();
