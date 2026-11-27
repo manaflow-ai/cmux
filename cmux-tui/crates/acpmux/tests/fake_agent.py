@@ -389,8 +389,14 @@ def is_attribution(block):
 # you are" card (`agent_card.rs`) is hidden first-turn context the same way.
 # The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
 # test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
-with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
-    GUIDANCE_SOURCES = frozenset(json.load(_f))
+# A probe copies this file alone to another machine (hq remote_reconnect_probe.py, connection_reconnect_probe.py),
+# where the json is absent: this line is the same list, and the same test checks it.
+GUIDANCE_SOURCES_STANDALONE = ["cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"]
+try:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
+        GUIDANCE_SOURCES = frozenset(json.load(_f))
+except FileNotFoundError:
+    GUIDANCE_SOURCES = frozenset(GUIDANCE_SOURCES_STANDALONE)
 GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
 
 
