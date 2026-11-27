@@ -24,7 +24,7 @@ pub_epoch=$(date -j -f '%a, %d %b %Y %H:%M:%S %z' "$pub" +%s 2>/dev/null || echo
 echo "FNH feed newest=${newest:-?} published=$(date -u -r "$pub_epoch" +%FT%TZ 2>/dev/null)"
 installed="" landed=0
 for app in "/Applications/cmux NIGHTLY.app" "$HOME/Applications/cmux NIGHTLY.app"; do
-  [[ -d "$app" ]] || continue
+  [[ -f "$app/Contents/Info.plist" ]] || continue
   v=$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app/Contents/Info.plist" 2>/dev/null)
   t=$(stat -f %m "$app/Contents/Info.plist" 2>/dev/null || echo 0)
   echo "FNH installed app=\"$app\" build=$v landed=$(date -u -r "$t" +%FT%TZ)"
