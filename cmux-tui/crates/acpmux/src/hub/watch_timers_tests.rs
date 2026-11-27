@@ -94,8 +94,8 @@ fn a_restart_between_arm_and_fire_fires_exactly_once() {
     let path = dir.path().join("watches.json");
     let armed = Watches::default();
     armed.open(&path);
-    armed.add(timer("once", 2_000, None, None)).unwrap();
-    armed.add(timer("tick", 2_000, Some(5_000), Some(11_000))).unwrap();
+    armed.insert(timer("once", 2_000, None, None)).unwrap();
+    armed.insert(timer("tick", 2_000, Some(5_000), Some(11_000))).unwrap();
     drop(armed);
 
     // Restart before it is due, then it falls due while the daemon is down.
@@ -150,4 +150,20 @@ fn a_fired_wake_is_no_inbox_item_so_it_wakes_an_idle_chat() {
     assert!(crate::hub::inbox::watch_wake(&d.request));
     let plain = json!({"sessionId": "sink", "prompt": [], "_meta": {"acpmux": {"promptId": "p"}}});
     assert!(!crate::hub::inbox::watch_wake(&plain));
+}
+
+/// A fired one-shot stops waking its chat: the fire names the chat for the timer task to
+/// recount its background waits (`background_waits.rs`), once; a fire that keeps the watch
+/// live names none.
+#[test]
+fn a_fired_one_shot_names_its_chat_for_a_recount() {
+    let watches = Watches::default();
+    watches.insert(timer("once", 1_000, None, None)).unwrap();
+    watches.insert(timer("tick", 1_000, Some(100), None)).unwrap();
+    assert!(watches.take_recount().is_empty());
+    watches.fire_timers(1_000).unwrap();
+    assert_eq!(watches.take_recount(), BTreeSet::from(["sink".to_owned()]));
+    assert!(watches.take_recount().is_empty(), "taken once");
+    watches.fire_timers(1_100).unwrap();
+    assert!(watches.take_recount().is_empty(), "the tick stays live: no change");
 }
