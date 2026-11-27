@@ -159,6 +159,12 @@ for ((n = 1; n <= runs; n++)); do
   if [[ -n "$mtc" && "$inserted" != *libMainThreadChecker* ]]; then
     launch main_thread_checker SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$mtc" >>"$work/samples.jsonl" || true; sleep 3
   fi
+  # A build without the launch clock (the "before" side, from base) never logs the line: one
+  # round with no sample says so, so stop there instead of spending every arm's 30 s bound.
+  if [[ "$n" -eq 1 && ! -s "$work/samples.jsonl" ]]; then
+    echo "ios-launch-premain: no pre-main line in the first round: this build has no launch clock; timed arms skipped" >&2
+    break
+  fi
 done
 
 # 3. dyld's own account of one launch.
