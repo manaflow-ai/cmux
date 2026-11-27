@@ -54,10 +54,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod pane_close;
 mod rows;
+pub mod screen_layout;
 pub mod sidebar_archive_marks;
 pub mod sidebar_chat_history;
+pub mod sidebar_doc_listing;
+pub mod sidebar_item_order;
 pub mod sidebar_nav;
+pub mod sidebar_row_index;
 pub mod sidebar_section_customization;
 mod tab_moves;
 pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};
@@ -958,6 +963,7 @@ mod rows_tests;
 mod sidebar_face_tests;
 
 pub mod auto_archive;
+pub mod auto_archive_ledger;
 pub mod chief_panel;
 pub mod closing_panes;
 pub mod divider_insert;
