@@ -77,6 +77,9 @@ jobs:
             && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
             reuse=reused
             if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
           fi
           if [[ $reuse == fresh ]]; then
             find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -95,7 +98,9 @@ jobs:
             [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
           done
-          git checkout -q -f --detach "$SHA"
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           [[ $reuse == fresh ]] || git sparse-checkout disable
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: List the changed paths

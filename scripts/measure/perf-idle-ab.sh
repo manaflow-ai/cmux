@@ -561,5 +561,11 @@ for key, arms in home.items():
 PY
 echo "IDLE-AB verdict exit $status base $base head $head rounds $rounds"
 # Packed beside the folder, then moved in: a tar of the folder it writes into reads its own output.
-tar -czf "$out.tgz" -C "$out" runs summary.json build-base.log build-head.log $( (( settings_open )) && echo settings-open.json settings-open.log) 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
+# Only what this run wrote: dmg= builds nothing, so it has no build-*.log, and a missing name fails the whole tar.
+packed=()
+for f in runs summary.json build-base.log build-head.log settings-open.json settings-open.log; do
+  [ -e "$out/$f" ] && packed+=("$f")
+done
+tar -czf "$out.tgz" -C "$out" "${packed[@]}" && mv "$out.tgz" "$out/report.tgz" \
+  || echo "IDLE-AB report.tgz not written (tar of ${packed[*]} failed)" >&2
 exit $status
