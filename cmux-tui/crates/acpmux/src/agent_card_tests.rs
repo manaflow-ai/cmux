@@ -54,6 +54,10 @@ fn gpus_are_read_from_the_driver_then_dev() {
     assert_eq!(gpus_in(&nvidia, &dev), vec!["NVIDIA L4"]);
 }
 
+fn no_forks() -> can_get::CanGet {
+    can_get::CanGet::with_forks(false)
+}
+
 fn servers(names: &[&str]) -> Vec<String> {
     names.iter().map(|n| (*n).to_owned()).collect()
 }
@@ -71,7 +75,7 @@ fn a_cloud_card_says_edits_sync_back_and_the_machine_grows_and_ends_with_its_num
         crate::acpmux_mcp_names::SERVER_NAME,
         crate::cloud_repo_mcp::SERVER_NAME,
     ]);
-    let text = render(&facts(Place::Cloud), &enabled(Place::Cloud, &all));
+    let text = render(&facts(Place::Cloud), &enabled(Place::Cloud, &all), &no_forks());
     assert!(text.starts_with("<where-you-are>\nYou're on cmux Cloud"), "{text}");
     assert!(text.contains("edits sync back to the Mac"), "{text}");
     assert!(text.contains("This machine grows on demand"), "{text}");
@@ -85,7 +89,7 @@ fn a_cloud_card_says_edits_sync_back_and_the_machine_grows_and_ends_with_its_num
     // The numbers come last, so a prompt cache keeps everything before them.
     let last = text.lines().rev().nth(1).unwrap();
     assert!(last.starts_with("This machine now:"), "{text}");
-    let auto = render(&facts(Place::AutoCloud), &enabled(Place::AutoCloud, &all));
+    let auto = render(&facts(Place::AutoCloud), &enabled(Place::AutoCloud, &all), &no_forks());
     assert!(auto.starts_with("<where-you-are>\nYou're on cmux AutoCloud"), "{auto}");
     assert!(auto.contains("edits sync back to the Mac"), "{auto}");
 }
@@ -106,7 +110,7 @@ fn the_card_lists_only_what_the_chats_tools_and_place_enable() {
     assert!(!cloud.contains(&"computer-use"), "{cloud:?}");
     assert!(cloud.contains(&"ask") && cloud.contains(&"background"), "{cloud:?}");
     assert!(cloud.contains(&"helpers") && cloud.contains(&"machines"), "{cloud:?}");
-    let local_card = render(&facts(Place::Local), &enabled(Place::Local, &[]));
+    let local_card = render(&facts(Place::Local), &enabled(Place::Local, &[]), &no_forks());
     assert!(local_card.contains("on the person's own computer"), "{local_card}");
     assert!(!local_card.contains("grows on demand"), "{local_card}");
 }
@@ -171,7 +175,7 @@ fn the_switch_turns_the_card_off_for_a_profile() {
 /// on; a chat captured without a card gets none.
 #[test]
 fn a_spawn_refreshes_stale_numbers_on_the_same_channel() {
-    let stale = render(&facts(Place::Cloud), &[]);
+    let stale = render(&facts(Place::Cloud), &[], &no_forks());
     let mut parts = vec![part_on(stale.clone(), DEVELOPER_INSTRUCTIONS)];
     let env = BTreeMap::new();
     assert!(refresh(&mut parts, &env, Path::new("/"), false));
@@ -217,9 +221,90 @@ fn example_cards() {
         .cloned()
         .chain([crate::github_mcp::SERVER_NAME.to_owned()])
         .collect();
-    println!("--- local ---\n{}", render(&local, &enabled(Place::Local, &local_caps)));
+    println!("--- local ---\n{}", render(&local, &enabled(Place::Local, &local_caps), &no_forks()));
     println!(
         "--- cloud ---\n{}",
-        render(&facts(Place::Cloud), &enabled(Place::Cloud, &cloud_caps))
+        render(&facts(Place::Cloud), &enabled(Place::Cloud, &cloud_caps), &no_forks())
     );
+}
+
+/// Leo: "but what if we want even more than the 32vcpu machines? how can an agent know/ask for
+/// more capacity?" The card says the largest machine, fan-out past it, that there is no Mac or
+/// GPU tier, a price and a time for each, and how to ask, above this machine's numbers.
+#[test]
+fn the_card_says_what_the_agent_can_get_and_how_to_ask() {
+    let text = render(&facts(Place::Cloud), &[], &no_forks());
+    assert!(text.contains("up to 32 vCPU, 64 GB RAM, 256 GB disk on Max"), "{text}");
+    assert!(text.contains("(Pro and Team: 8 vCPU, 16 GB, 128 GB)"), "{text}");
+    assert!(text.contains("about $2.12/h at the top, ready in about 12 s"), "{text}");
+    assert!(text.contains("up to 5 Cloud machines at once (160 vCPU on Max)"), "{text}");
+    assert!(text.contains("No Mac or GPU Cloud machines yet."), "{text}");
+    assert!(text.contains("`cmux machine request --vcpu N --mem M [--fanout K] [--kind mac|gpu] --for \"why\" --until ...`"), "{text}");
+    assert!(text.contains("is not on this build yet"), "{text}");
+    assert!(!text.contains("start_session, worktree: true"), "no forks here: {text}");
+    let can = text.find("What you can get").unwrap();
+    assert!(can < text.find("This machine now:").unwrap(), "{text}");
+    let forks = render(&facts(Place::Cloud), &[], &can_get::CanGet::with_forks(true));
+    assert!(forks.contains("gets its own fork of this machine in about 37 s"), "{forks}");
+}
+
+/// The ladder is `web/services/vms/images/sizes.ts`'s and the prices are the turn-cost list
+/// rates; `cmux capabilities` prints both, and its JSON carries them.
+#[test]
+fn capabilities_lists_every_size_with_its_price() {
+    let more = no_forks();
+    let shapes: Vec<_> =
+        more.sizes.iter().map(|s| (s.shape.name, s.shape.vcpus, s.shape.memory_gib)).collect();
+    assert_eq!(
+        shapes,
+        vec![
+            ("sm", 2, 4),
+            ("md", 4, 8),
+            ("lg", 8, 16),
+            ("lgx", 12, 24),
+            ("xl", 16, 32),
+            ("2xl", 32, 64)
+        ]
+    );
+    let md = &more.sizes[1];
+    // 4 x 0.04032 + 8 x 0.0129 = 0.26 (machineCost.ts: "A 4 vCPU / 8 GB machine is about $0.26 an hour").
+    assert_eq!(md.usd_per_hour, 0.26);
+    assert_eq!(more.largest.shape.name, "2xl");
+    assert_eq!(more.largest_below_max.shape.name, "lg");
+    let below: Vec<_> = can_get::LADDER.iter().filter(|s| s.plan != "max").collect();
+    assert_eq!(below.last().copied(), Some(&can_get::LARGEST_BELOW_MAX));
+    let table = more.table();
+    assert!(
+        table.contains("- 2xl: 32 vCPU, 64 GB RAM, 128 GB disk to start, max+, $2.12/h"),
+        "{table}"
+    );
+    let text = cli("capabilities", false, Path::new("/"));
+    assert!(text.contains("Cloud machine sizes") && text.contains("What you can get"), "{text}");
+    let json: serde_json::Value =
+        serde_json::from_str(&cli("capabilities", true, Path::new("/"))).unwrap();
+    assert_eq!(json["can_get"]["largest"]["vcpus"], 32);
+    assert_eq!(json["can_get"]["gpu"]["available"], false);
+    assert_eq!(json["can_get"]["request"]["on_this_build"], false);
+    assert_eq!(json["can_get"]["sizes"].as_array().unwrap().len(), 6);
+}
+
+/// The Duress number: the card's bytes per turn without and with the "what you can get" part.
+#[test]
+fn card_bytes_per_turn() {
+    let all: Vec<String> =
+        CAPABILITIES.iter().filter_map(|c| c.server).map(str::to_owned).collect();
+    for place in [Place::Local, Place::Cloud] {
+        let caps = enabled(place, &all);
+        let with = render(&facts(place), &caps, &no_forks());
+        let without = with.replace(&no_forks().lines(), "");
+        let forks = render(&facts(place), &caps, &can_get::CanGet::with_forks(true));
+        println!(
+            "{place:?}: {} B without, {} B with ({} with forks), +{} B",
+            without.len(),
+            with.len(),
+            forks.len(),
+            with.len() - without.len()
+        );
+        assert!(with.len() - without.len() < 900, "the part stays short");
+    }
 }
