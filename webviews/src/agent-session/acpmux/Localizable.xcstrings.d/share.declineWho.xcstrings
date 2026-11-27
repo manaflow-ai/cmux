@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "turn.failedMark" : {
-      "comment" : "Agent pane: a failed turn's mark in its footer row (an icon's label, or one muted word); short",
+    "share.declineWho" : {
+      "comment" : "Agent pane: Share dialog: accessible name of a request row's Decline button (an x when the dialog is narrow). {account} is their email or @handle",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "فشل"
+            "value" : "رفض {account}"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Neuspješno"
+            "value" : "Odbij {account}"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mislykkedes"
+            "value" : "Afvis {account}"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Fehlgeschlagen"
+            "value" : "{account} ablehnen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Failed"
+            "value" : "Decline {account}"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Falló"
+            "value" : "Rechazar a {account}"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Échec"
+            "value" : "Refuser {account}"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Non riuscito"
+            "value" : "Rifiuta {account}"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "失敗"
+            "value" : "{account} を拒否"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បរាជ័យ"
+            "value" : "បដិសេធ {account}"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "실패"
+            "value" : "{account} 거절"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mislyktes"
+            "value" : "Avslå {account}"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Niepowodzenie"
+            "value" : "Odrzuć {account}"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Falhou"
+            "value" : "Recusar {account}"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ошибка"
+            "value" : "Отклонить {account}"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ล้มเหลว"
+            "value" : "ปฏิเสธ {account}"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Başarısız"
+            "value" : "{account} isteğini reddet"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Помилка"
+            "value" : "Відхилити {account}"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Thất bại"
+            "value" : "Từ chối {account}"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "失败"
+            "value" : "拒绝 {account}"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "失敗"
+            "value" : "拒絕 {account}"
           }
         }
       }

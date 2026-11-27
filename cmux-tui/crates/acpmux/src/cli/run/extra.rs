@@ -365,19 +365,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::RouteDeath { facts } => {
-            let text = if facts.as_os_str() == "-" {
-                let mut buf = String::new();
-                std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
-                buf
-            } else {
-                std::fs::read_to_string(&facts)
-                    .with_context(|| format!("reading {}", facts.display()))?
-            };
-            let f: crate::death_route::Facts =
-                serde_json::from_str(&text).context("facts are not the death-route JSON")?;
-            print_json(&serde_json::to_value(crate::death_route::route(&f))?);
-            Ok(())
+        Command::RouteDeath { session, facts, show_facts } => {
+            super::route_death::run(session, facts, show_facts).await
         }
         Command::RestartAgent { session } => {
             let client = connect(true).await?;

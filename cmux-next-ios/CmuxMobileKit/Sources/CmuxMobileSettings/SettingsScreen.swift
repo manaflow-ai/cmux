@@ -124,6 +124,12 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                             SettingsLabel("Automations", symbol: "clock.badge.checkmark")
                         }
                         .accessibilityIdentifier("settings.automations")
+                        if cloudPages.vault != nil {
+                            NavigationLink(value: SettingsRoute.vault) {
+                                SettingsLabel("Vault", symbol: "lock.shield")
+                            }
+                            .accessibilityIdentifier("settings.vault")
+                        }
                         cloudPages.connectGitHub()
                         // AutoCloud (the Mac's `cloud.autoCloud`), this phone's own choice.
                         Toggle(isOn: $settings.cloudAutoMode) {
@@ -352,6 +358,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             cloudPages?.machines()
         case .automations:
             cloudPages?.automations()
+        case .vault:
+            cloudPages?.vault?()
         case .longPressMenus:
             LongPressMenusPage()
         case .tryPullRequest: TryPullRequestMacsPage(store: store)
@@ -393,6 +401,8 @@ public enum SettingsRoute: Hashable, Sendable {
     /// Developer → Try a Pull Request (cmux Dev): the Macs that install one, and one Mac's list.
     case tryPullRequest
     case tryPullRequestMac(String)
+    /// Cloud → Vault (the end-to-end encrypted secrets vault).
+    case vault
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -403,7 +413,7 @@ public enum SettingsRoute: Hashable, Sendable {
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .browser, .notifications,
                                     .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .cloudMachines, .automations,
-                                    .longPressMenus, .tryPullRequest]
+                                    .longPressMenus, .tryPullRequest, .vault]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }

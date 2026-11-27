@@ -211,6 +211,14 @@ public struct RootView: View {
                 LastPlaceMemory.shared.flush()
             }
         }
+        // The vault (Settings → Cloud → Vault): at launch and back in the app, seal the person's
+        // Cloud machines what they should hold, off the main thread and bounded; nothing is sent
+        // when the vault is off on this phone.
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            guard phase == .active else { return }
+            VaultSync.shared.install()
+            VaultTriggers.foreground()
+        }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
         .onGeometryChange(for: Bool.self) { proxy in
             let insets = proxy.safeAreaInsets
@@ -1071,7 +1079,13 @@ struct ShellTabs: View {
                         machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })
                             .id(ChiefSources.shared.personalListIdentity)) },
                         automations: { AnyView(CloudAutomationsScreen().id(ChiefSources.shared.personalListIdentity)) },
-                        connectGitHub: { AnyView(GitHubConnectRow()) }
+                        connectGitHub: { AnyView(GitHubConnectRow()) },
+                        vault: {
+                            AnyView(Group {
+                                if let model = VaultModel.live() { VaultScreen(model: model) }
+                            }
+                            .id(ChiefSources.shared.vaultKeyAccount))
+                        }
                     ),
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }

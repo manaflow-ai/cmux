@@ -237,6 +237,14 @@
       "root_fix": "1c"
     },
     {
+      "id": "vault.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/VaultScreen.swift",
+      "line": 77,
+      "bound_ms": 2000,
+      "waits_for": "the vault's status from the cmux server",
+      "root_fix": "1c"
+    },
+    {
       "id": "tabgrid.terminal.unavailable",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TerminalTabContent.swift",
       "line": 142,
@@ -363,6 +371,16 @@
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
       "text": "default: SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .spoken)",
       "reason": "design gallery: skeleton variants drawn for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "TerminalConnectingView(topInset: 60, screenText: saved).background(Color.black)",
+      "reason": "design gallery: draws the terminal cover states for review, not in a flow"
+    },
+    {
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift",
+      "text": "TerminalConnectingView(topInset: 60).background(Color.black)",
+      "reason": "design gallery: draws the terminal cover states for review, not in a flow"
     }
   ],
   "known_layout_shifts": [
