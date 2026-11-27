@@ -2,6 +2,12 @@ import type { Env } from "./env.ts"
 
 export const STUN = "stun:stun.cloudflare.com:3478"
 
+export interface HopServer {
+  kind: "hop"
+  url: string
+  ticket: string
+}
+
 export interface IceServer {
   urls: Array<string>
   username?: string
@@ -148,4 +154,23 @@ export async function cachedIceServers(env: Env, ctx: ExecutionContext): Promise
   } finally {
     clearTimeout(timer)
   }
+}
+
+const base64url = (bytes: ArrayBuffer) => {
+  let text = ""
+  for (const byte of new Uint8Array(bytes)) text += String.fromCharCode(byte)
+  return btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+}
+
+/** Mint a short-lived, per-request hop/1 BIND ticket for the authenticated caller. */
+export async function hopServers(env: Env, ttl: number): Promise<Array<HopServer>> {
+  const url = env.HOP_RELAY_URL
+  const secret = env.HOP_RELAY_TICKET_SECRET
+  if (!url?.startsWith("hop://") || !secret || new TextEncoder().encode(secret).byteLength < 32) return []
+  const expires = Math.floor(Date.now() / 1000) + Math.min(Math.max(ttl, 300), 3600)
+  const session = crypto.randomUUID()
+  const body = `hop1.${session}.${expires}`
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"])
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body))
+  return [{ kind: "hop", url, ticket: `${body}.${base64url(signature)}` }]
 }

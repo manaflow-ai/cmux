@@ -17,7 +17,9 @@ fn server_pairing_lock_release_does_not_wait_for_an_inherited_child_fd() {
 #[test]
 fn server_pairing_package_lock_release_does_not_wait_for_an_inherited_child_fd() {
     let dir = tempfile::tempdir().unwrap();
-    inherited_lock_release(|| crate::store::state::StoreLock::acquire(dir.path()));
+    inherited_lock_release(|| {
+        crate::store::state::StoreLock::acquire_within(dir.path(), Duration::from_millis(50))
+    });
 }
 
 fn inherited_lock_release<G>(acquire: impl Fn() -> Result<G>) {
