@@ -222,6 +222,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                     report(height)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+                // The composer's layout-shift count is measured in this host, which the keyboard
+                // and a push move whole (`layoutShiftTracked(inHost:)`).
+                .layoutShiftHost()
         )
     }
 
@@ -255,12 +258,25 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// The Mac's chat look (``CmuxMobileChatLook``), or nil for the stock chat: the transcript is
     /// clear over the chat's backdrop (`CmuxMobileChatBackdrop`, which the host draws behind it),
     /// its rows take the theme's light or dark style and the top fade its ground.
+    /// The fill behind the transcript: the look's flat ground, the stock background without a
+    /// look, clear over a picture look (the host's backdrop draws the picture).
+    static func groundFill(for look: CmuxMobileChatLook?) -> UIColor {
+        guard let look else { return .cmuxMobileBackground }
+        return look.picture == nil ? look.groundColor : .clear
+    }
+
     func applyChatLook(_ look: CmuxMobileChatLook?) {
         loadViewIfNeeded()
         let background: UIColor = look == nil ? .cmuxMobileBackground : .clear
         if scrollView.backgroundColor != background { scrollView.backgroundColor = background }
         let style = look?.interfaceStyle ?? .unspecified
         if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
+        // The flat ground sits behind the transcript, not in a shelf drawn over it: the rows
+        // scroll under the glass navigation bar and the native top edge effect, and no black
+        // safe-area shows above them. A picture look stays clear so its picture shows through.
+        let fill = Self.groundFill(for: look)
+        if view.backgroundColor != fill { view.backgroundColor = fill }
+        if topShelf.backgroundColor != .clear { topShelf.backgroundColor = .clear }
         topFade.ground = look?.groundColor
         bottomScrim.ground = look?.groundColor
     }
@@ -299,18 +315,21 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
-        if placement == .external {
-            topShelf.isUserInteractionEnabled = false
-            view.addSubview(topShelf)
-            let topEdge = UIScrollEdgeElementContainerInteraction()
-            topEdge.scrollView = scrollView
-            topEdge.edge = .top
-            topShelf.addInteraction(topEdge)
-            if #unavailable(iOS 27) {
-                topFade.isUserInteractionEnabled = false
-                topFade.isAccessibilityElement = false
-                view.addSubview(topFade)
-            }
+        // Both pushed and workspace chats need a host for the native top edge. The pushed
+        // controller still reports the navigation bar in `headerBottom`, but without this
+        // host its clear transcript exposed the window's black safe-area background.
+        topShelf.isUserInteractionEnabled = false
+        topShelf.isAccessibilityElement = false
+        topShelf.accessibilityIdentifier = "agentChat.topChrome"
+        view.addSubview(topShelf)
+        let topEdge = UIScrollEdgeElementContainerInteraction()
+        topEdge.scrollView = scrollView
+        topEdge.edge = .top
+        topShelf.addInteraction(topEdge)
+        if #unavailable(iOS 27) {
+            topFade.isUserInteractionEnabled = false
+            topFade.isAccessibilityElement = false
+            view.addSubview(topFade)
         }
         bottomShelf.isUserInteractionEnabled = false
         bottomShelf.isAccessibilityElement = false
@@ -504,11 +523,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         updateStackCeiling(headerBottom: top)
         scrollView.edgeTopInset = top
-        if placement == .external {
-            let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
-            if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
-            if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
-        }
+        let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
+        if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
+        if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
         // The stack's top as drawn this frame (its height can lead the guide's) to the bottom.
         let stackTop = min(dockGuide.layoutFrame.minY, dockGuide.layoutFrame.maxY - stackHeight)
         let shelfFrame = CGRect(x: 0, y: stackTop, width: view.bounds.width, height: max(0, view.bounds.maxY - stackTop))

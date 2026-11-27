@@ -81,6 +81,7 @@ export function mountIconPicker(
     void client?.call(IconPickerOps.finish, { session: id, ...result }).catch((error: unknown) => {
       console.error("icon picker: the host refused the pick", error);
       if (result.cancel || id !== session.id) return;
+      // retry-prompt-ok: "Try again" re-applies the person's pick to the icon, a write they choose.
       failure = strings.t("iconPicker.finishFailed");
       flushSync(render);
     });

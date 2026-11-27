@@ -45,6 +45,8 @@ pub(crate) struct Shared {
     hub: Mutex<Arc<Hub>>,
     link: Mutex<Link>,
     subscribers: Mutex<Vec<UnboundedSender<String>>>,
+    /// App channels that asked `device.watch`: each hears `online` as the daemon comes online.
+    watchers: Mutex<Vec<UnboundedSender<String>>>,
     pub app: Mutex<AppNotes>,
     /// The hub's devices: id -> platform.
     devices: Mutex<HashMap<String, String>>,
@@ -100,6 +102,7 @@ impl Shared {
             hub: Mutex::new(Arc::new(hub)),
             link: Mutex::new(Link { state: "starting", ..Link::default() }),
             subscribers: Mutex::new(Vec::new()),
+            watchers: Mutex::new(Vec::new()),
             app: Mutex::new(AppNotes::default()),
             devices: Mutex::new(HashMap::new()),
             screens: Mutex::new(None),
@@ -147,6 +150,36 @@ impl Shared {
     pub(crate) fn relay(&self, text: &str) {
         let line = json!({"event": "push", "text": text}).to_string();
         lock(&self.subscribers).retain(|s| s.send(line.clone()).is_ok());
+    }
+
+    /// `{"event":"online","id":..,"user_id":..}` while the link is online signed in: the device the
+    /// daemon holds now and its account, so an app that took another identity (it asked before
+    /// the daemon signed in, or before it registered a new device) follows this one.
+    pub(crate) fn online_event(&self) -> Option<String> {
+        if self.link().state != "online" {
+            return None;
+        }
+        let hub = self.hub();
+        let user = hub.user_id()?;
+        Some(json!({"event": "online", "id": hub.device.id, "user_id": user}).to_string())
+    }
+
+    /// A new app channel that hears [`Shared::online_event`]: now when the link is online, and
+    /// each time it comes online again.
+    pub(crate) fn watch(&self, sender: UnboundedSender<String>) {
+        if let Some(line) = self.online_event()
+            && sender.send(line).is_err()
+        {
+            return;
+        }
+        lock(&self.watchers).push(sender);
+    }
+
+    /// Tells every watching app channel the link is online (as [`Shared::online_event`]).
+    pub(crate) fn announce_online(&self) {
+        if let Some(line) = self.online_event() {
+            lock(&self.watchers).retain(|s| s.send(line.clone()).is_ok());
+        }
     }
 
     pub(crate) fn set_devices(&self, devices: &Value) {
@@ -254,15 +287,41 @@ pub(crate) fn device_hub_of(host: &str) -> Option<Value> {
 }
 
 /// `share-host status` in this daemon: the running host's, or why it does not run.
+/// A status that says the join keeps the host from running is read against the join now: when the
+/// machine has joined since, the daemon's check runs at once and the answer says it starts.
 pub(crate) fn status_now() -> Value {
     if let Some(shared) = RUNNING.get() {
         return shared.status_json();
     }
-    if let Some(status) = lock(&LINUX).clone() {
+    let status = match lock(&LINUX).clone() {
+        Some(status) => status,
+        None => {
+            let why = lock(&NOT_RUNNING).clone();
+            not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
+        }
+    };
+    refreshed(status, || super::joined().is_ok())
+}
+
+/// `status`, or, when it says the host does not run for want of a join and the machine is joined
+/// now (`joined_now`, asked only then), that the host starts: the join check is woken
+/// ([`super::recheck`]) so it does.
+pub(crate) fn refreshed(status: Value, joined_now: impl FnOnce() -> bool) -> Value {
+    let state = status.get("state").and_then(Value::as_str).unwrap_or_default();
+    let running = status.get("running").and_then(Value::as_bool).unwrap_or(false);
+    if !super::joined_since(state, running, joined_now) {
         return status;
     }
-    let why = lock(&NOT_RUNNING).clone();
-    not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
+    super::recheck();
+    let mut status = status;
+    if let Some(fields) = status.as_object_mut() {
+        fields.insert("state".into(), json!("starting"));
+        fields.insert(
+            "detail".into(),
+            json!("this machine joined since the daemon last looked; the share host starts now"),
+        );
+    }
+    status
 }
 
 /// The status of a share host that does not run, and why. `supported`: this daemon's system has
