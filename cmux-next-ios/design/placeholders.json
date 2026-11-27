@@ -269,6 +269,14 @@
       "root_fix": "1a"
     },
     {
+      "id": "vault.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/VaultScreen.swift",
+      "line": 78,
+      "bound_ms": 2000,
+      "waits_for": "the vault page's first status response",
+      "root_fix": "1c"
+    },
+    {
       "id": "workspaces.page.skeleton",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift",
       "line": 650,
