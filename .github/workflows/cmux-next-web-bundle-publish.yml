@@ -483,6 +483,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/actions/setup-cmux-tui-rust/
+            /.github/actions/runner-cargo-home/
             /cmux-tui/
             /scripts/cmux-next/
             /.gitmodules

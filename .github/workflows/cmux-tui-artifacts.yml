@@ -1168,11 +1168,16 @@ jobs:
           # Only defer to a publisher queued on the current daemon-test runner.
           DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
           # How long a live owner holds its key before a feat-cmux-next push
-          # takes it over. A healthy owner publishes about 20 minutes after it
-          # starts; on 2026-10-28 owners hung for up to an hour in a Zig fetch
-          # while every later push of the key deferred to them, and the
-          # feat-cmux-next tree went 2 hours unpublished.
-          OWNER_LEASE_MINUTES: 25
+          # takes it over. On 2026-10-28 a healthy owner published about 20
+          # minutes after it started, and owners hung for up to an hour in a Zig
+          # fetch while every later push of the key deferred to them (the
+          # feat-cmux-next tree went 2 hours unpublished). On 2026-11-27 healthy
+          # owners took 34 to 50 minutes to publish (the darwin leg alone 25 to
+          # 29), so a 25-minute lease made nightly-next take over live owners
+          # and build the same tree twice (run 45946662826 over owner
+          # 45943324989, about 70 runner-minutes). 55 covers the slowest healthy
+          # owner and still cuts off an hour-long hang.
+          OWNER_LEASE_MINUTES: 55
         run: |
           set -euo pipefail
           takeover=true
