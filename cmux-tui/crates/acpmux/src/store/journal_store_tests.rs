@@ -2028,7 +2028,7 @@ fn every_test_wait_on_a_hold_is_bounded() {
     /// `(file under src/, receiver, why it may block unbounded)`.
     const ALLOWED: &[(&str, &str, &str)] = &[
         (
-            "agent_host/host/orphan.rs",
+            "agent_host/host/orphan_tests.rs",
             "held",
             "the harness waiter's park: it ends when the test drops `release`",
         ),
@@ -2037,13 +2037,6 @@ fn every_test_wait_on_a_hold_is_bounded() {
             "outgoing",
             "the page's reader drains the served connection's output: it ends when the \
              connection drops `output`, and no test waits on it",
-        ),
-        (
-            "server/outbox.rs",
-            "out_rx",
-            "not test code: the scan reads every `outbox.rs` as a test file because \
-             `stress/mod.rs` declares `#[cfg(test)] mod outbox;`. `attempt_once` awaits it in a \
-             `select!` against `sleep_until(quiet.end())`, which bounds it",
         ),
     ];
     fn sources(dir: &Path, into: &mut Vec<PathBuf>) {

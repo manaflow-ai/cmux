@@ -9390,6 +9390,9 @@
       "/_meta/acpmux/worktree": {
         "ty": "json"
       },
+      "/attachments": {
+        "ty": "json"
+      },
       "/sessionId": {
         "ty": "json"
       }
@@ -9687,6 +9690,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/worktree": {
+        "ty": "json"
+      },
+      "/attachments": {
         "ty": "json"
       },
       "/sessionId": {
@@ -13894,6 +13900,12 @@
       }
     },
     "request:_acpmux/ledger": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/lifecycle": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -27062,6 +27074,18 @@
         "nullable": true
       }
     },
+    "request:_acpmux/team/navigator": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/pick": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/team/read": {
       "/*untyped*": {
         "ty": "json",
@@ -27069,6 +27093,12 @@
       }
     },
     "request:_acpmux/team/send": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/team/session_info": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -28947,6 +28977,12 @@
       }
     },
     "request:_acpmux/who_else": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/wireguard_admit": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -34485,6 +34521,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/lifecycle": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/mac_approver_set": {
       "/data/*untyped*": {
         "ty": "json",
@@ -38655,6 +38697,18 @@
         "nullable": true
       }
     },
+    "response:_acpmux/team/navigator": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/pick": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/team/read": {
       "/data/*untyped*": {
         "ty": "json",
@@ -38662,6 +38716,12 @@
       }
     },
     "response:_acpmux/team/send": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/team/session_info": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -40343,6 +40403,12 @@
       }
     },
     "response:_acpmux/who_else": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/wireguard_admit": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
