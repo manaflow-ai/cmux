@@ -2,7 +2,7 @@
 // G04: every finished turn ends on its footer row, as Claude desktop ends every reply with one. A turn
 // that only ran tools, or ended in an API error, collapsed to a bare "Worked for" line with no Copy and
 // no mark (turns.ts `isEmptyFooter`, TurnRows.tsx TurnFooter, turnCopy.ts `turnCopyParts`).
-import { afterEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { translate, type Translate } from "../i18n";
@@ -50,10 +50,6 @@ const summary = (id: string, at: number, fields: Partial<AcpmuxRow> = {}): Acpmu
 const footerOf = (rows: AcpmuxRow[], family = "claude") =>
   turnView(rows, new Set(), { ...options, agentFamily: family }).filter((row) => row.kind === "turnSummary");
 
-afterEach(() => {
-  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
-});
-
 for (const family of ["claude", "codex"]) {
   test(`${family}: a turn of tool calls alone ends on its row with Copy`, () => {
     const [footer] = footerOf([ask("a", 1_000), ran("r", 1_500), summary("s", 5_000)], family);
@@ -65,7 +61,7 @@ for (const family of ["claude", "codex"]) {
     expect(markup).toContain('aria-label="Copy"');
   });
 
-  test(`${family}: a turn that ran tools and then failed keeps its row, its Copy and the failed mark`, () => {
+  test(`${family}: a turn that ran tools and then failed keeps its row and its Copy, with no failed mark`, () => {
     const [footer] = footerOf(
       [ask("a", 1_000), ran("r", 1_500), summary("s", 5_000, { status: "failed", error: "API Error: 529 Overloaded" })],
       family,
@@ -74,37 +70,23 @@ for (const family of ["claude", "codex"]) {
     const markup = renderToStaticMarkup(<TurnFooter row={footer!} />);
     expect(markup).toContain("cv-turn-actions--failed");
     expect(markup).toContain('aria-label="Copy"');
-    expect(markup).toContain("cv-turn-end-mark--failed");
-    // A failed turn shows its failed mark, never a done check.
+    // The error card says the turn failed (Leo, 2026-11-27: "remove the extraneous error icon in the
+    // bottom area it's not important"): the row draws no failed mark, and never a done check.
+    expect(markup).not.toContain('aria-label="Failed"');
+    expect(markup).not.toContain('data-icon="status.failure"');
     expect(markup).not.toContain('data-icon="action.confirm"');
   });
 }
 
-test("a turn that failed before it did anything keeps the failed mark and draws no Copy", () => {
+test("a turn that failed before it did anything draws no failed mark and no Copy", () => {
   const [footer] = footerOf([
     ask("a", 1_000),
     summary("s", 2_000, { status: "failed", error: "API Error: 529", toolCount: 0 }),
   ]);
   const markup = renderToStaticMarkup(<TurnFooter row={footer!} />);
-  expect(markup).toContain("cv-turn-end-mark--failed");
-  expect(markup).toContain('aria-label="Failed"');
+  expect(markup).not.toContain('aria-label="Failed"');
+  expect(markup).not.toContain('data-icon="status.failure"');
   expect(markup).not.toContain('aria-label="Copy"');
-});
-
-test("each failed-turn-mark arm draws its own mark", () => {
-  const row = summary("s", 2_000, { status: "failed", error: "API Error: 529", toolCount: 0 });
-  const g = globalThis as { cmuxExperiments?: Record<string, string> };
-  g.cmuxExperiments = { "failed-turn-mark": "alert" };
-  expect(renderToStaticMarkup(<TurnFooter row={row} />)).toContain('data-icon="status.failure"');
-  g.cmuxExperiments = { "failed-turn-mark": "cross" };
-  expect(renderToStaticMarkup(<TurnFooter row={row} />)).toContain('data-icon="action.close"');
-  g.cmuxExperiments = { "failed-turn-mark": "word" };
-  expect(renderToStaticMarkup(<TurnFooter row={row} />)).toMatch(/cv-turn-end-mark--word[^>]*>Failed</);
-});
-
-test("a completed turn with an answer draws no end mark: the row stays Claude's buttons", () => {
-  const row = summary("s", 2_000, { text: "Done." });
-  expect(renderToStaticMarkup(<TurnFooter row={row} />)).not.toContain("cv-turn-end-mark");
 });
 
 test("Copy on a tool-only turn copies the calls' lines and the last call's output", () => {

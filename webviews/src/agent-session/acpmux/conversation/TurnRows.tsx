@@ -46,7 +46,6 @@ import {
 import { FailedCount } from "./FailedCount";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
-import { failedTurnMark } from "./failedTurnMark.experiment";
 import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
@@ -499,27 +498,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       )}
     </WithFacts>
   );
-  // A failed turn's row says the turn failed (G04): the failed mark after its buttons
-  // (failedTurnMark.experiment.ts), so a failed turn with nothing to copy still ends on a row that
-  // reads as its end, never a bare line of hover controls. No tooltip: the row carries no time or
-  // Worked for (Lawrence and Lucas, 2026-11-11 standup).
-  const failedLook = failed && !waiting ? experimentArm(failedTurnMark) : undefined;
-  const endMark = failedLook && (
-    <span
-      className={`cv-turn-end-mark cv-turn-end-mark--failed cv-turn-end-mark--${failedLook}`}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon glyph with a spoken name, not an image file.
-      role="img"
-      aria-label={t("turn.failedMark")}
-    >
-      {failedLook === "word" ? (
-        t("turn.failedMark")
-      ) : failedLook === "cross" ? (
-        <Close size={ROW_ICON} />
-      ) : (
-        <AlertCircle size={ROW_ICON} />
-      )}
-    </span>
-  );
   // A failed turn's Retry (card and footer) asks acpmux's turn retry where the chat has one
   // (turnRetry.ts): one at a time, and a refusal leaves its note on the card.
   const [retrying, setRetrying] = useState(false);
@@ -696,7 +674,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               with the row while the pointer is on the turn, as Claude's (Leo, 2026-11-22: "you hover
               and you get the timing ... and we already have logic for the timing"). */}
           {!messages && !failed && <ReplyTime at={row.at} />}
-          {!messages && endMark}
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}
