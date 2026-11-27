@@ -32,6 +32,18 @@ export type MockSession = {
   };
   /// The agent's last reply, for sessions other than the worked one.
   reply?: string;
+  /// The composer footer's status rundown for showcase captures. This is passed through the
+  /// mock daemon's session summary exactly as acpmux sends it.
+  composerStatus?: {
+    items: {
+      kind: string;
+      level: "info" | "attention" | "problem";
+      words: string;
+      subject?: string;
+      action?: string;
+    }[];
+    facts: unknown[];
+  };
   /// Images the last reply shows under its text (the image viewer's mock chat).
   images?: { alt: string; svg: string }[];
   /// What a session needing input waits on: the tool call its permission card names.
@@ -195,6 +207,23 @@ export const mockSessions: MockSession[] = [
       state: "open",
       reviewReady: true,
       checks: "passing",
+    },
+    composerStatus: {
+      items: [
+        {
+          kind: "stuck",
+          level: "problem",
+          words: "status.stuck.spawnFailed",
+          subject: "Codex",
+        },
+        {
+          kind: "rateLimited",
+          level: "attention",
+          words: "status.rateLimited.parked",
+          subject: "Claude Code",
+        },
+      ],
+      facts: [],
     },
   },
   {

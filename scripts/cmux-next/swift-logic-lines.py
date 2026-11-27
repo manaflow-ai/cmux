@@ -135,8 +135,6 @@ GENERATORS = (
      "scripts/cmux-next/gen-chrome-styles.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift",
      "scripts/cmux-next/art/generate_backdrop_art.py"),
-    ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift",
-     "scripts/cmux-next/art/generate_backdrop_art.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift",
      "scripts/cmux-next/gen-status-glyphs.py"),
     ("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift", "scripts/cmux-next/gen-type-scale.py"),

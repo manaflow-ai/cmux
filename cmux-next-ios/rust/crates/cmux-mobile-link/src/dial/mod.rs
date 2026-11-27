@@ -80,6 +80,8 @@ pub enum LinkPath {
     /// Through a TURN server whose client leg is TCP or TLS (a network that
     /// blocks UDP); WireGuard only.
     TurnTls,
+    /// Through the hop/1 UDP PoP relay, with per-leg repair.
+    Hop,
     /// Through cmux's own WebSocket relay over HTTPS (PROTOCOL.md "WebSocket
     /// relay"), the last resort when neither UDP nor TURN gets through;
     /// WireGuard only.
@@ -91,12 +93,13 @@ pub enum LinkPath {
 
 impl LinkPath {
     /// The path's wire name (`link_stat`, the debug probes): `direct`, `turn`, `turn-tls`,
-    /// `https-relay`, `none`.
+    /// `hop`, `https-relay`, `none`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Direct => "direct",
             Self::Turn => "turn",
             Self::TurnTls => "turn-tls",
+            Self::Hop => "hop",
             Self::HttpsRelay => "https-relay",
             Self::NoPath => "none",
         }
@@ -422,13 +425,13 @@ pub fn is_lan(ip: std::net::IpAddr) -> bool {
 
 /// The route a link's bytes take, as one word: `direct-lan` (a peer address on this network),
 /// `direct-wan` (routed: the internet, a tailnet, CGNAT), `direct` (direct, address unknown),
-/// `relay` (a TURN server, over UDP, TCP or TLS) or `none`.
+/// `relay` (a TURN or hop server, over UDP, TCP or TLS) or `none`.
 pub fn route_name(path: LinkPath, peer: Option<std::net::IpAddr>) -> &'static str {
     match (path, peer) {
         (LinkPath::Direct, Some(ip)) if is_lan(ip) => "direct-lan",
         (LinkPath::Direct, Some(_)) => "direct-wan",
         (LinkPath::Direct, None) => "direct",
-        (LinkPath::Turn | LinkPath::TurnTls | LinkPath::HttpsRelay, _) => "relay",
+        (LinkPath::Turn | LinkPath::TurnTls | LinkPath::Hop | LinkPath::HttpsRelay, _) => "relay",
         (LinkPath::NoPath, _) => "none",
     }
 }
@@ -1097,6 +1100,7 @@ mod tests {
         assert_eq!(route_name(LinkPath::Direct, None), "direct");
         assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
         assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
+        assert_eq!(route_name(LinkPath::Hop, None), "relay");
         assert_eq!(route_name(LinkPath::NoPath, None), "none");
     }
 
