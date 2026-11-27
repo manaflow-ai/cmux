@@ -196,11 +196,11 @@ fn folder_value(folder: &Folder, home: &Path, named: bool) -> Result<Value> {
     })
 }
 
-/// Why a checkout with no `origin` does not move over the hub: the target makes the folder
+/// Why a checkout with no owner/name `origin` does not move over the hub: the target makes the folder
 /// itself from a remote, and the git bundle that carries such a checkout goes over ssh only.
 fn no_origin_over_the_hub(top: &str) -> String {
     format!(
-        "{top} has no origin, and a checkout with no remote does not move through the team hub \
+        "{top} has no owner/name origin, and such a checkout does not move through the team hub \
          yet: add a remote and push, or pass --cwd to a folder the target already has"
     )
 }
