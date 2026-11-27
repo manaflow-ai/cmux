@@ -48,7 +48,7 @@ SCENARIOS = ("chat-long-return", "terminal-return", "chromium-return", "new-tab"
 # Beside the defaults (scenarios=all): a WebKit page's return, workspaces opened, switched and closed, and rapid
 # sequences whose animations retarget mid-flight (tab_switch_frames.py's docstring says what each drives).
 MORE_SCENARIOS = ("webkit-return", "new-workspace", "switch-workspace", "close-workspace", "rapid-open-5",
-                  "rapid-close-3", "open-while-close")
+                  "rapid-close-3", "open-while-close", "browser-split")
 ALL_SCENARIOS = SCENARIOS + MORE_SCENARIOS
 LOADS = ("idle", "cpu", "agents")
 
@@ -251,6 +251,13 @@ def budget_fails(switch, label):
     fails = []
     if switch.get("error"):
         fails.append(f"{label}: {switch['error']}")
+        return fails
+    if switch.get("gate") == "blank-only":
+        # browser-split: the pane's layout moves by design, so only an empty frame in the new pane fails.
+        if (switch.get("blank_frames") or 0) > 0:
+            fails.append(f"{label}: {switch['blank_frames']} blank frames in the new pane")
+        if switch.get("to_content_ms") is None:
+            fails.append(f"{label}: the new pane never showed its page")
         return fails
     cold = switch.get("cold_evidence")
     if cold is not None:
