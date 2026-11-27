@@ -173,7 +173,20 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
 fn a_failed_heartbeat_without_a_reason_still_projects_failure() {
     let row = row_of(
         "s-1",
-        &Fields { name: "child", harness: "claude", state: "failed", stuck_reason: None },
+        &Fields {
+            name: "child",
+            harness: "claude",
+            state: "failed",
+            stuck_reason: None,
+            cwd: None,
+            title: None,
+            title_source: None,
+            name_given: None,
+            model: None,
+            agent_session_id: None,
+            host_build: None,
+            handle: None,
+        },
     );
     assert_eq!(row["status"], "idle");
     assert_eq!(row["lastTurn"]["status"], "failed");
@@ -190,6 +203,16 @@ fn heartbeat_roundtrip_preserves_an_optional_stuck_reason() {
             state: "failed".into(),
             stuck_reason: Some("cannot write .git".into()),
             team_address: None,
+            cwd: None,
+            title: None,
+            title_source: None,
+            name_given: None,
+            model: None,
+            agent_session_id: None,
+            host_build: None,
+            handle: None,
+            former_names: Vec::new(),
+            roles: Vec::new(),
         }],
         leaving: false,
     };

@@ -536,7 +536,11 @@ impl Hub {
             .map(|(_, r)| r)
             .filter(|r| names_by_handle(r, key))
             .map(|r| (r.peer.clone(), r.receipt.mux_session_id.clone()));
-        let row = found.next()?;
+        let Some(row) = found.next() else {
+            drop(book);
+            // Created through the hub seconds ago: the book lists it at the next heartbeat.
+            return self.recent_create(key).filter(|(host, _)| self.peer(host).is_none());
+        };
         found.next().is_none().then_some(row)
     }
 
