@@ -583,8 +583,7 @@ jobs:
 
   workspace:
     name: ${{ matrix.root }}
-    # reads: the if below admits a pull request whose diff a workspace reads (needs.reads.outputs.hit).
-    needs: [plan, reads]
+    needs: plan
     # !cancelled(): plan runs past a skipped receipt (every push and every PR without one), and GitHub's
     # implicit success() skipped this job there, so no planned workspace ran and summary read the skip
     # as a pass.
