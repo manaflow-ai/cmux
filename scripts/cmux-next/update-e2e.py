@@ -444,6 +444,8 @@ def start_agent_turn(work):
     if not wait(lambda: "before-gate" in acp.text(session), 30):
         return session, fifo, None
     pid = wait(lambda: agent_pids(work)[:1], 10)
+    if not pid:
+        print(f"agent pid not found under {work}; fake_agent processes: {agent_candidates()}")
     return session, fifo, (pid or [None])[0]
 
 
@@ -454,11 +456,18 @@ def agent_pids(work):
     pgrep missed (agent pid None on the CI Mac)."""
     tail = os.path.join(os.path.basename(os.path.normpath(work)), "fake_agent.py")
     pids = []
-    for line in run("pgrep", "-fl", "fake_agent.py").stdout.splitlines():
-        pid, _, command = line.partition(" ")
+    # ps -axww: full command lines, never truncated (pgrep -fl matched nothing on the CI Mac).
+    for line in run("ps", "-axww", "-o", "pid=,command=").stdout.splitlines():
+        pid, _, command = line.strip().partition(" ")
         if tail in command and pid.isdigit():
             pids.append(pid)
     return pids
+
+
+def agent_candidates():
+    """Every process naming fake_agent.py, for the log when the match misses."""
+    return [line.strip() for line in run("ps", "-axww", "-o", "pid=,user=,command=").stdout.splitlines()
+            if "fake_agent" in line]
 
 
 def release_gate(fifo):
