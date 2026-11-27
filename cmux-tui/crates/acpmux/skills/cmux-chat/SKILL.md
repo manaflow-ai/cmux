@@ -1,6 +1,6 @@
 ---
 name: cmux-chat
-description: "How a cmux chat shows your work: side sessions and offered sessions, links to other sessions, the closing recap, and editing cmux itself live. Load it once per chat, with your first reads, when a task may start or suggest another session, or will change files."
+description: "How a cmux chat shows your work: side and offered sessions, session links, the closing recap, editing cmux live. Load with your first reads when a task may start a session or change files."
 ---
 
 # Working in a cmux chat

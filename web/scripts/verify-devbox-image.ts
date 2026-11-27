@@ -80,6 +80,19 @@ import {
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./cmux-vm-image/machine-health";
 
+/**
+ * What a failed machine-health smoke prints next: the health unit's own journal (which step of
+ * the pass ran out its 45 s, or what killed it), the units still starting (the re-arm's overdue
+ * housekeeping timers share the disk with the pass, which runs at idle I/O priority), and load.
+ * Here, not in cmux-vm-image/machine-health.ts, so it is no rebake input.
+ */
+const MACHINE_HEALTH_FAILURE_CONTEXT_COMMAND = [
+  "journalctl -u cmux-machine-health.service -o short-monotonic --no-pager -n 40",
+  "echo activating: $(systemctl list-units --state=activating --no-legend --plain | awk '{print $1}' | tr '\\n' ' ')",
+  "echo loadavg: $(cat /proc/loadavg)",
+  "echo psi-io: $(tr '\\n' ' ' < /proc/pressure/io 2>/dev/null)",
+].join("; ");
+
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
 /** A TCP port as the 4-hex-digit form /proc/net/tcp prints. */
@@ -575,6 +588,12 @@ if (provider === "freestyle") {
     const healthProblems = [...healthResumeProblems, ...devboxMachineHealthRearmProblems(healthSmoke.output), ...machineHealthSmokeProblems(healthSmoke.output)];
     console.log(`  $ machine-health smoke\n    ${(healthProblems.join("\n") || healthSmoke.output.trim()).split("\n").join("\n    ")}`);
     const healthOk = healthProblems.length === 0;
+    if (!healthOk) {
+      // Run 45897047683 failed with only "one pass: exit 1, result timeout": the problem list
+      // can't say which step of the pass ran past the unit's 45 s, or what else held the disk.
+      const why = await exec(MACHINE_HEALTH_FAILURE_CONTEXT_COMMAND, 30_000);
+      console.log(`  $ machine-health failure context\n    ${why.output.trim().split("\n").join("\n    ")}`);
+    }
     pass = pass && healthOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
     if (!healthOk) console.log("[freestyle] machine-health check FAILED");
