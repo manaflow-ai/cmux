@@ -1613,15 +1613,33 @@ async fn dispatch_request_with_identity(
     {
         return crate::hub::file_uploads::web::handle(hub, m, params).await;
     }
+    // These methods can dispatch session/new while their own poll is still on the worker
+    // stack. Enter the large method match only for the child, after ordinary routing above.
+    match m {
+        method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
+        method::CHAT_FIX_FROM_LINK => {
+            heap(|| super::fix_from_link::handle(hub, conn, params, false)).await
+        }
+        method::CHAT_FIX_FROM_LINK_PREPARE => {
+            heap(|| super::fix_from_link::handle(hub, conn, params, true)).await
+        }
+        other => {
+            heap(|| dispatch_method(hub, conn, other, params, resolved, fixed_id, received)).await
+        }
+    }
+}
+
+async fn dispatch_method(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+    resolved: Option<Arc<crate::hub::Session>>,
+    fixed_id: Option<String>,
+    received: tokio::time::Instant,
+) -> Result<Value, RpcError> {
     match m {
         method::MUX_MESH_CONTROL => super::mesh_control_send::handle(hub, conn, &params).await,
-        method::CHAT_FIX_FROM_LINK => super::fix_from_link::handle(hub, conn, params, false).await,
-        method::CHAT_FIX_FROM_LINK_PREPARE => {
-            super::fix_from_link::handle(hub, conn, params, true).await
-        }
-        // Boxed: dispatch_brief's future is large, and inline it widens every request's future
-        // (a debug test thread's stack overflowed on an unrelated request).
-        method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
         method::MUX_STEER => briefs::steer(hub, conn, params).await,
         method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
