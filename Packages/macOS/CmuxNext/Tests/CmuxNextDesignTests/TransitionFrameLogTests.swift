@@ -61,6 +61,33 @@ import Testing
         #expect(object["build"] as? String == "4584735850101")
     }
 
+    @Test func aSplitKeyPressIsTheInputAndALateChangeTimesNothing() {
+        let log = Self.log()
+        let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 99.995, windowNumber: 0,
+                                   context: nil, characters: "d", charactersIgnoringModifiers: "d", isARepeat: false, keyCode: 2)
+        log.arm(.rightSplitOpen)
+        #expect(log.pendingTransition == .rightSplitOpen)
+        log.input(now: 100, event: key)
+        #expect(log.pendingInput?.time == 99.995)
+        #expect(log.pendingInput?.fromEvent == true)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        window.contentView?.wantsLayer = true
+        log.changed(in: window, now: 100 + TransitionFrameLog.maximumChangeWait)
+        #expect(log.pendingInput == nil)
+        #expect(log.pendingTransition == nil)
+    }
+
+    @Test func aLineCarriesItsPath() throws {
+        let line = TransitionFrameLog.line(.rightSplitOpen, input: 10, displayed: 10.004, ended: 10.004, fromEvent: true, build: "1",
+                                           atMilliseconds: 1, path: "snapshot")
+        let object = try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        #expect(object["transition"] as? String == "right_split_open")
+        #expect(object["path"] as? String == "snapshot")
+        #expect(abs((object["ms"] as? Double ?? 0) - 4) < 0.02)
+        let bare = TransitionFrameLog.line(.dividerDrag, input: 10, displayed: 10.004, ended: 10.005, fromEvent: true, build: "1", atMilliseconds: 1)
+        #expect(!bare.contains("path"))
+    }
+
     /// A drag's work line (instant-splits gap row 1): what its counters moved from its press to its release, and its moves.
     @Test func aReleaseWritesWhatTheCountersMovedInTheDrag() throws {
         let log = Self.log()
