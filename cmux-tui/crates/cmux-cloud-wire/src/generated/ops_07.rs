@@ -4,6 +4,21 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    GroupMembersSetParamsRole {
+        Owner = "owner",
+        Edit = "edit",
+        View = "view",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupMembersSetParams {
+    pub group: GroupId,
+    pub user: UserId,
+    pub role: GroupMembersSetParamsRole,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GroupMembersSetResult {
     pub group: GroupId,
@@ -883,14 +898,4 @@ wire_enum! {
         Here = "here",
         Elsewhere = "elsewhere",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationApprovalApproveResult {
-    pub request: String,
-    pub answered: IntegrationApprovalApproveResultAnswered,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub reply: Option<Value>,
 }
