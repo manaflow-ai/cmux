@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.envCloudUnreachable" : {
+      "comment" : "Agent pane: machine list, a notice over the list while the account's Cloud machines are the list kept from the app's last launch because the server has not answered; {when} is a short relative time such as '4 min. ago'",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعذّر الوصول إلى cmux Cloud. تُعرض الأجهزة كما كانت {when}."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije moguće dosegnuti cmux Cloud. Prikazane su mašine od {when}."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kan ikke nå cmux Cloud. Viser maskiner fra {when}."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud ist nicht erreichbar. Maschinen von {when} werden angezeigt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Can't reach cmux Cloud. Showing machines from {when}."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se puede conectar con cmux Cloud. Se muestran las máquinas de {when}."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossible de joindre cmux Cloud. Machines affichées telles qu'il y a {when}."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile raggiungere cmux Cloud. Macchine mostrate com'erano {when}."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud に接続できません。{when}時点のマシンを表示しています。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចភ្ជាប់ cmux Cloud បានទេ។ កំពុងបង្ហាញម៉ាស៊ីនពី {when}។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud에 연결할 수 없습니다. {when} 기준 머신을 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når ikke cmux Cloud. Viser maskiner fra {when}."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie można połączyć się z cmux Cloud. Pokazano maszyny sprzed {when}."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não foi possível acessar o cmux Cloud. Mostrando máquinas de {when}."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нет связи с cmux Cloud. Показаны машины по состоянию на {when}."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เชื่อมต่อ cmux Cloud ไม่ได้ กำลังแสดงเครื่องจาก {when}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud'a ulaşılamıyor. {when} itibarıyla makineler gösteriliyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Немає зв'язку з cmux Cloud. Показано машини станом на {when}."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể kết nối cmux Cloud. Đang hiển thị máy từ {when}."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法连接 cmux Cloud。正在显示 {when}的机器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法連線 cmux Cloud。正在顯示 {when}的機器。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
