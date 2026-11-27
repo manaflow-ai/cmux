@@ -165,3 +165,40 @@ fn attribution_has_no_codex_config() {
     apply_codex(&mut argv, &c);
     assert_eq!(argv, words(&["codex", "app-server"]));
 }
+
+#[test]
+fn output_caps_give_claude_its_bash_cap_unless_its_own_settings_name_one() {
+    use crate::harness_limits::{OUTPUT_CAPS_BASH_CHARS, OUTPUT_CAPS_BASH_SETTING};
+    // Off by default; the daemon's switch over the setting.
+    let on = json!({"agents": {"harnessMagic": {"outputCaps": {"enabled": true}}}});
+    assert!(!crate::harness_limits::output_caps_in(None, None));
+    assert!(!crate::harness_limits::output_caps_in(Some(&json!({})), None));
+    assert!(crate::harness_limits::output_caps_in(Some(&on), None));
+    assert!(!crate::harness_limits::output_caps_in(Some(&on), Some("0")));
+    assert!(crate::harness_limits::output_caps_in(None, Some("1")));
+
+    assert_eq!(output_caps_bash(&None), Some(OUTPUT_CAPS_BASH_CHARS));
+    assert_eq!(output_caps_bash(&Some(json!({"model": "opus"}))), Some(OUTPUT_CAPS_BASH_CHARS));
+    assert_eq!(output_caps_bash(&Some(json!({OUTPUT_CAPS_BASH_SETTING: 60000}))), None);
+
+    let c =
+        LaunchChoices { bash_output_max_chars: Some(OUTPUT_CAPS_BASH_CHARS), ..Default::default() };
+    let mut argv = words(&["claude", "--output-format", "stream-json"]);
+    apply_claude(&mut argv, Path::new("/"), &c);
+    assert_eq!(inline_settings(&argv), json!({OUTPUT_CAPS_BASH_SETTING: OUTPUT_CAPS_BASH_CHARS}));
+    // The launch's own value wins.
+    let own = words(&["claude", r#"--settings={"bashOutputMaxChars":90000}"#]);
+    let mut same = own.clone();
+    apply_claude(&mut same, Path::new("/"), &c);
+    assert_eq!(same, own);
+}
+
+#[test]
+fn output_caps_give_claude_its_mcp_cap_unless_its_env_sets_one() {
+    use crate::harness_limits::{OUTPUT_CAPS_MCP_ENV, OUTPUT_CAPS_MCP_TOKENS, output_caps_env};
+    let mut env = std::collections::BTreeMap::new();
+    assert_eq!(output_caps_env(false, &env), None);
+    assert_eq!(output_caps_env(true, &env), Some((OUTPUT_CAPS_MCP_ENV, OUTPUT_CAPS_MCP_TOKENS)));
+    env.insert(OUTPUT_CAPS_MCP_ENV.to_owned(), "50000".to_owned());
+    assert_eq!(output_caps_env(true, &env), None);
+}
