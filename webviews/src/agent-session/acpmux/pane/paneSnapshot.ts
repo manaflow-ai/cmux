@@ -51,6 +51,7 @@ import type { NewChatPrewarm } from "../newChatPrewarm";
 import type { CloudTypingPrewarm } from "../cloudTypingPrewarm";
 import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
+import { setAttachmentView } from "../composerSettings";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
 import { setComputerUsePreviewControls } from "../computerUse/computerUsePreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
@@ -2390,6 +2391,9 @@ export function paneSnapshotEffect({
         "chat.menu.saveImage": () => actOnReportedImage("image.save"),
         "chat.menu.quickLookImage": () => actOnReportedImage("image.quickLook"),
         "chat.menu.revealImage": () => actOnReportedImage("image.reveal"),
+        // Its Attachments Inline / Attachments at Top on a prompt I sent: `agentPane.attachmentView`,
+        // written as the composer's right-click writes it, so every bubble redraws at once.
+        "chat.menu.attachmentView": async ({ view }) => setAttachmentView(view === "inline" ? "inline" : "strip"),
         // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
         "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
         // A fork and a started Continue In… open in a tab of their own, so the chat keeps its tab
