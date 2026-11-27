@@ -200,7 +200,8 @@ dependencies = [
  "serde_json",
  "sha2",
  "unicode-segmentation",
- "url",
+ "url 2.5.8",
+ "url 2.5.9",
  "uuid",
 ]
 
@@ -394,6 +395,15 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
+name = "form_urlencoded"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+dependencies = [
+ "percent-encoding",
+]
 
 [[package]]
 name = "form_urlencoded"
@@ -1398,11 +1408,23 @@ checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "url"
+version = "2.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+dependencies = [
+ "form_urlencoded 1.2.2",
+ "idna",
+ "percent-encoding",
+ "serde",
+]
+
+[[package]]
+name = "url"
 version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
- "form_urlencoded",
+ "form_urlencoded 1.2.3",
  "idna",
  "percent-encoding",
  "serde",
