@@ -1,6 +1,6 @@
 ---
 name: cmux-ui-preview
-description: "Show UI work in the chat by default: start the surface's live mode, open the preview in a cmux browser tab you created, and cmux puts a before and after picture of that page on the turn's edited-files card on its own; `cmux browser <tab> screenshot` when you must see it yourself; end with how to try it. Use before your first edit to any UI (webviews, Settings, chat pane, a site, the Rust daemon's UI, Swift views)."
+description: "Use before your first edit to any UI (webviews, Settings, chat pane, a site, Swift views): live mode plus a preview tab, which cmux pictures before and after each turn."
 ---
 
 # Live UI preview in the chat
