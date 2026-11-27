@@ -16475,6 +16475,95 @@ public func FfiConverterTypeWorkspaceContainerRow_lower(_ value: WorkspaceContai
 
 
 /**
+ * What one Mac lets the phone choose (the backend's `WorkspaceCreationOptions`).
+ */
+public struct WorkspaceCreationChoices: Equatable, Hashable {
+    /**
+     * The phone may pick the working directory.
+     */
+    public var directories: Bool
+    /**
+     * Agent harnesses that can be the first tab.
+     */
+    public var agents: [String]
+    /**
+     * A browser tab can be the first tab.
+     */
+    public var browser: Bool
+    /**
+     * A plain tap reuses the last directory used here.
+     */
+    public var tapUsesLastDirectory: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The phone may pick the working directory.
+         */directories: Bool, 
+        /**
+         * Agent harnesses that can be the first tab.
+         */agents: [String], 
+        /**
+         * A browser tab can be the first tab.
+         */browser: Bool, 
+        /**
+         * A plain tap reuses the last directory used here.
+         */tapUsesLastDirectory: Bool) {
+        self.directories = directories
+        self.agents = agents
+        self.browser = browser
+        self.tapUsesLastDirectory = tapUsesLastDirectory
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceCreationChoices: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceCreationChoices: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceCreationChoices {
+        return
+            try WorkspaceCreationChoices(
+                directories: FfiConverterBool.read(from: &buf), 
+                agents: FfiConverterSequenceString.read(from: &buf), 
+                browser: FfiConverterBool.read(from: &buf), 
+                tapUsesLastDirectory: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceCreationChoices, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.directories, into: &buf)
+        FfiConverterSequenceString.write(value.agents, into: &buf)
+        FfiConverterBool.write(value.browser, into: &buf)
+        FfiConverterBool.write(value.tapUsesLastDirectory, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceCreationChoices_lift(_ buf: RustBuffer) throws -> WorkspaceCreationChoices {
+    return try FfiConverterTypeWorkspaceCreationChoices.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceCreationChoices_lower(_ value: WorkspaceCreationChoices) -> RustBuffer {
+    return FfiConverterTypeWorkspaceCreationChoices.lower(value)
+}
+
+
+/**
  * A shown group's fold.
  */
 public struct WorkspaceGroupFold: Equatable, Hashable {
@@ -17007,6 +17096,63 @@ public func FfiConverterTypeWorkspaceSortStep_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeWorkspaceSortStep_lower(_ value: WorkspaceSortStep) -> RustBuffer {
     return FfiConverterTypeWorkspaceSortStep.lower(value)
+}
+
+
+/**
+ * What a plain tap on New Workspace starts, and in which folder (none: the Mac's default).
+ */
+public struct WorkspaceTap: Equatable, Hashable {
+    public var start: WorkspaceStart
+    public var directory: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(start: WorkspaceStart, directory: String?) {
+        self.start = start
+        self.directory = directory
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceTap: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceTap: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceTap {
+        return
+            try WorkspaceTap(
+                start: FfiConverterTypeWorkspaceStart.read(from: &buf), 
+                directory: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceTap, into buf: inout [UInt8]) {
+        FfiConverterTypeWorkspaceStart.write(value.start, into: &buf)
+        FfiConverterOptionString.write(value.directory, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceTap_lift(_ buf: RustBuffer) throws -> WorkspaceTap {
+    return try FfiConverterTypeWorkspaceTap.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceTap_lower(_ value: WorkspaceTap) -> RustBuffer {
+    return FfiConverterTypeWorkspaceTap.lower(value)
 }
 
 
@@ -20801,6 +20947,102 @@ public func FfiConverterTypeMediaState_lower(_ value: MediaState) -> RustBuffer 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Where the Mac's New Tab rows put a new tab in its pane.
+ */
+
+public enum NewTabSlot: Equatable, Hashable {
+    
+    /**
+     * New Tab of the Same Kind: where the Mac puts any new tab (after the current one).
+     */
+    case sameKind
+    /**
+     * New Tab to the Right.
+     */
+    case afterCurrent
+    /**
+     * New Tab at Start: the first place after the pane's pinned tabs.
+     */
+    case start
+    /**
+     * New Tab at End.
+     */
+    case end
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension NewTabSlot: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNewTabSlot: FfiConverterRustBuffer {
+    typealias SwiftType = NewTabSlot
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NewTabSlot {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .sameKind
+        
+        case 2: return .afterCurrent
+        
+        case 3: return .start
+        
+        case 4: return .end
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: NewTabSlot, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .sameKind:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .afterCurrent:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .start:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .end:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNewTabSlot_lift(_ buf: RustBuffer) throws -> NewTabSlot {
+    return try FfiConverterTypeNewTabSlot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNewTabSlot_lower(_ value: NewTabSlot) -> RustBuffer {
+    return FfiConverterTypeNewTabSlot.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * What a pane is, as the overview sorts it.
  */
 
@@ -22536,6 +22778,95 @@ public func FfiConverterTypeWorkspaceSortBy_lower(_ value: WorkspaceSortBy) -> R
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a new workspace starts with.
+ */
+
+public enum WorkspaceStart: Equatable, Hashable {
+    
+    /**
+     * The Mac's default: one terminal.
+     */
+    case terminal
+    /**
+     * An agent chat for a harness; "" is the Mac's default agent.
+     */
+    case agent(harness: String
+    )
+    /**
+     * A browser tab.
+     */
+    case browser
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension WorkspaceStart: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceStart: FfiConverterRustBuffer {
+    typealias SwiftType = WorkspaceStart
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceStart {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .terminal
+        
+        case 2: return .agent(harness: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .browser
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: WorkspaceStart, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .terminal:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .agent(harness):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(harness, into: &buf)
+            
+        
+        case .browser:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceStart_lift(_ buf: RustBuffer) throws -> WorkspaceStart {
+    return try FfiConverterTypeWorkspaceStart.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceStart_lower(_ value: WorkspaceStart) -> RustBuffer {
+    return FfiConverterTypeWorkspaceStart.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -23637,6 +23968,31 @@ fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterUInt64.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceBool: FfiConverterRustBuffer {
+    typealias SwiftType = [Bool]
+
+    public static func write(_ value: [Bool], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterBool.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Bool] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Bool]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterBool.read(from: &buf))
         }
         return seq
     }
@@ -24937,6 +25293,31 @@ fileprivate struct FfiConverterSequenceTypeWorkspaceRowPlacement: FfiConverterRu
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeWorkspaceRowPlacement.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = [String?]
+
+    public static func write(_ value: [String?], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterOptionString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String?] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String?]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterOptionString.read(from: &buf))
         }
         return seq
     }
@@ -26382,6 +26763,139 @@ public func workspaceSorted(key: WorkspaceSortBy, rows: [WorkspaceSortRow]) -> [
 })
 }
 /**
+ * The `move-tab` insertion index that puts a tab now at `from` in a pane whose places are
+ * `pinned` (one flag per tab, in order) and `groups` (each tab's group id, none for none;
+ * empty for no groups) at `slot`, beside the tab at `anchor`. None when it is in place
+ * already. As the Mac's `NewTabSlot`: after the anchor goes past the anchor's whole tab group
+ * and never among pinned tabs; at start is the first place after the pinned tabs. The daemon
+ * reads the index as an insertion point in the current list, one past for a forward move.
+ */
+public func newTabMoveIndex(slot: NewTabSlot, from: UInt32, anchor: UInt32, pinned: [Bool], groups: [String?]) -> UInt32?  {
+    return try!  FfiConverterOptionUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_new_tab_move_index(
+        FfiConverterTypeNewTabSlot_lower(slot),
+        FfiConverterUInt32.lower(from),
+        FfiConverterUInt32.lower(anchor),
+        FfiConverterSequenceBool.lower(pinned),
+        FfiConverterSequenceOptionString.lower(groups),$0
+    )
+})
+}
+/**
+ * The optimistic agent tab's title for a harness: "Agent Chat" for the Mac's default agent,
+ * "Claude", "Codex", else the harness capitalized ("opencode" is "Opencode").
+ */
+public func workspaceAgentTabTitle(harness: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_agent_tab_title(
+        FfiConverterString.lower(harness),$0
+    )
+})
+}
+/**
+ * The folder a plain New Workspace tap uses on a Mac: the last one used from this phone,
+ * else its home (`~`). None when the Mac picks (it lets the phone pick no folder, or its taps
+ * go to the Mac's default folder).
+ */
+public func workspaceDefaultDirectory(choices: WorkspaceCreationChoices, used: [String]) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_default_directory(
+        FfiConverterTypeWorkspaceCreationChoices_lower(choices),
+        FfiConverterSequenceString.lower(used),$0
+    )
+})
+}
+/**
+ * Whether an agent chat may start in `path`: not the home folder or above it (`~`, `/`,
+ * `/Users/<name>`, `/var`, `/var/root`), as the Mac's own guard says. `/Users/Shared` is a
+ * project folder.
+ */
+public func workspaceIsProjectFolder(path: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_is_project_folder(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
+ * The optimistic row's title: the folder's last component, unique among the Mac's
+ * workspace titles ("cmux", then "cmux 2", "cmux 3", ...). "New Workspace" for no folder,
+ * the home folder or the root.
+ */
+public func workspacePlaceholderTitle(directory: String?, existing: [String]) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_placeholder_title(
+        FfiConverterOptionString.lower(directory),
+        FfiConverterSequenceString.lower(existing),$0
+    )
+})
+}
+/**
+ * The folders New Workspace offers on a Mac: the ones used from this phone (`used`, newest
+ * first), then the Mac's open workspaces' folders by activity (`seen`), without repeats, at
+ * most [`RECENT_LIMIT`]. None when the Mac does not let the phone pick a folder.
+ */
+public func workspaceRecentDirectories(directories: Bool, used: [String], seen: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_recent_directories(
+        FfiConverterBool.lower(directories),
+        FfiConverterSequenceString.lower(used),
+        FfiConverterSequenceString.lower(seen),$0
+    )
+})
+}
+/**
+ * The phone's recent folders on a Mac after a workspace was made in `directory`: it first,
+ * then the others newest first, without repeats, at most [`RECENT_LIMIT`].
+ */
+public func workspaceRecentsNoted(recents: [String], directory: String) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_recents_noted(
+        FfiConverterSequenceString.lower(recents),
+        FfiConverterString.lower(directory),$0
+    )
+})
+}
+/**
+ * Whether a Mac with these choices can start a workspace this way (a terminal always).
+ */
+public func workspaceStartOffered(choices: WorkspaceCreationChoices, start: WorkspaceStart) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_start_offered(
+        FfiConverterTypeWorkspaceCreationChoices_lower(choices),
+        FfiConverterTypeWorkspaceStart_lower(start),$0
+    )
+})
+}
+/**
+ * What a plain tap on New Workspace makes on a Mac (Aziz, 2026-11-17: an agent chat, not a
+ * terminal): a chat with the Mac's default agent (`""`, else the first agent it offers) in
+ * its most recent project folder open on the Mac now (`used` from this phone first, then
+ * `seen`, the Mac's open folders by activity). A terminal at the Mac's default folder when the
+ * Mac offers no agent, does not let the phone pick a folder, or has no such folder: a chat
+ * never starts in the home folder, and the Mac refuses a folder it has no workspace in.
+ */
+public func workspaceTapStart(choices: WorkspaceCreationChoices, used: [String], seen: [String]) -> WorkspaceTap  {
+    return try!  FfiConverterTypeWorkspaceTap_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_tap_start(
+        FfiConverterTypeWorkspaceCreationChoices_lower(choices),
+        FfiConverterSequenceString.lower(used),
+        FfiConverterSequenceString.lower(seen),$0
+    )
+})
+}
+/**
+ * `base`, or `base 2`, `base 3`, ...: the first one no title in `existing` has.
+ */
+public func workspaceUniqueTitle(base: String, existing: [String]) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_unique_title(
+        FfiConverterString.lower(base),
+        FfiConverterSequenceString.lower(existing),$0
+    )
+})
+}
+/**
  * One refreshed row's group (`incoming`, from the Mac) under the edit pending
  * on it, at `now` seconds. An answered edit holds until a refresh shows it or
  * the confirm window passes; an unanswered one until the unanswered window
@@ -26952,6 +27466,36 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_sorted() != 1266) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_new_tab_move_index() != 15962) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_agent_tab_title() != 7979) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_default_directory() != 49899) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_is_project_folder() != 42510) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_placeholder_title() != 2109) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_recent_directories() != 63948) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_recents_noted() != 57645) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_start_offered() != 40559) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_tap_start() != 59105) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_unique_title() != 47752) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pending_group_edit_step() != 30336) {
