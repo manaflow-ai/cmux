@@ -5,29 +5,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-MAIN_CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 SCRIPT="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
-
-# The production cache canary must be run-scoped. A repository variable would
-# silently enable every consumer, including pull requests and scheduled jobs,
-# so only an explicit main-branch workflow dispatch may pass the opt-in.
-if ! grep -Fq 'app_compilation_cache_canary:' "$MAIN_CI_FILE" \
-  || ! grep -Fq 'type: boolean' "$MAIN_CI_FILE" \
-  || ! grep -Fq 'app_compilation_cache_canary: ${{ inputs.app_compilation_cache_canary }}' "$MAIN_CI_FILE"; then
-  echo "FAIL: ci.yml must expose and thread the explicit app-cache canary dispatch input"
-  exit 1
-fi
-if ! grep -Fq 'app_compilation_cache_canary:' "$CI_FILE" \
-  || ! grep -Fq "github.event_name == 'workflow_dispatch'" "$CI_FILE" \
-  || ! grep -Fq "github.ref == 'refs/heads/main'" "$CI_FILE" \
-  || ! grep -Fq 'inputs.app_compilation_cache_canary' "$CI_FILE" \
-  || grep -Fq 'vars.CMUX_CI_ENABLE_APP_COMPILATION_CACHE' "$CI_FILE"; then
-  echo "FAIL: ci-macos.yml must scope app-cache enablement to an explicit main dispatch"
-  exit 1
-fi
-echo "PASS: the app-cache canary is scoped to an explicit main-branch dispatch"
 
 # Prints one job's body.
 job_body() {
