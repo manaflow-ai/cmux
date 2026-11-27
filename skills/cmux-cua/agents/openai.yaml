@@ -1,0 +1,7 @@
+interface:
+  display_name: "cmux-cua"
+  short_description: "User-invoked cmux Computer Use for local macOS apps."
+  default_prompt: "After the user explicitly requests it, use $cmux-cua to drive a local macOS app; otherwise do not invoke or set up Computer Use."
+
+policy:
+  allow_implicit_invocation: false

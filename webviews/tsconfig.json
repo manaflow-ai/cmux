@@ -15,5 +15,5 @@
     "useDefineForClassFields": true,
     "types": ["vite/client", "bun"]
   },
-  "include": ["src", "test", "dev-server"]
+  "include": ["src", "test"]
 }

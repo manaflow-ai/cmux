@@ -69,6 +69,7 @@ where
 
 /// One event schema declared by a journal producer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalEventSchema {
     pub kind: String,
     pub schema_version: u32,
@@ -80,6 +81,7 @@ pub struct JournalEventSchema {
 
 /// Manifest installed by a userland journal producer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalProducerManifest {
     pub producer_id: String,
     pub namespace: String,
@@ -178,6 +180,7 @@ impl JournalProducerManifest {
 
 /// Generic journal ingress envelope for a userland producer.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalIngress {
     pub producer_id: String,
     pub manifest_version: u32,
@@ -240,6 +243,7 @@ impl JournalIngress {
 
 /// Receipt returned by `session.journal.producer.put`.
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalProducerPutResult {
     pub producer_id: String,
     pub manifest_version: u32,
@@ -265,6 +269,7 @@ impl JournalProducerPutResult {
 
 /// Result returned by `session.journal.producer.list`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalProducerListResult {
     pub producers: Vec<JournalProducerManifest>,
 }
@@ -289,6 +294,7 @@ impl JournalProducerListResult {
 
 /// Receipt returned by `session.journal.append`.
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalAppendResult {
     pub producer_id: String,
     pub sequence: String,
@@ -316,3 +322,86 @@ pub type AgentPluginSubject = JournalSubject;
 pub type AgentPluginIngress = JournalIngress;
 pub type AgentPluginListResult = JournalProducerListResult;
 pub type JournalEventSubject = JournalSubject;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest(producer_id: &str) -> JournalProducerManifest {
+        JournalProducerManifest {
+            producer_id: producer_id.into(),
+            namespace: format!("plugin.{producer_id}"),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Sensitive,
+            permissions: vec![format!("journal.append.plugin.{producer_id}")],
+            events: vec![JournalEventSchema {
+                kind: format!("plugin.{producer_id}.state.changed"),
+                schema_version: 1,
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                sensitivity: JournalSensitivity::Sensitive,
+                payload_schema: serde_json::json!({"type":"object"}),
+            }],
+        }
+    }
+
+    #[test]
+    fn producer_component_grammar_is_shared_with_core() {
+        assert!(manifest("screen-detector").validate().is_ok());
+        assert!(manifest("screen_detector").validate().is_ok());
+        assert!(manifest("_screen-detector").validate().is_err());
+        assert!(manifest("Screen-detector").validate().is_err());
+    }
+
+    #[test]
+    fn producer_and_ingress_limits_are_checked_before_socket_io() {
+        let mut producer = manifest("screen-detector");
+        producer.permissions =
+            vec!["journal.append.plugin.screen-detector".into(); MAX_PERMISSION_COUNT + 1];
+        assert!(producer.validate().is_err());
+
+        let mut event = JournalIngress {
+            producer_id: "screen-detector".into(),
+            manifest_version: 1,
+            kind: "plugin.screen-detector.agent.state.changed".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: vec![JournalSubject {
+                kind: "terminal".into(),
+                id: "x".repeat(MAX_SUBJECT_ID_BYTES + 1),
+            }],
+            sensitivity: None,
+            payload: serde_json::json!({}),
+            causation_id: Some("c".repeat(MAX_CAUSAL_ID_BYTES + 1)),
+            correlation_id: None,
+        };
+        assert!(event.validate().is_err());
+        event.subjects[0].id = "x".repeat(MAX_SUBJECT_ID_BYTES);
+        event.causation_id = Some("c".repeat(MAX_CAUSAL_ID_BYTES));
+        assert!(event.validate().is_ok());
+
+        event.kind = "agent.state.changed".into();
+        assert!(event.validate().is_err());
+    }
+
+    #[test]
+    fn mutation_receipts_reject_invalid_identity_and_sequence() {
+        let mut put = JournalProducerPutResult {
+            producer_id: "screen-detector".into(),
+            manifest_version: 1,
+            namespace: "plugin.screen-detector".into(),
+            sequence: "1".into(),
+            event_id: "event-1".into(),
+        };
+        assert!(put.validate().is_ok());
+        put.namespace = "agent".into();
+        assert!(put.validate().is_err());
+
+        let append = JournalAppendResult {
+            producer_id: "screen-detector".into(),
+            sequence: "01".into(),
+            event_id: "event-1".into(),
+        };
+        assert!(append.validate().is_err());
+    }
+}

@@ -1,0 +1,111 @@
+internal import CmuxMobileRPC
+internal import CMUXMobileCore
+internal import Foundation
+
+extension MobileShellComposite {
+    enum WorkspaceCreatePostResponseDisposition: Equatable {
+        case apply
+        case preserveSuccess
+        case failClosed
+    }
+
+    enum WorkspaceCreateCaughtErrorDisposition: Equatable {
+        case preserveSuccess
+        case failClosed
+        case surfaceError
+    }
+
+    /// Exact remote target captured before a workspace-create request suspends.
+    struct WorkspaceCreatePinnedContext {
+        let macDeviceID: String?
+        let instanceTag: String?
+        let client: MobileCoreRPCClient
+        let generation: UUID
+        let supportedHostCapabilities: Set<String>
+        let hostDisplayName: String
+
+        /// Canonical exact Mac app-instance identity captured for the request.
+        /// Empty or missing device ids represent the anonymous foreground and
+        /// must not become a physical Mac pairing.
+        private var pairingID: String? {
+            guard let macDeviceID,
+                  !macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ).id
+        }
+
+        /// Whether the caller still exposes the same Mac, client, and generation.
+        func isCurrent(
+            macDeviceID currentMacDeviceID: String?,
+            instanceTag currentInstanceTag: String?,
+            client currentClient: MobileCoreRPCClient?,
+            generation currentGeneration: UUID
+        ) -> Bool {
+            pairingID == Self.pairingID(
+                macDeviceID: currentMacDeviceID,
+                instanceTag: currentInstanceTag
+            )
+                && client === currentClient
+                && generation == currentGeneration
+        }
+
+        func matchesTarget(
+            macDeviceID: String,
+            instanceTag: String?
+        ) -> Bool {
+            pairingID == Self.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        }
+
+        private static func pairingID(
+            macDeviceID: String?,
+            instanceTag: String?
+        ) -> String? {
+            guard let macDeviceID,
+                  !macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ).id
+        }
+
+        /// Settles a decoded host success without inviting an unsafe duplicate.
+        static func postResponseDisposition(
+            operationID: UUID?,
+            isCancelled: Bool,
+            isCurrent: Bool
+        ) -> WorkspaceCreatePostResponseDisposition {
+            guard isCancelled || !isCurrent else { return .apply }
+            return operationID == nil ? .preserveSuccess : .failClosed
+        }
+
+        /// Settles a thrown create by what actually interrupted the request.
+        /// Ambient task cancellation can race delivery of a definite host error,
+        /// so it cannot classify that error as an ambiguous legacy create.
+        static func caughtErrorDisposition(
+            operationID: UUID?,
+            error: any Error
+        ) -> WorkspaceCreateCaughtErrorDisposition {
+            let isAmbiguous: Bool
+            switch error {
+            case is CancellationError,
+                 MobileShellConnectionError.connectionClosed,
+                 MobileShellConnectionError.requestTimedOut,
+                 MobileShellConnectionError.connectAttemptGated,
+                 MobileShellConnectionError.transportWriteTimedOut,
+                 MobileShellConnectionError.invalidResponse:
+                isAmbiguous = true
+            default:
+                isAmbiguous = false
+            }
+            guard isAmbiguous else { return .surfaceError }
+            return operationID == nil ? .preserveSuccess : .failClosed
+        }
+    }
+}

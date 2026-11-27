@@ -133,13 +133,9 @@ pub struct StyledRun {
 /// once and its immediately following spacer contributes only a grid column,
 /// so no empty-text spacer run is emitted. An orphan spacer is represented as
 /// a space to keep every returned run drawable and width-accounted.
-pub fn rows_to_runs<R: AsRef<[Cell]>>(rows: &[R]) -> Vec<Vec<StyledRun>> {
-    rows.iter().map(|row| row_to_runs(row.as_ref())).collect()
+pub fn rows_to_runs(rows: &[Vec<Cell>]) -> Vec<Vec<StyledRun>> {
+    rows.iter().map(|row| row_to_runs(row)).collect()
 }
-
-/// One viewport row of a [`RenderFrame`]. A row that did not change since the
-/// render state's previous frame is the same allocation in both frames.
-pub type RenderRow = Arc<[Cell]>;
 
 /// An immutable terminal frame whose damage can be read by any number of
 /// consumers.
@@ -155,7 +151,7 @@ pub struct RenderFrame {
     pub dirty_rows: Vec<u16>,
     pub kitty_graphics: Arc<KittyGraphicsSnapshot>,
     pub kitty_graphics_delta: Arc<KittyGraphicsFrameDelta>,
-    rows: Vec<RenderRow>,
+    rows: Vec<Vec<Cell>>,
 }
 
 /// Shared change metadata computed once when a terminal graphics snapshot is
@@ -208,13 +204,13 @@ fn image_generation_delta(previous: &[(u32, u64)], next: &[(u32, u64)]) -> (Vec<
 
 impl RenderFrame {
     /// All viewport rows in this immutable snapshot.
-    pub fn styled_rows(&self) -> &[RenderRow] {
+    pub fn styled_rows(&self) -> &[Vec<Cell>] {
         &self.rows
     }
 
     /// One viewport row from this immutable snapshot.
     pub fn styled_row(&self, row: u16) -> Option<&[Cell]> {
-        self.rows.get(row as usize).map(|cells| &**cells)
+        self.rows.get(row as usize).map(Vec::as_slice)
     }
 
     /// Assemble all snapshot rows into protocol-v7 runs.
@@ -246,46 +242,6 @@ pub struct RenderState {
     kitty_pixel_cache: HashMap<u64, Arc<[u8]>>,
     kitty_terminal_instance_id: Option<u64>,
     next_frame_seq: u64,
-    /// The rows of the last frame [`Self::build_frame`] built, reused by the
-    /// next frame for every row that is not dirty (see [`FrameRowCache`]).
-    frame_rows: FrameRowCache,
-}
-
-/// The previous frame's rows and what they were built under.
-///
-/// libghostty's contract (`RenderState.Row`, render.zig): a row of a render
-/// state that is not dirty after an update holds the same contents at the
-/// same index as after that render state's previous update. A moved viewport,
-/// a resize, a screen switch, a palette change or any terminal-wide damage
-/// rebuilds every row and reports [`Dirty::Full`]. So a frame only has to read
-/// the cells of its dirty rows; the others are the previous frame's rows.
-///
-/// Anything else that clears row dirty flags without building a frame
-/// ([`RenderState::walk_rows`], [`RenderState::set_clean`]) or a failed update
-/// drops the cache, and the next frame reads every row.
-#[derive(Default)]
-struct FrameRowCache {
-    rows: Vec<RenderRow>,
-    valid: bool,
-    size: (u16, u16),
-    default_colors: (Rgb, Rgb),
-    palette: Option<Box<[Rgb; 256]>>,
-}
-
-impl FrameRowCache {
-    /// Whether the cached rows are this frame's clean rows.
-    fn reusable(&self, size: (u16, u16), default_colors: (Rgb, Rgb), palette: &[Rgb; 256]) -> bool {
-        self.valid
-            && self.size == size
-            && self.rows.len() == usize::from(size.1)
-            && self.default_colors == default_colors
-            && self.palette.as_deref() == Some(palette)
-    }
-
-    fn invalidate(&mut self) {
-        self.valid = false;
-        self.rows.clear();
-    }
 }
 
 unsafe impl Send for RenderState {}
@@ -324,19 +280,12 @@ impl RenderState {
             kitty_pixel_cache: HashMap::new(),
             kitty_terminal_instance_id: None,
             next_frame_seq: 0,
-            frame_rows: FrameRowCache::default(),
         })
     }
 
     /// Snapshot the terminal's viewport into this render state.
     pub fn update(&mut self, terminal: &mut Terminal) -> Result<()> {
-        // A failed update may leave rows rebuilt but not reported as dirty.
-        if let Err(error) =
-            check(unsafe { sys::ghostty_render_state_update(self.raw, terminal.raw()) })
-        {
-            self.frame_rows.invalidate();
-            return Err(error);
-        }
+        check(unsafe { sys::ghostty_render_state_update(self.raw, terminal.raw()) })?;
         self.palette = terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
         self.default_palette =
             terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT)?;
@@ -429,18 +378,11 @@ impl RenderState {
 
     /// Reset the global dirty flag after drawing a frame.
     pub fn set_clean(&mut self) {
-        // The caller may consume the row flags next (walk_rows): the next
-        // frame cannot know which rows changed.
-        self.frame_rows.invalidate();
-        self.clear_dirty();
-    }
-
-    fn clear_dirty(&mut self) {
         let value = sys::GHOSTTY_RENDER_STATE_DIRTY_FALSE;
         unsafe {
             sys::ghostty_render_state_set(
                 self.raw,
-                sys::GHOSTTY_RENDER_STATE_OPT_DIRTY,
+                sys::GHOSTTY_RENDER_STATE_OPTION_DIRTY,
                 &value as *const _ as *const c_void,
             );
         }
@@ -495,12 +437,12 @@ impl RenderState {
     /// Current cursor shape and blink mode, even when the cursor is hidden
     /// or outside the viewport.
     pub fn cursor_visual(&self) -> Result<(CursorShape, bool)> {
-        let shape = match self
-            .get::<sys::GhosttyCursorStyle>(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE)?
-        {
-            sys::GHOSTTY_CURSOR_STYLE_BAR => CursorShape::Bar,
-            sys::GHOSTTY_CURSOR_STYLE_UNDERLINE => CursorShape::Underline,
-            sys::GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
+        let shape = match self.get::<sys::GhosttyRenderStateCursorVisualStyle>(
+            sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE,
+        )? {
+            sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BAR => CursorShape::Bar,
+            sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_UNDERLINE => CursorShape::Underline,
+            sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
             _ => CursorShape::Block,
         };
         let blinking: bool = self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING)?;
@@ -531,43 +473,21 @@ impl RenderState {
         let cursor = self.cursor();
         let cursor_color = self.cursor_color();
         let default_colors = self.default_colors();
-        let mut rows: Vec<RenderRow> = Vec::with_capacity(size.1 as usize);
+        let mut rows = Vec::with_capacity(size.1 as usize);
         let mut dirty_rows = Vec::new();
 
-        // Clean rows are the previous frame's rows, unless anything a cell's
-        // resolved colors or position depend on changed (see FrameRowCache).
-        let reuse =
-            dirty != Dirty::Full && self.frame_rows.reusable(size, default_colors, &self.palette);
-        let previous = std::mem::take(&mut self.frame_rows.rows);
-        self.frame_rows.invalidate();
-        self.walk_rows_reusing(
-            |row| reuse && row < previous.len(),
-            |row, row_dirty, cells| {
-                let shared = match (cells, previous.get(row)) {
-                    (Some(cells), _) => RenderRow::from(cells),
-                    (None, Some(kept)) => kept.clone(),
-                    (None, None) => RenderRow::from(&[][..]),
-                };
-                rows.push(shared);
-                if row_dirty {
-                    dirty_rows.push(row as u16);
-                }
-            },
-        )?;
-        drop(previous);
+        self.walk_rows(|row, row_dirty, cells| {
+            rows.push(cells.to_vec());
+            if row_dirty {
+                dirty_rows.push(row as u16);
+            }
+        })?;
 
         if dirty == Dirty::Full {
             dirty_rows.clear();
             dirty_rows.extend(0..rows.len() as u16);
         }
-        self.clear_dirty();
-        let palette =
-            self.frame_rows.palette.get_or_insert_with(|| Box::new([Rgb::default(); 256]));
-        **palette = self.palette;
-        self.frame_rows.rows.clone_from(&rows);
-        self.frame_rows.size = size;
-        self.frame_rows.default_colors = default_colors;
-        self.frame_rows.valid = true;
+        self.set_clean();
 
         self.next_frame_seq = self.next_frame_seq.wrapping_add(1);
         Ok(RenderFrame {
@@ -589,18 +509,6 @@ impl RenderState {
     /// the row index, the row's dirty flag, and its cells. Row dirty flags
     /// are cleared as part of the walk.
     pub fn walk_rows(&mut self, mut f: impl FnMut(usize, bool, &[Cell])) -> Result<()> {
-        // The next frame cannot tell which rows this walk saw dirty.
-        self.frame_rows.invalidate();
-        self.walk_rows_reusing(|_| false, |row, dirty, cells| f(row, dirty, cells.unwrap_or(&[])))
-    }
-
-    /// [`Self::walk_rows`] that skips reading the cells of a clean row for
-    /// which `keep(row)` is true: the callback gets `None` for it.
-    fn walk_rows_reusing(
-        &mut self,
-        keep: impl Fn(usize) -> bool,
-        mut f: impl FnMut(usize, bool, Option<&[Cell]>),
-    ) -> Result<()> {
         check(unsafe {
             sys::ghostty_render_state_get(
                 self.raw,
@@ -618,12 +526,6 @@ impl RenderState {
                     sys::GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY,
                     &mut dirty as *mut _ as *mut c_void,
                 );
-            }
-
-            if !dirty && keep(row_index) {
-                f(row_index, false, None);
-                row_index += 1;
-                continue;
             }
 
             check(unsafe {
@@ -651,13 +553,13 @@ impl RenderState {
                 unsafe {
                     sys::ghostty_render_state_row_set(
                         self.rows,
-                        sys::GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY,
+                        sys::GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY,
                         &clean as *const _ as *const c_void,
                     );
                 }
             }
 
-            f(row_index, dirty, Some(&self.row_buf));
+            f(row_index, dirty, &self.row_buf);
             row_index += 1;
         }
         Ok(())
@@ -706,31 +608,22 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
     if grapheme_len > 0 {
         grapheme_buf.clear();
         grapheme_buf.resize(grapheme_len as usize, 0);
-        // The 1.0 ABI takes a GhosttyCodepointBuffer {ptr, cap, len} for this
-        // kind, not a bare uint32_t array: handing it the array made the
-        // library read codepoints as the destination pointer (SIGSEGV, or
-        // blank cells when the write landed somewhere harmless).
-        let mut out = sys::GhosttyCodepointBuffer {
-            ptr: grapheme_buf.as_mut_ptr(),
-            cap: grapheme_buf.len(),
-            len: 0,
-        };
         let result = unsafe {
             sys::ghostty_render_state_row_cells_get(
                 cells,
                 sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF,
-                &mut out as *mut _ as *mut c_void,
+                grapheme_buf.as_mut_ptr() as *mut c_void,
             )
         };
         if result == sys::GHOSTTY_SUCCESS {
-            grapheme_buf.truncate(out.len.min(grapheme_buf.len()));
             for &cp in grapheme_buf.iter() {
                 cell.text.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
             }
         }
     }
 
-    let mut style = sys::GhosttyStyle::default();
+    let mut style =
+        sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
     let style_ok = unsafe {
         sys::ghostty_render_state_row_cells_get(
             cells,
@@ -767,7 +660,8 @@ pub(crate) fn read_grid_ref_cell(
     let mut raw = sys::GhosttyCell::default();
     check(unsafe { sys::ghostty_grid_ref_cell(grid_ref, &mut raw) })?;
 
-    let mut style = sys::GhosttyStyle::default();
+    let mut style =
+        sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
     check(unsafe { sys::ghostty_grid_ref_style(grid_ref, &mut style) })?;
 
     let mut grapheme_len = 0usize;
@@ -801,15 +695,9 @@ pub(crate) fn read_grid_ref_cell(
 }
 
 fn style_color_spec(color: sys::GhosttyStyleColor) -> ColorSpec {
-    // libghostty-vt 1.0 stores the tag in one byte; bindgen types the
-    // constants as i32 or u32 by target, so compare as i64.
-    match i64::from(color.tag) {
-        tag if tag == i64::from(sys::GHOSTTY_STYLE_COLOR_PALETTE) => {
-            ColorSpec::Palette(unsafe { color.value.palette })
-        }
-        tag if tag == i64::from(sys::GHOSTTY_STYLE_COLOR_RGB) => {
-            ColorSpec::Rgb(Rgb::from(unsafe { color.value.rgb }))
-        }
+    match color.tag {
+        sys::GHOSTTY_STYLE_COLOR_PALETTE => ColorSpec::Palette(unsafe { color.value.palette }),
+        sys::GHOSTTY_STYLE_COLOR_RGB => ColorSpec::Rgb(Rgb::from(unsafe { color.value.rgb })),
         _ => ColorSpec::Default,
     }
 }
@@ -871,44 +759,26 @@ pub(crate) fn cell_width(raw: sys::GhosttyCell) -> CellWidth {
 }
 
 fn underline_style(value: i32) -> Option<UnderlineStyle> {
-    // bindgen types these constants as i32 or u32 depending on the target, so
-    // compare as i64 (lossless for both, and never a same-type cast).
-    let value = i64::from(value);
-    [
-        (sys::GHOSTTY_SGR_UNDERLINE_SINGLE as i64, UnderlineStyle::Single),
-        (sys::GHOSTTY_SGR_UNDERLINE_DOUBLE as i64, UnderlineStyle::Double),
-        (sys::GHOSTTY_SGR_UNDERLINE_CURLY as i64, UnderlineStyle::Curly),
-        (sys::GHOSTTY_SGR_UNDERLINE_DOTTED as i64, UnderlineStyle::Dotted),
-        (sys::GHOSTTY_SGR_UNDERLINE_DASHED as i64, UnderlineStyle::Dashed),
-    ]
-    .into_iter()
-    .find_map(|(raw, style)| (raw == value).then_some(style))
+    match value {
+        value if value == sys::GHOSTTY_SGR_UNDERLINE_SINGLE as i32 => Some(UnderlineStyle::Single),
+        value if value == sys::GHOSTTY_SGR_UNDERLINE_DOUBLE as i32 => Some(UnderlineStyle::Double),
+        value if value == sys::GHOSTTY_SGR_UNDERLINE_CURLY as i32 => Some(UnderlineStyle::Curly),
+        value if value == sys::GHOSTTY_SGR_UNDERLINE_DOTTED as i32 => Some(UnderlineStyle::Dotted),
+        value if value == sys::GHOSTTY_SGR_UNDERLINE_DASHED as i32 => Some(UnderlineStyle::Dashed),
+        _ => None,
+    }
 }
 
-// GhosttyStyleFlags bits (libghostty-vt 1.0 style.h). The header defines
-// them as casting macros, which bindgen does not translate.
-const STYLE_FLAG_BOLD: u16 = 1 << 0;
-const STYLE_FLAG_ITALIC: u16 = 1 << 1;
-const STYLE_FLAG_FAINT: u16 = 1 << 2;
-const STYLE_FLAG_BLINK: u16 = 1 << 3;
-const STYLE_FLAG_INVERSE: u16 = 1 << 4;
-const STYLE_FLAG_INVISIBLE: u16 = 1 << 5;
-const STYLE_FLAG_STRIKETHROUGH: u16 = 1 << 6;
-const STYLE_UNDERLINE_SHIFT: u16 = 8;
-const STYLE_UNDERLINE_MASK: u16 = 0x7 << STYLE_UNDERLINE_SHIFT;
-
 fn apply_style(cell: &mut Cell, raw: sys::GhosttyCell, style: &sys::GhosttyStyle) {
-    let flags: u16 = style.flags;
-    cell.bold = flags & STYLE_FLAG_BOLD != 0;
-    cell.faint = flags & STYLE_FLAG_FAINT != 0;
-    cell.italic = flags & STYLE_FLAG_ITALIC != 0;
-    cell.underline_style =
-        underline_style(((flags & STYLE_UNDERLINE_MASK) >> STYLE_UNDERLINE_SHIFT).into());
+    cell.bold = style.bold;
+    cell.faint = style.faint;
+    cell.italic = style.italic;
+    cell.underline_style = underline_style(style.underline);
     cell.underline = cell.underline_style.is_some();
-    cell.strikethrough = flags & STYLE_FLAG_STRIKETHROUGH != 0;
-    cell.inverse = flags & STYLE_FLAG_INVERSE != 0;
-    cell.blink = flags & STYLE_FLAG_BLINK != 0;
-    cell.invisible = flags & STYLE_FLAG_INVISIBLE != 0;
+    cell.strikethrough = style.strikethrough;
+    cell.inverse = style.inverse;
+    cell.blink = style.blink;
+    cell.invisible = style.invisible;
     cell.fg = style_color_spec(style.fg_color);
     cell.bg = raw_cell_bg_spec(raw).unwrap_or_else(|| style_color_spec(style.bg_color));
 }
@@ -1017,5 +887,21 @@ impl Drop for RenderState {
             sys::ghostty_render_state_row_iterator_free(self.rows);
             sys::ghostty_render_state_free(self.raw);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::image_generation_delta;
+
+    #[test]
+    fn image_generation_delta_is_linear_and_reports_upserts_and_removals() {
+        let previous = [(1, 10), (2, 20), (4, 40)];
+        let next = [(1, 11), (3, 30), (4, 40)];
+
+        let (changed, removed) = image_generation_delta(&previous, &next);
+
+        assert_eq!(changed, vec![1, 3]);
+        assert_eq!(removed, vec![2]);
     }
 }

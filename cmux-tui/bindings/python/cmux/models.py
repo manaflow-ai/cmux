@@ -46,15 +46,9 @@ class Snapshot(Generic[IdT]):
 
 
 @dataclass(frozen=True)
-class MachinePlatform:
-    os: Optional[str] = None
-    arch: Optional[str] = None
-
-
-@dataclass(frozen=True)
 class MachineSnapshot(Snapshot[MachineId]):
     name: str
-    origin: Literal["local", "cloud", "ssh", "server"]
+    origin: Literal["local"]
     status: Literal[
         "running",
         "connecting",
@@ -66,8 +60,6 @@ class MachineSnapshot(Snapshot[MachineId]):
     deleted: bool
     recoverable: bool
     extra: JsonObject = field(default_factory=dict)
-    platform: Optional[MachinePlatform] = None
-    capabilities: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -630,36 +622,10 @@ class LayoutStack:
 
 
 @dataclass(frozen=True)
-class LayoutColumnDock:
-    """A pinned column's ``edge`` ("left", "right", "top" or "bottom") and
-    ``mode`` ("docked" or "overlay")."""
-
-    edge: str
-    mode: str
-
-
-@dataclass(frozen=True)
-class LayoutRow:
-    """One row of a column (rows-v1): its stable ``row_id`` and its
-    ``height`` in permille of the column's viewport height (100 to 1000).
-    Only row 1 may omit ``row_id``, in a document sent to ``apply_layout``."""
-
-    row_id: Optional["SplitId"]
-    height: int
-
-
-@dataclass(frozen=True)
 class LayoutColumn:
-    """One viewport column. ``rows`` are its rows top to bottom (rows-v1),
-    ``None`` for a column with one row; row 2..n's ``row_id`` is its compat
-    chain split in ``root``. In ``apply_layout`` ``None`` keeps the stored
-    rows and ``()`` leaves the column one row."""
-
     column_id: "SplitId"
     width: float
     root: "LayoutNode"
-    dock: Optional[LayoutColumnDock] = None
-    rows: Optional[Tuple[LayoutRow, ...]] = None
 
 
 @dataclass(frozen=True)
@@ -1095,15 +1061,12 @@ __all__ = [
     "JsonObject",
     "KeyInput",
     "LayoutColumn",
-    "LayoutColumnDock",
     "LayoutDocument",
     "LayoutLeaf",
     "LayoutNode",
-    "LayoutRow",
     "LayoutSplit",
     "LayoutStack",
     "LayoutViewport",
-    "MachinePlatform",
     "MachineSnapshot",
     "MouseInput",
     "MutationResult",

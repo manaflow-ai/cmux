@@ -1,0 +1,42 @@
+{
+  "paths": [
+    "Sources/ConversationSidebar*",
+    "Sources/SessionIndexView*",
+    "Sources/ContentView*",
+    "Sources/CmuxExtensionSidebarSelection*",
+    "Sources/FeatureFlags*",
+    "Packages/macOS/CmuxSettings*"
+  ],
+  "launch": {
+    "args": [
+      "-sidebar.beta.conversations.enabled", "<true/>",
+      "-cmux.flags.override.conversation-sidebar-release", "<true/>"
+    ],
+    "zoom": true
+  },
+  "steps": [
+    {"socket": "workspace.create", "params": {"title": "Claude", "initial_input": "echo claude\n", "focus": true}, "save": "claudeWorkspace"},
+    {"socket": "surface.list", "params": {"workspace_id": "${claudeWorkspace.workspace_id}"}, "save": "claudeSurfaces"},
+    {"socket": "surface.create", "params": {"workspace_id": "${claudeWorkspace.workspace_id}", "placement": "dock", "type": "terminal", "focus": false}, "save": "codexDock"},
+    {"socket": "feed.push", "params": {"event": {"session_id": "dogfood-claude-session", "hook_event_name": "SessionStart", "_source": "claude", "workspace_id": "${claudeWorkspace.workspace_id}", "surface_id": "${claudeSurfaces.surfaces.0.id}", "cwd": "/tmp/dogfood-claude"}, "wait_timeout_seconds": 0}},
+    {"socket": "feed.push", "params": {"event": {"session_id": "dogfood-claude-session", "hook_event_name": "UserPromptSubmit", "_source": "claude", "workspace_id": "${claudeWorkspace.workspace_id}", "surface_id": "${claudeSurfaces.surfaces.0.id}", "cwd": "/tmp/dogfood-claude", "prompt": "Review the sidebar"}, "wait_timeout_seconds": 0}},
+    {"socket": "feed.push", "params": {"event": {"session_id": "dogfood-codex-session", "hook_event_name": "SessionStart", "_source": "codex", "workspace_id": "${codexDock.workspace_id}", "surface_id": "${codexDock.dock_surface_id}", "cwd": "/tmp/dogfood-codex"}, "wait_timeout_seconds": 0}},
+    {"socket": "feed.push", "params": {"event": {"session_id": "dogfood-codex-session", "hook_event_name": "UserPromptSubmit", "_source": "codex", "workspace_id": "${codexDock.workspace_id}", "surface_id": "${codexDock.dock_surface_id}", "cwd": "/tmp/dogfood-codex", "prompt": "Check the Dock route"}, "wait_timeout_seconds": 0}},
+    {"wait": 2},
+    {"rightClick": {"label": "Toggle Sidebar", "type": "button"}},
+    {"click": {"label": "Conversations", "type": "menuItem"}},
+    {"wait": 1},
+    {"tree": "conversations-all-providers"},
+    {"shot": "conversations-all-providers"},
+    {"click": {"label": "Filter sessions", "type": "button"}},
+    {"click": {"label": "Claude", "type": "menuItem"}},
+    {"wait": 0.5},
+    {"shot": "conversations-claude-filter"},
+    {"click": {"label": "Filter sessions", "type": "button"}},
+    {"click": {"label": "All agents", "type": "menuItem"}},
+    {"click": {"labelContains": "Codex", "type": "button"}},
+    {"wait": 1},
+    {"tree": "conversations-dock-focused"},
+    {"shot": "conversations-dock-focused"}
+  ]
+}

@@ -19,7 +19,6 @@ export type TeamErrorCode =
   | "link_not_found"
   | "link_invalid"
   | "team_has_active_subscription"
-  | "team_has_cloud_grant"
   | "seat_limit"
   | "service_unavailable";
 
@@ -41,7 +40,6 @@ const DEFAULT_MESSAGES: Record<TeamErrorCode, string> = {
   link_not_found: "Invite link not found.",
   link_invalid: "This invite link is invalid, expired, revoked, or full.",
   team_has_active_subscription: "Cancel the team subscription before deleting the team.",
-  team_has_cloud_grant: "This team carries its own Cloud plan grant. Ask support to move it before deleting the team.",
   seat_limit: "This plan has no free member seats. Remove a member or upgrade to Team.",
   service_unavailable: "The service is temporarily unavailable.",
 };

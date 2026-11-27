@@ -1,0 +1,685 @@
+import AppKit
+import CmuxSettings
+import Foundation
+import CmuxTextActions
+
+@MainActor
+struct CmuxConfigExecutor {
+#if DEBUG
+    /// Tests answer the project-action confirm dialog here instead of
+    /// running a modal `NSAlert`. Debug-only, so release builds carry no
+    /// way to bypass the dialog.
+    static var confirmDialogOverrideForTesting: ((CmuxActionTrustDescriptor) -> Bool)?
+#endif
+
+    @discardableResult
+    static func execute(
+        command: CmuxCommandDefinition,
+        tabManager: TabManager,
+        baseCwd: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String? = nil,
+        actionID: String? = nil,
+        icon: CmuxButtonIcon? = nil,
+        iconSourcePath: String? = nil,
+        presentingWindow: NSWindow? = nil,
+        onExecuted: (() -> Void)? = nil
+    ) -> Bool {
+        if let workspace = command.workspace {
+            return authorizeProjectActionIfNeeded(
+                descriptor: workspaceTrustDescriptor(
+                    command: command,
+                    actionID: actionID ?? command.id,
+                    configSourcePath: configSourcePath,
+                    icon: icon,
+                    iconSourcePath: iconSourcePath,
+                    globalConfigPath: globalConfigPath
+                ),
+                confirm: command.confirm ?? false,
+                configSourcePath: configSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayCommand: workspaceShellDisclosure(command),
+                displayTitle: displayTitle ?? command.name,
+                presentingWindow: presentingWindow
+            ) {
+                guard executeWorkspaceCommand(
+                    command: command,
+                    workspace: workspace,
+                    tabManager: tabManager,
+                    baseCwd: baseCwd
+                ) else { return }
+                onExecuted?()
+            }
+        } else if let rawCommand = command.command {
+            let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel
+            guard let targetTerminal else { return false }
+            return prepareShellInputIfAuthorized(
+                rawCommand,
+                confirm: command.confirm ?? false,
+                actionID: actionID ?? command.id,
+                target: .currentTerminal,
+                configSourcePath: configSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: displayTitle ?? command.name,
+                icon: icon,
+                iconSourcePath: iconSourcePath,
+                presentingWindow: presentingWindow
+            ) { shellInput in
+                targetTerminal.sendInput(shellInput)
+                onExecuted?()
+            }
+        }
+        return false
+    }
+
+    @discardableResult
+    static func execute(
+        action: CmuxResolvedConfigAction,
+        commands: [CmuxCommandDefinition],
+        commandSourcePaths: [String: String],
+        tabManager: TabManager,
+        baseCwd: String,
+        globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue] = [:],
+        presentingWindow: NSWindow? = nil,
+        onExecuted: (() -> Void)? = nil
+    ) -> Bool {
+        if case .setting(let change) = action.action {
+            let didStart = CmuxSettingActionRunner.run(
+                change,
+                actionSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                settingPresets: settingPresets,
+                confirm: action.confirm ?? false,
+                title: action.title,
+                presentingWindow: presentingWindow
+            )
+            if didStart { onExecuted?() }
+            return didStart
+        }
+
+        if let syntheticCommand = action.inlineWorkspaceSyntheticCommand {
+            // Inline `type: "workspace"` actions reuse the named-command path via a
+            // synthetic definition so trust, restart, confirm, and layout behavior
+            // stay identical.
+            return execute(
+                command: syntheticCommand,
+                tabManager: tabManager,
+                baseCwd: baseCwd,
+                configSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: action.title,
+                actionID: action.id,
+                icon: action.icon,
+                iconSourcePath: action.iconSourcePath,
+                presentingWindow: presentingWindow,
+                onExecuted: onExecuted
+            )
+        }
+
+        if let commandName = action.workspaceCommandName,
+           let command = commands.first(where: { $0.name == commandName }) {
+            guard command.workspace != nil else { return false }
+            return execute(
+                command: command,
+                tabManager: tabManager,
+                baseCwd: baseCwd,
+                configSourcePath: commandSourcePaths[command.id] ?? action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: action.title,
+                actionID: action.id,
+                icon: action.icon,
+                iconSourcePath: action.iconSourcePath,
+                presentingWindow: presentingWindow,
+                onExecuted: onExecuted
+            )
+        }
+
+        if let payload = action.action.textPayload {
+            return executeTextAction(
+                payload,
+                confirm: action.confirm ?? false,
+                actionID: action.id,
+                configSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: action.title,
+                icon: action.icon,
+                iconSourcePath: action.iconSourcePath,
+                tabManager: tabManager,
+                presentingWindow: presentingWindow,
+                onExecuted: onExecuted
+            )
+        }
+
+        guard let command = action.terminalCommand else { return false }
+        let target = action.terminalCommandTarget ?? .newTabInCurrentPane
+        let targetTerminal = (target == .currentTerminal)
+            ? tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel
+            : nil
+        let targetWorkspace = (target == .newTabInCurrentPane) ? tabManager.selectedWorkspace : nil
+        return prepareShellInputIfAuthorized(
+            command,
+            confirm: action.confirm ?? false,
+            actionID: action.id,
+            target: target,
+            configSourcePath: action.actionSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayTitle: action.title,
+            icon: action.icon,
+            iconSourcePath: action.iconSourcePath,
+            presentingWindow: presentingWindow
+        ) { shellInput in
+            switch target {
+            case .currentTerminal:
+                targetTerminal?.sendInput(shellInput)
+            case .newTabInCurrentPane:
+                targetWorkspace?.clearSplitZoom()
+                targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+            }
+            onExecuted?()
+        }
+    }
+
+    /// `type: "text"` actions paste literal text into the focused terminal;
+    /// `submit: true` presses Enter afterwards. Project-local text is gated
+    /// exactly like a `type: "command"` action targeting the current
+    /// terminal whether or not it submits: a paste that ends in a newline
+    /// executes in any program that has bracketed paste off, so "insert
+    /// only" is not a safety property the gate can rely on.
+    @discardableResult
+    static func executeTextAction(
+        _ payload: CmuxTextActionPayload,
+        confirm: Bool,
+        actionID: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String?,
+        icon: CmuxButtonIcon?,
+        iconSourcePath: String?,
+        tabManager: TabManager,
+        presentingWindow: NSWindow?,
+        onExecuted: (() -> Void)?
+    ) -> Bool {
+        guard let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel else {
+            return false
+        }
+        return deliverTextActionIfAuthorized(
+            payload,
+            confirm: confirm,
+            actionID: actionID,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayTitle: displayTitle,
+            icon: icon,
+            iconSourcePath: iconSourcePath,
+            presentingWindow: presentingWindow
+        ) {
+            guard deliver(payload, to: targetTerminal) else {
+                NSSound.beep()
+                return false
+            }
+            onExecuted?()
+            return true
+        }
+    }
+
+    /// Runs `onAuthorized` once the project-action trust gate allows the
+    /// payload: immediately for global config, trusted descriptors, and the
+    /// modal dialog; later for a sheet. Returns false when the gate refuses
+    /// or when a synchronous delivery reports failure, so callers can tell a
+    /// refused paste from a success; a sheet still pending reports true.
+    @discardableResult
+    static func deliverTextActionIfAuthorized(
+        _ payload: CmuxTextActionPayload,
+        confirm: Bool,
+        actionID: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String? = nil,
+        icon: CmuxButtonIcon? = nil,
+        iconSourcePath: String? = nil,
+        presentingWindow: NSWindow? = nil,
+        onAuthorized: @escaping () -> Bool
+    ) -> Bool {
+        let descriptor = textTrustDescriptor(
+            payload,
+            actionID: actionID,
+            configSourcePath: configSourcePath,
+            icon: icon,
+            iconSourcePath: iconSourcePath,
+            globalConfigPath: globalConfigPath
+        )
+        var delivered = true
+        let authorized = authorizeProjectActionIfNeeded(
+            descriptor: descriptor,
+            confirm: confirm,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayCommand: payload.promptDisplayText,
+            displayTitle: displayTitle,
+            presentingWindow: presentingWindow
+        ) {
+            delivered = onAuthorized()
+        }
+        return authorized && delivered
+    }
+
+    /// Shares saved permission between text delivery and its tab-bar icon.
+    private static func textTrustDescriptor(
+        _ payload: CmuxTextActionPayload,
+        actionID: String,
+        configSourcePath: String?,
+        icon: CmuxButtonIcon?,
+        iconSourcePath: String?,
+        globalConfigPath: String
+    ) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: actionID,
+            // Saved permission for inserting text must not also authorize Enter.
+            kind: payload.submit ? "terminalTextSubmit" : "terminalText",
+            command: payload.text,
+            target: CmuxConfigTerminalCommandTarget.currentTerminal.rawValue,
+            workspaceCommand: nil,
+            configPath: configSourcePath.map(canonicalPath),
+            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            iconFingerprint: icon?.projectLocalImageFingerprint(
+                configSourcePath: iconSourcePath ?? configSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        )
+    }
+
+    /// Realises a text payload on a terminal panel: bracketed paste of the
+    /// whole text, then an optional Enter. Stops at the first rejected step
+    /// so a cold surface that refuses the paste never receives a bare Enter
+    /// that could submit unrelated pending input. Returns whether every step
+    /// was accepted.
+    @discardableResult
+    static func deliver(_ payload: CmuxTextActionPayload, to panel: TerminalPanel) -> Bool {
+        for step in payload.deliverySteps {
+            switch step {
+            case .pasteText(let text):
+                guard panel.sendText(text) else { return false }
+            case .namedKey(let keyName):
+                guard panel.sendNamedKey(keyName) else { return false }
+            }
+        }
+        return true
+    }
+
+    @discardableResult
+    static func prepareShellInputIfAuthorized(
+        _ rawCommand: String,
+        confirm: Bool,
+        actionID: String,
+        target: CmuxConfigTerminalCommandTarget,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String? = nil,
+        icon: CmuxButtonIcon? = nil,
+        iconSourcePath: String? = nil,
+        presentingWindow: NSWindow? = nil,
+        onAuthorized: @escaping (String) -> Void
+    ) -> Bool {
+        let shellCommand = sanitizeForDisplay(rawCommand)
+        guard !shellCommand.isEmpty else { return false }
+
+        let descriptor = terminalTrustDescriptor(
+            command: shellCommand,
+            actionID: actionID,
+            target: target,
+            configSourcePath: configSourcePath,
+            icon: icon,
+            iconSourcePath: iconSourcePath,
+            globalConfigPath: globalConfigPath
+        )
+        return authorizeProjectActionIfNeeded(
+            descriptor: descriptor,
+            confirm: confirm,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayCommand: shellCommand,
+            displayTitle: displayTitle,
+            presentingWindow: presentingWindow
+        ) {
+            onAuthorized(shellCommand + "\n")
+        }
+    }
+
+    @discardableResult
+    static func authorizeProjectAutomationIfNeeded(
+        descriptor: CmuxActionTrustDescriptor,
+        confirm: Bool,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayCommand: String,
+        displayTitle: String? = nil,
+        presentingWindow: NSWindow? = nil,
+        onAuthorized: @escaping () -> Void,
+        onDenied: (() -> Void)? = nil
+    ) -> Bool {
+        authorizeProjectActionIfNeeded(
+            descriptor: descriptor,
+            confirm: confirm,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayCommand: displayCommand,
+            displayTitle: displayTitle,
+            presentingWindow: presentingWindow,
+            onAuthorized: onAuthorized,
+            onDenied: onDenied
+        )
+    }
+
+    @discardableResult
+    private static func authorizeProjectActionIfNeeded(
+        descriptor: CmuxActionTrustDescriptor,
+        confirm: Bool,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayCommand: String,
+        displayTitle: String?,
+        presentingWindow: NSWindow?,
+        onAuthorized: @escaping () -> Void,
+        onDenied: (() -> Void)? = nil
+    ) -> Bool {
+        let sourcePath = configSourcePath.map(canonicalPath)
+        let canonicalGlobalConfigPath = canonicalPath(globalConfigPath)
+        let isTrusted = CmuxActionTrust.shared.isTrusted(descriptor)
+        let resolvedPresentingWindow = presentingWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let sourcePath,
+              sourcePath != canonicalGlobalConfigPath else {
+            onAuthorized()
+            return true
+        }
+        if !confirm, isTrusted {
+            onAuthorized()
+            return true
+        }
+#if DEBUG
+        if let confirmDialogOverrideForTesting {
+            let allowed = confirmDialogOverrideForTesting(descriptor)
+            if allowed {
+                onAuthorized()
+            } else {
+                onDenied?()
+            }
+            return allowed
+        }
+#endif
+        if let resolvedPresentingWindow {
+            presentConfirmDialog(
+                command: displayCommand,
+                displayTitle: displayTitle,
+                descriptor: descriptor,
+                configPath: sourcePath,
+                presentingWindow: resolvedPresentingWindow
+            ) { allowed in
+                if allowed {
+                    onAuthorized()
+                } else {
+                    onDenied?()
+                }
+            }
+            return true
+        }
+        let allowed = runConfirmDialog(
+            command: displayCommand,
+            displayTitle: displayTitle,
+            descriptor: descriptor,
+            configPath: sourcePath
+        )
+        if allowed {
+            onAuthorized()
+        } else {
+            onDenied?()
+        }
+        return allowed
+    }
+
+    private static func presentConfirmDialog(
+        command: String,
+        displayTitle: String?,
+        descriptor: CmuxActionTrustDescriptor,
+        configPath: String,
+        presentingWindow: NSWindow,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let alert = makeConfirmDialog(
+            command: command,
+            displayTitle: displayTitle,
+            configPath: configPath
+        )
+        let content = CmuxAlertContent(
+            flattenedText: alert.informativeText,
+            separatingScrollableDetails: sanitizeForDisplay(command)
+        )
+        content.apply(to: alert, presentingWindow: presentingWindow)
+        alert.beginSheetModal(for: presentingWindow) { response in
+            completion(handleConfirmDialogResponse(response, descriptor: descriptor))
+        }
+    }
+
+    private static func runConfirmDialog(
+        command: String,
+        displayTitle: String?,
+        descriptor: CmuxActionTrustDescriptor,
+        configPath: String
+    ) -> Bool {
+        let alert = makeConfirmDialog(
+            command: command,
+            displayTitle: displayTitle,
+            configPath: configPath
+        )
+        let content = CmuxAlertContent(
+            flattenedText: alert.informativeText,
+            separatingScrollableDetails: sanitizeForDisplay(command)
+        )
+        content.apply(to: alert, presentingWindow: nil)
+        return handleConfirmDialogResponse(alert.runModal(), descriptor: descriptor)
+    }
+
+    private static func makeConfirmDialog(
+        command: String,
+        displayTitle: String?,
+        configPath: String
+    ) -> NSAlert {
+        let alert = NSAlert()
+        // Titles come from project-local configs too — strip bidi/zero-width
+        // controls like the command body below, so the header can't be spoofed.
+        let trimmedDisplayTitle = displayTitle.map(sanitizeForDisplay)
+        alert.messageText = (trimmedDisplayTitle?.isEmpty == false)
+            ? trimmedDisplayTitle!
+            : String(
+                localized: "dialog.cmuxConfig.confirmCommand.title",
+                defaultValue: "Run Project Action?"
+            )
+        let messageFormat = String(
+            localized: "dialog.cmuxConfig.confirmCommand.messageWithCommand",
+            defaultValue: "This project action comes from:\n\n%@\n\nIt will run:\n\n%@"
+        )
+        alert.informativeText = String(
+            format: messageFormat,
+            sanitizeForDisplay(configPath),
+            sanitizeForDisplay(command)
+        )
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(
+            localized: "dialog.cmuxConfig.confirmCommand.run",
+            defaultValue: "Run Once"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "dialog.cmuxConfig.confirmCommand.trustAndRun",
+            defaultValue: "Trust and Run"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "dialog.cmuxConfig.confirmCommand.cancel",
+            defaultValue: "Cancel"
+        ))
+        return alert
+    }
+
+    private static func handleConfirmDialogResponse(
+        _ response: NSApplication.ModalResponse,
+        descriptor: CmuxActionTrustDescriptor
+    ) -> Bool {
+        switch response {
+        case .alertFirstButtonReturn:
+            return true
+        case .alertSecondButtonReturn:
+            CmuxActionTrust.shared.trust(descriptor)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func terminalTrustDescriptor(
+        command: String,
+        actionID: String,
+        target: CmuxConfigTerminalCommandTarget,
+        configSourcePath: String?,
+        icon: CmuxButtonIcon?,
+        iconSourcePath: String?,
+        globalConfigPath: String
+    ) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: actionID,
+            kind: "terminalCommand",
+            command: command,
+            target: target.rawValue,
+            workspaceCommand: nil,
+            configPath: configSourcePath.map(canonicalPath),
+            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            iconFingerprint: icon?.projectLocalImageFingerprint(
+                configSourcePath: iconSourcePath ?? configSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        )
+    }
+
+    private static func workspaceTrustDescriptor(
+        command: CmuxCommandDefinition,
+        actionID: String,
+        configSourcePath: String?,
+        icon: CmuxButtonIcon?,
+        iconSourcePath: String?,
+        globalConfigPath: String
+    ) -> CmuxActionTrustDescriptor {
+        CmuxActionTrustDescriptor(
+            actionID: actionID,
+            kind: "workspaceCommand",
+            command: nil,
+            target: nil,
+            workspaceCommand: command,
+            configPath: configSourcePath.map(canonicalPath),
+            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            iconFingerprint: icon?.projectLocalImageFingerprint(
+                configSourcePath: iconSourcePath ?? configSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        )
+    }
+
+    static func isTrustedSurfaceButton(
+        _ button: CmuxSurfaceTabBarButton,
+        workspaceCommand: CmuxResolvedCommand?,
+        terminalCommandSourcePath: String?,
+        surfaceTabBarConfigSourcePath: String?,
+        globalConfigPath: String
+    ) -> Bool {
+        guard let descriptor = surfaceButtonTrustDescriptor(
+            button,
+            workspaceCommand: workspaceCommand,
+            terminalCommandSourcePath: terminalCommandSourcePath,
+            surfaceTabBarConfigSourcePath: surfaceTabBarConfigSourcePath,
+            globalConfigPath: globalConfigPath
+        ) else {
+            return true
+        }
+        guard let configPath = descriptor.configPath,
+              configPath != canonicalPath(globalConfigPath) else {
+            return true
+        }
+        return CmuxActionTrust.shared.isTrusted(descriptor)
+    }
+
+    private static func surfaceButtonTrustDescriptor(
+        _ button: CmuxSurfaceTabBarButton,
+        workspaceCommand: CmuxResolvedCommand?,
+        terminalCommandSourcePath: String?,
+        surfaceTabBarConfigSourcePath: String?,
+        globalConfigPath: String
+    ) -> CmuxActionTrustDescriptor? {
+        let configSourcePath = terminalCommandSourcePath
+            ?? workspaceCommand?.sourcePath
+            ?? button.actionSourcePath
+            ?? surfaceTabBarConfigSourcePath
+        let iconSourcePath = button.iconSourcePath
+            ?? (button.icon == nil ? nil : surfaceTabBarConfigSourcePath)
+        let resolvedIcon = button.icon ?? button.action.defaultButtonIcon
+
+        if let workspaceCommand {
+            return workspaceTrustDescriptor(
+                command: workspaceCommand.command,
+                actionID: button.id,
+                configSourcePath: configSourcePath,
+                icon: resolvedIcon,
+                iconSourcePath: iconSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        }
+
+        if let inlineWorkspaceCommand = button.inlineWorkspaceSyntheticCommand {
+            return workspaceTrustDescriptor(
+                command: inlineWorkspaceCommand,
+                actionID: button.id,
+                configSourcePath: configSourcePath,
+                icon: resolvedIcon,
+                iconSourcePath: iconSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        }
+
+        if let payload = button.action.textPayload {
+            return textTrustDescriptor(
+                payload,
+                actionID: button.id,
+                configSourcePath: configSourcePath,
+                icon: resolvedIcon,
+                iconSourcePath: iconSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        }
+
+        guard let terminalCommand = button.terminalCommand else {
+            return nil
+        }
+
+        return terminalTrustDescriptor(
+            command: sanitizeForDisplay(terminalCommand),
+            actionID: button.id,
+            target: button.resolvedTerminalCommandTarget,
+            configSourcePath: configSourcePath,
+            icon: resolvedIcon,
+            iconSourcePath: iconSourcePath,
+            globalConfigPath: globalConfigPath
+        )
+    }
+
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private static func sanitizeForDisplay(_ text: String) -> String {
+        let dangerous: Set<Unicode.Scalar> = [
+            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
+            "\u{FEFF}",
+        ]
+        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
+        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

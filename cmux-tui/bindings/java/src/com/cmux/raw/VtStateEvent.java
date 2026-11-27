@@ -15,8 +15,6 @@ public final class VtStateEvent implements WireValue, ByteAttachEvent, ProtocolE
     private final Field<TerminalColors> colors;
     private final int cols;
     private final Bytes data;
-    private final Field<UInt64> historyRowsOmitted;
-    private final Field<UInt64> historyRowsSkipped;
     private final Field<KittyGraphicsState> kittyGraphicsState;
     private final Field<List<KittyImageAlias>> kittyImageAliases;
     private final int rows;
@@ -28,8 +26,6 @@ public final class VtStateEvent implements WireValue, ByteAttachEvent, ProtocolE
         this.cols = builder.cols;
         if (!builder.dataSet) throw new IllegalArgumentException("data is required");
         this.data = Wire.nonNull(builder.data, "data");
-        this.historyRowsOmitted = builder.historyRowsOmitted;
-        this.historyRowsSkipped = builder.historyRowsSkipped;
         this.kittyGraphicsState = builder.kittyGraphicsState;
         this.kittyImageAliases = builder.kittyImageAliases.map(value -> List.copyOf(value));
         if (!builder.rowsSet) throw new IllegalArgumentException("rows is required");
@@ -43,8 +39,6 @@ public final class VtStateEvent implements WireValue, ByteAttachEvent, ProtocolE
     public Field<TerminalColors> colors() { return colors; }
     public int cols() { return cols; }
     public Bytes data() { return data; }
-    public Field<UInt64> historyRowsOmitted() { return historyRowsOmitted; }
-    public Field<UInt64> historyRowsSkipped() { return historyRowsSkipped; }
     public Field<KittyGraphicsState> kittyGraphicsState() { return kittyGraphicsState; }
     public Field<List<KittyImageAlias>> kittyImageAliases() { return kittyImageAliases; }
     public int rows() { return rows; }
@@ -63,14 +57,6 @@ public final class VtStateEvent implements WireValue, ByteAttachEvent, ProtocolE
         builder.cols(Wire.uint16(rawCols, "VtStateEvent.cols"));
         Object rawData = Wire.required(object, "data");
         builder.data(Wire.bytes(rawData, "VtStateEvent.data"));
-        Object rawHistoryRowsOmitted = Wire.optional(object, "history_rows_omitted");
-        if (!Wire.isMissing(rawHistoryRowsOmitted)) {
-            builder.historyRowsOmitted(Wire.uint64(rawHistoryRowsOmitted, "VtStateEvent.history_rows_omitted"));
-        }
-        Object rawHistoryRowsSkipped = Wire.optional(object, "history_rows_skipped");
-        if (!Wire.isMissing(rawHistoryRowsSkipped)) {
-            builder.historyRowsSkipped(Wire.uint64(rawHistoryRowsSkipped, "VtStateEvent.history_rows_skipped"));
-        }
         Object rawKittyGraphicsState = Wire.optional(object, "kitty_graphics_state");
         if (!Wire.isMissing(rawKittyGraphicsState)) {
             builder.kittyGraphicsState(KittyGraphicsState.fromWire(rawKittyGraphicsState));
@@ -93,8 +79,6 @@ public final class VtStateEvent implements WireValue, ByteAttachEvent, ProtocolE
         Wire.put(object, "colors", colors);
         Wire.put(object, "cols", cols);
         Wire.put(object, "data", data);
-        Wire.put(object, "history_rows_omitted", historyRowsOmitted);
-        Wire.put(object, "history_rows_skipped", historyRowsSkipped);
         Wire.put(object, "kitty_graphics_state", kittyGraphicsState);
         Wire.put(object, "kitty_image_aliases", kittyImageAliases);
         Wire.put(object, "rows", rows);
@@ -105,11 +89,11 @@ public final class VtStateEvent implements WireValue, ByteAttachEvent, ProtocolE
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof VtStateEvent that)) return false;
-        return Objects.equals(colors, that.colors) && Objects.equals(cols, that.cols) && Objects.equals(data, that.data) && Objects.equals(historyRowsOmitted, that.historyRowsOmitted) && Objects.equals(historyRowsSkipped, that.historyRowsSkipped) && Objects.equals(kittyGraphicsState, that.kittyGraphicsState) && Objects.equals(kittyImageAliases, that.kittyImageAliases) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface);
+        return Objects.equals(colors, that.colors) && Objects.equals(cols, that.cols) && Objects.equals(data, that.data) && Objects.equals(kittyGraphicsState, that.kittyGraphicsState) && Objects.equals(kittyImageAliases, that.kittyImageAliases) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(colors, cols, data, historyRowsOmitted, historyRowsSkipped, kittyGraphicsState, kittyImageAliases, rows, surface); }
+    public int hashCode() { return Objects.hash(colors, cols, data, kittyGraphicsState, kittyImageAliases, rows, surface); }
 
     @Override
     public String toString() { return "VtStateEvent" + toWire(); }
@@ -120,8 +104,6 @@ public final class VtStateEvent implements WireValue, ByteAttachEvent, ProtocolE
         private boolean colsSet;
         private Bytes data;
         private boolean dataSet;
-        private Field<UInt64> historyRowsOmitted = Field.omitted();
-        private Field<UInt64> historyRowsSkipped = Field.omitted();
         private Field<KittyGraphicsState> kittyGraphicsState = Field.omitted();
         private Field<List<KittyImageAlias>> kittyImageAliases = Field.omitted();
         private Integer rows;
@@ -141,14 +123,6 @@ public final class VtStateEvent implements WireValue, ByteAttachEvent, ProtocolE
         public Builder data(Bytes value) {
             this.data = value;
             this.dataSet = true;
-            return this;
-        }
-        public Builder historyRowsOmitted(UInt64 value) {
-            this.historyRowsOmitted = Field.of(value);
-            return this;
-        }
-        public Builder historyRowsSkipped(UInt64 value) {
-            this.historyRowsSkipped = Field.of(value);
             return this;
         }
         public Builder kittyGraphicsState(KittyGraphicsState value) {

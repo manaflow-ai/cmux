@@ -20,7 +20,6 @@ import {
   makeVmPublicationProvider,
   type VmPublicationFreestyleClient,
 } from "../services/vm-publications/provider";
-import { PUBLICATION_API_KEY_COOKIE } from "../services/vm-publications/security";
 import { ingressRule, publicationRuleStore } from "./fixtures/publicationRuleStore";
 
 const CREATED_AT = "2026-09-02T12:00:00.000Z";
@@ -149,7 +148,7 @@ function fakeClient(
 }
 
 describe("VM publication Freestyle provider", () => {
-  test("adopts a config from before API keys and protects the API key cookie", async () => {
+  test("adopts and rotates the reusable account-wide forward-auth config", async () => {
     const updates: Array<{ id: string; options: CreateTlsForwardAuthOptions }> = [];
     const client = fakeClient({
       forwardAuthList: async () => ({
@@ -181,7 +180,7 @@ describe("VM publication Freestyle provider", () => {
           url: "https://cmux.com/api/freestyle/forward-auth",
           headers: { authorization: "Bearer new-secret" },
           timeoutMs: CMUX_FORWARD_AUTH_TIMEOUT_MS,
-          protectedCookies: [CMUX_PREVIEW_SESSION_COOKIE, CMUX_PREVIEW_TRANSACTION_COOKIE, PUBLICATION_API_KEY_COOKIE],
+          protectedCookies: [CMUX_PREVIEW_SESSION_COOKIE, CMUX_PREVIEW_TRANSACTION_COOKIE],
         },
       },
     ]);

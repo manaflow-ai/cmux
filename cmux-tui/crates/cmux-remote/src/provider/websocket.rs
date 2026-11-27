@@ -1,16 +1,14 @@
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::extract::ws::{Message as AxumMessage, WebSocket};
 use bytes::Bytes;
-use cmux_terminal_host_protocol::net_keepalive::WebSocketKeepalive;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::client::Request as ClientRequest;
@@ -140,17 +138,6 @@ pub fn client_request(endpoint: &Url) -> Result<ClientRequest, LinkError> {
 /// The link type every direct dial produces, whatever carried the bytes.
 pub type DialedWebSocketLink = TungsteniteWebSocketLink<MaybeTlsStream<DialedStream>>;
 
-/// How long one direct WebSocket dial may take in all: name resolution, the
-/// carrier's connect (per address, see [`crate::provider::dial`]), TLS for
-/// `wss` and the upgrade. A healthy route opens in well under a second; a cold
-/// Cloud machine whose network is still settling, or an in-process WireGuard
-/// tunnel whose first handshake is still in flight, takes a few seconds. A
-/// socket that accepts and then never answers (a half-open path, an ingress
-/// that dropped the upgrade) held the dial, and every caller above it,
-/// forever. Past this the dial fails as a retryable transport error that
-/// names the stage and the peer, and the caller's redial policy takes over.
-pub const DIRECT_DIAL_TIMEOUT: Duration = Duration::from_secs(12);
-
 /// Dial a direct WebSocket route over the operating system's TCP stack.
 pub async fn connect_websocket(
     endpoint: &Url,
@@ -159,8 +146,7 @@ pub async fn connect_websocket(
     connect_websocket_via(endpoint, maximum, &OsTcpDialer).await
 }
 
-/// Dial a direct WebSocket route over whatever carrier `dialer` provides,
-/// within [`DIRECT_DIAL_TIMEOUT`].
+/// Dial a direct WebSocket route over whatever carrier `dialer` provides.
 ///
 /// The dialer owns only the byte stream. TLS for `wss` and the WebSocket
 /// upgrade run above it exactly as they do over a kernel socket, so an
@@ -170,18 +156,6 @@ pub async fn connect_websocket_via(
     endpoint: &Url,
     maximum: usize,
     dialer: &dyn Dialer,
-) -> Result<DialedWebSocketLink, LinkError> {
-    connect_websocket_within(endpoint, maximum, dialer, DIRECT_DIAL_TIMEOUT).await
-}
-
-/// [`connect_websocket_via`] with an explicit total deadline. Every stage
-/// (the carrier's connect, then TLS and the upgrade) shares it; the error a
-/// stage that runs out returns names that stage and the peer.
-pub async fn connect_websocket_within(
-    endpoint: &Url,
-    maximum: usize,
-    dialer: &dyn Dialer,
-    timeout: Duration,
 ) -> Result<DialedWebSocketLink, LinkError> {
     let description = sanitized_route(endpoint);
     let host = endpoint
@@ -193,114 +167,29 @@ pub async fn connect_websocket_within(
     let config =
         WebSocketConfig::default().max_message_size(Some(maximum)).max_frame_size(Some(maximum));
     let request = client_request(endpoint)?;
-    let deadline = tokio::time::Instant::now() + timeout;
-    let stage_timed_out = |stage: &str| {
-        LinkError::Transport(format!(
-            "{stage} {host}:{port} did not finish within {}",
-            DisplaySeconds(timeout)
-        ))
-    };
-    let secure = endpoint.scheme() == "wss";
-    let stream = tokio::time::timeout_at(deadline, dialer.dial_secure(host, port, secure))
+    let stream = dialer.dial(host, port).await?;
+    let (socket, _) = client_async_tls_with_config(request, stream, Some(config), None)
         .await
-        .map_err(|_| stage_timed_out(&format!("{} connect to", dialer.name())))??;
-    let upgrade_stage = if endpoint.scheme() == "wss" {
-        "TLS and websocket upgrade to"
-    } else {
-        "websocket upgrade to"
-    };
-    let (socket, _) = tokio::time::timeout_at(
-        deadline,
-        client_async_tls_with_config(request, stream, Some(config), None),
-    )
-    .await
-    .map_err(|_| stage_timed_out(upgrade_stage))?
-    .map_err(|error| LinkError::Transport(error.to_string()))?;
+        .map_err(|error| LinkError::Transport(error.to_string()))?;
     Ok(TungsteniteWebSocketLink::new(description, maximum, socket))
 }
 
-/// A duration as a person reads it in an error: `12 s`, or `1.5 s`, or `300 ms`.
-pub(crate) struct DisplaySeconds(pub(crate) Duration);
-
-impl fmt::Display for DisplaySeconds {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let millis = self.0.as_millis();
-        if millis < 1_000 {
-            write!(formatter, "{millis} ms")
-        } else if millis.is_multiple_of(1_000) {
-            write!(formatter, "{} s", millis / 1_000)
-        } else {
-            write!(formatter, "{:.1} s", self.0.as_secs_f64())
-        }
-    }
-}
-
-/// The daemon side of a direct WebSocket link. While [`FrameLink::receive`]
-/// waits, it pings a silent peer every [`WebSocketKeepalive::ping_interval`];
-/// once nothing has arrived for [`WebSocketKeepalive::dead_peer_timeout`] (a
-/// half-open connection) it drops the socket and fails the link.
-///
-/// Liveness is counted per whole message here (axum does not expose partial
-/// frames), so a single inbound message that takes longer than the dead-peer
-/// timeout to arrive fails the link. The Cloud carrier caps a frame at
-/// 64 KiB, so that takes a link slower than about 1 KB/s.
 pub struct AxumWebSocketLink {
     description: String,
     maximum: usize,
-    keepalive: WebSocketKeepalive,
-    /// Each half is taken (dropped) when the peer is declared dead; the
-    /// socket closes once both are gone.
-    sender: Mutex<Option<SplitSink<WebSocket, AxumMessage>>>,
-    receiver: Mutex<Option<SplitStream<WebSocket>>>,
-    /// Set when the peer is declared dead, so a send blocked on the dead
-    /// peer gives up and drops its half.
-    dead: watch::Sender<bool>,
+    sender: Mutex<SplitSink<WebSocket, AxumMessage>>,
+    receiver: Mutex<SplitStream<WebSocket>>,
 }
 
 impl AxumWebSocketLink {
     pub fn new(description: impl Into<String>, maximum: usize, socket: WebSocket) -> Self {
-        Self::with_keepalive(description, maximum, socket, WebSocketKeepalive::default())
-    }
-
-    pub fn with_keepalive(
-        description: impl Into<String>,
-        maximum: usize,
-        socket: WebSocket,
-        keepalive: WebSocketKeepalive,
-    ) -> Self {
         let (sender, receiver) = socket.split();
         Self {
             description: description.into(),
             maximum,
-            keepalive,
-            sender: Mutex::new(Some(sender)),
-            receiver: Mutex::new(Some(receiver)),
-            dead: watch::Sender::new(false),
+            sender: Mutex::new(sender),
+            receiver: Mutex::new(receiver),
         }
-    }
-
-    /// Ping the peer unless a data frame is being written: the Ping then
-    /// waits for nothing, and a write stuck on a dead peer cannot stall the
-    /// dead-peer clock. The write is bounded by one ping interval.
-    async fn ping(&self) -> Result<(), LinkError> {
-        let Ok(mut sender) = self.sender.try_lock() else { return Ok(()) };
-        let Some(sender) = sender.as_mut() else { return Err(LinkError::Closed) };
-        match tokio::time::timeout(
-            self.keepalive.ping_interval,
-            sender.send(AxumMessage::Ping(Bytes::new())),
-        )
-        .await
-        {
-            Ok(result) => result.map_err(|error| LinkError::Transport(error.to_string())),
-            Err(_) => Ok(()),
-        }
-    }
-
-    fn dead_peer_error(&self) -> LinkError {
-        LinkError::Transport(format!(
-            "WebSocket peer sent nothing for {:?}",
-            self.keepalive.dead_peer_timeout
-        ))
     }
 }
 
@@ -316,52 +205,17 @@ impl FrameLink for AxumWebSocketLink {
 
     async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
         ensure_size(frame.len(), self.maximum)?;
-        let mut dead = self.dead.subscribe();
-        let mut sender = self.sender.lock().await;
-        let Some(sink) = sender.as_mut() else { return Err(LinkError::Closed) };
-        let sent = tokio::select! {
-            biased;
-            _ = dead.wait_for(|dead| *dead) => None,
-            result = sink.send(AxumMessage::Binary(frame)) => Some(result),
-        };
-        // The dead-peer path could not take this half while the send held
-        // it; drop it here so the socket closes now.
-        if *self.dead.borrow() {
-            sender.take();
-            return Err(self.dead_peer_error());
-        }
-        match sent {
-            Some(result) => result.map_err(|error| LinkError::Transport(error.to_string())),
-            None => Err(self.dead_peer_error()),
-        }
+        self.sender
+            .lock()
+            .await
+            .send(AxumMessage::Binary(frame))
+            .await
+            .map_err(|error| LinkError::Transport(error.to_string()))
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
-        let mut receiver = self.receiver.lock().await;
-        let Some(stream) = receiver.as_mut() else { return Ok(None) };
-        // Silence counts only while this call waits: a caller that stops
-        // reading (ingress backpressure) is not a dead peer.
-        let mut idle_since = tokio::time::Instant::now();
         loop {
-            let next = match tokio::time::timeout(self.keepalive.ping_interval, stream.next()).await
-            {
-                Ok(next) => next,
-                Err(_) => {
-                    if idle_since.elapsed() >= self.keepalive.dead_peer_timeout {
-                        self.dead.send_replace(true);
-                        receiver.take();
-                        if let Ok(mut sender) = self.sender.try_lock() {
-                            sender.take();
-                        }
-                        return Err(self.dead_peer_error());
-                    }
-                    self.ping().await?;
-                    continue;
-                }
-            };
-            // Any frame, a Pong included, is liveness.
-            idle_since = tokio::time::Instant::now();
-            match next {
+            match self.receiver.lock().await.next().await {
                 Some(Ok(AxumMessage::Binary(frame))) => {
                     ensure_size(frame.len(), self.maximum)?;
                     return Ok(Some(frame));
@@ -378,32 +232,13 @@ impl FrameLink for AxumWebSocketLink {
         }
     }
 
-    /// Send a Close frame (bounded by one ping interval: the peer may be
-    /// gone), then drop both halves so the socket closes now rather than
-    /// whenever the link itself is dropped.
     async fn close(&self) -> Result<(), LinkError> {
-        let mut dead = self.dead.subscribe();
-        let mut sender = self.sender.lock().await;
-        let result = match sender.as_mut() {
-            Some(sink) => tokio::select! {
-                biased;
-                _ = dead.wait_for(|dead| *dead) => Ok(()),
-                closed = tokio::time::timeout(self.keepalive.ping_interval, sink.close()) => {
-                    match closed {
-                        Ok(result) => {
-                            result.map_err(|error| LinkError::Transport(error.to_string()))
-                        }
-                        Err(_) => Ok(()),
-                    }
-                }
-            },
-            None => Ok(()),
-        };
-        sender.take();
-        if let Ok(mut receiver) = self.receiver.try_lock() {
-            receiver.take();
-        }
-        result
+        self.sender
+            .lock()
+            .await
+            .close()
+            .await
+            .map_err(|error| LinkError::Transport(error.to_string()))
     }
 }
 
@@ -510,7 +345,6 @@ impl LinkGroup for WebSocketLinkGroup {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             carrier_encryption: self.endpoint.scheme() == "wss",
-            parallel_links: self.dialer.parallel_links(),
             ..ProviderCapabilities::WEBSOCKET
         }
     }
@@ -527,7 +361,6 @@ impl LinkGroup for WebSocketLinkGroup {
                 kind: TransportPathKind::Direct,
                 remote: self.endpoint.host_str().map(str::to_owned),
                 rtt_micros: None,
-                outer: None,
             }),
         }
     }
@@ -554,11 +387,48 @@ impl LinkGroup for WebSocketLinkGroup {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn client_request_sets_user_agent_and_keeps_the_query() {
+        let endpoint = Url::parse(
+            "wss://machine-1337.vm.cmux.sh/v1/link?bl_preview_token=t&cmux_lane=control",
+        )
+        .unwrap();
+        let request = client_request(&endpoint).unwrap();
+        assert_eq!(
+            request.headers().get("user-agent").and_then(|value| value.to_str().ok()),
+            Some(CLIENT_USER_AGENT)
+        );
+        assert!(request.headers().get("origin").is_none());
+        assert_eq!(request.uri().query(), Some("bl_preview_token=t&cmux_lane=control"));
+        assert_eq!(request.uri().host(), Some("machine-1337.vm.cmux.sh"));
+    }
 
+    use std::collections::BTreeMap;
+
+    use cmux_remote_protocol::{LanePolicy, SessionId};
     use tokio_tungstenite::tungstenite::protocol::frame::Frame;
     use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
 
     use super::*;
+
+    #[tokio::test]
+    async fn provider_description_redacts_websocket_endpoint_secrets() {
+        let endpoint = Url::parse(
+            "wss://alice:password@example.test/capability?ticket=bearer-secret#fragment",
+        )
+        .unwrap();
+        let group = DirectWebSocketProvider::new(65_535)
+            .connect(ConnectRequest {
+                endpoint,
+                session: SessionId::ZERO,
+                lane_policy: LanePolicy::Single,
+                routing: BTreeMap::new(),
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(group.description(), "wss://example.test/");
+    }
 
     #[tokio::test]
     async fn connected_link_description_redacts_websocket_capabilities() {

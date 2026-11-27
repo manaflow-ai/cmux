@@ -1,34 +1,8 @@
 #!/usr/bin/env bash
-# Installs the cmux-tui binary into an app bundle as Contents/Resources/bin/cmux, the
-# cmux CLI, with bin/cmux-tui and bin/acpmux as relative symlinks to it (the binary
-# picks its program from argv[0]; plans/cmux-next/cli.md). When the manifest publishes
-# cmux-tui-app-host-<target>, the app host goes to Contents/Resources/bin/cmux-app-host,
-# where the daemon looks for it; cmux-tui-cloud-server-<target> (the first-party Cloud
-# app server, cmux/cloud) goes beside it as bin/cmux-cloud. The app carries the exact client that talks to cmux
-# Cloud machines, so the Machines panel needs no separate install.
-# cmux-tui-browser-host-<target> goes beside bin/cmux as bin/cmux-browser-host, where
-# the daemon looks for it (the sibling of its own executable), but only once
-# scripts/cmux-next/notices/bundle-map.json maps that path: release and nightly
-# bundles fail check_bundle_notices.py on an unmapped Mach-O, and the map's test
-# requires its THIRD_PARTY_LICENSES.md section. Until then it is not installed.
-# cmux-tui-host-<target> (the slim terminal host) goes beside bin/cmux as
-# bin/cmux-tui-host: a macOS daemon runs every terminal host from it when it
-# reports the daemon's build, else from a copy of bin/cmux.
-# cmux-tui-holder-<target> (the terminal holder, std and libc only) goes beside
-# bin/cmux as bin/cmux-holder: the daemon starts every terminal holder from a
-# content-addressed copy of it, else runs the holder built into cmux-tui-host.
-# cmux-tui-launch-preread-<target> (the optional login-time pre-read) goes beside
-# bin/cmux as bin/cmux-launch-preread. Older manifests without it install none.
-# cmux-tui-agent-screen-detection-<target> (the agent screen-detection plugin,
-# GPL-3.0-or-later AND Apache-2.0) goes beside bin/cmux as
-# bin/cmux-agent-screen-detection, the exact name the daemon runs by default
-# from beside its own (symlink-resolved) executable. Like the browser host, it is
-# installed only while bundle-map.json maps that path; a build that publishes
-# none installs none.
+# Installs the cmux-tui client into an app bundle as Contents/Resources/bin/cmux-tui,
+# the same way the Ghostty CLI helper is bundled: the app carries the exact client
+# that talks to cmux Cloud machines, so the Machines panel needs no separate install.
 #
-# When the installed cmux runs the app host and the browser host by argv[0]
-# (link-folded-hosts.sh --probe), bin/cmux-app-host and bin/cmux-browser-host are
-# relative links to cmux instead, and their artifacts are not fetched.
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
 # darwin slices are downloaded, sha256-verified against the manifest, and lipo'd into
@@ -36,8 +10,8 @@
 # Downloads are cached per commit under CMUX_TUI_CLIENT_CACHE.
 #
 #   scripts/install-cmux-tui-client.sh <app-path> [--manifest-url <url>] [--cache-dir <dir>]
-#     [--expected-commit <sha>] [--require-capability <name>]... [--require-acpmux]
-#     [--require-companions] [--arch <native|arm64|x86_64|universal>]
+#     [--expected-commit <sha>] [--require-capability <name>]...
+#     [--arch <native|arm64|x86_64|universal>]
 #     [--attest-signer-workflow <owner/repo/.github/workflows/name.yml>] [--allow-unattested]
 #
 # Every remote install authenticates the downloaded manifest before any value in it is
@@ -50,28 +24,20 @@
 # machine without an authenticated gh; CI never passes it. A CMUX_TUI_CLIENT_LOCAL
 # binary is not downloaded and is not subject to it.
 #
-# acpmux is linked into the same binary, so bin/acpmux needs no separate download.
-# Builds from before that lack it: `bin/acpmux --version` then does not identify as
-# acpmux, which is a warning, or an error with --require-acpmux.
+# The attestation is verified offline from a Sigstore bundle when one is cached
+# (CMUX_TUI_ATTESTATION_CACHE) or published beside the manifest; only a miss calls
+# the GitHub attestations API, and its bundle is cached for the next install.
 #
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
-# CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5), CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
-# (default 60) below CMUX_TUI_CLIENT_DOWNLOAD_MIN_BYTES_PER_SECOND (default 65536)
-# and CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS (default 600) bound each download
-# attempt and its total retry budget.
-# The attestation is first verified offline from the Sigstore bundle the publisher
-# uploads beside the manifest (CMUX_TUI_ATTEST_BUNDLE_BASE, default
-# <manifest origin>/cmux-tui-attestations, holds sha256-<manifest digest>.sigstore.json);
-# with no bundle, or one that does not verify, it asks GitHub's attestations API.
-# CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES (default 9) retries rate-limited `gh attestation verify`
-# before failing with a rate-limit error; CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS (default 60)
-# is the first wait, doubling to a 600 s cap: 65 minutes in total, past GitHub's hourly reset.
+# CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
+# (default 60, below 1 KiB/s) and CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS
+# (default 600) bound each download attempt and its total retry budget.
 # --arch selects downloaded slices only; the local override is copied unchanged
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
 
-usage() { sed -n '2,39p' "$0"; }
+usage() { sed -n '2,22p' "$0"; }
 
 APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
@@ -80,8 +46,6 @@ EXPECTED_COMMIT=""
 ARCH="universal"
 ATTEST_SIGNER_WORKFLOW="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
 ALLOW_UNATTESTED=0
-REQUIRE_ACPMUX=0
-REQUIRE_COMPANIONS=0
 REQUIRED_CAPABILITIES=()
 while (( $# )); do
   case "$1" in
@@ -91,8 +55,6 @@ while (( $# )); do
     --expected-commit) shift; EXPECTED_COMMIT="${1:?--expected-commit needs a value}" ;;
     --attest-signer-workflow) shift; ATTEST_SIGNER_WORKFLOW="${1:?--attest-signer-workflow needs a value}" ;;
     --allow-unattested) ALLOW_UNATTESTED=1 ;;
-    --require-acpmux) REQUIRE_ACPMUX=1 ;;
-    --require-companions) REQUIRE_COMPANIONS=1 ;;
     --require-capability) shift; REQUIRED_CAPABILITIES+=("${1:?--require-capability needs a value}") ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -123,76 +85,169 @@ esac
   exit 64
 }
 DEST_DIR="$APP_PATH/Contents/Resources/bin"
-DEST="$DEST_DIR/cmux"
-ALIASES=(cmux-tui acpmux)
+DEST="$DEST_DIR/cmux-tui"
 mkdir -p "$DEST_DIR"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# The GitHub token's installation quota is shared by every workflow in the
+# repository; once it is spent (HTTP 403 "API rate limit exceeded for
+# installation"), `gh attestation verify` cannot list the manifest's attestations.
+# The attestations of a public repository are also readable without a token, on
+# the runner address's own budget, so fetch the Sigstore bundles that way and
+# verify each one offline with `gh attestation verify --bundle`. That checks the
+# same signer, repository and source commit against the Sigstore trust root as the
+# API lookup (which fetches these same bundles), so it admits nothing the lookup
+# would refuse; any failure here falls back to waiting out the quota.
+verify_attestation_bundles_anonymously() { # <owner/repo> <verify args...>
+  local repo="$1"; shift
+  local digest listing api="${GITHUB_API_URL:-https://api.github.com}" bundle n=0 i
+  digest="$(sha256_of "$MANIFEST")"
+  listing="$MANIFEST.attestations.json"
+  rm -f "$listing" "$MANIFEST".anon-*.sigstore.json
+  if ! curl --proto '=https' --tlsv1.2 -fsS --connect-timeout 10 --max-time 60 \
+      -A cmux-tui-installer -H 'Accept: application/vnd.github+json' \
+      -o "$listing" "$api/repos/$repo/attestations/sha256:$digest"; then
+    rm -f "$listing"
+    echo "warning: the unauthenticated attestation read failed too; waiting out the quota" >&2
+    return 1
+  fi
+  n="$(python3 -c '
+import json, sys
+attestations = json.load(open(sys.argv[1])).get("attestations") or []
+count = 0
+for attestation in attestations:
+    if isinstance(attestation.get("bundle"), dict):
+        json.dump(attestation["bundle"], open(f"{sys.argv[2]}-{count}.sigstore.json", "w"))
+        count += 1
+print(count)
+' "$listing" "$MANIFEST.anon" 2>/dev/null)" || n=0
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
+  rm -f "$listing"
+  for ((i = 0; i < n; i++)); do
+    bundle="$MANIFEST.anon-$i.sigstore.json"
+    if gh attestation verify "$MANIFEST" --bundle "$bundle" "$@" >&2; then
+      rm -f "$MANIFEST".anon-*.sigstore.json
+      echo "cmux-tui manifest attestation verified offline from a bundle read without the rate-limited token" >&2
+      return 0
+    fi
+  done
+  rm -f "$MANIFEST".anon-*.sigstore.json
+  echo "warning: no attestation bundle read without the token verified ($n read); waiting out the quota" >&2
+  return 1
+}
+
 # Fail closed: without a valid attestation nothing from the manifest is used, so
 # no binary it names is downloaded or executed.
-verify_manifest_attestation() {
+#
+# The Sigstore bundle is checked offline first (`gh attestation verify --bundle`
+# reads no GitHub API), so concurrent nightlies do not drain the App
+# installation quota: run 45583224796 failed all three legs on "API rate limit
+# exceeded for installation" while 7+ nightlies ran at once. Bundles come from,
+# in order: the attestation cache (keyed by manifest sha256; a bundle is still
+# verified every time, so a bad cache entry only falls through), the
+# digest-keyed bundle cmux-tui-artifacts.yml publishes under
+# cmux-tui-attestations/, then one API lookup whose bundle is cached for the next install.
+ATTESTATION_CACHE="${CMUX_TUI_ATTESTATION_CACHE:-$HOME/Library/Caches/cmux/cmux-tui-attestations}"
+ATTEST_ARGS=()
+attest_args() {
   local repo="${ATTEST_SIGNER_WORKFLOW%%/.github/*}"
-  local -a args=(--repo "$repo" --signer-workflow "$ATTEST_SIGNER_WORKFLOW")
+  ATTEST_ARGS=(--repo "$repo" --signer-workflow "$ATTEST_SIGNER_WORKFLOW")
+  [[ -n "$EXPECTED_COMMIT" ]] && ATTEST_ARGS+=(--source-digest "$EXPECTED_COMMIT")
+  return 0
+}
+verify_bundle_offline() { # <bundle>
+  [[ -s "$1" ]] || return 1
+  gh attestation verify "$MANIFEST" --bundle "$1" "${ATTEST_ARGS[@]}" >/dev/null 2>&1
+}
+cache_bundle() { # <source> <dest>
+  mkdir -p "$ATTESTATION_CACHE" 2>/dev/null || return 0
+  local tmp
+  tmp="$(mktemp "$ATTESTATION_CACHE/bundle.XXXXXX" 2>/dev/null)" || return 0
+  if cp "$1" "$tmp" 2>/dev/null && mv -f "$tmp" "$2" 2>/dev/null; then return 0; fi
+  rm -f "$tmp"
+  return 0
+}
+# Keep the bundle the API lookup just verified, so the next install of this
+# manifest on this host reads no API. Best effort: any failure only skips it,
+# and the cached bundle is verified again before every use.
+save_verified_bundle() { # <verify-json> <dest>
+  local bundle="$1.bundle"
+  if python3 -c '
+import json, sys
+bundle = json.load(open(sys.argv[1]))[0]["attestation"]["bundle"]
+if not isinstance(bundle, dict):
+    raise SystemExit(1)
+json.dump(bundle, open(sys.argv[2], "w"))
+' "$1" "$bundle" 2>/dev/null; then
+    cache_bundle "$bundle" "$2"
+  fi
+  rm -f "$bundle"
+  return 0
+}
+verify_manifest_attestation() {
   command -v gh >/dev/null 2>&1 || {
     echo "error: verifying the cmux-tui manifest attestation needs the GitHub CLI (gh); pass --allow-unattested only for local development" >&2
     exit 1
   }
-  local output status
-  [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
-  # Offline first: the publisher (cmux-tui-artifacts.yml, "Publish the manifest's
-  # Sigstore bundle") uploads the attestation bundle for the manifest's digest to
-  # <origin>/cmux-tui-attestations/sha256-<digest>.sigstore.json. Verifying that
-  # bundle checks the same signer, repository and source commit against the
-  # Sigstore trust root and makes no GitHub API call, so a spent installation
-  # budget cannot hold the install. Run 41150090913 (2026-10-31) sat 37 minutes in
-  # "Bundle the cmux-tui client" waiting out that budget with its compile done.
-  # A missing or rejected bundle falls through to the API lookup below, so a
-  # bundle never admits anything the lookup would refuse.
-  local digest origin bundle bundle_url
+  attest_args
+  local digest cached published origin bundle_url
   digest="$(sha256_of "$MANIFEST")"
+  cached="$ATTESTATION_CACHE/$digest.sigstore.json"
+  if verify_bundle_offline "$cached"; then
+    echo "cmux-tui manifest attestation verified offline from cached bundle $cached" >&2
+    return 0
+  fi
+  # The publisher (cmux-tui-artifacts.yml, "Publish the manifest's Sigstore
+  # bundle") uploads the bundle for the manifest's digest, write-once, to
+  # <origin>/cmux-tui-attestations/sha256-<digest>.sigstore.json. One short try:
+  # a commit published before bundles were is a plain 404. A missing or rejected
+  # bundle falls through to the API lookup below, so a bundle never admits
+  # anything the lookup would refuse.
   origin="${CMUX_TUI_ATTEST_BUNDLE_BASE:-$(printf '%s' "$MANIFEST_URL" | sed -E 's#^(https?://[^/]+)/.*#\1#')/cmux-tui-attestations}"
   bundle_url="$origin/sha256-$digest.sigstore.json"
-  bundle="$MANIFEST.sigstore.json"
-  rm -f "$bundle"
-  if DOWNLOAD_ATTEMPTS=1 DOWNLOAD_MAX_SECONDS=60 download "$bundle_url" "$bundle" 0 2>/dev/null && [[ -s "$bundle" ]]; then
-    status=0
-    output="$(gh attestation verify "$MANIFEST" --bundle "$bundle" "${args[@]}" 2>&1)" || status=$?
-    rm -f "$bundle"
-    if [[ $status -eq 0 ]]; then
+  published="$MANIFEST.sigstore.json"
+  rm -f "$published"
+  if DOWNLOAD_ATTEMPTS=1 DOWNLOAD_MAX_SECONDS=60 download "$bundle_url" "$published" 0 2>/dev/null; then
+    if verify_bundle_offline "$published"; then
       echo "cmux-tui manifest attestation verified offline from $bundle_url" >&2
+      cache_bundle "$published" "$cached"
+      rm -f "$published"
       return 0
     fi
-    printf '%s\n' "$output" >&2
     echo "warning: the published Sigstore bundle at $bundle_url did not verify; asking the GitHub attestations API instead" >&2
-  else
-    rm -f "$bundle"
   fi
+  rm -f "$published"
   # An exhausted GitHub API quota says nothing about the attestation, and
   # failing on it discards a signed nightly leg (run 37526635018). Retry only
-  # that answer, with backoff (1, 2, 4, 8, then 10 minutes five times by
-  # default: 65 minutes, past GitHub's hourly quota reset); any other failure
-  # is a verdict and stays final.
+  # that answer, with backoff (1, 2, 4, 8 minutes by default); any other
+  # failure is a verdict and stays final. Before each wait, read the bundles
+  # without the token (verify_attestation_bundles_anonymously): run
+  # 45583224796 spent all four retries on a drained installation quota.
   local delay="${CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS:-60}"
-  local max_delay=600
-  local retries="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-9}"
-  local retries_left="$retries"
+  local retries_left="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-4}"
+  local output status json="$MANIFEST.verify.json"
   while :; do
     status=0
-    output="$(gh attestation verify "$MANIFEST" "${args[@]}" 2>&1)" || status=$?
+    output="$(gh attestation verify "$MANIFEST" "${ATTEST_ARGS[@]}" --format json 2>&1 >"$json")" || status=$?
     [[ -n "$output" ]] && printf '%s\n' "$output" >&2
-    [[ $status -eq 0 ]] && return 0
-    if [[ "$output" == *"rate limit"* ]]; then
-      if (( retries_left == 0 )); then
-        echo "error: the GitHub API rate limit did not reset after $retries retries, so the cmux-tui manifest attestation at $MANIFEST_URL could not be checked; retry the install later" >&2
-        exit 1
-      fi
+    if [[ $status -eq 0 ]]; then
+      save_verified_bundle "$json" "$cached"
+      rm -f "$json"
+      return 0
+    fi
+    if [[ "$output" == *"rate limit"* ]] && verify_attestation_bundles_anonymously "${ATTEST_SIGNER_WORKFLOW%%/.github/*}" "${ATTEST_ARGS[@]}"; then
+      rm -f "$json"
+      return 0
+    fi
+    if [[ "$output" == *"rate limit"* ]] && (( retries_left > 0 )); then
       echo "cmux-tui attestation lookup was rate-limited; retrying in ${delay}s ($retries_left retries left)" >&2
       sleep "$delay"
       retries_left=$((retries_left - 1))
-      delay=$((delay * 2 > max_delay ? max_delay : delay * 2))
+      delay=$((delay * 2))
       continue
     fi
+    rm -f "$json"
     echo "error: no valid build-provenance attestation for the cmux-tui manifest at $MANIFEST_URL (signer $ATTEST_SIGNER_WORKFLOW)" >&2
     exit 1
   done
@@ -225,88 +280,10 @@ PY
   done
 }
 
-# Remove first: overwriting a signed Mach-O in place keeps the kernel's cached
-# code signature for the old inode and the new binary dies with SIGKILL. The
-# aliases are relative symlinks so the bundle stays relocatable and codesign
-# treats them as links, not second copies.
-install_binary() {
-  local name
-  rm -f "$DEST"
-  install -m 755 "$1" "$DEST"
-  for name in "${ALIASES[@]}"; do
-    rm -rf "${DEST_DIR:?}/$name"
-    ln -s cmux "$DEST_DIR/$name"
-  done
-}
-
-# acpmux is linked into the binary; bin/acpmux runs it through argv[0].
-check_acpmux() {
-  local version
-  version="$("$DEST_DIR/acpmux" --version 2>/dev/null || true)"
-  [[ "$version" == acpmux\ * ]] && return 0
-  if (( REQUIRE_ACPMUX )); then
-    echo "error: installed binary does not run acpmux through bin/acpmux: $version" >&2
-    exit 1
-  fi
-  echo "warning: installed binary does not run acpmux through bin/acpmux ($version); the agent chat pane falls back to acpmux on PATH" >&2
-}
-
-# The companions this bundle may carry: the browser host and the agent
-# screen-detection plugin only while their license notices are mapped (see the
-# header).
-COMPANIONS=(cmux-app-host cmux-cloud cmux-tui-host cmux-holder cmux-launch-preread)
-BUNDLE_MAP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/notices/bundle-map.json"
-bundle_map_has() { # <installed name>
-  python3 -c 'import json,sys; sys.exit(0 if any(e.get("path") == "Contents/Resources/bin/" + sys.argv[2] for e in json.load(open(sys.argv[1]))["entries"]) else 1)' "$BUNDLE_MAP" "$1" 2>/dev/null
-}
-if bundle_map_has cmux-browser-host; then
-  COMPANIONS+=(cmux-browser-host)
-  SHIP_BROWSER_HOST=1
-else
-  SHIP_BROWSER_HOST=0
-  echo "note: bin/cmux-browser-host is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
-fi
-if bundle_map_has cmux-agent-screen-detection; then
-  COMPANIONS+=(cmux-agent-screen-detection)
-  SHIP_SCREEN_DETECTION=1
-else
-  SHIP_SCREEN_DETECTION=0
-  echo "note: bin/cmux-agent-screen-detection is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
-fi
-
-# The browser host and the app host run from bin/cmux by argv[0] when the
-# installed client carries them (link-folded-hosts.sh, CMUX-570): they become
-# links to cmux, like cmux-tui and acpmux, and no copy is fetched. folded_hosts
-# names them after fold_hosts; a client from before the fold folds none.
-folded_hosts=()
-fold_hosts() {
-  local name
-  folded_hosts=()
-  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-folded-hosts.sh" --probe "$DEST" || return 0
-  for name in "${COMPANIONS[@]}"; do
-    [[ "$name" == cmux-app-host || "$name" == cmux-browser-host ]] && folded_hosts+=("$name")
-  done
-  (( ${#folded_hosts[@]} )) || return 0
-  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/link-folded-hosts.sh" "$DEST_DIR" "${folded_hosts[@]}"
-}
-is_folded() { [[ " ${folded_hosts[*]:-} " == *" $1 "* ]]; }
-
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
-  install_binary "$CMUX_TUI_CLIENT_LOCAL"
-  # A local client brings its app host and app servers when they sit beside it.
-  rm -f "$DEST_DIR/cmux-browser-host" "$DEST_DIR/cmux-agent-screen-detection"
-  fold_hosts
-  for companion in "${COMPANIONS[@]}"; do
-    is_folded "$companion" && continue
-    rm -f "$DEST_DIR/$companion"
-    if [[ -f "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" ]]; then
-      install -m 755 "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" "$DEST_DIR/$companion"
-    fi
-  done
+  install -m 755 "$CMUX_TUI_CLIENT_LOCAL" "$DEST"
   verify_probe
-  check_acpmux
-  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/write-daemon-capabilities.sh" "$DEST_DIR"
   echo "Installed local cmux-tui client at $DEST"
   exit 0
 fi
@@ -316,19 +293,13 @@ fi
 # reuses that connection. Bound each attempt by progress and the whole
 # download by a total budget. Each retry resumes a partial slice with a fresh
 # curl process, so a slow but moving download can finish without hanging the
-# release job forever. The floor is a trickle, not only a dead stream: at
-# 1 KiB/s, files.cmux.com serving a 202 MB slice at 6 KB/s kept one attempt
-# alive for the whole 600 s budget (nightly run 42675465011). At 64 KiB/s for
-# 60 s such an attempt ends and resumes on a new connection; a healthy fetch
-# runs at megabytes per second.
+# release job forever.
 DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
 DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
 DOWNLOAD_MAX_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS:-600}"
-DOWNLOAD_MIN_BYTES_PER_SECOND="${CMUX_TUI_CLIENT_DOWNLOAD_MIN_BYTES_PER_SECOND:-65536}"
 for budget in CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS="$DOWNLOAD_ATTEMPTS" \
   CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS" \
-  CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_MAX_SECONDS" \
-  CMUX_TUI_CLIENT_DOWNLOAD_MIN_BYTES_PER_SECOND="$DOWNLOAD_MIN_BYTES_PER_SECOND"; do
+  CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_MAX_SECONDS"; do
   [[ "${budget#*=}" =~ ^[1-9][0-9]*$ ]] \
     || { echo "error: ${budget%%=*} must be a positive integer, got '${budget#*=}'" >&2; exit 64; }
 done
@@ -347,7 +318,7 @@ download() { # <url> <output> [resume]
       --proto '=https' --tlsv1.2 -fsSL
       --connect-timeout 30
       --max-time "$remaining"
-      --speed-limit "$DOWNLOAD_MIN_BYTES_PER_SECOND" --speed-time "$DOWNLOAD_STALL_SECONDS"
+      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS"
     )
     (( resume )) && curl_args+=(--continue-at -)
     local status=0
@@ -443,88 +414,12 @@ case "$ARCH" in
     VERIFY_ARCHS=(arm64 x86_64)
     ;;
 esac
-install_binary "$CLIENT"
-fold_hosts
-# The app host (apps-v1) and the first-party app servers ship from the same build when
-# the manifest has them. Older builds have none; then none is bundled (the app reports
-# that it needs a newer cmux-tui, and the supervisor answers apps.server_missing).
-manifest_has() {
-  python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) else 1)' "$MANIFEST" "$1"
-}
-# install_companion <artifact prefix> <installed name> [optional]: the slices --arch needs
-# (both for universal, lipo'd like the client), sha256-verified by fetch_slice.
-# An arm64 install needs no x86_64 slice: off main, cmux-tui-artifacts.yml
-# publishes aarch64-apple-darwin only.
-install_companion() {
-  local prefix="$1" name="$2" optional="${3:-0}" dest="$DEST_DIR/$2" binary arm x64 arch has
-  case "$ARCH" in
-    arm64) manifest_has "$prefix-aarch64-apple-darwin" && has=1 || has=0 ;;
-    x86_64) manifest_has "$prefix-x86_64-apple-darwin" && has=1 || has=0 ;;
-    universal) { manifest_has "$prefix-aarch64-apple-darwin" && manifest_has "$prefix-x86_64-apple-darwin"; } && has=1 || has=0 ;;
-  esac
-  if [[ "$has" != 1 ]]; then
-    rm -f "$dest"
-    # --require-companions (the nightly bundle): required companions the build
-    # lacks are an error, so an app without bin/cmux-app-host (every apps/ext
-    # call answers apps.unavailable) never publishes. The login-time pre-read
-    # is optional for compatibility with older manifests, though: those builds
-    # legitimately install without bin/cmux-launch-preread.
-    if (( REQUIRE_COMPANIONS && !optional )); then
-      echo "error: cmux-tui ${COMMIT:0:10} publishes no $name for $ARCH, so the app would ship without bin/$name (--require-companions)" >&2
-      exit 1
-    fi
-    echo "note: cmux-tui ${COMMIT:0:10} publishes no $name"
-    return 0
-  fi
-  case "$ARCH" in
-    arm64) binary="$(fetch_slice "$prefix-aarch64-apple-darwin")" ;;
-    x86_64) binary="$(fetch_slice "$prefix-x86_64-apple-darwin")" ;;
-    universal)
-      arm="$(fetch_slice "$prefix-aarch64-apple-darwin")"
-      x64="$(fetch_slice "$prefix-x86_64-apple-darwin")"
-      binary="$BUILD_DIR/$name-universal"
-      if [[ ! -f "$binary" ]]; then
-        lipo -create "$arm" "$x64" -output "$binary.tmp"
-        mv -f "$binary.tmp" "$binary"
-      fi
-      ;;
-  esac
-  rm -f "$dest"
-  install -m 755 "$binary" "$dest"
-  if [[ "$ARCH" == universal ]]; then
-    # Only the arm64 slice is published signed (the linker signs arm64 ad hoc;
-    # x86_64 it does not), so sign the installed copy as a whole, under its own
-    # name: check-bundled-browser-host.sh refuses a companion that fails
-    # codesign --verify. The shared cache stays as fetched. Release signing
-    # (sign-cmux-bundle.sh) signs it again.
-    codesign --force --sign - "$dest"
-  fi
-  for arch in "${VERIFY_ARCHS[@]}"; do lipo "$dest" -verify_arch "$arch"; done
-}
-is_folded cmux-app-host || install_companion cmux-tui-app-host cmux-app-host
-install_companion cmux-tui-cloud-server cmux-cloud
-install_companion cmux-tui-host cmux-tui-host
-install_companion cmux-tui-holder cmux-holder
-install_companion cmux-tui-launch-preread cmux-launch-preread 1
-if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
-  is_folded cmux-browser-host || install_companion cmux-tui-browser-host cmux-browser-host
-else
-  rm -f "$DEST_DIR/cmux-browser-host"
-fi
-if [[ "$SHIP_SCREEN_DETECTION" == 1 ]]; then
-  install_companion cmux-tui-agent-screen-detection cmux-agent-screen-detection
-else
-  rm -f "$DEST_DIR/cmux-agent-screen-detection"
-fi
+install -m 755 "$CLIENT" "$DEST"
 # One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
 # arch after -verify_arch and read the second as an extra input file, failing
 # with "requires exactly one input file".
 for arch in "${VERIFY_ARCHS[@]}"; do lipo "$DEST" -verify_arch "$arch"; done
 verify_probe
-check_acpmux
-# bin/daemon-capabilities.json from the client just installed (a build from
-# before `capabilities` leaves none, with a warning).
-"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/write-daemon-capabilities.sh" "$DEST_DIR"
 # Bootstrap payloads share the signed client's exact build. End-user SSH hosts
 # need neither Node/npm nor access to an artifact server, and the client verifies
 # these hashes again before uploading the selected platform executable.
@@ -543,9 +438,7 @@ client_reports() {
 }
 SSH_TARGETS=()
 if ! client_reports ssh-payload-macos-from-client; then
-  SSH_TARGETS=(aarch64-apple-darwin)
-  # Off main the build publishes no Intel Mac slice (cmux-tui-artifacts.yml).
-  if manifest_has cmux-tui-x86_64-apple-darwin; then SSH_TARGETS+=(x86_64-apple-darwin); fi
+  SSH_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
 fi
 if ! client_reports ssh-payload-download; then
   SSH_TARGETS=(aarch64-unknown-linux-musl x86_64-unknown-linux-musl ${SSH_TARGETS[@]+"${SSH_TARGETS[@]}"})

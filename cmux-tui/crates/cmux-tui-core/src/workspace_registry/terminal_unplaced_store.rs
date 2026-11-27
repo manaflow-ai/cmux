@@ -1,33 +1,25 @@
-//! When each live terminal lost its last tab placement (`terminal-reap-v1`).
+//! When each live terminal lost its last tab placement (the unplaced-terminal
+//! reaper, `mux/terminal_reap.rs`).
 //!
 //! The owner ends a terminal once it has had no placement for the reap grace
-//! period. That grace used to be counted only in the owner's memory, so each
-//! owner start counted it again from zero: with restarts faster than the
-//! grace (a crash loop; the restore fuzz's kill every ~14 s against the app's
-//! 30 s) no closed terminal was ever reaped, and their hosts held the
-//! machine's PTYs until new terminals failed (P0 TERMINAL-HOST LEAK,
-//! 2026-10-31). A row here is the wall-clock time the owner first saw the
-//! terminal unplaced; a restarted owner counts the grace from it.
+//! period. Counted only in the owner's memory, each owner start would count
+//! it again from zero: with restarts faster than the grace (a crash loop) no
+//! closed terminal was ever reaped, and their hosts held the machine's PTYs
+//! until new terminals failed (feat P0 TERMINAL-HOST LEAK, 2026-10-31). A row
+//! here is the wall-clock time the owner first saw the terminal unplaced; a
+//! restarted owner counts the grace from it.
 //!
-//! The table is additive and has no foreign key, like `terminal_keep`, so the
-//! schema version does not change and an older binary still opens this
-//! registry (it ignores the table, and counts the grace from its own start as
-//! before). Rows of tombstoned or unknown terminals are pruned by the reaper.
+//! The table is additive and has no foreign key, like the idle-close policy
+//! table, so the schema version does not change and an older binary still
+//! opens this registry (it ignores the table). Rows of tombstoned, exited or
+//! unknown terminals are pruned by the reaper.
 //!
 //! An owner that does not keep the table (an older binary, or a daemon
 //! started without a reap grace) leaves rows as they were: a terminal it
 //! placed again and that was unplaced again later keeps its first time, and
 //! the next owner that keeps the table can reap it up to one grace early.
-//! Only a closed terminal that is not kept and has no attached client is
-//! affected; it loses the rest of its undo window.
-//!
-//! `terminal_unplaced_adopted` holds the one adoption hold a terminal gets
-//! from an owner that inherited it already past its grace
-//! (`mux/terminal_reap.rs`, "Cold adoption"): the wall-clock time that owner
-//! first read it. It is durable so that a later owner does not give the hold
-//! again (the leak above), and a row goes when its terminal is placed, kept,
-//! ended or seen attached, so the next owner start can hold it again. Also
-//! additive: an older binary ignores it and leaves its rows.
+//! Only a closed terminal with no attached client is affected; it loses the
+//! rest of its undo window.
 
 use std::collections::{HashMap, HashSet};
 
@@ -40,10 +32,6 @@ pub(super) fn create_terminal_unplaced_schema(transaction: &Transaction<'_>) -> 
         "CREATE TABLE IF NOT EXISTS terminal_unplaced (
            terminal_id TEXT PRIMARY KEY NOT NULL,
            since_ms INTEGER NOT NULL CHECK(since_ms >= 0)
-         );
-         CREATE TABLE IF NOT EXISTS terminal_unplaced_adopted (
-           terminal_id TEXT PRIMARY KEY NOT NULL,
-           adopted_ms INTEGER NOT NULL CHECK(adopted_ms >= 0)
          );",
     )?;
     Ok(())
@@ -63,38 +51,24 @@ impl WorkspaceRegistry {
     /// Record what the reaper sees now and return, for each of `unplaced`,
     /// the wall-clock time (Unix ms) it was first seen unplaced: a terminal
     /// without a row gets `now_ms`. Rows of `placed` terminals (a placement
-    /// came back, or the terminal is kept) and of terminals that are no
-    /// longer live (exited, tombstoned or unknown) are removed. A live
-    /// terminal in neither set (one a restarted owner is still adopting)
-    /// keeps its row, so its grace goes on counting. Writes only when a row
-    /// changes.
+    /// came back) and of terminals that are no longer live (exited,
+    /// tombstoned or unknown) are removed. A live terminal in neither set
+    /// (one a restarted owner is still adopting) keeps its row, so its grace
+    /// goes on counting. Writes only when a row changes.
     pub fn sync_terminal_unplaced(
         &mut self,
         unplaced: &HashSet<String>,
         placed: &HashSet<String>,
         now_ms: u64,
     ) -> anyhow::Result<UnplacedSince> {
-        let db = self.connection.get();
-        let read_rows = || -> anyhow::Result<HashMap<String, u64>> {
-            let mut statement =
-                db.prepare("SELECT terminal_id, since_ms FROM terminal_unplaced")?;
-            let rows = statement
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?;
-            let mut map = HashMap::new();
-            for row in rows {
-                let (terminal_id, since_ms) = row?;
-                map.insert(terminal_id, u64::try_from(since_ms).unwrap_or(0));
-            }
-            Ok(map)
-        };
-        let mut rows = read_rows()?;
+        let mut rows = read_unplaced_rows(&self.connection)?;
         let stale: Vec<String> = rows.keys().filter(|id| placed.contains(*id)).cloned().collect();
         let fresh: Vec<String> =
             unplaced.iter().filter(|id| !rows.contains_key(*id)).cloned().collect();
         let unseen = rows.keys().any(|id| !placed.contains(id) && !unplaced.contains(id));
         if !stale.is_empty() || !fresh.is_empty() || unseen {
             let stored = i64::try_from(now_ms).unwrap_or(i64::MAX);
-            let tx = db.unchecked_transaction()?;
+            let tx = self.connection.transaction()?;
             for terminal_id in &stale {
                 tx.execute("DELETE FROM terminal_unplaced WHERE terminal_id = ?1", [terminal_id])?;
             }
@@ -114,15 +88,9 @@ impl WorkspaceRegistry {
                  )",
                 [],
             )?;
-            // A terminal that is no longer unplaced has used no adoption hold.
-            tx.execute(
-                "DELETE FROM terminal_unplaced_adopted
-                 WHERE terminal_id NOT IN (SELECT terminal_id FROM terminal_unplaced)",
-                [],
-            )?;
             tx.commit()?;
             if pruned > 0 {
-                rows = read_rows()?;
+                rows = read_unplaced_rows(&self.connection)?;
             } else {
                 for terminal_id in stale {
                     rows.remove(&terminal_id);
@@ -140,61 +108,19 @@ impl WorkspaceRegistry {
             .collect();
         Ok(UnplacedSince { since_ms, rows_left: !rows.is_empty() })
     }
+}
 
-    /// An owner's first read of the unplaced times it inherited: every
-    /// unplaced terminal, however long unplaced (one closed a second before
-    /// the owner change has as little of its grace left as an old one), gets
-    /// an adoption time of `now_ms`, unless an earlier owner already gave it
-    /// one. Returns each adopted terminal's time (Unix ms), the earlier
-    /// owner's where it had one. Rows of terminals that are no longer
-    /// unplaced are removed.
-    pub fn adopt_terminal_unplaced(&mut self, now_ms: u64) -> anyhow::Result<HashMap<String, u64>> {
-        let db = self.connection.get();
-        let now = i64::try_from(now_ms).unwrap_or(i64::MAX);
-        let tx = db.unchecked_transaction()?;
-        tx.execute(
-            "DELETE FROM terminal_unplaced_adopted
-             WHERE terminal_id NOT IN (SELECT terminal_id FROM terminal_unplaced)",
-            [],
-        )?;
-        tx.execute(
-            "INSERT OR IGNORE INTO terminal_unplaced_adopted(terminal_id, adopted_ms)
-             SELECT terminal_id, ?1 FROM terminal_unplaced",
-            params![now],
-        )?;
-        let adopted = {
-            let mut statement =
-                tx.prepare("SELECT terminal_id, adopted_ms FROM terminal_unplaced_adopted")?;
-            let rows = statement
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?;
-            let mut map = HashMap::new();
-            for row in rows {
-                let (terminal_id, adopted_ms) = row?;
-                map.insert(terminal_id, u64::try_from(adopted_ms).unwrap_or(0));
-            }
-            map
-        };
-        tx.commit()?;
-        Ok(adopted)
+fn read_unplaced_rows(connection: &rusqlite::Connection) -> anyhow::Result<HashMap<String, u64>> {
+    let mut statement =
+        connection.prepare("SELECT terminal_id, since_ms FROM terminal_unplaced")?;
+    let rows =
+        statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let (terminal_id, since_ms) = row?;
+        map.insert(terminal_id, u64::try_from(since_ms).unwrap_or(0));
     }
-
-    /// A client is attached to each of `terminals` again: their adoption
-    /// holds are over, and the next owner start may hold them anew.
-    pub fn release_terminal_adoption(&mut self, terminals: &[String]) -> anyhow::Result<()> {
-        if terminals.is_empty() {
-            return Ok(());
-        }
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
-        for terminal_id in terminals {
-            tx.execute(
-                "DELETE FROM terminal_unplaced_adopted WHERE terminal_id = ?1",
-                [terminal_id],
-            )?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
+    Ok(map)
 }
 
 #[cfg(test)]
@@ -207,46 +133,11 @@ impl WorkspaceRegistry {
         by: std::time::Duration,
     ) -> anyhow::Result<()> {
         let by = i64::try_from(by.as_millis()).unwrap_or(i64::MAX);
-        let changed = self.connection.get().execute(
+        let changed = self.connection.execute(
             "UPDATE terminal_unplaced SET since_ms = MAX(since_ms - ?2, 0) WHERE terminal_id = ?1",
             params![terminal_id, by],
         )?;
         anyhow::ensure!(changed == 1, "no unplaced time for {terminal_id}");
-        Ok(())
-    }
-
-    /// Moves every adoption time back by `by`, as if the owner that gave the
-    /// holds had started that much earlier.
-    pub(crate) fn backdate_terminal_adoptions(
-        &mut self,
-        by: std::time::Duration,
-    ) -> anyhow::Result<usize> {
-        let by = i64::try_from(by.as_millis()).unwrap_or(i64::MAX);
-        Ok(self.connection.get().execute(
-            "UPDATE terminal_unplaced_adopted SET adopted_ms = MAX(adopted_ms - ?1, 0)",
-            params![by],
-        )?)
-    }
-
-    /// How many adoption times the registry holds.
-    pub(crate) fn terminal_adoption_count(&self) -> anyhow::Result<usize> {
-        let count: i64 = self.connection.get().query_row(
-            "SELECT COUNT(*) FROM terminal_unplaced_adopted",
-            [],
-            |row| row.get(0),
-        )?;
-        Ok(usize::try_from(count).unwrap_or(0))
-    }
-
-    /// Makes every adoption read and write fail (`broken`), or work again:
-    /// the table is renamed away and back.
-    pub(crate) fn break_terminal_adoptions(&mut self, broken: bool) -> anyhow::Result<()> {
-        let sql = if broken {
-            "ALTER TABLE terminal_unplaced_adopted RENAME TO terminal_unplaced_adopted_away"
-        } else {
-            "ALTER TABLE terminal_unplaced_adopted_away RENAME TO terminal_unplaced_adopted"
-        };
-        self.connection.get().execute(sql, [])?;
         Ok(())
     }
 }

@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Infinite</title><style>li{height:40px}</style></head><body><h1>Feed</h1><ul id="feed"></ul><p id="loading">loading more</p>
+<script>
+let n = 0; const add = () => { for (let i = 0; i < 20; i++) { const li = document.createElement("li"); li.textContent = "Item " + ++n; feed.append(li); } };
+add();
+new IntersectionObserver((es) => { if (es[0].isIntersecting && n < 200) setTimeout(add, 150); }).observe(document.getElementById("loading"));
+</script></body></html>

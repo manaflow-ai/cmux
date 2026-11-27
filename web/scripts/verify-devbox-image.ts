@@ -40,21 +40,14 @@ import {
   DEVBOX_WORK_USER,
 } from "../services/vms/images/workUser";
 import {
-  retryFreestyleOverload,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
   CMUX_TUI_STATE_RESERVATION_BYTES,
-  DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE,
   DEVBOX_DESKTOP_INSTALLS,
   DEVBOX_INSTANCE_ID_COMMAND,
-  DEVBOX_MACHINE_HEALTH_REARM_COMMAND,
-  DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
-  devboxAgentDesktopVersion,
   devboxAgentPins,
   devboxBubblewrapCheckCommand,
-  devboxMachineHealthRearmProblems,
-  devboxMachineHealthResumeProblems,
   devboxDir,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
@@ -63,8 +56,6 @@ import {
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   sha256File,
-  devboxClaudeTeamOnboardingCheckCommand,
-  devboxClaudeSettingsDefaultsCheckCommand,
 } from "./devbox-image-common";
 import {
   DEVBOX_DESKTOP_DISPLAY,
@@ -78,20 +69,7 @@ import {
   DEVBOX_DESKTOP_USER,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./cmux-vm-image/machine-health";
-
-/**
- * What a failed machine-health smoke prints next: the health unit's own journal (which step of
- * the pass ran out its 45 s, or what killed it), the units still starting (the re-arm's overdue
- * housekeeping timers share the disk with the pass, which runs at idle I/O priority), and load.
- * Here, not in cmux-vm-image/machine-health.ts, so it is no rebake input.
- */
-const MACHINE_HEALTH_FAILURE_CONTEXT_COMMAND = [
-  "journalctl -u cmux-machine-health.service -o short-monotonic --no-pager -n 40",
-  "echo activating: $(systemctl list-units --state=activating --no-legend --plain | awk '{print $1}' | tr '\\n' ' ')",
-  "echo loadavg: $(cat /proc/loadavg)",
-  "echo psi-io: $(tr '\\n' ' ' < /proc/pressure/io 2>/dev/null)",
-].join("; ");
+import { throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
@@ -102,8 +80,6 @@ const hexPort = (port: number): string => port.toString(16).toUpperCase().padSta
 const FILE_PIN_CHECKS = [
   ["cmux-bashrc", "/etc/cmux/bashrc"],
   ["agent-config.sh", "/etc/cmux/agent-config.sh"],
-  ["agent-auth.sh", "/etc/cmux/agent-auth.sh"],
-  ["claude-onboarding.py", "/etc/cmux/claude-onboarding.py"],
   ["seed-history", "/etc/cmux/seed-history"],
   ["cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot"],
   ["chrome-managed-policy.json", "/etc/opt/chrome/policies/managed/cmux.json"],
@@ -133,10 +109,7 @@ const CHECKS: readonly string[] = [
   "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json >/dev/null && echo chrome-ddg-policy-ok",
   "grep -q AGENT_BROWSER_EXECUTABLE_PATH /etc/profile.d/cmux-media.sh && echo media-profile-ok",
   "cua-driver --version",
-  `test "$(agent-desktop --version)" = "agent-desktop ${devboxAgentDesktopVersion()}" && echo agent-desktop-pinned`,
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
-  // Media and dev tools people's chats reach for (Leo, 2026-11-25: "ffprobe isn't installed"): each one runs.
-  "ffprobe -hide_banner -version | head -1 && convert -version | head -1 && identify -version >/dev/null && pdfinfo -v 2>&1 | grep -i poppler && command -v pdftotext && command -v pdftoppm && git lfs version && sqlite3 --version && unzip -v | head -1 && zip -v | sed -n 2p && echo media-dev-tools-ok",
   // Prove the current upstream binary is selected and can sandbox as cmux.
   devboxBubblewrapCheckCommand(),
   // Baked files are byte-identical to this checkout.
@@ -167,18 +140,11 @@ const CHECKS: readonly string[] = [
   // header: the edge injects it) and persists every var 0600; the
   // unreachable config endpoint writes no opencode config; the image ships
   // no pre-generated config for root.
-  `grep -q agent-config.sh /etc/profile.d/cmux-agents.sh && echo owner > /tmp/cmux-vm-kind.verify && sed 's#/etc/cmux/vm-kind#/tmp/cmux-vm-kind.verify#g' /etc/cmux/agent-config.sh > /tmp/cmux-agent-config.verify.sh && { rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -c '. /tmp/cmux-agent-config.verify.sh' && grep -q 'model_provider = "cmux"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json; }; rc=$?; rm -f /tmp/cmux-vm-kind.verify /tmp/cmux-agent-config.verify.sh; [ "$rc" = 0 ] && rm -rf /tmp/cmux-agent-config-verify && grep -q 'base_url = "https://' /root/.codex/config.toml && grep -qF "${DEFAULT_VM_EDGE_ALIAS_DOMAIN}/v1" /root/.codex/config.toml && ! grep -q crt_ /root/.codex/config.toml && ! grep -q crt_ /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok`,
-  // A team record (the image's default until cmux-vm-kind-sync or the create replaces it):
-  // agent-config keeps none of a caller's model-plane env. Both generator probes read a
-  // private record (a copy of agent-config.sh pointed at a temp file), so the live
-  // /etc/cmux/vm-kind the boot supervisor's sync writes is never touched or raced.
-  "echo team > /tmp/cmux-vm-kind.team-verify && sed 's#/etc/cmux/vm-kind#/tmp/cmux-vm-kind.team-verify#g' /etc/cmux/agent-config.sh > /tmp/cmux-agent-config.team-verify.sh && rm -rf /tmp/cmux-team-kind-verify && { env HOME=/tmp/cmux-team-kind-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-team-kind-check bash -c '. /tmp/cmux-agent-config.team-verify.sh' && ! grep -rqs -e cmux-team-kind-check -e example.invalid /tmp/cmux-team-kind-verify; }; rc=$?; rm -rf /tmp/cmux-vm-kind.team-verify /tmp/cmux-agent-config.team-verify.sh /tmp/cmux-team-kind-verify; [ \"$rc\" = 0 ] && echo team-kind-keeps-no-caller-env",
+  `rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json && rm -rf /tmp/cmux-agent-config-verify && grep -q 'base_url = "https://' /root/.codex/config.toml && grep -qF "${DEFAULT_VM_EDGE_ALIAS_DOMAIN}/v1" /root/.codex/config.toml && ! grep -q crt_ /root/.codex/config.toml && ! grep -q crt_ /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok`,
   "python3 -c \"import json; s = json.load(open('/etc/claude-code/managed-settings.json')); assert s['cleanupPeriodDays'] == 99999 and s['skipDangerousModePermissionPrompt'] is True\" && echo claude-retention-ok",
   // Trust everywhere: the managed HOME entries for codex, the claude first-run
   // seed for root, and the sandbox env every login shell exports.
   `python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"; assert d["projects"]["${DEVBOX_DESKTOP_HOME}"]["trust_level"] == "trusted"' && bash -lc 'test "$CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER" = 1:1:1' && python3 -c "import json; j = json.load(open('/root/.claude.json')); assert j['hasCompletedOnboarding'] is True and j['bypassPermissionsModeAccepted'] is True and j['projects']['/']['hasTrustDialogAccepted'] is True and isinstance(j['customApiKeyResponses']['approved'], list) and '-vm-edge-placeholder' in j['customApiKeyResponses']['approved']" && echo agent-trust-ok`,
-  devboxClaudeTeamOnboardingCheckCommand(),
-  devboxClaudeSettingsDefaultsCheckCommand(),
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
 
@@ -263,9 +229,6 @@ const desktopChecks = (): readonly string[] => [
   // The accessibility bus itself answers a client (the registry activates on demand).
   `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'gdbus introspect --session --dest org.a11y.Bus --object-path /org/a11y/bus >/dev/null && gdbus call --address "$AT_SPI_BUS_ADDRESS" --dest org.a11y.atspi.Registry --object-path /org/a11y/atspi/accessible/root --method org.a11y.atspi.Accessible.GetChildren >/dev/null')} && echo accessibility-bus-answers`,
   `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "cua-driver doctor")} 2>&1 | tee /tmp/cua-doctor.txt | grep -q 'X11 connection: connected' && grep -q 'AT-SPI: bus address present' /tmp/cua-doctor.txt && ! grep -q 'accessibility bus not reachable' /tmp/cua-doctor.txt && rm -f /tmp/cua-doctor.txt && echo cua-driver-sees-desktop`,
-  // agent-desktop reads the desktop's accessibility tree: a snapshot of a
-  // window it launched (DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE).
-  `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE)} && echo agent-desktop-sees-desktop`,
   "ghostty +version | head -1",
   `test -f '${DEVBOX_DESKTOP_HOME}/.config/google-chrome/First Run' && echo chrome-first-run-ok`,
   "test -s /etc/cmux/icons/google-chrome.png && test -s /etc/cmux/icons/thunar.png && test -s /etc/cmux/icons/ghostty.png && echo dock-icons-ok",
@@ -332,9 +295,8 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   ...pins.map((pin) => `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ${pin.binary} --version | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-nonlogin-pin-ok`),
   "systemctl show cmux-tui-daemon -p Environment | grep -q 'PATH=/usr/local/sbin:/usr/local/bin:' && echo daemon-env-path-ok",
   // Every pane inherits the daemon's terminal identity (cmux-devbox-boot):
-  // TERM_PROGRAM=cmux and no Ghostty version (the daemon stamps cmux's own
-  // TERM_PROGRAM_VERSION on each pane). The bake still records its Ghostty pin.
-  `pid=$(pgrep -f 'cmux-tui server [s]tart' | head -1) && tr '\\0' '\\n' < /proc/$pid/environ > /tmp/daemon-env && grep -qx TERM=xterm-256color /tmp/daemon-env && grep -qx TERM_PROGRAM=cmux /tmp/daemon-env && ! grep -q '^TERM_PROGRAM_VERSION=' /tmp/daemon-env && test "$(cat /etc/cmux/ghostty-version)" = ${devboxGhosttyVersion()} && rm -f /tmp/daemon-env && echo daemon-terminal-identity-ok`,
+  // TERM_PROGRAM=ghostty and the baked Ghostty version.
+  `pid=$(pgrep -f 'cmux-tui server [s]tart' | head -1) && tr '\\0' '\\n' < /proc/$pid/environ > /tmp/daemon-env && grep -qx TERM=xterm-256color /tmp/daemon-env && grep -qx TERM_PROGRAM=ghostty /tmp/daemon-env && grep -qx "TERM_PROGRAM_VERSION=${devboxGhosttyVersion()}" /tmp/daemon-env && test "$(cat /etc/cmux/ghostty-version)" = ${devboxGhosttyVersion()} && rm -f /tmp/daemon-env && echo daemon-terminal-identity-ok`,
   devboxTerminfoCheckCommand,
   `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} TERM=xterm-256color PATH=/usr/bin:/bin sh -c 'tput setaf 8 | od -An -tx1 | tr -d " \\n"' | grep -qx 1b5b33383b353b386d && echo work-user-terminfo-ok`,
   "grep -qx 'unset TERMINFO' /etc/profile.d/cmux-terminfo.sh && grep -qx 'export TERMINFO_DIRS=/etc/terminfo:' /etc/profile.d/cmux-terminfo.sh && echo terminfo-search-path-ok",
@@ -468,7 +430,9 @@ if (provider === "freestyle") {
     };
   };
   const t0 = Date.now();
-  const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: verifyName, firewall }));
+  // Throwaway machines: paused when idle, deleted at a deadline, and tagged
+  // with the CI run so a cancelled run's always() step deletes them.
+  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: verifyName, firewall, ...throwawayVmOptions() });
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
@@ -476,12 +440,6 @@ if (provider === "freestyle") {
     console.log(`baked daemon answered ${daemonMs} ms after the first probe (${Date.now() - t0} ms after create)`);
     const settled = await exec(devboxWaitForDaemonCommand(), 200_000);
     if (settled.exitCode !== 0) throw new Error(`baked daemon never reached its listener: ${settled.output.slice(-500)}`);
-    // cmux-machine-health resumed parked: no pass in the clone's first seconds,
-    // its timer waiting on the housekeeping re-arm (cmux-devbox-boot), which
-    // is scheduled to start it.
-    const healthResume = await exec(DEVBOX_MACHINE_HEALTH_RESUME_COMMAND, 30_000);
-    const healthResumeProblems = devboxMachineHealthResumeProblems(healthResume.output);
-    console.log(`  $ machine-health at resume\n    ${(healthResumeProblems.join("\n") || healthResume.output.trim()).split("\n").join("\n    ")}`);
     // The baked binary must be the pin the bake resolved and recorded in
     // /etc/cmux/cmux-tui-pin (that is the image's contract; the manifest entry
     // carries the same commit). The live files.cmux.com pin moves with every
@@ -512,7 +470,7 @@ if (provider === "freestyle") {
     let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
-    const second = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall }));
+    const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall, ...throwawayVmOptions() });
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
@@ -579,24 +537,7 @@ if (provider === "freestyle") {
         ? desktopChecks()
         : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
     ], exec) && idleOk && cloneIdentityOk;
-    // cmux-machine-health last: the re-arm also starts the other housekeeping
-    // timers, whose overdue runs the quiet-resume check above must not see.
-    // The re-arm starts the health timer (its service by hand, not its 10 min
-    // wait), the timer runs a pass, one more pass reports no problem, and the
-    // guard drop-ins apply (cmux-vm-image/machine-health.ts).
-    const healthSmoke = await exec(`${DEVBOX_MACHINE_HEALTH_REARM_COMMAND}; ${machineHealthSmokeCommand(DEVBOX_WORK_USER)}`, 240_000);
-    const healthProblems = [...healthResumeProblems, ...devboxMachineHealthRearmProblems(healthSmoke.output), ...machineHealthSmokeProblems(healthSmoke.output)];
-    console.log(`  $ machine-health smoke\n    ${(healthProblems.join("\n") || healthSmoke.output.trim()).split("\n").join("\n    ")}`);
-    const healthOk = healthProblems.length === 0;
-    if (!healthOk) {
-      // Run 45897047683 failed with only "one pass: exit 1, result timeout": the problem list
-      // can't say which step of the pass ran past the unit's 45 s, or what else held the disk.
-      const why = await exec(MACHINE_HEALTH_FAILURE_CONTEXT_COMMAND, 30_000);
-      console.log(`  $ machine-health failure context\n    ${why.output.trim().split("\n").join("\n    ")}`);
-    }
-    pass = pass && healthOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
-    if (!healthOk) console.log("[freestyle] machine-health check FAILED");
     if (!cloneIdentityOk) console.log("[freestyle] clone identity check FAILED (--strict-clone-identity)");
   } finally {
     await vm.delete();

@@ -1,0 +1,81 @@
+import Foundation
+
+extension AgentHibernationController {
+    /// Requires explicit fresh process evidence for pressure reclaim.
+    nonisolated static func memoryPressureTeardownAllowsProcessEntry(
+        _ entry: RestorableAgentSessionIndex.Entry?
+    ) -> Bool {
+        guard let entry, !entry.containsUnrelatedProcess else { return false }
+        switch entry.processLiveness {
+        case .exited:
+            return entry.processIDs.isEmpty &&
+                entry.agentProcessIDs.isEmpty &&
+                entry.agentProcessIdentities.isEmpty &&
+                entry.hibernationPanelProcessIDs.isEmpty &&
+                entry.terminationProcessIDs.isEmpty &&
+                entry.terminationProcessIdentities.isEmpty
+        case .running:
+            return !entry.processIDs.isEmpty &&
+                entry.processSafetyAllowsScheduledHibernation
+        case .unknown:
+            return false
+        }
+    }
+
+    func teardownIsStillSafe(
+        _ request: ConfirmedTeardownRequest,
+        index: RestorableAgentSessionIndex,
+        shouldProceed: (@MainActor () -> Bool)?
+    ) -> Bool {
+        let record = request.record
+        let currentAgent = record.workspace.restorableAgentForHibernation(
+            panelId: record.key.panelId,
+            index: index
+        )
+        let currentLifecycle = postSnapshotLifecycle(for: record, index: index)
+        let currentEffectiveLastActivityAt = postSnapshotEffectiveLastActivityAt(
+            for: record,
+            index: index
+        )
+        let currentProcessEntry = index.exactEntry(
+            workspaceId: record.key.workspaceId,
+            panelId: record.key.panelId
+        )
+        let currentHibernationPanelProcessIDs =
+            currentProcessEntry?.hibernationPanelProcessIDs ?? []
+        let currentTerminationProcessIDs = currentProcessEntry?.terminationProcessIDs ?? []
+        let currentTerminationProcessIdentities =
+            currentProcessEntry?.terminationProcessIdentities ?? [:]
+        // Routine reclaim may terminate a live agent only when the fresh index
+        // still proves the same exclusive, identity-complete process scope.
+        return (shouldProceed?() ?? true) &&
+            AgentHibernationTrackingGate.isEnabled() &&
+            record.isStillOwnedByOriginalWorkspace &&
+            (
+                request.trigger.isMemoryPressure ||
+                    currentProcessEntry?.processSafetyAllowsScheduledHibernation == true
+            ) &&
+            (
+                !request.trigger.isMemoryPressure ||
+                    Self.memoryPressureTeardownAllowsProcessEntry(currentProcessEntry)
+            ) &&
+            currentHibernationPanelProcessIDs == record.panelProcessIDs &&
+            currentTerminationProcessIDs == record.processIDs &&
+            currentTerminationProcessIdentities == record.processIdentities &&
+            TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
+                TabManager.restorableAgentSnapshotFingerprint(record.agent) &&
+            !record.terminalPanel.isAgentHibernated &&
+            record.terminalPanel.surface.hasLiveSurface &&
+            AppDelegate.shared?.agentHibernationPanelIsProtected(
+                workspace: record.workspace,
+                panelId: record.key.panelId
+            ) == false &&
+            currentLifecycle.allowsHibernation &&
+            (terminalInputByPanel[record.key] ?? 0) <=
+                (lifecycleChangeByPanel[record.key] ?? 0) &&
+            teardownValidationGeneration == request.generation &&
+            (teardownValidationEpochByPanel[record.key] ?? 0) == request.epoch &&
+            hibernationFingerprint(for: record) == request.confirmationFingerprint &&
+            currentEffectiveLastActivityAt <= request.effectiveLastActivityAt
+    }
+}

@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import sys
 
 from workflow_guard_groups import (
     GROUPS, GUARD_WORKFLOW, PATH_OWNERS, ROUTING_POLICY_PATHS,
@@ -38,17 +37,6 @@ INDIRECT_ROUTE_INPUTS = {
 # the conservative fallback even though workflow-guard-tests also reads it.
 GHOSTTYKIT_PROVENANCE = frozenset({"ghostty"})
 
-# What ghosttykit-release-check verifies: the GhosttyKit release published for the pinned ghostty SHA, through these
-# scripts, as ci.yml's job defines it. A pull request that changes none of them has the pin its base push already
-# verified (a push runs every route), and every Mac job downloads and checks the same archive itself, so the check
-# would repeat a verdict the base holds. Over 2026-11-22T22..11-23T22Z it ran on 3,135 pull request runs, about
-# 10,250 runner-minutes, nearly all of them on pins nobody had changed (cmuxterm-hq goals/ci-min-per-pr-140.md).
-GHOSTTYKIT_RELEASE_INPUTS = frozenset({
-    "ghostty", ".gitmodules", ".github/workflows/ci.yml",
-    "scripts/download-prebuilt-ghosttykit.sh", "scripts/validate-xcframework-archive.py",
-    "scripts/ghosttykit-checksums.txt", "tests/test_ci_ghosttykit_release_check.sh",
-})
-
 
 def route_inputs() -> dict[str, frozenset[str]] | None:
     """Map each guard route to the paths that route's job observes.
@@ -70,7 +58,7 @@ def route_inputs() -> dict[str, frozenset[str]] | None:
 
 
 def plain_documentation(path: str) -> bool:
-    if path.startswith("skills/cmux-computer-use/") or path == "docs/cli-contract.md":
+    if path.startswith("skills/cmux-cua/") or path == "docs/cli-contract.md":
         return False
     name = path.rsplit("/", 1)[-1]
     if name in {"AGENTS.md", "CLAUDE.md"}:
@@ -84,24 +72,14 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
     all_guards = dict.fromkeys(ROUTES, True)
     if event != "pull_request" or macos not in {"true", "false"} or not paths:
         return all_guards
-    if any(not path or path.startswith("/") or ".." in path.split("/") for path in paths):
-        return all_guards
-    routes = classify_guards(paths)
-    if routes is None:
-        routes = dict(all_guards)
-    # A pull request runs the release check only when it changes what the check reads (GHOSTTYKIT_RELEASE_INPUTS).
-    routes["ghosttykit_release"] = any(path in GHOSTTYKIT_RELEASE_INPUTS for path in paths)
-    return routes
-
-
-def classify_guards(paths: list[str]) -> dict[str, bool] | None:
-    """The guard routes of a pull request's valid, non-empty path list (the caller checked both); None when a path
-    or an unreadable ci-guards.yml fails open to every route."""
     inputs = route_inputs()
     if inputs is None:
-        return None
-    routes = dict.fromkeys(GUARD_ROUTES, False)
+        return all_guards
+    routes = dict.fromkeys(ROUTES, False)
+    routes["ghosttykit_release"] = macos == "true"
     for path in paths:
+        if not path or path.startswith("/") or ".." in path.split("/"):
+            return all_guards
         if plain_documentation(path):
             continue
         # The mixed suite includes source, resource, and packaging contracts.
@@ -116,15 +94,17 @@ def classify_guards(paths: list[str]) -> dict[str, bool] | None:
                                               "contents.xcworkspacedata", ".gitignore"}:
             routes["linux_guard_history"] = True
             routes["linux_guard_source"] = True
-        elif path.startswith(("Resources/", "Packages/", "cmux.xcodeproj/",
-                              "cmux.xcworkspace/", "ios/")):
+        elif path.startswith(("Sources/", "CLI/", "Resources/", "Packages/",
+                              "cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/",
+                              "cmuxUITests/", "cmux.xcodeproj/",
+                              "cmux.xcworkspace/", "vendor/bonsplit/", "ios/")):
             routes["linux_guard_source"] = True
         elif path.startswith(("web/", "webviews/", "cmux-tui/")):
             pass
         else:
             # Workflows, scripts, tests, new top-level areas, and the router
             # itself retain all coverage. New guard inputs cannot silently skip.
-            return None
+            return all_guards
     return routes
 
 
@@ -152,127 +132,7 @@ def classify_test_groups(paths: list[str], *, event: str, macos: str) -> tuple[s
     return tuple(group for group in GROUPS if group in selected)
 
 
-# --- feat-cmux-next ------------------------------------------------------------------
-#
-# ci.yml routes these groups only for pull requests into main. cmux-next-guards.yml's guard group
-# job runs ci-guards.yml's `ci` group on every feat-cmux-next pull request and push; classify_feat
-# picks the other groups (and the lockfile and source-lint jobs) from the same ownership as ci.yml:
-# groups_for_path and classify's routes. A push runs every routed group, release-notary included.
-FEAT_ALWAYS = ("ci",)
-# release-notary (nightly, notarization, signing, Sparkle feed and release-notes publication tests) ran on every
-# pull request: about 200,000 runner-minutes in 14 days, and none of its 18 PR failures in that window was the
-# change's own (cmuxterm-hq plans/ci/baggage-2026-11-05.md). A pull request now runs it when it changes what the
-# group reads: a path the group's steps run or PATH_OWNERS gives it, an unknown path outside FEAT_PRODUCT_AREAS
-# (top-level entitlements, Resources/, Config/, the Xcode project: every routed group), or one of these.
-RELEASE_NOTARY_INPUTS = (
-    # Workflow text and registries its tests pin: nightly.yml's jobs, warm-sources.json, the step-coverage map,
-    # runners.json, every workflow's runs-on.
-    ".github/",
-    # The nightly steps, signing, notary and publication scripts, and the CI tooling its tests import.
-    "scripts/ci/",
-    # The license-compliance, universal-settings and notices tests read the ghostty and ghostty-next submodules.
-    "ghostty",
-    # The What's New highlights validator (scripts/whats-new/test_digest.py) reads the repository's highlights;
-    # the nightly-next identity test reads retired-feed-announcements.json.
-    "release-notes/",
-    # The live feed check reads the update ring, the feed resolver and the update settings source; the
-    # nightly-next identity test reads the release push listener (the Sparkle appcast client lives beside it).
-    "Packages/macOS/CmuxUpdater/",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/",
-    "schemas/settings/source/updates.json",
-    # The notices pair test runs the nightly's notices precondition on a clone of these at HEAD.
-    "cmux-tui/dist/",
-    "cmux-tui/build-support/notices/",
-    "cmux-tui/rust-toolchain.toml",
-    # The nightly version test reads [workspace.package] version, the one cmux-next version nightly.yml stamps.
-    "cmux-tui/Cargo.toml",
-    # The Chief cache and web-bundle order tests require the committed inspector page.
-    "Native/OptChat/optchat-chief/inspector/index.html",
-    # Inputs other groups own that release-notary tests also read.
-    "scripts/cmux-next/media/path_map.py",
-    "skills/cmux-cloud-vm/references/commands.md",
-    "tests/test_ci_owned_spm_scratch.py",
-    "tests/test_ci_self_hosted_guard.sh",
-    "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py",
-    "tests/test_nightly_dedicated_mini.py",
-)
-
-
-def release_notary_input(path: str) -> bool:
-    """Whether a feat-cmux-next pull request that changes path runs the release-notary group."""
-    return path.startswith(RELEASE_NOTARY_INPUTS) or path.endswith(".entitlements")
-# Guards main's iOS release path only (ios-testflight.yml, ios-appstore-upload.yml and the
-# ios/scripts upload tooling): those workflows upload only from refs/heads/main, and
-# feat-cmux-next never ships from them. tests/pr-lane-exemptions.json holds the reasons.
-FEAT_MAIN_ONLY = ("release-ios",)
-FEAT_ROUTED = tuple(group for group in GROUPS if group not in FEAT_ALWAYS + FEAT_MAIN_ONLY) + (
-    "workflow-guard-history", "workflow-guard-source-lints",
-)
-FEAT_ROUTE_JOBS = {"linux_guard_history": "workflow-guard-history", "linux_guard_source": "workflow-guard-source-lints"}
-# Product source areas no guard group reads beyond what groups_for_path and classify already
-# declare. ci.yml runs every group for an unknown path; on feat-cmux-next that was 254 of the last
-# 300 commits, because most of them touch these areas. An unknown path here runs no extra group;
-# an unknown path anywhere else (workflows, scripts, tests, Resources, ios, agent-chat, a new
-# top-level area) still runs every routed group.
-FEAT_PRODUCT_AREAS = (
-    "Packages/", "webviews/", "cmux-tui/", "Native/", "backend/", "web/", "schemas/",
-    "release-notes/", "plans/", "docs/", "design/", "skills/", "unavailable-features/",
-    "clients/", "cmux-next-ios/", "workers/", "experiments/", "first-party-apps/",
-)
-
-
-def classify_feat(paths: list[str]) -> tuple[str, ...]:
-    """The guard groups and jobs a feat-cmux-next change runs beside the `ci` group.
-
-    No diff, an unsafe path, or an unknown path outside FEAT_PRODUCT_AREAS runs every routed one.
-    """
-    if not paths:
-        return FEAT_ROUTED
-    selected: set[str] = set()
-    for path in paths:
-        if not path or path.startswith("/") or ".." in path.split("/"):
-            return FEAT_ROUTED
-        if release_notary_input(path):
-            selected.add("release-notary")
-        if plain_documentation(path):
-            continue
-        owners = groups_for_path(path)
-        routes = classify_guards([path])
-        fails_open = routes is None
-        if owners is None or fails_open:
-            if not path.startswith(FEAT_PRODUCT_AREAS):
-                return FEAT_ROUTED
-        selected.update(owners or ())
-        if not fails_open:
-            selected.update(job for route, job in FEAT_ROUTE_JOBS.items() if routes[route])
-    return tuple(name for name in FEAT_ROUTED if name in selected)
-
-
-# What the workflow guard profile reads: the workflows and the rest of .github/ (runners.json, warm-sources.json),
-# the guard tests, and scripts/ci. A push to feat-cmux-next judged only against the previous tip stays green while a
-# red persists, so the guard profile sat red on 18 steps of the branch, unseen, until #31366. A push that touches
-# these paths is judged on its own instead (guards_new_reds.py --tip): every red step at the tip fails the job. A
-# push that touches none keeps the comparison with the previous tip, which still names the push that turned a step red.
-FEAT_PUSH_TIP_INPUTS = (".github/", "tests/", "scripts/ci/")
-
-
-def feat_push_judges_tip(paths: list[str]) -> bool:
-    """Whether a feat-cmux-next push with these changed paths is judged at its tip (no base comparison).
-
-    No diff (a new branch, an unreadable previous tip) is judged at its tip too.
-    """
-    paths = [path for path in paths if path]
-    return not paths or any(path.startswith(FEAT_PUSH_TIP_INPUTS) for path in paths)
-
-
 def main() -> None:
-    if len(sys.argv) == 3 and sys.argv[1] == "--feat-push-tip":
-        try:
-            paths = Path(sys.argv[2]).read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeError):
-            paths = []
-        print("true" if feat_push_judges_tip([path.strip() for path in paths]) else "false")
-        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event-name", required=True)
     parser.add_argument("--macos", required=True)

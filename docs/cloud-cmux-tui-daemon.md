@@ -1,10 +1,5 @@
 # Cloud VMs on the cmux-tui remote daemon
 
-> **CLI note (2026-09-30):** the Mac-side `cmux vm …`, `cmux surface …` and `cmux vpn …`
-> verbs named in this design were removed in the Rust CLI cutover; the Mac reaches
-> machines through the app's `cmux cloud <verb>` actions. The in-VM guest `cmux`
-> described here still ships.
-
 Design for replacing the Go `cmuxd-remote` daemon in Cloud VMs with the
 cmux-tui remote daemon, validated by a working transport spike. North star:
 every cloud terminal is a
@@ -113,6 +108,15 @@ resurrection. Session state (`--state`) lives there too, so workspace layout
 restores from the journal checkpoint after a daemon restart. Running processes
 do not survive a restart, and clients see the generation change instead of a
 silent new shell.
+
+Public `cmux vm exec` commands leave the provider account unset, so Freestyle
+selects its uid-1000 account (usually `cmux`, with a legacy root fallback when
+that account is absent) and derives `HOME` from its passwd entry on every
+invocation. That often matches the terminal work user, but the daemon's layout
+selector can fall back to root when the work user's home is unusable; exec still
+uses the provider-selected account. This repairs the stale `/home/ubuntu`
+environment found on older uid-1000 images without requiring a machine reboot;
+commands that need root should use `sudo`.
 
 Machines created from an image baked before that work user existed have no
 `cmux` account and carry their binary, daemon and state under `/root`. The

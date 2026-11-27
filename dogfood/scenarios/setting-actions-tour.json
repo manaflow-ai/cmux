@@ -1,0 +1,143 @@
+{
+  "paths": [
+    "Sources/CmuxConfig*",
+    "Sources/CmuxSettingActionRunner.swift",
+    "Sources/ContentView.swift",
+    "Sources/Workspace.swift",
+    "Packages/macOS/CmuxSettings/*",
+    "dogfood/scenarios/setting-actions-tour.json"
+  ],
+  "launch": {
+    "env": {
+      "HOME": "/tmp/cmux-setting-actions-tour",
+      "CFFIXED_USER_HOME": "/tmp/cmux-setting-actions-tour"
+    }
+  },
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Setting Actions",
+        "initial_input": "export HOME=/tmp/cmux-setting-actions-tour CFFIXED_USER_HOME=/tmp/cmux-setting-actions-tour; rm -f /tmp/cmux-setting-actions-tour/.config/cmux/cmux.json; mkdir -p ~/.config/cmux; printf '%s\\n' '{\"app\":{\"appearance\":\"light\",\"minimalMode\":false},\"actions\":{\"tour.appearance.dark\":{\"type\":\"setting\",\"path\":\"app.appearance\",\"set\":\"dark\",\"title\":\"Tour: Dark Appearance\",\"palette\":true},\"tour.presentation.minimal\":{\"type\":\"settingPreset\",\"preset\":\"tour.minimal\",\"title\":\"Tour: Minimal Presentation\",\"palette\":true}},\"settingPresets\":{\"tour.minimal\":{\"app\":{\"minimalMode\":true,\"appearance\":\"light\"}}}}' > ~/.config/cmux/cmux.json; cmux reload-config; clear; printf \"Setting actions and presets loaded from cmux.json\\n\"\n",
+        "focus": true
+      },
+      "save": "setup"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "shot": "light-appearance-before-action"
+    },
+    {
+      "key": "p",
+      "modifiers": [
+        "command",
+        "shift"
+      ]
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "type": "Tour:"
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "expect": {
+        "labelContains": "Tour: Dark Appearance",
+        "type": "button"
+      }
+    },
+    {
+      "expect": {
+        "labelContains": "Tour: Minimal Presentation",
+        "type": "button"
+      }
+    },
+    {
+      "shot": "palette-setting-action-and-preset"
+    },
+    {
+      "tree": "palette-setting-action-and-preset"
+    },
+    {
+      "click": {
+        "labelContains": "Tour: Dark Appearance",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 2.0
+    },
+    {
+      "shot": "dark-appearance-after-setting-action"
+    },
+    {
+      "key": "p",
+      "modifiers": [
+        "command",
+        "shift"
+      ]
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "type": "Tour: Minimal Presentation"
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "expect": {
+        "labelContains": "Tour: Minimal Presentation",
+        "type": "button"
+      }
+    },
+    {
+      "shot": "palette-setting-preset"
+    },
+    {
+      "click": {
+        "labelContains": "Tour: Minimal Presentation",
+        "type": "button"
+      }
+    },
+    {
+      "wait": 2.0
+    },
+    {
+      "shot": "light-minimal-presentation-after-preset"
+    },
+    {
+      "tree": "light-minimal-presentation-after-preset"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "CLI Config",
+        "focus": true,
+        "initial_input": "clear; printf \"> cmux config get app.minimalMode\\n\"; cmux config get app.minimalMode; printf \"\\n> cmux config get app.appearance\\n\"; cmux config get app.appearance; printf \"\\n> cmux config set app.appearance dark\\n\"; cmux config set app.appearance dark; printf \"\\n> cmux config get app.appearance\\n\"; cmux config get app.appearance\n"
+      },
+      "save": "cli"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "shot": "cli-config-get-and-set-output"
+    },
+    {
+      "tree": "cli-config-get-and-set-output"
+    },
+    {
+      "type": "rm -f /tmp/cmux-setting-actions-tour/.config/cmux/cmux.json; cmux reload-config; printf \"config restored\\n\"\n"
+    },
+    {
+      "wait": 1.0
+    }
+  ]
+}

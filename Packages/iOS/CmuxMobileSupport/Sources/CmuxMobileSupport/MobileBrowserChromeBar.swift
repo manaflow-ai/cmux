@@ -8,7 +8,7 @@ import UIKit
 /// A single always-visible bottom glass bar in the thumb zone: back, forward,
 /// an editable address field, reload (or stop while loading, when the
 /// browser can stop), an optional keyboard toggle, and, where a browser can
-/// switch between Streaming from Mac and On iPhone, a small mode menu. Hosts place it in a
+/// switch between Streamed and On iPhone, a small mode menu. Hosts place it in a
 /// bottom `safeAreaInset` so it reserves its height (never occluding page
 /// content) and rides up with the keyboard.
 ///
@@ -160,7 +160,6 @@ public struct MobileBrowserChromeBar: View {
             } else {
                 chromeButton(
                     systemImage: "arrow.clockwise",
-                    // retry-prompt-ok: the browser's own Reload control, used on purpose
                     label: L10n.string("mobile.browserStream.reload", defaultValue: "Reload"),
                     identifier: identifiers.reload,
                     action: actions.reload

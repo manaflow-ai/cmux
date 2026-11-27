@@ -1,0 +1,59 @@
+$ bun run boundary:check && bun run contracts:check && bun run types:check && bun run typecheck && bun run test
+$ bun scripts/check-boundary.ts
+Verified 24 v2 source files: Cloudflare boundary and isolated PlanetScale ownership adapter
+$ bun scripts/generate-contracts.ts --check
+Verified 37 named schemas and exact Swift/TypeScript operation models
+$ wrangler types --check
+
+ ⛅️ wrangler 4.131.0
+────────────────────
+✨ Types at worker-configuration.d.ts are up to date.
+
+$ tsc --noEmit
+$ bun test ./test
+bun test v1.3.14 (d1632b29)
+
+test/auth.test.ts:
+(pass) Stack establishes user and explicit team authority without a solo-team fallback [5.64ms]
+(pass) wrong user, environment and project never create claimed authority [0.73ms]
+(pass) provider failures remain recoverable while explicit rejection is unauthorized [0.99ms]
+(pass) unverified callers cannot create an unbounded authentication queue [0.13ms]
+(pass) team management checks the exact user/team/permission tuple [0.74ms]
+(pass) bad server keys remain an upstream outage, not a user sign-out [0.13ms]
+
+test/boundary.test.ts:
+(pass) a body without Content-Length is cancelled as soon as its byte budget is exceeded [0.52ms]
+(pass) known malformed methods share their method allowance and arbitrary names cannot allocate counters [0.88ms]
+(pass) retirement returns a long retry window with matching HTTP and typed error [0.87ms]
+(pass) invalid server output is rejected and unexpected exceptions reveal no internal data [1.35ms]
+
+test/relay.test.ts:
+(pass) relay credentials use an offline-verifiable 30-minute grant and stable user scope [4.35ms]
+
+test/routing.test.ts:
+(pass) forged private headers and cookies cannot become trusted DO authority [2.79ms]
+(pass) valid bound HMAC tickets bypass Stack and cannot authorize another endpoint [1.74ms]
+(pass) unsupported paths, methods, oversized setup and mismatched aliases fail before Stack [0.54ms]
+(pass) cross-environment setup never reaches Stack or a team object [0.31ms]
+
+test/delivery.test.ts:
+(pass) actual output creates a checkpoint, idle state creates no heartbeat [0.77ms]
+(pass) a stopped reader reaches the accepted message bound and cannot grow the buffer [3.11ms]
+(pass) acknowledging a checkpoint leaves subsequent output charged [0.07ms]
+
+test/contracts.test.ts:
+(pass) versioned server boundaries > rejects private address publication and stale protocol envelopes [0.25ms]
+(pass) versioned server boundaries > validates URL policy and rejects noninteger revisions [0.47ms]
+(pass) versioned server boundaries > uses a distinct request schema for a new wire version [0.18ms]
+
+test/crypto.test.ts:
+(pass) ticket renewal overlaps without invalidating an unexpired token [1.27ms]
+(pass) rejects tampering, wrong environment/project and unknown signing keys [0.75ms]
+(pass) device proof binds the challenge, endpoint and complete scope [1.33ms]
+(pass) canonical wire values are ordered and never silently lose data [0.07ms]
+(pass) Swift and Worker share exact Unicode signing bytes and nonce-bound HTTP proofs [2.44ms]
+
+ 26 pass
+ 0 fail
+ 136 expect() calls
+Ran 26 tests across 7 files. [72.00ms]

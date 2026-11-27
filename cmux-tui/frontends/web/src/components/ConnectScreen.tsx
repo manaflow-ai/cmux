@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { t } from "../i18n";
 import type { ConnectionConfig } from "../hooks/useCmuxClient";
 import { initialConnectionConfig, rememberWebSocketUrl } from "../lib/connectionDefaults";
@@ -46,21 +46,11 @@ export function ConnectScreen({ connecting, error, pairing, onConnect }: Connect
     rememberWebSocketUrl(normalizedUrl, window.localStorage);
     onConnect({ url: normalizedUrl, token: initial.token || undefined });
   };
-  // A page the daemon served with its credential in the fragment (a one-tap
-  // link) connects once on load; without one it waits for pairing as before.
-  const autoConnected = useRef(false);
-  useEffect(() => {
-    if (autoConnected.current || !initial.servedByDaemon || !initial.token) return;
-    autoConnected.current = true;
-    onConnect({ url: initial.url, token: initial.token });
-  }, [initial, onConnect]);
 
   return (
     <main className="connect-shell">
       <form className="connect-card" onSubmit={submit}>
-        <div className="brand-mark" aria-hidden="true">
-          ›_
-        </div>
+        <div className="brand-mark" aria-hidden="true">›_</div>
         <h1>{t("appName")}</h1>
         <p>{t("appTagline")}</p>
         <label>
@@ -83,11 +73,7 @@ export function ConnectScreen({ connecting, error, pairing, onConnect }: Connect
             <small>{t("pairingExpires", { seconds: pairing.expiresIn })}</small>
           </div>
         )}
-        {error && (
-          <div className="inline-error" role="alert">
-            {error || t("unknownError")}
-          </div>
-        )}
+        {error && <div className="inline-error" role="alert">{error || t("unknownError")}</div>}
         <button type="submit" disabled={connecting || pairing !== null}>
           {pairing ? t("waitingForApproval") : connecting ? t("connecting") : t("connect")}
         </button>

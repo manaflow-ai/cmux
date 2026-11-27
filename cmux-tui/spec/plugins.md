@@ -119,19 +119,6 @@ key for private repositories; SSH user names, SCP-like sources, and local paths
 remain supported. Git metadata stdout is capped at 16 KiB before parsing;
 overflow is treated as unavailable.
 
-### Automatic updates
-
-Each daemon start schedules a background check at most once every 24 hours.
-For each installed plugin, cmux compares the local `HEAD` with the remote
-`HEAD` and uses the same staged clone, manifest validation, build, executable
-check, and atomic replacement as the `update` command. Only HTTPS, SSH, and
-`git://` origins are eligible. Local paths and `file://` origins are manual
-only; symlinked or dirty working trees are never replaced, so development
-checkouts keep their files. A failed check is best effort and does not delay
-the daemon or prevent the next check. The updated files are used when the
-plugin process next starts; reload the daemon configuration to restart one
-that is already running.
-
 ## Agent Plugins
 
 An agent plugin is a server-side background executable. It does not run in a
@@ -172,50 +159,13 @@ writes a content-derived value. A changed revision restarts the child even
 when the command path is unchanged. Invalid replacement configuration disables
 the previous child instead of leaving stale detection active.
 
-#### Bundled default
-
-Without an `agents.plugin` entry, the daemon supervises the screen detector
-that ships beside it: an executable file named `cmux-agent-screen-detection`
-in the directory of the daemon's own executable (symlinks resolved; the
-cmux-next app bundles it in `Contents/Resources/bin`, and the macOS and Linux npm
-packages and PyPI wheels ship it in `bin/` beside `cmux-tui`). On Unix the file must be
-executable. It runs with producer ID `cmux_screen_detection`, `command` set to
-that absolute path, no `cwd`, and a `revision` derived from the file's identity
-(device, inode, size, modification time), so an app update that replaces the
-file restarts the child. Hook producers still win over it in the roster reducer.
-
-```json
-{ "agents": { "screen_detection": false } }
-```
-
-`agents.screen_detection: false` turns the bundled default off; it defaults to
-`true`. An explicit `agents.plugin` always replaces the default, even when
-`screen_detection` is `false`. The ID `cmux_screen_detection` is reserved for
-the bundled default; an explicit entry with it is refused. An explicit entry
-that is invalid (no ID, empty or relative command, reserved ID) disables agent
-plugins and never falls back to the bundled default. A config file that fails
-to parse (syntax error, non-object root, unknown top-level key) or an `agents`
-section that fails to parse (wrong type, unknown key) also starts nothing,
-because the user's choice is unknown. Removing the explicit entry
-(`cmux agent plugin remove`, or `cmux agent plugin use --builtin`) restores the
-default. Older cmux-tui builds do not know `screen_detection` and reject the
-whole `agents` section that contains it. The bundled default is Unix-only; other platforms never
-start it, and a daemon without the sibling file starts nothing.
-
 The supervisor passes `CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`,
 `CMUX_TUI_SESSION_ID`, and the required `CMUX_PLUGIN_ID`, plus
 `CMUX_PLUGIN_REVISION`,
-`CMUX_PLUGIN_GENERATION`, `CMUX_PLUGIN_HOST_PID` (the daemon's pid),
-`CMUX_PLUGIN_PROTOCOL_VERSION=1`,
+`CMUX_PLUGIN_GENERATION`, `CMUX_PLUGIN_PROTOCOL_VERSION=1`,
 `CMUX_PLUGIN_KIND=journal`, `CMUX_JOURNAL_PLUGIN=1`, and the compatibility
 hint `CMUX_AGENT_PLUGIN=1`. The socket is already bound before the child
-starts. A plugin should exit when the `CMUX_PLUGIN_HOST_PID` process exits: a
-`kill -9` of the daemon skips the supervisor's process-group shutdown, and an
-orphaned plugin would otherwise reconnect to the next daemon on the same
-socket. The reference screen detector watches that pid (kqueue on macOS, pidfd
-on Linux, a 1 s poll otherwise). Under an older daemon that does not pass it,
-the detector watches its parent pid when `CMUX_PLUGIN_GENERATION` is set. A
-standalone run with neither variable is not watched. A plugin that emits restart-fenced observations should copy
+starts. A plugin that emits restart-fenced observations should copy
 `CMUX_PLUGIN_GENERATION` into its event's `normalized.plugin_generation` field.
 The reference screen detector validates this ID before entering its reconnect
 loop, so a malformed hand-written configuration fails once instead of retrying
@@ -286,8 +236,12 @@ diagnosis. It resolves an exact terminal ID or title through `terminal.list`,
 then reads `terminal.process.get` and `terminal.screen.read` and evaluates the
 same userland manifests as the scanner. It rejects duplicate titles and emits
 the process identity source, screen revision, matched rule, evidence, and
-manifest provenance. This diagnostic command does not add an agent-specific
-daemon operation.
+manifest provenance. `--session NAME` reads that local session at the socket
+the `cmux` CLI derives for it (an inherited `CMUX_TUI_SOCKET` does not
+redirect it), and `--socket PATH` reads the daemon at an exact socket. Without
+either, it reads the inherited `CMUX_TUI_SOCKET` (then `CMUX_MUX_SOCKET`) and
+its `CMUX_TUI_SESSION_ID`, else the `main` session's socket. This diagnostic
+command does not add an agent-specific daemon operation.
 
 The reducer clamps `normalized.observed_at_ms` to the journal commit time when
 the plugin clock is ahead. Older observation times remain unchanged, so a
@@ -383,7 +337,7 @@ shared without importing herdr's application into cmux:
 | Identity aliases and wrappers | Manifest aliases, shell/runtime arguments, package launchers, process groups, and a public-process fallback are supported. Attached runtime eval/module flags stop path scans, and flags after the first positional script do not hide its identity. Direct shell scripts and escaped shell command words are decoded; shell command flags follow each runtime's grammar, including fish's separate and inline `--command` forms. Value-taking, no-exec, exit-only, and unknown shell modes fail closed. Visible executable and wrapper evidence is checked before the optional `CMUX_AGENT` or `HERDR_AGENT` process hint, so ordinary scans do not read process environments. Linux can opt into bounded child-group inference with `CMUX_AGENT_PROCESS_DETECTION=child-groups` when a controlling-terminal group is unavailable. |
 | Regions and gates | Recent-screen regions, prompt and viewer slices, OSC title/progress regions, `all`, `any`, `not`, literal, regex, and line-regex gates are supported with bounded complexity. |
 | Rule priority and visibility | Numeric priority, idle fallback, blocker/working/idle visibility hints, and `skip_state_update` are preserved. |
-| Event-driven journal delivery | Terminal journal events and the terminal changes of `session.events` (a committed change, or the live `delta` of a live fact) wake the plugin only for affected terminals. The bundled plugin does not follow `terminal.progress` or `terminal.program_status` rows, so the daemon commits nothing for a terminal that only prints; a journal stream that follows one of those kinds (an older or third-party plugin) still gets one row for each live fact. Quiescence debounce, startup grace, six-miss identity hysteresis, same-name process-group replacement edges, activity expiry, pending idle, blocker refresh, and process-exit edges remain supported. Stable terminals block on the two streams with no heartbeat or periodic scan. Each edge is committed only after journal admission. An uncertain transport result retains the exact envelope and idempotency key for bounded-backoff replay before a newer edge. |
+| Event-driven journal delivery | Terminal journal events wake the plugin only for affected terminals. Quiescence debounce, startup grace, six-miss identity hysteresis, same-name process-group replacement edges, activity expiry, pending idle, blocker refresh, and process-exit edges remain supported. Stable terminals block on the journal stream with no heartbeat or periodic scan. Each edge is committed only after journal admission. An uncertain transport result retains the exact envelope and idempotency key for bounded-backoff replay before a newer edge. |
 | Explain and update diagnostics | `explain`, `list`, `status`, and explicit HTTPS `update` commands expose matcher evidence, source precedence, versions, and per-agent failures. |
 
 The following inventory records the agent-facing herdr capabilities that are

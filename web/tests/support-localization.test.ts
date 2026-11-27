@@ -20,6 +20,7 @@ import turkishMessages from "../messages/tr.json";
 import ukrainianMessages from "../messages/uk.json";
 import simplifiedChineseMessages from "../messages/zh-CN.json";
 import traditionalChineseMessages from "../messages/zh-TW.json";
+import { deepMergeMessages } from "../i18n/messages";
 import { locales } from "../i18n/routing";
 
 const messagesByLocale = {
@@ -44,6 +45,11 @@ const messagesByLocale = {
   km: khmerMessages,
   uk: ukrainianMessages,
 } as const;
+
+// Pull requests maintain English and Japanese. The other locales are filled on
+// main by .github/workflows/localization-fill.yml; until it runs, a missing key
+// falls back to English through deepMergeMessages, so they are checked merged.
+const maintainedLocales = new Set(["en", "ja"]);
 
 const supportEmail = "founders@cmux.com";
 
@@ -82,6 +88,15 @@ function leafStrings(value: Json): string[] {
   return typeof value === "string" ? [value] : [];
 }
 
+function has(value: Json, path: readonly string[]): boolean {
+  let current: Json | undefined = value;
+  for (const key of path) {
+    if (typeof current !== "object" || current === null || Array.isArray(current)) return false;
+    current = current[key];
+  }
+  return current !== undefined;
+}
+
 function at(value: Json, path: readonly string[]): string {
   let current: Json = value;
   for (const key of path) {
@@ -95,13 +110,18 @@ describe("support page localization", () => {
     expect(Object.keys(messagesByLocale).sort()).toEqual([...locales].sort());
   });
 
-  for (const [locale, messages] of Object.entries(messagesByLocale)) {
+  for (const [locale, raw] of Object.entries(messagesByLocale)) {
+    const ownSupport = ((raw as { support?: Json }).support ?? {}) as Json;
+    const messages = maintainedLocales.has(locale)
+      ? raw
+      : deepMergeMessages(englishMessages as never, raw as never);
     const support = (messages as { support: Json }).support;
     const footer = (messages as { footer: { support?: string } }).footer;
 
-    test(`${locale} ships its own support catalog instead of English fallback`, () => {
-      // Same key tree and array lengths as English, so no key silently
-      // falls back through deepMergeMessages.
+    test(`${locale} ships a support catalog with the English key tree`, () => {
+      // Same key tree and array lengths as English. English and Japanese ship
+      // every key; the other locales may lean on the English fallback until
+      // the localization-fill bot fills them, but cannot add or retype keys.
       expect(shape(support)).toEqual(
         shape((englishMessages as { support: Json }).support),
       );
@@ -111,6 +131,7 @@ describe("support page localization", () => {
 
       if (locale !== "en") {
         for (const path of mustDifferFromEnglishPaths) {
+          if (!has(ownSupport, path)) continue;
           expect(at(support, path)).not.toBe(
             at((englishMessages as { support: Json }).support, path),
           );

@@ -14,16 +14,25 @@ default socket:
 """
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from cmux import cmux, cmuxError, wait_until
+from cmux import cmux, cmuxError
 
 COMMAND_ID = "palette.toggleSetting.windowHints"
 
 
-def _wait_until(predicate, timeout_s=4.0, interval_s=0.05) -> bool:
-    return bool(wait_until(predicate, timeout_s, interval_s))
+def _wait_until(predicate, timeout_s=4.0, interval_s=0.05):
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            if predicate():
+                return True
+        except cmuxError:
+            pass
+        time.sleep(interval_s)
+    return False
 
 
 def _hints(c: cmux) -> dict:
@@ -50,13 +59,12 @@ def _run_toggle(c: cmux, window_id: str) -> list:
     _wait_until(lambda: bool((c._call("debug.command_palette.rename_input.selection", {"window_id": window_id}) or {}).get("focused")))
     c.simulate_shortcut("cmd+a")
     c.simulate_type(">click by hint")
-    _wait_until(lambda: "click by hint" in str(c.command_palette_results(window_id=window_id).get("query") or "").lower()
-                and c.command_palette_results(window_id=window_id, limit=8).get("results"))
+    _wait_until(lambda: "click by hint" in str(c.command_palette_results(window_id=window_id).get("query") or "").lower())
+    time.sleep(0.3)
     rows = c.command_palette_results(window_id=window_id, limit=8).get("results") or []
     if rows and str(rows[0].get("command_id") or "") == COMMAND_ID:
-        before = _hints(c).get("enabled")
         c.simulate_shortcut("enter")
-        _wait_until(lambda: _hints(c).get("enabled") is not before)
+        time.sleep(0.5)
     _set_palette_visible(c, window_id, False)
     return rows
 
@@ -69,6 +77,7 @@ def main() -> int:
     c.activate_app()
     window_id = c.current_window()
     c.focus_window(window_id)
+    time.sleep(1.0)
 
     results = []
 
@@ -84,12 +93,13 @@ def main() -> int:
     check("the toggle turns Click by Hint on", _wait_until(lambda: _hints(c).get("enabled") is True), str(_hints(c)))
 
     c.focus_window(window_id)
+    time.sleep(0.3)
     c.simulate_shortcut("cmd+j")
-    _wait_until(lambda: _hints(c).get("active") is True and len(_hints(c).get("hints") or []) > 1)
+    time.sleep(0.6)
     shown = _hints(c)
     check("cmd+j then labels the window's controls", shown.get("active") is True and len(shown.get("hints") or []) > 1, str(shown)[:300])
     c.simulate_shortcut("escape")
-    _wait_until(lambda: _hints(c).get("active") is False)
+    time.sleep(0.3)
 
     if ids[:1] == [COMMAND_ID]:
         _run_toggle(c, window_id)

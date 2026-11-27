@@ -11,13 +11,7 @@ import tempfile
 import time
 import unittest
 from unittest import mock
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts/ci/cmux_workload_profile.py"
@@ -118,6 +112,7 @@ class WorkloadProfileTests(unittest.TestCase):
             {
                 ("cmux.macos.compile-admission", 1),
                 ("cmux.macos.dev-check", 1),
+                ("cmux.macos.app-host-test-shard", 1),
                 ("cmux.ci.guard", 1),
             },
         )
@@ -171,6 +166,10 @@ class WorkloadProfileTests(unittest.TestCase):
         by_id = {item["id"]: item for item in registry["profiles"]}
         self.assertEqual(by_id["cmux.ci.guard"]["environment_class"], "isolated-portable")
         self.assertEqual(by_id["cmux.macos.dev-check"]["environment_class"], "isolated-build")
+        self.assertEqual(
+            by_id["cmux.macos.app-host-test-shard"]["environment_class"],
+            "isolated-console-test",
+        )
 
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
             profile.os.environ,
@@ -199,31 +198,9 @@ class WorkloadProfileTests(unittest.TestCase):
         self.assertEqual(environment["TMPDIR"], str(state / "tmp"))
         self.assertEqual(environment["CMUX_CI_SKIP_XCODE_SELECT"], "1")
 
-    @staticmethod
-    def shard_profile() -> dict:
-        """A console-test profile with a parameter and a runtime input.
-
-        No registered profile declares either since the app-host shard
-        profile went away, so the contract is exercised on this one.
-        """
-        registry = profile.load_registry()
-        base = profile.profile_by_id(registry, "cmux.macos.compile-admission")
-        return {
-            **json.loads(json.dumps(base)),
-            "id": "cmux.macos.example-test-shard",
-            "environment_class": "isolated-console-test",
-            "parameters": {"shard": {"type": "integer", "minimum": 1, "maximum": 6, "required": True}},
-            "runtime_inputs": [{
-                "name": "app_host_xctestrun",
-                "env": "CMUX_APP_HOST_XCTESTRUN",
-                "class": "cmux.app-host-product-tree/v1",
-                "identity": "parent-tree-sha256",
-                "required": True,
-            }],
-        }
-
     def test_declared_runtime_input_is_the_only_parent_value_admitted(self) -> None:
-        app_host = self.shard_profile()
+        registry = profile.load_registry()
+        app_host = profile.profile_by_id(registry, "cmux.macos.app-host-test-shard")
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
             profile.os.environ,
             {
@@ -305,7 +282,8 @@ class WorkloadProfileTests(unittest.TestCase):
                 pass
 
     def test_parameters_are_bounded_by_profile_contract(self) -> None:
-        shard = self.shard_profile()
+        registry = profile.load_registry()
+        shard = profile.profile_by_id(registry, "cmux.macos.app-host-test-shard")
         self.assertEqual(profile.parse_parameters(shard, ["shard=1"]), {"shard": 1})
         with self.assertRaisesRegex(profile.ProfileError, "between 1 and 6"):
             profile.parse_parameters(shard, ["shard=7"])
@@ -448,7 +426,7 @@ class WorkloadProfileTests(unittest.TestCase):
             mock.patch.object(profile.subprocess, "run", return_value=clean_diff),
         ):
             with self.assertRaisesRegex(
-                profile.ProfileError, "non-ignored source changes"
+                profile.ProfileError, r"non-ignored source changes: \?\? stray-source\.swift"
             ):
                 profile.source_identity(None, None)
 
@@ -775,6 +753,24 @@ class WorkloadProfileTests(unittest.TestCase):
         self.assertEqual(result["result"], "ambiguous")
         self.assertEqual(result["cleanup"]["state"], "forced")
         self.assertFalse(result["cleanup"]["process_group_settled"])
+
+    def test_app_host_workload_fails_closed_on_planner_errors_and_empty_filters(self) -> None:
+        script = (
+            ROOT / "scripts/ci/workloads/macos-app-host-test-shard.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn('|| plan_status=$?', script)
+        self.assertIn('if [[ "$plan_status" -ne 0 ]]', script)
+        self.assertIn('return "$plan_status"', script)
+        self.assertIn('if [[ "${#only_testing_args[@]}" -eq 0 ]]', script)
+        self.assertIn('shard planner produced no test arguments', script)
+        syntax = subprocess.run(
+            ["bash", "-n", "scripts/ci/workloads/macos-app-host-test-shard.sh"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr.decode())
 
     def test_runtime_product_tree_rejects_external_or_dangling_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1,14 +1,10 @@
-mod capabilities;
-
 use super::id::StreamId;
-use super::operation_class::{OperationClass, operation_class};
 use super::ops;
 use super::options::{MutationOptions, RequestOptions, validate_idempotency_key};
 use super::stream::{ResourceStream, StreamParts};
 use super::wire::{Params, field};
 use crate::codec::JsonLineConnection;
 use crate::{Error, Result};
-pub(crate) use capabilities::validate_capabilities;
 use serde_json::{Map, Value};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -137,8 +133,6 @@ pub struct Config {
     pub max_response_bytes: usize,
     pub max_stream_items: usize,
     pub max_stream_bytes: usize,
-    /// Declared first on every connection the client opens (capabilities.rs).
-    pub capabilities: Vec<String>,
 }
 
 impl Config {
@@ -150,7 +144,6 @@ impl Config {
             max_response_bytes: DEFAULT_RESPONSE_BYTES,
             max_stream_items: DEFAULT_STREAM_ITEMS,
             max_stream_bytes: DEFAULT_STREAM_BYTES,
-            capabilities: Vec::new(),
         }
     }
 
@@ -220,7 +213,7 @@ impl Config {
                 "max_stream_bytes must be between 1 and {DEFAULT_STREAM_BYTES}"
             )));
         }
-        validate_capabilities(&self.capabilities)
+        Ok(())
     }
 }
 
@@ -237,7 +230,6 @@ struct SharedClient {
     control: Mutex<Option<JsonLineConnection>>,
     next_request: AtomicU64,
     closed: AtomicBool,
-    capabilities: Mutex<Vec<String>>,
 }
 
 /// Blocking, cloneable cmux resource client.
@@ -247,9 +239,6 @@ struct SharedClient {
 #[derive(Clone)]
 pub struct Client {
     shared: Arc<SharedClient>,
-    /// The request-origin claim this handle puts on every request
-    /// ([`Self::with_origin_claim`]); none keeps the derived origin.
-    origin: Option<&'static str>,
 }
 
 impl std::fmt::Debug for Client {
@@ -305,41 +294,19 @@ impl Client {
             connection = Ok(candidate);
         }
         let connection = connection?;
-        let capabilities = Mutex::new(config.capabilities.clone());
-        Self {
+        Ok(Self {
             shared: Arc::new(SharedClient {
                 config,
                 allow_legacy_fallback,
                 control: Mutex::new(Some(connection)),
                 next_request: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
-                capabilities,
             }),
-            origin: None,
-        }
-        .declared_on_control()
+        })
     }
 
     pub fn config(&self) -> &Config {
         &self.shared.config
-    }
-
-    /// A handle on the same connection whose requests carry the
-    /// request-origin claim `claim` (`page`, `agent`, `app` or `user`;
-    /// spec/resource-api-v2.md "origin"). A claim may only narrow the
-    /// origin the daemon derives for the connection, never widen it: an
-    /// agent's CLI says `agent` so history tells it from the person.
-    pub fn with_origin_claim(&self, claim: &str) -> Result<Self> {
-        let origin = match claim {
-            "page" => "page",
-            "agent" => "agent",
-            "app" => "app",
-            "user" => "user",
-            other => {
-                return Err(Error::InvalidArgument(format!("unknown origin claim {other:?}")));
-            }
-        };
-        Ok(Self { shared: Arc::clone(&self.shared), origin: Some(origin) })
     }
 
     /// Explicitly closes the shared control connection.
@@ -383,7 +350,7 @@ impl Client {
             operation,
             params,
             None,
-            ClassCheck::Table(OperationClass::Read),
+            OperationClass::Read,
             self.scoped_request_options(),
             &mut dispatched,
         )
@@ -399,7 +366,7 @@ impl Client {
             operation,
             params,
             None,
-            ClassCheck::Table(OperationClass::ConnectionControl),
+            OperationClass::ConnectionControl,
             self.scoped_request_options(),
             &mut dispatched,
         )
@@ -408,18 +375,8 @@ impl Client {
     pub(crate) fn mutate(
         &self,
         operation: &'static str,
-        params: Params,
-        options: MutationOptions,
-    ) -> Result<Value> {
-        self.mutate_checked(operation, params, options, ClassCheck::Table(OperationClass::Mutation))
-    }
-
-    fn mutate_checked(
-        &self,
-        operation: &str,
         mut params: Params,
         options: MutationOptions,
-        class: ClassCheck,
     ) -> Result<Value> {
         let request_options = options.request.merged_over(&self.scoped_request_options());
         let idempotency_key = options.idempotency_key;
@@ -431,7 +388,7 @@ impl Client {
             operation,
             params,
             Some(idempotency_key.clone()),
-            class,
+            OperationClass::Mutation,
             request_options,
             &mut dispatched,
         ) {
@@ -454,79 +411,8 @@ impl Client {
                 "{operation} is not a stream-open operation"
             )));
         }
-        let item_validator = super::typed_stream::stream_item_validator(operation)?;
-        self.open_stream(operation, params, item_validator)
-    }
-
-    /// One generic `cmux.protocol/2` request for any daemon operation, by
-    /// name: the escape hatch beside the typed methods, so a new daemon
-    /// operation needs no SDK change. The caller states the operation's
-    /// kind instead of the SDK's table; the envelope, the request and
-    /// response limits, the deadline and cancellation scope ([`Self::with_request_options`]) and
-    /// the error decoding are the typed calls'. A [`CallKind::Mutation`]
-    /// carries its idempotency key: reuse the same [`MutationOptions`] to
-    /// retry a mutation whose outcome is unknown. `params` must be a JSON
-    /// object (or null for none) and is sent as given: name the `machine`
-    /// and `session` (`"current"`) when the operation takes them. Returns
-    /// the response's `result`.
-    pub fn call(&self, operation: &str, kind: CallKind, params: Value) -> Result<Value> {
-        let params = generic_params(operation, params)?;
-        match kind {
-            CallKind::Read => {
-                let mut dispatched = false;
-                self.request(
-                    operation,
-                    params,
-                    None,
-                    ClassCheck::Stated(OperationClass::Read),
-                    self.scoped_request_options(),
-                    &mut dispatched,
-                )
-            }
-            CallKind::Mutation(options) => self.mutate_checked(
-                operation,
-                params,
-                options,
-                ClassCheck::Stated(OperationClass::Mutation),
-            ),
-        }
-    }
-
-    /// Opens a generic `cmux.protocol/2` stream for any stream-open
-    /// operation, by name, on its own connection (as the typed streams do):
-    /// the SDK adds `stream_id`, and the stream yields every item as the
-    /// daemon sent it, up to the configured item and byte limits. Cancel it
-    /// with [`ResourceStream::cancel`]; dropping it closes its connection.
-    pub fn subscribe(&self, operation: &str, params: Value) -> Result<ResourceStream> {
-        let params = generic_params(operation, params)?;
-        self.open_stream(operation, params, accept_any_item)
-    }
-
-    /// Resolves a chat target selector (`cloud` or a machine id) against
-    /// the daemon's machine catalog, read now (`machine.list` with
-    /// `catalog: true`), and the caller's current cloud sign-in: see
-    /// [`crate::resolve_chat_target`]. The outer error is the read's; the
-    /// inner one is the refusal.
-    pub fn chat_target(
-        &self,
-        selector: &str,
-        signed_in: bool,
-    ) -> Result<std::result::Result<crate::ChatTarget, crate::ChatTargetRefusal>> {
-        let catalog =
-            self.call(ops::MACHINE_LIST, CallKind::Read, serde_json::json!({"catalog": true}))?;
-        Ok(crate::resolve_chat_target(selector, &catalog, signed_in))
-    }
-
-    fn open_stream(
-        &self,
-        operation: &str,
-        params: Params,
-        item_validator: super::stream::StreamItemValidator,
-    ) -> Result<ResourceStream> {
-        if self.is_closed() {
-            return Err(Error::Closed);
-        }
         let id = self.next_request_id();
+        let item_validator = super::typed_stream::stream_item_validator(operation)?;
         let budget = CallBudget::new(self.scoped_request_options(), self.shared.config.timeout)?;
         budget.check(operation)?;
         let stream_id = random_stream_id()?;
@@ -537,8 +423,13 @@ impl Client {
         };
         let params = params.id(field::STREAM_ID, &stream_id);
         let cancel_params = params.cancellation_scope(&stream_id);
-        let envelope = request_envelope(&id, operation, params.into_value(), None, self.origin);
-        let mut connection = self.open_connection(operation, &budget)?;
+        let envelope = request_envelope(&id, operation, params.into_value(), None);
+        let mut connection = connect_with_budget(
+            &self.shared.config,
+            operation,
+            &budget,
+            self.shared.allow_legacy_fallback,
+        )?;
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
@@ -640,36 +531,27 @@ impl Client {
             cleanup_timeout: self.shared.config.timeout,
             item_validator,
             initial_envelopes,
-            origin: self.origin,
         })
     }
 
-    /// One request. `class` is checked against the SDK's operation table
-    /// (typed calls), or taken as the caller states it ([`Self::call`]).
     fn request(
         &self,
-        operation: &str,
+        operation: &'static str,
         params: Params,
         idempotency_key: Option<String>,
-        class: ClassCheck,
+        expected_class: OperationClass,
         request_options: RequestOptions,
         dispatched: &mut bool,
     ) -> Result<Value> {
         if self.is_closed() {
             return Err(Error::Closed);
         }
-        let actual_class = match class {
-            ClassCheck::Table(expected_class) => {
-                let actual_class = operation_class(operation);
-                if actual_class != expected_class {
-                    return Err(Error::InvalidArgument(format!(
-                        "{operation} is {actual_class:?}, not {expected_class:?}"
-                    )));
-                }
-                actual_class
-            }
-            ClassCheck::Stated(class) => class,
-        };
+        let actual_class = operation_class(operation);
+        if actual_class != expected_class {
+            return Err(Error::InvalidArgument(format!(
+                "{operation} is {actual_class:?}, not {expected_class:?}"
+            )));
+        }
         if (actual_class == OperationClass::Mutation) != idempotency_key.is_some() {
             return Err(Error::InvalidArgument(format!(
                 "{operation} has invalid idempotency policy"
@@ -681,8 +563,7 @@ impl Client {
         let budget = CallBudget::new(request_options, self.shared.config.timeout)?;
         budget.check(operation)?;
         let id = self.next_request_id();
-        let envelope =
-            request_envelope(&id, operation, params.into_value(), idempotency_key, self.origin);
+        let envelope = request_envelope(&id, operation, params.into_value(), idempotency_key);
         let mut connection = loop {
             match self.shared.control.try_lock() {
                 Ok(connection) => break connection,
@@ -700,7 +581,12 @@ impl Client {
         }
         if connection.is_none() {
             budget.check(operation)?;
-            *connection = Some(self.open_connection(operation, &budget)?);
+            *connection = Some(connect_with_budget(
+                &self.shared.config,
+                operation,
+                &budget,
+                self.shared.allow_legacy_fallback,
+            )?);
         }
         budget.check(operation)?;
         *dispatched = true;
@@ -752,7 +638,7 @@ impl Client {
             "request_id".to_string(),
             Value::String(target_id.to_string()),
         )]));
-        let envelope = request_envelope(&cancel_id, operation, params, None, self.origin);
+        let envelope = request_envelope(&cancel_id, operation, params, None);
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
@@ -832,39 +718,6 @@ impl Client {
     }
 }
 
-/// What a [`Client::call`] does: a read, or a mutation with its
-/// idempotency key (and optional expected revision and request options).
-#[derive(Clone, Debug)]
-pub enum CallKind {
-    Read,
-    Mutation(MutationOptions),
-}
-
-/// Whether a request's class comes from the SDK's table or from its caller.
-#[derive(Clone, Copy, Debug)]
-enum ClassCheck {
-    Table(OperationClass),
-    Stated(OperationClass),
-}
-
-/// A generic call's params: a JSON object (null is none), sent as given;
-/// the operation name must be non-empty.
-fn generic_params(operation: &str, params: Value) -> Result<Params> {
-    if operation.trim().is_empty() {
-        return Err(Error::InvalidArgument("operation name must not be empty".to_string()));
-    }
-    match params {
-        Value::Null => Ok(Params::new()),
-        Value::Object(map) => Ok(Params::from_map(map)),
-        _ => Err(Error::InvalidArgument(format!("{operation} params must be a JSON object"))),
-    }
-}
-
-/// A generic stream's items are the daemon's, passed through unchanged.
-fn accept_any_item(_: &super::model::StreamItem) -> Result<()> {
-    Ok(())
-}
-
 fn discard_connection_after(error: &Error) -> bool {
     matches!(
         error,
@@ -877,12 +730,92 @@ fn discard_connection_after(error: &Error) -> bool {
     )
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OperationClass {
+    Read,
+    Mutation,
+    StreamOpen,
+    ConnectionControl,
+}
+
+fn operation_class(operation: &str) -> OperationClass {
+    use super::ops;
+
+    if matches!(
+        operation,
+        ops::SESSION_EVENTS
+            | ops::SESSION_JOURNAL_SUBSCRIBE
+            | ops::TERMINAL_ATTACH
+            | ops::BROWSER_ATTACH
+            | ops::SIDEBAR_VIEW_ATTACH
+    ) {
+        OperationClass::StreamOpen
+    } else if matches!(
+        operation,
+        ops::REQUEST_CANCEL
+            | ops::STREAM_CANCEL
+            | ops::CLIENT_METADATA_UPDATE
+            | ops::CLIENT_SIZING_SET
+            | ops::CLIENT_SIZING_RELEASE
+            | ops::CLIENT_CELL_PIXELS_SET
+            | ops::CLIENT_DETACH
+            | ops::TERMINAL_VIEWER_RESIZE
+            | ops::TERMINAL_VIEWER_RELEASE
+            | ops::BROWSER_VIEWER_RESIZE
+            | ops::BROWSER_VIEWER_RELEASE
+            | ops::TERMINAL_RENDERER_GRANT_CREATE
+    ) {
+        OperationClass::ConnectionControl
+    } else if matches!(
+        operation,
+        ops::MACHINE_LIST
+            | ops::MACHINE_GET
+            | ops::SESSION_LIST
+            | ops::SESSION_GET
+            | ops::SESSION_CREATION_RESOLVE
+            | ops::SESSION_SNAPSHOT
+            | ops::SESSION_JOURNAL_PRODUCER_LIST
+            | ops::SESSION_PING
+            | ops::CLIENT_LIST
+            | ops::CLIENT_GET
+            | ops::PAIRING_REQUEST_LIST
+            | ops::FRONTEND_PROJECTION_GET
+            | ops::WORKSPACE_LIST
+            | ops::WORKSPACE_GET
+            | ops::SCREEN_LIST
+            | ops::SCREEN_GET
+            | ops::SCREEN_LAYOUT_EXPORT
+            | ops::PANE_LIST
+            | ops::PANE_GET
+            | ops::PANE_NEIGHBOR_GET
+            | ops::TAB_LIST
+            | ops::TAB_GET
+            | ops::TERMINAL_LIST
+            | ops::TERMINAL_GET
+            | ops::TERMINAL_SCREEN_READ
+            | ops::TERMINAL_STATE_READ
+            | ops::TERMINAL_HISTORY_READ
+            | ops::TERMINAL_WAIT
+            | ops::TERMINAL_WAIT_EXIT
+            | ops::TERMINAL_COPY
+            | ops::TERMINAL_PROCESS_GET
+            | ops::BROWSER_LIST
+            | ops::BROWSER_GET
+            | ops::NOTIFICATION_LIST
+            | ops::AGENT_LIST
+            | ops::SIDEBAR_VIEW_GET
+    ) {
+        OperationClass::Read
+    } else {
+        OperationClass::Mutation
+    }
+}
+
 pub(crate) fn request_envelope(
     id: &str,
     operation: &str,
     params: Value,
     idempotency_key: Option<String>,
-    origin: Option<&str>,
 ) -> Value {
     let mut envelope = Map::from_iter([
         ("protocol".to_string(), Value::String(PROTOCOL.to_string())),
@@ -893,10 +826,6 @@ pub(crate) fn request_envelope(
     ]);
     if let Some(idempotency_key) = idempotency_key {
         envelope.insert("idempotency_key".to_string(), Value::String(idempotency_key));
-    }
-    if let Some(claim) = origin {
-        let claim = Map::from_iter([("claim".to_string(), Value::String(claim.to_string()))]);
-        envelope.insert("origin".to_string(), Value::Object(claim));
     }
     Value::Object(envelope)
 }
@@ -964,7 +893,11 @@ fn decode_request_cancel_result(result: Value) -> Result<bool> {
     let object = result.as_object().ok_or_else(|| {
         Error::UnexpectedEnvelope("request cancel result must be an object".to_string())
     })?;
-    // Fields a newer daemon adds beside `canceled` are ignored, not refused.
+    if object.len() != 1 || !object.contains_key("canceled") {
+        return Err(Error::UnexpectedEnvelope(
+            "request cancel result must contain only canceled".to_string(),
+        ));
+    }
     object.get("canceled").and_then(Value::as_bool).ok_or_else(|| {
         Error::UnexpectedEnvelope("request cancel result canceled must be a boolean".to_string())
     })
@@ -1014,7 +947,21 @@ fn validate_stream_open_ack(
     } else {
         None
     };
-    // Fields a newer daemon adds are ignored, not refused.
+    let mut unknown = object
+        .keys()
+        .filter(|field| {
+            !(matches!(field.as_str(), "stream_id" | "cursor")
+                || is_view_attachment && field.as_str() == "attachment_lease")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    unknown.sort();
+    if !unknown.is_empty() {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "stream open result contains unknown fields: {}",
+            unknown.join(", ")
+        )));
+    }
     Ok(attachment_lease)
 }
 
@@ -1050,7 +997,21 @@ pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Valu
             if ok { "successful" } else { "failed" }
         )));
     }
-    // Fields a newer daemon adds are ignored, not refused.
+    let mut unknown = object
+        .keys()
+        .filter(|field| {
+            !matches!(field.as_str(), "protocol" | "type" | "id" | "ok")
+                && field.as_str() != variant_field
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    unknown.sort();
+    if !unknown.is_empty() {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "response contains unknown fields: {}",
+            unknown.join(", ")
+        )));
+    }
     if ok { Ok(object["result"].clone()) } else { Err(decode_protocol_error(&object["error"])?) }
 }
 
@@ -1058,7 +1019,18 @@ pub(crate) fn decode_protocol_error(value: &Value) -> Result<Error> {
     let object = value
         .as_object()
         .ok_or_else(|| Error::UnexpectedEnvelope("protocol error must be an object".to_string()))?;
-    // Fields a newer daemon adds are ignored, not refused.
+    let mut unknown = object
+        .keys()
+        .filter(|field| !matches!(field.as_str(), "code" | "message" | "details" | "retryable"))
+        .cloned()
+        .collect::<Vec<_>>();
+    unknown.sort();
+    if !unknown.is_empty() {
+        return Err(Error::UnexpectedEnvelope(format!(
+            "protocol error contains unknown fields: {}",
+            unknown.join(", ")
+        )));
+    }
     let code = object
         .get("code")
         .and_then(Value::as_str)
@@ -1100,12 +1072,13 @@ fn random_stream_id() -> Result<StreamId> {
     StreamId::parse(value)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
-    #![cfg_attr(not(feature = "socket-path-hash"), allow(dead_code, unused_imports))]
     use super::*;
+    use sha2::{Digest as _, Sha256};
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
     static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(1);
 
     struct SocketFile(PathBuf);
@@ -1186,27 +1159,22 @@ mod tests {
         assert!(result.is_ok(), "source-compatible constructor must not panic");
     }
 
-    #[cfg(feature = "socket-path-hash")]
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
-        // The probe also scans the root's cmux-tui-<uid>. A short root, so the
-        // hashed path fits sun_path as every product-chosen hashed path does.
+        // A short private root, as in client.rs: the probe's 256-entry scan of
+        // a shared /tmp/cmux-tui-<uid> may never reach this socket.
         let root = crate::test_roots::TempRoot::short();
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
         let session = format!("rr{}-{id}", std::process::id());
         let dir = root.path().join(crate::client::private_runtime_dir_name());
         std::fs::create_dir_all(&dir).unwrap();
         let legacy = SocketFile(dir.join(format!("{session}.sock")));
-        let uid = crate::client::current_uid_component();
+        let runtime_name = crate::client::private_runtime_dir_name();
+        let uid = runtime_name.strip_prefix("cmux-tui-").unwrap();
         let hashed_dir = root.path().join(format!("cmux-tui-hashed-{uid}"));
         std::fs::create_dir_all(&hashed_dir).unwrap();
-        let digest = crate::socket_hash::session_digest(&session).unwrap() + ".sock";
+        let digest = format!("{:x}.sock", Sha256::digest(session.as_bytes()));
         let config = Config::from_socket_path(hashed_dir.join(digest));
-        assert!(
-            crate::socket_paths::unix_socket_path_fits(&config.socket_path),
-            "{}",
-            config.socket_path.display()
-        );
         assert!(
             config
                 .socket_path

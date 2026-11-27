@@ -8,34 +8,27 @@
 //! The process-group and edge-trigger ideas are derived from herdr's
 //! `src/pane.rs` and `src/pane/agent_detection.rs` at commit
 //! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0), then adapted to
-//! the cmux journal contract. Keeping a suspended or backgrounded agent's
-//! identity follows herdr `950d012cf0cfd17737b4fff2f4982210b50b5794`
-//! (`crate::background_agent`).
+//! the cmux journal contract.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux::{
-    Client, Config, EventStreamOptions, JournalAppendResult, JournalClass, JournalEventSchema,
-    JournalIngress, JournalProducerManifest, JournalReplayPolicy, JournalSensitivity, JournalStart,
-    JournalSubject, MutationOptions, ReadScreenOptions, ResourceChange, ResourceReference,
-    Selector, Session, SessionEvent, SessionId, SessionJournalOptions, StreamCancellation,
-    Terminal, TerminalId, TerminalLifecycle,
+    Client, Config, JournalAppendResult, JournalClass, JournalEventSchema, JournalIngress,
+    JournalProducerManifest, JournalReplayPolicy, JournalSensitivity, JournalStart, JournalSubject,
+    MutationOptions, ReadScreenOptions, Selector, Session, SessionId, SessionJournalOptions,
+    StreamPoll, Terminal, TerminalId,
 };
 use serde_json::json;
 
-use crate::background_agent::{AgentJobTracker, PlatformProcesses, ProbeObservation};
 use crate::detect::{AgentState, ScreenDetectTracker};
-use crate::first_scan::{ListedTerminal, first_scan_ids};
 use crate::manifest::{DetectionInput, ManifestSet};
 use crate::process as process_discovery;
-use crate::reconnect::{Pass, run_passes};
-pub use crate::wake_kinds::journal_wake_kinds;
 
+const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 const PROCESS_GROUP_RECHECK_IDENTIFIED: Duration = Duration::from_secs(5);
 const PROCESS_GROUP_RECHECK_UNKNOWN: Duration = Duration::from_millis(500);
 const PROCESS_GROUP_RECHECK_ON_OUTPUT: Duration = Duration::from_secs(1);
@@ -68,7 +61,6 @@ struct ScannerState {
     tracker: ScreenDetectTracker,
     process_cache: ProcessGroupCache,
     process_info_cache: ProcessInfoCache,
-    agent_jobs: HashMap<String, AgentJobTracker>,
     pending_appends: HashMap<String, PendingAppend>,
     emission_nonce: String,
     emission_sequence: u64,
@@ -80,21 +72,10 @@ impl ScannerState {
             tracker: ScreenDetectTracker::default(),
             process_cache: ProcessGroupCache::default(),
             process_info_cache: ProcessInfoCache::default(),
-            agent_jobs: HashMap::new(),
             pending_appends: HashMap::new(),
             emission_nonce: format!("{}-{}", std::process::id(), now_nanos()),
             emission_sequence: 0,
         }
-    }
-
-    /// The detector holds state for `terminal_id`: a tracker entry, a probe
-    /// cache, an agent job, or a journal request that it must send again.
-    fn knows_terminal(&self, terminal_id: &str) -> bool {
-        self.tracker.tracks(terminal_id)
-            || self.pending_appends.contains_key(terminal_id)
-            || self.agent_jobs.contains_key(terminal_id)
-            || self.process_cache.entries.contains_key(terminal_id)
-            || self.process_info_cache.entries.contains_key(terminal_id)
     }
 
     fn retain_terminals(&mut self, live: &HashSet<String>) {
@@ -106,7 +87,6 @@ impl ScannerState {
         self.tracker.retain_terminals(|terminal_id| retained.contains(terminal_id));
         self.process_cache.retain_terminals(|terminal_id| retained.contains(terminal_id));
         self.process_info_cache.retain_terminals(|terminal_id| retained.contains(terminal_id));
-        self.agent_jobs.retain(|terminal_id, _| retained.contains(terminal_id));
         // Pending appends are exact journal envelopes. They can have been
         // committed even when this catalog snapshot briefly omits a terminal,
         // so the replay path owns their lifetime instead of catalog pruning.
@@ -144,53 +124,27 @@ pub fn run(socket: &str, session_name: &str, plugin_id: &str) -> Result<(), Stri
         std::env::var("CMUX_PLUGIN_GENERATION").ok().filter(|value| !value.is_empty());
     let session_selector = configured_session_selector(session_name)?;
     let mut state = ScannerState::new();
-    let started = Instant::now();
-    run_passes(
-        || {
-            connection_pass(
-                socket,
-                session_name,
-                &session_selector,
-                plugin_id,
-                plugin_generation.as_deref(),
-                &mut state,
-            )
-        },
-        thread::sleep,
-        || started.elapsed(),
-    );
-    Ok(())
-}
-
-/// One pass of the reconnect loop: connect, register the manifest, scan until
-/// the connection ends.
-fn connection_pass(
-    socket: &str,
-    session_name: &str,
-    session_selector: &Selector<SessionId>,
-    plugin_id: &str,
-    plugin_generation: Option<&str>,
-    state: &mut ScannerState,
-) -> Pass {
-    let client = match Client::connect(Config::from_socket_path(socket)) {
-        Ok(client) => client,
-        Err(error) => {
-            eprintln!("cmux-agent-screen-detection: connect failed: {error}");
-            return Pass::NotScanned;
+    loop {
+        let config = Config::from_socket_path(socket);
+        match Client::connect(config) {
+            Ok(client) => {
+                let session = client.session(session_selector.clone());
+                if let Err(error) = register_manifest(&session, plugin_id) {
+                    eprintln!("cmux-agent-screen-detection: manifest registration failed: {error}");
+                    thread::sleep(RECONNECT_INTERVAL);
+                    continue;
+                }
+                match scan_connection(&session, plugin_id, plugin_generation.as_deref(), &mut state)
+                {
+                    Ok(()) => return Ok(()),
+                    Err(error) => eprintln!(
+                        "cmux-agent-screen-detection: {session_name} connection ended: {error}"
+                    ),
+                }
+            }
+            Err(error) => eprintln!("cmux-agent-screen-detection: connect failed: {error}"),
         }
-    };
-    let session = client.session(session_selector.clone());
-    if let Err(error) = register_manifest(&session, plugin_id) {
-        eprintln!("cmux-agent-screen-detection: manifest registration failed: {error}");
-        return Pass::NotScanned;
-    }
-    let mut scanned = false;
-    match scan_connection(&session, plugin_id, plugin_generation, state, &mut scanned) {
-        Ok(()) => Pass::Done,
-        Err(error) => {
-            eprintln!("cmux-agent-screen-detection: {session_name} connection ended: {error}");
-            if scanned { Pass::Scanned } else { Pass::NotScanned }
-        }
+        thread::sleep(RECONNECT_INTERVAL);
     }
 }
 
@@ -290,85 +244,11 @@ fn event_schema(kind: &str) -> JournalEventSchema {
     }
 }
 
-/// The terminals one `session.events` item changed: each terminal upsert or
-/// delete of a delta. A snapshot wakes nothing: the scanner reads every
-/// terminal after it subscribes.
-pub fn terminal_wakes(event: &SessionEvent) -> Vec<String> {
-    let SessionEvent::Delta(delta) = event else { return Vec::new() };
-    delta
-        .changes
-        .iter()
-        .filter_map(|change| match change {
-            ResourceChange::Upsert { id: ResourceReference::Terminal(id), .. }
-            | ResourceChange::Delete { id: ResourceReference::Terminal(id), .. } => {
-                Some(id.to_string())
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-/// What one of the two wake streams tells the scan loop.
-enum Wake {
-    /// These terminals changed.
-    Terminals(Vec<String>),
-    /// The stream ended: the connection is over.
-    Ended(String),
-}
-
-/// How many wakes may wait for the scan loop. A full queue blocks the
-/// stream's reader, the daemon then ends the stream with a gap, and the
-/// reconnect reads every terminal again.
-const WAKE_QUEUE: usize = 256;
-
-/// Cancels the wake streams when the connection's scan loop returns, so
-/// their reader threads end with it.
-struct WakeStreams {
-    cancel: Vec<StreamCancellation>,
-}
-
-impl Drop for WakeStreams {
-    fn drop(&mut self) {
-        for stream in &self.cancel {
-            let _ = stream.cancel();
-        }
-    }
-}
-
-/// Reads one wake stream to its end on its own thread. `next` blocks for the
-/// stream's next item and answers the terminals it names.
-fn spawn_wake_stream(
-    name: &str,
-    ended: &'static str,
-    wakes: mpsc::SyncSender<Wake>,
-    mut next: impl FnMut() -> Result<Option<Vec<String>>, String> + Send + 'static,
-) -> Result<(), String> {
-    thread::Builder::new()
-        .name(name.into())
-        .spawn(move || {
-            loop {
-                let wake = match next() {
-                    Ok(Some(terminals)) if terminals.is_empty() => continue,
-                    Ok(Some(terminals)) => Wake::Terminals(terminals),
-                    Ok(None) => Wake::Ended(ended.to_string()),
-                    Err(error) => Wake::Ended(error),
-                };
-                let last = matches!(wake, Wake::Ended(_));
-                if wakes.send(wake).is_err() || last {
-                    return;
-                }
-            }
-        })
-        .map(|_| ())
-        .map_err(|error| error.to_string())
-}
-
 fn scan_connection(
     session: &Session,
     plugin_id: &str,
     plugin_generation: Option<&str>,
     state: &mut ScannerState,
-    scanned: &mut bool,
 ) -> Result<(), String> {
     let manifests = match ManifestSet::from_environment() {
         Ok(manifests) => manifests,
@@ -378,46 +258,25 @@ fn scan_connection(
         }
     };
     // Subscribe before taking the initial inventory. Output/lifecycle changes
-    // that race the read are retained by the streams, so there is no lost wakeup.
+    // that race the read are retained by the stream, so there is no lost wakeup.
     // Agent reports are excluded: the plugin must never wake itself through
     // its own journal-to-resource projection.
-    let mut journal = session
+    let mut events = session
         .journal(SessionJournalOptions {
             start: Some(JournalStart::Tail),
             follow: Some(true),
-            kinds: journal_wake_kinds(),
+            kinds: vec![
+                "terminal.*".into(),
+                "workspace.*".into(),
+                "tab.*".into(),
+                "pane.*".into(),
+                "screen.*".into(),
+            ],
             max_sensitivity: Some(JournalSensitivity::Sensitive),
             ..Default::default()
         })
         .map_err(|error| error.to_string())?;
-    // A terminal's record changes (a live fact needs no journal row).
-    let mut records =
-        session.events(EventStreamOptions::default()).map_err(|error| error.to_string())?;
-    let _streams = WakeStreams { cancel: vec![journal.cancellation(), records.cancellation()] };
-    let (sender, wakes) = mpsc::sync_channel(WAKE_QUEUE);
-    spawn_wake_stream(
-        "journal-wakes",
-        "terminal journal stream ended",
-        sender.clone(),
-        move || {
-            let item = journal.recv().map_err(|error| error.to_string())?;
-            Ok(item.map(|item| {
-                item.value
-                    .subjects
-                    .into_iter()
-                    .filter(|subject| subject.kind == "terminal")
-                    .map(|subject| subject.id)
-                    .collect()
-            }))
-        },
-    )?;
-    spawn_wake_stream("record-wakes", "session event stream ended", sender, move || {
-        let item = records.recv().map_err(|error| error.to_string())?;
-        Ok(item.map(|item| terminal_wakes(&item.value)))
-    })?;
     let snapshots = session.terminal_snapshots().map_err(|error| error.to_string())?;
-    // From here the pass has its wake streams and the terminals of the session.
-    *scanned = true;
     let live_ids = snapshots.iter().map(|item| item.id.to_string()).collect::<HashSet<_>>();
     retry_pending_appends_without_live_terminal(
         session,
@@ -427,13 +286,8 @@ fn scan_connection(
     );
     state.retain_terminals(&live_ids);
     let mut deadlines = HashMap::<String, Instant>::new();
-    let listed = snapshots.iter().map(|item| ListedTerminal {
-        id: item.id.as_str(),
-        exited: item.lifecycle == TerminalLifecycle::Exited,
-        known: state.knows_terminal(item.id.as_str()),
-    });
-    for id in first_scan_ids(listed) {
-        deadlines.insert(id.to_string(), Instant::now());
+    for id in live_ids {
+        deadlines.insert(id, Instant::now());
     }
     loop {
         let now = Instant::now();
@@ -471,28 +325,28 @@ fn scan_connection(
                     .or_insert(pending.retry_not_before);
             }
         }
-        let wake = match deadlines.values().min() {
-            Some(deadline) => {
-                match wakes.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                    Ok(wake) => wake,
-                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        return Err("terminal wake streams ended".into());
-                    }
-                }
-            }
-            None => wakes.recv().map_err(|_| "terminal wake streams ended".to_string())?,
+        let event = match deadlines.values().min() {
+            Some(deadline) => match events
+                .next_timeout(deadline.saturating_duration_since(Instant::now()))
+                .map_err(|error| error.to_string())?
+            {
+                StreamPoll::Item(item) => Some(item),
+                StreamPoll::TimedOut => continue,
+                StreamPoll::End => return Err("terminal journal stream ended".into()),
+            },
+            None => events.recv().map_err(|error| error.to_string())?,
         };
-        let terminals = match wake {
-            Wake::Terminals(terminals) => terminals,
-            Wake::Ended(error) => return Err(error),
+        let Some(event) = event else {
+            return Err("terminal journal stream ended".into());
         };
-        for id in terminals {
+        for subject in event.value.subjects.iter().filter(|subject| subject.kind == "terminal") {
             // Coalesce a burst without deferring forever under flowing output.
             // A quiet session blocks on recv and makes zero catalog/process/screen reads.
-            state.process_cache.entries.remove(&id);
-            state.process_info_cache.entries.remove(&id);
-            deadlines.entry(id).or_insert_with(|| Instant::now() + Duration::from_millis(25));
+            deadlines
+                .entry(subject.id.clone())
+                .or_insert_with(|| Instant::now() + Duration::from_millis(25));
+            state.process_cache.entries.remove(&subject.id);
+            state.process_info_cache.entries.remove(&subject.id);
         }
     }
 }
@@ -780,46 +634,12 @@ fn scan_terminal(
     // it on the terminal snapshot, so unchanged screens do not cross the
     // socket or invoke the terminal parser. Older daemons fall back to a
     // local text hash below.
-    // A size change (pane move, split, resize) makes the agent redraw; the
-    // tracker does not read that redraw as work.
-    state.tracker.observe_size(&terminal_id, snapshot.cols, snapshot.rows, now);
     let revision_due = snapshot
         .stream_revision
         .map(|revision| state.tracker.observe_revision(&terminal_id, revision, now));
-    let job_match = process_discovery::identify_job_process(manifests, &job);
-    let agent_pid = job_match.as_ref().map(|(_, _, pid)| *pid);
-    let manifest = job_match.map(|(manifest, _, _)| manifest).or_else(|| {
-        process_discovery::identify_process_info(manifests, &process).map(|(manifest, _)| manifest)
-    });
+    let manifest = process_discovery::identify_job_with_process_fallback(manifests, &job, &process)
+        .map(|(manifest, _)| manifest);
     let process_group_id = state.process_cache.authoritative_group_id(&terminal_id);
-    let current_agent = state.tracker.foreground_agent(&terminal_id).map(str::to_owned);
-    let held = state.agent_jobs.entry(terminal_id.clone()).or_default().hold(
-        ProbeObservation {
-            shell_pid: process.pid,
-            current_agent: current_agent.as_deref(),
-            identified_agent: manifest.map(|manifest| manifest.id()),
-            identified_pid: agent_pid,
-            foreground_group: process_group_id,
-        },
-        &PlatformProcesses,
-    );
-    if held {
-        // The agent was suspended or backgrounded (herdr 950d012c). A probe of
-        // its own identity, without a group, resets the miss window and makes
-        // no identity edge. The visible screen belongs to the foreground job,
-        // so it is not read. Unknown-cadence probes notice the job's exit or
-        // return quickly.
-        let _ = state.tracker.note_foreground_job_at_with_revision(
-            &terminal_id,
-            current_agent.as_deref(),
-            None,
-            snapshot.stream_revision,
-            now,
-        );
-        state.process_cache.mark_identified(&terminal_id, false, now);
-        state.process_info_cache.mark_identified(&terminal_id, false, now);
-        return Ok(());
-    }
     let identity_edge = state.tracker.note_foreground_job_at_with_revision(
         &terminal_id,
         manifest.map(|item| item.id()),
@@ -930,7 +750,16 @@ fn scan_terminal(
         if metadata_fresh { screen.osc_progress.as_deref().unwrap_or_default() } else { "" };
     let mut detection =
         manifest.detect(DetectionInput { screen: &screen.text, osc_title, osc_progress });
-    state.tracker.apply_output_activity(&terminal_id, &mut detection, now);
+    // Flowing PTY output is a working signal for the screen source. It only
+    // upgrades an idle read and owes one expiry re-evaluation; hooks still
+    // win in the core roster reducer.
+    if !detection.skip_state_update
+        && detection.state == crate::manifest::ScreenState::Idle
+        && state.tracker.output_active(&terminal_id, now)
+    {
+        detection.state = crate::manifest::ScreenState::Working;
+        state.tracker.note_activity_upgrade(&terminal_id);
+    }
     if let Some(emission) = state.tracker.record_detection_at(
         &terminal_id,
         Some((manifest.id(), detection)),
@@ -1206,4 +1035,269 @@ fn emission_idempotency_key(nonce: &str, sequence: u64) -> String {
 }
 
 #[cfg(test)]
-mod knows_terminal_tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_session_selector_does_not_fall_back_to_current() {
+        let id = SessionId::parse("session_00000000000000000000000000000001").unwrap();
+        assert_eq!(configured_session_selector(id.as_str()).unwrap(), Selector::id(id));
+        assert_eq!(configured_session_selector("secondary").unwrap(), Selector::name("secondary"));
+        assert!(configured_session_selector("   ").is_err());
+    }
+
+    fn cached(
+        checked_at: Instant,
+        identified: bool,
+        stream_revision: Option<u64>,
+    ) -> CachedProcessInfo {
+        CachedProcessInfo {
+            process: cmux::ProcessInfoResult {
+                pid: 42,
+                executable: Some("shell".into()),
+                argv: vec!["shell".into()],
+                cwd: None,
+                foreground_cwd: None,
+                foreground_executable: Some("shell".into()),
+                children: Vec::new(),
+            },
+            checked_at,
+            stream_revision,
+            identified,
+            acquisition_started_at: None,
+        }
+    }
+
+    fn cached_with_acquisition_start(
+        checked_at: Instant,
+        acquisition_started_at: Instant,
+    ) -> CachedProcessInfo {
+        let mut entry = cached(checked_at, true, Some(7));
+        entry.acquisition_started_at = Some(acquisition_started_at);
+        entry
+    }
+
+    fn cached_group(
+        checked_at: Instant,
+        identified: bool,
+        stream_revision: Option<u64>,
+    ) -> CachedProcessGroup {
+        CachedProcessGroup {
+            pid: 42,
+            foreground_name: Some("shell".into()),
+            executable: Some("shell".into()),
+            argv: vec!["shell".into()],
+            checked_at,
+            stream_revision,
+            job: process_discovery::ForegroundJob { process_group_id: 42, processes: Vec::new() },
+            authoritative: true,
+            identified,
+            acquisition_started_at: None,
+        }
+    }
+
+    #[test]
+    fn identified_processes_use_a_long_quiet_recheck_interval() {
+        let start = Instant::now();
+        let entry = cached(start, true, Some(7));
+        assert!(!process_info_refresh_due(
+            &entry,
+            Some(7),
+            start + PROCESS_INFO_RECHECK_IDENTIFIED - Duration::from_millis(1),
+        ));
+        assert!(
+            process_info_refresh_due(&entry, Some(7), start + PROCESS_INFO_RECHECK_IDENTIFIED,)
+        );
+    }
+
+    #[test]
+    fn output_changes_make_identified_processes_recheck_within_one_second() {
+        let start = Instant::now();
+        let entry = cached(start, true, Some(7));
+        assert!(!process_info_refresh_due(
+            &entry,
+            Some(8),
+            start + PROCESS_INFO_RECHECK_ON_OUTPUT - Duration::from_millis(1),
+        ));
+        assert!(process_info_refresh_due(&entry, Some(8), start + PROCESS_INFO_RECHECK_ON_OUTPUT,));
+    }
+
+    #[test]
+    fn missing_output_revision_keeps_process_probe_bounded() {
+        let start = Instant::now();
+        let entry = cached(start, true, None);
+        assert!(!process_info_refresh_due(
+            &entry,
+            None,
+            start + PROCESS_INFO_RECHECK_ON_OUTPUT - Duration::from_millis(1),
+        ));
+        assert!(process_info_refresh_due(&entry, None, start + PROCESS_INFO_RECHECK_ON_OUTPUT,));
+    }
+
+    #[test]
+    fn newly_identified_processes_use_adaptive_acquisition_rechecks() {
+        let start = Instant::now();
+        let entry = cached_with_acquisition_start(start, start);
+        assert!(!process_info_refresh_due(
+            &entry,
+            Some(7),
+            start + PROCESS_ACQUISITION_FAST_RECHECK - Duration::from_millis(1),
+        ));
+        assert!(process_info_refresh_due(
+            &entry,
+            Some(7),
+            start + PROCESS_ACQUISITION_FAST_RECHECK,
+        ));
+        let slow_check =
+            cached_with_acquisition_start(start + PROCESS_ACQUISITION_FAST_WINDOW, start);
+        assert!(!process_info_refresh_due(
+            &slow_check,
+            Some(7),
+            slow_check.checked_at + PROCESS_ACQUISITION_SLOW_RECHECK - Duration::from_millis(1),
+        ));
+        assert!(process_info_refresh_due(
+            &slow_check,
+            Some(7),
+            slow_check.checked_at + PROCESS_ACQUISITION_SLOW_RECHECK,
+        ));
+    }
+
+    #[test]
+    fn unknown_processes_recheck_quickly_for_spawn_detection() {
+        let start = Instant::now();
+        let entry = cached(start, false, Some(7));
+        assert!(!process_info_refresh_due(
+            &entry,
+            Some(8),
+            start + PROCESS_INFO_RECHECK_UNKNOWN - Duration::from_millis(1),
+        ));
+        assert!(process_info_refresh_due(&entry, Some(8), start + PROCESS_INFO_RECHECK_UNKNOWN,));
+    }
+
+    #[test]
+    fn unknown_process_groups_recheck_quickly_for_spawn_detection() {
+        let start = Instant::now();
+        let entry = cached_group(start, false, Some(7));
+        assert!(!process_group_refresh_due(
+            &entry,
+            Some(8),
+            start + PROCESS_GROUP_RECHECK_UNKNOWN - Duration::from_millis(1),
+        ));
+        assert!(process_group_refresh_due(&entry, Some(8), start + PROCESS_GROUP_RECHECK_UNKNOWN,));
+    }
+
+    #[test]
+    fn identified_process_groups_recheck_on_output_within_one_second() {
+        let start = Instant::now();
+        let entry = cached_group(start, true, Some(7));
+        assert!(!process_group_refresh_due(
+            &entry,
+            Some(8),
+            start + PROCESS_GROUP_RECHECK_ON_OUTPUT - Duration::from_millis(1),
+        ));
+        assert!(process_group_refresh_due(
+            &entry,
+            Some(8),
+            start + PROCESS_GROUP_RECHECK_ON_OUTPUT,
+        ));
+    }
+
+    #[test]
+    fn missing_output_revision_keeps_process_group_probe_bounded() {
+        let start = Instant::now();
+        let entry = cached_group(start, true, None);
+        assert!(!process_group_refresh_due(
+            &entry,
+            None,
+            start + PROCESS_GROUP_RECHECK_ON_OUTPUT - Duration::from_millis(1),
+        ));
+        assert!(process_group_refresh_due(&entry, None, start + PROCESS_GROUP_RECHECK_ON_OUTPUT,));
+    }
+
+    #[test]
+    fn process_group_cache_refreshes_when_a_same_pid_runtime_reexecs() {
+        let now = Instant::now();
+        let first = cmux::ProcessInfoResult {
+            pid: 0,
+            executable: Some("node".into()),
+            argv: vec!["node".into(), "/tmp/agent-a".into()],
+            cwd: None,
+            foreground_cwd: None,
+            foreground_executable: Some("node".into()),
+            children: Vec::new(),
+        };
+        let second = cmux::ProcessInfoResult {
+            argv: vec!["node".into(), "/tmp/agent-b".into()],
+            ..first.clone()
+        };
+        let mut cache = ProcessGroupCache::default();
+
+        let _ = cache.job_for("terminal-1", &first, Some(7), now);
+        let second_job = cache.job_for("terminal-1", &second, Some(7), now);
+
+        assert_eq!(second_job.processes[0].argv, second.argv);
+    }
+
+    #[test]
+    fn emission_keys_are_unique_for_one_connection() {
+        let first = emission_idempotency_key("17-123456789", 0);
+        let second = emission_idempotency_key("17-123456789", 1);
+        assert_ne!(first, second);
+        assert!(first.len() <= 128);
+        assert!(second.len() <= 128);
+    }
+
+    #[test]
+    fn merged_stream_revision_uses_the_newest_available_host_value() {
+        assert_eq!(merged_stream_revision(None, None), None);
+        assert_eq!(merged_stream_revision(Some(7), None), Some(7));
+        assert_eq!(merged_stream_revision(None, Some(8)), Some(8));
+        assert_eq!(merged_stream_revision(Some(7), Some(8)), Some(8));
+        assert_eq!(merged_stream_revision(Some(9), Some(8)), Some(9));
+    }
+
+    #[test]
+    fn terminal_retention_keeps_uncertain_appends_for_replay() {
+        let terminal_id = "terminal-1".to_string();
+        let mut state = ScannerState::new();
+        let now = Instant::now();
+        state.tracker.note_foreground_agent_at(&terminal_id, Some("codex"), now);
+        let emission =
+            state.tracker.record_identity_presence_at(&terminal_id, "codex", now).unwrap();
+        state.tracker.commit_emission(&emission);
+        state.pending_appends.insert(
+            terminal_id.clone(),
+            PendingAppend {
+                emission: crate::detect::ScreenDetectEmission {
+                    terminal_id: terminal_id.clone(),
+                    agent: "codex".into(),
+                    state: AgentState::Working,
+                    matched_rule: None,
+                    visible_idle: false,
+                    visible_blocker: false,
+                    visible_working: true,
+                },
+                ingress: JournalIngress {
+                    producer_id: "plugin".into(),
+                    manifest_version: 1,
+                    kind: "plugin.agent.state.changed".into(),
+                    schema_version: 1,
+                    occurred_at_ms: None,
+                    subjects: Vec::new(),
+                    sensitivity: None,
+                    payload: json!({}),
+                    causation_id: None,
+                    correlation_id: None,
+                },
+                idempotency_key: "key".into(),
+                attempts: 1,
+                retry_not_before: Instant::now(),
+            },
+        );
+
+        state.retain_terminals(&HashSet::new());
+
+        assert!(state.pending_appends.contains_key(&terminal_id));
+        assert!(state.tracker.has_live_emission(&terminal_id));
+    }
+}

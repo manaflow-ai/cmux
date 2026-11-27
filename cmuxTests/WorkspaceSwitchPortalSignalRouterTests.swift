@@ -1,0 +1,70 @@
+import AppKit
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+struct WorkspaceSwitchPortalSignalRouterTests {
+    @Test
+    func relaysOnlySignalsFromItsAttachedWindow() {
+        let sourceCenter = NotificationCenter()
+        let router = WorkspaceSwitchPortalSignalRouter(notificationCenter: sourceCenter)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.orderOut(nil)
+            otherWindow.orderOut(nil)
+        }
+        // Use a concrete content rect instead of converting the deferred window's
+        // frame.  A deferred NSWindow has no realized frame on hosted runners;
+        // asking AppKit to convert that sentinel can trap while bridging a
+        // negative CGFloat to an unsigned backing-store dimension.
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        otherWindow.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        router.attach(to: window)
+
+        var relayedCount = 0
+        let observer = router.notificationCenter.addObserver(
+            forName: .terminalPortalVisibilityDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            relayedCount += 1
+        }
+        defer { router.notificationCenter.removeObserver(observer) }
+
+        let ownedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: .zero)
+        )
+        window.contentView?.addSubview(ownedView)
+        router.observe(
+            terminalHostedView: ownedView,
+            terminalSurface: nil,
+            browserWebView: nil
+        )
+        sourceCenter.post(name: .terminalPortalVisibilityDidChange, object: ownedView)
+        #expect(relayedCount == 1)
+
+        let unrelatedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: .zero)
+        )
+        otherWindow.contentView?.addSubview(unrelatedView)
+        sourceCenter.post(name: .terminalPortalVisibilityDidChange, object: unrelatedView)
+        #expect(relayedCount == 1)
+    }
+}

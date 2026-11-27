@@ -1,0 +1,67 @@
+{
+  "launch": {
+    "args": [
+      "-fileExplorer.isVisible",
+      "YES"
+    ]
+  },
+  "steps": [
+    {
+      "wait": 1.5
+    },
+    {
+      "click": "RightSidebarModeButton.machines"
+    },
+    {
+      "wait": 1.2
+    },
+    {
+      "shot": "10-right-sidebar-cloud"
+    },
+    {
+      "menu": [
+        "Help",
+        "Cloud Sidebar Spacing Lab…"
+      ]
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "shot": "20-lab-compact",
+      "screen": true
+    },
+    {
+      "tree": "20-lab-compact"
+    },
+    {
+      "click": "CloudSidebarDebugLab.preset"
+    },
+    {
+      "wait": 0.6
+    },
+    {
+      "tree": "21-preset-menu"
+    },
+    {
+      "key": "a"
+    },
+    {
+      "key": "return"
+    },
+    {
+      "wait": 1.2
+    },
+    {
+      "shot": "30-lab-aero",
+      "screen": true
+    },
+    {
+      "tree": "30-lab-aero"
+    }
+  ],
+  "paths": [
+    "Sources/Cloud/*",
+    "Packages/macOS/CmuxCloud/*"
+  ]
+}

@@ -44,8 +44,8 @@ SECONDARY_MAX_WAIT_SECONDS = 300.0
 # so a publish never bursts into the secondary limit itself.
 WRITE_PAUSE_SECONDS = 1.0
 _sleep = time.sleep  # tests replace this, never the shared time module
-_clock = time.monotonic  # the rate-limit budget's clock, replaced the same way
 _pause = time.sleep  # the pause between writes, kept apart from the rate-limit waits
+_monotonic = time.monotonic  # tests replace this, never the shared time module
 _rate_limit_lock = threading.Lock()
 _rate_limit_deadline: float | None = None
 _secondary_waits = 0
@@ -149,10 +149,14 @@ def pause_between_writes() -> None:
     """At most one write starts per WRITE_PAUSE_SECONDS across this process's threads."""
     global _last_write
     with _write_lock:
-        now = time.monotonic()
-        if _last_write is not None and now - _last_write < WRITE_PAUSE_SECONDS:
-            _pause(WRITE_PAUSE_SECONDS - (now - _last_write))
-        _last_write = time.monotonic()
+        now = _monotonic()
+        # Clamped to the spacing itself: `_last_write` is only an elapsed time while it came from
+        # this clock. A stamp from ahead of it reads as a negative elapsed, and an unclamped
+        # spacing would then wait the whole difference -- hours, for a 1 s spacing.
+        elapsed = max(now - _last_write, 0.0) if _last_write is not None else None
+        if elapsed is not None and elapsed < WRITE_PAUSE_SECONDS:
+            _pause(WRITE_PAUSE_SECONDS - elapsed)
+        _last_write = _monotonic()
 
 
 def parse_headers(text: str) -> dict[str, str]:
@@ -172,12 +176,13 @@ def backoff(attempt: int, error: RequestError | None = None) -> None:
         return
     global _rate_limit_deadline, _secondary_waits
     with _rate_limit_lock:
-        now = _clock()
+        now = _monotonic()
         if _rate_limit_deadline is None:
             _rate_limit_deadline = now + RATE_LIMIT_BUDGET_SECONDS
-        # `deadline - now` can come out a rounding step above the budget it was built from (600.0000000000001),
-        # so the budget itself is the last cap: a wait never exceeds it.
-        left = min(_rate_limit_deadline - now, float(RATE_LIMIT_BUDGET_SECONDS), _job_wait_left())
+        # The budget itself caps the wait, not only the deadline read back from it: a float
+        # `(now + budget) - now` can return a hair more than the budget (600.0000000000018 for a
+        # 600 s budget on some clocks), and a wait over the cap it was granted is a bug.
+        left = min(_rate_limit_deadline - now, _job_wait_left(), float(RATE_LIMIT_BUDGET_SECONDS))
         if error.wait is None:
             wanted = min(SECONDARY_FIRST_WAIT_SECONDS * 2 ** _secondary_waits, SECONDARY_MAX_WAIT_SECONDS)
             _secondary_waits += 1

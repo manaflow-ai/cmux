@@ -69,8 +69,6 @@ fn title_and_pty_callbacks() {
         on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
         on_title_changed: Some(Box::new(move || *tc.lock().unwrap() = true)),
         on_bell: None,
-        on_clipboard_read: None,
-        on_program_status: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 
@@ -92,8 +90,6 @@ fn default_colors_answer_osc_queries() {
         on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
         on_title_changed: None,
         on_bell: None,
-        on_clipboard_read: None,
-        on_program_status: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 
@@ -839,84 +835,6 @@ fn vt_replay_preserves_plain_url_text_across_soft_wrapped_rows() {
     assert!(target_text.contains("#frag-B"), "target text was {target_text:?}");
 }
 
-/// Source terminal with history: numbered short lines, a long line that
-/// soft-wraps at the source width, and enough lines after it that the long
-/// line is in the scrollback.
-fn terminal_with_wrapped_history(cols: u16, long: &str) -> Terminal {
-    let mut source = Terminal::new(cols, 6, 1000, Callbacks::default()).unwrap();
-    for i in 0..30 {
-        source.vt_write(format!("before-{i:02}\r\n").as_bytes());
-    }
-    source.vt_write(long.as_bytes());
-    source.vt_write(b"\r\n");
-    for i in 0..20 {
-        source.vt_write(format!("after-{i:02}\r\n").as_bytes());
-    }
-    source.vt_write(b"$ ");
-    source
-}
-
-fn long_line(len: usize) -> String {
-    (0..len).map(|i| char::from(b'a' + (i % 26) as u8)).collect()
-}
-
-#[test]
-fn history_replay_keeps_soft_wraps_so_the_line_reflows_at_a_new_width() {
-    // A 60-character line soft-wrapped at 54 columns (54 + 6), restored from
-    // a replay and then shown at 48 columns, must re-flow to 48 + 12 as the
-    // live terminal does, not stay split where the old width wrapped it.
-    let long = long_line(60);
-    let mut source = terminal_with_wrapped_history(54, &long);
-    assert!(source.history_rows() > 0, "the long line must be in the history");
-
-    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
-    let mut target = Terminal::new(54, 6, 1000, Callbacks::default()).unwrap();
-    target.vt_write(&replay);
-    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
-    assert_eq!(target.history_rows(), source.history_rows(), "physical rows moved");
-    assert_eq!(target.cursor_position(), source.cursor_position());
-
-    source.resize(48, 6, 8, 16).unwrap();
-    target.resize(48, 6, 8, 16).unwrap();
-    let source_text = source.plain_text().unwrap();
-    let target_text = target.plain_text().unwrap();
-    let expected = format!("\n{}\n{}\n", &long[..48], &long[48..]);
-    assert!(source_text.contains(&expected), "{source_text:?}");
-    assert_eq!(target_text, source_text, "the restored line did not re-flow");
-}
-
-#[test]
-fn history_replay_keeps_rows_where_a_wrap_cannot_be_reprinted() {
-    // A wrapped row whose continuation was erased at its start cannot be
-    // re-created by printing on; the replay keeps that row's break and every
-    // physical row in place.
-    let long = format!("{}\x1b[1K", long_line(30));
-    let mut source = terminal_with_wrapped_history(20, &long);
-    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
-    let mut target = Terminal::new(20, 6, 1000, Callbacks::default()).unwrap();
-    target.vt_write(&replay);
-    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
-    assert_eq!(target.history_rows(), source.history_rows(), "physical rows moved");
-    assert_eq!(target.cursor_position(), source.cursor_position());
-}
-
-#[test]
-fn history_replay_keeps_a_wide_character_soft_wrap() {
-    // 5 + 32 cells at 20 columns: the first row ends in the spacer a wide
-    // character leaves when it wraps.
-    let wide = format!("wide {}", "中文".repeat(8));
-    let mut source = terminal_with_wrapped_history(20, &wide);
-    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
-    let mut target = Terminal::new(20, 6, 1000, Callbacks::default()).unwrap();
-    target.vt_write(&replay);
-    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
-    assert_eq!(target.history_rows(), source.history_rows(), "physical rows moved");
-
-    source.resize(26, 6, 8, 16).unwrap();
-    target.resize(26, 6, 8, 16).unwrap();
-    assert_eq!(target.plain_text().unwrap(), source.plain_text().unwrap());
-}
-
 #[test]
 fn selection_text_absolute_spans_scrolled_out_rows() {
     let mut term = Terminal::new(20, 3, 1000, Callbacks::default()).unwrap();
@@ -1044,23 +962,17 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert!(!term.palette_overridden(7));
     assert!(term.palette_overridden(8), "query must not alter authored state");
 
-    // Protocol integers are plain ASCII decimal (ghostty-next lib/parse_int):
-    // no digit separators and no sign.
-    let default_eighteen = state.palette_color(18);
     term.vt_write(b"\x1b]21;1_8=#112233;_19=#ffffff;20_=#ffffff\x1b\\");
-    assert!(!term.palette_overridden(18), "OSC 21 keys take no digit separators");
+    assert!(term.palette_overridden(18), "OSC 21 must accept Zig's embedded underscores");
     assert!(!term.palette_overridden(19), "OSC 21 must reject a leading underscore");
     assert!(!term.palette_overridden(20), "OSC 21 must reject a trailing underscore");
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(18), default_eighteen);
+    assert_eq!(state.palette_color(18), Rgb { r: 0x11, g: 0x22, b: 0x33 });
 
     term.vt_write(b"\x1b]4;+19;#223344;-0;#001122;20_;#ffffff\x1b\\");
-    assert!(!term.palette_overridden(19), "OSC 4 indices take no sign");
-    assert!(!term.palette_overridden(0), "OSC 4 indices take no sign");
+    assert!(term.palette_overridden(19), "OSC 4 must accept Zig's positive sign grammar");
+    assert!(term.palette_overridden(0), "OSC 4 must accept Zig's negative zero grammar");
     assert!(!term.palette_overridden(20), "OSC 4 must reject a trailing underscore");
-    term.vt_write(b"\x1b]4;19;#223344;0;#001122\x1b\\");
-    assert!(term.palette_overridden(19));
-    assert!(term.palette_overridden(0));
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(19), Rgb { r: 0x22, g: 0x33, b: 0x44 });
     assert_eq!(state.palette_color(0), Rgb { r: 0x00, g: 0x11, b: 0x22 });
@@ -1136,11 +1048,10 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(0), Rgb { r: 0x10, g: 0x10, b: 0x10 });
 
-    let default_sixteen = state.palette_color(16);
     term.vt_write(b"\x1b]4;16;#161616\x18");
-    assert!(!term.palette_overridden(16), "CAN cancels the OSC (ghostty-next)");
+    assert!(term.palette_overridden(16), "CAN dispatches Ghostty's valid OSC prefix");
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(16), default_sixteen);
+    assert_eq!(state.palette_color(16), Rgb { r: 0x16, g: 0x16, b: 0x16 });
     term.vt_write(b"\x1bPab\x1b]4;17;#171717\x07");
     assert!(term.palette_overridden(17), "ESC must leave DCS before the next OSC");
     state.update(&mut term).unwrap();
@@ -1161,14 +1072,8 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     );
     let revision_before_ris = term.color_revision();
     let reapply_before_ris = term.color_reapply_revision();
-    let default_four = {
-        let mut fresh = Terminal::new(80, 2, 0, Callbacks::default()).unwrap();
-        let mut fresh_state = RenderState::new().unwrap();
-        fresh_state.update(&mut fresh).unwrap();
-        fresh_state.palette_color(4)
-    };
     term.vt_write(b"\x1bc");
-    assert!(!term.palette_overridden(4), "RIS resets palette overrides (ghostty-next)");
+    assert!(term.palette_overridden(4), "Ghostty RIS preserves palette overrides");
     assert_ne!(term.color_revision(), revision_before_ris, "RIS must trigger frontend reapply");
     assert_ne!(
         term.color_reapply_revision(),
@@ -1176,7 +1081,7 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
         "RIS must advance the forced palette-reapply revision"
     );
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(4), default_four);
+    assert_eq!(state.palette_color(4), Rgb { r: 1, g: 2, b: 3 });
 }
 
 #[test]
@@ -1293,34 +1198,6 @@ fn theme_portable_replay_omits_terminal_color_osc_state() {
     assert!(target.viewport_text().unwrap().contains("hello"));
 }
 
-/// zsh PROMPT_SP pads a partial line past the right edge so the terminal
-/// wraps, returns to column 0 and starts the prompt there (OSC 133;A). A
-/// resize must not reflow the prompt onto the padded row: the shell redraws
-/// it from column 0, so a joined prompt leaves a stale copy on screen.
-/// ghostty-next 59a70ffc6 (OSC 133 prompts start their own logical line).
-#[test]
-fn osc133_prompt_after_padded_partial_line_stays_on_its_own_line_across_resize() {
-    let mut term = Terminal::new(10, 5, 1000, Callbacks::default()).unwrap();
-    term.vt_write(b"ab%        \r \r");
-    term.vt_write(b"\x1b]133;A;redraw=0\x07$ \x1b]133;B\x07ls");
-
-    term.resize(20, 5, 8, 16).unwrap();
-    let mut rs = RenderState::new().unwrap();
-    rs.update(&mut term).unwrap();
-    let lines = rs.text_lines().unwrap();
-    assert_eq!(lines[0], "ab%", "padded row after widening: {lines:?}");
-    assert_eq!(lines[1], "$ ls", "prompt row after widening: {lines:?}");
-
-    term.resize(6, 5, 8, 16).unwrap();
-    rs.update(&mut term).unwrap();
-    let lines = rs.text_lines().unwrap();
-    assert!(lines.iter().any(|line| line == "$ ls"), "prompt row after narrowing: {lines:?}");
-    assert!(
-        !lines.iter().any(|line| line.contains('%') && line.contains('$')),
-        "prompt joined the padded row: {lines:?}"
-    );
-}
-
 #[test]
 fn empty_kitty_graphics_probe_keeps_checkpoint_replay_readable() {
     let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
@@ -1377,109 +1254,5 @@ fn completed_kitty_overflow_blocks_later_control_string_recovery() {
             );
             assert!(matches!(term.vt_replay_bounded(2 * 1024 * 1024), Err(Error::OutOfSpace)));
         }
-    }
-}
-
-/// The Mac viewer loads a Ghostty config, whose default
-/// `grapheme-width-method = unicode` turns DEC mode 2027 on. The host grid
-/// must measure graphemes the same way, or the viewer and the daemon put
-/// the cursor in different columns after an emoji (and reflow differently on
-/// resize). It must also survive a full reset, as Ghostty's default does.
-#[test]
-fn grapheme_clustering_is_on_by_default_like_the_ghostty_viewer() {
-    let mut term = Terminal::new(20, 4, 1000, Callbacks::default()).unwrap();
-    assert!(term.mode(2027, false), "mode 2027 must default on");
-    term.vt_write("\u{2764}\u{fe0f}x".as_bytes());
-    assert_eq!(term.cursor_position(), Some((3, 0)), "VS16 emoji is two columns wide");
-    term.vt_write(b"\x1bc");
-    assert!(term.mode(2027, false), "a full reset keeps the default");
-    term.vt_write(b"\x1b[?2027l");
-    assert!(!term.mode(2027, false), "programs may still turn it off");
-}
-
-// Resize audit item 7: a cell-pixel-only resize keeps the history rows, so
-// it must not make frontends read the history pages again.
-#[test]
-fn resize_audit_cell_pixel_only_resize_keeps_the_history_epoch() {
-    let mut term = Terminal::new(10, 4, 1000, Callbacks::default()).unwrap();
-    term.resize(10, 4, 8, 16).unwrap();
-    for line in 0..20 {
-        term.vt_write(format!("line {line}\r\n").as_bytes());
-    }
-    let epoch = term.history_epoch();
-    term.resize(10, 4, 9, 18).unwrap();
-    assert_eq!(term.history_epoch(), epoch, "pixel-only resize");
-    term.resize(12, 4, 9, 18).unwrap();
-    assert_ne!(term.history_epoch(), epoch, "a grid resize reflows the history");
-}
-
-/// The screen text with trailing blanks and trailing empty rows removed.
-fn trimmed_text(term: &mut Terminal) -> String {
-    let text = term.plain_text().unwrap();
-    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
-    let end = lines.iter().rposition(|line| !line.is_empty()).map_or(0, |i| i + 1);
-    lines[..end].join("\n")
-}
-
-/// manaflow-ai/cmux#21341: a Powerlevel10k "lean, 2 lines" prompt under
-/// Ghostty's zsh integration. Each narrowing step must let zsh's SIGWINCH
-/// redraw replace the whole prompt, not leave a copy of line 1 above it.
-/// libghostty-vt clears a prompt on resize only after the shell opts in
-/// with `133;A;redraw=1` (the C API defaults to no redraw), so the prompt
-/// here opts in.
-#[test]
-fn resize_narrowing_a_padded_two_line_prompt_leaves_no_copy_of_line_one() {
-    // zsh draws the prompt: line 1 padded close to the width, then line 2.
-    // p10k owns PS1, so the integration marks it again at zle-line-init
-    // with 133;P;k=i and 133;B, on line 2.
-    fn prompt(line_one: &str) -> Vec<u8> {
-        format!(
-            "\x1b]133;A;cl=line;redraw=1\x07{line_one}\r\n> \x1b]133;B\x07\x1b]133;P;k=i\x07\x1b]133;B\x07"
-        )
-        .into_bytes()
-    }
-    // zsh's redraw after SIGWINCH: it knows the prompt had two rows, so it
-    // moves up one row, erases below and draws the prompt for the new width.
-    fn redraw(line_one: &str) -> Vec<u8> {
-        let mut out = b"\r\x1b[1A\x1b[J".to_vec();
-        out.extend(prompt(line_one));
-        out
-    }
-
-    let mut term = Terminal::new(10, 6, 1000, Callbacks::default()).unwrap();
-    term.vt_write(b"out\r\n");
-    term.vt_write(&prompt("abcdefghi"));
-    for (cols, line_one) in [(8u16, "abcdefg"), (6, "abcde")] {
-        term.resize(cols, 6, 8, 16).unwrap();
-        term.vt_write(&redraw(line_one));
-        assert_eq!(
-            trimmed_text(&mut term),
-            format!("out\n{line_one}\n>"),
-            "after narrowing to {cols} columns"
-        );
-    }
-}
-
-/// `pwd_is` answers what comparing `pwd()` would, without building a
-/// `String`: before any OSC 7, after one, after a change, and for a pwd that
-/// is not valid UTF-8 (never equal; the caller then reads `pwd`).
-#[test]
-fn pwd_is_matches_pwd_without_allocating() {
-    let mut term = Terminal::new(40, 4, 100, Callbacks::default()).unwrap();
-    assert_eq!(term.pwd(), None);
-    assert!(term.pwd_is(None));
-    assert!(!term.pwd_is(Some("/tmp")));
-    for path in ["/tmp", "/Users/someone/src/project", "/tmp"] {
-        term.vt_write(format!("\x1b]7;file://host{path}\x07").as_bytes());
-        let pwd = term.pwd();
-        assert!(term.pwd_is(pwd.as_deref()), "pwd_is disagrees with pwd {pwd:?}");
-        assert!(!term.pwd_is(None));
-        assert!(!term.pwd_is(Some("/elsewhere")));
-    }
-    term.vt_write(b"\x1b]7;file://host/bad\xff\x07");
-    if let Some(pwd) = term.pwd()
-        && pwd.contains('\u{fffd}')
-    {
-        assert!(!term.pwd_is(Some(&pwd)));
     }
 }

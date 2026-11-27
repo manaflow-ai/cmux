@@ -5,8 +5,7 @@ import java.util.Objects;
 
 public enum TabKind implements WireEnum {
     PTY("pty"),
-    BROWSER("browser"),
-    CONVERSATION("conversation");
+    BROWSER("browser");
 
     private final Object wireValue;
 

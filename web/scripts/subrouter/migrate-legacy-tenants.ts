@@ -323,13 +323,14 @@ async function openLegacyTenantMigrationStore(
 
 function stackAppFromEnv(runtimeEnv: Record<string, string | undefined>) {
   const projectId = requiredEnv(runtimeEnv, "NEXT_PUBLIC_STACK_PROJECT_ID");
-  // Optional: the production project requires no publishable key.
-  const publishableClientKey =
-    runtimeEnv.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
+  const publishableClientKey = requiredEnv(
+    runtimeEnv,
+    "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
+  );
   const secretServerKey = requiredEnv(runtimeEnv, "STACK_SECRET_SERVER_KEY");
   return new StackServerApp({
     projectId,
-    ...(publishableClientKey ? { publishableClientKey } : {}),
+    publishableClientKey,
     secretServerKey,
     tokenStore: null,
     noAutomaticPrefetch: true,
@@ -416,8 +417,10 @@ async function revokeStackSession(
   refreshToken: string,
 ): Promise<void> {
   const projectId = requiredEnv(runtimeEnv, "NEXT_PUBLIC_STACK_PROJECT_ID");
-  const publishableClientKey =
-    runtimeEnv.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
+  const publishableClientKey = requiredEnv(
+    runtimeEnv,
+    "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
+  );
   const apiUrl = (runtimeEnv.NEXT_PUBLIC_STACK_API_URL?.trim() ||
     "https://api.stack-auth.com/api/v1").replace(/\/+$/, "");
   const headers = new Headers({
@@ -428,9 +431,7 @@ async function revokeStackSession(
   for (const prefix of ["x-stack", "x-hexclave"]) {
     headers.set(`${prefix}-project-id`, projectId);
     headers.set(`${prefix}-access-type`, "client");
-    if (publishableClientKey) {
-      headers.set(`${prefix}-publishable-client-key`, publishableClientKey);
-    }
+    headers.set(`${prefix}-publishable-client-key`, publishableClientKey);
     headers.set(`${prefix}-access-token`, accessToken);
   }
   const response = await fetch(`${apiUrl}/auth/sessions/current`, {

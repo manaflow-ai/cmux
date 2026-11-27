@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/vmGuestEnv";
-import { resolveVmGuestKind } from "../services/vms/vmKind";
-import { runChild, runChildOk } from "./helpers/run-child";
+import { runChild } from "./helpers/run-child";
 
 // Each coding agent on a Cloud machine signs in one of two ways: the team's
 // CodeRouter accounts, or the user's own sign-in (Claude Code /login, codex
@@ -37,7 +36,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-type Machine = { root: string; home: string; bin: string; calls: string; auth: string; config: string; kind: string; modelPlane: string; launchers: Record<Agent, string> };
+type Machine = { root: string; home: string; bin: string; calls: string; launchers: Record<Agent, string> };
 
 /**
  * A HOME; for each agent a fake executable that prints the env and arguments
@@ -45,38 +44,20 @@ type Machine = { root: string; home: string; bin: string; calls: string; auth: s
  * `curl` that answers the account check from $FAKE_ACCESS and the OpenCode
  * catalog (exit 7 when the answer is unset), logging every call.
  */
-function machine(homeName = "home"): Machine {
+function machine(): Machine {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-agent-auth-"));
   roots.push(root);
-  const home = path.join(root, homeName);
+  const home = path.join(root, "home");
   const bin = path.join(root, "bin");
   mkdirSync(home, { recursive: true });
   mkdirSync(bin, { recursive: true });
   const calls = path.join(root, "curl.calls");
-  const kind = path.join(root, "vm-kind");
-  writeFileSync(kind, "owner\n");
-  const auth = path.join(root, "agent-auth.sh");
-  writeFileSync(auth, readFileSync(path.join(templateDir, "agent-auth.sh"), "utf8")
-    .replaceAll("/etc/cmux/vm-kind", kind)
-    .replaceAll("/etc/claude-code/managed-settings.json", path.join(root, "managed-settings.json"))
-    .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py")));
-  const modelPlane = path.join(root, "model-plane.env");
-  writeFileSync(modelPlane, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\nexport ANTHROPIC_BASE_URL='${ORIGIN}'\nexport ANTHROPIC_API_KEY='${PLACEHOLDER}'\n`);
-  const config = path.join(root, "agent-config.sh");
-  writeFileSync(
-    config,
-    readFileSync(path.join(templateDir, "agent-config.sh"), "utf8")
-      .replaceAll("/etc/cmux/vm-kind", kind)
-      .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py"))
-      .replaceAll("/etc/cmux/model-plane.env", modelPlane),
-  );
   writeFileSync(
     path.join(bin, "curl"),
     [
       "#!/bin/sh",
       `printf '%s\\n' "$*" >> ${JSON.stringify(calls)}`,
       'case "$*" in',
-      '  */api/vm/reflection/kind*) printf \'{"kind":"%s"}\' "${FAKE_VM_KIND:-team}" ;;',
       // The catalog fetch asks for the status line (curl -w '\n%{http_code}').
       `  */opencode/config*) printf '%s\\n200' ${JSON.stringify(OPENCODE_CATALOG)} ;;`,
       // No answer is an HTTP error (curl -f: 22) unless a test names another exit.
@@ -93,10 +74,8 @@ function machine(homeName = "home"): Machine {
       real,
       [
         "#!/bin/sh",
-        ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CONFIG_DIR", "OPENAI_BASE_URL", "OPENAI_API_KEY", "CODEX_HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "XDG_DATA_HOME", "XDG_CONFIG_HOME"]
+        ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_CUSTOM_HEADERS", "OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENCODE_CONFIG"]
           .map((name) => `printf "${name}=%s\\n" "\${${name}-<unset>}"`),
-        // The launcher's own team-mode --settings comes first: report it apart.
-        'if [ "${1-}" = --settings ]; then printf "settings=%s\\n" "$2"; shift 2; fi',
         'printf "args=%s\\n" "$*"',
         "",
       ].join("\n"),
@@ -105,15 +84,15 @@ function machine(homeName = "home"): Machine {
     writeFileSync(
       launcher,
       readFileSync(path.join(templateDir, `cmux-${agent}`), "utf8")
-        .replaceAll("/etc/cmux/agent-config.sh", config)
-        .replaceAll("/etc/cmux/agent-auth.sh", auth)
+        .replaceAll("/etc/cmux/agent-config.sh", path.join(templateDir, "agent-config.sh"))
+        .replaceAll("/etc/cmux/agent-auth.sh", path.join(templateDir, "agent-auth.sh"))
         .replaceAll(`/usr/local/libexec/cmux-${agent}-real`, real),
     );
     chmodSync(real, 0o755);
     chmodSync(launcher, 0o755);
     launchers[agent] = launcher;
   }
-  return { root, home, bin, calls, auth, config, kind, modelPlane, launchers };
+  return { root, home, bin, calls, launchers };
 }
 
 /** The env a login shell on the machine starts from: the baked model plane. */
@@ -139,26 +118,13 @@ function parse(stdout: string): Record<string, string> {
 async function launch(m: Machine, agent: Agent, extra: Record<string, string> = {}, shellPrefix = "") {
   const result = await runChild(
     "/bin/bash",
-    ["-c", `. ${m.config}; ${shellPrefix} ${m.launchers[agent]} --resume x`],
+    ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${shellPrefix} ${m.launchers[agent]} --resume x`],
     { env: bootEnv(m, extra) },
   );
   expect(result.stderr).toBe("");
   expect(result.status).toBe(0);
   return parse(result.stdout);
 }
-
-/** Starts claude with `args` (shell words) from a shell that sourced agent-config.sh. */
-async function launchWith(m: Machine, args: string, extra: Record<string, string> = {}, cwd?: string) {
-  const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${cwd ? `cd ${cwd};` : ""} ${m.launchers.claude} ${args}`], { env: bootEnv(m, extra) });
-  return { ...result, env: parse(result.stdout) };
-}
-
-/** The env of the --settings the launcher started Claude with (team mode), or undefined. */
-function settingsEnv(env: Record<string, string>): Record<string, string> | undefined {
-  return env.settings === undefined ? undefined : JSON.parse(env.settings).env;
-}
-
-const PERSONAL_CLEARS = ["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"];
 
 function choose(m: Machine, mode: string, agent: Agent = "claude"): void {
   mkdirSync(path.join(m.home, ".config/cmux/agent-auth"), { recursive: true });
@@ -180,7 +146,7 @@ function signIn(m: Machine, agent: Agent = "claude"): void {
 /** agent-config.sh with its launcher directory pointed at this machine's launchers. */
 function routedAgentConfig(m: Machine): string {
   const file = path.join(m.root, "agent-config.sh");
-  writeFileSync(file, readFileSync(m.config, "utf8").replaceAll('"/etc/cmux/$cmux_ar_agent"', `"${m.root}/$cmux_ar_agent"`));
+  writeFileSync(file, readFileSync(path.join(templateDir, "agent-config.sh"), "utf8").replaceAll('"/etc/cmux/$cmux_ar_agent"', `"${m.root}/$cmux_ar_agent"`));
   return file;
 }
 
@@ -201,13 +167,13 @@ describe("Claude Code sign-in precedence", () => {
   test("a shell never exports the CodeRouter pair, and still persists it for the launcher", async () => {
     const m = machine();
     const probe = `printf '%s|%s|%s|%s' "\${ANTHROPIC_BASE_URL-unset}" "\${ANTHROPIC_API_KEY-unset}" "\${CMUX_CLAUDE_TEAM_BASE_URL-}" "\${CMUX_CLAUDE_TEAM_API_KEY-}"`;
-    const first = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], { env: bootEnv(m) });
+    const first = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${probe}`], { env: bootEnv(m) });
     expect(first.stdout).toBe(`unset|unset|${ORIGIN}|${PLACEHOLDER}`);
     // A nested shell inherits only the set-aside pair; it re-persists the
     // model-plane names and keeps the pair out of its own env too.
     const nested = await runChild(
       "/bin/bash",
-      ["-c", `. ${m.config}; bash -c '. ${m.config}; ${probe.replaceAll("'", "'\\''")}'`],
+      ["-c", `. ${path.join(templateDir, "agent-config.sh")}; bash -c '. ${path.join(templateDir, "agent-config.sh")}; ${probe.replaceAll("'", "'\\''")}'`],
       { env: bootEnv(m) },
     );
     expect(nested.stdout).toBe(`unset|unset|${ORIGIN}|${PLACEHOLDER}`);
@@ -219,43 +185,17 @@ describe("Claude Code sign-in precedence", () => {
     expect(seed.customApiKeyResponses.approved).toEqual([PLACEHOLDER.slice(-20)]);
   });
 
-  test("a shell with the image's OpenAI pair but no origin never writes an origin-less model-plane file", async () => {
-    // The 2026-11-25 cloud-claude-matrix sr2 rows: the per-home file kept only the OpenAI pair,
-    // hid the image's origin, and every Claude with no sign-in had no model route.
-    const m = machine();
-    const probe = `printf '%s' "\${CMUX_CODEROUTER_URL-unset}"`;
-    const env = bootEnv(m);
-    delete env.CMUX_CODEROUTER_URL;
-    delete env.ANTHROPIC_BASE_URL;
-    delete env.ANTHROPIC_API_KEY;
-    const healed = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], { env });
-    expect(healed.stdout).toBe(ORIGIN);
-    const file = path.join(m.home, ".config/cmux/model-plane.env");
-    expect(readFileSync(file, "utf8")).toContain(`export CMUX_CODEROUTER_URL='${ORIGIN}'`);
-    // A machine that already has the origin-less file heals on its next shell with no boot env.
-    writeFileSync(file, `export OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
-    const bare = { PATH: env.PATH, HOME: m.home, LANG: "en_US.UTF-8" };
-    const resourced = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], { env: bare });
-    expect(resourced.stdout).toBe(ORIGIN);
-    // Another plane's base URL is the person's: the image's origin is never added to it.
-    const own = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], {
-      env: { ...env, OPENAI_BASE_URL: "https://api.example.test/v1" },
-    });
-    expect(own.stdout).toBe("unset");
-    expect(readFileSync(file, "utf8")).not.toContain("CMUX_CODEROUTER_URL");
-  });
-
   test("a user-set Anthropic endpoint or key is never moved or replaced", async () => {
     const m = machine();
     const probe = `printf '%s|%s' "\${ANTHROPIC_BASE_URL-unset}" "\${ANTHROPIC_API_KEY-unset}"`;
-    const own = await runChild("/bin/bash", ["-c", `. ${m.config}; ${probe}`], {
+    const own = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${probe}`], {
       env: bootEnv(m, { ANTHROPIC_BASE_URL: "https://api.example.test", ANTHROPIC_API_KEY: "sk-ant-user" }),
     });
     expect(own.stdout).toBe("https://api.example.test|sk-ant-user");
     // A key the user exported after the pair was set aside survives a nested shell.
     const nested = await runChild(
       "/bin/bash",
-      ["-c", `. ${m.config}; export ANTHROPIC_API_KEY=sk-ant-user; bash -c '. ${m.config}; ${probe.replaceAll("'", "'\\''")}'`],
+      ["-c", `. ${path.join(templateDir, "agent-config.sh")}; export ANTHROPIC_API_KEY=sk-ant-user; bash -c '. ${path.join(templateDir, "agent-config.sh")}; ${probe.replaceAll("'", "'\\''")}'`],
       { env: bootEnv(m) },
     );
     expect(nested.stdout).toBe("unset|sk-ant-user");
@@ -289,147 +229,6 @@ describe("Claude Code sign-in precedence", () => {
     expect(env.ANTHROPIC_BASE_URL).toBe(ORIGIN);
     expect(env.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
     expect(env.ANTHROPIC_CUSTOM_HEADERS).toBe("x-cmux-workspace-id: ws-1");
-    // The --settings Claude applies over every settings file keeps the pair and the usage
-    // headers, and empties every personal credential and provider switch.
-    const settings = settingsEnv(env)!;
-    expect(settings.ANTHROPIC_BASE_URL).toBe(ORIGIN);
-    expect(settings.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-    expect(settings.ANTHROPIC_CUSTOM_HEADERS).toBe("x-cmux-workspace-id: ws-1");
-    for (const name of PERSONAL_CLEARS) expect(settings[name]).toBe("");
-    expect(env.args).toBe("--resume x");
-  });
-
-  test("team mode overrides a personal credential in a settings file, keeping only the usage headers", async () => {
-    const m = machine();
-    choose(m, "team");
-    mkdirSync(path.join(m.home, ".claude"), { recursive: true });
-    writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ apiKeyHelper: "/bin/personal-key", env: { ANTHROPIC_AUTH_TOKEN: "personal-user", ANTHROPIC_BASE_URL: "https://own.example.test" } }));
-    const { env, status } = await launchWith(
-      m,
-      `--settings '{"model":"opus","env":{"ANTHROPIC_CUSTOM_HEADERS":"x-personal: 1","CLAUDE_CODE_OAUTH_TOKEN":"personal-flag"}}' --resume x`,
-      { CMUX_WORKSPACE_ID: "ws-1", CMUX_SURFACE_ID: "sf-1" },
-    );
-    expect(status).toBe(0);
-    // One --settings: the launch's own merged into the launcher's.
-    expect(env.args).toBe("--resume x");
-    const settings = JSON.parse(env.settings);
-    expect(settings.model).toBe("opus");
-    expect(settings.env.ANTHROPIC_BASE_URL).toBe(ORIGIN);
-    expect(settings.env.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-    expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).toBe("x-cmux-workspace-id: ws-1\nx-cmux-surface-id: sf-1");
-    for (const name of PERSONAL_CLEARS) expect(settings.env[name]).toBe("");
-    // No personal credential helper answers the team endpoint.
-    for (const helper of ["apiKeyHelper", "awsCredentialExport", "awsAuthRefresh"]) expect(settings[helper]).toBe("");
-  });
-
-  test("team mode with no team key sends the placeholder, never an empty key", async () => {
-    const m = machine();
-    choose(m, "team");
-    // The model plane named an endpoint but no key: agent-config.sh sets an empty team key aside.
-    const env = await launch(m, "claude", { ANTHROPIC_API_KEY: "" });
-    expect(env.ANTHROPIC_BASE_URL).toBe(ORIGIN);
-    expect(env.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-    expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-  });
-
-  test("team mode refuses a --settings it cannot read rather than guess", async () => {
-    const m = machine();
-    choose(m, "team");
-    const { status, stderr, stdout } = await launchWith(m, "--settings /nonexistent/settings.json --resume x");
-    expect(status).not.toBe(0);
-    expect(stderr).toContain("team mode cannot start");
-    expect(stdout).toBe("");
-  });
-
-  test("with no choice, a sign-in in Claude's settings or its own --settings keeps own", async () => {
-    const cases: [string, (m: Machine) => string][] = [
-      ["a personal endpoint and key in --settings", () => `--settings '{"env":{"ANTHROPIC_BASE_URL":"https://own.example.test","ANTHROPIC_API_KEY":"sk-own"}}'`],
-      ["a token in the user settings", (m) => {
-        mkdirSync(path.join(m.home, ".claude"), { recursive: true });
-        writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: "t" } }));
-        return "";
-      }],
-      ["a personal endpoint alone in the user settings", (m) => {
-        mkdirSync(path.join(m.home, ".claude"), { recursive: true });
-        writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://proxy.example.test" } }));
-        return "";
-      }],
-      ["a key helper in the project settings", (m) => {
-        mkdirSync(path.join(m.root, "proj/.claude"), { recursive: true });
-        writeFileSync(path.join(m.root, "proj/.claude/settings.local.json"), JSON.stringify({ apiKeyHelper: "/bin/key" }));
-        return "";
-      }],
-      ["a --settings file it cannot read", () => "--settings /nonexistent/settings.json"],
-    ];
-    for (const [name, arrange] of cases) {
-      const m = machine();
-      mkdirSync(path.join(m.root, "proj"), { recursive: true });
-      const args = arrange(m);
-      // The launch's own --settings after a first word, so the fake reports only a launcher one apart.
-      const { env, status } = await launchWith(m, `--resume x ${args}`, { FAKE_ACCESS: ALL }, path.join(m.root, "proj"));
-      expect(status).toBe(0);
-      expect(env.settings).toBeUndefined();
-      expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
-      expect(env.ANTHROPIC_API_KEY).toBe("<unset>");
-      expect(env.args).toBe(`--resume x ${args}`.trim().replaceAll("'", ""));
-    }
-    // Settings with no credential stay team.
-    const m = machine();
-    const { env } = await launchWith(m, `--settings '{"model":"opus"}' --resume x`, { FAKE_ACCESS: ALL });
-    expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-  });
-
-  test("with no choice, a provider switch or token in the env keeps own and is never cleared", async () => {
-    const cases: [string, Record<string, string>][] = [
-      ["Bedrock", { CLAUDE_CODE_USE_BEDROCK: "1" }],
-      ["Vertex", { CLAUDE_CODE_USE_VERTEX: "true" }],
-      ["Foundry", { CLAUDE_CODE_USE_FOUNDRY: "1" }],
-      ["a bearer token", { ANTHROPIC_AUTH_TOKEN: "personal" }],
-    ];
-    for (const [name, extra] of cases) {
-      const m = machine();
-      const { env, status } = await launchWith(m, "--resume x", { FAKE_ACCESS: ALL, ...extra });
-      expect(status).toBe(0);
-      expect(env.settings).toBeUndefined();
-      expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
-      expect(env.ANTHROPIC_API_KEY).toBe("<unset>");
-      for (const [key, value] of Object.entries(extra)) expect(env[key]).toBe(value);
-    }
-    // A switch that is off is no choice: team mode, which empties it.
-    const m = machine();
-    const { env } = await launchWith(m, "--resume x", { FAKE_ACCESS: ALL, CLAUDE_CODE_USE_BEDROCK: "0" });
-    expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-    expect(settingsEnv(env)?.CLAUDE_CODE_USE_BEDROCK).toBe("");
-  });
-
-  test("a credential in managed settings keeps own even when team is chosen", async () => {
-    for (const body of ['{"env":{"ANTHROPIC_AUTH_TOKEN":"managed"}}', '{"env":{"CLAUDE_CODE_USE_VERTEX":true}}', '{"apiKeyHelper":"/bin/key"}', "not json"]) {
-      const m = machine();
-      choose(m, "team");
-      writeFileSync(path.join(m.root, "managed-settings.json"), body);
-      const { env, status } = await launchWith(m, "--resume x");
-      expect(status).toBe(0);
-      expect(env.settings).toBeUndefined();
-      expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
-      expect(env.ANTHROPIC_API_KEY).toBe("<unset>");
-    }
-    // Managed settings with no credential leave team mode as chosen.
-    const m = machine();
-    choose(m, "team");
-    writeFileSync(path.join(m.root, "managed-settings.json"), '{"permissions":{"deny":[]}}');
-    const { env } = await launchWith(m, "--resume x");
-    expect(settingsEnv(env)?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-  });
-
-  test("a chosen team mode keeps a personal endpoint and key the launch's --settings names", async () => {
-    const m = machine();
-    choose(m, "team");
-    const flag = `--settings '{"env":{"ANTHROPIC_BASE_URL":"https://own.example.test","ANTHROPIC_API_KEY":"sk-own"}}'`;
-    const { env, status } = await launchWith(m, `--resume x ${flag}`);
-    expect(status).toBe(0);
-    expect(env.settings).toBeUndefined();
-    expect(env.args).toContain("sk-own");
-    expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
   });
 
   test("a user-set key wins in every mode", async () => {
@@ -452,43 +251,11 @@ describe("Claude Code sign-in precedence", () => {
     expect(plane).not.toContain("sk-ant-oneoff");
     expect(plane).toContain(`export ANTHROPIC_API_KEY='${PLACEHOLDER}'`);
     // A fresh shell without the boot env reads the persisted file only.
-    const fresh = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.claude}`], {
+    const fresh = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${m.launchers.claude}`], {
       env: { PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: m.home },
     });
     expect(parse(fresh.stdout).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
     expect(parse(fresh.stdout).ANTHROPIC_BASE_URL).toBe(ORIGIN);
-  });
-});
-
-describe("Claude Code 2.1.299 onboarding", () => {
-  // Verified against the pinned native package: CLAUDE_CONFIG_DIR changes
-  // the global .claude.json path, not just settings/credentials. The gate
-  // reads hasCompletedOnboarding from that document (see helper provenance).
-  test("root and cmux team launches read a complete seed in the selected config home", async () => {
-    expect(readFileSync(path.join(templateDir, "Dockerfile"), "utf8"))
-      .toContain("ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.299");
-    for (const user of ["root", "cmux"]) {
-      const m = machine(user);
-      writeFileSync(m.kind, "team\n");
-      const personal = JSON.stringify({ oauthAccount: { accountUuid: "personal" }, theme: "light" });
-      writeFileSync(path.join(m.home, ".claude.json"), personal);
-      const env = await launch(m, "claude", { FAKE_ACCESS: ALL });
-      const selected = path.join(env.CLAUDE_CONFIG_DIR, ".claude.json");
-      expect(JSON.parse(readFileSync(selected, "utf8"))).toEqual({
-        hasCompletedOnboarding: true,
-        bypassPermissionsModeAccepted: true,
-        theme: "dark",
-        projects: { "/": { hasTrustDialogAccepted: true } },
-        customApiKeyResponses: { approved: [PLACEHOLDER.slice(-20)], rejected: [] },
-      });
-      expect(statSync(selected).mode & 0o777).toBe(0o600);
-      expect(readFileSync(path.join(m.home, ".claude.json"), "utf8")).toBe(personal);
-      // A later launch preserves existing state and preferences.
-      const edited = { ...JSON.parse(readFileSync(selected, "utf8")), theme: "light", numStartups: 3 };
-      writeFileSync(selected, JSON.stringify(edited));
-      await launch(m, "claude", { FAKE_ACCESS: ALL });
-      expect(JSON.parse(readFileSync(selected, "utf8"))).toEqual(edited);
-    }
   });
 });
 
@@ -511,31 +278,6 @@ describe("Codex sign-in precedence", () => {
     const env = await launch(m, "codex");
     expect(env.args).toBe("--resume x");
     expect(env.OPENAI_API_KEY).toBe(PLACEHOLDER);
-  });
-
-  test("shared team CODEX_HOME carries the baked file-hook trust state", async () => {
-    const m = machine();
-    mkdirSync(path.join(m.home, ".codex"), { recursive: true });
-    writeFileSync(
-      path.join(m.home, ".codex/config.toml"),
-      [
-        "[hooks.state.\"" + path.join(m.home, ".codex/hooks.json:pre_tool_use:0:0") + "\"]",
-        'trusted_hash = "sha256:pre-tool"',
-        "",
-        "[hooks.state.\"/tmp/user-hooks.json:stop:0:0\"]",
-        'trusted_hash = "sha256:user"',
-        "",
-      ].join("\n"),
-    );
-    writeFileSync(path.join(m.home, ".codex/hooks.json"), "{}\n");
-    writeFileSync(m.kind, "team\n");
-    choose(m, "team", "codex");
-    await Promise.all([launch(m, "codex"), launch(m, "codex")]);
-    const team = readFileSync(path.join(m.home, ".config/cmux/codex-team/config.toml"), "utf8");
-    expect(() => Bun.TOML.parse(team)).not.toThrow();
-    expect(team).toContain(`[hooks.state.\"${path.join(m.home, ".codex/hooks.json:pre_tool_use:0:0")}\"]`);
-    expect(team).toContain('trusted_hash = "sha256:pre-tool"');
-    expect(team).not.toContain("sha256:user");
   });
 
   test("a provider the user chose in config.toml is never overridden", async () => {
@@ -573,187 +315,6 @@ describe("Codex sign-in precedence", () => {
     mkdirSync(path.join(m.home, ".codex"), { recursive: true });
     writeFileSync(path.join(m.home, ".codex/auth.json"), '{"OPENAI_API_KEY":"sk-user"}');
     expect((await launch(m, "codex", { FAKE_ACCESS: ALL })).args).toBe('-c model_provider="openai" --resume x');
-  });
-});
-
-// The trust-state labels of every Codex hook event `cmux-tui agent hook
-// install codex` writes (CODEX_EVENTS in cmux-tui-hooks, 11 today), as Codex
-// keys them: `<hooks.json>:<snake_case event>:0:0`. Read from the installer,
-// so a new event is covered without editing this list.
-const CODEX_HOOK_LABELS = (() => {
-  const installer = readFileSync(path.join(import.meta.dirname, "../../cmux-tui/crates/cmux-tui-hooks/src/lib.rs"), "utf8");
-  const events = /const CODEX_EVENTS: &\[&str\] = &\[([^\]]*)\];/.exec(installer)?.[1];
-  if (!events) throw new Error("CODEX_EVENTS is gone from cmux-tui-hooks; point this test at its new home");
-  return [...events.matchAll(/"([A-Za-z]+)"/g)].map(([, event]) => event.replace(/(?<!^)([A-Z])/g, "_$1").toLowerCase());
-})();
-
-describe("Codex hook trust in the shared team CODEX_HOME", () => {
-  const codexTeam = (m: Machine) => path.join(m.home, ".config/cmux/codex-team");
-  const defaultConfig = (m: Machine) => path.join(m.home, ".codex/config.toml");
-
-  /** A team machine whose default ~/.codex holds cmux's hooks.json, as the bake leaves it. */
-  function teamMachine(homeName?: string): Machine {
-    const m = machine(homeName);
-    mkdirSync(path.join(m.home, ".codex"), { recursive: true });
-    writeFileSync(path.join(m.home, ".codex/hooks.json"), "{}\n");
-    writeFileSync(m.kind, "team\n");
-    return m;
-  }
-
-  /** The bake's trust entry for every cmux hook (hash `<tag>:<label>`), plus `extra` TOML; returns key -> hash. */
-  function bakeTrust(m: Machine, tag: string, extra: string[] = []): Record<string, string> {
-    const trusted = Object.fromEntries(
-      CODEX_HOOK_LABELS.map((label) => [`${path.join(m.home, ".codex/hooks.json")}:${label}:0:0`, `${tag}:${label}`]),
-    );
-    const lines = Object.entries(trusted).flatMap(([key, hash]) => [`[hooks.state.${JSON.stringify(key)}]`, `trusted_hash = ${JSON.stringify(hash)}`, ""]);
-    writeFileSync(defaultConfig(m), [...lines, ...extra].join("\n"));
-    return trusted;
-  }
-
-  /** Replaces one baked entry's trusted_hash line in the default config with `line`. */
-  function breakEntry(m: Machine, trusted: Record<string, string>, key: string, line: string): void {
-    const text = readFileSync(defaultConfig(m), "utf8");
-    const hashLine = `trusted_hash = ${JSON.stringify(trusted[key])}`;
-    expect(text).toContain(hashLine);
-    writeFileSync(defaultConfig(m), text.replace(hashLine, line));
-  }
-
-  /** A TOML file as a strict parser (Python's tomllib) reads it. */
-  async function readToml(file: string): Promise<{ model_provider?: string; model_providers?: Record<string, Record<string, unknown>>; hooks?: { state?: Record<string, unknown> } }> {
-    const result = await runChild("python3", ["-I", "-c", "import json, sys, tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], 'rb'))))", file]);
-    expect(result.stderr).toBe("");
-    return JSON.parse(result.stdout);
-  }
-
-  /** Every key -> trusted_hash the team config holds, after checking its provider block is whole. */
-  async function teamTrust(file: string): Promise<Record<string, unknown>> {
-    const config = await readToml(file);
-    expect(config.model_provider).toBe("cmux");
-    expect(config.model_providers?.cmux).toEqual({
-      name: "cmux",
-      base_url: `${ORIGIN}/v1`,
-      env_key: "OPENAI_API_KEY",
-      wire_api: "responses",
-      requires_openai_auth: false,
-      supports_websockets: false,
-    });
-    return Object.fromEntries(Object.entries(config.hooks?.state ?? {}).map(([key, entry]) => [key, (entry as { trusted_hash?: unknown }).trusted_hash]));
-  }
-
-  /** A team codex launch whose stderr may carry the publish's log lines. */
-  async function launchLogged(m: Machine) {
-    const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.codex} --resume x`], { env: bootEnv(m) });
-    expect(result.status).toBe(0);
-    expect(parse(result.stdout).CODEX_HOME).toBe(codexTeam(m));
-    return result.stderr;
-  }
-
-  test("every hook the default home trusts is trusted in the team home", async () => {
-    // Codex app-server `hooks/list` is not on Linux CI; this checks the config
-    // Codex reads that trust from, entry by entry.
-    expect(CODEX_HOOK_LABELS.length).toBeGreaterThanOrEqual(11);
-    const m = teamMachine();
-    const trusted = bakeTrust(m, "sha256:baked", ['[hooks.state."/tmp/user-hooks.json:stop:0:0"]', 'trusted_hash = "sha256:user"', ""]);
-    await launch(m, "codex");
-    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(trusted);
-  });
-
-  test("a reader during the publish sees the old config or the new one, whole, never a mix", async () => {
-    const m = teamMachine();
-    const target = path.join(codexTeam(m), "config.toml");
-    const first = bakeTrust(m, "sha256:first");
-    await launch(m, "codex");
-    const old = readFileSync(target, "utf8");
-    expect(await teamTrust(target)).toEqual(first);
-
-    // Test-only seam in this machine's copy of agent-auth.sh: the publish
-    // stops after the new config is fully written to its temporary file and
-    // before it replaces the old one, until the test releases it. FIFOs make
-    // the hand-off an event, not a timing guess.
-    const paused = path.join(m.root, "publish.paused");
-    const resume = path.join(m.root, "publish.resume");
-    await runChildOk("mkfifo", [paused, resume]);
-    const script = readFileSync(m.auth, "utf8");
-    const publish = "    os.replace(temporary, target)\n";
-    expect(script).toContain(publish);
-    writeFileSync(m.auth, script.replace(publish, `    open(${JSON.stringify(paused)}, "w").close(); open(${JSON.stringify(resume)}).read()\n${publish}`));
-
-    const second = bakeTrust(m, "sha256:second");
-    // The launcher runs with the shell's result checked only after release,
-    // so a failed assertion below cannot leave a rejected promise behind.
-    const publishing = runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.codex} --resume x`], { env: bootEnv(m), timeout: 20_000 });
-    try {
-      // Opening the FIFO returns only once the publish holds its other end.
-      expect((await runChild("cat", [paused], { timeout: 10_000 })).error).toBeUndefined();
-      expect(readFileSync(target, "utf8")).toBe(old);
-      expect(await teamTrust(target)).toEqual(first);
-      // The new config is already complete beside it; only the rename is left.
-      const pending = readdirSync(codexTeam(m)).filter((name) => name.startsWith(".config.toml."));
-      expect(pending).toHaveLength(1);
-      expect(await teamTrust(path.join(codexTeam(m), pending[0]))).toEqual(second);
-    } finally {
-      // Always release a paused publisher and wait for it, so it never
-      // outlives the test or writes into a root afterEach removes. The
-      // write-open waits for the publisher's read-open (no lost wake-up); if
-      // the publisher never gets there, both runChild timeouts kill their
-      // process groups well inside the test's 30 s.
-      await runChild("sh", ["-c", ': > "$1"', "sh", resume], { timeout: 10_000 });
-      await publishing;
-    }
-    const published = await publishing;
-    expect(published.stderr).toBe("");
-    expect(published.status).toBe(0);
-    expect(await teamTrust(target)).toEqual(second);
-    expect(readdirSync(codexTeam(m)).filter((name) => name.startsWith(".config.toml."))).toEqual([]);
-  });
-
-  test("a HOME with non-ASCII and non-BMP names keeps every trust entry", async () => {
-    const m = teamMachine("hömé-日本語-🚀");
-    const trusted = bakeTrust(m, "sha256:ünï", ['[hooks.state."/tmp/ユーザー/hööks-🚀.json:stop:0:0"]', 'trusted_hash = "sha256:user"', ""]);
-    await launch(m, "codex");
-    const target = path.join(codexTeam(m), "config.toml");
-    expect(readFileSync(target, "utf8")).toContain(`[hooks.state."${path.join(m.home, ".codex/hooks.json")}:stop:0:0"]`);
-    expect(await teamTrust(target)).toEqual(trusted);
-  });
-
-  test("a default-home config that is not TOML keeps the published trust, says so, and still starts codex", async () => {
-    const m = teamMachine();
-    const target = path.join(codexTeam(m), "config.toml");
-    const trusted = bakeTrust(m, "sha256:baked");
-    await launch(m, "codex");
-    writeFileSync(defaultConfig(m), 'model = "unterminated\n[hooks.state\n');
-    const log = await launchLogged(m);
-    expect(log).toContain(`cannot read Codex hook trust from ${defaultConfig(m)}`);
-    expect(await teamTrust(target)).toEqual(trusted);
-  });
-
-  test("an entry without a usable trusted_hash is skipped with a log line, and the others still copy", async () => {
-    const m = teamMachine();
-    const trusted = bakeTrust(m, "sha256:baked");
-    const [missing, wrongType] = Object.keys(trusted);
-    breakEntry(m, trusted, missing, "enabled = true");
-    breakEntry(m, trusted, wrongType, "trusted_hash = 7");
-    const log = await launchLogged(m);
-    expect(log).toContain(`skipping Codex hook trust entry ${JSON.stringify(missing)}`);
-    expect(log).toContain(`skipping Codex hook trust entry ${JSON.stringify(wrongType)}`);
-    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(
-      Object.fromEntries(Object.entries(trusted).filter(([key]) => key !== missing && key !== wrongType)),
-    );
-  });
-
-  test("a hook whose approval the default home revoked is no longer trusted in the team home", async () => {
-    // Codex keeps a hook's state entry but drops its trusted_hash when the
-    // user revokes approval; the team home must follow, not keep the old hash.
-    const m = teamMachine();
-    const trusted = bakeTrust(m, "sha256:baked");
-    await launch(m, "codex");
-    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(trusted);
-    const [revoked] = Object.keys(trusted);
-    breakEntry(m, trusted, revoked, "enabled = true");
-    expect(await launchLogged(m)).toContain(`skipping Codex hook trust entry ${JSON.stringify(revoked)}`);
-    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(
-      Object.fromEntries(Object.entries(trusted).filter(([key]) => key !== revoked)),
-    );
   });
 });
 
@@ -855,65 +416,6 @@ describe("the default for every agent", () => {
     }
   });
 
-  test("a machine with no CodeRouter origin starts claude on its own sign-in, never an empty team plane", async () => {
-    // fs-firstsend-exercise (2026-10-31): a shell with only the OpenAI pair persisted that pair alone,
-    // so no shell after it had an origin, and team-unknown left claude with no endpoint and no key
-    // ("Not logged in"). With no origin there is no team plane to choose. The image's own file has no
-    // origin either: since #58230 a shell on the image's plane heals its origin from that file.
-    const m = machine();
-    writeFileSync(m.modelPlane, `export OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
-    const env = bootEnv(m);
-    for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
-    const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.claude} --resume x`], { env });
-    expect(result.status).toBe(0);
-    const claude = parse(result.stdout);
-    expect(claude.ANTHROPIC_BASE_URL).toBe("<unset>");
-    expect(claude.ANTHROPIC_API_KEY).toBe("<unset>");
-    expect(claude.CLAUDE_CONFIG_DIR).toBe("<unset>");
-    const reason = await runChild("/bin/sh", ["-c", `. ${m.auth}; cmux_agent_auth_resolve claude; printf '%s %s' "$cmux_agent_auth_mode" "$cmux_agent_auth_reason"`],
-      { env: { PATH: env.PATH, HOME: m.home } });
-    expect(reason.stdout).toBe("own no-team-plane");
-    // Nothing asked CodeRouter: there was no origin to ask.
-    const calls = existsSync(m.calls) ? readFileSync(m.calls, "utf8") : "";
-    expect(calls).not.toContain("agent-access");
-  });
-
-  test("a shell on the image's plane without the origin takes it from the image's file (#58230)", async () => {
-    // cloud-claude-matrix 2026-11-25: a per-home model-plane.env that kept only the OpenAI pair hid the
-    // image's origin, so every agent with no sign-in had no model route.
-    const m = machine();
-    const env = bootEnv(m);
-    for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
-    const result = await runChild("/bin/bash", ["-c", `. ${m.config}; printf '%s' "$CMUX_CODEROUTER_URL"`], { env });
-    expect(result.status).toBe(0);
-    expect(result.stdout).toBe(ORIGIN);
-    expect(readFileSync(path.join(m.home, ".config/cmux/model-plane.env"), "utf8")).toContain(ORIGIN);
-    // Another plane's base URL is the person's: no origin.
-    const other = await runChild("/bin/bash", ["-c", `. ${m.config}; printf '%s' "\${CMUX_CODEROUTER_URL-}"`],
-      { env: { ...env, OPENAI_BASE_URL: "https://api.example.test/v1" } });
-    expect(other.stdout).toBe("");
-  });
-
-  test("with no CodeRouter origin, a stale model-plane pair never reaches codex or opencode", async () => {
-    // The persisted OpenAI pair alone: its URL names CodeRouter but no CMUX_CODEROUTER_URL does. Own mode must
-    // drop the URL with the placeholder key, or an own login would go to that endpoint.
-    const m = machine();
-    cmuxCodexConfig(m);
-    writeFileSync(m.modelPlane, `export OPENAI_BASE_URL='${ORIGIN}/v1'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
-    const env = bootEnv(m);
-    for (const name of ["CMUX_CODEROUTER_URL", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"]) delete env[name];
-    for (const agent of ["codex", "opencode"] as const) {
-      const result = await runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers[agent]} --resume x`], { env });
-      expect(result.status).toBe(0);
-      const child = parse(result.stdout);
-      expect(child.OPENAI_BASE_URL).toBe("<unset>");
-      expect(child.OPENAI_API_KEY).toBe("<unset>");
-    }
-    // A user's own endpoint with their own key stays.
-    const own = await runChild("/bin/bash", ["-c", `. ${m.config}; export OPENAI_BASE_URL=https://api.example.test/v1 OPENAI_API_KEY=sk-user; ${m.launchers.codex} --resume x`], { env });
-    expect(parse(own.stdout).OPENAI_BASE_URL).toBe("https://api.example.test/v1");
-  });
-
   test("CMUX_<AGENT>_AUTH pins one launch over the recorded choice and the default", async () => {
     const m = machine();
     cmuxCodexConfig(m);
@@ -955,9 +457,7 @@ describe("the default for every agent", () => {
       for (const agent of ["claude", "codex"] as const) {
         const result = await runChild("/bin/bash", ["-c", `${m.launchers[agent]} --resume x`], { env: bootEnv(m) });
         expect(result.status).toBe(0);
-        // Claude's team mode starts with the launcher's --settings first (reported apart).
         expect(parse(result.stdout).args).toBe("--resume x");
-        if (agent === "claude") expect(settingsEnv(parse(result.stdout))?.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
       }
     } finally {
       chmodSync(m.home, 0o700);
@@ -1041,7 +541,7 @@ describe("cr use", () => {
         HOME: m.home,
         LANG: "en_US.UTF-8",
         CMUX_TUI_BIN: "/usr/bin/true",
-        CMUX_AGENT_AUTH_LIB: m.auth,
+        CMUX_AGENT_AUTH_LIB: path.join(templateDir, "agent-auth.sh"),
         // What a machine shell exports after agent-config.sh set Claude's pair aside.
         CMUX_CODEROUTER_URL: ORIGIN,
         OPENAI_BASE_URL: `${ORIGIN}/v1`,
@@ -1081,116 +581,6 @@ describe("cr use", () => {
     expect(team.stdout).toContain("The team has no Codex account yet. Add one with cr add codex, or switch with cr use own codex.");
     expect(team.stdout).not.toContain("no Claude Code account");
     expect((await launch(m, "codex")).args).toBe("--resume x");
-  });
-
-  test("a shared-team machine never selects a personal agent login", async () => {
-    const m = machine();
-    const kind = resolveVmGuestKind({ userId: "user-owner", ownerTeamId: "team-shared" });
-    expect(kind).toBe("team");
-    const soloTeamKind = resolveVmGuestKind({ userId: "user-owner", ownerTeamId: "team-solo" });
-    expect(soloTeamKind).toBe("team");
-    const modelEnv = path.join(m.root, "model-plane.env");
-    writeFileSync(modelEnv, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
-    const synced = await runChild("/bin/sh", [path.join(templateDir, "cmux-vm-kind-sync")], {
-      env: {
-        PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
-        CMUX_VM_KIND_FILE: m.kind,
-        CMUX_VM_MODEL_ENV_FILE: modelEnv,
-        FAKE_VM_KIND: kind!,
-      },
-    });
-    expect(synced.status).toBe(0);
-    expect(readFileSync(m.kind, "utf8")).toBe("team\n");
-    cmuxCodexConfig(m);
-    for (const agent of AGENTS) {
-      choose(m, "own", agent);
-      signIn(m, agent);
-    }
-
-    const claude = await launch(m, "claude", { FAKE_ACCESS: ALL });
-    expect(claude.ANTHROPIC_BASE_URL).toBe(ORIGIN);
-    expect(claude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-    expect(claude.CLAUDE_CONFIG_DIR).toBe(path.join(m.home, ".config/cmux/claude-team"));
-    const codex = await launch(m, "codex", { FAKE_ACCESS: ALL });
-    expect(codex.args).toBe("--resume x");
-    expect(codex.OPENAI_API_KEY).toBe(PLACEHOLDER);
-    expect(codex.CODEX_HOME).toBe(path.join(m.home, ".config/cmux/codex-team"));
-    const opencode = await launch(m, "opencode", { FAKE_ACCESS: ALL });
-    expect(opencode.OPENCODE_CONFIG).toBe(path.join(m.home, ".config/cmux/opencode-team.json"));
-    expect(opencode.OPENAI_API_KEY).toBe(PLACEHOLDER);
-    expect(opencode.XDG_DATA_HOME).toBe(path.join(m.home, ".local/share/cmux-team"));
-    expect(opencode.XDG_CONFIG_HOME).toBe(path.join(m.home, ".config/cmux-team"));
-
-    const forcedClaude = await launch(m, "claude", {
-      ANTHROPIC_API_KEY: "personal-claude",
-      ANTHROPIC_AUTH_TOKEN: "personal-token",
-      CLAUDE_CODE_USE_BEDROCK: "1",
-      CLAUDE_CODE_USE_VERTEX: "1",
-      CLAUDE_CODE_USE_FOUNDRY: "1",
-      FAKE_ACCESS: ALL,
-    });
-    expect(forcedClaude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-    expect(forcedClaude.ANTHROPIC_AUTH_TOKEN).toBe("<unset>");
-    expect(forcedClaude.CLAUDE_CODE_USE_BEDROCK).toBe("<unset>");
-    expect(forcedClaude.CLAUDE_CODE_USE_VERTEX).toBe("<unset>");
-    expect(forcedClaude.CLAUDE_CODE_USE_FOUNDRY).toBe("<unset>");
-    expect((await launch(m, "codex", { OPENAI_API_KEY: "personal-codex", FAKE_ACCESS: ALL })).OPENAI_API_KEY).toBe(PLACEHOLDER);
-    const forcedOpenCode = await launch(m, "opencode", {
-      OPENAI_API_KEY: "personal-opencode",
-      ANTHROPIC_API_KEY: "personal-anthropic",
-      OPENCODE_CONFIG_DIR: "/personal/opencode-config",
-      FAKE_ACCESS: ALL,
-    });
-    expect(forcedOpenCode.OPENAI_API_KEY).toBe(PLACEHOLDER);
-    expect(forcedOpenCode.ANTHROPIC_API_KEY).toBe("<unset>");
-    expect(forcedOpenCode.OPENCODE_CONFIG_DIR).toBe("<unset>");
-    const persistedPath = path.join(m.home, ".config/cmux/model-plane.env");
-    const persistedPlane = existsSync(persistedPath) ? readFileSync(persistedPath, "utf8") : "";
-    expect(persistedPlane).not.toContain("personal-claude");
-    expect(persistedPlane).not.toContain("personal-token");
-    expect(persistedPlane).not.toContain("personal-codex");
-    expect(persistedPlane).not.toContain("personal-opencode");
-    expect(persistedPlane).not.toContain("personal-anthropic");
-
-    const status = await cr(m, ["--json"], { FAKE_ACCESS: ALL });
-    expect(status.stdout).toBe(
-      '{"agents":[{"agent":"claude","mode":"team","reason":"shared-machine","chosen":false},'
-      + '{"agent":"codex","mode":"team","reason":"shared-machine","chosen":false},'
-      + '{"agent":"opencode","mode":"team","reason":"shared-machine","chosen":false}]}\n',
-    );
-
-    const blocked = machine();
-    writeFileSync(blocked.kind, "team\n");
-    mkdirSync(path.join(blocked.home, ".config"), { recursive: true });
-    writeFileSync(path.join(blocked.home, ".config/cmux"), "not a directory");
-    for (const agent of ["claude", "codex"] as const) {
-      const refused = await runChild(blocked.launchers[agent], ["--resume", "x"], { env: bootEnv(blocked) });
-      expect(refused.status).not.toBe(0);
-      expect(refused.stdout).not.toContain("args=");
-    }
-    mkdirSync(path.join(blocked.home, ".local/share"), { recursive: true });
-    writeFileSync(path.join(blocked.home, ".local/share/cmux-team"), "not a directory");
-    const openCodeRefused = await runChild(blocked.launchers.opencode, ["--resume", "x"], { env: bootEnv(blocked) });
-    expect(openCodeRefused.status).not.toBe(0);
-    expect(openCodeRefused.stdout).not.toContain("args=");
-  });
-
-  test("a team machine never runs Claude on a login left in HOME, an old creator copy included", async () => {
-    // What the Mac's removed credential copy (CloudCredentialInstaller) left for a machine's creator: the
-    // choice `own`, the token in ~/.claude/settings.json's env and the standard login marker. The machine's
-    // model route is the edge; a personal login on a shared Unix user is never used.
-    const m = machine();
-    writeFileSync(m.kind, "team\n");
-    choose(m, "own");
-    signIn(m);
-    writeFileSync(path.join(m.home, ".claude/settings.json"), JSON.stringify({ env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-creator" } }));
-    const claude = await launch(m, "claude", { FAKE_ACCESS: ALL });
-    expect(claude.ANTHROPIC_BASE_URL).toBe(ORIGIN);
-    expect(claude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
-    expect(claude.CLAUDE_CONFIG_DIR).toBe(path.join(m.home, ".config/cmux/claude-team"));
-    expect((await cr(m, ["claude", "--json"], { FAKE_ACCESS: ALL })).stdout)
-      .toBe('{"agents":[{"agent":"claude","mode":"team","reason":"shared-machine","chosen":false}]}\n');
-    expect((await launch(m, "codex", { FAKE_ACCESS: ALL })).CODEX_HOME).toBe(path.join(m.home, ".config/cmux/codex-team"));
   });
 
   test("an agent argument limits the change to that agent", async () => {
@@ -1235,7 +625,7 @@ describe("cr use", () => {
       chmodSync(path.join(m.bin, name), 0o755);
     }
     const config = path.join(m.root, "agent-config-cr.sh");
-    writeFileSync(config, readFileSync(m.config, "utf8").replaceAll("/usr/local/libexec/cmux-cloud-adapter", adapter));
+    writeFileSync(config, readFileSync(path.join(templateDir, "agent-config.sh"), "utf8").replaceAll("/usr/local/libexec/cmux-cloud-adapter", adapter));
     const run = async (command: string) =>
       (await runChild("/bin/bash", ["-c", `. ${config}; ${command}`], { env: bootEnv(m) })).stdout.trim();
     expect(await run("cr use own codex")).toBe("adapter coderouter use own codex");

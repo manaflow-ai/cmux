@@ -119,8 +119,6 @@ pub(crate) async fn diff(
     let scope = diff_page_scope(&normalized, staged, diff_context, format);
     let mut arguments = vec![
         "diff".to_string(),
-        // Scope output to the opened folder and print paths relative to it.
-        "--relative".to_string(),
         "--no-ext-diff".to_string(),
         "--no-textconv".to_string(),
         "--no-color".to_string(),
@@ -292,9 +290,6 @@ async fn run_git(
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GIT_PAGER", "cat")
-        // Client paths are file names, never pathspec magic such as `:(top)`,
-        // which would reach files outside the opened folder.
-        .env("GIT_LITERAL_PATHSPECS", "1")
         .env("LC_ALL", "C")
         .kill_on_drop(true);
     #[cfg(not(unix))]
@@ -356,7 +351,6 @@ async fn read_diff_path_metadata(
 ) -> Result<Vec<u8>, RpcError> {
     let mut arguments = vec![
         "diff".to_string(),
-        "--relative".to_string(),
         "--name-status".to_string(),
         "-z".to_string(),
         "--no-ext-diff".to_string(),
@@ -573,6 +567,11 @@ fn split_diff_section_ranges(source: &[u8]) -> Vec<Range<usize>> {
         .collect()
 }
 
+#[cfg(test)]
+fn split_diff_sections(source: &[u8]) -> Vec<&[u8]> {
+    split_diff_section_ranges(source).into_iter().map(|range| &source[range]).collect()
+}
+
 fn diff_page_scope(paths: &[String], staged: bool, context: u16, format: DiffFormat) -> String {
     let mut digest = Sha256::new();
     digest.update([u8::from(staged)]);
@@ -710,5 +709,405 @@ fn structured_path(path: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-#[path = "git_tests.rs"]
-mod tests;
+mod tests {
+    use std::path::Path;
+    use std::process::Command;
+    use std::sync::Arc;
+
+    use cmux_remote_protocol::WorkspaceId;
+    use tempfile::tempdir;
+
+    use super::super::{ClientScope, query::WorkspaceQueryService};
+    use super::*;
+
+    fn git(root: &Path, arguments: &[&str]) {
+        let status = Command::new("git").arg("-C").arg(root).args(arguments).status().unwrap();
+        assert!(status.success(), "git {arguments:?} failed with {status}");
+    }
+
+    fn write_test_file(root: &Path, path: &str, contents: &[u8]) {
+        let path = root.join(path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, contents).unwrap();
+    }
+
+    async fn structured_diff(root: &WorkspaceRoot, staged: bool) -> StructuredDiffV1 {
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, root);
+        let response = diff(&context, &[], staged, 3, DiffFormat::StructuredV1, None, None)
+            .await
+            .unwrap()
+            .commit();
+        let WorkspaceResponse::StructuredDiff { diff, .. } = response else { panic!() };
+        diff
+    }
+
+    async fn git_root() -> (tempfile::TempDir, Arc<WorkspaceRoot>) {
+        let directory = tempdir().unwrap();
+        git(directory.path(), &["init", "-q"]);
+        git(directory.path(), &["config", "user.email", "test@example.com"]);
+        git(directory.path(), &["config", "user.name", "Test"]);
+        git(directory.path(), &["config", "core.quotePath", "true"]);
+        std::fs::write(directory.path().join("tracked.txt"), "before\n").unwrap();
+        git(directory.path(), &["add", "tracked.txt"]);
+        git(directory.path(), &["commit", "-qm", "initial"]);
+        let root =
+            WorkspaceRoot::open(WorkspaceId("git".into()), directory.path().to_str().unwrap())
+                .await
+                .unwrap();
+        (directory, root)
+    }
+
+    #[tokio::test]
+    async fn status_and_structured_diff_are_bounded_and_typed() {
+        let (_directory, root) = git_root().await;
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+        tokio::fs::write(root.canonical_root().join("tracked.txt"), b"after\n").await.unwrap();
+        let response = status(&root).await.unwrap();
+        let WorkspaceResponse::GitStatus { status } = response else { panic!() };
+        assert_eq!(status.changes[0].path, "tracked.txt");
+        assert_eq!(status.changes[0].worktree_status, 'M');
+
+        let response = diff(&context, &[], false, 3, DiffFormat::Structured, None, None)
+            .await
+            .unwrap()
+            .commit();
+        let WorkspaceResponse::Diff { data, .. } = response else { panic!() };
+        let decoded = data.decode().unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
+        assert_eq!(json["files"][0]["new_path"], "tracked.txt");
+        assert!(json["files"][0]["hunks"][0]["lines"].is_array());
+        assert!(json["files"][0].get("metadata").is_none());
+
+        let typed = diff(&context, &[], false, 3, DiffFormat::StructuredV1, None, None)
+            .await
+            .unwrap()
+            .commit();
+        let WorkspaceResponse::StructuredDiff { diff, .. } = typed else { panic!() };
+        assert_eq!(diff.version, 1);
+        assert_eq!(diff.files[0].new_path.as_deref(), Some("tracked.txt"));
+        assert!(!diff.files[0].metadata.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn status_uses_the_pinned_root_after_its_path_is_replaced() {
+        let parent = tempdir().unwrap();
+        let root_path = parent.path().join("workspace");
+        let pinned_path = parent.path().join("pinned-workspace");
+        std::fs::create_dir(&root_path).unwrap();
+        git(&root_path, &["init", "-q"]);
+        git(&root_path, &["config", "user.email", "test@example.com"]);
+        git(&root_path, &["config", "user.name", "Test"]);
+        std::fs::write(root_path.join("tracked.txt"), "before\n").unwrap();
+        git(&root_path, &["add", "tracked.txt"]);
+        git(&root_path, &["commit", "-qm", "initial"]);
+        let root =
+            WorkspaceRoot::open(WorkspaceId("pinned-git".into()), root_path.to_str().unwrap())
+                .await
+                .unwrap();
+
+        std::fs::rename(&root_path, &pinned_path).unwrap();
+        std::fs::create_dir(&root_path).unwrap();
+        git(&root_path, &["init", "-q"]);
+        std::fs::write(root_path.join("replacement.txt"), "replacement\n").unwrap();
+        std::fs::write(pinned_path.join("tracked.txt"), "after\n").unwrap();
+
+        let response = status(&root).await.unwrap();
+        let WorkspaceResponse::GitStatus { status } = response else { panic!() };
+        let paths = status.changes.iter().map(|change| change.path.as_str()).collect::<Vec<_>>();
+        assert_eq!(paths, vec!["tracked.txt"]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn status_disables_repository_fsmonitor() {
+        let (_directory, root) = git_root().await;
+        let hook = root.canonical_root().join("fsmonitor-hook");
+        let marker = root.canonical_root().join("fsmonitor-hook.invoked");
+        cmux_test_exec::write_executable(
+            &hook,
+            "#!/bin/sh\n: > \"$0.invoked\"\nprintf 'cmux-token\\n'\n",
+        )
+        .unwrap();
+        git(root.canonical_root(), &["config", "core.fsmonitor", hook.to_str().unwrap()]);
+
+        assert!(Command::new(&hook).status().unwrap().success());
+        assert!(marker.exists(), "positive control did not execute fsmonitor hook");
+        std::fs::remove_file(&marker).unwrap();
+
+        status(&root).await.unwrap();
+        assert!(!marker.exists(), "workspace Git status executed repository fsmonitor hook");
+    }
+
+    #[tokio::test]
+    async fn status_ignores_repository_selecting_environment() {
+        const CHILD: &str = "CMUX_GIT_ENVIRONMENT_TEST_CHILD";
+        const ROOT: &str = "CMUX_GIT_ENVIRONMENT_TEST_ROOT";
+        if std::env::var_os(CHILD).is_some() {
+            let root_path = std::env::var_os(ROOT).expect("isolated Git test root is present");
+            let root = WorkspaceRoot::open(
+                WorkspaceId("git-environment".into()),
+                Path::new(&root_path).to_str().unwrap(),
+            )
+            .await
+            .unwrap();
+            let response = status(&root).await.unwrap();
+            let WorkspaceResponse::GitStatus { status } = response else { panic!() };
+            let paths =
+                status.changes.iter().map(|change| change.path.as_str()).collect::<Vec<_>>();
+            assert!(paths.contains(&"target-only.txt"), "target status missing: {paths:?}");
+            assert!(!paths.contains(&"decoy-only.txt"), "decoy status escaped its workspace");
+            return;
+        }
+
+        let (target, _target_root) = git_root().await;
+        let (decoy, _decoy_root) = git_root().await;
+        std::fs::write(target.path().join("target-only.txt"), "target\n").unwrap();
+        std::fs::write(decoy.path().join("decoy-only.txt"), "decoy\n").unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("workspace::git::tests::status_ignores_repository_selecting_environment")
+            .arg("--nocapture")
+            .env(CHILD, "1")
+            .env(ROOT, target.path())
+            .env("GIT_DIR", decoy.path().join(".git"))
+            .env("GIT_WORK_TREE", decoy.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "isolated Git environment test failed:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[tokio::test]
+    async fn structured_diff_decodes_modified_git_paths() {
+        let (_directory, root) = git_root().await;
+        let paths = [
+            "quote\"name.bin",
+            "tab\tname.bin",
+            "\u{65e5}\u{672c}\u{8a9e}.bin",
+            "folder b/name.bin",
+        ];
+        for (index, path) in paths.iter().enumerate() {
+            write_test_file(root.canonical_root(), path, format!("before {index}\0").as_bytes());
+        }
+        git(root.canonical_root(), &["add", "."]);
+        git(root.canonical_root(), &["commit", "-qm", "special paths"]);
+        for (index, path) in paths.iter().enumerate() {
+            write_test_file(root.canonical_root(), path, format!("after {index}\0").as_bytes());
+        }
+
+        let parsed = structured_diff(&root, false).await;
+        assert_eq!(parsed.files.len(), paths.len());
+        for path in paths {
+            let file = parsed
+                .files
+                .iter()
+                .find(|file| file.new_path.as_deref() == Some(path))
+                .unwrap_or_else(|| panic!("missing modified path {path:?}"));
+            assert_eq!(file.old_path.as_deref(), Some(path));
+            assert!(file.hunks.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn structured_diff_decodes_renamed_git_paths() {
+        let (_directory, root) = git_root().await;
+        let paths = [
+            ("old\"quote.txt", "new\"quote.txt"),
+            ("old\ttab.txt", "new\ttab.txt"),
+            ("\u{53e4}\u{3044}.txt", "\u{65b0}\u{3057}\u{3044}.txt"),
+            ("old b/path.txt", "new b/path.txt"),
+        ];
+        for (index, (old, _new)) in paths.iter().enumerate() {
+            write_test_file(
+                root.canonical_root(),
+                old,
+                format!("unique contents {index}\n").as_bytes(),
+            );
+        }
+        git(root.canonical_root(), &["add", "."]);
+        git(root.canonical_root(), &["commit", "-qm", "rename sources"]);
+        for (old, new) in paths {
+            let new_path = root.canonical_root().join(new);
+            if let Some(parent) = new_path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::rename(root.canonical_root().join(old), new_path).unwrap();
+        }
+        git(root.canonical_root(), &["add", "-A"]);
+
+        let parsed = structured_diff(&root, true).await;
+        assert_eq!(parsed.files.len(), paths.len());
+        for (old, new) in paths {
+            let file = parsed
+                .files
+                .iter()
+                .find(|file| {
+                    file.old_path.as_deref() == Some(old) && file.new_path.as_deref() == Some(new)
+                })
+                .unwrap_or_else(|| panic!("missing rename {old:?} -> {new:?}"));
+            assert!(file.hunks.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn unified_diff_cursor_pages_on_file_boundaries() {
+        let (_directory, root) = git_root().await;
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+        std::fs::write(root.canonical_root().join("second.txt"), "before\n").unwrap();
+        for args in [["add", "second.txt"].as_slice(), ["commit", "-qm", "second"].as_slice()] {
+            assert!(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(root.canonical_root())
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
+        std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
+
+        let full =
+            diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap().commit();
+        let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
+        let full = data.decode().unwrap();
+        let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
+        let maximum = u32::try_from(maximum).unwrap();
+
+        let first = diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum))
+            .await
+            .unwrap()
+            .commit();
+        let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
+            panic!()
+        };
+        let mut combined = data.decode().unwrap();
+        let second =
+            diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
+                .await
+                .unwrap()
+                .commit();
+        let WorkspaceResponse::Diff { data, next_cursor, .. } = second else { panic!() };
+        assert_eq!(next_cursor, None);
+        combined.extend(data.decode().unwrap());
+        assert_eq!(combined, full);
+    }
+
+    #[tokio::test]
+    async fn unified_diff_cursor_continues_the_original_snapshot() {
+        let (_directory, root) = git_root().await;
+        let queries = WorkspaceQueryService::default();
+        let owner = ClientScope::new("test", cmux_remote_protocol::SessionId([1; 16]));
+        let context = WorkspaceQueryContext::new(&queries, &owner, &root);
+        std::fs::write(root.canonical_root().join("second.txt"), "before\n").unwrap();
+        git(root.canonical_root(), &["add", "second.txt"]);
+        git(root.canonical_root(), &["commit", "-qm", "second"]);
+        std::fs::write(root.canonical_root().join("tracked.txt"), "after one\n").unwrap();
+        std::fs::write(root.canonical_root().join("second.txt"), "after two\n").unwrap();
+
+        let full =
+            diff(&context, &[], false, 3, DiffFormat::Unified, None, None).await.unwrap().commit();
+        let WorkspaceResponse::Diff { data, .. } = full else { panic!() };
+        let full = data.decode().unwrap();
+        let maximum = split_diff_sections(&full).iter().map(|section| section.len()).max().unwrap();
+        let maximum = u32::try_from(maximum).unwrap();
+        let first = diff(&context, &[], false, 3, DiffFormat::Unified, None, Some(maximum))
+            .await
+            .unwrap()
+            .commit();
+        let WorkspaceResponse::Diff { data, next_cursor: Some(cursor), .. } = first else {
+            panic!()
+        };
+        let first = String::from_utf8(data.decode().unwrap()).unwrap();
+        let (returned, remaining) = if first.contains("second.txt") {
+            ("second.txt", "tracked.txt")
+        } else {
+            ("tracked.txt", "second.txt")
+        };
+        git(root.canonical_root(), &["checkout", "--", returned]);
+
+        let second =
+            diff(&context, &[], false, 3, DiffFormat::Unified, Some(&cursor), Some(maximum))
+                .await
+                .unwrap()
+                .commit();
+        let WorkspaceResponse::Diff { data, .. } = second else { panic!() };
+        let second = String::from_utf8(data.decode().unwrap()).unwrap();
+        assert!(second.contains(remaining), "missing retained diff for {remaining}: {second}");
+    }
+
+    #[test]
+    fn parses_porcelain_rename_records() {
+        let input = b"## main\0R  new.txt\0old.txt\0";
+        let (branch, changes) = parse_status(input).unwrap();
+        assert_eq!(branch.as_deref(), Some("main"));
+        assert_eq!(changes[0].path, "new.txt");
+        assert_eq!(changes[0].original_path.as_deref(), Some("old.txt"));
+    }
+
+    #[test]
+    fn parses_nul_delimited_diff_path_page() {
+        let input = concat!(
+            "M\0skip.txt\0",
+            "A\0tab\tname.txt\0",
+            "R100\0old b/path.txt\0new\"path.txt\0",
+            "D\0gone.txt\0",
+        );
+        let parsed = parse_diff_path_metadata(input.as_bytes()).unwrap();
+        assert_eq!(parsed.len(), 4);
+        assert_eq!(parsed[1].old_path, None);
+        assert_eq!(parsed[1].new_path.as_deref(), Some("tab\tname.txt"));
+        assert_eq!(parsed[2].old_path.as_deref(), Some("old b/path.txt"));
+        assert_eq!(parsed[2].new_path.as_deref(), Some("new\"path.txt"));
+        assert_eq!(parsed[3].old_path.as_deref(), Some("gone.txt"));
+        assert_eq!(parsed[3].new_path, None);
+    }
+
+    #[test]
+    fn structured_diff_does_not_confuse_hunk_content_for_file_headers() {
+        let source = concat!(
+            "diff --git a/value.txt b/value.txt\n",
+            "--- a/value.txt\n",
+            "+++ b/value.txt\n",
+            "@@ -1 +1 @@\n",
+            "--- deleted content\n",
+            "++++ added content\n",
+        );
+        let parsed = parse_structured_diff(source);
+        assert_eq!(parsed.files.len(), 1);
+        assert_eq!(parsed.files[0].old_path.as_deref(), Some("value.txt"));
+        assert_eq!(parsed.files[0].new_path.as_deref(), Some("value.txt"));
+        assert_eq!(parsed.files[0].hunks[0].lines[0].kind, StructuredDiffLineKind::Deleted);
+        assert_eq!(parsed.files[0].hunks[0].lines[0].text, "-- deleted content");
+        assert_eq!(parsed.files[0].hunks[0].lines[1].kind, StructuredDiffLineKind::Added);
+        assert_eq!(parsed.files[0].hunks[0].lines[1].text, "+++ added content");
+    }
+
+    #[test]
+    fn structured_diff_keeps_binary_file_metadata_without_hunks() {
+        let parsed = parse_structured_diff(concat!(
+            "diff --git a/image.bin b/image.bin\n",
+            "index 1111111..2222222 100644\n",
+            "Binary files a/image.bin and b/image.bin differ\n",
+        ));
+        assert_eq!(parsed.files.len(), 1);
+        assert_eq!(parsed.files[0].old_path.as_deref(), Some("image.bin"));
+        assert_eq!(parsed.files[0].new_path.as_deref(), Some("image.bin"));
+        assert!(parsed.files[0].hunks.is_empty());
+        assert_eq!(parsed.files[0].metadata.len(), 2);
+    }
+}

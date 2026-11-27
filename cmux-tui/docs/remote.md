@@ -36,19 +36,19 @@ Configure the reverse proxy to send `wss://cmux.example/v1/link` to `ws://127.0.
 `npx cmux` exposes the same commands when using the npm distribution:
 
 ```sh
-npx cmux daemon start --session dev --iroh
+npx cmux server start --session dev --iroh
 ```
 
-Use `cmux daemon stop --session dev` to stop the local owner, its workspaces,
-and the authenticated remote listeners embedded by `daemon start`. `cmux
+Use `cmux server stop --session dev` to stop the local owner, its workspaces,
+and the authenticated remote listeners embedded by `server start`. `cmux
 remote stop --session dev` stops only a replaceable SSH sidecar; it refuses to
 stop an embedded listener because that action would also terminate the local
-owner and its workspaces. Use `cmux daemon status|reload-config|stop` for the
+owner and its workspaces. Use `cmux server status|reload-config|stop` for the
 local owner. An absent local stop succeeds, but an absent local status fails.
 
 Bare `cmux-tui` keeps normal tmux-style local behavior. Outbound remote-client
-behavior begins only with `remote connect`, `remote ssh`, `remote forward`,
-`remote dial-tcp`, or `remote rpc`.
+behavior begins only with `remote connect`, `remote ssh`, `remote forward`, or
+`remote rpc`.
 
 ## Enroll and revoke devices
 
@@ -75,23 +75,6 @@ Approval binds the invitation to the first device key that claimed it. That same
 
 `cmux-tui remote enroll create --advertise <route>` replaces the daemon's generated invitation route list. Repeat the flag to supply every desired fallback. Every route named by `--relay-route` must also appear in this explicit `--advertise` list. Prefer server-level `--advertise` when the route should be added to the automatically discovered Iroh, relay, WebSocket, and Unix routes.
 
-### Enroll an agent's device in one step
-
-A machine with no person at it, such as an agent's VM, can enroll without an approval step. The VM prints its device key, the daemon's owner makes an invitation bound to that key, and the VM connects with it:
-
-```sh
-# On the VM: print this device's public key (and its fingerprint).
-cmux-tui remote device-key
-# On the daemon's machine: an invitation only that key can use.
-cmux-tui remote enroll create --session dev --device-key <key> --device-name agent-vm
-# On the VM: connect with the invitation; it enrolls at once.
-cmux-tui remote connect --invite-file invitation.txt
-```
-
-`device-key --json` prints `{"public_key": ..., "fingerprint": ...}`, and creates the client identity first if there is none. The daemon enrolls the bound key as soon as it presents the invitation and refuses every other key with "invitation is bound to another device", without queuing a pending request. `--device-name` names the device in `enroll devices`; without it, the client's `--device-name` is used.
-
-A bound invitation is useless without the private key that matches its device key, which never leaves the VM, so it may travel over a logged channel. The five-minute expiry, the 60-second retry grace and revocation apply as to any invitation, and revoking a device also voids every unused invitation bound to its key. A daemon without bound invitations would make one that needs approval; `enroll create --device-key` refuses to print it.
-
 Inspect or revoke access without restarting the daemon:
 
 ```sh
@@ -103,6 +86,28 @@ cmux-tui remote enroll disconnect <device-id> <session-id> --session dev
 
 Revocation closes an enrolled device's live sessions and rejects its key in the future. Carrier sessions have synthetic `carrier:*` device IDs and no persistent device record, so use `connections` followed by `disconnect` for a live carrier session. Other devices remain connected. Every enrolled device has full daemon authority, including all workspaces.
 
+## Decide what paired machines may do here
+
+Enrollment says two machines belong to the same user. It doesn't say what one may do on the other. Each machine keeps its own trust record for every peer, keyed by the peer's device fingerprint, and a peer without a record gets nothing.
+
+```sh
+cmux remote trust set FINGERPRINT --tier folders --folder ~/src/api --agent claude
+cmux remote trust set FINGERPRINT --tier ask --folder ~/src/api --agent claude --agent codex --expires-in-hours 24
+cmux remote trust list --json
+cmux remote trust forget FINGERPRINT
+cmux remote trust audit --limit 20
+```
+
+| Tier | The peer may |
+| --- | --- |
+| `none` | Nothing. Same as no record. |
+| `ask` | Request a session for a listed agent in a listed folder; each request waits for approval on this machine. |
+| `folders` | Start sessions for listed agents in listed folders without asking. |
+
+Folders are stored resolved through symlinks. A request's working directory is resolved too, so a link inside an allowed folder can't lead out of it, and a stored folder that's later replaced by a symlink admits nothing. `/`, the home folder and any folder above it can't be allowed. Records are written to `peer-trust.json` (updated under a lock) and requests to the append-only `peer-audit.jsonl` (rotated to `.1` past 4 MiB; oversized peer fields are cut, never dropped), both owner-only files in the remote state root (`--state-dir`, `CMUX_REMOTE_STATE_DIR`, or the platform default). A peer can't change them. There's no shell tier: opening a terminal for a peer needs its own design and review.
+
+Nothing remote consults these records yet. The next step, `machine.session.request`, will admit or refuse through them and log every decision ([design](../../docs/multi-machine-sessions.md#per-host-trust)).
+
 ## Connect directly or over SSH
 
 Connect through any route printed by the daemon:
@@ -113,29 +118,14 @@ cmux-tui remote connect 'iroh://<node-id>?relay_url=<url>&direct_addrs=<addr>'
 cmux-tui remote connect unix:///path/to/link.sock
 ```
 
-An invitation tries its explicit route followed by its ordered route hints, one at a time (each attempt asks the owner to approve it). An enrolled device's first connect races its routes instead, the last route that connected first (`CMUX_REMOTE_ROUTE_RACE=0` dials them in order). A known enrolled or carrier daemon can reconnect without copying a route by using `cmux-tui remote connect --daemon <fingerprint>`. Run `cmux-tui remote known-daemons` to list names, fingerprints, authorization modes, and routes. A Unix hint is promoted only when its socket exists on the client machine; an unreachable Unix path from a remote host is tried last. cmux Noise authentication, pinned daemon-key, and protocol failures stop fallback. Provider connection failures, including rejected SSH or relay credentials, may try another route.
+An invitation tries its explicit route followed by its ordered route hints. A known enrolled or carrier daemon can reconnect without copying a route by using `cmux-tui remote connect --daemon <fingerprint>`. Run `cmux-tui remote known-daemons` to list names, fingerprints, authorization modes, and routes. A Unix hint is promoted only when its socket exists on the client machine; an unreachable Unix path from a remote host is tried last. cmux Noise authentication, pinned daemon-key, and protocol failures stop fallback. Provider connection failures, including rejected SSH or relay credentials, may try another route.
 
 Iroh defaults to `--iroh-path auto`, which probes direct IP paths and retains relay fallback. `direct-only` disables relay transports and requires `--iroh-address`. `relay-only` disables IP transports and requires `--iroh-relay`. The constrained modes are useful for policy enforcement and path verification; they fail instead of silently using the other path type.
 
-`cmux ssh HOST` (also `cmux-tui remote ssh HOST`) first tries your hub carrier when HOST is the bare name of one of your machines that this machine's acpmux hub lists (what `acpmux machine ls` prints) and no other option is given. acpmux serves one local socket per listed machine (`_acpmux/machine_routes`); each connection to it is one carrier circuit to that machine's own cmux-tui session daemon, so the TUI attaches with no sshd, no keys and nothing installed there. A name the hub does not list, or a machine with no acpmux, goes to SSH as below with nothing printed. A listed machine that refuses (`carrier.off`, `consent_required`, `consent_declined`, `service.off`, ...) prints the refusal's one-line reason and then uses SSH. `--carrier` stops at the refusal instead; `--ssh` skips the carrier.
-
-```sh
-cmux ssh buildbox            # carrier first, then SSH
-cmux ssh buildbox --carrier  # carrier only
-cmux ssh buildbox --ssh      # SSH only
-```
-
-Otherwise `cmux-tui remote ssh` uses SSH directly, matching the command the user chose. The npm form is `npx cmux remote ssh user@linux-server --session dev`.
+`cmux-tui remote ssh` uses SSH directly, matching the command the user chose. The npm form is `npx cmux remote ssh user@linux-server --session dev`.
 
 ```sh
 cmux-tui remote ssh user@linux-server --session dev
-```
-
-`--repo LOCAL[:REMOTE]` puts a local repo on the host over the link `cmux ssh` just opened, with nothing cloned from the forge: the git carry pack (your commit at depth 1 plus uncommitted work, unpacked with `git index-pack` there), else a clone, else a copy, as `cmux link seed push` does. A later `--repo` to the same place sends only what changed. REMOTE defaults to `~/<LOCAL's folder name>`; `~` is the host's `$HOME`. The seed's JSON line goes to stderr (`--headless --json`: a `repo-seed` event on stdout) before the TUI opens.
-
-```sh
-cmux ssh buildbox --repo ~/src/app            # ~/app on buildbox
-cmux ssh buildbox --repo ~/src/app:/srv/app
 ```
 
 The SSH path probes for `~/.local/bin/cmux-tui`, then carries framed data over SSH stdio. It keeps a durable headless mux owner and a replaceable remote sidecar as separate processes. Existing terminal panes therefore survive sidecar replacement. If the named tmux-style session already has a live mux socket, the sidecar attaches without creating a second session. Otherwise cmux starts the user-scoped mux owner on demand.
@@ -146,6 +136,31 @@ If the binary is absent or reports an understood incompatible probe, an npm-back
 
 Every command that selects SSH as its initial route performs the same probe and automatic install before starting its authenticated connection. This includes a raw `ssh://` route passed to `connect`, `forward`, or `rpc`. The bootstrap runs outside the short carrier-reattachment deadline, so installation can finish without making later keystroke-path reconnects wait on package setup. A later SSH fallback is expected to use the binary installed by an earlier SSH connection or by the server owner. These commands accept `--session`, `--ssh-binary`, `--remote-binary`, `--remote-state-dir`, repeated `--ssh-arg` values, `--upgrade`, and `--no-install`. Repeat `--session dev` on later connections to a non-main SSH session; the known-daemon record stores routes and keys, not the remote session name.
 
+## Diagnose SSH reachability
+
+`cmux remote doctor HOST` explains why this machine can't reach HOST over SSH. It changes nothing on either machine.
+
+```sh
+cmux remote doctor cosmic-gray
+cmux remote doctor cosmic-gray --user leoli --port 22 --timeout-seconds 5 --json
+```
+
+HOST may be an SSH config alias or `user@host`; the probes aim at the `HostName` and `Port` that `ssh -G HOST` reports. It runs three probes in order: a Tailscale TSMP ping (`tailscale ping --tsmp`), a TCP connect to the SSH port, and, only when TCP connects, `ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes HOST true` with agent, X11 and port forwarding disabled. The combined result is one diagnosis:
+
+| `diagnosis` | Probes | Meaning |
+| --- | --- | --- |
+| `ok` | TCP open, SSH works | cmux can use the host directly. |
+| `key-not-authorized` | TCP open, `Permission denied` | No offered key is in the target user's `authorized_keys`, or the login name differs (`--user`). |
+| `host-key-unknown` | TCP open, host key check failed | Connect once with plain `ssh` to verify and trust the key. |
+| `host-key-changed` | TCP open, `REMOTE HOST IDENTIFICATION HAS CHANGED` | Don't accept the new key until it's checked on the host itself. |
+| `ssh-failed` | TCP open, other SSH error | Run `ssh -v` for details. |
+| `ssh-off` | TCP refused | Nothing listens on the port. On a Mac, turn on Remote Login. |
+| `tailnet-policy-blocks` | TSMP answers, TCP times out | The tailnet access policy drops this direction. TSMP is answered before the packet filter, so it still works. Ask a tailnet admin for a rule, or connect from the other machine. cmux never edits the policy. |
+| `unreachable` | No TSMP answer, TCP times out | The host is offline or not on this tailnet. |
+| `unresolved` | Name lookup failed | Use the tailnet name or the 100.x address. |
+
+When the SSH config routes HOST through `ProxyJump` or `ProxyCommand`, the TCP and tailnet probes are skipped (`tcp: proxied`, `tailnet: not-tried`) and only the SSH probe runs. The SSH probe also overrides config options that could change state or skip the test: `UpdateHostKeys`, `ControlMaster`/`ControlPath`, `RemoteCommand` and `PermitLocalCommand`. `tailnet` is `unavailable` when the `tailscale` CLI is missing or not running; the TCP and SSH probes still run. The command exits 0 only for `ok`. HOST and `--user` must not start with `-` or contain spaces or control characters.
+
 ## Share one WireGuard tunnel between clients
 
 One WireGuard key supports one live session: the server keeps the endpoint of the last authenticated sender, so two processes handshaking with the same key steal each other's traffic. When several `remote connect` processes on one machine must reach the same private network, run one hub and point each client at it:
@@ -155,15 +170,11 @@ cmux-tui wg hub --config ~/.cmuxterm/wireguard/app.conf --socket ~/.cmuxterm/wir
 cmux-tui remote connect 'ws://[fd7a::10]:1337/v1/link' --wireguard-hub ~/.cmuxterm/wireguard/hub.sock
 ```
 
-The hub owns the tunnel and serves SOCKS5 CONNECT on an owner-only Unix socket (parent directory `0700`, socket `0600`, peer uid checked). Without `--client-token-stdin` it asks for no authentication. With `--client-token-stdin` it reads a client token as stdin's first line and serves only clients that send it as the SOCKS5 username/password password (RFC 1929, username `cmux`, compared in constant time): another program of the same user that finds the socket gets method `0xFF` or an auth failure and reaches nothing. Pass the same token to `remote connect --wireguard-hub-token-stdin` as one line on stdin; it never appears in argv, the environment or a file. `--config -` reads the wg-quick config (and so the private key) from stdin to EOF, after the token line, instead of a file. The cmux app makes one random token per app launch, so a restarted hub still accepts its running links, and starts its hub with both. It dials literal IP targets inside the tunnel's `AllowedIPs` only: other addresses get reply `0x02` (not allowed by ruleset), names get `0x08` (address type not supported). It prints one JSON line `{"event":"hub-ready","socket":"<path>","routes":[...]}` when listening, exits non-zero with a clear error otherwise, and removes the socket on SIGTERM or SIGINT. `remote-probe --json` lists `wireguard-hub` in `capabilities` when a client supports both halves, and `wireguard-hub-token` when it supports `--client-token-stdin`, `--config -` and `--wireguard-hub-token-stdin`.
-
-## Keep a machine's cmux current
-
-`cmux remote-probe --json` names the build: `build_identity` (its source commit) and `build_time` (unix seconds of that commit, 0 when unknown; a fleet build that reuses the cached binary of the same cmux-tui source tree reports the first build of that tree, never the app's own commit); with `--build-facts` it also lists `daemon_capabilities` (the daemon capabilities the build serves on any machine; host-dependent ones such as apps, file ops, the browser runtime and image paste are left out). The plain output stays under the 4096 bytes an SSH bootstrap reads. `cmux remote update-need --probe-json <FILE|->` reads another machine's probe and prints `{"need":"older|none|newer","reason":"same_commit|capabilities|build_time|incomparable|unknown","remote":{...},"local":{...}}`, with a `warning` when the two builds are incomparable. The rule: the same commit needs nothing; a remote whose capability set is a strict subset of this build's is older, a strict superset newer, neither a subset of the other needs nothing; with equal sets the build time decides (a remote time of 0 is older, the same time with another commit needs nothing, and this build's own unknown time needs nothing); a probe without `daemon_capabilities` predates the rule and is older. The exit status is 0 for every answer. Known limit (dev builds): with equal capability sets, an old branch whose cmux-tui source tree is first built late gets a later `build_time` and replaces a machine's newer tree; the order stays total, so two Macs never replace each other in turn. NIGHTLY and release builds come from one line, so this does not happen there. The cmux app installs its bundled build on an SSH machine only when the answer is `older`, then hands the running session daemon and agent daemon over to it, keeping terminals and hosted agents.
+The hub owns the tunnel and serves SOCKS5 CONNECT with no authentication on an owner-only Unix socket (parent directory `0700`, socket `0600`, peer uid checked). It dials literal IP targets inside the tunnel's `AllowedIPs` only: other addresses get reply `0x02` (not allowed by ruleset), names get `0x08` (address type not supported). It prints one JSON line `{"event":"hub-ready","socket":"<path>","routes":[...]}` when listening, exits non-zero with a clear error otherwise, and removes the socket on SIGTERM or SIGINT. `remote-probe --json` lists `wireguard-hub` in `capabilities` when a client supports both halves.
 
 ## Client option reference
 
-`connect`, `ssh`, `forward`, `dial-tcp`, and `rpc` share these connection options:
+`connect`, `ssh`, `forward`, and `rpc` share these connection options:
 
 | Option | Effect and default |
 | --- | --- |
@@ -176,14 +187,13 @@ The hub owns the tunnel and serves SOCKS5 CONNECT on an owner-only Unix socket (
 | `--state-dir <path>` | Override client identity and known-daemon storage |
 | `--remote-state-dir <path>` | Select a non-default state directory on an SSH server |
 | `--local-socket <path>` | Override the local mux-compatible socket created by the remote client runtime |
-| `--headless` | For `connect` or `ssh`, print the local socket and keep the connection alive without starting the TUI; `forward`, `dial-tcp`, and `rpc` are already headless |
+| `--headless` | For `connect` or `ssh`, print the local socket and keep the connection alive without starting the TUI; `forward` and `rpc` are already headless |
 | `--headless --json` | Emit a credential-free JSON snapshot at startup and whenever the generation, state, lane bindings, provider, route, or selected Iroh path changes |
 | `--iroh-relay <url>` | Override the Iroh relay routing hint |
 | `--iroh-address <addr>` | Add an Iroh direct address; repeat for several addresses |
 | `--iroh-path <mode>` | `auto`, `direct-only`, or `relay-only`; default `auto` |
 | `--wireguard-config <path>` | Run an in-process WireGuard peer from an owner-only wg-quick file and dial `ws`/`wss` routes whose address is inside its `AllowedIPs` through it; other addresses use the operating system. No root and no system interface; only this client's links travel through the tunnel |
 | `--wireguard-hub <path>` | Dial `ws`/`wss` routes through a running `cmux-tui wg hub` Unix socket (SOCKS5 CONNECT) instead of owning a tunnel. Exclusive with `--wireguard-config`. Several `remote connect` processes share one key this way, because one WireGuard key supports only one live session |
-| `--wireguard-hub-token-stdin` | Read the hub's client token (`wg hub --client-token-stdin`) as one line on stdin. Needs `--wireguard-hub`; exclusive with `--invite-file -` |
 
 Reconnect defaults are unlimited attempts, 100 ms initial delay, 5 s maximum delay, a 15 s timeout per attempt, full jitter, a 5 s heartbeat interval, and a 15 s heartbeat timeout. Override them with `--reconnect-attempts <n|unlimited>`, `--reconnect-initial-ms`, `--reconnect-max-ms`, `--reconnect-attempt-timeout-ms`, `--reconnect-jitter <full|none>`, `--heartbeat-interval-ms`, and `--heartbeat-timeout-ms`. The per-attempt timeout also deadlines each link's initial handshake on every dial, invitation dials included, so an endpoint that accepts the connection but never completes the cmux handshake fails within that budget and tears its transport down instead of holding the connection open. The failure is a retryable carrier failure, so `--reconnect-attempts` and the backoff delays decide when the client stops redialing; an invitation's enrollment-approval wait happens after the handshake and keeps its own longer window.
 
@@ -221,7 +231,7 @@ cmux-tui remote connect <route> \
   --heartbeat-timeout-ms 15000
 ```
 
-Set `--heartbeat-interval-ms 0` to disable active liveness checks. Reconnect cycles through all known route candidates, including a different provider type, while the pinned daemon Noise key and logical session stay unchanged. A redial is raced: the route that just failed is dialed first, the next route starts beside it after 1.5 times the last handshake's time (between 100 ms and 2 s; 250 ms when none is known) or at once when a route fails, at most three at a time and never two dials of one route before the first wave (a client with one route redials as before), and the first route whose handshake finishes carries the session. A route that accepts a connection and never answers (a captive portal, a firewall that drops UDP) therefore costs one stagger, not the per-attempt timeout. Every racer carries the same generation, so the daemon keeps one. While a raced redial has no winner it dials afresh every 750 ms (a wave): the client asks for a route again, and the route that opens races the ones still hanging, the same route included. A dial sent into a network that was silent waits on its transport's own backoff (a TCP SYN goes again after 1, 2, 4 and 8 s), so without waves a network that came back with no change event carried the link seconds later. A network change starts a wave at once and keeps the round. At most four of those asks and six handshakes are in flight; the oldest makes room. `CMUX_REMOTE_REDIAL_WAVE_MS` sets the interval (0: no waves, and a network change ends the round). `CMUX_REMOTE_REDIAL_RACE=0` dials one route per redial again, as does `CMUX_REMOTE_ROUTE_RACE=0`. The daemon retains disconnected replay state for 120 seconds by default; `--remote-resume-lease-seconds` accepts 1 through 86400.
+Set `--heartbeat-interval-ms 0` to disable active liveness checks. Reconnect cycles through all known route candidates, including a different provider type, while the pinned daemon Noise key and logical session stay unchanged. The daemon retains disconnected replay state for 120 seconds by default; `--remote-resume-lease-seconds` accepts 1 through 86400.
 
 Interactive process input, control RPCs, cancellation, and bulk file, search, patch, diff, and replay operations use separate persistent service streams. Requests execute concurrently under per-lane admission limits, so a process wait or large diff cannot serialize unrelated control work. Non-cancelable mutations preserve receive order within their traffic class. Calls started concurrently across traffic classes are intentionally unordered; dependent operations await the earlier response. Interactive input is ordered but does not wait for an unrelated command response. Bulk backpressure cannot occupy the interactive queue.
 
@@ -241,41 +251,6 @@ cmux-tui remote forward <route> \
 ```
 
 The command prints a local URL such as `http://127.0.0.1:53142`. A cmux WebView can load that URL without knowing whether the underlying path is SSH, Iroh, direct WebSocket, or a relay. Each accepted local TCP connection becomes a separate `tcp-tunnel` stream. Tunnel bytes are not replayed after carrier failure, so the local browser reconnects the affected HTTP connection while the cmux session resumes.
-
-## Dial a remote port over stdin and stdout
-
-`remote dial-tcp` carries one TCP connection to a loopback port on the remote machine on its own stdin and stdout, so ssh can use it as a `ProxyCommand`. It takes the same route and connection options as `forward`, including relay routes such as `relay+do://` with `--relay-slot` and `--relay-ticket-file` or `--relay-ticket-command`:
-
-```sshconfig
-Host build-box
-  User me
-  ProxyCommand cmux-tui remote dial-tcp relay+do://relay-worker.example --relay-slot <base64url-slot> --relay-ticket-command relay-token --host 127.0.0.1 --port 22
-```
-
-The route uses the same loopback-only policy as `forward`, so the daemon refuses a host that does not resolve to a loopback address. The daemon scopes every route to a workspace the client holds open, so `dial-tcp` opens one: `/` by default, or `--workspace-root PATH`. EOF on stdin half-closes the connection and the command keeps reading until the remote side closes; it then exits 0. A refused route, a remote reset, a lost session, or a signal ends it with status 1 and one line on stderr. Stdout carries only the stream. Stdin carries the stream too, so `--wireguard-hub-token-stdin` and `--invite-file -` are refused. Tunnel bytes are not replayed after carrier failure: a carrier failure ends the connection, and ssh sees it drop.
-
-## Run commands and copy files
-
-`remote exec` runs one command on the paired machine and streams its stdout and stderr back as they arrive. Local stdin goes to the command, and EOF on it closes the command's stdin. The CLI exits with the command's status: 128+N when signal N ended it, and 255 when the connection or the CLI failed. Ctrl-C sends the command an interrupt; a third one stops waiting and exits 130. The command lives only as long as the connection that started it, so it ends when the CLI does.
-
-```sh
-cmux remote exec <route> --state-dir DIR --cwd /srv/app -- git status
-cmux remote exec <route> --env RUST_LOG=debug --timeout-seconds 600 -- cargo test
-cmux remote exec <route> --tty -- htop
-tar -C src -cf - . | cmux remote exec <route> -- tar -C /srv/app -xf -
-cmux remote exec <route> -- tar -C /srv/app -cf - . | tar -C copy -xf -
-```
-
-Without `--cwd` the command runs in `/`. `--tty` runs it under a terminal sized like the local one (80x24 when stdout is not a terminal) with the local `TERM`, and puts a local terminal in raw mode. At the end of piped input it sends Control-D (twice when the last line has no newline, so `printf foo | cmux remote exec <route> --tty -- cat` ends).
-
-`remote cp` copies one file each way. Exactly one side is `remote:PATH`, an absolute path on the remote machine; a destination that is a directory (or a remote path ending in `/`) gets the file under its own name. `--json` prints `{"bytes","seconds","mib_per_s"}` when the copy is done.
-
-```sh
-cmux remote cp <route> ./build.tar remote:/srv/app/build.tar --json
-cmux remote cp <route> remote:/var/log/app.log ./
-```
-
-Downloads read 4 MiB chunks, four in flight, check the result against the daemon's SHA-256 of the file, and rename a temporary file beside the destination into place; files over 128 MiB (the daemon's `read-file` limit) stream through `cat`. Uploads go up as 8 MiB `write-file` parts into a private staging directory beside the destination (`mktemp -d`, mode 0700; each part must be a new file), each checked against its SHA-256, and a remote `/bin/sh` joins them into a file it creates exclusively under umask 077, gives it its mode once complete, and renames it into place, refusing a destination that is a directory; process input carries only 32 KiB per request, so parts are much faster than streaming into `cat`. Uploads get the local file's permission bits before they are published, so a private file is never visible with a wider mode. Downloads never widen access: a new file is 0600 (0700 when the remote file is executable) less the local umask, and a replaced file keeps its mode, narrowed to that. Directories are refused: copy a tree with `remote exec` and `tar` as above.
 
 ## Coding-agent RPC
 

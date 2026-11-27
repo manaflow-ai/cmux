@@ -18,10 +18,6 @@ from pathlib import Path
 VERSION_RE = re.compile(r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]{9,})$")
 DIST_NAME = "cmux"
 PACKAGE_NAME = "cmux_tui"
-LICENSE_SOURCE = Path(__file__).resolve().parents[1] / "npm" / "cmux" / "LICENSE"
-# Third-party notices of the bundled binaries (package_notices.py generate);
-# PEP 639 License-File in .dist-info/licenses/.
-NOTICE_FILE = "THIRD_PARTY_LICENSES.md"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 PROJECT_SUMMARY = "cmux \u2014 a tmux-like terminal multiplexer TUI backed by libghostty-vt"
 PROJECT_DESCRIPTION = """# cmux
@@ -39,17 +35,7 @@ python -m pip install cmux
 cmux
 ```
 
-For one-off use, run `uvx cmux` or `pipx run cmux`.
-
-`cmux autocloud` is an agent chat in the terminal: it signs in, starts (or reuses) your
-AutoCloud machine, shows how ready the machine's copy of your repository is, and streams the
-agent. Ctrl-N opens another chat beside it.
-
-```bash
-uvx cmux autocloud login
-uvx cmux autocloud
-```
- See the
+For one-off use, run `uvx cmux` or `pipx run cmux`. See the
 [cmux-tui documentation](https://github.com/manaflow-ai/cmux/tree/main/cmux-tui)
 for CLI commands, configuration, remote sessions, and SDKs.
 """
@@ -89,11 +75,7 @@ def parse_args() -> argparse.Namespace:
         "--binaries-dir",
         required=True,
         type=Path,
-        help=(
-            "Directory containing cmux-tui-, cmux-tui-hook- and "
-            "cmux-tui-agent-screen-detection-<rust-target> binaries, and "
-            "(Linux) cmux-tui-host-<rust-target>."
-        ),
+        help="Directory containing cmux-tui- and cmux-tui-hook-<rust-target> binaries.",
     )
     parser.add_argument(
         "--version",
@@ -105,12 +87,6 @@ def parse_args() -> argparse.Namespace:
         required=True,
         type=Path,
         help="Output directory for generated wheels.",
-    )
-    parser.add_argument(
-        "--notices-dir",
-        required=True,
-        type=Path,
-        help="package_notices.py generate output: cmux-tui-<rust target>.md per target.",
     )
     return parser.parse_args()
 
@@ -133,19 +109,9 @@ def wheel_info(name: str, data: bytes, mode: int) -> tuple[zipfile.ZipInfo, byte
 
 
 def wheel_bytes(
-    version: str,
-    tag: str,
-    binary: bytes,
-    hook_binary: bytes,
-    notice: bytes,
-    detector_binary: bytes,
-    host_binary: bytes | None = None,
+    version: str, tag: str, binary: bytes, hook_binary: bytes
 ) -> list[tuple[str, bytes, int]]:
     dist_info = f"{DIST_NAME}-{version}.dist-info"
-    # Linux wheels ship the slim terminal host as bin/cmux-tui-host, the exact
-    # sibling a Linux daemon runs every terminal host from (host_exe/linux.rs,
-    # CMUX-571); without it each terminal host maps the whole cmux-tui.
-    host_files = [] if host_binary is None else [(f"{PACKAGE_NAME}/bin/cmux-tui-host", host_binary, 0o755)]
     return [
         (
             f"{PACKAGE_NAME}/__init__.py",
@@ -171,10 +137,6 @@ def main() -> None:
         ),
         (f"{PACKAGE_NAME}/bin/cmux-tui", binary, 0o755),
         (f"{PACKAGE_NAME}/bin/cmux-tui-hook", hook_binary, 0o755),
-        # The daemon runs this exact sibling of its own executable by default
-        # (the agent screen-detection plugin).
-        (f"{PACKAGE_NAME}/bin/cmux-agent-screen-detection", detector_binary, 0o755),
-        *host_files,
         (
             f"{dist_info}/WHEEL",
             text_bytes(
@@ -189,13 +151,11 @@ Tag: py3-none-{tag}
         (
             f"{dist_info}/METADATA",
             text_bytes(
-                f"""Metadata-Version: 2.4
+                f"""Metadata-Version: 2.1
 Name: {DIST_NAME}
 Version: {version}
 Summary: {PROJECT_SUMMARY}
-License-Expression: GPL-3.0-or-later
-License-File: LICENSE
-License-File: {NOTICE_FILE}
+License: MIT
 Project-URL: Source, https://github.com/manaflow-ai/cmux
 Description-Content-Type: text/markdown
 
@@ -203,8 +163,6 @@ Description-Content-Type: text/markdown
             ),
             0o644,
         ),
-        (f"{dist_info}/licenses/LICENSE", LICENSE_SOURCE.read_bytes(), 0o644),
-        (f"{dist_info}/licenses/{NOTICE_FILE}", notice, 0o644),
         (
             f"{dist_info}/entry_points.txt",
             text_bytes(
@@ -255,22 +213,8 @@ def main() -> None:
             raise SystemExit(f"missing binary: {binary_path}")
         if not hook_binary_path.is_file():
             raise SystemExit(f"missing hook binary: {hook_binary_path}")
-        detector_path = binaries_dir / f"cmux-tui-agent-screen-detection-{target.rust_target}"
-        if not detector_path.is_file():
-            raise SystemExit(f"missing agent screen-detection binary: {detector_path}")
-        host_binary = None
-        if target.rust_target.endswith("-unknown-linux-musl"):
-            host_path = binaries_dir / f"cmux-tui-host-{target.rust_target}"
-            if not host_path.is_file():
-                raise SystemExit(f"missing terminal host binary: {host_path}")
-            host_binary = host_path.read_bytes()
         binary = binary_path.read_bytes()
         hook_binary = hook_binary_path.read_bytes()
-        detector_binary = detector_path.read_bytes()
-        notice_path = args.notices_dir / f"cmux-tui-{target.rust_target}.md"
-        if not notice_path.is_file():
-            raise SystemExit(f"missing third-party notice {notice_path} (package_notices.py generate)")
-        notice = notice_path.read_bytes()
         for platform_tag in target.platform_tags:
             wheel_name = f"{DIST_NAME}-{args.version}-py3-none-{platform_tag}.whl"
             wheel_path = out_dir / wheel_name
@@ -278,7 +222,7 @@ def main() -> None:
                 wheel_path.unlink()
             write_wheel(
                 wheel_path,
-                wheel_bytes(args.version, platform_tag, binary, hook_binary, notice, detector_binary, host_binary),
+                wheel_bytes(args.version, platform_tag, binary, hook_binary),
                 args.version,
             )
 

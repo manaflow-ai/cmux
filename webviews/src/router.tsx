@@ -1,4 +1,10 @@
-import { createHashHistory, createRootRoute, createRoute, createRouter, Outlet } from "@tanstack/react-router";
+import {
+  createHashHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+} from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
 type WebviewRouteComponent = () => ReactNode;
@@ -23,12 +29,20 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
     path: "/cmux-diff-viewer",
     component: WebviewComponent,
   });
-  const routeTree = rootRoute.addChildren([indexRoute, diffRoute, generatedDiffRoute]);
+  const agentSessionRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/agent-session",
+    component: WebviewComponent,
+  });
+  const routeTree = rootRoute.addChildren([
+    indexRoute,
+    diffRoute,
+    generatedDiffRoute,
+    agentSessionRoute,
+  ]);
   return createRouter({
     history: createHashHistory(),
     routeTree,
-    // Every cmux router preloads a link's route on intent (hover or keyboard focus).
-    defaultPreload: "intent",
   });
 }
 

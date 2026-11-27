@@ -1,37 +1,12 @@
 #![cfg(unix)]
 
-use cmux_build_identity::BUILD_IDENTITY;
-use cmux_remote::ssh_bootstrap::{BootstrapOutcome, SshBootstrapConfig, SshBootstrapper};
+use cmux_remote::ssh_bootstrap::{
+    BUILD_IDENTITY, BootstrapOutcome, DISTRIBUTION_VERSION, SshBootstrapConfig, SshBootstrapper,
+};
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::Write as _;
-use std::path::Path;
-use std::process::{Command, Stdio};
-
-/// What the cmux-tui binary passes to `SshBootstrapConfig::defaults`
-/// (cmux-tui `distribution.rs`).
-const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_VERSION") {
-    Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
-};
-
-/// Creates an executable script without this process ever holding a write
-/// descriptor for it. Tests run on many threads, and a sibling test that
-/// forks while such a descriptor is open hands a copy to its child until that
-/// child execs; running the script in that window fails with ETXTBSY ("Text
-/// file busy"). A short-lived `sh` opens, writes, and closes the file in its
-/// own process, so no fork of this process can inherit it.
-fn write_executable(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path.as_ref())
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
-    assert!(child.wait().unwrap().success(), "could not write {}", path.as_ref().display());
-}
+use std::os::unix::fs::PermissionsExt;
 
 struct Fixture {
     _directory: tempfile::TempDir,
@@ -73,7 +48,7 @@ impl Fixture {
             "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": os, "arch": "aarch64",
         });
         let script = directory.path().join("ssh");
-        write_executable(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 r#"#!/bin/sh
@@ -92,9 +67,9 @@ esac
                 staged = staged.display(),
                 installed = installed.display()
             ),
-        );
-        let mut config =
-            SshBootstrapConfig::defaults("host", BUILD_IDENTITY, DISTRIBUTION_VERSION, None);
+        )
+        .unwrap();
+        let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_installable = false;
         config.local_binary = Some(source);
@@ -206,7 +181,7 @@ impl OnDemandFixture {
             "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": self.os, "arch": "aarch64",
         });
         let script = root.join("ssh");
-        write_executable(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 r#"#!/bin/sh
@@ -227,9 +202,9 @@ esac
                 staged = staged.display(),
                 installed = installed.display()
             ),
-        );
-        let mut config =
-            SshBootstrapConfig::defaults(host, BUILD_IDENTITY, DISTRIBUTION_VERSION, None);
+        )
+        .unwrap();
+        let mut config = SshBootstrapConfig::defaults(host);
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_installable = false;
         config.local_binary = Some(self.directory.path().join("app/cmux-tui"));
@@ -544,7 +519,7 @@ impl NpmFixture {
             "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": "linux", "arch": "aarch64",
         });
         let script = directory.path().join("ssh");
-        write_executable(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 r#"#!/bin/sh
@@ -566,9 +541,9 @@ esac
                 staged = staged.display(),
                 installed = installed.display(),
             ),
-        );
-        let mut config =
-            SshBootstrapConfig::defaults("host", BUILD_IDENTITY, DISTRIBUTION_VERSION, None);
+        )
+        .unwrap();
+        let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_version = "9.9.9".into();
         config.package_installable = true;
@@ -620,7 +595,7 @@ const NPM_NOTICE: &str = "echo 'npm notice New major version of npm available! 1
 /// stand-in remote reports. That is what `uname` prints, which can differ
 /// from the test binary's own target (for example under Rosetta).
 fn host_release_target() -> Option<(&'static str, &'static str)> {
-    let uname = Command::new("uname").args(["-s", "-m"]).output().ok()?;
+    let uname = std::process::Command::new("uname").args(["-s", "-m"]).output().ok()?;
     let uname = String::from_utf8_lossy(&uname.stdout).to_string();
     let mut fields = uname.split_whitespace();
     match (fields.next()?, fields.next()?) {
@@ -658,7 +633,8 @@ impl NonPosixLoginShellFixture {
         let package_bin = root.join("bin");
         fs::create_dir_all(&package_bin).unwrap();
         let source = package_bin.join("cmux-tui");
-        write_executable(&source, &binary);
+        fs::write(&source, &binary).unwrap();
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o755)).unwrap();
         // npm builds pin only the digest; the native app also ships the
         // payload, which the upload path sends over SSH.
         let pins = package_bin.join("cmux-tui-ssh");
@@ -684,8 +660,8 @@ impl NonPosixLoginShellFixture {
         fs::write(registry.join("package/bin/cmux-tui"), &binary).unwrap();
         let fake_bin = root.join("fake-bin");
         fs::create_dir(&fake_bin).unwrap();
-        write_executable(
-            fake_bin.join("npm"),
+        cmux_test_exec::write_executable(
+            &fake_bin.join("npm"),
             format!(
                 r#"#!/bin/sh
 [ "$1 $2 $3 $4" = 'pack --ignore-scripts --silent {npm_package}@9.9.9' ] || exit 9
@@ -695,11 +671,12 @@ tar -czf '{npm_package}-9.9.9.tgz' -C '{registry}' package
                 registry = registry.display(),
                 notice = if notice { NPM_NOTICE } else { "" },
             ),
-        );
+        )
+        .unwrap();
 
         let rejected = root.join("rejected");
         let script = root.join("ssh");
-        write_executable(
+        cmux_test_exec::write_executable(
             &script,
             format!(
                 r#"#!/bin/sh
@@ -729,10 +706,10 @@ exit 127
                 rejected = rejected.display(),
                 notice = if notice { NPM_NOTICE } else { ":" },
             ),
-        );
+        )
+        .unwrap();
 
-        let mut config =
-            SshBootstrapConfig::defaults("host", BUILD_IDENTITY, DISTRIBUTION_VERSION, None);
+        let mut config = SshBootstrapConfig::defaults("host");
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.remote_binary = root.join("home/.local/bin/cmux-tui").to_string_lossy().into_owned();
         config.package_version = "9.9.9".into();

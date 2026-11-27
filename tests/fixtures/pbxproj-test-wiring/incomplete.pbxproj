@@ -1,0 +1,65 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		555555555555555555555555 /* ExistingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 444444444444444444444444 /* ExistingTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		444444444444444444444444 /* ExistingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExistingTests.swift; sourceTree = "<group>"; };
+		999999999999999999999999 /* HalfWiredTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HalfWiredTests.swift; sourceTree = "<group>"; };
+		EEEEEEEEEEEEEEEEEEEEEEEE /* ExternalPackageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/macOS/Example/Tests/ExternalPackageTests.swift; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		111111111111111111111111 /* cmuxTests */ = {
+			isa = PBXGroup;
+			children = (
+				444444444444444444444444 /* ExistingTests.swift */,
+				999999999999999999999999 /* HalfWiredTests.swift */,
+				EEEEEEEEEEEEEEEEEEEEEEEE /* ExternalPackageTests.swift */,
+			);
+			path = cmuxTests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		222222222222222222222222 /* cmuxTests */ = {
+			isa = PBXNativeTarget;
+			buildPhases = (
+				333333333333333333333333 /* Sources */,
+			);
+			name = cmuxTests;
+		};
+		666666666666666666666666 /* cmuxUITests */ = {
+			isa = PBXNativeTarget;
+			buildPhases = (
+				777777777777777777777777 /* Sources */,
+			);
+			name = cmuxUITests;
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXSourcesBuildPhase section */
+		333333333333333333333333 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+				555555555555555555555555 /* ExistingTests.swift in Sources */,
+				ABABABABABABABABABABABAB /* DanglingTests.swift in Sources */,
+			);
+		};
+		777777777777777777777777 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXSourcesBuildPhase section */
+	};
+	rootObject = AAAAAAAAAAAAAAAAAAAAAAAA /* Project object */;
+}

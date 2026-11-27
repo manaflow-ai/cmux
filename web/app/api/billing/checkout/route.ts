@@ -1,7 +1,6 @@
 import type { StackServerApp } from "@hexclave/next";
 import { after, NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import type Stripe from "stripe";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import { requestOrigin, requestWithOrigin } from "../../../lib/request-origin";
@@ -30,8 +29,10 @@ import {
 } from "../../../../services/billing/pro";
 import { captureBillingError } from "../../../../services/errors";
 import {
+  NextPlanUnavailableError,
   isStripeBillingConfigured,
   resolveMaxPrice,
+  resolveNextPlanPrice,
   resolveGoPrice,
   resolveProPrice,
   resolveTeamPrice,
@@ -47,7 +48,6 @@ import {
   hasExistingPersonalSubscription,
 } from "../../../../services/billing/personalSwitchRoute";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
-import { checkoutIdempotencyKey } from "../../../../services/billing/checkoutIdempotency";
 import {
   checkoutAttributionFromRequest,
   checkoutAttributionMetadata,
@@ -69,7 +69,14 @@ import {
   type TeamBillingAccessUser,
 } from "../../../../services/billing/teamBillingAccess";
 import { teamPortalSession } from "../../../../services/billing/teamPortal";
-import { cloudIntroCheckoutResponse } from "../../../../services/billing/cloudIntroCheckout";
+import {
+  isNextPlanId,
+  nextPlanPriceId,
+  nextPlanRank,
+  type NextPlanId,
+} from "../../../../services/billing/nextPlans";
+import { activeNextPlanForUser, activeNextSubscriptionForUser } from "../../../../services/billing/nextPlanBilling";
+import { nextPlanSwitchPortalSession } from "../../../../services/billing/nextPlanSwitch";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -234,13 +241,6 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   ) {
     return NextResponse.redirect(appStorePricingUnavailableURL(requestWithOrigin(request).nextUrl));
   }
-  // The cmux Cloud $1 pass. Null when its flag is off, so `plan=intro` stays
-  // an unknown plan below, exactly as before.
-  const introResponse = await cloudIntroCheckoutResponse(request, {
-    stackServerApp: checkoutStackServerApp,
-    signInRedirect: checkoutSignInRedirect,
-  });
-  if (introResponse) return introResponse;
 
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
   const intervalError = unavailableIntervalResponse(request, plan);
@@ -308,6 +308,9 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       attribution,
     );
   }
+  if (isNextPlanId(plan)) {
+    return stripeNextPlanCheckout(request, stackServerApp, plan, callbackScheme, attribution);
+  }
   if (plan === "team") {
     return stripeTeamCheckout(
       request,
@@ -318,7 +321,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       { teamId: requestedTeamId },
     );
   }
-  // checkoutPlan only yields "go" | "pro" | "max" | "team" | null (null handled above);
+  // checkoutPlan only yields a known plan or null (null handled above);
   // this is unreachable but keeps GET returning a NextResponse.
   return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
 }
@@ -396,7 +399,7 @@ async function stripePersonalCheckout(
       ...checkoutAttributionMetadata(attribution),
     };
 
-    const params: Stripe.Checkout.SessionCreateParams = {
+    const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
         {
@@ -420,11 +423,6 @@ async function stripePersonalCheckout(
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
-    };
-    // Two requests that both passed the subscription check above share one
-    // session instead of opening two.
-    const session = await stripe().checkout.sessions.create(params, {
-      idempotencyKey: checkoutIdempotencyKey({ scope: "user", subjectId: stackUserId, plan, interval, params }),
     });
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");
@@ -446,6 +444,104 @@ async function stripePersonalCheckout(
       plan,
       interval,
     });
+    return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
+  }
+}
+
+function nextPlanUnavailableRedirect(request: NextRequest): NextResponse {
+  return NextResponse.redirect(new URL("/dashboard/billing?billing=plan_unavailable", requestOrigin(request)));
+}
+
+/**
+ * Checkout for a cmux NEXT Cloud plan: a monthly subscription of its own on
+ * the person's billing customer, next to any classic plan they hold. A NEXT
+ * subscriber is never sold a second NEXT subscription: the same or a lower
+ * plan returns to the dashboard, and an upgrade goes to the payment portal,
+ * where the existing subscription is managed.
+ */
+async function stripeNextPlanCheckout(
+  request: NextRequest,
+  stackServerApp: CheckoutStackServerApp,
+  plan: NextPlanId,
+  callbackScheme: string,
+  attribution: CheckoutAttribution,
+): Promise<NextResponse> {
+  const interval = CHECKOUT_BILLING_INTERVAL;
+  // A cmux NEXT plan without its Price id configured is not for sale yet.
+  if (!nextPlanPriceId(plan)) return nextPlanUnavailableRedirect(request);
+  try {
+    const user = await stackServerApp.getUser({ or: "return-null" });
+    if (!user || user.isAnonymous) return checkoutSignInRedirect(request);
+    if (isAccountDeletionInProgress(user)) return accountDeletionCheckoutRedirect(request);
+    const stackUserId = checkoutPrincipalId(user.id, "user");
+    captureCheckoutAuthenticated(request, user.id, plan, attribution);
+
+    const activeNextPlan = await activeNextPlanForUser(cloudDb(), stackUserId);
+    if (activeNextPlan && nextPlanRank(activeNextPlan) >= nextPlanRank(plan)) {
+      captureCheckoutDecision(user.id, plan, activeNextPlan, "already_active", attribution, interval);
+      return NextResponse.redirect(new URL("/dashboard/billing?welcome=active", requestOrigin(request)));
+    }
+    if (activeNextPlan) {
+      // An upgrade switches the one NEXT subscription in the portal's plan-switch flow.
+      const upgrade = await nextPlanUpgradeSession(stackUserId, requestOrigin(request)).catch((error: unknown) => {
+        captureBillingError(error, { route: "/api/billing/checkout", stackUserId, plan });
+        return null;
+      });
+      if (upgrade?.url) {
+        captureCheckoutDecision(user.id, plan, activeNextPlan, "manage_billing", attribution, interval);
+        return NextResponse.redirect(upgrade.url);
+      }
+      const portalURL = new URL("/api/billing/portal", requestOrigin(request));
+      forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
+      captureCheckoutDecision(user.id, plan, activeNextPlan, "manage_billing", attribution, interval);
+      return NextResponse.redirect(portalURL);
+    }
+
+    const price = await resolveNextPlanPrice(plan);
+    const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
+    const successUrl =
+      `${requestOrigin(request)}/api/billing/complete` +
+      `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(callbackScheme)}`;
+    const returnTo = dashboardReturnPath(request.nextUrl.searchParams.get("returnTo"));
+    const cancelUrl = new URL(returnTo ?? "/dashboard/billing", requestOrigin(request));
+    const metadata = {
+      stackUserId,
+      plan,
+      app: "cmux",
+      billingInterval: interval,
+      nativeCallbackScheme: callbackScheme,
+      ...(returnTo ? { returnTo } : {}),
+      ...checkoutAttributionMetadata(attribution),
+    };
+    const session = await stripe().checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price, quantity: 1 }],
+      client_reference_id: stackUserId,
+      metadata,
+      subscription_data: { metadata },
+      customer: stripeBillingStatus.customerId ?? undefined,
+      customer_email: stripeBillingStatus.customerId ? undefined : user.primaryEmail ?? undefined,
+      allow_promotion_codes: true,
+      success_url: successUrl,
+      cancel_url: cancelUrl.toString(),
+    });
+    if (!usableCheckoutSession(session)) {
+      throw new Error("Stripe Checkout Session did not include an id and URL");
+    }
+    deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
+      sessionId: session.id,
+      subject: { scope: "user", stackUserId },
+      plan,
+      billingInterval: interval,
+      attribution,
+      signedIn: true,
+      existingStripeCustomer: Boolean(stripeBillingStatus.customerId),
+      ...checkoutLivemode(session),
+    }));
+    return NextResponse.redirect(session.url);
+  } catch (error) {
+    if (error instanceof NextPlanUnavailableError) return nextPlanUnavailableRedirect(request);
+    captureBillingError(error, { route: "/api/billing/checkout", plan, interval });
     return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
   }
 }
@@ -542,19 +638,15 @@ async function stripeTeamCheckout(
 
     const customerId =
       stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
-    const memberCount = await checkoutTeamSeatCount(team);
-    const params: Stripe.Checkout.SessionCreateParams = {
+    const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
         {
           price: await resolveTeamPrice(interval),
-          quantity: memberCount,
+          quantity: await checkoutTeamSeatCount(team),
           adjustable_quantity: {
             enabled: true,
-            minimum: memberCount,
-            // Stripe otherwise defaults this to 99, below a legitimate large
-            // Team's initial quantity. It accepts values through 999,999.
-            maximum: Math.max(99, memberCount),
+            minimum: 1,
           },
         },
       ],
@@ -565,9 +657,6 @@ async function stripeTeamCheckout(
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
-    };
-    const session = await stripe().checkout.sessions.create(params, {
-      idempotencyKey: checkoutIdempotencyKey({ scope: "team", subjectId: resolvedTeamId, plan: "team", interval, params }),
     });
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");
@@ -802,10 +891,11 @@ async function checkoutTeamSeatCount(team: CheckoutTeamCustomer): Promise<number
   return Math.max(1, users.length);
 }
 
-function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null {
+function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | NextPlanId | null {
   if (!raw) return "pro";
   const plan = raw.trim().toLowerCase();
   if (plan === "go" || plan === "pro" || plan === "max" || plan === "team") return plan;
+  if (isNextPlanId(plan)) return plan;
   return null;
 }
 
@@ -847,4 +937,11 @@ function isStackTeamUniqueConflict(error: unknown): boolean {
   }
   const text = error instanceof Error ? error.message : String(error);
   return /stripe_customers_stack_team_id_unique/.test(text);
+}
+
+/** The portal's plan switch on the user's NEXT subscription, or null when its Stripe ids are not known. */
+async function nextPlanUpgradeSession(stackUserId: string, origin: string): Promise<{ url: string | null } | null> {
+  const active = await activeNextSubscriptionForUser(cloudDb(), stackUserId);
+  if (!active?.id || !active.customerId) return null;
+  return await nextPlanSwitchPortalSession({ customerId: active.customerId, subscriptionId: active.id, origin });
 }

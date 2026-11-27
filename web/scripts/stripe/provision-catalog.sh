@@ -25,19 +25,12 @@ WEBHOOK_DESCRIPTION="cmux billing (webhook-driven entitlements)"
 EVENTS=(
   "checkout.session.completed"
   "checkout.session.async_payment_succeeded"
-  "checkout.session.async_payment_failed"
   "checkout.session.expired"
   "customer.subscription.created"
   "customer.subscription.updated"
   "customer.subscription.deleted"
-  "customer.subscription.paused"
-  "customer.subscription.resumed"
-  "customer.subscription.pending_update_applied"
-  "customer.subscription.pending_update_expired"
   "invoice.paid"
   "invoice.payment_failed"
-  "invoice.payment_action_required"
-  "invoice.marked_uncollectible"
   "charge.refunded"
 )
 
@@ -266,57 +259,6 @@ ensure_price() {
   remember_price_id "$lookup_key" "$price_id"
 }
 
-# A one-time Price (no `recurring`), for the cmux Cloud $1 pass
-# (web/services/billing/cloudIntro.ts). A recurring Price under the same
-# lookup key would bill a subscription, so it is refused like any other drift.
-ensure_one_time_price() {
-  local product_id="$1"
-  local lookup_key="$2"
-  local unit_amount="$3"
-  local nickname="$4"
-  local response price_id
-
-  response="$(
-    stripe_get "/prices" \
-      --data-urlencode "lookup_keys[]=${lookup_key}" \
-      --data-urlencode "limit=1"
-  )"
-  price_id="$(jq -r '.data[0].id // empty' <<<"$response")"
-
-  if [[ -n "$price_id" ]]; then
-    if ! jq -e \
-      --arg amount "$unit_amount" \
-      --arg product "$product_id" \
-      '
-        .data[0]
-        | (.unit_amount | tostring) == $amount
-          and .currency == "usd"
-          and .type == "one_time"
-          and .recurring == null
-          and .product == $product
-          and .active == true
-      ' <<<"$response" >/dev/null; then
-      echo "Price ${lookup_key} exists with unexpected configuration: ${price_id}" >&2
-      exit 1
-    fi
-    echo "Found price ${lookup_key}: ${price_id}"
-    remember_price_id "$lookup_key" "$price_id"
-    return 0
-  fi
-
-  response="$(
-    stripe_post "/prices" \
-      -d "product=${product_id}" \
-      -d "currency=usd" \
-      -d "unit_amount=${unit_amount}" \
-      -d "lookup_key=${lookup_key}" \
-      -d "nickname=${nickname}"
-  )"
-  price_id="$(jq -er '.id' <<<"$response")"
-  echo "Created price ${lookup_key}: ${price_id}"
-  remember_price_id "$lookup_key" "$price_id"
-}
-
 # Price ids found or created this run, keyed by lookup key (bash 3.2 has no
 # associative arrays, so they live in PRICE_ID_<key> variables).
 remember_price_id() {
@@ -440,79 +382,6 @@ ensure_personal_plan_switch_portal() {
   echo "Created personal plan switch portal configuration: ${configuration_id}"
 }
 
-# Team quantity is the live member count and is reconciled by cmux. This
-# dedicated portal preserves ordinary billing self-service without allowing a
-# customer to lower the subscription below the members who retain access.
-ensure_team_portal() {
-  local response starting_after page_ids configuration_id default_profile
-  local -a matching_ids=()
-  local -a page_args=()
-
-  starting_after=""
-  while :; do
-    page_args=(--data-urlencode "active=true" --data-urlencode "limit=100")
-    if [[ -n "$starting_after" ]]; then
-      page_args+=(--data-urlencode "starting_after=${starting_after}")
-    fi
-    response="$(stripe_get "/billing_portal/configurations" "${page_args[@]}")"
-    page_ids="$(
-      jq -r '
-        .data[]
-        | select(.metadata.app == "cmux" and .metadata.purpose == "team_billing")
-        | .id
-      ' <<<"$response"
-    )"
-    while IFS= read -r configuration_id; do
-      [[ -n "$configuration_id" ]] && matching_ids+=("$configuration_id")
-    done <<<"$page_ids"
-    if [[ "$(jq -r '.has_more // false' <<<"$response")" != "true" ]]; then
-      break
-    fi
-    starting_after="$(jq -er '.data[-1].id | select(type == "string" and length > 0)' <<<"$response")"
-  done
-  if (( ${#matching_ids[@]} > 1 )); then
-    echo "Multiple Team billing portal configurations found" >&2
-    exit 1
-  fi
-  configuration_id="${matching_ids[0]:-}"
-
-  local -a feature_args=(
-    -d "features[subscription_update][enabled]=false"
-    -d "features[subscription_cancel][enabled]=true"
-    -d "features[subscription_cancel][mode]=at_period_end"
-    -d "features[invoice_history][enabled]=true"
-    -d "features[payment_method_update][enabled]=true"
-  )
-
-  if [[ -n "$configuration_id" ]]; then
-    stripe_post "/billing_portal/configurations/${configuration_id}" "${feature_args[@]}" >/dev/null
-    echo "Updated Team billing portal configuration: ${configuration_id}"
-    return 0
-  fi
-
-  response="$(stripe_get "/billing_portal/configurations" --data-urlencode "is_default=true" --data-urlencode "limit=1")"
-  default_profile="$(jq -c '.data[0].business_profile // {}' <<<"$response")"
-  local -a profile_args=()
-  local headline privacy terms
-  headline="$(jq -r '.headline // empty' <<<"$default_profile")"
-  privacy="$(jq -r '.privacy_policy_url // empty' <<<"$default_profile")"
-  terms="$(jq -r '.terms_of_service_url // empty' <<<"$default_profile")"
-  [[ -n "$headline" ]] && profile_args+=(--data-urlencode "business_profile[headline]=${headline}")
-  [[ -n "$privacy" ]] && profile_args+=(--data-urlencode "business_profile[privacy_policy_url]=${privacy}")
-  [[ -n "$terms" ]] && profile_args+=(--data-urlencode "business_profile[terms_of_service_url]=${terms}")
-  if (( ${#profile_args[@]} > 0 )); then
-    feature_args=("${profile_args[@]}" "${feature_args[@]}")
-  fi
-  response="$(
-    stripe_post "/billing_portal/configurations" \
-      -d "metadata[app]=cmux" \
-      -d "metadata[purpose]=team_billing" \
-      "${feature_args[@]}"
-  )"
-  configuration_id="$(jq -er '.id' <<<"$response")"
-  echo "Created Team billing portal configuration: ${configuration_id}"
-}
-
 echo "Resolving ${MODE} Stripe catalog…" >&2
 pro_product_id="$(canonical_product "cmux-pro-monthly" "cmux Pro" "pro")"
 echo "Resolved Pro product." >&2
@@ -525,16 +394,11 @@ max_product_id="$(canonical_product "cmux-max-monthly-200" "cmux Max" "max")"
 echo "Resolved Max product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
 echo "Resolved Team product." >&2
-# The cmux Cloud $1 pass: charged once, 30 days, never a subscription. Checkout
-# sells it only while CMUX_CLOUD_INTRO is on (web/services/billing/cloudIntro.ts).
-cloud_intro_product_id="$(canonical_product "cmux-cloud-intro-1" "cmux Cloud pass" "cloud_intro")"
-echo "Resolved cmux Cloud pass product." >&2
 
 # Checkout shows the product description. Keep it on the plan limits in
-# web/services/vms/machineSpec.ts and entitlements.ts: paid plans have no machine
-# count and no shared pool (machines are metered beyond the included usage, and
-# the team's spending cap is the stop); seats multiply nothing; one machine goes up
-# to 16 GB / 8 vCPU, or 64 GB / 32 vCPU on Max. Updating a description is
+# web/services/vms/machineSpec.ts and entitlements.ts (5 VMs per paid seat sharing
+# vCPU and RAM pools: 20 vCPU / 40 GB per paid seat, pooled across a Team, or
+# 80 vCPU / 160 GB on Max). Updating a description is
 # idempotent, so every run converges on this copy.
 ensure_product_description() {
   local product_id="$1"
@@ -544,10 +408,9 @@ ensure_product_description() {
   echo "Set description for ${product_id}." >&2
 }
 ensure_product_description "$plus_product_id" "1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap. Community support."
-ensure_product_description "$pro_product_id" "Cloud VMs with no count cap, each up to 16 GB RAM and 8 vCPUs, metered beyond the included usage, plus the cmux iOS app."
-ensure_product_description "$max_product_id" "Everything in Pro, with Cloud VMs up to 64 GB RAM and 32 vCPUs each, metered beyond the included usage."
-ensure_product_description "$team_product_id" "Cloud VMs with no count cap for everyone on the team, metered beyond the included usage, with the team's spending cap as the stop, plus the cmux iOS app and priority support."
-ensure_product_description "$cloud_intro_product_id" "cmux Cloud: \$1 pass, 30 days, does not renew"
+ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
+ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
+ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
 
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.
@@ -574,11 +437,7 @@ ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Ye
 # as a checkout or portal switch target.
 ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly (Legacy \$576)"
 
-# The $1 pass is a one-time Price; its lookup key carries the amount.
-ensure_one_time_price "$cloud_intro_product_id" "cmux-cloud-intro-1" "100" "cmux Cloud \$1 pass"
-
 ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id"
-ensure_team_portal
 
 if [[ "$MODE" == "live" ]]; then
   webhook_ids=""

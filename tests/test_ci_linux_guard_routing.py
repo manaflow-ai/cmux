@@ -47,19 +47,6 @@ REUSABLE_GUARDS = {
 }
 
 
-
-
-def all_guards_no_release():
-    """Every route a pull request falls open to when it changes none of the GhosttyKit release check's inputs."""
-    return {name: "false" if name == "ghosttykit_release" else "true" for name in JOBS}
-
-
-# ci.yml skips label events for labels it does not read (tests/test_ci_label_events_skip_full_ci.py).
-LABEL_EVENT_GUARD = (
-    "!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('[\"full-ci\",\"dev-build\"]'), github.event.label.name))"
-)
-
-
 def route_decision(paths, event="pull_request", macos="false"):
     with tempfile.TemporaryDirectory(prefix="cmux-linux-routes-") as temp:
         path = Path(temp) / "changed.txt"
@@ -74,9 +61,7 @@ def route_decision(paths, event="pull_request", macos="false"):
     groups = tuple(json.loads(outputs.pop("linux_guard_test_groups")))
     # The submodule guard is an unconditional reusable-workflow job rather
     # than a routed input. Include its synthetic result in this gate payload.
-    # The release check routes on its own inputs, not on the guard fail-open.
-    guards = {name: value for name, value in outputs.items() if name != "ghosttykit_release"}
-    outputs["submodule_forward_only"] = "true" if guards and all(value == "true" for value in guards.values()) else "false"
+    outputs["submodule_forward_only"] = "true" if outputs and all(value == "true" for value in outputs.values()) else "false"
     return outputs, groups
 
 
@@ -85,10 +70,6 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
-    def test_suite_helpers_reach_the_preflight_guard(self):
-        for helper in ('scripts/ci/package-test-lane/swift_suite_outcomes.py', 'scripts/ci/require_swift_test_execution.py'):
-            self.assertIn('ci', groups_for_path(helper))
-
     def test_guard_ownership_manifest_has_no_duplicate_literal_keys(self):
         source = (ROOT / "scripts/ci/workflow_guard_groups.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -111,6 +92,32 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 keys.append(key.value)
             duplicates = sorted({key for key in keys if keys.count(key) > 1})
             self.assertEqual(duplicates, [], (name, duplicates))
+
+    def test_cloud_machine_workflow_skips_macos_for_control_plane_only_prs(self):
+        workflow_path = ROOT / ".github/workflows/cloud-machine-tests.yml"
+        workflow = workflow_path.read_text(encoding="utf-8")
+        changes = workflow_job_block("changes", workflow_path)
+        lifecycle = workflow_job_block("lifecycle", workflow_path)
+
+        self.assertIn("uses: ./.github/workflows/resolve-dispatch-ref.yml", workflow)
+        self.assertIn(
+            "ref: ${{ inputs.ref }}",
+            workflow_job_block("resolve-ref", workflow_path),
+        )
+        # A Linux runner: the persistent pool label same-repository jobs name (#47956), or Blacksmith.
+        self.assertTrue("'cmux-linux'" in changes or "blacksmith-4vcpu-ubuntu-2404" in changes, changes)
+        self.assertIn("Detect cloud-machine package changes", changes)
+        self.assertIn("/pulls/{pr_number}/files?per_page=100&page={page}", changes)
+        self.assertIn('startswith("Packages/macOS/CmuxCloudMachines/")', changes)
+        self.assertNotIn("actions/checkout", changes)
+        self.assertIn("pull-requests: read", workflow)
+        self.assertIn("needs: [changes, resolve-ref]", lifecycle)
+        self.assertIn(
+            "if: ${{ needs.changes.outputs.should_run == 'true' }}",
+            lifecycle,
+        )
+        self.assertIn("ref: ${{ needs.resolve-ref.outputs.sha }}", lifecycle)
+        self.assertNotIn("inputs.ref || github.ref", workflow)
 
     def test_ios_shell_ui_test_only_change_skips_macos(self):
         actual = module.classify_files([
@@ -165,13 +172,13 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_testflight_change_routes_only_observing_test_groups(self):
         outputs, groups = route_decision([
-            ".github/workflows/ios-testflight.yml",
             "ios/scripts/upload-testflight.sh",
             "tests/test_ios_appstore_lane_identity.py",
         ])
         # ci-guards.yml shows workflow-guard-tests running the TestFlight lane
-        # identity test, and PATH_OWNERS declares the other two as its indirect
-        # inputs. No history, CLI, or source-lint step reads any of them.
+        # identity test, and PATH_OWNERS declares the upload script as its
+        # indirect input. No history, CLI, or source-lint step reads either.
+        # (The retired ios-testflight.yml used to add preflight and ci here.)
         self.assertEqual(outputs, {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "false",
@@ -180,7 +187,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         })
         self.assertEqual(
             groups,
-            ("preflight", "ci", "release-ios", "quality-determinism"),
+            ("release-ios", "quality-determinism"),
         )
 
     def test_unknown_and_policy_inputs_fail_open_to_every_test_group(self):
@@ -248,6 +255,10 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             frozenset({"release-ios"}),
         )
         self.assertEqual(step_owners(extended)["Validate a brand-new guard"], "release-ios")
+        self.assertEqual(
+            groups_for_path("agent-chat/test/claude-environment.test.ts"),
+            ("preflight-agent-chat",),
+        )
 
     def test_route_inputs_come_from_the_guard_workflow(self):
         # WORKFLOW_TEST_INPUTS, CLI_INPUTS, and HISTORY_INPUTS used to be three
@@ -260,6 +271,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertEqual(inputs["linux_guard_history"], frozenset({
             "scripts/check-package-resolved-policy.py",
             "tests/test_check_package_resolved_policy.py",
+            "tests/test_cli_package_graph.py",
             "tests/test_package_resolved_policy_remote_inputs.py",
         }))
         self.assertIn("tests/test_start_cmux_profiling.sh", inputs["linux_guard_cli"])
@@ -303,8 +315,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                         ["tests/test_build_graph_health.py"],
                         event="pull_request", macos="false",
                     ),
-                    # The release check reads its own inputs, not ci-guards.yml.
-                    {route: route != "ghosttykit_release" for route in detect_linux_guard_changes.ROUTES},
+                    dict.fromkeys(detect_linux_guard_changes.ROUTES, True),
                 )
             finally:
                 detect_linux_guard_changes.GUARD_WORKFLOW = original
@@ -325,8 +336,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
-            + LABEL_EVENT_GUARD + " }}",
+            "if: ${{ !cancelled() && needs.changes.outputs.macos != 'false' }}",
             block,
         )
 
@@ -365,7 +375,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_history": "false",
             "linux_guard_cli": "false",
             "linux_guard_source": "false",
-            "ghosttykit_release": "false",
+            "ghosttykit_release": "true",
             "submodule_forward_only": "false",
         })
         self.assertEqual(groups, GROUPS)
@@ -373,6 +383,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         outputs, groups = route_decision(
             [
                 ".github/workflows/web-complexity.yml",
+                ".github/workflows/web-complexity-trusted.yml",
                 "tests/test_web_complexity_trusted_workflow.py",
             ],
             macos="false",
@@ -387,12 +398,19 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         })
         self.assertEqual(groups, ("ci", "quality-determinism"))
 
+    def test_host_free_cli_test_sources_reach_the_determinism_lints(self):
+        for path in ("cmuxTests/ProbeTests.swift", "cmuxCLITests/ProbeTests.swift",
+                     "cmuxCLITestSupport/ProbeSupport.swift"):
+            with self.subTest(path=path):
+                _, groups = route_decision([path], macos="true")
+                self.assertIn("quality-determinism", groups)
+
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
-        outputs = route(["Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift", "CLAUDE.md"], macos="true")
+        outputs = route(["Sources/Settings.swift", "CLAUDE.md"], macos="true")
         self.assertEqual(outputs, {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
-            "ghosttykit_release": "false",
+            "ghosttykit_release": "true",
             "submodule_forward_only": "false",
         })
 
@@ -402,6 +420,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "skills/cmux-cloud-vm/references/agent-workflows.md",
             "skills/cmux-cloud-vm/references/commands.md",
             "skills/cmux-cloud-vm/references/guest.md",
+            "tests/test_cloud_vm_skill_coverage.py",
         ]
         expected = {name: "true" if name == "linux_guard_tests" else "false"
                     for name in JOBS}
@@ -427,11 +446,11 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                         "skills/cmux-cloud-vm/references/new-contract.md",
                         "skills/cmux-cloud-vm/scripts/check.py"):
             with self.subTest(unknown=unknown):
-                self.assertEqual(route(paths + [unknown]), all_guards_no_release())
-        self.assertEqual(route(paths + ["Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift"], macos="true"), {
+                self.assertEqual(route(paths + [unknown]), dict.fromkeys(JOBS, "true"))
+        self.assertEqual(route(paths + ["Sources/Settings.swift"], macos="true"), {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "true",
-            "ghosttykit_release": "false",
+            "ghosttykit_release": "true",
             "submodule_forward_only": "false",
         })
 
@@ -459,15 +478,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         _, groups = route_decision(["scripts/ci/new_syntax_only.py"])
         self.assertEqual(groups, ("quality-determinism",))
 
-    def test_the_pr_media_privacy_check_runs_its_own_and_the_uploaders_tests(self):
-        # tests/test_ci_pr_media_privacy.py runs in ci; tests/test_pr_media.py,
-        # whose uploads go through the check, in preflight.
-        _, groups = route_decision(["scripts/ci/pr_media_privacy.py"])
-        self.assertIn("ci", groups)
-        self.assertIn("preflight", groups)
-        _, groups = route_decision(["tests/test_ci_pr_media_privacy.py"])
-        self.assertIn("ci", groups)
-
     def test_macos_admission_helpers_run_only_workflow_guard_contracts(self):
         expected = {
             name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
@@ -487,62 +497,10 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(route([path]), expected)
 
-    def test_a_shared_test_helper_edit_runs_every_suite_that_imports_it(self):
-        """tests/workflow_jobs.py is imported by the job-list guards, never run by a step. An edit
-        to it alone must still run each of their groups, not only the syntax scan's."""
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "tests").mkdir()
-            (root / "tests/shared_helper.py").write_text("X = 1\n")
-            (root / "tests/test_direct.py").write_text("import shared_helper\n")
-            (root / "tests/middle.py").write_text("from shared_helper import X\n")
-            (root / "tests/test_through.py").write_text("import os, middle\n")
-            (root / "tests/test_other.py").write_text("import json\n")
-            derived = {
-                "tests/test_direct.py": frozenset({"ci"}),
-                "tests/test_through.py": frozenset({"release-tooling"}),
-                "tests/test_other.py": frozenset({"preflight"}),
-            }
-            self.assertEqual(
-                workflow_guard_groups.import_owners("tests/shared_helper.py", derived, root),
-                {"ci", "release-tooling"},
-            )
-        derived = direct_path_owners(GUARD_WORKFLOW.read_text(encoding="utf-8"))
-        importer = re.compile(r"^\s*(?:from\s+(?:workflow_jobs|job_lists_routing)\s+import\b|import\s+workflow_jobs\b)", re.M)
-        expected = {"quality-determinism"}
-        for path, groups in derived.items():
-            if path.startswith("tests/") and path.endswith(".py") and (ROOT / path).is_file():
-                if importer.search((ROOT / path).read_text(encoding="utf-8")):
-                    expected |= groups
-        self.assertLessEqual(expected, set(groups_for_path("tests/workflow_jobs.py") or GROUPS))
-
-    def test_release_check_runs_only_when_its_inputs_change(self):
-        """A pull request whose pin and release scripts match its base's skips the check: the base push verified that
-        pin, and every Mac job downloads and checks the archive itself (cmuxterm-hq goals/ci-min-per-pr-140.md)."""
-        for macos in ("true", "false"):
-            for paths in (["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"], ["web/app/page.tsx"],
-                          ["scripts/ci/future_unknown_helper.py"], ["new-area/input", "README.md"]):
-                with self.subTest(macos=macos, paths=paths):
-                    self.assertEqual(route(paths, macos=macos)["ghosttykit_release"], "false")
-            for path in sorted(detect_linux_guard_changes.GHOSTTYKIT_RELEASE_INPUTS):
-                with self.subTest(macos=macos, path=path):
-                    self.assertEqual(route(["web/app/page.tsx", path], macos=macos)["ghosttykit_release"], "true")
-        # A push, an unread diff or an unknown macOS route still runs it.
-        self.assertEqual(route(["web/app/page.tsx"], event="push")["ghosttykit_release"], "true")
-        self.assertEqual(route(None)["ghosttykit_release"], "true")
-        self.assertEqual(route(["web/app/page.tsx"], macos="")["ghosttykit_release"], "true")
-
-    def test_release_inputs_match_the_provenance_only_route(self):
-        """ci.yml's provenance-only case lists the check's inputs too; the two lists cannot drift apart."""
-        text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        listed = re.search(r"^\s*(ghostty\|scripts/download-prebuilt-ghosttykit\.sh\|[^)]*)\)", text, re.M)
-        self.assertIsNotNone(listed)
-        self.assertLessEqual(set(listed.group(1).split("|")), detect_linux_guard_changes.GHOSTTYKIT_RELEASE_INPUTS)
-
     def test_unknown_ci_helper_still_runs_every_guard(self):
         self.assertEqual(
             route(["scripts/ci/future_unknown_helper.py"]),
-            all_guards_no_release(),
+            dict.fromkeys(JOBS, "true"),
         )
 
     def test_web_edit_skips_native_history_cli_and_binary_download(self):
@@ -553,11 +511,11 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_manifest_and_guard_inputs_keep_their_coverage(self):
         for path, selected in (
-            ("Packages/macOS/CmuxUpdater/Package.swift", "linux_guard_history"),
+            ("Packages/macOS/CmuxSettings/Package.swift", "linux_guard_history"),
             ("cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved", "linux_guard_history"),
             ("cmux.xcodeproj/project.pbxproj", "linux_guard_history"),
             ("ios/cmux.xcworkspace/contents.xcworkspacedata", "linux_guard_history"),
-            ("Packages/macOS/CmuxUpdater/.gitignore", "linux_guard_history"),
+            ("Packages/macOS/CmuxSettings/.gitignore", "linux_guard_history"),
             ("tests/test_check_package_resolved_policy.py", "linux_guard_history"),
             ("scripts/check-package-resolved-policy.py", "linux_guard_history"),
             ("Resources/bin/start-cmux-profiling", "linux_guard_cli"),
@@ -570,7 +528,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_executable_docs_and_unknown_inputs_never_take_docs_shortcut(self):
         for path in (
-            "skills/cmux-computer-use/AGENTS.md", "docs/cli-contract.md",
+            "skills/cmux-cua/AGENTS.md", "docs/cli-contract.md",
             "skills/unknown/SKILL.md", "ghostty", ".gitmodules",
             "scripts/download-prebuilt-ghosttykit.sh", "scripts/ghosttykit-checksums.txt",
             ".github/workflows/ci.yml", "scripts/ci/detect_linux_guard_changes.py",
@@ -580,11 +538,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "../README.md",
         ):
             with self.subTest(path=path):
-                # A path outside the checkout is unreadable, so even the release check runs.
-                expected = (dict.fromkeys(JOBS, "true")
-                            if path in detect_linux_guard_changes.GHOSTTYKIT_RELEASE_INPUTS or path.startswith("../")
-                            else all_guards_no_release())
-                self.assertEqual(route(["CLAUDE.md", path]), expected)
+                self.assertEqual(route(["CLAUDE.md", path]), dict.fromkeys(JOBS, "true"))
 
     def test_missing_empty_or_uncertain_diff_and_non_pr_events_run_all(self):
         for paths in (None, []):
@@ -599,16 +553,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 result = run_guard_status(results={JOBS["submodule_forward_only"]: outcome})
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"{JOBS['submodule_forward_only']}: {outcome}", result.stderr)
-        # A feat-cmux-next pull request runs it as the ci/steps.toml step: only there is its skip fine.
-        job = JOBS["submodule_forward_only"]
-        self.assertEqual(run_guard_status(results={job: "skipped"}, event="pull_request",
-                                          base_ref="feat-cmux-next").returncode, 0)
-        for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
-            with self.subTest(event=event, base_ref=base_ref):
-                self.assertNotEqual(run_guard_status(results={job: "skipped"}, event=event,
-                                                     base_ref=base_ref).returncode, 0)
-        self.assertNotEqual(run_guard_status(results={job: "failure"}, event="pull_request",
-                                             base_ref="feat-cmux-next").returncode, 0)
 
         for route_name, job in REUSABLE_GUARDS.items():
             for outcome in ("skipped", "failure", "cancelled"):
@@ -740,135 +684,16 @@ class GuardLegBalanceTests(unittest.TestCase):
         steps = self.steps_by_name()
         for name in ("Validate hung test watchdog", "Validate xcodebuild noninteractive crash prompt guard"):
             with self.subTest(step=name):
-                self.assertEqual(steps[name].get("if"), "${{ !cancelled() && matrix.group == 'app-host-watchdog' }}")
+                self.assertEqual(steps[name].get("if"), "${{ matrix.group == 'app-host-watchdog' }}")
         # The crash prompt test reads this helper; no step names it in a run.
         for path in ("scripts/ci/xcodebuild_noninteractive.py", "scripts/ci/hung_test_watchdog.py",
                      "scripts/ci/run_with_timeout.py", "scripts/ci/ci_process_tree.py"):
             with self.subTest(path=path):
                 self.assertIn("app-host-watchdog", groups_for_path(path) or ())
 
-    def test_shared_ios_lint_guards_run_in_the_preflight_leg(self):
-        """The iOS package conventions lint and test-ios.yml run on feat-cmux-next too (cmux-next.yml runs the
-        lint, test-ios.yml runs on its pull requests), so their guards are not in the main-only release-ios leg,
-        which feat-cmux-next pull requests never run."""
-        steps = self.steps_by_name()
-        for name in ("Validate iOS package conventions for this change", "Validate manual iOS workflow ref resolution"):
-            with self.subTest(step=name):
-                self.assertEqual(steps[name].get("if"), "${{ !cancelled() && matrix.group == 'preflight' }}")
-        for path in ("scripts/lint_swift_namespaces.py", "scripts/swift_source_mask.py",
-                     "scripts/ci/lint-ios-conventions-diff.sh", "tests/test_ios_workflow_dispatch_ref.py"):
-            with self.subTest(path=path):
-                owners = groups_for_path(path) or ()
-                self.assertIn("preflight", owners)
-                self.assertNotIn("release-ios", owners)
-
-
-class FeatGuardRoutingTests(unittest.TestCase):
-    """cmux-next-guards.yml's guard group job routes ci-guards.yml's groups for feat-cmux-next.
-
-    ci.yml routes the groups by path only for pull requests into main, so a feat-cmux-next pull
-    request ran only the `ci` and `release-notary` groups and about 70 guard tests never ran there
-    (tests/pr-lane-exemptions.json). classify_feat reads the same ownership (groups_for_path, and
-    classify's routes for the lockfile and source-lint jobs), leaves out the main-only release-ios
-    group, and bounds the fail-open rule: an unknown path in a product source area runs no extra group,
-    any other unknown path runs every routed group.
-    """
-
-    feat = staticmethod(lambda paths: detect_linux_guard_changes.classify_feat(paths))
-
-    def test_routed_groups_are_every_group_but_the_always_run_and_main_only_ones(self):
-        routed = detect_linux_guard_changes.FEAT_ROUTED
-        self.assertEqual(
-            set(routed),
-            (set(GROUPS) - {"ci", "release-ios"})
-            | {"workflow-guard-history", "workflow-guard-source-lints"},
-        )
-
-    def test_release_notary_runs_only_on_its_inputs(self):
-        """release-notary ran on every pull request: about 200,000 runner-minutes in 14 days, and none of its 18
-        PR failures was the change's own (cmuxterm-hq plans/ci/baggage-2026-11-05.md)."""
-        for path in (
-            ".github/workflows/nightly.yml", ".github/warm-sources.json", ".github/nightly-step-coverage.json",
-            "scripts/ci/nightly-sparkle-key.sh", "scripts/ci/resume-stapled-app-notarization.sh",
-            "scripts/ci/poll-notary-submission.py", "scripts/ci/nightly-steps/release-notes-sign.sh",
-            "tests/test_nightly_next_identity.py", "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py",
-            "scripts/whats-new/validate.py", "scripts/cmux-next/release-notes.py",
-            "release-notes/next/highlights/x.md", "release-notes/next/retired-feed-announcements.json",
-            "cmux.nightly.entitlements", "cmux-helper.entitlements", "Resources/cmux.entitlements",
-            "cmux-next-ios/App/CmuxMobileApp-Production.entitlements",
-            "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift",
-            "Native/OptChat/optchat-chief/inspector/index.html", "ghostty", "ghostty-next",
-            "cmux-tui/Cargo.toml",
-            "Resources/Info.plist", "Config/Release.xcconfig", "new-area/input",
-        ):
-            with self.subTest(path=path):
-                self.assertIn("release-notary", self.feat([path]))
-        for paths in (
-            ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"], ["webviews/src/x.ts"],
-            ["cmux-tui/crates/a/src/lib.rs"], ["cmux-tui/crates/a/Cargo.toml"], ["backend/x.ts"],
-            ["docs/guide.md", "AGENTS.md"],
-            ["Packages/macOS/CmuxNext/Package.resolved"], ["Native/OptChat/x.swift"],
-        ):
-            with self.subTest(paths=paths):
-                self.assertNotIn("release-notary", self.feat(paths))
-
-    def test_a_change_to_a_groups_paths_runs_that_group(self):
-        for path, group in (
-            ("scripts/ci/build_graph_health.py", "preflight"),
-            ("scripts/ci/hung_test_watchdog.py", "app-host-watchdog"),
-            ("scripts/ci/require_swift_test_execution.py", "app-host-execution"),
-            ("scripts/ci/sanitize-xcode-source-packages-cache.py", "preflight"),
-            ("tests/test_reuse_release_product.py", "release-tooling"),
-            ("tests/test_bash_integration_no_done_notifications.py", "quality-determinism"),
-            ("scripts/lint_swift_namespaces.py", "preflight"),
-            ("tests/test_ios_workflow_dispatch_ref.py", "preflight"),
-            ("Packages/macOS/CmuxNext/Package.resolved", "workflow-guard-history"),
-            ("Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift", "workflow-guard-source-lints"),
-        ):
-            with self.subTest(path=path):
-                self.assertIn(group, self.feat([path]))
-
-    def test_the_main_only_release_ios_group_never_runs(self):
-        for paths in ([], [".github/workflows/ci-guards.yml"], ["new-area/input"],
-                      ["ios/scripts/upload-testflight.sh"], ["tests/test_ios_testflight_notes.py"]):
-            with self.subTest(paths=paths):
-                self.assertNotIn("release-ios", self.feat(paths))
-        self.assertEqual(self.feat(["ios/scripts/upload-testflight.sh"]), ())
-
-    def test_no_diff_and_unknown_tooling_paths_run_every_routed_group(self):
-        for paths in ([], ["scripts/cmux-next/new-tool.sh"], [".github/workflows/new.yml"], ["new-area/input"],
-                      ["agent-chat/src/x.ts"], ["Resources/Info.plist"], ["../escape"]):
-            with self.subTest(paths=paths):
-                self.assertEqual(self.feat(paths), detect_linux_guard_changes.FEAT_ROUTED)
-
-    def test_a_cmux_tui_manifest_only_change_runs_release_notary(self):
-        """tests/test_nightly_version.py reads cmux-tui/Cargo.toml's [workspace.package] version (#36734 review F1)."""
-        self.assertEqual(self.feat(["cmux-tui/Cargo.toml"]), ("release-notary",))
-
-    def test_unknown_product_source_runs_no_extra_group(self):
-        """254 of feat-cmux-next's last 300 commits touched a path ci.yml routes to every group; running all ten
-        groups on the head and the base for each would be the norm, not the exception."""
-        self.assertEqual(self.feat(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"]),
-                         ("workflow-guard-source-lints",))
-        self.assertEqual(self.feat(["webviews/src/x.ts", "cmux-tui/crates/a/src/lib.rs", "Native/OptChat/x.swift",
-                                    "backend/x.ts", "schemas/settings/x.json"]), ())
-        # The What's New highlights validator in release-notary reads release-notes/.
-        self.assertEqual(self.feat(["release-notes/next/x.md"]), ("release-notary",))
-
-    def test_docs_only_runs_no_extra_group(self):
-        self.assertEqual(self.feat(["docs/guide.md", "plans/x.md", "AGENTS.md"]), ())
-
-    def test_a_routing_policy_change_runs_every_routed_group(self):
-        self.assertEqual(self.feat(["scripts/ci/workflow_guard_groups.py"]), detect_linux_guard_changes.FEAT_ROUTED)
-
-    def test_main_routing_is_unchanged_by_the_feat_rule(self):
-        # ci.yml's rule for pull requests into main: an unknown product path still runs every group.
-        self.assertEqual(
-            detect_linux_guard_changes.classify_test_groups(
-                ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/X.swift"], event="pull_request", macos="false"),
-            GROUPS,
-        )
+    def test_ios_conventions_run_in_the_ios_leg(self):
+        step = self.steps_by_name()["Validate iOS package conventions for this change"]
+        self.assertEqual(step.get("if"), "${{ matrix.group == 'release-ios' }}")
 
 
 if __name__ == "__main__":

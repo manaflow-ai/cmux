@@ -17,45 +17,14 @@ SPEC = TUI / "spec"
 BINDINGS = TUI / "bindings"
 SERVER = TUI / "crates/cmux-tui-core/src/server.rs"
 RUNTIME_NAMED_REQUEST_REFS = {
-    "crate::conversation_store::ImportedMessage": "ConversationImportMessage",
     "BrowserProviderTargetRequest": "BrowserProviderTarget",
     "crate::FrontendJournalEvent": "FrontendJournalEvent",
     "crate::ResourceSelectors": "ResourceSelectors",
     "ProtocolKeyInput": "TerminalKeyInput",
-    "TabRef": "TabRef",
-    "PaneRef": "PaneRef",
     "DetachClientTarget": "DetachClientTarget",
     "TerminalDetachActor": "SizeDetachActor",
     "TerminalSizingPolicy": "SizePolicy",
-    "HostSizePolicyRequest": "HostSizePolicyRequest",
     "ClientIdentityWire": "SizingIdentity",
-    "SplitRespawnRequest": "SplitRespawn",
-    "crate::mux::CloseReason": "CloseReason",
-    "crate::resource_name::NameSource": "NameSource",
-    "AgentSessionParams": "AgentSessionSource",
-    "ConversationTabSplitParams": "ConversationTabSplit",
-    "TabPlaceRequest": "TabPlace",
-    "crate::model::ColumnDock": "ColumnPin",
-    "SnapshotHave": "SnapshotRequestHave",
-    "RowMarkerPoint": "RowMarkerPoint",
-    "RowHeight": "RowHeight",
-    "ExpectAgent": "SendExpectAgent",
-    "LayoutSizeWire": "LayoutSizeValue",
-    "cmd_workspaces::KnownTree": "ListWorkspacesKnown",
-    "list_workspaces_delta::DeltaCursor": "ListWorkspacesSince",
-    "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
-    "crate::command_context::Intent": "TerminalCommandContextIntent",
-    "crate::remote_host::AppPermissions": "RemoteHostAppPermissions",
-}
-
-# Request fields the server takes as raw JSON and then decodes element by
-# element into a named type, so a bad element gets the command's own error
-# code. The SDK types the field as that named type; the server struct named
-# in the comment is the authority for its fields.
-RUNTIME_DECODED_REQUEST_FIELDS = {
-    # server/bookmarks.rs `import` decodes each node into
-    # cmux-bookmarks-core `BookmarkImportNode` (re-exported by workspace_registry/personal_bookmarks.rs).
-    ("import-bookmarks", "nodes"): ("Vec<Value>", "array<ref<BookmarkImportNode>>"),
 }
 
 sys.path.insert(0, str(BINDINGS))
@@ -151,9 +120,7 @@ def _rust_enum_body(source: str, name: str) -> str:
 
 
 def _rust_struct_fields(source: str, name: str) -> dict[str, RuntimeField]:
-    match = re.search(
-        rf"(?m)^(?:pub(?:\([a-z:]+\))? )?struct {re.escape(name)} \{{\n", source
-    )
+    match = re.search(rf"(?m)^struct {re.escape(name)} \{{\n", source)
     if not match:
         fail(f"cannot find Rust struct {name}")
     start = match.end()
@@ -174,21 +141,13 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         if attribute:
             attributes.append(attribute.group(1))
             continue
-        # Lint attributes (`#[allow(...)]`, `#[expect(...)]`) do not change the wire shape.
-        if re.fullmatch(r"#\[(?:allow|expect)\(.*\)\]", line):
-            continue
-        # Field visibility (pub, pub(crate), pub(super), pub(in path)) does not change the wire shape.
-        field = re.fullmatch(r"(?:pub(?:\((?:crate|super|self|in [a-z_:]+)\))? )?([a-z][A-Za-z0-9_]*): (.+),", line)
+        field = re.fullmatch(r"([a-z][A-Za-z0-9_]*): (.+),", line)
         if not field:
             fail(f"cannot parse {label} line {line!r}")
         name, rust_type = field.groups()
         if name in fields:
             fail(f"duplicate {label} field {name!r}")
-        # `#[serde(skip)]` is never read from the wire: the field is state of the
-        # handler, not a part of the request.
-        skipped = any(part.strip() == "skip" for value in attributes for part in value.split(","))
-        if not skipped:
-            fields[name] = RuntimeField(rust_type, tuple(attributes))
+        fields[name] = RuntimeField(rust_type, tuple(attributes))
         attributes.clear()
     if attributes:
         fail(f"orphan serde attributes in {label}")
@@ -203,13 +162,13 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
     except (OSError, UnicodeError) as error:
         fail(f"cannot read {SERVER.relative_to(ROOT)}: {error}")
     body = _rust_enum_body(source, "Command")
+    mutation_fields = _rust_struct_fields(source, "MutationRequest")
     commands: dict[str, dict[str, RuntimeField]] = {}
     lines = body.splitlines()
     index = 0
     while index < len(lines):
         line = lines[index]
-        # A unit variant, or a struct variant with no fields (`Variant {},`).
-        unit = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*)(?: \{\})?,", line)
+        unit = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*),", line)
         if unit:
             commands[camel_to_kebab(unit.group(1))] = {}
             index += 1
@@ -221,32 +180,6 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
         if boxed:
             variant, request_type = boxed.groups()
             commands[camel_to_kebab(variant)] = _rust_struct_fields(source, request_type)
-            index += 1
-            continue
-        # A request struct in a handler module: `Variant(module::Params)`
-        # reads `server/<module>.rs`.
-        external = re.fullmatch(
-            r"    ([A-Z][A-Za-z0-9]*)\(([a-z_]+)::([A-Z][A-Za-z0-9]*)\),",
-            line,
-        )
-        if external:
-            variant, module, request_type = external.groups()
-            module_path = SERVER.with_suffix("") / f"{module}.rs"
-            try:
-                module_source = module_path.read_text(encoding="utf-8")
-            except (OSError, UnicodeError) as error:
-                fail(f"cannot read {module_path.relative_to(ROOT)}: {error}")
-            commands[camel_to_kebab(variant)] = _expand_flattened(
-                module_source,
-                _rust_struct_fields(module_source, request_type),
-                f"Command::{variant}",
-            )
-            index += 1
-            continue
-        # A fieldless struct variant: `Variant {},`.
-        empty = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{\s*\},", line)
-        if empty:
-            commands[camel_to_kebab(empty.group(1))] = {}
             index += 1
             continue
         structured = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{", line)
@@ -267,46 +200,26 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             "\n".join(variant_lines),
             f"Rust Command::{variant}",
         )
-        commands[camel_to_kebab(variant)] = _expand_flattened(
-            source, parsed, f"Command::{variant}"
-        )
+        expanded: dict[str, RuntimeField] = {}
+        for field_name, field in parsed.items():
+            if any(re.search(r"\bflatten\b", value) for value in field.attributes):
+                if field.rust_type != "MutationRequest":
+                    fail(
+                        f"unsupported flattened Rust request type "
+                        f"{field.rust_type!r} in Command::{variant}"
+                    )
+                for mutation_name, mutation_field in mutation_fields.items():
+                    if mutation_name in expanded:
+                        fail(
+                            f"duplicate flattened request field {mutation_name!r} "
+                            f"in Command::{variant}"
+                        )
+                    expanded[mutation_name] = mutation_field
+            else:
+                expanded[field_name] = field
+        commands[camel_to_kebab(variant)] = expanded
         index += 1
     return commands
-
-
-def _expand_flattened(
-    source: str, parsed: dict[str, RuntimeField], label: str
-) -> dict[str, RuntimeField]:
-    """Replace each `#[serde(flatten)]` field by the fields of its struct,
-    which must be declared in the same Rust source."""
-
-    expanded: dict[str, RuntimeField] = {}
-    for field_name, field in parsed.items():
-        if any(re.search(r"\bflatten\b", value) for value in field.attributes):
-            # `module::Type` names a request struct in `server/<module>.rs`.
-            flat_source, flat_type = source, field.rust_type
-            qualified = re.fullmatch(r"([a-z_]+)::([A-Z][A-Za-z0-9]*)", field.rust_type)
-            if qualified:
-                module_path = SERVER.with_suffix("") / f"{qualified.group(1)}.rs"
-                try:
-                    flat_source = module_path.read_text(encoding="utf-8")
-                except (OSError, UnicodeError) as error:
-                    fail(f"cannot read {module_path.relative_to(ROOT)}: {error}")
-                flat_type = qualified.group(2)
-            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", flat_type) or not re.search(
-                rf"(?m)^(?:pub(?:\([a-z:]+\))? )?struct {re.escape(flat_type)} \{{",
-                flat_source,
-            ):
-                fail(f"unsupported flattened Rust request type {field.rust_type!r} in {label}")
-            for flat_name, flat_field in _rust_struct_fields(flat_source, flat_type).items():
-                if flat_name in expanded:
-                    fail(f"duplicate flattened request field {flat_name!r} in {label}")
-                expanded[flat_name] = flat_field
-        else:
-            if field_name in expanded:
-                fail(f"duplicate request field {field_name!r} in {label}")
-            expanded[field_name] = field
-    return expanded
 
 
 def _unwrap_rust_option(rust_type: str) -> tuple[str, bool]:
@@ -316,10 +229,6 @@ def _unwrap_rust_option(rust_type: str) -> tuple[str, bool]:
 
 def _runtime_field_presence(field: RuntimeField) -> tuple[str, bool]:
     rust_type, optional_type = _unwrap_rust_option(field.rust_type)
-    # An `Option<T>` with the `required_nullable` deserializer must be present
-    # and may be null.
-    if optional_type and any("required_nullable" in value for value in field.attributes):
-        return "required", True
     has_default = any(re.search(r"\bdefault\b", value) for value in field.attributes)
     presence = "optional" if optional_type or has_default else "required"
     # serde_json::Value includes JSON null even though it is not Option<Value>.
@@ -340,11 +249,7 @@ def _split_rust_generic(value: str, name: str) -> str | None:
 
 
 def _runtime_type_shape(rust_type: str) -> str:
-    rust_type, optional = _unwrap_rust_option(rust_type)
-    # `Option<Option<T>>` with a present-or-null deserializer is an optional
-    # nullable T on the wire.
-    while optional:
-        rust_type, optional = _unwrap_rust_option(rust_type)
+    rust_type, _ = _unwrap_rust_option(rust_type)
     if inner := _split_rust_generic(rust_type, "Vec"):
         return f"array<{_runtime_type_shape(inner)}>"
     if inner := _split_rust_generic(rust_type, "BTreeMap"):
@@ -418,9 +323,7 @@ def _schema_type_shape(
         name = str(expression["name"])
         if name == "DeclarativeLayout":
             return "declarative-layout"
-        if name in RUNTIME_NAMED_REQUEST_REFS.values() or any(
-            f"ref<{name}>" in shape for _, shape in RUNTIME_DECODED_REQUEST_FIELDS.values()
-        ):
+        if name in RUNTIME_NAMED_REQUEST_REFS.values():
             return f"ref<{name}>"
         if name in seen:
             fail(f"cyclic SDK type reference while checking Rust request field: {name}")
@@ -432,27 +335,10 @@ def _schema_type_shape(
     return ""
 
 
-# Fields the server reads only to refuse them with invalid-argument: a
-# pre-rename name an older client may still send. They are not part of the
-# SDK contract, so the SDKs never send them.
-REFUSED_LEGACY_REQUEST_FIELDS = {
-    # R87 DOCK-WIRE: `sticky` was renamed to `dock`; ignoring it would turn an
-    # older client's pin into a plain column.
-    "move-tab-to-column": {"sticky"},
-}
-
-
 def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
     runtime_commands = runtime_command_fields()
-    for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
-        fields = runtime_commands.get(command_name, {})
-        missing = refused - set(fields)
-        if missing:
-            fail(f"refused legacy request field missing from {command_name}: {sorted(missing)}")
-        for name in refused:
-            del fields[name]
     compare_names(set(ir.commands), set(runtime_commands), "runtime SDK command")
     for command_name, command in ir.commands.items():
         request = command["request"]
@@ -490,15 +376,6 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
                     f"SDK={sorted(schema_aliases)}, runtime={sorted(runtime_aliases)}"
                 )
             runtime_shape = _runtime_type_shape(runtime_field.rust_type)
-            decoded = RUNTIME_DECODED_REQUEST_FIELDS.get((command_name, field_name))
-            if decoded is not None:
-                rust_type, decoded_shape = decoded
-                if runtime_field.rust_type.replace(" ", "") != rust_type:
-                    fail(
-                        f"decoded request field {command_name}.{field_name} is no longer "
-                        f"{rust_type} at runtime: {runtime_field.rust_type}"
-                    )
-                runtime_shape = decoded_shape
             type_expression = schema_field["type"]
             assert isinstance(type_expression, Mapping)
             schema_shape = _schema_type_shape(type_expression, ir.types)

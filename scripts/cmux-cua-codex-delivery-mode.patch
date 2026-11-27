@@ -1,0 +1,128 @@
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/codex_compat.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/codex_compat.rs
+index 151a8a11..886487e4 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/codex_compat.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/tools/codex_compat.rs
+@@ -260,7 +260,8 @@ fn defs() -> &'static [ToolDef] {
+                         "x":{"type":"number","description":"X coordinate in screenshot pixel coordinates"},
+                         "y":{"type":"number","description":"Y coordinate in screenshot pixel coordinates"},
+                         "click_count":{"type":"integer","description":"Number of clicks. Defaults to 1"},
+-                        "mouse_button":{"type":"string","enum":["left","right","middle"],"description":"Mouse button to click. Defaults to left."}
++                        "mouse_button":{"type":"string","enum":["left","right","middle"],"description":"Mouse button to click. Defaults to left."},
++                        "delivery_mode":{"type":"string","enum":["background","foreground"],"description":"Delivery mode. Defaults to background. Use foreground to briefly front the target window and retry a pixel click rejected with background_occluded."}
+                     },
+                     "additionalProperties":false
+                 }),
+@@ -277,7 +278,8 @@ fn defs() -> &'static [ToolDef] {
+                         "from_x":{"type":"number","description":"Start X coordinate"},
+                         "from_y":{"type":"number","description":"Start Y coordinate"},
+                         "to_x":{"type":"number","description":"End X coordinate"},
+-                        "to_y":{"type":"number","description":"End Y coordinate"}
++                        "to_y":{"type":"number","description":"End Y coordinate"},
++                        "delivery_mode":{"type":"string","enum":["background","foreground"],"description":"Delivery mode. Defaults to background. macOS background drags are unavailable; use foreground to front the target window for the gesture."}
+                     },
+                     "additionalProperties":false
+                 }),
+@@ -1160,6 +1162,10 @@ impl CompatState {
+         if !matches!(button, "left" | "right" | "middle") {
+             return ToolResult::error("mouse_button must be left, right, or middle.");
+         }
++        let delivery_mode = match validated_delivery_mode(args) {
++            Ok(mode) => mode,
++            Err(result) => return result,
++        };
+ 
+         let mut native_args = native_action_arguments(
+             json!({
+@@ -1167,6 +1173,7 @@ impl CompatState {
+                 "window_id": snapshot.window_id,
+                 "button": button,
+                 "count": click_count,
++                "delivery_mode": delivery_mode,
+             }),
+             args,
+             session,
+@@ -1263,6 +1270,10 @@ impl CompatState {
+             Ok(value) => value,
+             Err(result) => return result,
+         };
++        let delivery_mode = match validated_delivery_mode(args) {
++            Ok(mode) => mode,
++            Err(result) => return result,
++        };
+         for (label, x, y) in [("drag start", from_x, from_y), ("drag end", to_x, to_y)] {
+             if let Err(result) = validate_compat_point(snapshot, x, y, label) {
+                 return result;
+@@ -1281,6 +1292,7 @@ impl CompatState {
+                 "from_y": from_y,
+                 "to_x": to_x,
+                 "to_y": to_y,
++                "delivery_mode": delivery_mode,
+             }),
+             args,
+             session,
+@@ -1756,6 +1768,16 @@ fn required_number(args: &Value, key: &str) -> Result<f64, ToolResult> {
+         .ok_or_else(|| ToolResult::error(format!("Missing required numeric field: {key}")))
+ }
+ 
++fn validated_delivery_mode(args: &Value) -> Result<&'static str, ToolResult> {
++    match args.get("delivery_mode").and_then(Value::as_str) {
++        None | Some("background") => Ok("background"),
++        Some("foreground") => Ok("foreground"),
++        Some(_) => Err(ToolResult::error(
++            "delivery_mode must be background or foreground.",
++        )),
++    }
++}
++
+ fn validated_click_count(args: &Value) -> Result<u64, ToolResult> {
+     let Some(value) = args.get("click_count") else {
+         return Ok(1);
+@@ -3392,6 +3414,14 @@ mod tests {
+             tools[5]["inputSchema"]["properties"]["selection"]["enum"],
+             json!(["text", "cursor_before", "cursor_after"])
+         );
++        assert_eq!(
++            tools[2]["inputSchema"]["properties"]["delivery_mode"]["enum"],
++            json!(["background", "foreground"]),
++        );
++        assert_eq!(
++            tools[7]["inputSchema"]["properties"]["delivery_mode"]["enum"],
++            json!(["background", "foreground"]),
++        );
+         assert!(tools[2]["inputSchema"]["properties"]["click_count"]
+             .get("minimum")
+             .is_none());
+@@ -3400,6 +3430,33 @@ mod tests {
+             .is_none());
+     }
+ 
++    #[test]
++    fn delivery_mode_defaults_to_background_and_rejects_unknown_values() {
++        assert_eq!(validated_delivery_mode(&json!({})).unwrap(), "background");
++        assert_eq!(
++            validated_delivery_mode(&json!({"delivery_mode":"foreground"})).unwrap(),
++            "foreground"
++        );
++        assert_eq!(
++            validated_delivery_mode(&json!({"delivery_mode":"background"})).unwrap(),
++            "background"
++        );
++        assert!(validated_delivery_mode(&json!({"delivery_mode":"front"}))
++            .unwrap_err()
++            .is_error
++            == Some(true));
++    }
++
++    #[test]
++    fn native_action_arguments_preserve_delivery_mode_for_dispatch() {
++        let native = native_action_arguments(
++            json!({"pid":42,"window_id":7,"delivery_mode":"foreground"}),
++            &json!({}),
++            "session",
++        );
++        assert_eq!(native["delivery_mode"], "foreground");
++    }
++
+     #[test]
+     fn native_actions_keep_lifecycle_and_host_cursor_sessions_distinct() {
+         let native = native_action_arguments(

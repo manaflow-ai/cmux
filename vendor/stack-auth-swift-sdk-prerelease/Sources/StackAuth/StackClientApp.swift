@@ -157,9 +157,10 @@ public actor StackClientApp {
         let codeChallenge = generateCodeChallenge(from: actualCodeVerifier)
         
         var components = URLComponents(string: "\(baseUrl)/api/v1/auth/oauth/authorize/\(provider.lowercased())")!
+        let publishableKey = client.publishableClientKey
         components.queryItems = [
             URLQueryItem(name: "client_id", value: projectId),
-            URLQueryItem(name: "client_secret", value: client.oauthClientSecret),
+            URLQueryItem(name: "client_secret", value: publishableKey),
             URLQueryItem(name: "redirect_uri", value: redirectUrl),
             URLQueryItem(name: "scope", value: "legacy"),
             URLQueryItem(name: "state", value: actualState),
@@ -502,7 +503,8 @@ public actor StackClientApp {
         request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
         request.setValue("client", forHTTPHeaderField: "x-hexclave-access-type")
         
-        client.applyPublishableClientKey(to: &request)
+        let publishableKey = client.publishableClientKey
+        request.setValue(publishableKey, forHTTPHeaderField: "x-hexclave-publishable-client-key")
         
         let body = ["id_token": identityToken]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -574,13 +576,14 @@ public actor StackClientApp {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
         
+        let publishableKey = client.publishableClientKey
         let body = [
             "grant_type=authorization_code",
             "code=\(formURLEncode(code))",
             "redirect_uri=\(formURLEncode(redirectUrl))",
             "code_verifier=\(formURLEncode(codeVerifier))",
             "client_id=\(formURLEncode(projectId))",
-            "client_secret=\(formURLEncode(client.oauthClientSecret))"
+            "client_secret=\(formURLEncode(publishableKey))"
         ].joined(separator: "&")
         
         request.httpBody = body.data(using: .utf8)

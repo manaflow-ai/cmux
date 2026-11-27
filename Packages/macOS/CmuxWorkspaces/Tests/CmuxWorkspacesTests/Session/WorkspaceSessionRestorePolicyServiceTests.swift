@@ -1,0 +1,557 @@
+import Foundation
+import Testing
+@testable import CmuxWorkspaces
+
+@Suite("WorkspaceSessionRestorePolicyService")
+struct WorkspaceSessionRestorePolicyServiceTests {
+    // Test-only holder mutated by one synchronous injected @Sendable closure.
+    private final class ApprovalObservation: @unchecked Sendable {
+        var url: URL?
+        var secret: Data?
+    }
+
+    private struct FakeBinding: WorkspaceSurfaceResumeBinding, Equatable {
+        var source: String?
+        var kind: String?
+        var command: String
+        var cwd: String?
+        var environment: [String: String]?
+        var isProcessDetected: Bool
+        var isAgentHookBinding: Bool
+        var allowsAutomaticResume: Bool
+        var requiresPromptApproval: Bool
+        var autoResume: Bool?
+        var usesLocalRestoreVerb: Bool
+        var startupInputPrefix = "input"
+
+        init(
+            source: String? = "cli",
+            kind: String? = nil,
+            command: String = "echo ok",
+            cwd: String? = nil,
+            environment: [String: String]? = nil,
+            isProcessDetected: Bool = false,
+            isAgentHookBinding: Bool = false,
+            allowsAutomaticResume: Bool = true,
+            requiresPromptApproval: Bool = false,
+            autoResume: Bool? = nil,
+            usesLocalRestoreVerb: Bool = true
+        ) {
+            self.source = source
+            self.kind = kind
+            self.command = command
+            self.cwd = cwd
+            self.environment = environment
+            self.isProcessDetected = isProcessDetected
+            self.isAgentHookBinding = isAgentHookBinding
+            self.allowsAutomaticResume = allowsAutomaticResume
+            self.requiresPromptApproval = requiresPromptApproval
+            self.autoResume = autoResume
+            self.usesLocalRestoreVerb = usesLocalRestoreVerb
+        }
+
+        func restoreStartupInput() -> String? {
+            "\(startupInputPrefix):\(command)"
+        }
+    }
+
+    private struct FakeTerminalSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {
+        var isRemoteTerminal: Bool?
+        var remotePTYSessionID: String?
+    }
+
+    private struct FakePanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {
+        var terminal: FakeTerminalSnapshot?
+    }
+
+    private struct FakeRemoteSnapshot: WorkspaceSessionRemoteRestoreSnapshot {
+        var panels: [FakePanelSnapshot]
+    }
+
+    private func makeService(
+        applyStoredApproval: @escaping @Sendable (FakeBinding, URL, Data?) -> FakeBinding? = { binding, _, _ in binding },
+        shouldRunPromptedSurfaceResume: @escaping @Sendable (FakeBinding) -> Bool = { _ in false },
+        isRunningUnderAutomatedTests: @escaping @Sendable () -> Bool = { false },
+        truncateScrollback: @escaping @Sendable (String?) -> String? = { $0 },
+        applyingDefaultCodexBaseURL: @escaping @Sendable ([String: String]) -> [String: String] = { $0 },
+        resolvingDefaultCodexModel: @escaping @Sendable ([String: String]) -> String? = { _ in nil }
+    ) -> WorkspaceSessionRestorePolicyService<FakeBinding> {
+        WorkspaceSessionRestorePolicyService(
+            applyStoredApproval: applyStoredApproval,
+            shouldRunPromptedSurfaceResume: shouldRunPromptedSurfaceResume,
+            isRunningUnderAutomatedTests: isRunningUnderAutomatedTests,
+            truncateScrollback: truncateScrollback,
+            hermesCodexEnvironment: WorkspaceHermesCodexEnvironment(
+                customBaseURLEnvironmentKey: "OPENAI_BASE_URL",
+                defaultProvider: "codex",
+                codexResponsesAPIMode: "responses",
+                applyingDefaultCodexBaseURL: applyingDefaultCodexBaseURL,
+                resolvingDefaultCodexModel: resolvingDefaultCodexModel
+            )
+        )
+    }
+
+    @Test("stored approval is injected and can authorize a binding")
+    func storedApprovalAuthorizesBinding() {
+        let approvalURL = URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+        let observation = ApprovalObservation()
+        let service = makeService(
+            applyStoredApproval: { binding, fileURL, signingSecret in
+                observation.url = fileURL
+                observation.secret = signingSecret
+                var copy = binding
+                copy.allowsAutomaticResume = true
+                return copy
+            }
+        )
+
+        let result = service.surfaceResumeStartupInput(
+            FakeBinding(allowsAutomaticResume: false),
+            autoResumeAgentSessions: true,
+            approvalStoreURL: approvalURL,
+            approvalSigningSecret: Data("secret".utf8)
+        )
+
+        #expect(result == "input:echo ok")
+        #expect(observation.url == approvalURL)
+        #expect(observation.secret == Data("secret".utf8))
+    }
+
+    @Test("pending stored approval prevents launch")
+    func pendingStoredApprovalPreventsLaunch() {
+        let service = makeService(
+            applyStoredApproval: { _, _, _ in nil }
+        )
+
+        let result = service.surfaceResumeStartupInput(
+            FakeBinding(allowsAutomaticResume: true),
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json")
+        )
+
+        #expect(result == nil)
+    }
+
+    @Test("prompt approval uses the injected prompt decision")
+    func promptApprovalUsesInjectedDecision() {
+        let denied = makeService(shouldRunPromptedSurfaceResume: { _ in false })
+        let approved = makeService(shouldRunPromptedSurfaceResume: { _ in true })
+        let binding = FakeBinding(allowsAutomaticResume: false, requiresPromptApproval: true)
+        let approvalURL = URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+
+        #expect(denied.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: approvalURL
+        ) == nil)
+        #expect(approved.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: approvalURL
+        ) == "input:echo ok")
+        #expect(approved.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false,
+            approvalStoreURL: approvalURL
+        ) == nil)
+    }
+
+    @Test("agent hook bindings respect the auto-resume gate")
+    func agentHookBindingsRespectAutoResumeGate() {
+        let service = makeService()
+        let binding = FakeBinding(
+            source: "agent-hook",
+            command: "claude --resume",
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true
+        )
+        let approvalURL = URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+
+        #expect(service.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: false,
+            approvalStoreURL: approvalURL
+        ) == nil)
+        #expect(service.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: approvalURL
+        ) == "input:claude --resume")
+    }
+
+    @Test("post-start launch uses the binding restore input")
+    func postStartLaunchUsesBindingRestoreInput() throws {
+        let service = makeService()
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            forApprovedBinding: FakeBinding()
+        ))
+
+        #expect(launch.initialInput == "input:echo ok")
+    }
+
+    @Test("Hermes agent bindings receive Codex bootstrap and provider rewrite")
+    func hermesAgentBindingsReceiveCodexBootstrap() throws {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            },
+            resolvingDefaultCodexModel: { _ in "gpt-5" }
+        )
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: "cd /repo && hermes --provider openai-codex run",
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true,
+            usesLocalRestoreVerb: false
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json", isDirectory: false)
+        ))
+        let input = launch.initialInput
+
+        #expect(input.hasPrefix("input:cd /repo && "))
+        #expect(input.contains("'hermes' config set model.provider 'codex' >/dev/null"))
+        #expect(input.contains("'hermes' config set model.base_url 'https://codex.example.test' >/dev/null"))
+        #expect(input.contains("'hermes' config set model.api_mode 'responses' >/dev/null"))
+        #expect(input.contains("'hermes' config set model.default 'gpt-5' >/dev/null"))
+        #expect(input.contains("hermes --provider 'codex' run"))
+    }
+
+    @Test("local Hermes bindings stay untouched behind the restore verb")
+    func localHermesBindingsSkipShellBootstrap() throws {
+        let service = makeService()
+        let command = "cd /repo && hermes --provider openai-codex run"
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: command,
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true,
+            usesLocalRestoreVerb: true
+        )
+
+        let launch = try #require(service.surfaceResumeStartupLaunch(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: URL(fileURLWithPath: "/tmp/cmux-approvals.json")
+        ))
+
+        #expect(launch.initialInput == "input:\(command)")
+        #expect(launch.initialInput.contains("config set") == false)
+    }
+
+    @Test("compatibility-shell preparation refreshes local legacy Hermes bindings")
+    func compatibilityShellPreparationRefreshesLocalLegacyHermesBindings() {
+        let service = makeService(
+            applyingDefaultCodexBaseURL: { environment in
+                var copy = environment
+                copy["OPENAI_BASE_URL"] = "https://codex.example.test"
+                return copy
+            },
+            resolvingDefaultCodexModel: { _ in "gpt-5" }
+        )
+        let binding = FakeBinding(
+            source: "agent-hook",
+            kind: "hermes-agent",
+            command: "cd /repo && hermes --provider openai-codex run",
+            isAgentHookBinding: true,
+            allowsAutomaticResume: true,
+            usesLocalRestoreVerb: true
+        )
+
+        let compatibilityBinding = service.bindingForCompatibilityShellRestore(binding)
+
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.provider 'codex' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.base_url 'https://codex.example.test' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.api_mode 'responses' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains(
+            "'hermes' config set model.default 'gpt-5' >/dev/null"
+        ))
+        #expect(compatibilityBinding.command.contains("hermes --provider 'codex' run"))
+    }
+
+    @Test("remote reconnect waits when restored terminals can authenticate")
+    func remoteReconnectWaitsWhenTerminalsAuthenticate() {
+        let service = makeService()
+        let approvalTerminal = FakePanelSnapshot(
+            terminal: FakeTerminalSnapshot(isRemoteTerminal: true, remotePTYSessionID: nil)
+        )
+        let ptyTerminal = FakePanelSnapshot(
+            terminal: FakeTerminalSnapshot(isRemoteTerminal: false, remotePTYSessionID: "pty-1")
+        )
+
+        #expect(service.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: nil,
+            snapshot: FakeRemoteSnapshot(panels: [approvalTerminal])
+        ))
+        #expect(!service.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: "token",
+            snapshot: FakeRemoteSnapshot(panels: [approvalTerminal])
+        ))
+        #expect(!service.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: "token",
+            snapshot: FakeRemoteSnapshot(panels: [ptyTerminal])
+        ))
+        #expect(service.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: "token",
+            snapshot: FakeRemoteSnapshot(panels: [])
+        ))
+        #expect(!service.shouldAutoConnectRestoredRemote(
+            foregroundAuthToken: nil,
+            snapshot: FakeRemoteSnapshot(panels: []),
+            isRunningUnderAutomatedTests: true
+        ))
+    }
+
+    @Test("scrollback resolution prefers captured text and gates fallback")
+    func scrollbackResolutionPrefersCapturedTextAndGatesFallback() {
+        let service = makeService(truncateScrollback: { text in
+            text.map { String($0.prefix(5)) }
+        })
+
+        #expect(service.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: "captured",
+            fallbackScrollback: "fallback"
+        ) == "captu")
+        #expect(service.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: nil,
+            fallbackScrollback: "fallback"
+        ) == "fallb")
+        #expect(service.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: nil,
+            fallbackScrollback: "fallback",
+            allowFallbackScrollback: false
+        ) == nil)
+    }
+
+    @Test("scrollback replay skips restorable agents, OMX HUD, and resume startup work")
+    func scrollbackReplayPolicy() {
+        let service = makeService()
+
+        #expect(service.shouldReplaySessionScrollback(hasRestorableAgent: false))
+        #expect(!service.shouldReplaySessionScrollback(hasRestorableAgent: true))
+        #expect(!service.shouldReplaySessionScrollback(
+            hasRestorableAgent: false,
+            tmuxStartCommand: "oh-my-codex hud --watch"
+        ))
+        #expect(!service.shouldReplaySessionScrollback(
+            hasRestorableAgent: false,
+            hasResumeStartupWork: true
+        ))
+    }
+
+    @Test("tmux start command is restorable only for OMX HUD commands")
+    func restorableTmuxStartCommandRequiresOmxHud() {
+        let service = makeService()
+
+        #expect(service.restorableTmuxStartCommand("  oh-my-codex hud --watch  ") == "oh-my-codex hud --watch")
+        #expect(service.restorableTmuxStartCommand("omx run") == nil)
+        #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
+        #expect(service.restorableTmuxStartCommand("omx hud --watch") == "omx hud --watch")
+    }
+
+    @Test("the commands OMX starts its HUD pane with are restorable", arguments: [
+        "node /opt/oh-my-codex/dist/omx.js hud --watch",
+        "env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch",
+        "exec env OMX_SESSION_ID=omx-test node '/opt/oh-my-codex/dist/cli/omx.js' hud --watch focused",
+        "OMX_TMUX_SPLIT_OPERATION_MARKER='m1' exec env OMX_SESSION_ID=s '/usr/local/bin/node' '/opt/oh my codex/omx.js' hud --watch",
+        "/usr/local/bin/omx hud --watch",
+        "OMX_TMUX_SPLIT_OPERATION_MARKER='m1'; export OMX_TMUX_SPLIT_OPERATION_MARKER; exec env OMX_TMUX_HUD_OWNER=1 OMX_TMUX_HUD_LEADER_PANE='%1' node /repo/dist/cli/omx.js hud --watch",
+    ])
+    func restorableTmuxStartCommandKeepsOmxHudInvocations(command: String) {
+        #expect(makeService().restorableTmuxStartCommand(command) == command)
+    }
+
+    /// Restore runs whatever this accepts, so text that only mentions OMX and a
+    /// HUD must not pass for the HUD invocation.
+    @Test("commands that only mention OMX and a HUD are not restorable", arguments: [
+        "echo omx hud",
+        "echo 'notomx hud'",
+        "echo omx hud --watch",
+        "omx hud",
+        "oh-my-codex hud",
+        "omx hud --watch; rm -rf build",
+        "OMX_TMUX_SPLIT_OPERATION_MARKER='m1'; export OMX_TMUX_SPLIT_OPERATION_MARKER; codex",
+        "touch marker; export A; omx hud --watch",
+        "omx hud --watch\nrm -rf build",
+        "X=\"$(touch /tmp/marker)\" omx hud --watch",
+        "cd /tmp && omx hud --watch",
+        "vim notes-about-omx-hud.md --watch",
+        "node /opt/tools/report.js hud --watch",
+    ])
+    func restorableTmuxStartCommandRejectsLooseOmxHudText(command: String) {
+        #expect(makeService().restorableTmuxStartCommand(command) == nil)
+    }
+
+    @Test("cmux-generated local tmux attach commands are restorable")
+    func restorableTmuxStartCommandAcceptsLocalTmuxMarker() {
+        let service = makeService()
+        let command = localTmuxAttachCommand(
+            executable: "/usr/local/bin/tmux",
+            socket: "/tmp/.cmux/local-tmux/server.sock",
+            sessionID: "$7",
+            serverID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        )
+
+        #expect(service.restorableTmuxStartCommand(command) == command)
+        #expect(service.localTmuxStartCommand(command) == command)
+        let legacyCommand = command.replacingOccurrences(
+            of: "/usr/bin/env TMUX= CMUX_LOCAL_TMUX=1",
+            with: "TMUX= CMUX_LOCAL_TMUX=1 exec"
+        )
+        #expect(service.localTmuxStartCommand(legacyCommand) == command)
+        #expect(service.restorableTmuxStartCommand("CMUX_LOCAL_TMUX=1 exec tmux attach -t work") == nil)
+
+        let malformedCommands = [
+            command.replacingOccurrences(of: "'/tmp/.cmux/local-tmux/server.sock'", with: "'/tmp/.cmux/local-tmux/other.sock'"),
+            command.replacingOccurrences(of: "'/tmp/.cmux/local-tmux/server.sock'", with: "'relative/server.sock'"),
+            command.replacingOccurrences(of: "'$7'", with: "'workbench'"),
+            command.replacingOccurrences(of: "'$7'", with: "'work;rm'"),
+            command.replacingOccurrences(of: "'$7'", with: "'wo\u{0007}rk'"),
+        ]
+        for malformed in malformedCommands {
+            #expect(service.localTmuxStartCommand(malformed) == nil)
+        }
+    }
+
+    @Test("local tmux restore rejects shell substitutions in persisted commands")
+    func localTmuxRestoreRejectsShellSubstitution() {
+        let service = makeService()
+        let safeSocket = "/tmp/.cmux/local-tmux/server.sock"
+        let command = localTmuxAttachCommand(
+            executable: "/usr/local/bin/tmux",
+            socket: safeSocket,
+            sessionID: "$7",
+            serverID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        ).replacingOccurrences(
+            of: "'\(safeSocket)'",
+            with: "/tmp/.cmux/local-tmux/$(touch${IFS}/tmp/pwn)/server.sock"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == nil)
+    }
+
+    @Test("local tmux restore accepts canonical custom executable and state paths")
+    func localTmuxRestoreAcceptsCustomPaths() {
+        let service = makeService()
+        let command = localTmuxAttachCommand(
+            executable: "/custom/bin/session-owner",
+            socket: "/var/tmp/cmux-state/server.sock",
+            sessionID: "$42",
+            serverID: UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+    }
+
+    @Test("cmux-generated local zellij attach commands are restorable")
+    func localZellijAttachCommandIsRestorable() {
+        let service = makeService()
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+        #expect(service.restorableTmuxStartCommand(command) == command)
+        #expect(service.shouldReplaySessionScrollback(hasRestorableAgent: false, tmuxStartCommand: command) == false)
+        #expect(service.localTmuxStartCommand("/usr/bin/env CMUX_LOCAL_ZELLIJ=1 zellij attach work") == nil)
+    }
+
+    @Test("local zellij restore rejects commands cmux did not generate")
+    func localZellijRestoreRejectsTamperedCommands() {
+        let service = makeService()
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work"
+        )
+        let malformedCommands = [
+            command.replacingOccurrences(of: "'work'", with: "'work;rm'"),
+            command.replacingOccurrences(of: "'work'", with: "'wo\u{0007}rk'"),
+            command.replacingOccurrences(of: "'work'", with: "'$(touch /tmp/pwn)'"),
+            command.replacingOccurrences(of: "'work'", with: "work"),
+            command.replacingOccurrences(of: "'work'", with: "'-work'"),
+            command.replacingOccurrences(of: "/local-zellij/sock'", with: "/local-zellij/other'"),
+            command.replacingOccurrences(of: "'/Users/me/.cmux/local-zellij/sock'", with: "'relative/sock'"),
+            command.replacingOccurrences(of: "'/Users/me/.cmux/local-zellij/sock'", with: "/Users/$(id -u)/sock"),
+            command.replacingOccurrences(of: "'/opt/homebrew/bin/zellij'", with: "'/opt/homebrew/bin/../bin/zellij'"),
+            command.replacingOccurrences(of: "'detach'", with: "'quit'"),
+            command + " ; touch /tmp/pwn",
+            command + "\ntouch /tmp/pwn",
+        ]
+        for malformed in malformedCommands {
+            #expect(service.localTmuxStartCommand(malformed) == nil, "\(malformed)")
+        }
+    }
+
+    @Test("local zellij restore accepts quoted apostrophes in paths")
+    func localZellijRestoreAcceptsApostrophePaths() {
+        let service = makeService()
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/o'brien/.cmux/local-zellij/sock",
+            executable: "/Users/o'brien/bin/zellij",
+            sessionName: "dev_1"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+    }
+
+    @Test("local zellij restore accepts Unicode format characters inside quoted paths")
+    func localZellijRestoreAcceptsFormatCharactersInPaths() {
+        let service = makeService()
+        // U+200D joins emoji such as 👨‍💻; inside single quotes it is plain data.
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/\u{1F468}\u{200D}\u{1F4BB}/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work-3f2a9c1d"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+        #expect(service.localTmuxStartCommand(command + "\u{2028}touch /tmp/pwn") == nil, "line separators stay rejected")
+    }
+
+    private func localZellijAttachCommand(
+        socketDirectory: String,
+        executable: String,
+        sessionName: String
+    ) -> String {
+        let quote: (String) -> String = {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let arguments = ["attach", sessionName, "options", "--on-force-close", "detach"]
+            .map(quote)
+            .joined(separator: " ")
+        return "/usr/bin/env ZELLIJ_SOCKET_DIR=\(quote(socketDirectory)) CMUX_LOCAL_ZELLIJ=1 \(quote(executable)) \(arguments)"
+    }
+
+    private func localTmuxAttachCommand(
+        executable: String,
+        socket: String,
+        sessionID: String,
+        serverID: UUID
+    ) -> String {
+        let quote: (String) -> String = {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let action = ["attach-session", "-t", sessionID]
+            .map(quote)
+            .joined(separator: " ")
+        let condition = "#{==:#{@cmux_local_server_id},\(serverID.uuidString.lowercased())}"
+        return "/usr/bin/env TMUX= CMUX_LOCAL_TMUX=1 \(quote(executable)) -S \(quote(socket)) if-shell -F \(quote(condition)) \(quote(action)) \(quote("run-shell false"))"
+    }
+}

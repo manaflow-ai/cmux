@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Inputs</title></head><body><h1>Input types</h1>
+<label>Date <input id="date" type="date"></label>
+<label>Time <input id="time" type="time"></label>
+<label>Local <input id="dtl" type="datetime-local"></label>
+<label>Color <input id="color" type="color" value="#000000"></label>
+<label>Range <input id="range" type="range" min="0" max="100" value="10"></label>
+<label>Number <input id="number" type="number"></label>
+<label>Image only <input id="image-only" type="file" accept="image/png"></label>
+<p id="out"></p>
+<script>for (const e of document.querySelectorAll("input")) e.addEventListener("change", () => (document.getElementById("out").textContent = e.id + "=" + (e.files ? [...e.files].map((f) => f.name).join(",") : e.value)));</script>
+</body></html>

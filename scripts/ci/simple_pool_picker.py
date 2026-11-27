@@ -15,14 +15,22 @@ eligible: CI_OWNED_POOL_SLOTS alone says nothing about load, and a run queued on
 a busy mini waits for the rescue (two rounds of CI_PR_POOL_QUEUE_ROUNDS).
 
 A run placed on an owned pool names a Blacksmith `retry_runner`, the pool
-github-actions[bot]'s rescue attempt 3 moves its jobs to (ci-macos.yml).
+github-actions[bot]'s rescue attempt 3 moves its jobs to (ci-macos.yml), whatever
+vars.CI_BLACKSMITH_MACOS says: it is the escape that bounds an owned wait. With
+that switch off, every job of the run is in `owned_jobs`, so only that escape
+and the SDK 15 helper build read it.
 
-Admission by expected wait (cmuxterm-hq#16113 step 3): an owned pool the
-overflow probe's verdict in RUNNER_POOLS `_admission` (scripts/ci/expected_wait.py)
-calls saturated, (queued + running) / runners x p50 run time over 5 minutes, is
-skipped and the run takes the next rung. Only a verdict at most VERDICT_MAX_MINUTES
-old counts; none, a stale one or an unreadable RUNNER_POOLS changes nothing.
-Nightly and promote runs never skip (they never take Blacksmith).
+CI is minis first; Blacksmith is overflow only, and only while a label has a
+free slot for the run (in flight + queued + reserved below its capacity) and
+its queue is moving (stalled(), the cmux-next cascade's rule). With no owned
+pool free and no free, moving Blacksmith slot, a same-repository run (not the
+bot's re-run; State.wait_on_owned) waits on the online owned pool with the
+shortest expected wait (expected_wait_minutes()) instead of a Blacksmith queue (2026-10-20:
+blacksmith-12vcpu-macos-26 queued 5+ hours, about 95 PRs behind 318 queued
+runs). Only a run with no owned pool to wait on (a fork, owned pools off, an
+unread runner list) still takes the least-loaded Blacksmith label. An owned
+pick's retry_runner stays a Blacksmith label (_retry_label): it also carries
+the jobs the minis cannot run, and the bot's attempt 3.
 """
 
 from __future__ import annotations
@@ -30,7 +38,6 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-import math
 import os
 import re
 import sys
@@ -42,73 +49,27 @@ CAPACITY = dict(zip(BLACKSMITH, (5, 10, 10)))
 # Public alias retained for callers and table-driven tests.
 BLACKSMITH_CAPACITY = CAPACITY
 XCODE_VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+)*"
-
-# One declaration consumed by the picker and by Glaeda's admission hook.  The
-# queue snapshot may include queued jobs by band; a started job is represented
-# by ``running`` and is never a preemption candidate.
-PRIORITY_NIGHTLY = "nightly"
-PRIORITY_PROMOTE = "promote"
-PRIORITY_PR = "pr"
-PRIORITY_DEV = "dev"
-PRIORITY_SIDE_JOB = "side-job"
-PRIORITY_BANDS = (PRIORITY_NIGHTLY, PRIORITY_PROMOTE, PRIORITY_PR, PRIORITY_DEV, PRIORITY_SIDE_JOB)
-PRIORITY_RANK = {band: rank for rank, band in enumerate(PRIORITY_BANDS)}
-PRIORITY_QUOTA = {
-    PRIORITY_NIGHTLY: 1.0,
-    PRIORITY_PROMOTE: 1.0,
-    PRIORITY_PR: 1.0,
-    PRIORITY_DEV: 0.25,
-    PRIORITY_SIDE_JOB: 0.25,
-}
-
-
-def priority_quota(band: str, capacity: int) -> int:
-    """The declared number of queued slots a band may claim on one pool."""
-    share = PRIORITY_QUOTA.get(band, PRIORITY_QUOTA[PRIORITY_SIDE_JOB])
-    return max(1, min(max(0, int(capacity)), int(math.ceil(max(0, capacity) * share))))
-
-
-def priority_band(*, explicit: str = "", workflow: str = "", job: str = "",
-                  event: str = "") -> str:
-    """Classify a picker request without requiring a GitHub read."""
-    if explicit in PRIORITY_RANK:
-        return explicit
-    if job == "release-compile" or "promote" in job.lower():
-        return PRIORITY_PROMOTE
-    if event == "pull_request" or event == "pull_request_target" or "pull_request" in workflow:
-        return PRIORITY_PR
-    if "nightly" in workflow.lower() or event == "schedule":
-        return PRIORITY_NIGHTLY
-    if "dev" in workflow.lower() or "daily" in workflow.lower():
-        return PRIORITY_DEV
-    return PRIORITY_SIDE_JOB
-
-
-def preemptible_queued(queued: Mapping[str, int], incoming: str) -> tuple[str, ...]:
-    """Return lower-priority queued bands an incoming band may preempt.
-
-    The picker only returns queue metadata; cancellation is performed by the
-    queue reconciler.  ``running`` is intentionally not accepted here, so a
-    started job can never be selected for preemption.
-    """
-    rank = PRIORITY_RANK.get(incoming)
-    if rank is None:
-        return ()
-    return tuple(band for band in PRIORITY_BANDS if PRIORITY_RANK[band] > rank and int(queued.get(band, 0)) > 0)
 # The optional namespace keeps pools from different fleets separate.  AWS
 # runners use glaeda-aws-<class>-xcode-<version>; the unnamespaced labels are
 # the owned Mac minis.
 OWNED = re.compile(rf"^glaeda-(?:(?P<namespace>aws)-)?(?:std|light|xl)-xcode-{XCODE_VERSION_PATTERN}$")
 RESERVED = re.compile(r"(?:release|nightly)", re.IGNORECASE)
-# blacksmith_stalled(): a Blacksmith label whose oldest queued job has waited this long has had no
-# job start on it since (its queue is first in, first out), so it has no free slot whatever its
-# running count says. 2026-10-27: blacksmith-12vcpu-macos-26 had 44 jobs queued (oldest 396 min)
-# and 0 running, so it read as 5 free slots, and nightly 40452273751's verify jobs went there.
+# blacksmith_stalled(), the one stall rule: a Blacksmith label whose oldest queued job has waited
+# this long by now has had no job start on it since (its queue is first in, first out), so it has
+# no free slot. 2026-10-27: blacksmith-12vcpu-macos-26 had 44 queued (oldest 396 min), 0 running.
 BLACKSMITH_STALL_MINUTES = 10
-# An expected-wait verdict older than this (the probe runs every 10 minutes) decides nothing.
-VERDICT_MAX_MINUTES = 30
-# Bands an admission verdict never moves off an owned pool: the nightly and promote paths never use Blacksmith.
-ADMISSION_EXEMPT_BANDS = frozenset({PRIORITY_NIGHTLY, PRIORITY_PROMOTE})
+# The older names, kept for callers: every one is the same rule now.
+STALL_MINUTES = BLACKSMITH_STALL_MINUTES
+FRESH_STALL_MINUTES = BLACKSMITH_STALL_MINUTES
+# A label the snapshot saw wait this long with nothing running is stalled too.
+IDLE_STALL_MINUTES = 5
+# The measured runner minutes one job holds an owned runner, by class (expected_wait_minutes()): every
+# completed job with a duration on the pool's machines, 2026-10-20 to 2026-10-26, from the build-fleet job
+# log (cmuxterm-hq build-fleet/data, aggregated in tests/fixtures/owned-pool-turnover/2026-10-20-to-26.json,
+# which test_ci_simple_pool_picker re-derives these from). std (M4 Pro, 48 GB): 20003 jobs, 150199.5 min.
+# light (M4, 16 GB): 1360 jobs, 15751.3 min; the same job runs up to 3.5x longer there (release-compile p50
+# 26.1 min against 7.7, fast-tier 19.3 against 6.6). A class with no figure takes the slowest measured one.
+TURNOVER_MINUTES = {"std": 7.51, "light": 11.58}
 # Owned classes in preference order, as pr_runner_pool.RUN_CLASSES.
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
@@ -117,9 +78,24 @@ XCODE_VERSION = re.compile(r"(?:^|/)Xcode_(?P<version>[0-9]+(?:\.[0-9]+)*)\.app(
 # 2,862 org runners on 2026-10-27 held the minis past page 10, so read up to 5,000.
 MAX_RUNNER_PAGES = 50
 OWNED_FAMILY = re.compile(
-    rf"^glaeda-(?:(?P<namespace>aws)-)?(?:root-|side-|gui-|session-)?"
+    rf"^glaeda-(?:(?P<namespace>aws)-)?(?:root-|side-|gui-)?"
     rf"(?P<class>std|light|xl)-xcode-(?P<version>{XCODE_VERSION_PATTERN})$"
 )
+
+
+def owned_class(label: str) -> str:
+    """An owned label's class (std, light, xl), or "" for any other label."""
+    match = OWNED_FAMILY.fullmatch(label or "")
+    return match.group("class") if match else ""
+
+
+def role_label_of(label: str, role: str) -> str:
+    """An owned label's `role` label (root, side, gui) on the same machines, or "" for any other label."""
+    match = OWNED_FAMILY.fullmatch(label or "")
+    if not match:
+        return ""
+    namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
+    return f"glaeda-{namespace}{role}-{match.group('class')}-xcode-{match.group('version')}"
 
 
 def owned_family(label: str) -> str:
@@ -187,11 +163,15 @@ class Pool:
     free: int | None = None
     reserved: int = 0
     xcode_app: str = ""
-    # A Blacksmith label whose queue is not moving (blacksmith_stalled()): it has no free slot.
+    # A Blacksmith label whose queue is not moving (stalled()): it has no free slot.
     stalled: bool = False
-    # Counts of queued jobs by declared priority band. Running jobs remain in
-    # ``running`` and are never candidates for preemption.
-    queued_bands: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    # Minutes its oldest queued job has waited by now (the snapshot's figure plus its age).
+    waited: float = 0.0
+    # An owned pool with a GUI runner: its gui role label is configured in CI_OWNED_POOL_SLOTS or an
+    # online runner of the pool carries it (state_from()). A full or unit suite (State.gui_required)
+    # never waits on one without: run 44150654568's tests-build-and-lag took the light root label and
+    # XCTest timed out enabling automation mode on cmux21. True when unknown (a State built by hand).
+    gui: bool = True
 
     @property
     def available(self) -> int:
@@ -219,9 +199,27 @@ class State:
     overflow_enabled: bool = True
     fallback: str = BLACKSMITH[1]
     gui_required: bool = False
-    band: str = PRIORITY_SIDE_JOB
-    # Owned labels whose expected wait is over the admission target (saturated_labels()).
-    saturated: frozenset[str] = frozenset()
+    # Whether a run that no owned pool and no free Blacksmith slot fits may wait on an owned
+    # pool: only where the owned-pool rescue watches it (a same-repository head, never a trusted
+    # fork, which owned_pool_rescue never rescues) and not on the bot's re-run, which has already
+    # waited behind the fleet once. Off unless the caller says so (main(), wait_on_owned()).
+    wait_on_owned: bool = False
+    # vars.CI_BLACKSMITH_MACOS (blacksmith_allowed()): off, a run an online owned pool can take waits there, never
+    # on a Blacksmith queue; its retry_runner stays the paid escape (_retry_label()).
+    blacksmith_on: bool = True
+
+
+# The off switch for Blacksmith macOS (Leo, 2026-11-11: "just stop using blacksmith temporarily"), the same
+# repository variable feat-cmux-next's placement reads (next_macos_cascade.BLACKSMITH_SWITCH). Only `on`
+# lets a same-repository run that an owned pool can take be placed on, or retried on, a Blacksmith macOS
+# label. On 2026-11-17, with it off, run 43990120167's compile admission waited on the owned light pool
+# and the shards it did not own took the Blacksmith retry_runner, blacksmith-12vcpu-macos-26: five hours queued.
+BLACKSMITH_SWITCH = "CI_BLACKSMITH_MACOS"
+
+
+def blacksmith_allowed(env: Mapping[str, str]) -> bool:
+    """Whether the switch lets a run take Blacksmith macOS: `on`, or a caller that passes no switch at all."""
+    return BLACKSMITH_SWITCH not in env or (env.get(BLACKSMITH_SWITCH) or "").strip() == "on"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -236,9 +234,6 @@ class Choice:
     # For a run that overflows to the 6vcpu macOS 26 pool: a free 12vcpu slot
     # for its compile admission, the job every other one waits on.
     admission_label: str = ""
-    # Lower-priority queued bands the queue reconciler may preempt. Started
-    # jobs are never returned here.
-    preempted: tuple[str, ...] = ()
 
 
 def pick(state: State | Mapping[str, Any]) -> Choice:
@@ -251,9 +246,8 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             fork=bool(state.get("fork", False)), owned_enabled=bool(state.get("owned_enabled", False)),
             overflow_enabled=bool(state.get("overflow_enabled", True)), fallback=str(state.get("fallback", BLACKSMITH[1])),
             gui_required=bool(state.get("gui_required", False)),
-            band=priority_band(explicit=str(state.get("band", state.get("priority_band", ""))),
-                               workflow=str(state.get("workflow", "")), job=str(state.get("job", "")),
-                               event=str(state.get("event", ""))),
+            wait_on_owned=bool(state.get("wait_on_owned", False)),
+            blacksmith_on=bool(state.get("blacksmith_on", True)),
         )
     if state.jobs <= 0:
         return Choice(state.fallback, "no macOS jobs")
@@ -262,26 +256,55 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
         return pool.unreserved_available >= state.jobs
 
     blacksmith = _pick_blacksmith(state)
+    eligible: list[Pool] = []
     if state.owned_enabled and not state.fork:
         # The retry pool must carry the owned label's Xcode (the lane's pin):
         # only the Blacksmith pools that keep the lane's own pin qualify.
         for pool in sorted(state.owned, key=lambda pool: owned_order(pool.label)):
             # AWS is deliberately compile-only until its console login is
             # reliable. Keep GUI suites on a pool that advertises a GUI token.
-            if state.gui_required and _owned_namespace(pool.label) == "aws":
+            if state.gui_required and (_owned_namespace(pool.label) == "aws" or not pool.gui):
                 continue
-            if pool.label in state.saturated and state.band not in ADMISSION_EXEMPT_BANDS:
-                continue
+            # A pool with no online runner is no queue to wait in.
+            if pool.capacity > 0:
+                eligible.append(pool)
             if fits(pool):
                 retry = _retry_label(state, pool)
                 return Choice(pool.label, "owned label has enough free runners now, its queue counted",
-                              pool.xcode_app, True, retry_label=retry,
-                              preempted=preemptible_queued(pool.queued_bands, state.band))
-    choice = _borrow_large_for_admission(state, blacksmith)
-    selected = next((pool for pool in state.blacksmith if pool.label == choice.label), None)
-    if selected is not None:
-        choice = dataclasses.replace(choice, preempted=preemptible_queued(selected.queued_bands, state.band))
-    return choice
+                              pool.xcode_app, True, retry_label=retry)
+    if eligible and not state.blacksmith_on:
+        # Blacksmith macOS is off: a run an owned pool can take waits there, the bot's re-run too, however
+        # free a Blacksmith label looks (a dead one reads as free).
+        pool = min(eligible, key=lambda pool: (expected_wait_minutes(pool, state.jobs), owned_order(pool.label)))
+        return Choice(pool.label, f"Blacksmith macOS is off (vars.{BLACKSMITH_SWITCH} is not `on`); "
+                      "waits on the owned label", pool.xcode_app, True, retry_label=_retry_label(state, pool))
+    if eligible and state.wait_on_owned and state.overflow_enabled and _free_blacksmith(state) is None:
+        # Never a Blacksmith queue: wait behind the fleet, which the rescue watches, on the owned
+        # pool where the run is expected to start soonest (owned order on a tie).
+        pool = min(eligible, key=lambda pool: (expected_wait_minutes(pool, state.jobs), owned_order(pool.label)))
+        return Choice(pool.label, "no owned pool and no Blacksmith label has a free, moving slot now; "
+                      "waits on the owned label rather than a Blacksmith queue",
+                      pool.xcode_app, True, retry_label=_retry_label(state, pool))
+    return _borrow_large_for_admission(state, blacksmith)
+
+
+def expected_wait_minutes(pool: Pool, jobs: int) -> float:
+    """Minutes until the last of a run's `jobs` starts on owned `pool`, from its measured turnover.
+
+    Its idle runners take the first of the queued jobs and then the run's own at once; the rest start
+    in waves of `capacity` (its online runners), one TURNOVER_MINUTES of its class apart. queued / capacity
+    alone read a busy 4-runner light pool with 12 queued (3 a runner) as shorter than a busy 30-runner std
+    pool with 108 (3.6 a runner), though light's run starts after four turnovers of 11.58 min (46.3) and
+    std's after four of 7.51 (30.0); and it ranked a pool with fewer runners than the run has jobs as if
+    every job started at once.
+    """
+    match = OWNED_FAMILY.fullmatch(pool.label or "")
+    turnover = TURNOVER_MINUTES.get(match.group("class") if match else "", max(TURNOVER_MINUTES.values()))
+    if pool.free:  # state_from(): idle runners left once the family's queue took its share
+        waiting = max(0, max(1, jobs) - pool.free)
+    else:
+        waiting = max(0, pool.queued + max(1, jobs) - max(0, pool.capacity - pool.running))
+    return -(-waiting // max(1, pool.capacity)) * turnover
 
 
 def _borrow_large_for_admission(state: State, choice: Choice) -> Choice:
@@ -314,7 +337,16 @@ def _xcode_version(path: str) -> tuple[int, ...]:
 
 
 def _retry_label(state: State, owned: Pool) -> str:
-    """Choose a Blacksmith rescue image with the owned pool's Xcode when known."""
+    """Choose a Blacksmith rescue image with the owned pool's Xcode when known.
+
+    It stays a Blacksmith label even when every one is full, and whatever vars.CI_BLACKSMITH_MACOS says:
+    ci-macos.yml sends an owned run's jobs the minis cannot run (the SDK 15 helper build, for one) to
+    pr_retry_runner, so an owned label here would fail them, and github-actions[bot]'s attempt 3 (the
+    rescue's OWNED_WAIT_BOUND_SECONDS move) takes it to leave the owned queue: an owned label here would
+    put that escape back in the queue it left, with nothing bounding the wait. A free, moving label comes
+    first (_pick_blacksmith). With the switch off, write_outputs() names every job in owned_jobs instead,
+    so no other job reads this label.
+    """
     wanted = _xcode_version(owned.xcode_app)
     if wanted:
         matching = tuple(pool for pool in state.blacksmith if _xcode_version(pool.xcode_app) == wanted)
@@ -324,6 +356,16 @@ def _retry_label(state: State, owned: Pool) -> str:
     lane = _pick_blacksmith(dataclasses.replace(
         state, blacksmith=tuple(pool for pool in state.blacksmith if not pool.xcode_app)))
     return lane.label if lane.label and not lane.blocked else state.fallback
+
+
+def _free_blacksmith(state: State) -> Pool | None:
+    """The first Blacksmith label, in BLACKSMITH order, with a free, moving slot for every job of the run.
+
+    A label blacksmith_stalled() names is not moving, so it does not count."""
+    pools = {pool.label: pool for pool in state.blacksmith}
+    return next((pools[label] for label in BLACKSMITH
+                 if label in pools and pools[label].unreserved_available >= state.jobs
+                 and not blacksmith_stalled(pools[label].queued, pools[label].waited)), None)
 
 
 def _pick_blacksmith(state: State) -> Choice:
@@ -354,14 +396,9 @@ def _pool(item: Pool | Mapping[str, Any]) -> Pool:
     """Normalize a serialized pool entry into the immutable pool model."""
     if isinstance(item, Pool):
         return item
-    queued_bands = item.get("queued_bands", {})
-    if not isinstance(queued_bands, Mapping):
-        queued_bands = {}
     return Pool(str(item["label"]), int(item.get("capacity", 0)), int(item.get("running", 0)),
                 int(item.get("queued", 0)), None if item.get("free") is None else int(item["free"]),
-                int(item.get("reserved", 0)), str(item.get("xcode_app", "")), bool(item.get("stalled", False)),
-                {str(key): max(0, int(value)) for key, value in queued_bands.items()
-                 if str(key) in PRIORITY_RANK})
+                int(item.get("reserved", 0)), str(item.get("xcode_app", "")))
 
 
 class LiveState:
@@ -383,7 +420,7 @@ class LiveState:
 
         The org-wide listing below is only the fallback: with 2,862 org runners on 2026-10-27 its
         MAX_RUNNER_PAGES pages held none of the minis, so every owned pool read as offline and an
-        owned-first pick (nightly 40452273751's verify jobs) went to a stalled Blacksmith queue.
+        owned-first pick (DEV publish 40454509260) went to a stalled Blacksmith queue.
         """
         try:
             return self._group_runners()
@@ -439,34 +476,33 @@ def _slots(raw: str | None) -> dict[str, int]:
     return result
 
 
-def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], fork: bool,
-            read_runners: bool = True) -> State:
-    """Read live runner and queue state once, degrading safely when unavailable.
+def wait_on_owned(env: Mapping[str, str], *, head: str, repository: str) -> bool:
+    """State.wait_on_owned for ci.yml's pick: a same-repository head, and not the bot's re-run."""
+    if not repository or head != repository:
+        return False
+    rerun = (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1")
+    return not (rerun and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() == "github-actions[bot]")
 
-    A run with no macOS jobs reads nothing: pick() answers it from the fallback
-    alone. `read_runners=False` skips the org runners listing, which needs a
-    token with the organization runners permission (GITHUB_TOKEN always gets a
-    403 there); the owned pools are then skipped, as after that 403.
-    """
+
+def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], fork: bool,
+            wait_owned: bool = False) -> State:
+    """Read live runner and queue state once, degrading safely when unavailable."""
     fallback = (env.get("MACOS_RUNNER_PR") or BLACKSMITH[1]).strip() or BLACKSMITH[1]
     enabled = (env.get("CI_PR_POOL_OWNED") or "").strip() == "1"
     runners: list[Mapping[str, Any]] | None = None
     snapshot: Mapping[str, Any] | None = None
-    if jobs > 0 and token and repository:
+    if token and repository:
         api = LiveState(token, repository)
-        if read_runners:
-            try:
-                runners = api.runners()
-            except Exception as error:  # noqa: BLE001 - owned pools are then skipped
-                print(f"::warning title=live runner state::{error}; owned pools skipped", file=sys.stderr)
-        else:
-            print("::notice title=live runner state::no routing token; owned pools skipped", file=sys.stderr)
+        try:
+            runners = api.runners()
+        except Exception as error:  # noqa: BLE001 - owned pools are then skipped
+            print(f"::warning title=live runner state::{error}; owned pools skipped", file=sys.stderr)
         try:
             snapshot = api.snapshot()
         except Exception as error:  # noqa: BLE001 - queues then read as unknown (empty)
             print(f"::warning title=pool snapshot::{error}", file=sys.stderr)
-    return state_from(jobs=jobs, env=env, fork=fork, runners=runners, snapshot=snapshot,
-                      fallback=fallback, owned_enabled=enabled)
+    return dataclasses.replace(state_from(jobs=jobs, env=env, fork=fork, runners=runners, snapshot=snapshot,
+                                          fallback=fallback, owned_enabled=enabled), wait_on_owned=wait_owned)
 
 
 def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequence[Mapping[str, Any]] | None,
@@ -486,6 +522,12 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
     owned: list[Pool] = []
     if runners is not None:
         xcode_app = env.get("CMUX_CI_XCODE_APP_PR", "")
+        # Every configured label, role labels too (write_outputs() reads them the same way).
+        try:
+            raw_slots = json.loads(env.get("CI_OWNED_POOL_SLOTS") or "{}")
+        except (TypeError, ValueError):
+            raw_slots = {}
+        configured = {str(label) for label in raw_slots} if isinstance(raw_slots, dict) else set()
         labels = {label for label in _slots(env.get("CI_OWNED_POOL_SLOTS"))
                   if owned_matches_xcode(label, xcode_app)}
         # Only the configured class pools: a runner can carry an owned-looking
@@ -501,55 +543,31 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             family = owned_family(label)
             queued = sum(count(name, "queued") for name in pools if owned_family(str(name)) == family)
             free = max(0, idle - queued)
-            owned_entry = pools.get(label) if isinstance(pools, Mapping) else {}
-            queued_bands = owned_entry.get("queued_bands", {}) if isinstance(owned_entry, Mapping) else {}
+            gui_label = role_label_of(label, "gui")
+            gui = bool(gui_label) and (gui_label in configured or any(
+                item.get("name") == gui_label for runner in online for item in runner.get("labels", ())))
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
-                               xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", "")),
-                               queued_bands=queued_bands if isinstance(queued_bands, Mapping) else {}))
+                               xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", "")), gui=gui))
     age = snapshot_age(snapshot)
-    gone = dead_macos_26(snapshot)
+    # Each label on its own evidence (blacksmith_dead() or a fresh RUNNER_POOLS `_dead` mark), never
+    # dead_macos_26()'s "both dead says nothing": with both dead a cleared queue read as free slots, so
+    # the DEV publisher's --wait-owned pick took blacksmith-6vcpu-macos-26 over the owned fleet and its
+    # verify and tip-dmg-build queued there with nothing starting (run 41250674182, 2026-10-31 23:00Z).
+    gone = ({label for label in BLACKSMITH[:2] if blacksmith_dead(snapshot, label)}
+            | marked_dead(runner_pools(env.get("RUNNER_POOLS"))))
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued"),
-                      "stalled": blacksmith_stalled(count(label, "queued"), count(label, "oldest_queued_minutes"), age)
-                      or label in gone}
+                      "stalled": stalled(count(label, "queued"), count(label, "running"),
+                                         count(label, "oldest_queued_minutes"), age) or label in gone,
+                      "waited": count(label, "oldest_queued_minutes") + age if count(label, "queued") else 0.0}
               for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
-                            xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "",
-                            queued_bands=((pools.get(label) or {}).get("queued_bands", {})
-                                          if isinstance(pools.get(label) or {}, Mapping) else {}))
+                            xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "")
                        for label in BLACKSMITH)
-    band = priority_band(explicit=env.get("CI_PRIORITY_BAND", ""),
-                         workflow=env.get("GITHUB_WORKFLOW", ""), job=env.get("GITHUB_JOB", ""),
-                         event=env.get("GITHUB_EVENT_NAME", ""))
     return State(jobs, tuple(owned), blacksmith, fork, owned_enabled,
                  (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback,
-                 gui_required=(env.get("CMUX_CI_GUI_REQUIRED") == "true"
-                               or env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"),
-                 band=band, saturated=saturated_labels(env.get("RUNNER_POOLS")))
-
-
-def saturated_labels(raw: str | None, now: Any = None) -> frozenset[str]:
-    """The labels RUNNER_POOLS' `_admission` verdict calls saturated, when it is at most VERDICT_MAX_MINUTES old.
-
-    Missing, malformed, undated, stale or future verdicts name none: the pick is as it was without one."""
-    import datetime as dt
-
-    try:
-        value = json.loads(raw or "{}")
-    except (TypeError, ValueError):
-        return frozenset()
-    verdict = value.get("_admission") if isinstance(value, dict) else None
-    if not isinstance(verdict, dict) or not isinstance(verdict.get("pools"), dict):
-        return frozenset()
-    try:
-        at = dt.datetime.fromisoformat(str(verdict.get("at") or "").replace("Z", "+00:00"))
-    except ValueError:
-        return frozenset()
-    now = now or dt.datetime.now(dt.timezone.utc)
-    if at.tzinfo is None or not (now - dt.timedelta(minutes=VERDICT_MAX_MINUTES) <= at <= now + dt.timedelta(minutes=1)):
-        return frozenset()
-    return frozenset(label for label, entry in verdict["pools"].items()
-                     if isinstance(label, str) and isinstance(entry, dict) and entry.get("saturated") is True)
+                 gui_required=(env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"),
+                 blacksmith_on=blacksmith_allowed(env))
 
 
 def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
@@ -563,6 +581,15 @@ def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
     if generated.tzinfo is None:
         return 0.0
     return max(0.0, (dt.datetime.now(dt.timezone.utc) - generated).total_seconds() / 60)
+
+
+def blacksmith_stalled(queued: int, waited: float) -> bool:
+    """The one stall rule for a Blacksmith label: a queued job has waited BLACKSMITH_STALL_MINUTES by
+    now (`waited`: the snapshot's oldest_queued_minutes plus the snapshot's age).
+
+    The janitor snapshot carries no start times; on a first-in, first-out label queue a job that
+    started since would have been that oldest one, so the wait alone says nothing has started."""
+    return queued > 0 and waited >= BLACKSMITH_STALL_MINUTES
 
 
 # blacksmith_dead(): a Blacksmith label that ran nothing and started no job for this long before the
@@ -579,11 +606,8 @@ BLACKSMITH_DEAD_EVIDENCE_MINUTES = 6 * 60
 
 def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = None) -> bool:
     """Whether the queue janitor's snapshot shows `label` dead: nothing running on it, and no runner took a job
-    asking for it in the BLACKSMITH_DEAD_MINUTES before the snapshot was made (its `label_started` map; a label it
-    does not list started nothing among the in-flight runs). The snapshot is the `macos-pool-load` artifact of
-    ci-queue-janitor.yml, a scheduled workflow, so it is written by the default branch's queue_janitor.py, whose
-    label_started() fills that map (this branch's copy of the janitor is not the one that runs; the 2026-10-30
-    18:37Z artifact of run 41108466754 on main carries it).
+    asking for it in the BLACKSMITH_DEAD_MINUTES before the snapshot was made (its `label_started` map,
+    queue_janitor.label_started(); a label it does not list started nothing among the in-flight runs).
 
     The stall rule alone cannot tell a dead label from a busy one: both have a job waiting past
     BLACKSMITH_STALL_MINUTES. A snapshot without `label_started` (an older janitor), a truncated one (its listing
@@ -628,42 +652,59 @@ def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = N
     return started is None or (generated - started).total_seconds() / 60 >= BLACKSMITH_DEAD_MINUTES
 
 
+# RUNNER_POOLS (vars.RUNNER_POOLS, runner_pools.py's one routing variable): its `_dead` marks name the labels the
+# janitor saw dead, each with when; a mark counts for DEAD_MARK_TTL (runner_pools.DEAD_TTL, the writer's).
+DEAD_MARKS_KEY = "_dead"
+DEAD_MARK_TTL_MINUTES = 30
+
+
+def runner_pools(raw: str | None) -> Mapping[str, Any]:
+    """The RUNNER_POOLS value, or {} when it is unset or not a JSON object."""
+    try:
+        value = json.loads(raw or "")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def marked_dead(pools: Mapping[str, Any] | None, now: Any = None) -> set[str]:
+    """The labels RUNNER_POOLS' `_dead` marks saw dead within DEAD_MARK_TTL_MINUTES of `now` (a datetime; the wall
+    clock when None). A mark more than 5 minutes in the future, or malformed, proves nothing."""
+    import datetime as dt
+
+    marks = (pools or {}).get(DEAD_MARKS_KEY)
+    if not isinstance(marks, Mapping):
+        return set()
+    now = now if isinstance(now, dt.datetime) and now.tzinfo is not None else dt.datetime.now(dt.timezone.utc)
+    out = set()
+    for label, since in marks.items():
+        try:
+            seen = dt.datetime.fromisoformat(str(since).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if (seen.tzinfo is not None
+                and dt.timedelta(minutes=-5) <= now - seen < dt.timedelta(minutes=DEAD_MARK_TTL_MINUTES)):
+            out.add(str(label))
+    return out
+
 
 def dead_macos_26(snapshot: Mapping[str, Any] | None, now: Any = None) -> set[str]:
-    """The Blacksmith macOS 26 labels (BLACKSMITH's first two) the snapshot shows dead (blacksmith_dead()). A dead
-    label counts as stalled (Pool.stalled): the stall rule alone reads a dead label whose queue was cleared as free
-    slots.
-
-    While one label shows life, the other's showing nothing is enough. With both showing nothing, an idle healthy
-    label looks dead too (blacksmith_dead()), so only a label holding a job left waiting (stuck_queue()) is dead:
-    in a quiet hour both labels stay usable, and with both labels stuck every job stays on the owned route. Until
-    2026-11-17 both dead read as none dead, and a dead label's free-looking slots took jobs and the retry label."""
+    """The Blacksmith macOS 26 labels (BLACKSMITH's first two) the snapshot shows dead (blacksmith_dead()), or none
+    when it shows both dead: with no label showing life it says nothing to choose by. A dead label counts as
+    stalled (Pool.stalled): the stall rule alone reads a dead label whose queue was cleared as free slots
+    (2026-10-30: blacksmith-12vcpu-macos-26 started nothing for about a day)."""
     labels = set(BLACKSMITH[:2])
     out = {label for label in labels if blacksmith_dead(snapshot, label, now)}
-    return out if out < labels else {label for label in out if stuck_queue(snapshot, label)}
+    return set() if out >= labels else out
 
 
-def stuck_queue(snapshot: Mapping[str, Any] | None, label: str) -> bool:
-    """Whether the snapshot shows `label` holding a queued job that waited BLACKSMITH_STALL_MINUTES when the
-    snapshot was made (its own figure, not aged by now: the wait it saw went unserved then). A job queued a minute
-    before the snapshot says nothing yet; a moving label starts one in a few minutes."""
-    pools = snapshot.get("pools") if isinstance(snapshot, Mapping) else None
-    entry = pools.get(label) if isinstance(pools, Mapping) else None
-    if not isinstance(entry, Mapping):
+def stalled(queued: int, running: int, oldest_queued_minutes: int, age: float = 0.0) -> bool:
+    """blacksmith_stalled() on the snapshot, or IDLE_STALL_MINUTES (as the snapshot saw it) with
+    nothing running."""
+    if queued <= 0:
         return False
-    try:
-        return int(entry.get("queued", 0)) > 0 and float(entry.get("oldest_queued_minutes", 0)) >= BLACKSMITH_STALL_MINUTES
-    except (TypeError, ValueError):
-        return False
-
-
-def blacksmith_stalled(queued: int, oldest_queued_minutes: float, age: float = 0.0) -> bool:
-    """The one stall rule for a Blacksmith label: its oldest queued job has waited
-    BLACKSMITH_STALL_MINUTES by now (the snapshot's figure plus the snapshot's age).
-
-    The janitor snapshot carries no start times; on a first-in, first-out label queue a job that
-    started since would have been that oldest one, so the wait alone says nothing has started."""
-    return queued > 0 and oldest_queued_minutes + max(0.0, age) >= BLACKSMITH_STALL_MINUTES
+    return (blacksmith_stalled(queued, oldest_queued_minutes + max(0.0, age))
+            or running == 0 and oldest_queued_minutes >= IDLE_STALL_MINUTES)
 
 
 def planned_jobs(env: Mapping[str, str]) -> int:
@@ -681,6 +722,14 @@ def planned_jobs(env: Mapping[str, str]) -> int:
     return jobs
 
 
+# Every owned_jobs key ci.yml and ci-macos.yml test (`contains(...owned_jobs, key)`), matrix shards expanded
+# (app-host-unit-tests' shard-1..8, cli-regressions' 1..3); tests/test_ci_simple_pool_picker.py reads them back
+# from the workflows.
+OWNED_JOB_KEYS = ("admission", *(f"shard-{index}" for index in range(1, 9)), "lag", "cli-product",
+                  *(f"cli-regressions-{index}" for index in range(1, 4)), "claude-wrapper", "remote-daemon",
+                  "swift-package", "release-build")
+
+
 def write_outputs(choice: Choice, jobs: int, path: str | None = None,
                   env: Mapping[str, str] | None = None) -> dict[str, str]:
     """Write the stable output names consumed by ci.yml and ci-macos.yml."""
@@ -695,13 +744,7 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
         pass
     def role_label(role: str) -> str:
         """Return the configured role label for the selected owned pool."""
-        if not choice.owned:
-            return ""
-        match = OWNED_FAMILY.fullmatch(choice.label)
-        if not match:
-            return ""
-        namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
-        return f"glaeda-{namespace}{role}-{match.group('class')}-xcode-{match.group('version')}"
+        return role_label_of(choice.label, role) if choice.owned else ""
 
     root = role_label("root")
     side = role_label("side")
@@ -713,6 +756,7 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
     if gui not in configured:
         gui = ""
     owned_jobs: list[str] = []
+    helper_build = env.get("RUN_FULL_SUITE") == "true" and env.get("RUN_RELEASE_BUILD") == "true"
     if choice.owned:
         if env.get("RUN_MACOS") == "true":
             owned_jobs.append("admission")
@@ -728,7 +772,6 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
         # "Select helper Xcode" exits non-zero rather than falling back. So the
         # lane takes an owned Mac only when it builds no helper
         # (pr_runner_pool.package_lane_owned()).
-        helper_build = env.get("RUN_FULL_SUITE") == "true" and env.get("RUN_RELEASE_BUILD") == "true"
         for key, lane in (("RUN_CLAUDE_WRAPPER", "claude-wrapper"),
                           ("RUN_REMOTE_DAEMON", "remote-daemon"),
                           ("RUN_SWIFT_PACKAGES", "swift-package"),
@@ -737,9 +780,21 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
                 continue
             if env.get(key) == "true":
                 owned_jobs.append(lane)
+    if choice.owned and not blacksmith_allowed(env):
+        # Blacksmith macOS off: every job the run may have waits on the owned labels on attempts 1 and 2,
+        # not only the lanes above (run 43990120167's app-host shards read retry_runner through
+        # `!contains(owned_jobs, key)`). The SDK 15 helper build still needs Blacksmith macOS 15.
+        for lane in OWNED_JOB_KEYS:
+            if lane not in owned_jobs and not (lane == "swift-package" and helper_build):
+                owned_jobs.append(lane)
     values.update(runner=choice.label, xcode_app=choice.xcode_app,
                   retry_runner=choice.retry_label if choice.owned and choice.retry_label else choice.label,
-                  shard_runner=choice.label,
+                  # ci-macos.yml's shards read pr_shard_runner before pr_gui_runner, so on a pool with a gui
+                  # label this stays empty: there the shards take the gui label, one runner per mini, and wait
+                  # in GitHub's queue for a mini whose gui token is free. On the pool label (60 slots, up to 11
+                  # runners a mini) main's run 45238525234 put shards 3, 6 and 7 on one mini together: shard 3
+                  # waited out take-gui's 1800 s behind shard 7, and none of its tests ran.
+                  shard_runner="" if gui else choice.label,
                   persistent="true" if choice.owned else "false", jobs=str(jobs),
                   placed=str(jobs if choice.owned else 0),
                   owned_jobs=f" {' '.join(owned_jobs)} " if owned_jobs else "",
@@ -754,6 +809,30 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
     return values
 
 
+def grant_outputs(env: Mapping[str, str], jobs: int) -> dict[str, str] | None:
+    """The outputs when this run's Mac jobs take the controller-granted cmux-mac label (mac_grants.py), else None.
+
+    With scripts/ci/mac-grants.json on, a same-repository pull request picks no pool: `grant` is the
+    runs-on every Mac job of the run reads first (`["cmux-mac","xcode-<version>"]`), and
+    every pool output is empty, so no marker claims owned machines, admission-placement and late-placement
+    place nothing, and no runner list is read. `xcode_app` keeps the lane's pin, which names the Xcode the
+    grant asks for. Off, or any other run: None, and the pick and its outputs are what they were.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import mac_grants  # noqa: PLC0415
+
+    xcode_app = env.get("CMUX_CI_XCODE_APP_PR") or ""
+    repo_env = {**env, "GITHUB_REPOSITORY": env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""}
+    grant = mac_grants.grant_labels(repo_env, [xcode_app])
+    if not grant:
+        return None
+    values = {key: "" for key in ("runner", "retry_runner", "shard_runner", "owned_jobs", "root_runner",
+                                  "side_runner", "light_side_runner", "light_side_jobs", "gui_runner",
+                                  "admission_runner", "admission_route", "admission_warm")}
+    values.update(xcode_app=xcode_app, persistent="false", jobs=str(jobs), placed="0", grant=grant)
+    return values
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser()
@@ -763,11 +842,19 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     repository = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
     head = env.get("HEAD_REPO") or repository
     trusted_fork = (env.get("CI_PR_POOL_FORK_ALLOWED") or "").strip() == "1"
-    # Only the routing App's token can list the org's runners; GH_TOKEN (the
-    # job's GITHUB_TOKEN) still reads the janitor snapshot.
+    grant = grant_outputs(env, jobs)
+    if grant is not None:
+        if env.get("GITHUB_OUTPUT"):
+            with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+                for key, value in grant.items():
+                    handle.write(f"{key}={value}\n")
+        for key, value in grant.items():
+            print(f"{key}={value}")
+        print(f"Granted {grant['grant']}: scripts/ci/mac-grants.json is on", file=sys.stderr)
+        return 0
     choice = pick(observe(token=env.get("ROUTE_TOKEN") or env.get("GH_TOKEN") or "", repository=repository,
                        jobs=jobs, env=env, fork=head != repository and not trusted_fork,
-                       read_runners=bool(env.get("ROUTE_TOKEN"))))
+                       wait_owned=wait_on_owned(env, head=head, repository=repository)))
     values = write_outputs(choice, jobs, env.get("GITHUB_OUTPUT"), env)
     for key, value in values.items():
         print(f"{key}={value}")

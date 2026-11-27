@@ -111,18 +111,14 @@ def _field_lines(expr: Mapping[str, Any], ref_prefix: str = "") -> list[str]:
             rendered = f"({rendered}) | null"
         lines.append(f"  {_property(name)}{optional}: {rendered};")
     if expr["additional_properties"]:
-        # An index signature must admit every declared property's type
-        # (TS2411), and optional ones are `| undefined`; unknown keys are
-        # still JSON values at runtime.
-        index = "unknown" if expr["fields"] else f"{ref_prefix}JsonValue"
-        lines.append(f"  [key: string]: {index};")
+        lines.append(f"  [key: string]: {ref_prefix}JsonValue;")
     return lines
 
 
 def _header(ir: Any) -> str:
     return (
         "/* This file is generated. Do not edit by hand. */\n"
-        f"/* cmux-tui mux protocol {ir.mux_protocol}; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */\n\n"
+        f"/* cmux-tui mux protocol {ir.mux_protocol}, IR {ir.ir_sha256}. */\n\n"
     )
 
 

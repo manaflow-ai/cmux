@@ -1,0 +1,10 @@
+Test Suite 'Selected tests' passed at 2026-09-20 07:25:00.000.
+Executed 100 tests, with 0 failures (0 unexpected) in 1.000 seconds
+◇ Test run started.
+✘ Test remoteManualInputPreservesLiteralAndNamedKeyOrder() recorded an issue: Expectation failed
+✘ Test remoteManualInputPreservesLiteralAndNamedKeyOrder() recorded an issue: Time limit was exceeded: 300.000 seconds
+Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.
+Test Suite 'Selected tests' passed at 2026-09-20 07:30:00.000.
+Executed 0 tests, with 0 failures (0 unexpected) in 0.000 seconds
+◇ Test run started.
+✔ Test run with 6 tests in 1 suite passed after 2.562 seconds.

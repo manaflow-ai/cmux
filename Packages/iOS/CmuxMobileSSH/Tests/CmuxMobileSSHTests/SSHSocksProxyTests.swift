@@ -1,4 +1,3 @@
-#if canImport(Network)
 @testable import CmuxMobileSSH
 import CmuxMobileTunnel
 import Darwin
@@ -215,4 +214,3 @@ final class LabWebServer {
         try? FileManager.default.removeItem(at: directory)
     }
 }
-#endif

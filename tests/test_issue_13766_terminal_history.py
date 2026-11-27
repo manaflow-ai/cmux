@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TerminalHistoryTests(unittest.TestCase):
-    def run_shell(self, shell, directory, surface, commands, exit_cleanly=False):
+    def run_shell(self, shell, directory, surface, commands, exit_cleanly=False, include_startup=False):
         pid, descriptor = pty.fork()
         if pid == 0:
             # Do not let the harness publish activity to a running cmux app.
@@ -44,8 +44,8 @@ class TerminalHistoryTests(unittest.TestCase):
             self.fail(f'Shell did not produce a prompt: {output!r}')
 
         try:
-            read_prompt()
-            results = []
+            startup = read_prompt()
+            results = [startup] if include_startup else []
             for command in commands:
                 os.write(descriptor, command)
                 results.append(read_prompt())
@@ -170,6 +170,64 @@ class TerminalHistoryTests(unittest.TestCase):
                 shared = global_history.read_text()
                 self.assertEqual(shared.count('echo ONCE_13766'), 3, shared)
                 self.assertEqual(shared.count('echo OTHER_TERMINAL'), 1, shared)
+
+    def test_zsh_history_survives_no_clobber(self):
+        # NO_CLOBBER is a common user and plugin setting (zsh's APPEND_CREATE
+        # is off by default, so it governs whether `>>` may create a missing
+        # file). Under it the first append to a fresh surface history failed
+        # with ENOENT, and because the file was never created every later
+        # prompt repeated that error and the surface recorded nothing at all.
+        # Two commands, because the shell's initial prompt consumes one fc
+        # slot: the per-surface append first fires on the second command.
+        with tempfile.TemporaryDirectory(prefix='cmux13766-noclobber-') as temp:
+            directory = Path(temp)
+            self.global_startup('/bin/zsh', directory, extra=['setopt NO_CLOBBER'])
+            self.run_shell(
+                '/bin/zsh', directory, 'a',
+                [b'echo ALPHA_13766\n', b'echo BRAVO_13766\n'],
+            )
+            self.assertTrue(
+                (directory / 'a').exists(),
+                'surface history file was never created under NO_CLOBBER',
+            )
+            recorded = (directory / 'a').read_bytes()
+            self.assertEqual(recorded.count(b'echo BRAVO_13766'), 1, recorded)
+            output = self.run_shell('/bin/zsh', directory, 'a', [b'\x1b[A\n'])[0]
+            self.assertIn(b'BRAVO_13766', output)
+
+    def test_noclobber_restore_is_silent(self):
+        # https://github.com/manaflow-ai/cmux/issues/26514: with noclobber set,
+        # zsh refused to create the terminal's history file on append (an
+        # error after every command), and bash refused to trim an existing
+        # one when a restored terminal outgrew HISTFILESIZE (an error on
+        # every restart). The history file is cmux's own, so writing it must
+        # not depend on the user's clobber setting.
+        for shell, option, limits in (
+            ('/bin/zsh', 'setopt noclobber', ['HISTSIZE=3', 'SAVEHIST=3']),
+            ('/bin/bash', 'set -o noclobber', ['HISTSIZE=3', 'HISTFILESIZE=3']),
+        ):
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='cmux26514-') as temp:
+                directory = Path(temp)
+                global_history = directory / 'global'
+                self.write_startup(shell, directory, [
+                    f'HISTFILE="{global_history}"', *limits, option,
+                ])
+                outputs = self.run_shell(
+                    shell, directory, 'a', [f'echo N{i}_26514\n'.encode() for i in range(5)],
+                    include_startup=True,
+                )
+                # The restart is where a restored terminal trims its file.
+                outputs += self.run_shell(
+                    shell, directory, 'a', [b'\x1b[A\n'], include_startup=True
+                )
+                for output in outputs:
+                    self.assertNotIn(b'no such file', output.lower())
+                    self.assertNotIn(b'cannot overwrite', output)
+                    self.assertNotIn(b'file exists', output)
+                self.assertIn(b'N4_26514', outputs[-1])
+                recorded = (directory / 'a').read_text().splitlines()
+                self.assertLessEqual(len(recorded), 4, recorded)
+                self.assertNotIn('echo N0_26514', recorded)
 
     def test_zsh_unset_savehist_is_not_persisted(self):
         # macOS's native session hooks can save global history even with

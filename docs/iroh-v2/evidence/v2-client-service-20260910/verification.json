@@ -1,0 +1,12 @@
+{
+  "baseRevision": "72ce5e9b41a83d3f8f3a21288856449f3580686e",
+  "leaseID": "20260910211351-8258-9168",
+  "slot": "cmux11s-v.4",
+  "host": "cmux@cmux11s-mac-mini",
+  "remotePath": "~/cmux-runners/iroh-v2-integration-20260910211351-8258-9168",
+  "compiler": "Apple Swift 6.2.4",
+  "sourceHashesMatchLocal": true,
+  "testsPassed": 18,
+  "suites": 5,
+  "scope": "Actual CmuxIrxTransport package and all test sources compiled. Focused filter V2|IrxDirectOnlyEndpointTests passed, including real loopback QUIC. Replaces the earlier standalone harness evidence; live app acceptance remains separate."
+}

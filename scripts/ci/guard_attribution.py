@@ -67,7 +67,6 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import glaeda_log  # noqa: E402
 import pr_status  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -103,8 +102,6 @@ MAX_COMMENT_CHARS = 60000
 MAX_MESSAGE_LINES = 14
 MAX_MESSAGE_CHARS = 1500
 MAX_TESTS_PER_STEP = 4
-MAX_API_PAGES = 10
-API_PAGE_SIZE = 100
 RED = {"failure", "timed_out", "startup_failure"}
 
 TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z ?")
@@ -436,7 +433,7 @@ def fix_test_registry(failure: TestFailure, tree: Tree) -> Fix | None:
     if "validate_test_execution_registry.py --write" not in failure.message:
         return None
     command = "python3 scripts/ci/validate_test_execution_registry.py --write"
-    return Fix(f"Run `{command}`, which registers the new test in its `tests/test-execution.d/` area file, and commit "
+    return Fix(f"Run `{command}`, which registers the new test in `tests/test-execution.toml`, and commit "
                "the result.", command=command)
 
 
@@ -500,7 +497,7 @@ def run_steps(runner_root: Path, tree_root: Path, steps: Iterable[str]) -> dict[
         for step in steps:
             args += ["--step", step]
         # Guard steps get no GitHub token: they never need one.
-        env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
+        env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "READ_TOKEN")}
         env["CMUX_GUARDS_BASE_SHA"] = git(tree_root, "rev-parse", "HEAD~1", check=False)
         try:
             out = subprocess.run(args, capture_output=True, text=True, env=env, timeout=PROBE_TIMEOUT_S)
@@ -515,23 +512,58 @@ def run_steps(runner_root: Path, tree_root: Path, steps: Iterable[str]) -> dict[
 # ---------------------------------------------------------------- GitHub
 
 
+# Endpoints the read App (manaflow-glaeda-route: no checks or statuses permission) may not read.
+OWN_TOKEN_READS = re.compile(r"/check-runs|/check-suites|/statuses|/commits/[^/]+/status\b")
+
+
 class GitHub:
-    def __init__(self, repo: str, token: str, api: str = "https://api.github.com"):
+    """The REST API. `read_token`, when given, makes the reads: a manaflow-glaeda-route App
+    installation token, whose budget is its own rather than the GITHUB_TOKEN budget every workflow
+    in the repository shares (it ran out on 2026-10-06 and 2026-10-21). Writes always use `token`:
+    a re-run must be started by github-actions[bot] (ci-macos.yml routes attempt 3 by its
+    triggering actor) and the status comment is found by its author (pr_status.BOTS). A read the
+    App may not make (checks, statuses) uses `token`; a read the App is refused (401, 403: no
+    permission) is made again with `token`, and a 401 keeps `token` from then on (the App token
+    lasts an hour). A read refused for the App's rate limit is not: it raises."""
+
+    def __init__(self, repo: str, token: str, api: str = "https://api.github.com", read_token: str = ""):
         self.repo, self.token, self.api = repo, token, api.rstrip("/")
+        self.read_token = read_token if read_token and read_token != token else ""
         self.calls = 0
+        self.read_calls = 0
 
     def request(self, method: str, path: str, body: object = None, text: bool = False) -> object:
+        if method == "GET" and self.read_token and not OWN_TOKEN_READS.search(path.split("?")[0]):
+            try:
+                return self._request(method, path, body, text, self.read_token)
+            except RuntimeError as error:
+                if not re.search(r": HTTP 40[13] ", str(error) + " "):
+                    raise
+                # An App out of budget stops here: its reads moved onto the shared
+                # GITHUB_TOKEN emptied that budget too (nightly publish, 2026-10-25).
+                if re.search(r"rate limit", str(error), re.IGNORECASE):
+                    raise
+                print(f"read token refused {path.split('?')[0]}; using the workflow token: {str(error)[:160]}",
+                      file=sys.stderr)
+                if ": HTTP 401 " in str(error) + " ":
+                    self.read_token = ""
+        return self._request(method, path, body, text, self.token)
+
+    def _request(self, method: str, path: str, body: object, text: bool, token: str) -> object:
         url = path if path.startswith("https://") else f"{self.api}/{path.lstrip('/')}"
         data = json.dumps(body).encode() if body is not None else None
         for attempt in range(2):
             req = urllib.request.Request(url, data=data, method=method)
             # Not sent on the redirect: job logs redirect to signed blob storage.
-            req.add_unredirected_header("Authorization", f"Bearer {self.token}")
+            req.add_unredirected_header("Authorization", f"Bearer {token}")
             req.add_header("Accept", "application/vnd.github+json")
             req.add_header("X-GitHub-Api-Version", "2022-11-28")
             if data is not None:
                 req.add_header("Content-Type", "application/json")
-            self.calls += 1
+            if token == self.token:
+                self.calls += 1
+            else:
+                self.read_calls += 1
             try:
                 with urllib.request.urlopen(req, timeout=60) as response:
                     raw = response.read()
@@ -586,9 +618,7 @@ class GitHub:
         return self.job_log_for_id(job["id"]) if job else ""
 
     def job_log_for_id(self, job_id: int) -> str:
-        kept = glaeda_log.cached_job_log(self.repo, job_id)  # this host's glaeda-gh kept it: no API call
-        return kept if kept is not None else str(
-            self.request("GET", f"repos/{self.repo}/actions/jobs/{job_id}/logs", text=True))
+        return str(self.request("GET", f"repos/{self.repo}/actions/jobs/{job_id}/logs", text=True))
 
     def failed_log(self, run_id: int, *, run_attempt: int | None = None,
                    job_name: str | None = None) -> str:
@@ -608,20 +638,7 @@ class GitHub:
         return self.get(f"repos/{self.repo}/pulls/{number}")  # type: ignore[return-value]
 
     def commit_pulls(self, sha: str) -> list[dict]:
-        found: list[dict] = []
-        prefix = f"repos/{self.repo}/commits/{sha}/pulls"
-        for page in range(1, MAX_API_PAGES + 1):
-            payload = self.get(f"{prefix}?per_page={API_PAGE_SIZE}&page={page}")
-            if payload is None:
-                batch: list[dict] = []
-            elif isinstance(payload, list):
-                batch = payload
-            else:
-                raise RuntimeError(f"GET {prefix}: GitHub returned an invalid pull-request page")
-            found.extend(batch)
-            if len(batch) < API_PAGE_SIZE:
-                return found
-        raise RuntimeError(f"GET {prefix}: more than {MAX_API_PAGES * API_PAGE_SIZE} pull requests")
+        return list(self.get(f"repos/{self.repo}/commits/{sha}/pulls") or [])  # type: ignore[arg-type]
 
     def open_issues(self) -> list[dict]:
         return list(self.get(f"repos/{self.repo}/issues?labels={ISSUE_LABEL}&state=open&per_page=20") or [])  # type: ignore[arg-type]
@@ -1317,7 +1334,7 @@ def client(args: argparse.Namespace) -> GitHub | None:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if getattr(args, "offline", False) or not token:
         return None
-    return GitHub(args.repo, token)
+    return GitHub(args.repo, token, read_token=os.environ.get("READ_TOKEN") or "")
 
 
 def command_analyze(args: argparse.Namespace) -> int:

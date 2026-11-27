@@ -313,6 +313,22 @@ def revert(repo: str, token: str, receipt: Path, *, dry_run: bool) -> int:
     return 0
 
 
+def issue_from_event(path: Path, number: int) -> dict[str, Any] | None:
+    """The issue an `issues` event carries, or None when the payload is not for this issue.
+
+    The payload already has the state, labels, title and body this run needs, so the
+    workflow spends no GET of the issue on the repository token's shared REST budget.
+    """
+    try:
+        event = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    issue = event.get("issue") if isinstance(event, dict) else None
+    if not isinstance(issue, dict) or issue.get("number") != number:
+        return None
+    return issue
+
+
 def positive(value: str) -> int:
     """A limit of 0 used to mean "no limit", which is a bad thing to typo."""
     try:
@@ -335,6 +351,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--limit", type=positive, help="stop after this many issues changed")
     parser.add_argument("--receipt", type=Path, help="append a JSONL record of every label added")
     parser.add_argument("--no-comment", action="store_true", help="with --issue, skip the comment")
+    parser.add_argument(
+        "--event",
+        type=Path,
+        help="with --issue, the issues event payload (GITHUB_EVENT_PATH): its issue is used without a read",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -347,7 +368,9 @@ def main(argv: list[str]) -> int:
         return revert(args.repo, token, args.revert, dry_run=args.dry_run)
 
     if args.issue:
-        item = request("GET", f"{API}/repos/{args.repo}/issues/{args.issue}", token)
+        item = issue_from_event(args.event, args.issue) if args.event else None
+        if item is None:
+            item = request("GET", f"{API}/repos/{args.repo}/issues/{args.issue}", token)
         if "pull_request" in item:
             print(f"#{args.issue} is a pull request; auto-triage only labels issues")
             return 0

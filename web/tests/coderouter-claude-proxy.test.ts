@@ -263,11 +263,11 @@ describe("claude proxy auth", () => {
     });
   });
 
-  test("tells a team Cloud machine it needs a team Claude account and how to add one", async () => {
+  test("tells a Cloud machine that private Claude accounts must be shared with its team", async () => {
     upstream = null;
     const { response } = await routed(messagesRequest());
     expect(response.status).toBe(403);
-    expect((await response.json()).error.message).toBe("Claude needs a team account on this machine. To add one for the team, run `cr add claude` in this machine's terminal. If someone added one as private, they can choose Share with team at coderouter.dev.");
+    expect((await response.json()).error.message).toBe("No Claude upstream account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add claude` (accounts added on a Cloud machine are shared with its team). Or use your own Claude account on this machine: run `cr use own claude` (on older machines, `unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL` in the terminal instead), then restart claude and sign in with /login.");
   });
 });
 
@@ -412,30 +412,6 @@ describe("claude proxy Bedrock upstream", () => {
     expect(json.model).toBe("claude-sonnet-4-5");
     expect(response.headers.get("request-id")).toBe("aws-req-1");
     expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
-  });
-
-  test("answers a message thread continue with the API's thread_not_found, without calling Bedrock", async () => {
-    const response = await messages(
-      messagesRequest({
-        model: "claude-sonnet-4-5",
-        max_tokens: 8,
-        messages: [],
-        thread: { type: "continue", previous_message_id: "msg_01abc" },
-      }),
-    );
-    expect(response.status).toBe(404);
-    expect((await response.json()).error.details.error_code).toBe("thread_not_found");
-    expect(fetchCalls).toHaveLength(0);
-  });
-
-  test("sends a message thread create to Bedrock as a plain request, without thread", async () => {
-    upstreamResponse = () => Response.json({ id: "msg_b", type: "message", model: "m", content: [], usage: { input_tokens: 1, output_tokens: 1 } });
-    const response = await messages(
-      messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [], thread: { type: "create" } }),
-    );
-    expect(response.status).toBe(200);
-    const body = JSON.parse(await requestBodyText(fetchCalls[0]!));
-    expect(body).toEqual({ max_tokens: 8, messages: [], anthropic_version: "bedrock-2023-05-31" });
   });
 
   test("converts the AWS event stream into Anthropic SSE", async () => {

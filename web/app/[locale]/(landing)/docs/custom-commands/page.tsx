@@ -249,8 +249,8 @@ export default function CustomCommandsPage() {
       ],
       "command": "npm run lint",
       "shortcut": [
-        "ctrl+cmd+;",
-        "l"
+        "cmd+k",
+        "cmd+l"
       ],
       "icon": {
         "type": "symbol",

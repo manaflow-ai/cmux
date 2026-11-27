@@ -97,28 +97,20 @@ describe("Cloud VM route input", () => {
     if (!invalid.ok) expect((await responseBody(invalid.response)).error).toBe("vm_invalid_provider");
   });
 
-  test("normalizes idempotency headers once and refuses collisions after the length bound", async () => {
+  test("normalizes idempotency headers once", () => {
     const key = "x".repeat(140);
-    const overlong = idempotencyKeyFromRequest(new Request("https://cmux.test", {
+    expect(idempotencyKeyFromRequest(new Request("https://cmux.test", {
       headers: { "idempotency-key": `  ${key}  ` },
-    }));
-    expect(overlong.ok).toBe(false);
-    if (!overlong.ok) {
-      expect(overlong.response.status).toBe(400);
-      expect(await responseBody(overlong.response)).toMatchObject({
-        error: "vm_idempotency_key_too_long",
-        details: { maxLength: 128 },
-      });
-    }
+    }))).toBe("x".repeat(128));
     expect(idempotencyKeyFromRequest(new Request("https://cmux.test", {
       headers: { "idempotency-key": "", "x-cmux-idempotency-key": " fallback " },
-    }))).toEqual({ ok: true, key: "fallback" });
+    }))).toBe("fallback");
     expect(idempotencyKeyFromRequest(new Request("https://cmux.test", {
       headers: { "idempotency-key": "   ", "x-cmux-idempotency-key": " fallback " },
-    }))).toEqual({ ok: true, key: "fallback" });
+    }))).toBe("fallback");
     expect(idempotencyKeyFromRequest(new Request("https://cmux.test", {
       headers: { "idempotency-key": "   ", "x-cmux-idempotency-key": "   " },
-    }))).toEqual({ ok: true, key: undefined });
+    }))).toBeUndefined();
   });
 });
 

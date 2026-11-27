@@ -1,0 +1,491 @@
+// A confirmed draft acts as the account that made it, or fails. The draft
+// names the account; the confirmation checks it again in the page or
+// request that performs the write, right before the write, so another
+// session that switches the shared profile's account after the first check
+// (while the composer loads) cannot make the draft act as someone else.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createSitesEnv } from "./harness.mjs";
+import { GOOGLE_ACCOUNT_ROWS, NOTION_MALLORY, SLACK_MALLORY, SLACK_SEED } from "./mock-sites.mjs";
+
+const env = await createSitesEnv({ gmailReplies: true });
+test.after(() => env.close());
+const s = env.session("bindings-accounts");
+
+test("linkedin.post: the member is read again in the share composer right before Post; a switch while it loads posts nothing", async () => {
+  try {
+    await s.run('var lnD = await sites.linkedin.post({ text: "Bound to my account.", audience: "anyone" })');
+    env.state.linkedinSwitchOnCompose = "mallory";
+    const before = env.state.linkedinPosts.length;
+    assert.match(await s.error("sites.linkedin.post(lnD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.linkedinPosts.length, before, "nothing was posted as mallory");
+    assert.deepEqual(await s.value("lnD.preview"), { account: "ada-lovelace", memberId: 424242, postAs: "Ada Lovelace", authorUrn: "urn:li:fsd_profile:ACo1", authorType: "person", audience: "Anyone", text: "Bound to my account." });
+  } finally {
+    env.state.linkedinViewer = null;
+    env.state.linkedinSwitchOnCompose = null;
+  }
+});
+
+// Another session signs ada@work.example in first while the page loads, so
+// /u/0/ (the drafted index) becomes the work account after the
+// confirmation's ListAccounts check passed.
+const SWITCHED = () => [GOOGLE_ACCOUNT_ROWS[1], GOOGLE_ACCOUNT_ROWS[0], GOOGLE_ACCOUNT_ROWS[2]];
+
+test("gmail.send: the account the compose page is signed in as is checked right before Send; a switch while it loads sends nothing", async () => {
+  try {
+    await s.run('var gmD = await sites.gmail.send({ to: "bob@example.com", subject: "Bound", body: "From my own account." })');
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const sent = env.state.gmailSent.length;
+    assert.match(await s.error("sites.gmail.send(gmD.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(env.state.gmailSent.length, sent, "nothing was sent from the work account");
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+  }
+});
+
+test("gmail.send reply: the thread page's account is checked right before Send", async () => {
+  try {
+    await s.run('var grD = await sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." })');
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const sent = env.state.gmailSent.length;
+    assert.match(await s.error("sites.gmail.send(grD.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(env.state.gmailSent.length, sent);
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+  }
+});
+
+// r37 whole#2: the drafted content reaches Gmail only after the account is
+// read again in the commit path. A new message's recipients, subject and
+// body never load in a compose window, and a reply's text is never typed,
+// when another session switched the account while the page loaded (Gmail
+// would keep them as a draft of the other account).
+test("gmail.send: no drafted content reaches a page whose account switched before the commit's account check", async () => {
+  try {
+    await s.run('var gcN = await sites.gmail.send({ to: "bob@example.com", subject: "Private subject", body: "Private body." })');
+    await s.run('var gcR = await sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Private reply." })');
+    const requests = env.state.requests.length;
+    env.state.googleSwitchOnLoad = SWITCHED();
+    assert.match(await s.error("sites.gmail.send(gcN.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    // A compose window may open empty before the check (r41); none carries
+    // drafted content.
+    const loaded = env.state.requests.slice(requests).map((r) => r.url).filter((u) => /Private/.test(u));
+    assert.deepEqual(loaded, [], "a compose window with the drafted content loaded in the switched account");
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const typed = env.state.gmailTyped.length;
+    assert.match(await s.error("sites.gmail.send(gcR.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.deepEqual(env.state.gmailTyped.slice(typed), [], "the reply was typed into the switched account's composer");
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+  }
+});
+
+// r41 sites#4: a new message's recipients, subject and body never travel in
+// a URL. The compose window opens empty, the commit reads the account on
+// it, and only then are the fields typed in: an account switch while the
+// compose window loads gets none of them.
+test("gmail.send: a switch while the compose window loads reaches no drafted field, in any URL", async () => {
+  try {
+    await s.run('var gcU = await sites.gmail.send({ to: "bob@example.com", cc: "cy@example.com", subject: "Private subject", body: "Private body." })');
+    const requests = env.state.requests.length;
+    const sent = env.state.gmailSent.length;
+    env.state.gmailSwitchOnCompose = SWITCHED();
+    assert.match(await s.error("sites.gmail.send(gcU.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    const carried = env.state.requests.slice(requests).map((r) => r.url).filter((u) => /Private|bob%40example|bob@example|cy%40example|cy@example/.test(u));
+    assert.deepEqual(carried, [], "a drafted field travelled in a URL");
+    assert.equal(env.state.gmailSent.length, sent);
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.gmailSwitchOnCompose = null;
+  }
+});
+
+// r10 whole#5: page labels are page text. A Gmail or Calendar page whose
+// title and Google Account button name the drafted account, while Google's
+// account list says the drafted index is now another account, sends and
+// saves nothing: the account comes from Google's account list, read right
+// before the click, and the labels only have to agree with it.
+test("gmail.send and googleCalendar.create: page labels naming the drafted account do not stand in for Google's account list", async () => {
+  try {
+    await s.run('var lbG = await sites.gmail.send({ to: "bob@example.com", subject: "Labels", body: "Who sends this?" })');
+    await s.run('var lbC = await sites.googleCalendar.create({ title: "Labels", start: "2026-10-03T17:00:00Z", guests: ["bob@example.com"] })');
+    env.state.googlePageAccount = "ada@example.com";
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const sent = env.state.gmailSent.length;
+    assert.match(await s.error("sites.gmail.send(lbG.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(env.state.gmailSent.length, sent, "the work account sent the drafted mail");
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const created = env.state.calendarCreated.length;
+    assert.match(await s.error("sites.googleCalendar.create(lbC.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(env.state.calendarCreated.length, created, "the work account saved the drafted event");
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+    env.state.googlePageAccount = null;
+  }
+});
+
+test("googleCalendar.create: the event editor's account is checked right before Save; a switch while it loads creates nothing", async () => {
+  try {
+    await s.run('var gcD = await sites.googleCalendar.create({ title: "Bound", start: "2026-10-03T17:00:00Z", guests: ["bob@example.com"] })');
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const created = env.state.calendarCreated.length;
+    assert.match(await s.error("sites.googleCalendar.create(gcD.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(env.state.calendarCreated.length, created, "no invitation went out from the work account");
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+  }
+});
+
+test("googleDrive.create: the file is the named account's, also when another session signs an account in while the editor loads", async () => {
+  try {
+    env.state.googleSwitchOnLoad = SWITCHED();
+    const f = await s.value('sites.googleDrive.create("document", "Bound create", { uid: 0 })');
+    assert.equal(env.state.editors.files.get(f.id).owner, "ada@example.com", "the file was created in the account that moved to u/0");
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+  }
+  assert.match(await s.error('sites.googleDrive.create("document", "Bad uid", { uid: "0&x=1" })'), /uid: expected a non-negative integer/);
+});
+
+// X's twid cookie names a user id, but any page script (another session's
+// too) can write it, and the post goes out as the account X's session
+// cookie authenticates. The draft names that account, read from X's own
+// account endpoint, and the confirmation reads it again in the composer
+// right before Post.
+test("x.post: the draft names the account X authenticates; a switch while the composer loads posts nothing, whatever twid says", async () => {
+  try {
+    await s.run('var xD = await sites.x.post("Bound to my X account.")');
+    env.state.xSwitchOnCompose = "mallory";
+    const before = env.state.xPosts.length;
+    assert.match(await s.error("sites.x.post(xD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.xPosts.length, before, "the post went out as mallory");
+    assert.equal((await s.value("xD.preview")).account, "ada");
+  } finally {
+    env.state.xAccount = null;
+    env.state.xSwitchOnCompose = null;
+  }
+});
+
+// r14 whole#1: a page-world evaluation returns whatever the page's own
+// JSON.stringify (or a toJSON, a getter, a patched built-in) makes of it.
+// The interceptor stands in for such a page: every page-world result that
+// names the account another session switched to names the drafted one
+// instead. The commit reads the account back in the agent's world, so the
+// switch is still seen and nothing is posted.
+test("x.post and linkedin.post: a page that rewrites its own world's results cannot forge the account read back before Post", async () => {
+  const forge = (from, to) => async (method, params, call) => {
+    if (method !== "frame.evaluate" || params.world !== "page") return undefined;
+    const r = await call(method, params);
+    if (r === undefined) return null;
+    let text = JSON.stringify(r);
+    from.forEach((a, i) => (text = text.split(a).join(to[i])));
+    return JSON.parse(text);
+  };
+  try {
+    await s.run('var fxD = await sites.x.post("Forged account read-back.")');
+    env.state.xSwitchOnCompose = "mallory";
+    s.intercept(forge(['"mallory"'], ['"ada"']));
+    const x = env.state.xPosts.length;
+    assert.match(await s.error("sites.x.post(fxD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.xPosts.length, x, "the post went out as mallory");
+    s.intercept(null);
+    await s.run('var flD = await sites.linkedin.post({ text: "Forged member read-back.", audience: "anyone" })');
+    env.state.linkedinSwitchOnCompose = "mallory";
+    s.intercept(forge(['"mallory"', "666001"], ['"ada-lovelace"', "424242"]));
+    const li = env.state.linkedinPosts.length;
+    assert.match(await s.error("sites.linkedin.post(flD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.linkedinPosts.length, li, "the post went out as mallory");
+  } finally {
+    s.intercept(null);
+    env.state.xAccount = null;
+    env.state.xSwitchOnCompose = null;
+    env.state.linkedinViewer = null;
+    env.state.linkedinSwitchOnCompose = null;
+  }
+});
+
+// A screen name is reusable: another account can take it once the drafted
+// account gives it up. The draft binds the account's immutable id, and a
+// confirmation where the same screen name belongs to another id posts
+// nothing.
+test("x.post: the draft binds the account id; another account holding the same screen name posts nothing", async () => {
+  try {
+    await s.run('var xiD = await sites.x.post("Bound to my X account id.")');
+    env.state.xAccountId = "2002";
+    const before = env.state.xPosts.length;
+    assert.match((await s.error("sites.x.post(xiD.id, { confirm: true })")) || "posted", /account_mismatch|accountId/);
+    assert.equal(env.state.xPosts.length, before, "the post went out as the account that took the screen name");
+    const p = await s.value("xiD.preview");
+    assert.equal(p.account, "ada");
+    assert.equal(p.accountId, "1001");
+  } finally {
+    env.state.xAccountId = null;
+  }
+});
+
+test("x.post: no draft when X does not say which account it authenticates", async () => {
+  env.state.xAccountUnknown = true;
+  try {
+    assert.match(await s.error('sites.x.post("Who am I?")'), /account_unknown|which X account/);
+  } finally {
+    env.state.xAccountUnknown = false;
+  }
+});
+
+// Docs, Sheets and Slides edits and Drive trash run in the file's editor
+// at a positional account index (/u/N/, authuser). The draft names the
+// account the editor is signed in as; the confirmation reads it again in
+// the editor, right before the first input, so another account at that
+// index (another session signed one in or out) edits or trashes nothing.
+const EDIT_DOC_ID = "1docPRIVATE000000000000000000000x";
+const EDIT_DOC = `https://docs.google.com/document/d/${EDIT_DOC_ID}/edit`;
+
+test("Google editor drafts: the draft names the editor's account; another account there at confirmation edits nothing", async () => {
+  const doc = env.state.editors.files.get(EDIT_DOC_ID);
+  const before = JSON.stringify(doc.blocks);
+  doc.shared = true;
+  try {
+    await s.run(`var edD = await sites.googleDocs.replace(${JSON.stringify(EDIT_DOC)}, "Intro", "Opening")`);
+    env.state.googleAccounts = SWITCHED();
+    assert.match(await s.error("sites.googleDocs.replace(edD.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(JSON.stringify(doc.blocks), before, "the shared doc was edited as the work account");
+    assert.equal((await s.value("edD.preview")).account, "ada@example.com");
+  } finally {
+    doc.shared = false;
+    env.state.googleAccounts = null;
+  }
+});
+
+test("googleDrive.trash drafts: the draft names the editor's account; a switch while the confirmation's editor loads trashes nothing", async () => {
+  const doc = env.state.editors.files.get(EDIT_DOC_ID);
+  doc.shared = true;
+  try {
+    await s.run(`var trA = await sites.googleDrive.trash(${JSON.stringify(EDIT_DOC)})`);
+    env.state.googleSwitchOnLoad = SWITCHED();
+    assert.match(await s.error("sites.googleDrive.trash(trA.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(doc.trashed, false, "the shared file was trashed as the work account");
+    assert.equal((await s.value("trA.preview")).account, "ada@example.com");
+  } finally {
+    doc.shared = false;
+    doc.trashed = false;
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+  }
+});
+
+const NOTION_PAGE_URL = "https://www.notion.so/acme/Team-Handbook-1a2b3c4d00004000800000000000abcd";
+
+test("notion.append: the draft names the Notion user; another user at confirmation appends nothing", async () => {
+  try {
+    await s.run(`var nD = await sites.notion.append(${JSON.stringify(NOTION_PAGE_URL)}, "Bound to Ada.")`);
+    env.state.notionUser = NOTION_MALLORY;
+    const ops = env.state.notionOps.length;
+    assert.match(await s.error("sites.notion.append(nD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.notionOps.length, ops, "nothing was appended as mallory");
+    assert.deepEqual((await s.value("nD.preview")).account, { userId: "user-ada", email: "ada@example.com" });
+  } finally {
+    env.state.notionUser = null;
+  }
+});
+
+test("notion.append: the write names the drafted user, so a switch after the confirmation's check appends nothing", async () => {
+  try {
+    await s.run(`var nD2 = await sites.notion.append(${JSON.stringify(NOTION_PAGE_URL)}, "Still bound to Ada.")`);
+    env.state.notionSwitchOnSync = NOTION_MALLORY;
+    const ops = env.state.notionOps.length;
+    assert.ok(await s.error("sites.notion.append(nD2.id, { confirm: true })"), "the confirmation failed");
+    assert.equal(env.state.notionOps.length, ops, "nothing was appended as mallory");
+  } finally {
+    env.state.notionUser = null;
+    env.state.notionSwitchOnSync = null;
+  }
+});
+
+// Another session signs a different member of the same Acme workspace in to
+// the shared profile: Slack's web config keeps the workspace id with that
+// member's token.
+const setSlackMember = (member) => `
+  const slackTab = await tabs.open("https://app.slack.com/robots.txt", { background: true });
+  await slackTab.evaluate((m) => {
+    const c = JSON.parse(localStorage.getItem("localConfig_v2") || "null") || ${JSON.stringify(SLACK_SEED)};
+    c.teams.T01ACME = { ...c.teams.T01ACME, token: m.token, user_id: m.user_id };
+    localStorage.setItem("localConfig_v2", JSON.stringify(c));
+  }, ${JSON.stringify(member)});
+  await slackTab.close();
+`;
+
+test("slack.post: the draft names the member; another member of the same workspace at confirmation posts nothing", async () => {
+  try {
+    await s.run('var slD = await sites.slack.post({ team: "T01ACME", channel: "#eng", text: "From Ada only" })');
+    await s.run(setSlackMember(SLACK_MALLORY));
+    const posts = env.state.slackPosts.length;
+    assert.match(await s.error("sites.slack.post(slD.id, { confirm: true })"), /account_mismatch|account it acts as differs|U09MAL/);
+    assert.equal(env.state.slackPosts.length, posts, "nothing was posted as mallory");
+    assert.deepEqual((await s.value("slD.preview")).user, { id: "U01ADA", name: "ada" });
+  } finally {
+    await s.run(setSlackMember({ token: SLACK_SEED.teams.T01ACME.token, user_id: SLACK_SEED.teams.T01ACME.user_id }));
+  }
+});
+
+// r15 sites#2, #4, #6: the account is read again as the last step before
+// the click, after the rest of the second read-back. Here another session
+// switches the account while the commit reads the composer text at the
+// press (after that read-back's account check): nothing is sent.
+const switchAtPressRead = (flip) => {
+  let reads = 0;
+  return async (method, params, call) => {
+    if (method !== "frame.evaluate" || !JSON.stringify(params).includes('"composerText"')) return undefined;
+    const r = await call(method, params);
+    // The first composer read is the commit's read-back; the second is the press's.
+    if (++reads === 2) flip();
+    return r;
+  };
+};
+
+test("x.post, linkedin.post and gmail.send: an account switch during the press's read-back sends nothing", async () => {
+  try {
+    await s.run('var xS = await sites.x.post("Bound at the click.")');
+    const xBefore = env.state.xPosts.length;
+    s.intercept(switchAtPressRead(() => (env.state.xAccount = "mallory")));
+    assert.match(await s.error("sites.x.post(xS.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.xPosts.length, xBefore, "posted as the switched X account");
+    s.intercept(null);
+
+    await s.run('var lnS = await sites.linkedin.post({ text: "Bound at the click.", audience: "anyone" })');
+    const lnBefore = env.state.linkedinPosts.length;
+    s.intercept(switchAtPressRead(() => (env.state.linkedinViewer = "mallory")));
+    assert.match(await s.error("sites.linkedin.post(lnS.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.linkedinPosts.length, lnBefore, "posted as the switched LinkedIn member");
+    s.intercept(null);
+
+    await s.run('var gmS = await sites.gmail.send({ to: "bob@example.com", subject: "Bound", body: "Bound at the click." })');
+    const sent = env.state.gmailSent.length;
+    s.intercept(switchAtPressRead(() => (env.state.googleAccounts = SWITCHED())));
+    assert.match(await s.error("sites.gmail.send(gmS.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(env.state.gmailSent.length, sent, "sent from the switched Google account");
+  } finally {
+    s.intercept(null);
+    env.state.xAccount = null;
+    env.state.linkedinViewer = null;
+    env.state.googleAccounts = null;
+  }
+});
+
+// r19 sites: the keyboard and menu writes of the Google editors (Sheets'
+// paste, typed cells and Delete, Slides' typed notes, Docs' typed append,
+// Drive's File > Move to trash) read the account again right before each
+// input batch or menu press that changes the file. Here another session
+// switches the shared profile's account after the confirmation's first
+// read-back (its one ListAccounts read) and before the first input: no
+// edit lands as the other account.
+test("Google editor keyboard and menu writes: an account switch after the confirmation's read-back edits nothing", async () => {
+  const editorFiles = env.state.editors.files;
+  const SHEET_ID = "1sheetSHARED00000000000000000000x";
+  const SHEET = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=0`;
+  const DECK_ID = "1deckPRIVATE00000000000000000000x";
+  const DECK = `https://docs.google.com/presentation/d/${DECK_ID}/edit`;
+  const sheet = editorFiles.get(SHEET_ID);
+  const doc = editorFiles.get(EDIT_DOC_ID);
+  const deck = editorFiles.get(DECK_ID);
+  const snapshot = () => JSON.stringify({ cells: [...sheet.sheets[0].cells], blocks: doc.blocks, slides: deck.slides, trashed: doc.trashed });
+  const cases = [
+    ["googleSheets.write", `sites.googleSheets.write(${JSON.stringify(SHEET)}, "D1", [["switched"]])`],
+    ["googleSheets.append", `sites.googleSheets.append(${JSON.stringify(SHEET)}, [["Switched", "1"]])`],
+    ["googleSheets.clear", `sites.googleSheets.clear(${JSON.stringify(SHEET)}, "A2:B2")`],
+    ["googleSlides.setNotes", `sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 1, "Switched notes")`],
+    ["googleDocs.append", `sites.googleDocs.append(${JSON.stringify(EDIT_DOC)}, "Switched paragraph.")`],
+    ["googleDrive.trash", `sites.googleDrive.trash(${JSON.stringify(EDIT_DOC)})`],
+    ["googleDocs.replace", `sites.googleDocs.replace(${JSON.stringify(EDIT_DOC)}, "Intro", "Opening")`],
+  ];
+  const restore = (saved) => {
+    sheet.sheets[0].cells = new Map(saved.cells);
+    doc.blocks = saved.blocks;
+    deck.slides = saved.slides;
+    doc.trashed = saved.trashed;
+  };
+  const failures = [];
+  try {
+    for (const [tool, call] of cases) {
+      const d = await s.value(call);
+      assert.equal(d.status, "draft", tool);
+      assert.equal(d.preview.account, "ada@example.com", tool);
+      const before = snapshot();
+      env.state.googleSwitchAfterListAccounts = { after: 1, rows: SWITCHED() };
+      const err = await s.error(`sites.${tool}(${JSON.stringify(d.id)}, { confirm: true })`);
+      if (!/account_mismatch|account it acts as differs/.test(String(err))) failures.push(`${tool}: the confirmation did not fail on the switched account (${err})`);
+      if (snapshot() !== before) failures.push(`${tool} changed the file as the switched account`);
+      restore(JSON.parse(before));
+      env.state.googleAccounts = null;
+      env.state.googleSwitchAfterListAccounts = null;
+    }
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchAfterListAccounts = null;
+  }
+  assert.deepEqual(failures, []);
+});
+
+// r21 sites#1: every confirmed write reads its account again as the last
+// step before the click or the request, in the loader's commit path.
+// Calendar read the account first and the form after it, so another
+// session's switch while the press read the form back saved the event as
+// the switched account.
+test("googleCalendar.create: an account switch while the press reads the form back saves nothing", async () => {
+  const listed = () => env.state.requests.filter((r) => r.url.includes("/ListAccounts")).length;
+  try {
+    await s.run('var gcP = await sites.googleCalendar.create({ title: "Bound at Save", start: "2026-10-03T17:00:00Z" })');
+    const start = listed();
+    // The press's read-back: the account (the second ListAccounts read of
+    // the confirmation), then the form; switch at its first form read.
+    s.intercept(async (method, params) => {
+      if (listed() - start >= 2 && JSON.stringify(params || {}).includes("Recurrence") && !env.state.googleAccounts) env.state.googleAccounts = SWITCHED();
+      return undefined;
+    });
+    const created = env.state.calendarCreated.length;
+    assert.match(await s.error("sites.googleCalendar.create(gcP.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.ok(env.state.googleAccounts, "the switch happened during the confirmation");
+    assert.equal(env.state.calendarCreated.length, created, "the event was saved as the switched account");
+  } finally {
+    s.intercept(null);
+    env.state.googleAccounts = null;
+  }
+});
+
+// Slack's chat.postMessage already checks the member in its own page call;
+// the commit reads the member last before it too, so the write is refused
+// as an account mismatch before any post request.
+test("slack.post: a member switch after the confirmation's read-back posts nothing (account_mismatch)", async () => {
+  try {
+    await s.run('var slP = await sites.slack.post({ team: "T01ACME", channel: "#eng", text: "Bound at the post" })');
+    env.state.slackSwitchOnInfo = "U09MAL";
+    const posts = env.state.slackPosts.length;
+    assert.match(await s.error("sites.slack.post(slP.id, { confirm: true })"), /account it acts as differs from the draft .*U09MAL/);
+    assert.equal(env.state.slackPosts.length, posts, "posted as mallory");
+  } finally {
+    env.state.slackSwitchOnInfo = null;
+    env.state.slackMemberNow = null;
+  }
+});
+
+test("notion.append: a user switch after the confirmation's read-back fails as account_mismatch before saveTransactions", async () => {
+  try {
+    await s.run(`var nP = await sites.notion.append(${JSON.stringify(NOTION_PAGE_URL)}, "Bound at the save.")`);
+    env.state.notionSwitchOnSync = NOTION_MALLORY;
+    const ops = env.state.notionOps.length;
+    const saves = env.state.requests.filter((r) => r.url.includes("saveTransactions")).length;
+    assert.match(await s.error("sites.notion.append(nP.id, { confirm: true })"), /account it acts as differs from the draft .*user-mallory/);
+    assert.equal(env.state.notionOps.length, ops, "appended as mallory");
+    assert.equal(env.state.requests.filter((r) => r.url.includes("saveTransactions")).length, saves, "a saveTransactions request left after the switch");
+  } finally {
+    env.state.notionUser = null;
+    env.state.notionSwitchOnSync = null;
+  }
+});

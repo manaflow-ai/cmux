@@ -1,6 +1,4 @@
 import { callDiffComments, diffCommentsBridgeAvailable } from "./comments/bridge";
-import type { DiffWrites } from "./diff-writes";
-import { DIFF_VIEWED_CLEAR_OP, DIFF_VIEWED_LIST_OP, DIFF_VIEWED_SET_OP, pageDiffViewedClient } from "./diff/pageStore";
 import type { DiffSource } from "./diff/generated/protocol";
 import { fileName } from "./diff-stream";
 
@@ -13,9 +11,7 @@ import { fileName } from "./diff-stream";
  * the `cmuxDiffComments` bridge (`viewedFiles.list` / `.set` / `.clear`),
  * keyed by (repository root, diff source identity, path); generated viewer
  * origins do not reliably persist web storage, so there is no localStorage
- * fallback and pages opened outside cmux keep session-local state only. On the
- * shared page host the host keeps them (`cmux.diff.viewed.list` / `.set` /
- * `.clear`, diff/pageStore.ts).
+ * fallback and pages opened outside cmux keep session-local state only.
  */
 export type ViewedFileEntry = { path: string; fingerprint: string };
 export type ViewedFileState = "unviewed" | "viewed" | "changed";
@@ -25,27 +21,13 @@ export type ViewedByPath = ReadonlyMap<string, ViewedFileEntry>;
 type ViewedItem = { id: string; fileDiff?: any };
 type ToggleableItem = ViewedItem & { collapsed?: boolean; version?: number };
 
-export type ViewedChange = { kind: "set"; entry: ViewedFileEntry } | { kind: "clear"; path: string };
+export type ViewedChange =
+  | { kind: "set"; entry: ViewedFileEntry }
+  | { kind: "clear"; path: string };
 
 /** FNV-1a (32-bit) over the hunk text; hex so it is JSON- and path-safe. */
 export function patchFingerprint(patchText: string): string {
   return fnv1a(hunkSection(patchText));
-}
-
-/**
- * The file's content identity: its header's `index <old>..<new>` blob ids (full, since the
- * sidecar diffs with `--binary`) and mode lines, before the first hunk. Hide white space
- * (`--ignore-all-space`) changes a patch's hunks but not these lines, so a Viewed mark keyed on
- * them stays put when the option changes. Undefined when the header has no `index` line (a pure
- * rename, a mode-only change): those files keep the patch fingerprint.
- */
-export function blobFingerprint(patchText: string): string | undefined {
-  const firstHunk = patchText.startsWith("@@") ? 0 : patchText.indexOf("\n@@");
-  const header = (firstHunk >= 0 ? patchText.slice(0, firstHunk) : patchText).split("\n");
-  const index = header.find((line) => line.startsWith("index "));
-  if (index == null) return undefined;
-  const modes = header.filter((line) => /^(old|new|new file|deleted file) mode /.test(line));
-  return `blob:${fnv1a([index, ...modes].join("\n"))}`;
 }
 
 function hunkSection(patchText: string): string {
@@ -59,11 +41,6 @@ function hunkSection(patchText: string): string {
     .split("\n")
     .filter((line) => !line.startsWith("index "))
     .join("\n");
-}
-
-/** A hash of a file's whole patch text: equal texts, equal hashes. */
-export function textFingerprint(text: string): string {
-  return fnv1a(text);
 }
 
 function fnv1a(text: string): string {
@@ -81,14 +58,6 @@ function fnv1a(text: string): string {
  * (patches parsed from a single text blob have no per-file raw text).
  */
 export function fileDiffFingerprint(fileDiff: any): string {
-  if (typeof fileDiff?.cmuxBlobFingerprint === "string" && fileDiff.cmuxBlobFingerprint !== "") {
-    return fileDiff.cmuxBlobFingerprint;
-  }
-  return patchIdentityFingerprint(fileDiff);
-}
-
-/** The patch fingerprint: the streamed one, else a hash of the parsed hunks. */
-function patchIdentityFingerprint(fileDiff: any): string {
   if (typeof fileDiff?.cmuxPatchFingerprint === "string" && fileDiff.cmuxPatchFingerprint !== "") {
     return fileDiff.cmuxPatchFingerprint;
   }
@@ -176,26 +145,11 @@ export function applyLoadedViewed(
   return { ...session, viewedByPath };
 }
 
-export function viewedFileState(
-  entry: ViewedFileEntry | undefined,
-  fingerprint: string,
-  legacyFingerprint?: string,
-): ViewedFileState {
+export function viewedFileState(entry: ViewedFileEntry | undefined, fingerprint: string): ViewedFileState {
   if (entry == null) {
     return "unviewed";
   }
-  return entry.fingerprint === fingerprint || (legacyFingerprint != null && entry.fingerprint === legacyFingerprint)
-    ? "viewed"
-    : "changed";
-}
-
-/**
- * A file's viewed state. New marks store the content fingerprint (`fileDiffFingerprint`); a mark
- * stored before it existed holds the patch fingerprint, which still counts as viewed while the
- * patch is the same.
- */
-function fileViewedState(entry: ViewedFileEntry | undefined, fileDiff: any): ViewedFileState {
-  return viewedFileState(entry, fileDiffFingerprint(fileDiff), patchIdentityFingerprint(fileDiff));
+  return entry.fingerprint === fingerprint ? "viewed" : "changed";
 }
 
 export function viewedFilePath(item: ViewedItem): string {
@@ -203,7 +157,7 @@ export function viewedFilePath(item: ViewedItem): string {
 }
 
 export function viewedStateOfItem(item: ViewedItem, viewedByPath: ViewedByPath): ViewedFileState {
-  return fileViewedState(viewedByPath.get(viewedFilePath(item)), item.fileDiff);
+  return viewedFileState(viewedByPath.get(viewedFilePath(item)), fileDiffFingerprint(item.fileDiff));
 }
 
 /**
@@ -238,20 +192,11 @@ export function viewedScopeKey(scope: ViewedScope | null): string {
   return scope == null ? "" : `${scope.repoRoot}\n${scope.source}`;
 }
 
-/** The repository root a `viewedScopeKey` was built from ("" for no scope). */
-export function viewedScopeKeyRepoRoot(scopeKey: string): string {
-  const newline = scopeKey.indexOf("\n");
-  return newline < 0 ? scopeKey : scopeKey.slice(0, newline);
-}
-
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
-export function viewedProgress(
-  items: readonly ViewedItem[],
-  viewedByPath: ViewedByPath,
-): { viewed: number; total: number } {
+export function viewedProgress(items: readonly ViewedItem[], viewedByPath: ViewedByPath): { viewed: number; total: number } {
   let viewed = 0;
   for (const item of items) {
     if (viewedStateOfItem(item, viewedByPath) === "viewed") {
@@ -263,44 +208,6 @@ export function viewedProgress(
 
 export function formatViewedProgress(template: string, progress: { viewed: number; total: number }): string {
   return template.replace("{viewed}", String(progress.viewed)).replace("{total}", String(progress.total));
-}
-
-/**
- * The "..." menu's "Hide viewed files" detail ("3 of 30 viewed", `diffViewer.viewedProgressShort`):
- * how far the review is. None while the diff has no files.
- */
-export function viewedProgressDetail(
-  template: string,
-  progress: { viewed: number; total: number } | null,
-): string | null {
-  return progress == null || progress.total === 0 ? null : formatViewedProgress(template, progress);
-}
-
-/** The source pill's compact suffix ("3/30"), the gallery's third look; none without files. */
-export function viewedProgressSuffix(progress: { viewed: number; total: number } | null): string | null {
-  return progress == null || progress.total === 0 ? null : `${progress.viewed}/${progress.total}`;
-}
-
-/**
- * The source pill's tooltip: the source, its line counts and the review's progress, as
- * "Branch: +694 -683 · 3 of 30 files viewed" (`template` is `diffViewer.filesViewedProgress`).
- * None while the counts are unknown (loading) or the diff has no files.
- */
-export function sourcePillTooltip({
-  source,
-  stats,
-  progress,
-  template,
-}: {
-  source: string;
-  stats: { added?: string; deleted?: string } | null;
-  progress: { viewed: number; total: number } | null;
-  template: string;
-}): string | null {
-  if (progress == null || progress.total === 0) return null;
-  const counts = [stats?.added, stats?.deleted].filter(Boolean).join(" ");
-  const progressText = formatViewedProgress(template, progress);
-  return counts ? `${source}: ${counts} · ${progressText}` : `${source} · ${progressText}`;
 }
 
 /**
@@ -321,7 +228,7 @@ export function toggleViewedItem<T extends ToggleableItem>(
   const item = items[index];
   const path = viewedFilePath(item);
   const fingerprint = fileDiffFingerprint(item.fileDiff);
-  const currentlyViewed = fileViewedState(viewedByPath.get(path), item.fileDiff) === "viewed";
+  const currentlyViewed = viewedFileState(viewedByPath.get(path), fingerprint) === "viewed";
   let change: ViewedChange;
   if (currentlyViewed) {
     nextViewed.delete(path);
@@ -337,11 +244,6 @@ export function toggleViewedItem<T extends ToggleableItem>(
 }
 
 export async function loadViewedFiles(scope: ViewedScope): Promise<ViewedFileEntry[]> {
-  const page = pageDiffViewedClient();
-  if (page) {
-    const value = await page.call<{ files?: unknown }>(DIFF_VIEWED_LIST_OP, { scope });
-    return Array.isArray(value?.files) ? value.files.filter(isViewedFileEntry) : [];
-  }
   if (!diffCommentsBridgeAvailable()) {
     return [];
   }
@@ -349,38 +251,18 @@ export async function loadViewedFiles(scope: ViewedScope): Promise<ViewedFileEnt
   return Array.isArray(value?.files) ? value.files.filter(isViewedFileEntry) : [];
 }
 
-export function persistViewedChange(scope: ViewedScope | null, change: ViewedChange | null, writes: DiffWrites): void {
-  if (scope == null || change == null) {
+export function persistViewedChange(scope: ViewedScope | null, change: ViewedChange | null): void {
+  if (scope == null || change == null || !diffCommentsBridgeAvailable()) {
     return;
   }
-  const page = pageDiffViewedClient();
-  if (page) {
-    const request =
-      change.kind === "set"
-        ? page.call<unknown>(DIFF_VIEWED_SET_OP, { scope, file: change.entry })
-        : page.call<unknown>(DIFF_VIEWED_CLEAR_OP, { scope, path: change.path });
-    request.catch((error) => console.warn("cmux diff viewed state save failed", error));
-    return;
-  }
-  if (!diffCommentsBridgeAvailable()) {
-    return;
-  }
-  // One write in flight per file, in order; a newer mark replaces a queued one (diff-writes.ts).
-  const path = change.kind === "set" ? change.entry.path : change.path;
-  writes.dispatch("viewed", {
-    resource: `viewed:${viewedScopeKey(scope)}:${path}`,
-    write:
-      change.kind === "set"
-        ? { method: "viewedFiles.set", params: { scope, file: change.entry } }
-        : { method: "viewedFiles.clear", params: { scope, path: change.path } },
-  });
+  const request = change.kind === "set"
+    ? callDiffComments<unknown>("viewedFiles.set", { scope, file: change.entry })
+    : callDiffComments<unknown>("viewedFiles.clear", { scope, path: change.path });
+  request.catch((error) => console.warn("cmux diff viewed state save failed", error));
 }
 
 function isViewedFileEntry(value: unknown): value is ViewedFileEntry {
-  return (
-    value != null &&
-    typeof value === "object" &&
-    typeof (value as ViewedFileEntry).path === "string" &&
-    typeof (value as ViewedFileEntry).fingerprint === "string"
-  );
+  return value != null && typeof value === "object"
+    && typeof (value as ViewedFileEntry).path === "string"
+    && typeof (value as ViewedFileEntry).fingerprint === "string";
 }

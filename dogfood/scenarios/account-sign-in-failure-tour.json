@@ -1,0 +1,53 @@
+{
+  "paths": [
+    "Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Account/*",
+    "Sources/Auth/*",
+    "dogfood/scenarios/account-sign-in-failure-tour.json"
+  ],
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Sign-in failure",
+        "initial_input": "CLI=\"${CMUX_BUNDLED_CLI_PATH:-$(command -v cmux)}\"; APP=\"${CLI%%.app/*}.app\"; printf \"app=%s\\n\" \"$APP\"; open -a \"$APP\" \"cmux-dev://auth-callback?cmux_tour=invalid-link\"; printf \"Delivered an invalid sign-in callback\\n\"\n",
+        "focus": true
+      },
+      "save": "setup"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "shot": "invalid-callback-delivered"
+    },
+    {
+      "key": ",",
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "tree": "settings-opened"
+    },
+    {
+      "click": {
+        "label": "Account"
+      }
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "tree": "account-sign-in-failure"
+    },
+    {
+      "shot": "account-sign-in-failure"
+    },
+    {
+      "expect": "AccountSignInFailure"
+    }
+  ]
+}

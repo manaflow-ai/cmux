@@ -12,8 +12,22 @@ fn terminal() -> Terminal {
 }
 
 fn encode_base64(bytes: &[u8]) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(bytes)
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let a = chunk[0];
+        let b = chunk.get(1).copied().unwrap_or(0);
+        let c = chunk.get(2).copied().unwrap_or(0);
+        encoded.push(ALPHABET[(a >> 2) as usize] as char);
+        encoded.push(ALPHABET[(((a & 0x03) << 4) | (b >> 4)) as usize] as char);
+        encoded.push(if chunk.len() > 1 {
+            ALPHABET[(((b & 0x0f) << 2) | (c >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        encoded.push(if chunk.len() > 2 { ALPHABET[(c & 0x3f) as usize] as char } else { '=' });
+    }
+    encoded
 }
 
 fn kitty(params: &str, payload: &str) -> Vec<u8> {
@@ -360,14 +374,14 @@ fn replay_preserves_the_next_automatic_image_id_after_eviction() {
 #[test]
 fn replay_preserves_independent_automatic_image_ids_for_both_screens() {
     let mut source = terminal();
-    for _ in 0..2 {
-        source.vt_write(&kitty("a=t,t=d,f=24,s=1,v=1,q=2", "/wAA"));
+    for image_number in [1, 2] {
+        source.vt_write(&kitty(&format!("a=t,t=d,f=24,I={image_number},s=1,v=1,q=2"), "/wAA"));
         let image_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
         source.vt_write(&kitty(&format!("a=d,d=I,i={image_id},q=2"), ""));
     }
 
     source.vt_write(b"\x1b[?1049h");
-    source.vt_write(&kitty("a=t,t=d,f=24,s=1,v=1,q=2", "/wAA"));
+    source.vt_write(&kitty("a=t,t=d,f=24,I=3,s=1,v=1,q=2", "/wAA"));
     let alternate_image_id = source.kitty_graphics_snapshot().unwrap().images[0].id;
     source.vt_write(&kitty(&format!("a=d,d=I,i={alternate_image_id},q=2"), ""));
 
@@ -379,7 +393,7 @@ fn replay_preserves_independent_automatic_image_ids_for_both_screens() {
     let mut mirror = terminal();
     mirror.apply_vt_replay(&replay).unwrap();
 
-    let next_alternate = kitty("a=t,t=d,f=24,s=1,v=1,q=2", "AP8A");
+    let next_alternate = kitty("a=t,t=d,f=24,I=4,s=1,v=1,q=2", "AP8A");
     source.vt_write(&next_alternate);
     mirror.vt_write(&next_alternate);
     assert_eq!(
@@ -390,7 +404,7 @@ fn replay_preserves_independent_automatic_image_ids_for_both_screens() {
 
     source.vt_write(b"\x1b[?1049l");
     mirror.vt_write(b"\x1b[?1049l");
-    let next_primary = kitty("a=t,t=d,f=24,s=1,v=1,q=2", "AA8A");
+    let next_primary = kitty("a=t,t=d,f=24,I=5,s=1,v=1,q=2", "AA8A");
     source.vt_write(&next_primary);
     mirror.vt_write(&next_primary);
     assert_eq!(
@@ -440,9 +454,7 @@ fn replay_preserves_an_occupied_probe_that_is_later_deleted() {
     let delete_probe = kitty(&format!("a=d,d=I,i={FIRST_AUTOMATIC_ID},q=2"), "");
     source.vt_write(&delete_probe);
     mirror.vt_write(&delete_probe);
-    // An implicit upload (no i=, no I=) probes the automatic cursor; numbered
-    // uploads take the lowest free ID and never use it (ghostty-next).
-    let next = kitty("a=t,t=d,f=24,s=1,v=1,q=2", "AP8A");
+    let next = kitty("a=t,t=d,f=24,I=2,s=1,v=1,q=2", "AP8A");
     source.vt_write(&next);
     mirror.vt_write(&next);
 
@@ -957,12 +969,8 @@ fn render_frame_owns_the_same_graphics_snapshot_as_text() {
     render.update(&mut terminal).unwrap();
     let frame = render.build_frame().unwrap();
 
-    let text = frame
-        .styled_rows()
-        .iter()
-        .flat_map(|row| row.iter())
-        .map(|cell| cell.text.as_str())
-        .collect::<String>();
+    let text =
+        frame.styled_rows().iter().flatten().map(|cell| cell.text.as_str()).collect::<String>();
     assert!(text.contains("frame"));
     assert_eq!(&*frame.kitty_graphics.image(40).unwrap().data, &[255, 0, 0]);
 

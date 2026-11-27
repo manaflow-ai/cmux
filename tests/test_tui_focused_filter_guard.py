@@ -7,17 +7,12 @@ from pathlib import Path
 
 import yaml
 
-import workflow_jobs
-from runs_on_labels import disallowed_labels, linux_runner_values
-
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui.yml"
-FOCUSED_SCRIPT = ROOT / "scripts" / "ci" / "cmux-tui-focused-test.sh"
 
 FOCUSED_SENTINEL_STEPS = (
     "focused Linux journal process-fence test",
-    "focused macOS journal process-fence tests",
     "focused journal writer shutdown test",
     "focused final journal ownership tests",
 )
@@ -39,223 +34,10 @@ def test_ignored_only_listing_has_no_runnable_test_names() -> None:
 
 
 def test_workflow_rejects_ignored_only_filter_from_name_difference() -> None:
-    script = FOCUSED_SCRIPT.read_text(encoding="utf-8")
+    workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert 'comm -23 "$normal_names" "$ignored_names"' in script
-    assert 'if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then' in script
-
-
-def test_macos_job_runs_the_focused_filter() -> None:
-    """cx-jcfoz: a filtered dispatch ran the filter on Linux only and reported macOS green."""
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    for job_name in ("test", "macos"):
-        steps = workflow["jobs"][job_name]["steps"]
-        runs = [step for step in steps if "cmux-tui-focused-test.sh" in str(step.get("run", ""))]
-        assert len(runs) == 1, job_name
-        step = runs[0]
-        assert step["working-directory"] == "cmux-tui"
-        assert '"$TEST_FILTER"' in step["run"]
-        assert step["env"]["TEST_FILTER"] == "${{ inputs.test_filter }}"
-    macos_step = next(step for step in workflow["jobs"]["macos"]["steps"] if "cmux-tui-focused-test.sh" in str(step.get("run", "")))
-    # Chief's real-daemon selector has its own Linux job; other filters still
-    # execute on macOS after Clippy has run, including when it reports a red.
-    assert macos_step["if"] == (
-        "${{ !cancelled() && steps.clippy.outcome != 'skipped' && "
-        "inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief' }}"
-    )
-
-
-def _run_focused(listing: str, ignored: str, extra_env: dict[str, str] | None = None) -> tuple[int, str]:
-    """Run the focused script against a fake cargo that prints LISTING / IGNORED for --list."""
-    code, calls, _ = _run_focused_with_output(listing, ignored, extra_env)
-    return code, calls
-
-
-def _run_focused_with_output(
-    listing: str, ignored: str, extra_env: dict[str, str] | None = None
-) -> tuple[int, str, str]:
-    """Like _run_focused, and also return what the script wrote to $GITHUB_OUTPUT."""
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        github_output = root / "github-output"
-        github_output.write_text("", encoding="utf-8")
-        log = root / "cargo.log"
-        cargo = root / "cargo"
-        cargo.write_text(
-            "#!/usr/bin/env bash\n"
-            f'echo "$*" >> "{log}"\n'
-            'case "$*" in\n'
-            f'  *"--list --ignored"*) printf "%b" "{ignored}" ;;\n'
-            f'  *"--list"*) printf "%b" "{listing}" ;;\n'
-            "esac\n",
-            encoding="utf-8",
-        )
-        cargo.chmod(0o755)
-        result = subprocess.run(
-            ["bash", str(FOCUSED_SCRIPT), "some_filter", "--test-threads=2"],
-            check=False,
-            capture_output=True,
-            text=True,
-            env={
-                "PATH": f"{root}:/usr/bin:/bin",
-                "RUNNER_TEMP": str(root),
-                "GITHUB_OUTPUT": str(github_output),
-                **(extra_env or {}),
-            },
-        )
-        calls = log.read_text(encoding="utf-8") if log.exists() else ""
-        outputs = github_output.read_text(encoding="utf-8")
-    return result.returncode, calls, outputs
-
-
-def test_focused_script_fails_when_the_filter_selects_nothing() -> None:
-    code, calls = _run_focused("", "")
-    assert code == 1
-    assert "some_filter -- --test-threads=2" not in calls
-
-
-def test_a_host_that_compiles_none_of_the_filtered_tests_passes_when_allowed() -> None:
-    """Host-only test files (#![cfg(target_os = "linux")], macOS-only tests) compile to nothing elsewhere.
-
-    A focused dispatch for bring_back_journey or cloud_move_journey ran them on Linux
-    and then failed macOS with "selected no Rust tests". A macOS-only filter
-    (macos_app_support_loads_after_xdg, run 42626993043, 2026-11-09) failed Linux the
-    same way. Both jobs allow a host with no matching test and report the count;
-    hosted verification fails the run when neither host ran one, so a typo still fails.
-    """
-    code, calls = _run_focused("", "", {"CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST": "1"})
-    assert code == 0
-    assert "some_filter -- --test-threads=2" not in calls
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    for job_name, allowed in (("macos", "1"), ("test", "1")):
-        step = next(
-            step
-            for step in workflow["jobs"][job_name]["steps"]
-            if "cmux-tui-focused-test.sh" in str(step.get("run", ""))
-        )
-        assert step["env"].get("CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST") == allowed, job_name
-
-
-def test_focused_script_reports_how_many_tests_it_selected() -> None:
-    """Each host writes its runnable count to $GITHUB_OUTPUT (selected=N) for hosted verification."""
-    code, _, outputs = _run_focused_with_output("tui::a: test\\ntui::b: test\\n", "")
-    assert code == 0 and "selected=2" in outputs.splitlines(), outputs
-    code, _, outputs = _run_focused_with_output("tui::a: test\\ntui::b: test\\n", "tui::b: test\\n")
-    assert code == 0 and "selected=1" in outputs.splitlines(), outputs
-    code, _, outputs = _run_focused_with_output("", "", {"CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST": "1"})
-    assert code == 0 and "selected=0" in outputs.splitlines(), outputs
-
-
-def _focused_count_step(job: dict) -> dict:
-    [step] = [step for step in job["steps"] if "cmux-tui-focused-test.sh" in str(step.get("run", ""))]
-    return step
-
-
-def _run_gate(**env_overrides: str) -> tuple[int, str]:
-    """Run hosted verification's gate step with every selected job green, then ENV_OVERRIDES."""
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    gate = workflow["jobs"]["hosted-verification"]
-    step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
-    env = {key: "success" for key, value in workflow_jobs.effective_env(workflow, gate).items() if key.endswith("_RESULT")}
-    env.update({"MODE": "focused", "TEST_FILTER": "some_test", "PATH": "/usr/bin:/bin", **env_overrides})
-    with tempfile.TemporaryDirectory() as tmp:
-        script = Path(tmp) / "gate.sh"
-        script.write_text(step["run"], encoding="utf-8")
-        run = subprocess.run(["bash", "-e", str(script)], env=env, capture_output=True, text=True)
-    return run.returncode, run.stdout + run.stderr
-
-
-def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() -> None:
-    """A macOS-only or Linux-only filter passes; the run fails only when both hosts selected 0 tests.
-
-    The Linux and macOS jobs run in parallel and each reports its count as a job
-    output; hosted verification, which needs both, gives the verdict.
-    """
-    for linux, macos, want in (("0", "3", 0), ("2", "0", 0), ("1", "1", 0), ("", "0", 0), ("0", "0", 1)):
-        code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
-        assert code == want, (linux, macos, output)
-        if want:
-            assert "selected no Rust tests on Linux or macOS" in output, output
-    # Full mode has no filter: the counts do not apply.
-    code, output = _run_gate(MODE="full", TEST_FILTER="", LINUX_FOCUSED_SELECTED="0", MACOS_FOCUSED_SELECTED="0")
-    assert code == 0, output
-
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    gate_env = workflow_jobs.effective_env(workflow, workflow["jobs"]["hosted-verification"])
-    for job_name, variable in (("test", "LINUX_FOCUSED_SELECTED"), ("macos", "MACOS_FOCUSED_SELECTED")):
-        job = workflow["jobs"][job_name]
-        step = _focused_count_step(job)
-        assert job["outputs"]["focused_selected"] == "${{ steps.%s.outputs.selected }}" % step["id"], job_name
-        assert gate_env[variable] == "${{ needs.%s.outputs.focused_selected }}" % job_name, variable
-
-
-def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
-    code, calls = _run_focused("tui::a_test: test\\n", "")
-    assert code == 0
-    assert "test --workspace --locked --no-fail-fast some_filter -- --test-threads=2" in calls
-
-
-def test_a_test_binary_that_hangs_while_listing_fails_fast_and_is_named() -> None:
-    """A cmux_tui test binary hung while listing on macOS and ran into the job's 40 minute
-    timeout with only "The operation was canceled." (runs 42458823348, 42461695724). The
-    listing now fails once it is quiet past its deadline, naming the last binary cargo ran."""
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        cargo = root / "cargo"
-        cargo.write_text(
-            "#!/usr/bin/env bash\n"
-            'case "$*" in\n'
-            '  *"--list"*) echo "     Running unittests src/main.rs (target/debug/deps/cmux_tui-abc)"; sleep 60 ;;\n'
-            "esac\n",
-            encoding="utf-8",
-        )
-        cargo.chmod(0o755)
-        result = subprocess.run(
-            ["bash", str(FOCUSED_SCRIPT), "some_filter"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env={
-                "PATH": f"{root}:/usr/bin:/bin",
-                "RUNNER_TEMP": str(root),
-                "CMUX_TUI_FOCUSED_LIST_SILENCE_SECONDS": "2",
-            },
-        )
-    output = result.stdout + result.stderr
-    assert result.returncode == 124, output
-    assert "::error" in output and "target/debug/deps/cmux_tui-abc" in output, output
-
-
-def test_a_hang_in_the_ignored_listing_still_names_its_binary() -> None:
-    """The ignored pass writes to a file; its watchdog report must still reach the log."""
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        cargo = root / "cargo"
-        cargo.write_text(
-            "#!/usr/bin/env bash\n"
-            'case "$*" in\n'
-            '  *"--list --ignored"*) echo "     Running tests/slow.rs (target/debug/deps/slow-abc)"; sleep 60 ;;\n'
-            '  *"--list"*) printf "tui::a_test: test\\n" ;;\n'
-            "esac\n",
-            encoding="utf-8",
-        )
-        cargo.chmod(0o755)
-        result = subprocess.run(
-            ["bash", str(FOCUSED_SCRIPT), "some_filter"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env={
-                "PATH": f"{root}:/usr/bin:/bin",
-                "RUNNER_TEMP": str(root),
-                "CMUX_TUI_FOCUSED_LIST_SILENCE_SECONDS": "2",
-            },
-        )
-    output = result.stdout + result.stderr
-    assert result.returncode == 124, output
-    assert "::error" in output and "target/debug/deps/slow-abc" in output, output
+    assert 'comm -23 "$normal_names" "$ignored_names"' in workflow
+    assert 'if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then' in workflow
 
 
 def test_ignored_only_guard_returns_failure() -> None:
@@ -294,131 +76,24 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
     job = _test_job()
     steps = {step.get("name"): step for step in job["steps"]}
 
-    linux_condition = str(steps[FOCUSED_SENTINEL_STEPS[0]]["if"])
-    assert "inputs.mode == 'focused'" in linux_condition
-    assert "runner.os == 'Linux'" in linux_condition
-
-    macos_condition = str(steps[FOCUSED_SENTINEL_STEPS[1]]["if"])
-    assert "inputs.mode == 'focused'" in macos_condition
-    assert "runner.os == 'macOS'" in macos_condition
-
-    for name in FOCUSED_SENTINEL_STEPS[2:]:
+    # The sentinels run in focused mode on Linux only: a focused run holds a Mac
+    # only for setup, clippy and the filtered tests (2026-11-09 Mac queue).
+    for name in FOCUSED_SENTINEL_STEPS:
         condition = str(steps[name]["if"])
         assert "inputs.mode == 'focused'" in condition
+        assert "runner.os == 'Linux'" in condition
         assert "full" not in condition
+    focused_only = [step.get("name") for step in job["steps"] if "inputs.mode == 'focused'" in str(step.get("if", ""))]
+    assert sorted(focused_only) == sorted(FOCUSED_SENTINEL_STEPS)
 
-    final_sentinels = steps[FOCUSED_SENTINEL_STEPS[3]]["run"]
-    # fc36c16ddea8: hand-picked selections go through cargo-test-selected.sh (fails on zero tests).
-    assert "cargo-test-selected.sh -p cmux-tui-core --test browser_runtime" in final_sentinels
+    final_sentinels = steps[FOCUSED_SENTINEL_STEPS[2]]["run"]
+    assert "cargo-test-deadline.sh -p cmux-tui-core --test browser_runtime" in final_sentinels
     assert "socket_browser_attach_streams_frames_input_and_cell_pixels" in final_sentinels
 
     cargo_test = steps["cargo test"]["run"]
     assert 'if [[ "$MODE" == "full" ]]; then' in cargo_test
     assert "run-cmux-tui-core-tests-isolated.py" in cargo_test
     assert "crates/cmux-tui-core" in cargo_test
-
-
-def _run_full_step(
-    workspace_fails: bool,
-    core_fails: bool = False,
-    build_fails: bool = False,
-    doc_fails: bool = False,
-) -> tuple[int, str]:
-    """Run the test job's full-mode `cargo test` step against a fake cargo and python3.
-
-    The fake cargo exits 101 for the workspace call when WORKSPACE_FAILS, 4 for the core
-    `--no-run` build when BUILD_FAILS, and 3 for the core doc tests when DOC_FAILS. The
-    fake python3 (the isolated core runner) exits 1 when CORE_FAILS. Returns the exit code
-    and every cargo and python3 call, in order.
-    """
-    steps = {step.get("name"): step for step in _test_job()["steps"]}
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        log = root / "calls.log"
-        fail = ""
-        if workspace_fails:
-            fail += 'case "$*" in *"--workspace --exclude cmux-tui-core"*) exit 101 ;; esac\n'
-        if build_fails:
-            fail += 'case "$*" in *"-p cmux-tui-core --locked --no-run"*) exit 4 ;; esac\n'
-        if doc_fails:
-            fail += 'case "$*" in *"-p cmux-tui-core --doc"*) exit 3 ;; esac\n'
-        cargo = root / "cargo"
-        cargo.write_text(
-            "#!/usr/bin/env bash\n"
-            f'echo "cargo $*" >> "{log}"\n'
-            + fail,
-            encoding="utf-8",
-        )
-        python = root / "python3"
-        python.write_text(
-            f'#!/usr/bin/env bash\necho "python3 $*" >> "{log}"\n' + ("exit 1\n" if core_fails else ""),
-            encoding="utf-8",
-        )
-        for fake in (cargo, python):
-            fake.chmod(0o755)
-        script = root / "step.sh"
-        script.write_text(steps["cargo test"]["run"], encoding="utf-8")
-        work = root / "cmux-tui"
-        work.mkdir()
-        # GitHub runs `shell: bash` as `bash --noprofile --norc -eo pipefail`.
-        result = subprocess.run(
-            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
-            check=False,
-            capture_output=True,
-            text=True,
-            cwd=work,
-            env={"PATH": f"{root}:/usr/bin:/bin", "MODE": "full", "TEST_FILTER": "", "RUNNER_TEMP": str(root)},
-        )
-        calls = log.read_text(encoding="utf-8") if log.exists() else ""
-    return result.returncode, calls
-
-
-def test_a_red_workspace_still_runs_the_core_tests_and_fails_the_step() -> None:
-    """Full mode runs the workspace with --no-fail-fast, then the cmux-tui-core tests.
-
-    Under `bash -e` a red workspace (a base red in any crate) ended the step before the
-    cmux-tui-core unit and doc tests, so a PR shipped without them ever running. The core
-    tests must still run, and the step must still fail with the workspace status.
-    """
-    code, calls = _run_full_step(workspace_fails=True)
-    assert code == 101, (code, calls)
-    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" in calls, calls
-    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
-
-    code, calls = _run_full_step(workspace_fails=False)
-    assert code == 0, (code, calls)
-    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
-
-
-def test_a_red_core_runner_still_runs_the_core_doc_tests_and_fails_the_step() -> None:
-    """A red isolated core runner must not skip the core doc tests, and the step fails.
-
-    With a red workspace too, the step fails with the first red status (the workspace).
-    """
-    code, calls = _run_full_step(workspace_fails=False, core_fails=True)
-    assert code == 1, (code, calls)
-    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
-
-    code, calls = _run_full_step(workspace_fails=True, core_fails=True)
-    assert code == 101, (code, calls)
-    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
-
-
-def test_a_red_doc_test_fails_the_step() -> None:
-    code, calls = _run_full_step(workspace_fails=False, doc_fails=True)
-    assert code == 3, (code, calls)
-    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" in calls, calls
-
-    # The first red status wins: the workspace before the doc tests.
-    code, calls = _run_full_step(workspace_fails=True, doc_fails=True)
-    assert code == 101, (code, calls)
-
-
-def test_a_failed_core_build_skips_the_core_runner_and_still_runs_the_doc_tests() -> None:
-    code, calls = _run_full_step(workspace_fails=False, build_fails=True)
-    assert code == 4, (code, calls)
-    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" not in calls, calls
-    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
 
 
 def test_tui_status_names_remain_stable() -> None:
@@ -433,7 +108,6 @@ def test_tui_status_names_remain_stable() -> None:
 def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     lint = workflow["jobs"]["lint"]
-    macos = workflow["jobs"]["macos"]
     test = workflow["jobs"]["test"]
     gate = workflow["jobs"]["hosted-verification"]
 
@@ -444,35 +118,21 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["needs"] == "validate-inputs"
     assert lint["name"] == "lint (${{ matrix.os }})"
     assert lint["strategy"]["fail-fast"] is False
-    [row] = lint["strategy"]["matrix"]["include"]
-    assert set(row) == {"os", "runner"} and row["os"] == "linux", row
-    # Every label the runner can resolve to is Blacksmith Linux, whatever LINUX_RUNNER holds: a fleet
-    # Linux label or the overflow switch's hosted ubuntu-24.04, which the 32vcpu guard keeps out.
-    variables = {"LINUX_RUNNER": linux_runner_values()}
-    assert disallowed_labels(row["runner"], variables=variables) == {}, row
-    # Same OS matrix; only lint honors a LINUX_RUNNER override.
-    oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]
-    assert oses(test) == oses(lint) == ["linux"]
+    # The runners are expressions: the macOS row takes the owned side lane on
+    # attempt 1 and Blacksmith macOS 15 otherwise; the Linux row is Blacksmith Linux.
+    rows = lint["strategy"]["matrix"]["include"]
+    assert [row["os"] for row in rows] == ["macos", "linux"]
+    assert all(set(row) == {"os", "runner"} for row in rows), rows
+    assert "vars.CI_SIDE_LANE_RUNNER" in rows[0]["runner"], rows[0]
+    assert rows[0]["runner"].endswith("'blacksmith-6vcpu-macos-15' }}"), rows[0]
+    assert "ubuntu-2404" in rows[1]["runner"], rows[1]
     assert "cargo fmt --check" in lint_commands
-    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" in lint_commands
-    # Formatting is gated once, by lint; a format diff must not stop the tests.
+    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
     assert "cargo fmt --check" not in test_commands
-    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" not in test_commands
-    macos_commands = "\n".join(str(step.get("run", "")) for step in macos["steps"])
-    assert macos["name"] == "macOS lint and tests"
-    # Formatting is host-independent and runs once, on Linux (#17095).
-    assert "cargo fmt --check" not in macos_commands
-    assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" in macos_commands
-    assert "platform::tests::" in macos_commands
-    # mac_process_scope / macos_pty_ unit tests were deleted with the unit suites (c38b54db5a6e, cx-034r).
-    assert "a_daemon_integrated_zsh_titles_a_long_command_with_every_argument" in macos_commands
+    assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
     assert "lint" in gate["needs"]
-    assert "macos" in gate["needs"]
-    gate_env = workflow_jobs.effective_env(workflow, gate)
-    assert gate_env["LINT_RESULT"] == "${{ needs.lint.result }}"
-    assert gate_env["MACOS_RESULT"] == "${{ needs.macos.result }}"
+    assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
     assert 'require_success "lint" "$LINT_RESULT"' in gate_commands
-    assert 'require_success "macOS lint and tests" "$MACOS_RESULT"' in gate_commands
 
 
 def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
@@ -482,9 +142,9 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
     steps = lint["steps"]
     matrix = lint["strategy"]["matrix"]["include"]
 
-    assert {entry["os"] for entry in matrix} == {"linux"}
+    assert {entry["os"] for entry in matrix} == {"linux", "macos"}
     for entry in matrix:
-        runner_os = "Linux"
+        runner_os = "Linux" if entry["os"] == "linux" else "macOS"
         linux_dependency_steps = [
             step
             for step in steps
@@ -493,120 +153,272 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         assert len(linux_dependency_steps) == 1
         assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
         if runner_os == "Linux":
-            assert entry["runner"].endswith("'cmux-linux' }}")
+            assert "ubuntu-2404" in entry["runner"]
+        else:
+            assert "macos-15" in entry["runner"]
 
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1
         assert clippy_steps[0]["working-directory"] == "cmux-tui"
-        assert "cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going -- -D warnings" in clippy_steps[0]["run"]
+        assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
 
 
-def test_relay_filter_runs_on_the_linux_test_job() -> None:
-    """The focused relay selector is handled by the Linux test job.
+def _cargo_test_step() -> dict:
+    [step] = [step for step in _test_job()["steps"] if step.get("name") == "cargo test"]
+    return step
 
-    The full Linux workspace test already covers chatmux-relay. Keeping a
-    separate Mac-only invocation duplicated that work and spent a Mac runner.
+
+def _run_cargo_test_step(host_os: str, listing: str, ignored: str) -> tuple[int, str, str]:
+    """Run the test job's `cargo test` step in focused mode against a fake cargo.
+
+    The fake prints LISTING for `--list` and IGNORED for `--list --ignored`.
+    Returns the exit code, the cargo calls and what the step wrote to $GITHUB_OUTPUT.
     """
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    test_job = workflow["jobs"]["test"]
-    gate = workflow["jobs"]["hosted-verification"]
-    test_commands = "\n".join(str(step.get("run", "")) for step in test_job["steps"])
-    assert 'cmux-tui-focused-test.sh "$TEST_FILTER"' in test_commands
-    assert "macos-relay" not in workflow["jobs"]
-    assert "macos-relay" not in gate["needs"]
-    gate_commands = "\n".join(str(step.get("run", "")) for step in gate["steps"])
-    assert "MACOS_RELAY_RESULT" not in gate_commands
-
-
-ARTIFACTS_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
-
-
-def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
-    """Attempt 1 takes the owned minis' side lane; a rerun goes to the macOS 15 pool.
-
-    Never vars.MACOS_RUNNER_PR, the nightly build's 12 vCPU macOS 26 label,
-    and neither names the retired glaeda-aws pools. Since #32457 every runner
-    selection reads its size's declared pool (fromJSON(vars.RUNNER_POOLS).macos_15,
-    declared in .github/runners.json) instead of the Blacksmith literal.
-    """
-    workflow = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))
-    builds = [
-        job for job in workflow["jobs"].values()
-        if isinstance(job, dict) and "macos_runner" in (job.get("with") or {})
-    ]
-    assert builds
-    for job in builds:
-        assert job["with"]["macos_runner"] == (
-            "${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-            "vars.CI_PR_POOL_OWNED == '1' && "
-            "contains(fromJSON('[\"pull_request\",\"push\",\"schedule\",\"workflow_dispatch\"]'), github.event_name) && "
-            "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || "
-            "fromJSON(vars.RUNNER_POOLS).macos_15 }}"
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "cargo.log"
+        github_output = root / "github-output"
+        github_output.write_text("", encoding="utf-8")
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "$*" >> "{log}"\n'
+            'case "$*" in\n'
+            f'  *"--list --ignored"*) printf "%b" "{ignored}" ;;\n'
+            f'  *"--list"*) printf "%b" "{listing}" ;;\n'
+            "esac\n",
+            encoding="utf-8",
         )
-        assert job["with"]["macos_retry_runner"] == (
-            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-            "fromJSON(vars.RUNNER_POOLS).macos_15 }}"
+        cargo.chmod(0o755)
+        script = root / "step.sh"
+        script.write_text(_cargo_test_step()["run"], encoding="utf-8")
+        # The step runs in cmux-tui/ and calls ../scripts/ci/cargo-test-deadline.sh, as in the checkout.
+        work = root / "cmux-tui"
+        work.mkdir()
+        (root / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
+        result = subprocess.run(
+            ["bash", "-e", "-o", "pipefail", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=work,
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "GITHUB_OUTPUT": str(github_output),
+                "MODE": "focused",
+                "TEST_FILTER": "some_filter",
+                "HOST_OS": host_os,
+            },
         )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+        outputs = github_output.read_text(encoding="utf-8")
+    return result.returncode, calls, outputs
 
 
-def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
-    """The release-path dogfood build goes straight to the macOS 15 pool (Blacksmith macOS 15).
+def test_a_host_with_no_matching_test_passes_and_reports_its_count() -> None:
+    """Host-only tests (Linux-only files, macOS-only tests) compile to nothing on the other host.
 
-    On the owned side lane, focused runs' dogfood builds sat queued until the
-    run was cancelled (up to 120 min; one success waited 92 min for a 25 min
-    build) while the fast tier queued behind them (#20612). They no longer take
-    the PR pool either: vars.MACOS_RUNNER_PR names the 12 vCPU macOS 26 label
-    the nightly app build needs.
+    A macOS-only filter (macos_app_support_loads_after_xdg, feat run 42626993043)
+    failed the Linux leg with "selected no Rust tests". Each leg now passes a host
+    with no matching test and writes selected_<os>=N; hosted verification fails the
+    run only when both hosts selected 0 (port of #39706).
     """
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    build = workflow["jobs"]["build-artifacts"]["with"]
+    two = "tui::a: test\\ntui::b: test\\n"
+    code, calls, outputs = _run_cargo_test_step("linux", two, "")
+    assert code == 0 and "selected_linux=2" in outputs.splitlines(), (code, outputs)
+    assert "test --workspace --locked --no-fail-fast some_filter\n" in calls, calls
+    code, _, outputs = _run_cargo_test_step("macos", two, "tui::b: test\\n")
+    assert code == 0 and "selected_macos=1" in outputs.splitlines(), (code, outputs)
+    code, calls, outputs = _run_cargo_test_step("macos", "", "")
+    assert code == 0 and "selected_macos=0" in outputs.splitlines(), (code, outputs)
+    assert "test --workspace --locked --no-fail-fast some_filter\n" not in calls, calls
+    # A filter that matches only ignored tests still fails on its host.
+    code, _, _ = _run_cargo_test_step("linux", "tui::a: test\\n", "tui::a: test\\n")
+    assert code == 1
 
-    for route in (build["macos_runner"], build["macos_retry_runner"]):
-        assert "CI_SIDE_LANE_RUNNER" not in route
-        assert "glaeda-" not in route
-        assert "MACOS_RUNNER_PR" not in route
-        assert route == (
-            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-            "fromJSON(vars.RUNNER_POOLS).macos_15 }}"
+
+def _run_full_step(workspace_red: bool, core_red: bool) -> tuple[int, str]:
+    """Run the test job's full-mode `cargo test` step with a fake cargo and a fake core binary.
+
+    The real wrapper, deadline runner and isolated core runner run (python3 is real). The
+    fake cargo fails the workspace call when WORKSPACE_RED, and reports one fake
+    cmux-tui-core test binary for `--no-run`; that binary fails `a_core_test` when
+    CORE_RED. Returns the exit code and the log of cargo calls and core tests run.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "calls.log"
+        work = root / "cmux-tui"
+        core_src = work / "crates" / "cmux-tui-core" / "src"
+        core_src.mkdir(parents=True)
+        core = root / "cmux_tui_core-fake"
+        core.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = --list ]; then [ "$2" = --ignored ] && exit 0; '
+            "printf 'a_core_test: test\\nb_core_test: test\\n'; exit 0; fi\n"
+            f'echo "core $1" >> "{log}"\n'
+            + ('[ "$1" = a_core_test ] && { echo "test $1 ... FAILED"; exit 101; }\n' if core_red else "")
+            + 'echo "test $1 ... ok"\n',
+            encoding="utf-8",
         )
+        artifact = (
+            '{"reason":"compiler-artifact","profile":{"test":true},'
+            f'"target":{{"kind":["lib"],"src_path":"{core_src}/lib.rs"}},"executable":"{core}"}}'
+        )
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "cargo $*" >> "{log}"\n'
+            'case "$*" in\n'
+            + ('  *"--workspace --exclude cmux-tui-core"*) exit 101 ;;\n' if workspace_red else "")
+            + f"  *--no-run*) echo '{artifact}' ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        for fake in (core, cargo):
+            fake.chmod(0o755)
+        script = root / "step.sh"
+        script.write_text(_cargo_test_step()["run"], encoding="utf-8")
+        # The step runs in cmux-tui/ and calls ../scripts and ../.github, as in the checkout.
+        (root / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
+        (root / ".github").symlink_to(ROOT / ".github", target_is_directory=True)
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=work,
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "MODE": "full",
+                "TEST_FILTER": "",
+                "CMUX_TEST_DEADLINE_SECONDS": "60",
+            },
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    return result.returncode, calls + result.stdout + result.stderr
 
 
-def test_focused_dogfood_builds_the_macos_target_on_linux() -> None:
-    """Focused runs cross-compile the macOS target on a Linux runner.
+def test_full_mode_runs_every_test_group_and_fails_with_the_first_red() -> None:
+    """A red workspace or a red core test must not skip the tests after it.
 
-    The Mac leg queued 23-84 min and ran 17-20 min on 2026-10-20 and was the
-    focused run's critical path. Full runs keep the Mac build: the Linux path
-    packages neither npm nor PyPI, and cmux-tui-build-package.yml refuses
-    build_agent_plugin with it (the Linux path builds the plugin into its tree).
+    Under `bash -e` a red workspace ended the step before the cmux-tui-core tests (port
+    of feat #41233), and a red core test ended it before the core doc tests. Every group
+    must run, and the step must fail with the first red status.
     """
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    build = workflow["jobs"]["build-artifacts"]["with"]
+    doc = "cargo test -p cmux-tui-core --doc --locked"
 
-    assert build["darwin_builder"] == "${{ inputs.mode == 'full' && 'mac' || 'linux' }}"
-    assert build["build_agent_plugin"] == "${{ inputs.mode == 'full' }}"
-    assert build["package_npm"] == "${{ inputs.mode == 'full' }}"
-    assert build["package_pypi"] == "${{ inputs.mode == 'full' }}"
+    code, log = _run_full_step(workspace_red=True, core_red=False)
+    assert code == 101, (code, log)
+    assert "core a_core_test" in log and "core b_core_test" in log, log
+    assert doc in log, log
+
+    code, log = _run_full_step(workspace_red=False, core_red=True)
+    assert code != 0, (code, log)
+    assert "core b_core_test" in log, log
+    assert doc in log, log
+
+    code, log = _run_full_step(workspace_red=False, core_red=False)
+    assert code == 0, (code, log)
+    assert doc in log, log
 
 
-def test_hosted_verification_gate_reports_every_selected_job_before_failing() -> None:
-    """A red lint (often a base clippy red) must not hide whether the
-    filtered Rust tests passed: the gate lists each selected job's result
-    and fails once, at the end."""
+def test_the_relay_filter_runs_every_relay_test_binary() -> None:
+    """The chatmux_relay focused path must not stop at its first red test binary."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "cargo.log"
+        cargo = root / "cargo"
+        cargo.write_text(f'#!/usr/bin/env bash\necho "$*" >> "{log}"\n', encoding="utf-8")
+        cargo.chmod(0o755)
+        script = root / "step.sh"
+        script.write_text(_cargo_test_step()["run"], encoding="utf-8")
+        work = root / "cmux-tui"
+        work.mkdir()
+        (root / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=work,
+            env={"PATH": f"{root}:/usr/bin:/bin", "RUNNER_TEMP": str(root), "MODE": "focused",
+                 "TEST_FILTER": "chatmux_relay", "HOST_OS": "linux"},
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    assert result.returncode == 0, (result.returncode, calls, result.stderr)
+    assert "test -p chatmux-relay --locked --no-fail-fast" in calls, calls
+
+
+def _run_gate(**env_overrides: str) -> tuple[int, str]:
+    """Run hosted verification's gate step with every selected job green, then ENV_OVERRIDES."""
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     gate = workflow["jobs"]["hosted-verification"]
     step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
-    env = {key: "success" for key, value in workflow_jobs.effective_env(workflow, gate).items() if key.endswith("_RESULT")}
-    env.update({"MODE": "focused", "TEST_FILTER": "some_test", "LINT_RESULT": "failure",
-                "MACOS_RESULT": "failure", "PATH": "/usr/bin:/bin"})
+    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env.update({"MODE": "focused", "TEST_FILTER": "some_test", "PATH": "/usr/bin:/bin", **env_overrides})
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / "gate.sh"
         script.write_text(step["run"], encoding="utf-8")
-        run = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
-    output = run.stdout + run.stderr
-    assert run.returncode == 1, output
-    assert "lint finished with result 'failure'" in output, output
-    assert "macOS lint and tests finished with result 'failure'" in output, output
-    assert "Rust tests: success" in output, output
+        run = subprocess.run(["bash", "-e", str(script)], env=env, capture_output=True, text=True)
+    return run.returncode, run.stdout + run.stderr
+
+
+def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() -> None:
+    """The run fails only when both hosts selected 0 tests.
+
+    The two matrix legs run in parallel. Each sets only its own output key
+    (selected_linux or selected_macos), so neither leg overwrites the other's
+    count in the job's combined outputs; hosted verification gives the verdict.
+    """
+    for linux, macos, want in (("0", "3", 0), ("2", "0", 0), ("1", "1", 0), ("0", "0", 1)):
+        code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
+        assert code == want, (linux, macos, output)
+        # The gate prints both counts, so a run log shows what each host ran.
+        assert f"focused tests selected: linux={linux} macos={macos}" in output, output
+        if want:
+            assert "selected no Rust tests on Linux or macOS" in output, output
+        else:
+            for host, name, count in (("linux", "Linux", linux), ("macos", "macOS", macos)):
+                warned = f"::warning::test_filter 'some_test' selected no Rust test on {name}" in output
+                assert warned == (count == "0"), (host, output)
+    code, output = _run_gate(MODE="full", TEST_FILTER="", LINUX_FOCUSED_SELECTED="0", MACOS_FOCUSED_SELECTED="0")
+    assert code == 0, output
+
+
+def test_a_green_test_job_must_report_both_counts_unless_the_filter_is_reserved() -> None:
+    """Broken output wiring must not let a typo filter pass.
+
+    When the matrix outputs do not arrive (an overwritten or renamed key), both
+    counts are empty, and an empty count is never read as 0. So in focused mode a
+    successful test job must report a count for each host, unless the filter is a
+    reserved selector that runs a package instead of a listing (chatmux_relay).
+    """
+    for linux, macos in (("", "3"), ("2", ""), ("", "")):
+        code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
+        assert code == 1, (linux, macos, output)
+        assert "reported no focused test count" in output, output
+    for reserved in ("chatmux_relay", "chatmux-relay"):
+        code, output = _run_gate(TEST_FILTER=reserved, LINUX_FOCUSED_SELECTED="", MACOS_FOCUSED_SELECTED="")
+        assert code == 0, (reserved, output)
+
+
+def test_each_test_matrix_leg_owns_one_count_key() -> None:
+    """The test matrix keeps exactly one linux and one macos row, each with its own output key."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["test"]
+    rows = job["strategy"]["matrix"]["include"]
+    assert sorted(row["os"] for row in rows) == ["linux", "macos"], rows
+    step = _cargo_test_step()
+    assert step["env"]["HOST_OS"] == "${{ matrix.os }}"
+    gate_env = workflow["jobs"]["hosted-verification"]["env"]
+    for host, variable in (("linux", "LINUX_FOCUSED_SELECTED"), ("macos", "MACOS_FOCUSED_SELECTED")):
+        assert job["outputs"][f"focused_selected_{host}"] == (
+            "${{ steps.%s.outputs.selected_%s }}" % (step["id"], host)
+        ), host
+        assert gate_env[variable] == "${{ needs.test.outputs.focused_selected_%s }}" % host, variable
 
 
 def main() -> int:
@@ -635,43 +447,5 @@ def main() -> int:
     return 1 if failed else 0
 
 
-def test_the_windows_filter_runs_the_windows_job_alone() -> None:
-    """A Windows change's tests (the cmux-process job trees, #59060 and #59099)
-    ran only in full mode, the whole cross-platform gate with its Mac groups, so
-    they merged untested on Windows. test_filter windows runs the Windows job
-    alone: no Mac runner, no Linux tests, and the gate requires only it."""
-    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    jobs = workflow["jobs"]
-    assert jobs["test-windows"]["if"] == "inputs.mode == 'full' || inputs.test_filter == 'windows'"
-    for name in ("macos", "test"):
-        assert jobs[name]["if"] == "inputs.mode == 'full' || inputs.test_filter != 'windows'", name
-
-    # The skipped Mac and Linux jobs do not fail it; the Windows job does.
-    skipped = {"MACOS_RESULT": "skipped", "TEST_RESULT": "skipped"}
-    code, output = _run_gate(TEST_FILTER="windows", **skipped)
-    assert code == 0, output
-    code, output = _run_gate(TEST_FILTER="windows", WINDOWS_TEST_RESULT="failure", **skipped)
-    assert code == 1 and "Windows Rust tests" in output, output
-    # Any other filter still requires the Mac and Linux tests and not Windows.
-    code, output = _run_gate(MACOS_RESULT="skipped")
-    assert code == 1 and "macOS lint and tests" in output, output
-    code, output = _run_gate(WINDOWS_TEST_RESULT="skipped")
-    assert code == 0, output
-    # Full mode requires all three.
-    code, output = _run_gate(MODE="full", TEST_FILTER="", WINDOWS_TEST_RESULT="failure")
-    assert code == 1 and "Windows Rust tests" in output, output
-
-
 if __name__ == "__main__":
     sys.exit(main())
-
-
-def test_hosted_verify_help_names_every_reserved_filter() -> None:
-    # The dispatch wrapper's help is how an agent learns the reserved filters;
-    # one the workflow gates on but the help leaves out goes unused (cmux#59347).
-    script = ROOT / "scripts" / "verify-cmux-tui-hosted.sh"
-    result = subprocess.run(["bash", str(script), "--help"], capture_output=True, text=True, timeout=30)
-    assert result.returncode == 0
-    for reserved in ("chatmux_relay", "windows"):
-        assert f"--filter {reserved}" in result.stdout
-        assert f"`{reserved}` filter" in result.stdout

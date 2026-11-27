@@ -154,7 +154,6 @@ func runSync(ctx context.Context, args []string, env agentdirs.Environ, apiBase 
 	agent := fs.String("agent", "", "agent to sync (claude, codex, pi)")
 	dryRun := fs.Bool("dry-run", false, "scan and diff without uploading")
 	limit := fs.Int("limit", 0, "maximum changed sessions to upload")
-	noRedact := fs.Bool("no-redact", false, "upload transcripts as they are, without masking secret shapes (also CMUX_VAULT_NO_REDACT=1)")
 	localJSON := fs.Bool("json", jsonOutput, "write JSON output")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -181,14 +180,6 @@ func runSync(ctx context.Context, args []string, env agentdirs.Environ, apiBase 
 	}
 	if *localJSON {
 		engine.Out = nil
-	}
-	if !*dryRun && !*noRedact && env.Vars["CMUX_VAULT_NO_REDACT"] != "1" {
-		redactor, err := syncer.FindRedactor(func(k string) string { return env.Vars[k] })
-		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "sync refused: %v\n", err)
-			return 1
-		}
-		engine.Redact = redactor
 	}
 	summary, err := engine.Sync(ctx, syncer.Options{
 		Agent:  *agent,

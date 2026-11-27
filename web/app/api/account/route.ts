@@ -42,6 +42,7 @@ import {
   type ProMetadataJson,
   type ProMetadataCustomer,
 } from "../../../services/billing/pro";
+import { detachAppleBillingForAccountDeletion } from "../../../services/billing/apple/accountDeletion";
 import { isAscConfigured } from "../../../services/asc/client";
 import {
   removeProTesterAccess,
@@ -75,9 +76,8 @@ import {
 import {
   invalidateCoderouterHandoffAuthority,
 } from "../../../services/coderouter/repository";
-import type { ProviderCredential, ProviderId } from "../../../services/vms/drivers";
-import { gcpCredentialFromRequest } from "../../../services/vms/routeInput";
-import { jsonResponse } from "../../../services/vms/routeHelpers";
+import type { ProviderId } from "../../../services/vms/drivers";
+import { jsonResponse, runAfterResponse } from "../../../services/vms/routeHelpers";
 import {
   publishVmOps,
   publishVmRowsById,
@@ -90,7 +90,6 @@ import { createHostedSubrouterClient } from "../../../services/subrouter/hostedC
 import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY, type CloudVmRow } from "../../../services/vms/repository";
 import {
   destroyVm,
-  drainProviderCreateCleanups,
   listUserVms,
   deletePrivateNetworkingForAccountDeletion,
   revokeUserIdentityLeasesForAccountDeletion,
@@ -102,10 +101,11 @@ import {
   deleteVmPublicationsForAccountDeletion,
 } from "../../../services/vm-publications/accountDeletion";
 import { vmModelPlaneRevoker } from "../../../services/vms/modelPlaneGateway";
+import { DELETED_ACCOUNT_ACTOR_ID } from "../../../services/auth/deletedAccount";
+import { detachDeletedAccountCustomers } from "../../../services/vms/accountDeletionCustomers";
 
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
-const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const POSTHOG_DEFAULT_API_HOST = "https://us.posthog.com";
 const POSTHOG_PERSON_DELETE_TIMEOUT_MS = 10_000;
 const HOSTED_TENANT_DELETE_BATCH_SIZE = 2;
@@ -215,12 +215,6 @@ type AccountDeletionContext = {
   readonly accessToken: string;
   readonly userId: string;
   readonly originalStackMetadata: DeletableStackUser["clientReadOnlyMetadata"];
-  /**
-   * A fresh copy of the user's short-lived GCP credential from the deletion
-   * request, one per provider workflow (each wipes its own). Absent on cron
-   * resumes, so GCP machines and retained GCP creates fail closed there.
-   */
-  readonly gcpCredential?: () => ProviderCredential | undefined;
 };
 
 export async function DELETE(request: Request): Promise<Response> {
@@ -246,7 +240,6 @@ export async function DELETE(request: Request): Promise<Response> {
     accessToken,
     userId: stackUser.id,
     originalStackMetadata: stackUser.clientReadOnlyMetadata,
-    gcpCredential: () => gcpCredentialFromRequest(request),
   };
   const progress = initialAccountDeletionProgress();
   try {
@@ -583,7 +576,7 @@ async function deleteAccount(
     },
   );
   progress.stage = "identity_publications_vms";
-  await deleteAccountIdentityLeasesPublicationsAndVms(userId, accountScope.teamIds, progress, context.gcpCredential);
+  await deleteAccountIdentityLeasesPublicationsAndVms(userId, accountScope.teamIds, progress);
   progress.stage = "networking_vault";
   await deleteAccountNetworkingAndVault(userId, progress);
   if (hostedSubrouterDeletionRequired) {
@@ -638,7 +631,6 @@ async function deleteAccountIdentityLeasesPublicationsAndVms(
   userId: string,
   teamIds: readonly string[],
   progress: AccountDeletionProgress,
-  gcpCredential?: () => ProviderCredential | undefined,
 ): Promise<void> {
   await refreshAccountDeletionTombstoneLease(userId);
   try {
@@ -673,7 +665,6 @@ async function deleteAccountIdentityLeasesPublicationsAndVms(
   await refreshAccountDeletionTombstoneLease(userId);
   try {
     progress.destroyedVms = await destroyPersonalCloudVms(userId, teamIds, {
-      gcpCredential,
       afterVmDestroy: async () => {
         await refreshAccountDeletionTombstoneLease(userId);
       },
@@ -1226,17 +1217,8 @@ async function revokeAccountDeletionIdentityLeases(
 async function destroyPersonalCloudVms(
   userId: string,
   accountTeamIds: readonly string[],
-  options: {
-    readonly afterVmDestroy?: () => Promise<void>;
-    readonly gcpCredential?: () => ProviderCredential | undefined;
-  } = {},
+  options: { readonly afterVmDestroy?: () => Promise<void> } = {},
 ): Promise<number> {
-  // A retained GCP create names an instance only the user's own credential
-  // can delete; the account stays undeletable until that delete is confirmed.
-  const drainCredential = options.gcpCredential?.();
-  if (drainCredential) {
-    await runVmWorkflow(drainProviderCreateCleanups({ userId, providerCredential: drainCredential }));
-  }
   const vms = await listAccountDeletionCloudVms(userId, accountTeamIds);
   const failures: unknown[] = [];
   let destroyedVms = 0;
@@ -1252,7 +1234,6 @@ async function destroyPersonalCloudVms(
         afterProviderDestroy: () => void;
         modelPlane: VmModelPlaneRevoker;
         source: "account_deletion";
-        providerCredential?: ProviderCredential;
       } = {
         userId,
         teamIds: accountTeamIds,
@@ -1265,7 +1246,6 @@ async function destroyPersonalCloudVms(
         source: "account_deletion",
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
-      if (vm.provider === "gcp") destroyInput.providerCredential = options.gcpCredential?.();
       const destroyProgram = destroyVm(destroyInput);
       await runVmWorkflow(destroyProgram);
       destructiveCleanupStarted = true;
@@ -1870,17 +1850,6 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         `Personal cloud VM provider teardown or creation is still pending for ${unsafePersonalVmRows.length} row${unsafePersonalVmRows.length === 1 ? "" : "s"}`,
       );
     }
-    // A GCP machine lives in the user's own project and only the user's
-    // credential can delete it, so a shared-team row (or a retained create)
-    // cannot be handed to the team as deleted-account.
-    const unsafeSharedGcpRows = sharedTeamVmRows.filter((vm) =>
-      vm.provider === "gcp" && vm.status !== "destroyed" && !(vm.status === "failed" && !vm.providerVmId)
-    );
-    if (unsafeSharedGcpRows.length > 0) {
-      throw new Error(
-        `GCP machines in shared teams must be deleted with the user's credential first (${unsafeSharedGcpRows.length} row${unsafeSharedGcpRows.length === 1 ? "" : "s"})`,
-      );
-    }
     const pendingExternalCleanupRows = personalVmRows.flatMap((vm) => {
       if (vm.status !== "destroyed") return [];
       const cleanup = observedDestroyCleanupFromMetadata(vm.providerMetadata);
@@ -1964,6 +1933,10 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         isNotNull(stripeCustomers.stackTeamId),
         not(inArray(stripeCustomers.stackTeamId, deletionTeamIds)),
       ));
+    // Deleting the account does not cancel an App Store subscription; the
+    // app and dashboard warned about that before this request. Unlink it so
+    // Apple's later notifications for it are skipped, never re-granting.
+    await detachAppleBillingForAccountDeletion(tx, userId);
 
     await tx.delete(cloudVmBillingGrants).where(or(
       and(
@@ -2051,9 +2024,16 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       deletedRows: personalVmRows,
       deletedAtMs: now.getTime(),
       rewrittenIds: sharedTeamVmRows.map((vm) => vm.id),
+      rewrittenRows: sharedTeamVmRows,
     };
   });
   publishAccountDeletionVmSync(vmSync);
+  // The kept machines no longer belong to this account: take its id off them
+  // at the provider too. Best effort, after the commit, registered with the
+  // platform so the provider calls finish after the response is sent.
+  runAfterResponse(async () => {
+    await detachDeletedAccountCustomers(vmSync.rewrittenRows);
+  });
 }
 
 /** Best-effort machines-list publication after the deletion commits; a

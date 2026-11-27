@@ -6,11 +6,6 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
-# Install the clone-local hooks before any toolchain or submodule checks. A setup
-# failure should not leave this checkout able to commit unformatted webview or
-# Rust changes; the hook path is shared by every worktree in this clone.
-"$SCRIPT_DIR/install-git-hooks.sh"
-
 # Check full Xcode before anything else. On a Command Line Tools-only machine,
 # or before the Xcode license is accepted, `xcodebuild -version` fails, and the
 # later steps would fail with less direct errors.
@@ -65,25 +60,38 @@ if ! command -v rustup &> /dev/null; then
 fi
 DIFF_RUST_TOOLCHAIN="$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' Native/DiffSidecar/rust-toolchain.toml)"
 rustup toolchain install "$DIFF_RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
-# shellcheck source=scripts/lib/rust-targets.sh
-source "$PROJECT_DIR/scripts/lib/rust-targets.sh"
-ensure_rust_targets --toolchain "$DIFF_RUST_TOOLCHAIN" aarch64-apple-darwin x86_64-apple-darwin
+rustup target add --toolchain "$DIFF_RUST_TOOLCHAIN" aarch64-apple-darwin x86_64-apple-darwin
 rustup run "$DIFF_RUST_TOOLCHAIN" cargo --version
 rustup run "$DIFF_RUST_TOOLCHAIN" rustc --version
 
-# A tagged reload compiles the bundled Rust helpers (acpmux and the cmux-tui
-# client, which carries cmux Computer Use) with Cargo. Verify a working cargo is
-# on PATH so the first tagged reload does not fail mid-build.
-echo "==> Checking for cargo (bundled Rust helpers)..."
+# Every app build also runs scripts/build-cmux-cua.sh, which compiles the
+# bundled cmux-cua engine with Cargo (default toolchain). Verify a working
+# cargo is on PATH so the first tagged reload does not fail mid-build.
+echo "==> Checking for cargo (bundled cmux-cua)..."
 if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
-    echo "Error: a working Rust toolchain (cargo) is required to build the bundled Rust helpers."
+    echo "Error: a working Rust toolchain (cargo) is required to build the bundled cmux-cua."
     echo "Install via rustup: https://rustup.rs"
     echo "(Homebrew's rustup is keg-only and ships no rustup-init: add"
     echo " \"\$(brew --prefix rustup)/bin\" to PATH, then run \`rustup default stable\`.)"
     exit 1
 fi
 
+# The Cloud tunnel system extension embeds wireguard-go, built by
+# scripts/build-wireguard-go.sh. Release builds require Go; a Debug build
+# without it gets a stub engine (the extension cannot load in a Debug build
+# anyway), so this is advisory rather than fatal.
+echo "==> Checking for Go (Cloud tunnel extension)..."
+export PATH="/usr/local/go/bin:${HOME}/go/bin:${PATH}"
+if command -v go &> /dev/null; then
+    go version
+else
+    echo "Note: go is not installed; Debug builds will use a stub WireGuard engine."
+    echo "Install via: brew install go (required for Release builds)"
+fi
+
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
+
+"$SCRIPT_DIR/install-git-hooks.sh"
 
 echo "==> Setup complete!"
 echo ""

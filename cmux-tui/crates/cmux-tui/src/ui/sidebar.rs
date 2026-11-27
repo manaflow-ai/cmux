@@ -52,8 +52,7 @@ fn projection_detail<'a>(row: &'a crate::sidebar_projection::ProjectionRow) -> C
 
 /// The color of a workspace's unread indicator, or `None` when nothing is
 /// unread. Mirrors the tab-bar severity cue (`error` > `warning` > `info`)
-/// so the sidebar dot carries the same meaning as the per-tab marker. An
-/// agent's attention mark outranks every notification: the person must act.
+/// so the sidebar dot carries the same meaning as the per-tab marker.
 fn workspace_unread_color(
     theme: &crate::config::Theme,
     ws: &crate::session::WorkspaceView,
@@ -62,31 +61,14 @@ fn workspace_unread_color(
         .iter()
         .flat_map(|screen| screen.panes.iter())
         .flat_map(|pane| pane.tabs.iter())
-        .filter_map(|tab| {
-            if tab.attention.is_some() {
-                return Some((3u8, theme.notification_warning));
-            }
-            let notification = tab.notification.filter(|notification| notification.unread)?;
-            Some(match notification.level {
-                "error" => (2, theme.notification_error),
-                "warning" => (1, theme.notification_warning),
-                _ => (0, theme.notification_info),
-            })
+        .filter_map(|tab| tab.notification.filter(|notification| notification.unread))
+        .map(|notification| match notification.level {
+            "error" => (2u8, theme.notification_error),
+            "warning" => (1, theme.notification_warning),
+            _ => (0, theme.notification_info),
         })
         .max_by_key(|(rank, _)| *rank)
         .map(|(_, color)| color)
-}
-
-/// The oldest attention mark's reason in a workspace (`cmux attention
-/// request`), shown as the row's subtitle so the person reads why.
-fn workspace_attention_reason(ws: &crate::session::WorkspaceView) -> Option<&str> {
-    ws.screens
-        .iter()
-        .flat_map(|screen| screen.panes.iter())
-        .flat_map(|pane| pane.tabs.iter())
-        .filter_map(|tab| tab.attention.as_ref())
-        .min_by_key(|attention| attention.at_ms)
-        .map(|attention| attention.reason.as_ref())
 }
 
 /// The glyph and color of an agent status, the same on workspace rows, the
@@ -223,8 +205,6 @@ fn draw_agents_section(
 }
 
 pub fn draw(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
-    // Set again below only when the workspace rows are drawn.
-    app.workspace_drop_geometry = None;
     app.workspace_sidebar_area(frame.area().height)?;
     if app.config.sidebar.plugin.is_some() {
         draw_plugin(app, frame);
@@ -702,14 +682,6 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         selected_footer,
         actions_position,
     );
-    app.workspace_drop_geometry = Some(crate::app::WorkspaceDropGeometry {
-        area,
-        body: viewport.body,
-        body_offset: viewport.body_offset,
-        stride: metrics.stride,
-        height: metrics.height,
-        len: app.tree.workspaces().len(),
-    });
     if let Some(usage) = app.machine_usage.as_ref() {
         let readout = messages.machine_usage_readout(usage.api_equivalent_usd, usage.period_days);
         rail::header_readout(frame, area, &readout, palette);
@@ -744,13 +716,9 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             && i == app.sidebar_workspace_selection;
         let highlighted = active || focused_selection;
         // Built with the tree on the last layout frame; a frame drawn
-        // before the first one shows the bare name. An agent's attention
-        // request replaces the second line while it is open.
+        // before the first one shows the bare name.
         let status = app.sidebar_status.workspace(i).filter(|status| status.id == ws.id);
-        let attention = workspace_attention_reason(ws).map(|reason| format!("! {reason}"));
-        let subtitle = attention
-            .as_deref()
-            .unwrap_or_else(|| status.map_or("", |status| status.subtitle.as_str()));
+        let subtitle = status.map_or("", |status| status.subtitle.as_str());
         let label = app.workspace_button_label(i, &ws.name);
         rail::entry(
             frame,
@@ -805,27 +773,14 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         }
     }
 
-    if let Some((_, Some(slot))) = workspace_drag {
-        let marker_row = slot.index.saturating_mul(metrics.stride).saturating_sub(1);
+    if let Some((_, Some(index))) = workspace_drag {
+        let marker_row = index.saturating_mul(metrics.stride).saturating_sub(1);
         if let Some(marker_y) = viewport.body_y(rail::RowSpan::new(marker_row, 1)) {
             let buf = frame.buffer_mut();
-            let end = area.x + area.width.saturating_sub(1);
-            for x in area.x..end {
+            for x in area.x..area.x + area.width.saturating_sub(1) {
                 buf[(x, marker_y)]
                     .set_symbol("─")
                     .set_style(Style::default().fg(app.config.theme.border_active));
-            }
-            // On a section border the corner points at the section the drop
-            // joins: up for the section above, down for the one below.
-            let corner = match slot.border {
-                Some(true) => Some("┘"),
-                Some(false) => Some("┐"),
-                None => None,
-            };
-            if let Some(corner) = corner
-                && end > area.x
-            {
-                buf[(end - 1, marker_y)].set_symbol(corner);
             }
         }
     }

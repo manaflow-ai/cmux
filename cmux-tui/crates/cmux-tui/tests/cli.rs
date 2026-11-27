@@ -1,6 +1,7 @@
 #[cfg(unix)]
 use std::collections::VecDeque;
 use std::fs;
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::net::Shutdown;
@@ -19,46 +20,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
-use crate::private_state;
-
 struct HeadlessServer {
     child: Child,
     socket: PathBuf,
     state: PathBuf,
     dir: PathBuf,
-    /// The daemon's stderr, drained continuously. An undrained pipe blocks every daemon thread
-    /// that logs once the buffer fills (it may hold mux locks); the tail explains a failure.
-    stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
 }
 
 impl HeadlessServer {
-    /// Adopts a spawned daemon whose stderr is piped and starts draining it.
-    fn adopt(mut child: Child, socket: PathBuf, state: PathBuf, dir: PathBuf) -> Self {
-        const STDERR_TAIL: usize = 64 * 1024;
-        let stderr = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        if let Some(mut pipe) = child.stderr.take() {
-            let sink = stderr.clone();
-            std::thread::spawn(move || {
-                use std::io::Read as StderrRead;
-                let mut chunk = [0_u8; 4096];
-                while let Ok(read) = StderrRead::read(&mut pipe, &mut chunk) {
-                    if read == 0 {
-                        break;
-                    }
-                    let mut tail = sink.lock().unwrap();
-                    tail.extend_from_slice(&chunk[..read]);
-                    let excess = tail.len().saturating_sub(STDERR_TAIL);
-                    tail.drain(..excess);
-                }
-            });
-        }
-        Self { child, socket, state, dir, stderr }
-    }
-
-    fn stderr_tail(&self) -> String {
-        String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned()
-    }
-
     fn start(name: &str) -> Self {
         Self::start_with_config(name, None)
     }
@@ -71,7 +40,8 @@ impl HeadlessServer {
         Self::start_with_options(name, None, Some(launch_cwd), &[])
     }
 
-    /// Shells launched without Ghostty shell integration emit no OSC 133 prompt marks.
+    /// Shells launched without Ghostty shell integration emit no OSC 133
+    /// prompt marks, so the terminal sees no prompt boundary.
     fn start_without_shell_integration(name: &str) -> Self {
         Self::start_with_options(name, None, None, &[("CMUX_TUI_SHELL_INTEGRATION", "none")])
     }
@@ -93,22 +63,13 @@ impl HeadlessServer {
         if let Some(contents) = config_contents {
             fs::write(&config, contents).unwrap();
         }
-        let mut command = Command::new(bin());
+        let mut command = cmux_command();
         command
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
-            // A login shell (`--shell` runs `$SHELL -lc`) must not see an SSH
-            // session: a Blacksmith Testbox's /etc/profile.d/blacksmith.sh then
-            // cds into GITHUB_WORKSPACE and overrides the terminal's folder.
-            .env_remove("SSH_CONNECTION")
-            .env_remove("SSH_CLIENT")
-            .env_remove("SSH_TTY");
-        // Durable state and the shell integration scripts stay in the test
-        // folder, never below the host's HOME (support/private_state.rs).
-        private_state::use_private_state(&mut command, &dir)
             .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
             .envs(env.iter().copied())
             .stdout(Stdio::null())
@@ -117,7 +78,7 @@ impl HeadlessServer {
             command.current_dir(launch_cwd);
         }
         let child = command.spawn().unwrap();
-        let server = Self::adopt(child, socket, state, dir);
+        let server = Self { child, socket, state, dir };
         server.wait_for_socket();
         server
     }
@@ -179,57 +140,33 @@ impl HeadlessServer {
         // close every terminal resource, including zero-view terminals that
         // cannot appear in the legacy workspace tree below.
         let mut close_failures = Vec::new();
-        // A failed listing closes nothing, so it must surface in the leak
-        // report instead of leaving the leak unexplained.
-        let listing = Command::new(bin())
+        if let Ok(output) = cmux_command()
             .args(["--json", "--socket"])
             .arg(&self.socket)
             .args(["terminal", "list"])
             .env_remove("CMUX_TUI_SOCKET")
-            .output();
-        let terminals = match &listing {
-            Ok(output) if output.status.success() => {
-                match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-                    Ok(serde_json::Value::Array(terminals)) => terminals,
-                    _ => {
-                        close_failures.push(format!(
-                            "terminal list printed no array: {}",
-                            String::from_utf8_lossy(&output.stdout)
-                        ));
-                        Vec::new()
-                    }
+            .output()
+            && output.status.success()
+            && let Ok(terminals) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            && let Some(terminals) = terminals.as_array()
+        {
+            for terminal in terminals {
+                let Some(terminal_id) = terminal["id"].as_str() else { continue };
+                let output = cmux_command()
+                    .args(["--quiet", "--socket"])
+                    .arg(&self.socket)
+                    .args(["terminal", terminal_id, "close"])
+                    .env_remove("CMUX_TUI_SOCKET")
+                    .output();
+                match output {
+                    Ok(output) if output.status.success() => {}
+                    Ok(output) => close_failures.push(format!(
+                        "{terminal_id}: status={:?} stderr={}",
+                        output.status.code(),
+                        String::from_utf8_lossy(&output.stderr)
+                    )),
+                    Err(error) => close_failures.push(format!("{terminal_id}: {error}")),
                 }
-            }
-            Ok(output) => {
-                close_failures.push(format!(
-                    "terminal list: status={:?} stderr={}",
-                    output.status.code(),
-                    String::from_utf8_lossy(&output.stderr)
-                ));
-                Vec::new()
-            }
-            Err(error) => {
-                close_failures.push(format!("terminal list: {error}"));
-                Vec::new()
-            }
-        };
-        let listed = terminals.iter().map(serde_json::Value::to_string).collect::<Vec<_>>();
-        for terminal in &terminals {
-            let Some(terminal_id) = terminal["id"].as_str() else { continue };
-            let output = Command::new(bin())
-                .args(["--quiet", "--socket"])
-                .arg(&self.socket)
-                .args(["terminal", terminal_id, "close"])
-                .env_remove("CMUX_TUI_SOCKET")
-                .output();
-            match output {
-                Ok(output) if output.status.success() => {}
-                Ok(output) => close_failures.push(format!(
-                    "{terminal_id}: status={:?} stderr={}",
-                    output.status.code(),
-                    String::from_utf8_lossy(&output.stderr)
-                )),
-                Err(error) => close_failures.push(format!("{terminal_id}: {error}")),
             }
         }
 
@@ -282,29 +219,9 @@ impl HeadlessServer {
             .filter(|pid| process_exists(*pid) || process_group_exists(*pid))
             .collect::<Vec<_>>();
         Err(format!(
-            "close failures: {close_failures:?}; listed terminals: {listed:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
+            "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
         ))
     }
-}
-
-#[cfg(unix)]
-/// Creates an executable script without this process ever holding a write descriptor for it.
-/// Tests run on many threads, and a sibling test that forks while such a descriptor is open
-/// hands a copy to its child until that child execs; running the script then fails with
-/// ETXTBSY ("Text file busy"). A short-lived `sh` opens, writes, and closes the file in its own
-/// process, so no fork of this process can inherit it.
-#[cfg(unix)]
-fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
-    use std::io::Write as _;
-    let path = path.as_ref();
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
-    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
 }
 
 #[cfg(unix)]
@@ -369,9 +286,6 @@ fn print_daemon_log(dir: &std::path::Path) {
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         if std::thread::panicking() {
-            // A failed assertion (for example an indeterminate terminal
-            // write) is explained by what the daemon logged before it.
-            eprintln!("headless daemon stderr before the failure:\n{}", self.stderr_tail());
             print_daemon_log(&self.dir);
         }
         // Durable terminal hosts intentionally outlive the daemon. Tests must
@@ -385,10 +299,7 @@ impl Drop for HeadlessServer {
         if let Err(error) = hosts_stopped
             && !std::thread::panicking()
         {
-            panic!(
-                "headless CLI fixture left a durable terminal-host process behind: {error}\ndaemon stderr:\n{}",
-                self.stderr_tail()
-            );
+            panic!("headless CLI fixture left a durable terminal-host process behind: {error}");
         }
     }
 }
@@ -462,27 +373,8 @@ fn wait_for_socket_path(path: &std::path::Path) {
     panic!("server did not accept connections at {}", path.display());
 }
 
-/// The server answers ordinary requests as soon as its socket accepts, but
-/// its lifecycle commands (`server status`, `reload-config`, `stop`) only
-/// once it is lifecycle-ready (`Mux::mark_server_lifecycle_ready`); before
-/// that they refuse with "still starting". A test that sends a lifecycle
-/// command right after a start waits for that readiness, not for the socket.
-#[cfg(unix)]
-fn wait_for_lifecycle_ready(path: &std::path::Path) {
-    wait_for_socket_path(path);
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while Instant::now() < deadline {
-        let identity = json_socket_request(path, serde_json::json!({"id":1,"cmd":"identify"}));
-        if identity["lifecycle_ready"].as_bool() == Some(true) {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    panic!("server at {} never became lifecycle-ready", path.display());
-}
-
 fn lifecycle_cli(args: &[&str]) -> Output {
-    Command::new(bin())
+    cmux_command()
         .args(args)
         .env("LC_ALL", "C")
         .env("LC_MESSAGES", "C")
@@ -658,7 +550,7 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
         let output = lifecycle_cli(args);
         assert_success(&output);
         let help = String::from_utf8(output.stdout).unwrap();
-        assert!(help.contains("cmux daemon"), "{help}");
+        assert!(help.contains("cmux server"), "{help}");
         assert!(!help.contains("cmux [OPTIONS]           Start a session"), "{help}");
     }
 
@@ -692,6 +584,16 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
     let scope_error = String::from_utf8(scope_typo.stderr).unwrap();
     assert!(scope_error.contains("Did you mean `server`?"), "{scope_error}");
     assert!(!scope_error.contains("START OPTIONS"), "{scope_error}");
+}
+
+#[test]
+fn server_start_hint_survives_misplaced_startup_switches() {
+    for option in ["--ephemeral", "--ws-insecure-bind"] {
+        let output = lifecycle_cli(&[option, "server", "start"]);
+        assert_eq!(output.status.code(), Some(2));
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("after `server start`"), "{option}: {error}");
+    }
 }
 
 #[test]
@@ -815,7 +717,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert_success(&remote_help);
     let remote_help = String::from_utf8(remote_help.stdout).unwrap();
     assert!(
-        remote_help.contains("USAGE: cmux remote connect|ssh|exec|cp|forward|rpc [OPTIONS]"),
+        remote_help.contains("USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]"),
         "{remote_help}"
     );
     assert!(remote_help.contains("cmux remote enroll <ACTION> [OPTIONS]"), "{remote_help}");
@@ -843,7 +745,7 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     assert!(typo_help.contains("cmux remote connect"), "{typo_help}");
 
     let unknown_remote_action = lifecycle_cli(&["remote", "frobnicate"]);
-    assert_eq!(unknown_remote_action.status.code(), Some(2));
+    assert_eq!(unknown_remote_action.status.code(), Some(1));
     let error = String::from_utf8(unknown_remote_action.stderr).unwrap();
     assert!(error.contains("unknown remote action \"frobnicate\""), "{error}");
 
@@ -972,7 +874,7 @@ fn explicit_session_overrides_an_inherited_socket_route() {
         .unwrap();
     });
     let inherited = unique_temp_dir("inherited-wrong-route").join("wrong.sock");
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--json", "--session", &session, "server", "status"])
         .env("CMUX_TUI_SOCKET", &inherited)
         .env_remove("CMUX_MUX_SOCKET")
@@ -984,7 +886,7 @@ fn explicit_session_overrides_an_inherited_socket_route() {
 }
 
 #[test]
-fn bare_daemon_without_an_action_fails_before_process_work() {
+fn removed_daemon_entrypoint_fails_before_process_work_with_precise_migration() {
     let root = unique_temp_dir("removed-daemon-entrypoint");
     let socket = root.join("must-not-create.sock");
     let state = root.join("must-not-create-state");
@@ -997,9 +899,10 @@ fn bare_daemon_without_an_action_fails_before_process_work() {
     ]);
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
-    // `daemon` is the lifecycle again (decision D1): no action, usage error.
     let error = String::from_utf8(output.stderr).unwrap();
-    assert!(!error.is_empty() && !error.contains("START OPTIONS"), "{error}");
+    assert!(error.contains("`cmux daemon` was renamed to `cmux server start`"), "{error}");
+    assert!(error.contains("cmux server start --help"), "{error}");
+    assert!(!error.contains("START OPTIONS"), "{error}");
     assert!(!socket.exists());
     assert!(!state.exists());
 }
@@ -1024,7 +927,7 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
     assert_eq!(error["code"], "server.unavailable");
     assert!(!error["message"].as_str().unwrap().contains(socket.to_str().unwrap()));
 
-    // This is the binary-level spelling reached by `uvx cmux daemon stop`.
+    // This is the binary-level spelling reached by `uvx cmux server stop`.
     let human = lifecycle_cli(&[
         "server",
         "stop",
@@ -1079,7 +982,7 @@ fn absent_server_stop_serializes_a_non_utf8_inherited_socket_path() {
     let dir = TestTempDir::create("server-stop-non-utf8-socket");
     let dir = dir.path();
     let socket = dir.join(std::ffi::OsString::from_vec(b"mux-\xff.sock".to_vec()));
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--json", "server", "stop"])
         .env("CMUX_TUI_SOCKET", &socket)
         .env_remove("CMUX_MUX_SOCKET")
@@ -1250,6 +1153,9 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
             })
         )
         .unwrap();
+        // Hold the connection until the CLI closes it (EOF). macOS rejects the
+        // CLI's read timeout (EINVAL) on a socket whose peer already closed.
+        let _ = reader.read_to_end(&mut Vec::new());
     });
 
     let output = lifecycle_cli(&[
@@ -1270,55 +1176,92 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
 
 #[cfg(unix)]
 #[test]
+fn starting_server_status_is_retryable() {
+    let dir = unique_temp_dir("server-status-starting");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("owned.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let thread = std::thread::spawn(move || {
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(identify["cmd"], "identify");
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": identify["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "still-starting",
+                    "pid": 4242,
+                    "generation": "generation-a",
+                    "capabilities": [],
+                    "lifecycle_ready": false
+                }
+            })
+        )
+        .unwrap();
+        // Hold the connection until the CLI closes it (EOF). macOS rejects the
+        // CLI's read timeout (EINVAL) on a socket whose peer already closed.
+        let _ = reader.read_to_end(&mut Vec::new());
+    });
+
+    let output = lifecycle_cli(&[
+        "--json",
+        "server",
+        "status",
+        "--session",
+        "still-starting",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    thread.join().unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "server.unavailable");
+    // The message says to retry, so the error says so too.
+    assert_eq!(error["retryable"], true, "{error}");
+    assert_eq!(error["details"]["reason"], "starting", "{error}");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
     fn fake_server(listener: UnixListener, identified_session: &'static str, expect_stop: bool) {
-        // Answers the identify a new connection opens with; returns its reader and writer.
-        let identify = |stream: UnixStream| {
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut writer = stream;
-            let mut request = String::new();
-            reader.read_line(&mut request).unwrap();
-            let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
-            assert_eq!(identify_request["cmd"], "identify");
-            writeln!(
-                writer,
-                "{}",
-                serde_json::json!({
-                    "id": identify_request["id"],
-                    "ok": true,
-                    "data": {
-                        "app": "cmux-tui",
-                        "session": identified_session,
-                        "pid": 4242,
-                        "generation": "generation-a",
-                        "capabilities": ["daemon-handoff-force-v1"]
-                    }
-                })
-            )
-            .unwrap();
-            (reader, writer)
-        };
-        // `server stop` first waits for a restoring owner on a connection of its own
-        // (e64eb4d6735: an identify it closes once the owner is ready), then runs the
-        // lifecycle exchange on another one: every connection gets its identify answered,
-        // and one that sends nothing more is the wait's.
-        let mut first = true;
-        let (mut writer, request) = loop {
-            let timeout = Duration::from_secs(if first { 5 } else { 2 });
-            first = false;
-            let Ok(stream) = accept_with_timeout(&listener, timeout) else {
-                assert!(!expect_stop, "the stop never sent shutdown-daemon");
-                return;
-            };
-            let (mut reader, writer) = identify(stream);
-            let mut request = String::new();
-            let _ = reader.read_line(&mut request);
-            if request.is_empty() {
-                continue;
-            }
-            assert!(expect_stop, "a refused stop sent {request}");
-            break (writer, request);
-        };
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(identify_request["cmd"], "identify");
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": identify_request["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": identified_session,
+                    "pid": 4242,
+                    "generation": "generation-a",
+                    "capabilities": ["daemon-handoff-force-v1"]
+                }
+            })
+        )
+        .unwrap();
+        if !expect_stop {
+            return;
+        }
+        request.clear();
+        reader.read_line(&mut request).unwrap();
         let request: serde_json::Value = serde_json::from_str(&request).unwrap();
         assert_eq!(request["cmd"], "shutdown-daemon");
         assert_eq!(request["pid"], 4242);
@@ -1397,7 +1340,7 @@ fn named_server_status_stop_alias_and_durable_restart_preserve_topology() {
     let socket = dir.join("mux.sock");
     let state = dir.join("state");
     let spawn = || {
-        Command::new(bin())
+        cmux_command()
             .args(["--session", "durable", "server", "start", "--socket"])
             .arg(&socket)
             .arg("--state")
@@ -1409,7 +1352,7 @@ fn named_server_status_stop_alias_and_durable_restart_preserve_topology() {
     };
 
     let mut first = spawn();
-    wait_for_lifecycle_ready(&socket);
+    wait_for_socket_path(&socket);
     let create = lifecycle_cli(&[
         "--json",
         "--socket",
@@ -1449,7 +1392,7 @@ fn named_server_status_stop_alias_and_durable_restart_preserve_topology() {
     assert!(wait_for_child_exit(&mut first, Duration::from_secs(10)));
 
     let mut restarted = spawn();
-    wait_for_lifecycle_ready(&socket);
+    wait_for_socket_path(&socket);
     let workspaces =
         lifecycle_cli(&["--json", "--socket", socket.to_str().unwrap(), "workspace", "list"]);
     assert_success(&workspaces);
@@ -1506,7 +1449,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
     let state = dir.join("platform-state");
-    let child = Command::new(bin())
+    let child = cmux_command()
         .args(["--headless", "--socket"])
         .arg(&socket)
         .env("CMUX_TUI_STATE_DIR", &state)
@@ -1515,7 +1458,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let server = HeadlessServer::adopt(child, socket, state, dir);
+    let server = HeadlessServer { child, socket, state, dir };
     server.wait_for_socket();
 
     let registry_exists = || {
@@ -1627,7 +1570,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     }
 
     let launch = |locale: &str| {
-        let mut command = Command::new(bin());
+        let mut command = cmux_command();
         command
             .args(["--headless", "--session", session, "--socket"])
             .arg(&socket)
@@ -1862,7 +1805,7 @@ fn session_reset_state_rejects_global_routing_options() {
     for (option, value) in
         [("--socket", "ignored.sock"), ("--session", "ignored"), ("--machine", "ignored")]
     {
-        let output = Command::new(bin())
+        let output = cmux_command()
             .args(["--json", option, value, "session", "target", "reset-state", "--state"])
             .arg(&state)
             .env_remove("CMUX_TUI_SOCKET")
@@ -1920,7 +1863,7 @@ fn session_reset_state_removes_only_the_named_saved_state() {
     connection.execute("UPDATE meta SET value = '999' WHERE key = 'schema_version'", []).unwrap();
     drop(connection);
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", stale_session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -1937,7 +1880,7 @@ fn session_reset_state_removes_only_the_named_saved_state() {
     assert!(stale_database.exists(), "preview removed stale database");
     assert!(stale_host_root.exists(), "preview removed stale terminal-host state");
 
-    let rejected = Command::new(bin())
+    let rejected = cmux_command()
         .args(["session", stale_session, "reset-state", "--force", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -1947,7 +1890,7 @@ fn session_reset_state_removes_only_the_named_saved_state() {
     assert!(stale_database.exists(), "rejected force removed stale database");
     assert!(stale_host_root.exists(), "rejected force removed stale terminal-host state");
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             stale_session,
@@ -1983,7 +1926,7 @@ fn session_reset_state_refuses_live_terminal_host_state() {
     let database = find_session_database(&state, session);
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
     let _live_host = create_live_terminal_host_record(&host_root);
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -1993,7 +1936,7 @@ fn session_reset_state_refuses_live_terminal_host_state() {
     let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
     let confirm_reset = preview["confirm_reset"].as_str().unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2043,7 +1986,7 @@ fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
         .open(&live_marker)
         .unwrap();
     assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2053,7 +1996,7 @@ fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
     let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
     let confirm_reset = preview["confirm_reset"].as_str().unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2095,7 +2038,7 @@ fn session_reset_state_removes_dead_orphan_terminal_host_live_marker() {
         .mode(0o600)
         .open(&live_marker)
         .unwrap();
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2105,7 +2048,7 @@ fn session_reset_state_removes_dead_orphan_terminal_host_live_marker() {
     let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
     let confirm_reset = preview["confirm_reset"].as_str().unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2139,7 +2082,7 @@ fn session_reset_state_rejects_stale_preview_when_targets_change() {
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
     assert!(!host_root.exists());
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2153,7 +2096,7 @@ fn session_reset_state_rejects_stale_preview_when_targets_change() {
     fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
     fs::write(host_root.join("sentinel"), b"new-host-state").unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2186,7 +2129,7 @@ fn session_reset_state_rejects_preview_for_recreated_registry() {
     let original_database = find_session_database(&state, session);
     let session_dir = original_database.parent().unwrap().to_path_buf();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2200,7 +2143,7 @@ fn session_reset_state_rejects_preview_for_recreated_registry() {
     drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
     let recreated_database = find_session_database(&state, session);
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2232,7 +2175,7 @@ fn session_reset_state_rejects_preview_when_session_sidecar_appears() {
     let database = find_session_database(&state, session);
     let session_dir = database.parent().unwrap();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2245,7 +2188,7 @@ fn session_reset_state_rejects_preview_when_session_sidecar_appears() {
     let sidecar = session_dir.join("workspace-registry.sqlite3-wal");
     fs::write(&sidecar, b"new-sidecar-state").unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2280,7 +2223,7 @@ fn session_reset_state_rejects_preview_when_nested_session_file_appears() {
     fs::create_dir_all(&nested_dir).unwrap();
     fs::write(nested_dir.join("previewed"), b"old").unwrap();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2293,7 +2236,7 @@ fn session_reset_state_rejects_preview_when_nested_session_file_appears() {
     let unpreviewed = nested_dir.join("unpreviewed");
     fs::write(&unpreviewed, b"new").unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2327,7 +2270,7 @@ fn session_reset_state_bad_token_does_not_mutate_state_root() {
     let session_dir = resetter.session_dir(session);
     fs::create_dir_all(&session_dir).unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2366,7 +2309,7 @@ fn session_reset_state_rejects_symlinked_terminal_host_state() {
     fs::write(&outside_sentinel, b"outside").unwrap();
     symlink(&outside_host_root, &host_root).unwrap();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2376,7 +2319,7 @@ fn session_reset_state_rejects_symlinked_terminal_host_state() {
     let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
     let confirm_reset = preview["confirm_reset"].as_str().unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2416,7 +2359,7 @@ fn session_reset_state_rejects_symlinked_state_root() {
     fs::create_dir_all(&host_root).unwrap();
     fs::write(host_root.join("orphaned-sidecar"), b"stale").unwrap();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2426,7 +2369,7 @@ fn session_reset_state_rejects_symlinked_state_root() {
     let preview_error: serde_json::Value = serde_json::from_slice(&preview.stderr).unwrap();
     assert_eq!(preview_error["code"], "session.reset_state.filesystem");
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "--json",
             "session",
@@ -2462,7 +2405,7 @@ fn session_reset_state_missing_target_does_not_mutate_state_root() {
     fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(state.join("sentinel"), b"keep").unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args(["--json", "session", "missing-session", "reset-state", "--force", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2488,7 +2431,7 @@ fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
     let second_socket = dir.join("second.sock");
     let state = dir.join("state");
     let spawn = |socket: &std::path::Path| {
-        Command::new(bin())
+        cmux_command()
             .args(["--headless", "--session", "durable", "--socket"])
             .arg(socket)
             .arg("--state")
@@ -2550,7 +2493,7 @@ fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
 #[cfg(unix)]
 #[test]
 fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
-    let machine_agent = Command::new(bin())
+    let machine_agent = cmux_command()
         .env("LC_ALL", "C")
         .env("LC_MESSAGES", "C")
         .env("LANG", "C")
@@ -2564,7 +2507,7 @@ fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
     assert!(!help.contains("cmux machine register"));
     assert!(!help.contains("BatchMode"));
 
-    let version = Command::new(bin()).arg("--version").output().unwrap();
+    let version = cmux_command().arg("--version").output().unwrap();
     assert_success(&version);
     assert!(String::from_utf8(version.stdout).unwrap().starts_with("cmux "));
 }
@@ -2586,7 +2529,7 @@ fn ghostty_config_helper_outputs_resolved_file_defaults() {
     )
     .unwrap();
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .arg("__ghostty-config-defaults")
         .env("HOME", dir.join("home"))
         .env("CFFIXED_USER_HOME", dir.join("home"))
@@ -2626,7 +2569,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
     fs::write(theme_dir.join("Dark Direct Probe"), "foreground = #010203\n").unwrap();
     fs::write(theme_dir.join("Light Direct Probe"), "foreground = #a0b0c0\n").unwrap();
     let gdbus = bin_dir.join("gdbus");
-    write_executable(
+    cmux_test_exec::write_executable(
         &gdbus,
         "#!/bin/sh\n\
          if [ \"${CMUX_MACHINE_PROVIDER_TOKEN+x}\" = x ] || [ \"${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}\" = x ]; then\n\
@@ -2634,9 +2577,10 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
          \texit 0\n\
          fi\n\
          printf '(<uint32 1>,)\\n'\n",
-    );
+    )
+    .unwrap();
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .arg("__ghostty-config-defaults")
         .env("HOME", dir.join("home"))
         .env("CFFIXED_USER_HOME", dir.join("home"))
@@ -2661,7 +2605,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
 #[cfg(unix)]
 #[test]
 fn machine_agent_argument_failures_are_stable_and_localized() {
-    let output = Command::new(bin())
+    let output = cmux_command()
         .env("LC_ALL", "ja_JP.UTF-8")
         .env("LC_MESSAGES", "ja_JP.UTF-8")
         .env("LANG", "ja_JP.UTF-8")
@@ -2710,7 +2654,7 @@ fn known_daemon_human_output_uses_selected_locale() {
     fs::set_permissions(&known, fs::Permissions::from_mode(0o600)).unwrap();
 
     let localized = |arguments: &[&str]| {
-        Command::new(bin())
+        cmux_command()
             .args(arguments)
             .arg("--state-dir")
             .arg(&dir)
@@ -2735,7 +2679,7 @@ fn known_daemon_human_output_uses_selected_locale() {
     assert_eq!(forget, "デーモン enrolled-fingerprint を削除しました。\n");
 
     let empty_dir = unique_temp_dir("known-daemon-empty-locale");
-    let empty = Command::new(bin())
+    let empty = cmux_command()
         .args(["known-daemons", "--state-dir"])
         .arg(&empty_dir)
         .env("LC_ALL", "ja_JP.UTF-8")
@@ -2758,7 +2702,7 @@ fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
         ["pane", PANE, "split", "--right", "--ratio", "NaN"].as_slice(),
         ["pane", PANE, "split", "ratio", "set", "--split", SPLIT, "--ratio", "NaN"].as_slice(),
     ] {
-        let output = Command::new(bin())
+        let output = cmux_command()
             .env("LC_ALL", "ja_JP.UTF-8")
             .env("LC_MESSAGES", "ja_JP.UTF-8")
             .env("LANG", "ja_JP.UTF-8")
@@ -2790,13 +2734,19 @@ fn noun_first_viewport_width_rejects_invalid_values_before_connecting() {
             "--viewport-width requires --right",
         ),
     ] {
-        let output = Command::new(bin()).args(args).output().unwrap();
+        let output = cmux_command().args(args).output().unwrap();
         assert_eq!(output.status.code(), Some(2));
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(stderr.starts_with("cmux: "), "{stderr}");
         assert!(stderr.contains(expected), "{stderr}");
         assert!(!stderr.contains("cmux-tui"), "{stderr}");
     }
+}
+
+#[cfg(unix)]
+struct PtyChild {
+    child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+    output_drain: Option<std::thread::JoinHandle<()>>,
 }
 
 #[cfg(unix)]
@@ -2918,6 +2868,70 @@ impl Drop for TestTempDir {
 }
 
 #[cfg(unix)]
+impl PtyChild {
+    fn start(args: &[&str]) -> Self {
+        Self::start_with_env(args, &[])
+    }
+
+    fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
+        let spawned = spawn_pty_child(args, env);
+        let mut master = spawned.master.try_clone_reader().unwrap();
+        let output_drain = std::thread::spawn(move || {
+            let mut buffer = [0; 8192];
+            while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
+        });
+        Self { child: Some(spawned.child), output_drain: Some(output_drain) }
+    }
+
+    fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
+        let mut child = self.child.take().expect("PTY child already has an exit waiter");
+        let mut killer = child.clone_killer();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let _waiter = std::thread::spawn(move || {
+            let _ = sender.send(child.wait());
+        });
+        match receiver.recv_timeout(timeout) {
+            Ok(status) => Some(status.unwrap()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = killer.kill();
+                match receiver.recv_timeout(Duration::from_secs(5)) {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => {
+                        panic!("interactive owner did not exit cleanly after kill: {error}");
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        let _ = self.output_drain.take();
+                        panic!("interactive owner did not exit after kill");
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        let _ = self.output_drain.take();
+                        panic!("interactive owner exit waiter disconnected after kill");
+                    }
+                }
+                None
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = self.output_drain.take();
+                panic!("interactive owner exit waiter disconnected")
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for PtyChild {
+    fn drop(&mut self) {
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(output_drain) = self.output_drain.take() {
+            let _ = output_drain.join();
+        }
+    }
+}
+
+#[cfg(unix)]
 struct DisconnectablePtyChild {
     child: Box<dyn cmux_pty::Child + Send + Sync>,
     master: Option<Box<dyn cmux_pty::MasterPty + Send>>,
@@ -2987,15 +3001,17 @@ fn startup_does_not_invoke_external_ghostty_config_resolver() {
     let helper = dir.join("ghostty-config-probe");
     let capture = dir.join("resolver-invoked.txt");
     let socket = dir.join("mux.sock");
-    write_executable(
+    fs::write(
         &helper,
         r#"#!/bin/sh
 echo invoked > "$CMUX_TEST_GHOSTTY_CAPTURE"
 exit 0
 "#,
-    );
+    )
+    .unwrap();
+    fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--machine-provider", "/does/not/exist", "--headless", "--socket"])
         .arg(&socket)
         .env("GHOSTTY_BIN", &helper)
@@ -3032,33 +3048,908 @@ fn plain_launch_attaches_to_existing_local_session() {
 }
 
 #[cfg(unix)]
-#[path = "cli/session_shutdown.rs"]
-mod session_shutdown;
+#[test]
+// Quarantined after hosted Linux run 37069452699: the detached-owner client
+// once exited 1 during an orderly shutdown; the rerun passed.
+#[ignore = "hosted lifecycle flake: detached-owner shutdown exit race"]
+fn session_shutdown_exits_an_interactive_detached_owner_client() {
+    let dir = TestTempDir::create("interactive-session-shutdown");
+    let socket = dir.path().join("mux.sock");
+    let socket_arg = socket.to_str().unwrap();
+    let state = dir.path().join("state");
+    let state_arg = state.to_str().unwrap();
+    let config = dir.path().join("config.json");
+    fs::write(&config, r#"{"server":{"detached_owner":true}}"#).unwrap();
+    let mut client = PtyChild::start_with_env(
+        &[
+            "--session",
+            "interactive-session-shutdown",
+            "--socket",
+            socket_arg,
+            "--state",
+            state_arg,
+        ],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
+    wait_for_socket_path(&socket);
+    wait_for_owner_server_ready(&socket, &mut client);
+
+    let shutdown =
+        lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
+    assert_success(&shutdown);
+    assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
+
+    let status = client
+        .wait_for_exit(Duration::from_secs(5))
+        .expect("interactive client remained alive after detached owner shutdown");
+    assert!(status.success(), "interactive client exited unsuccessfully: {status}");
+}
 
 #[cfg(unix)]
-#[path = "cli/apps_store.rs"]
-mod apps_store;
+#[test]
+fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
+    let server = HeadlessServer::start("host-terminal-disconnect");
+    let mut tui = DisconnectablePtyChild::start(&["--socket", server.socket.to_str().unwrap()]);
+    let attach_deadline = Instant::now() + Duration::from_secs(10);
+    let mut attached = false;
+
+    while Instant::now() < attach_deadline {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            panic!("plain launch exited before host disconnect: {status}");
+        }
+        if plain_tui_is_ready(&server) {
+            attached = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(attached, "plain launch never attached to its committed terminal before disconnect");
+
+    tui.disconnect_host_terminal();
+    let exit_deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = tui.child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < exit_deadline,
+            "frontend remained alive after its host terminal disconnected"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    assert!(!status.success(), "host terminal disconnect unexpectedly reported success");
+
+    let ping = json_cli(&server, &["session", "current", "ping"]);
+    assert_success(&ping);
+    assert_eq!(json_output(&ping)["alive"], true);
+}
 
 #[cfg(unix)]
-#[path = "cli/apps_external_server.rs"]
-mod apps_external_server;
+#[test]
+fn explicit_attach_registers_a_full_session_tui_client() {
+    let server = HeadlessServer::start("explicit-attach");
+    let created = json_cli(&server, &["workspace", "create", "--name", "single"]);
+    assert_success(&created);
+    let created = json_output(&created);
+    let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
+    let pane = created["value"]["pane_id"].as_str().unwrap().to_string();
+    let second = json_cli(&server, &["tab", "create", "terminal", "--pane", pane.as_str()]);
+    assert_success(&second);
+    let second_terminal =
+        json_output(&second)["value"]["terminal_id"].as_str().unwrap().to_string();
+
+    let clients_before = json_cli(&server, &["client", "list"]);
+    assert_success(&clients_before);
+    assert!(
+        json_output(&clients_before)
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|client| client["client_kind"].as_str() != Some("tui"))
+    );
+
+    let mut tui = PtyChild::start(&["attach", "--socket", server.socket.to_str().unwrap()]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if let Some(status) = tui.child.as_mut().unwrap().try_wait().unwrap() {
+            panic!("explicit attach exited unexpectedly: {status}");
+        }
+        let clients = json_cli(&server, &["client", "list"]);
+        if clients.status.success() {
+            let clients = json_output(&clients);
+            if let Some(client) = clients
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|client| client["client_kind"].as_str() == Some("tui"))
+            {
+                let attached = client["attached_terminal_ids"].as_array().unwrap();
+                if attached.len() < 2 {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
+                let sizes = client["sizes"].as_array().unwrap();
+                if !sizes.iter().any(|size| {
+                    size["cols"].as_u64().is_some_and(|cols| cols > 0)
+                        && size["rows"].as_u64().is_some_and(|rows| rows > 0)
+                }) {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
+                assert!(attached.iter().any(|id| id.as_str() == Some(terminal.as_str())));
+                assert!(attached.iter().any(|id| id.as_str() == Some(second_terminal.as_str())));
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    panic!("explicit attach never registered the full session");
+}
 
 #[cfg(unix)]
-#[path = "cli/apps_store_sections.rs"]
-mod apps_store_sections;
+#[test]
+fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
+    let server = HeadlessServer::start("scoped-terminal-attach-lifecycle");
+    let created = json_cli(&server, &["tab", "create", "terminal"]);
+    assert_success(&created);
+    let terminal = json_output(&created)["value"]["terminal_id"]
+        .as_str()
+        .expect("terminal creation returns a terminal id")
+        .to_string();
+
+    let first_marker = "scoped_attach_lifecycle_marker";
+    let write = json_cli(
+        &server,
+        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\n")],
+    );
+    assert_success(&write);
+    assert!(
+        wait_for_screen(&server, &terminal, first_marker).contains(first_marker),
+        "daemon terminal did not produce the attach marker"
+    );
+
+    let socket = server.socket.to_str().unwrap();
+    let mut attached =
+        CapturingPtyChild::start(&["attach", "--socket", socket, "--terminal", &terminal]);
+    let output = attached.wait_for_output(first_marker, Duration::from_secs(10));
+    assert!(
+        output.windows(first_marker.len()).any(|window| window == first_marker.as_bytes()),
+        "scoped attach PTY did not replay terminal output: {}",
+        String::from_utf8_lossy(&output)
+    );
+
+    let clients_deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < clients_deadline {
+        let clients = json_cli(&server, &["client", "list"]);
+        if clients.status.success()
+            && json_output(&clients).as_array().is_some_and(|clients| {
+                clients.iter().any(|client| {
+                    client["client_kind"].as_str() == Some("tui")
+                        && client["attached_terminal_ids"].as_array().is_some_and(|ids| {
+                            ids.len() == 1 && ids[0].as_str() == Some(terminal.as_str())
+                        })
+                })
+            })
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let clients = json_output(&json_cli(&server, &["client", "list"]));
+    assert!(
+        clients.as_array().is_some_and(|clients| {
+            clients.iter().any(|client| {
+                client["client_kind"].as_str() == Some("tui")
+                    && client["attached_terminal_ids"].as_array().is_some_and(|ids| {
+                        ids.len() == 1 && ids[0].as_str() == Some(terminal.as_str())
+                    })
+            })
+        }),
+        "scoped attach did not register exactly one terminal: {clients}"
+    );
+
+    attached.write(b"\x02d");
+    let status = attached
+        .wait_for_exit(Duration::from_secs(10))
+        .expect("scoped attach did not exit after Ctrl-b d");
+    assert!(status.success(), "scoped attach exited unsuccessfully: {status}");
+
+    let second_marker = "scoped_attach_after_detach_marker";
+    let write = json_cli(
+        &server,
+        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\n")],
+    );
+    assert_success(&write);
+    assert!(
+        wait_for_screen(&server, &terminal, second_marker).contains(second_marker),
+        "daemon terminal stopped accepting input after scoped detach"
+    );
+}
 
 #[cfg(unix)]
-#[path = "cli/stop_start_lock.rs"]
-mod stop_start_lock;
+#[test]
+fn graceful_shutdown_stops_server_owned_sidebar_process() {
+    let mut server = HeadlessServer::start_with_config(
+        "sidebar-host-shutdown",
+        Some(r#"{"sidebar":{"plugin":{"command":["/bin/cat"]}}}"#),
+    );
+    let sidebar = try_json_socket_request(
+        &server.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "sidebar-plugin",
+            "cols": 20,
+            "rows": 8,
+            "relaunch": true,
+        }),
+    )
+    .expect("start configured sidebar plugin");
+    let surface = sidebar["surface"].as_u64().expect("sidebar plugin surface");
+    let plugin_pid = try_json_socket_request(
+        &server.socket,
+        serde_json::json!({"id": 2, "cmd": "process-info", "surface": surface}),
+    )
+    .and_then(|response| response["pid"].as_u64())
+    .and_then(|pid| u32::try_from(pid).ok())
+    .expect("sidebar plugin PID");
+
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    let records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
+        .expect("load sidebar terminal-host record");
+    let used_durable_host = !records.is_empty();
+    let mut owned_pids = vec![plugin_pid];
+    owned_pids.extend(records.iter().map(|(_, record)| record.host_pid));
+
+    let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
+    // SAFETY: this PID is the live child owned by the test fixture.
+    assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
+    let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
+    let owned_processes_stopped = wait_for_processes_to_exit(&owned_pids, Duration::from_secs(5));
+
+    // Keep lifecycle regressions leak-free. Every captured process group and
+    // record belongs to this fixture's private state root.
+    if !owned_processes_stopped {
+        for pid in &owned_pids {
+            signal_test_process_group(*pid, libc::SIGTERM);
+        }
+        if !wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
+            for pid in &owned_pids {
+                signal_test_process_group(*pid, libc::SIGKILL);
+            }
+            assert!(
+                wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)),
+                "fixture could not reap its isolated sidebar processes"
+            );
+        }
+        for (record_path, record) in &records {
+            let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
+                record_path,
+                record,
+            );
+        }
+    }
+
+    assert!(server_stopped, "SIGINT did not complete graceful server shutdown");
+    assert!(
+        !used_durable_host,
+        "server-owned sidebar process entered the durable terminal-host registry"
+    );
+    assert!(
+        owned_processes_stopped,
+        "graceful shutdown left its server-owned sidebar process alive"
+    );
+}
 
 #[cfg(unix)]
-#[path = "cli/pty_child.rs"]
-mod pty_child;
-#[cfg(unix)]
-use pty_child::PtyChild;
+#[test]
+fn configured_websocket_server_does_not_attach_to_existing_session() {
+    let server = HeadlessServer::start("configured-websocket-server");
+    let config = server.dir.join("config.json");
+    fs::write(&config, r#"{"server":{"ws":"127.0.0.1:0"}}"#).unwrap();
+    let mut tui = PtyChild::start_with_env(
+        &["--socket", server.socket.to_str().unwrap()],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
 
-#[path = "cli/attach_and_raw.rs"]
-mod attach_and_raw;
+    while Instant::now() < deadline {
+        if let Some(status) = tui.child.as_mut().unwrap().try_wait().unwrap() {
+            assert!(!status.success(), "server launch unexpectedly succeeded");
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    panic!("configured WebSocket server attached instead of preserving server mode");
+}
+
+#[cfg(unix)]
+#[test]
+fn raw_command_is_the_explicit_private_protocol_v10_escape() {
+    let dir = unique_temp_dir("raw-client-sizing");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut writer = stream.try_clone().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({"id":"raw-sizing","ok":true,"data":{"changed":true}})
+        )
+        .unwrap();
+        request
+    });
+
+    let output = cmux_command()
+        .args(["--json", "--socket"])
+        .arg(&socket)
+        .args([
+            "raw",
+            "command",
+            "--request-json",
+            r#"{"id":"raw-sizing","cmd":"set-client-sizing","surface":9,"client":7,"enabled":false}"#,
+        ])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    let request = server.join().unwrap();
+    fs::remove_dir_all(dir).unwrap();
+
+    assert_success(&output);
+    assert_eq!(
+        request,
+        serde_json::json!({
+            "id":"raw-sizing",
+            "cmd":"set-client-sizing",
+            "surface":9,
+            "client":7,
+            "enabled":false,
+        })
+    );
+    assert_eq!(json_output(&output), serde_json::json!({"changed":true}));
+}
+
+#[test]
+fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
+    let server = HeadlessServer::start("matrix");
+
+    let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
+    assert_success(&identify);
+    assert!(
+        String::from_utf8_lossy(&identify.stdout)
+            .contains(&format!("\"protocol\":{}", cmux_tui_core::server::PROTOCOL_VERSION))
+    );
+
+    let identify_json =
+        raw_cli(&server, serde_json::json!({"id":"identify-json","cmd":"identify"}));
+    assert_success(&identify_json);
+    let value = json_output(&identify_json);
+    assert_eq!(value.get("app").and_then(|v| v.as_str()), Some("cmux-tui"));
+    assert!(value.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0) >= 5);
+
+    let session = json_cli(&server, &["session", "current", "show"]);
+    assert_success(&session);
+    assert!(json_output(&session)["id"].as_str().unwrap().starts_with("session_"));
+
+    let ping_json = json_cli(&server, &["session", "current", "ping"]);
+    assert_success(&ping_json);
+    let ping = json_output(&ping_json);
+    assert_eq!(ping.get("alive").and_then(|v| v.as_bool()), Some(true));
+    assert!(ping["cursor"]["generation"].is_string());
+
+    let client_info = json_cli(
+        &server,
+        &["client", "current", "label", "set", "--name", "one-shot", "--kind", "cli-test"],
+    );
+    assert_success(&client_info);
+    assert_eq!(json_output(&client_info)["name"], "one-shot");
+
+    let target = transport::connect(&server.socket).unwrap();
+    let mut target_writer = target.try_clone_box().unwrap();
+    let mut target_reader = BufReader::new(target);
+    writeln!(
+        target_writer,
+        r#"{{"id":1,"cmd":"set-client-info","name":"cli-detach-target","kind":"test"}}"#
+    )
+    .unwrap();
+    let mut target_response = String::new();
+    target_reader.read_line(&mut target_response).unwrap();
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&target_response).unwrap()["ok"], true);
+
+    let sizing_workspace = json_cli(&server, &["workspace", "create", "--name", "cli-test"]);
+    assert_success(&sizing_workspace);
+    let created = json_output(&sizing_workspace);
+    let workspace_id = created["value"]["workspace_id"].as_str().unwrap().to_string();
+    let screen_id = created["value"]["screen_id"].as_str().unwrap().to_string();
+    let pane0 = created["value"]["pane_id"].as_str().unwrap().to_string();
+    let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
+    // Create all terminals before opening the long-lived raw control client.
+    // Terminal creation can rebalance the shared Kitty image budget; keeping
+    // this resource setup ahead of the sizing lease avoids a cross-resource
+    // wait in this fixture.
+    let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
+    assert_success(&split);
+    let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
+    let raw_tree =
+        raw_json(&server, serde_json::json!({"id":"created-tree","cmd":"list-workspaces"}));
+    let sizing_surface =
+        raw_tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["surface"].as_u64().unwrap();
+    writeln!(target_writer, r#"{{"id":2,"cmd":"attach-surface","surface":{sizing_surface}}}"#)
+        .unwrap();
+    loop {
+        target_response.clear();
+        target_reader.read_line(&mut target_response).unwrap();
+        let response = serde_json::from_str::<serde_json::Value>(&target_response).unwrap();
+        if response["id"] == 2 {
+            assert_eq!(response["ok"], true);
+            break;
+        }
+    }
+    writeln!(
+        target_writer,
+        r#"{{"id":3,"cmd":"resize-surface","surface":{sizing_surface},"cols":80,"rows":24}}"#
+    )
+    .unwrap();
+    loop {
+        target_response.clear();
+        target_reader.read_line(&mut target_response).unwrap();
+        let response = serde_json::from_str::<serde_json::Value>(&target_response).unwrap();
+        if response["id"] == 3 {
+            assert_eq!(response["ok"], true);
+            break;
+        }
+    }
+
+    let clients = json_cli(&server, &["client", "list"]);
+    assert_success(&clients);
+    let clients_json = json_output(&clients);
+    let target_id = clients_json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|client| client["name"] == "cli-detach-target")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let clients_human = cli(&server, &["client", "list"]);
+    assert_success(&clients_human);
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("CONNECTED SECONDS"));
+    assert!(String::from_utf8_lossy(&clients_human.stdout).contains("participating"));
+    let excluded = json_cli(
+        &server,
+        &["client", target_id, "sizing", "set", "--terminal", &terminal, "--enabled", "false"],
+    );
+    assert_success(&excluded);
+    let clients = json_cli(&server, &["client", "list"]);
+    assert_success(&clients);
+    let clients_json = json_output(&clients);
+    assert_eq!(
+        clients_json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|client| client["id"] == target_id)
+            .unwrap()["sizes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|size| size["terminal_id"] == terminal)
+            .unwrap()["participating"],
+        false
+    );
+    let detached = cli(&server, &["--quiet", "client", target_id, "detach"]);
+    assert_success(&detached);
+    loop {
+        target_response.clear();
+        if target_reader.read_line(&mut target_response).unwrap() == 0 {
+            break;
+        }
+    }
+
+    let title = cli(
+        &server,
+        &["--quiet", "session", "current", "window", "title", "set", "--title", "hello"],
+    );
+    assert_success(&title);
+    assert!(title.stdout.is_empty(), "--quiet mutation wrote output");
+
+    let surface = sizing_surface;
+    assert!(surface > 0);
+    let snapshot = json_cli(&server, &["session", "current", "snapshot"]);
+    assert_success(&snapshot);
+    let tree_json = json_output(&snapshot);
+    let screen = tree_json["screens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|candidate| candidate["id"] == screen_id)
+        .unwrap();
+    assert!(
+        screen["layout"]["root"].get("columns").is_none(),
+        "ordinary public layout unexpectedly used viewport columns"
+    );
+
+    let projected = json_cli(
+        &server,
+        &[
+            "terminal",
+            &terminal,
+            "project",
+            "--workspace",
+            &workspace_id,
+            "--screen",
+            &screen_id,
+            "--pane",
+            &pane1,
+            "--index",
+            "0",
+            "--name",
+            "mirror",
+        ],
+    );
+    assert_success(&projected);
+    let projected = json_output(&projected);
+    assert_eq!(projected["value"]["focused"], false);
+    let projected_tab = projected["value"]["id"].as_str().unwrap();
+    let terminals = json_cli(&server, &["terminal", "list"]);
+    assert_success(&terminals);
+    let terminals = json_output(&terminals);
+    let source =
+        terminals.as_array().unwrap().iter().find(|candidate| candidate["id"] == terminal).unwrap();
+    assert_eq!(source["tab_ids"].as_array().unwrap().len(), 2);
+    let snapshot = json_cli(&server, &["session", "current", "snapshot"]);
+    assert_success(&snapshot);
+    let snapshot_json = json_output(&snapshot);
+    let projected_record = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"].as_str() == Some(projected_tab))
+        .unwrap();
+    assert_eq!(projected_record["pane_id"], pane1);
+    assert_eq!(projected_record["focused"], false);
+    let focused_tab = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == pane1 && tab["focused"] == true)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(focused_tab, projected_tab);
+
+    let new_pane = json_cli(
+        &server,
+        &["screen", &screen_id, "pane", "create", "--cols", "80", "--rows", "24"],
+    );
+    assert_success(&new_pane);
+
+    let exported = json_cli(&server, &["screen", &screen_id, "layout", "export"]);
+    assert_success(&exported);
+    let exported_json = json_output(&exported);
+    assert_eq!(exported_json["root"]["kind"].as_str(), Some("split"));
+    assert_eq!(layout_leaf_count(&exported_json["root"]), 3);
+    let split_id = first_layout_split_id(&exported_json["root"]).unwrap();
+
+    let exact_ratio = json_cli(
+        &server,
+        &["pane", &pane0, "split", "ratio", "set", "--split", split_id, "--ratio", "0.7"],
+    );
+    assert_success(&exact_ratio);
+    let exported = json_cli(&server, &["screen", &screen_id, "layout", "export"]);
+    let exported_json = json_output(&exported);
+    let ratio = layout_split_ratio(&exported_json["root"], split_id).unwrap();
+    assert!((ratio - 0.7).abs() < 0.0001, "layout ratio was {ratio}");
+
+    let neighbor = json_cli(&server, &["pane", &pane0, "neighbor", "right"]);
+    assert_success(&neighbor);
+    let neighbor_json = json_output(&neighbor);
+    let neighboring_pane = neighbor_json["pane"]["id"].as_str().unwrap();
+    assert_ne!(pane0, neighboring_pane);
+
+    let focus = json_cli(&server, &["pane", &pane0, "focus", "direction", "right"]);
+    assert_success(&focus);
+    let focus_json = json_output(&focus);
+    assert_ne!(focus_json["value"]["id"].as_str(), Some(pane0.as_str()));
+
+    let zoom = json_cli(&server, &["pane", &pane1, "zoom", "--enabled", "true"]);
+    assert_success(&zoom);
+    let zoom_json = json_output(&zoom);
+    assert_eq!(zoom_json["value"]["zoomed"].as_bool(), Some(true));
+    assert_eq!(zoom_json["value"]["id"].as_str(), Some(pane1.as_str()));
+
+    let raw_tree =
+        raw_json(&server, serde_json::json!({"id":"pre-viewport-tree","cmd":"list-workspaces"}));
+    let raw_screen = &raw_tree["workspaces"][0]["screens"][0];
+    let raw_pane = raw_screen["active_pane"].as_u64().unwrap();
+    let viewport_pane = raw_json(
+        &server,
+        serde_json::json!({
+            "id":"new-viewport-pane",
+            "cmd":"new-pane-right",
+            "pane":raw_pane,
+            "cols":51,
+            "rows":22,
+        }),
+    );
+    let viewport_surface = viewport_pane["surface"].as_u64().unwrap();
+    assert!(viewport_surface > 0);
+    let tree = raw_json(&server, serde_json::json!({"id":"viewport-tree","cmd":"list-workspaces"}));
+    let viewport_splits =
+        tree["workspaces"][0]["screens"][0]["viewport_splits"].as_array().unwrap();
+    assert_eq!(viewport_splits.len(), 1);
+    let width = viewport_splits[0]["width"].as_f64().unwrap();
+    assert!((width - 2.0 / 3.0).abs() < 0.0001);
+    let viewport_pane = tree["workspaces"][0]["screens"][0]["active_pane"].as_u64().unwrap();
+    raw_json(
+        &server,
+        serde_json::json!({
+            "id":"resize-viewport",
+            "cmd":"set-viewport-pane-width",
+            "pane":viewport_pane,
+            "width":0.5,
+        }),
+    );
+    let base_pane = tree["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+    raw_json(
+        &server,
+        serde_json::json!({
+            "id":"resize-base",
+            "cmd":"set-viewport-pane-width",
+            "pane":base_pane,
+            "width":0.75,
+        }),
+    );
+    let tree = raw_json(&server, serde_json::json!({"id":"resized-tree","cmd":"list-workspaces"}));
+    let screen = &tree["workspaces"][0]["screens"][0];
+    assert_eq!(screen["viewport_base_width"].as_f64(), Some(0.75));
+    assert_eq!(screen["viewport_splits"][0]["width"].as_f64(), Some(0.5));
+
+    let marker = format!("cmux_cli_marker_{}", std::process::id());
+    let send = cli(
+        &server,
+        &["--quiet", "terminal", &terminal, "write", "--text", &format!("echo {marker}\r")],
+    );
+    // A loaded runner can miss the 2 s InputAck window: the daemon then
+    // reports the documented indeterminate outcome (exit 1) instead of
+    // success, as for `keys` below. The marker on the screen proves the
+    // write reached the shell either way.
+    if !send.status.success() {
+        assert_eq!(send.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&send.stderr)
+                .contains("the external effect may have run before its outcome was recorded"),
+            "unexpected terminal write failure: {}",
+            String::from_utf8_lossy(&send.stderr)
+        );
+    }
+    assert!(send.stdout.is_empty(), "--quiet mutation wrote output");
+    let screen = wait_for_screen(&server, &terminal, &marker);
+    assert!(screen.contains(&marker), "screen did not contain marker; got {screen:?}");
+
+    let ids =
+        raw_json(&server, serde_json::json!({"id":"surface-ids","cmd":"ids","kind":"surface"}));
+    assert!(ids["ids"].as_array().unwrap().iter().any(|item| item["id"].as_u64() == Some(surface)));
+
+    let copied = json_cli(&server, &["terminal", &terminal, "copy", "--mode", "screen"]);
+    assert_success(&copied);
+    assert!(json_output(&copied)["text"].as_str().unwrap().contains(&marker));
+
+    let notify = json_cli(&server, &["notification", "create", "--title", "Build", "--body", "ok"]);
+    assert_success(&notify);
+    assert!(json_output(&notify)["value"]["id"].as_str().unwrap().starts_with("notification_"));
+
+    let report = json_cli(
+        &server,
+        &[
+            "agent",
+            "report",
+            "--terminal",
+            &terminal,
+            "--state",
+            "idle",
+            "--source",
+            "socket",
+            "--source-session",
+            "cli",
+        ],
+    );
+    assert_success(&report);
+    let agents = json_cli(&server, &["agent", "list", "--terminal", &terminal]);
+    assert_success(&agents);
+    let agents = json_output(&agents);
+    assert_eq!(agents[0]["state"].as_str(), Some("idle"));
+
+    let send_key = cli(&server, &["--quiet", "terminal", &terminal, "keys", "enter"]);
+    if !send_key.status.success() {
+        assert_eq!(send_key.status.code(), Some(1));
+        assert!(
+            String::from_utf8_lossy(&send_key.stderr)
+                .contains("the external effect may have run before its outcome was recorded"),
+            "unexpected key delivery failure: {}",
+            String::from_utf8_lossy(&send_key.stderr)
+        );
+    }
+    assert!(send_key.stdout.is_empty(), "--quiet key delivery wrote output");
+
+    let select_bare = cli(&server, &["tab"]);
+    assert_eq!(select_bare.status.code(), Some(2));
+
+    // Keep terminal.close focused on its CLI contract; multiview close semantics have dedicated
+    // core coverage.
+    let close_projection = json_cli(&server, &["tab", projected_tab, "close"]);
+    assert_success(&close_projection);
+    let remaining_terminal = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+    assert_success(&remaining_terminal);
+
+    let mut terminal_closed = false;
+    for attempt in 0..3 {
+        let key = format!("matrix-terminal-close-{attempt}");
+        let close = json_cli(&server, &["terminal", &terminal, "close", "--idempotency-key", &key]);
+        if !close.status.success() {
+            assert_eq!(close.status.code(), Some(1));
+            let error = json_error(&close);
+            assert_eq!(error["code"], "mutation.indeterminate");
+            assert_eq!(error["details"]["idempotency_key"], key);
+            assert_eq!(error["details"]["operation"], "terminal.close");
+            assert_eq!(error["details"]["recovery"], "inspect_state_then_retry_with_new_key");
+        }
+
+        let read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+        if !read.status.success() {
+            assert_eq!(read.status.code(), Some(1));
+            assert_eq!(json_error(&read)["code"], "selector.not_found");
+            terminal_closed = true;
+            break;
+        }
+        assert_success(&read);
+        assert!(!close.status.success(), "successful close left the terminal addressable");
+    }
+    assert!(terminal_closed, "terminal remained addressable after three inspected close attempts");
+
+    let bogus = cmux_command()
+        .args(["--json", "--socket"])
+        .arg(server.dir.join("missing.sock"))
+        .args(["session", "current", "show"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(bogus.status.code(), Some(3));
+
+    assert_subscribe_reports_tree_changed(&server);
+}
+
+/// `history clear` on a shell without prompt marks keeps the visible screen
+/// (a pending command line included) and drops the scrollback (cx-6so.48).
+/// Deterministic on purpose: bash without rc files and a fixed one-cell
+/// prompt, so neither a long user prompt nor a resize redraw can wrap the
+/// pending line, and every step waits for the screen it needs.
+#[test]
+fn history_clear_without_a_prompt_boundary_keeps_the_visible_screen() {
+    let server = HeadlessServer::start_without_shell_integration("history-clear");
+    let created = json_cli(&server, &["workspace", "create", "--name", "history-clear"]);
+    assert_success(&created);
+    let terminal = json_output(&created)["value"]["terminal_id"].as_str().unwrap().to_string();
+    let write = |text: &str| {
+        let sent = cli(&server, &["--quiet", "terminal", &terminal, "write", "--text", text]);
+        assert_success(&sent);
+    };
+    let screen = || {
+        let read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+        assert_success(&read);
+        json_output(&read)["text"].as_str().unwrap().to_string()
+    };
+    let wait_until = |what: &str, done: &dyn Fn(&str) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let text = screen();
+            if done(&text) {
+                return text;
+            }
+            assert!(Instant::now() < deadline, "{what} never happened: {text:?}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+
+    // Replace the login shell (any user rc and prompt) with a clean bash.
+    write("exec env PS1='$ ' PROMPT_COMMAND= bash --norc --noprofile -i\r");
+    write("clear\r");
+    wait_until("the clean prompt", &|text| text.trim() == "$");
+
+    // Old output that only the scrollback holds after the next screenful.
+    write("seq -f old_%g 1 60\r");
+    let marker = format!("history_clear_marker_{}", std::process::id());
+    write(&format!("echo {marker}\r"));
+    wait_until("the marker", &|text| text.contains(&format!("{marker}\n$")));
+    let pending = format!("echo prompt_kept_{}", std::process::id());
+    write(&pending);
+    wait_until("the pending line", &|text| text.contains(&pending));
+
+    // `old_1` exactly (not `old_10`): the first line, long scrolled off.
+    let history_has_old_1 = || {
+        let read = json_cli(&server, &["terminal", &terminal, "history", "read", "--limit", "200"]);
+        assert_success(&read);
+        let text = String::from_utf8_lossy(&read.stdout).into_owned();
+        text.match_indices("old_1")
+            .any(|(at, _)| !text[at + 5..].starts_with(|c: char| c.is_ascii_digit()))
+    };
+    assert!(history_has_old_1(), "the scrollback never held the old output");
+
+    let cleared = cli(&server, &["--quiet", "terminal", &terminal, "history", "clear"]);
+    assert_success(&cleared);
+    assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
+    let cleared_screen = screen();
+    assert!(
+        cleared_screen.contains(&marker) && cleared_screen.contains(&pending),
+        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
+    );
+    assert!(!history_has_old_1(), "clear-history retained prior output in scrollback");
+}
+
+#[test]
+fn raw_protocol_apply_layout_preserves_explicit_surface_size() {
+    let server = HeadlessServer::start("apply-layout-size");
+    let applied = raw_json(
+        &server,
+        serde_json::json!({
+            "id":"apply-sized-layout",
+            "cmd":"apply-layout",
+            "layout":{"type":"leaf"},
+            "cols":111,
+            "rows":37,
+        }),
+    );
+    let surface = applied["panes"][0]["surface"].as_u64().unwrap();
+
+    let state = raw_json(
+        &server,
+        serde_json::json!({"id":"sized-state","cmd":"vt-state","surface":surface}),
+    );
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
+
+    let inherited = raw_json(
+        &server,
+        serde_json::json!({"id":"inherited-workspace","cmd":"new-workspace"}),
+    )["surface"]
+        .as_u64()
+        .unwrap();
+    let state = raw_json(
+        &server,
+        serde_json::json!({"id":"inherited-state","cmd":"vt-state","surface":inherited}),
+    );
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
+
+    let partial = raw_json(
+        &server,
+        serde_json::json!({
+            "id":"partial-layout-size",
+            "cmd":"apply-layout",
+            "layout":{"type":"leaf"},
+            "cols":90,
+        }),
+    );
+    let partial_surface = partial["panes"][0]["surface"].as_u64().unwrap();
+    let state = raw_json(
+        &server,
+        serde_json::json!({
+            "id":"partial-layout-state",
+            "cmd":"vt-state",
+            "surface":partial_surface,
+        }),
+    );
+    assert_eq!(state["cols"].as_u64(), Some(111));
+    assert_eq!(state["rows"].as_u64(), Some(37));
+}
 
 fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
     assert_subscribe_reports_tree_changed_after(server, &["tab", "create", "terminal"]);
@@ -3161,7 +4052,7 @@ fn raw_command_preserves_a_partial_response_line() {
         stream.flush().unwrap();
     });
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--json", "--socket"])
         .arg(&socket)
         .args(["raw", "command", "--request-json", r#"{"id":"partial","cmd":"ping"}"#])
@@ -3178,7 +4069,7 @@ fn raw_command_preserves_a_partial_response_line() {
 
 #[test]
 fn help_uses_public_cmux_scopes_and_keeps_startup_options_discoverable() {
-    let root = Command::new(bin()).arg("--help").env_remove("CMUX_TUI_SOCKET").output().unwrap();
+    let root = cmux_command().arg("--help").env_remove("CMUX_TUI_SOCKET").output().unwrap();
     assert_success(&root);
     let root = String::from_utf8(root.stdout).unwrap();
     assert!(root.starts_with("cmux - terminal multiplexer and resource client"));
@@ -3186,18 +4077,15 @@ fn help_uses_public_cmux_scopes_and_keeps_startup_options_discoverable() {
     assert!(!root.contains("cmux-tui"));
     assert!(!root.contains("new-pane-right"));
 
-    let sidebar = Command::new(bin())
-        .args(["sidebar", "--help"])
-        .env_remove("CMUX_TUI_SOCKET")
-        .output()
-        .unwrap();
+    let sidebar =
+        cmux_command().args(["sidebar", "--help"]).env_remove("CMUX_TUI_SOCKET").output().unwrap();
     assert_success(&sidebar);
     let sidebar = String::from_utf8(sidebar.stdout).unwrap();
     assert!(sidebar.contains("cmux sidebar plugin install <git-url>"));
     assert!(sidebar.contains("cmux sidebar plugin use --builtin"));
 
     let startup =
-        Command::new(bin()).args(["help", "start"]).env_remove("CMUX_TUI_SOCKET").output().unwrap();
+        cmux_command().args(["help", "start"]).env_remove("CMUX_TUI_SOCKET").output().unwrap();
     assert_success(&startup);
     let startup = String::from_utf8(startup.stdout).unwrap();
     assert!(startup.starts_with("cmux - "));
@@ -3516,7 +4404,7 @@ fn wait_for_screen(server: &HeadlessServer, terminal: &str, marker: &str) -> Str
 }
 
 fn plugin_cli(data_home: &PathBuf, config_path: &PathBuf, args: &[&str]) -> Output {
-    Command::new(bin())
+    cmux_command()
         .args(args)
         // Keep plugin builds and their Git subprocesses away from the real
         // home directory. The config parent is created by each test and is
@@ -3561,7 +4449,7 @@ fn new_terminals_default_to_the_daemon_launch_directory() {
 }
 
 fn cli(server: &HeadlessServer, args: &[&str]) -> Output {
-    Command::new(bin())
+    cmux_command()
         .args(["--socket"])
         .arg(&server.socket)
         .args(args)
@@ -3571,7 +4459,7 @@ fn cli(server: &HeadlessServer, args: &[&str]) -> Output {
 }
 
 fn json_cli(server: &HeadlessServer, args: &[&str]) -> Output {
-    Command::new(bin())
+    cmux_command()
         .args(["--json", "--socket"])
         .arg(&server.socket)
         .args(args)
@@ -3582,7 +4470,7 @@ fn json_cli(server: &HeadlessServer, args: &[&str]) -> Output {
 
 fn raw_cli(server: &HeadlessServer, request: serde_json::Value) -> Output {
     let request = serde_json::to_string(&request).unwrap();
-    Command::new(bin())
+    cmux_command()
         .args(["--json", "--socket"])
         .arg(&server.socket)
         .args(["raw", "command", "--request-json", &request])
@@ -3689,6 +4577,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
     fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
     let terminal_id = "0000000000004000800000000000002a";
     let incarnation = "0000000000004000800000000000002b";
+    let owner_token = "01".repeat(32);
     let host_start_nonce = "02".repeat(32);
     let uid = fs::metadata(root).unwrap().uid();
     let record = cmux_tui_core::terminal_host_runtime::TerminalHostRecord {
@@ -3696,7 +4585,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         terminal_id: terminal_id.to_string(),
         incarnation: incarnation.to_string(),
         endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
-        owner_token: "01".repeat(32),
+        owner_token,
         host_pid: std::process::id(),
         host_start_nonce: host_start_nonce.clone(),
         workspace_key: String::new(),
@@ -3704,7 +4593,8 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
-        ..Default::default()
+        supports_terminal_metadata: false,
+        supports_viewer_size_priority: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
@@ -3723,14 +4613,32 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
     live_file
 }
 
-/// A directory no other test of this process gets. The clock alone is not enough: macOS reports
-/// microseconds, so two tests that start a daemon of the same name at once got one state dir, and
-/// the second daemon found the session lock held (cx-ebm.58: the chief_pipe tests, 2 of 3 runs).
 fn unique_temp_dir(name: &str) -> PathBuf {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    PathBuf::from("/tmp").join(format!("cmux-cli-{name}-{}-{stamp}-{n}", std::process::id()))
+    PathBuf::from("/tmp").join(format!("cmux-cli-{name}-{}-{stamp}", std::process::id()))
+}
+
+/// The binary as the npm `cmux` launcher runs it, so output names `cmux`.
+/// Tests that check the installed `cmux-tui` name run `bin()` directly.
+fn cmux_command() -> Command {
+    #[cfg(unix)]
+    {
+        let mut command = Command::new(bin());
+        std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
+        command
+    }
+    // Windows has no separate argv[0]; run a copy named cmux.exe.
+    #[cfg(not(unix))]
+    {
+        static COPY: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        Command::new(COPY.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("cmux-launcher-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let copy = dir.join("cmux.exe");
+            std::fs::copy(bin(), &copy).unwrap();
+            copy
+        }))
+    }
 }
 
 fn bin() -> &'static str {
@@ -3738,205 +4646,137 @@ fn bin() -> &'static str {
 }
 
 #[cfg(unix)]
-#[path = "cli/agent_session_start.rs"]
-mod agent_session_start;
+const WG_HUB_TEST_PRIVATE_KEY: &str = "GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=";
 #[cfg(unix)]
-#[path = "cli/all_sessions_scope.rs"]
-mod all_sessions_scope;
-#[cfg(unix)]
-#[path = "cli/app_workspaces.rs"]
-mod app_workspaces;
-#[cfg(unix)]
-#[path = "cli/browser_devices.rs"]
-mod browser_devices;
-#[cfg(unix)]
-#[path = "cli/browser_profiles.rs"]
-mod browser_profiles;
-#[cfg(unix)]
-#[path = "cli/caller_selector.rs"]
-mod caller_selector;
-#[cfg(unix)]
-#[path = "cli/carrier_tunnel.rs"]
-mod carrier_tunnel;
-#[cfg(unix)]
-#[path = "cli/chief.rs"]
-mod chief;
-#[cfg(unix)]
-#[path = "cli/close_workspace_if_empty.rs"]
-mod close_workspace_if_empty;
-#[path = "cli/closed_delete.rs"]
-mod closed_delete;
-#[cfg(unix)]
-#[path = "cli/closed_ids.rs"]
-mod closed_ids;
-#[cfg(unix)]
-#[path = "cli/cloud_lease_gate.rs"]
-mod cloud_lease_gate;
-#[cfg(unix)]
-#[path = "cli/cloud_runs_app_route.rs"]
-mod cloud_runs_app_route;
-#[path = "cli/command_history.rs"]
-mod command_history;
-#[cfg(unix)]
-#[path = "cli/conversation_inbox_state.rs"]
-mod conversation_inbox_state;
-#[cfg(unix)]
-#[path = "cli/conversation_live.rs"]
-mod conversation_live;
-#[cfg(unix)]
-#[path = "cli/conversation_person_credentials.rs"]
-mod conversation_person_credentials;
-#[cfg(unix)]
-#[path = "cli/conversation_runs.rs"]
-mod conversation_runs;
-#[cfg(unix)]
-#[path = "cli/conversation_scheduled.rs"]
-mod conversation_scheduled;
-#[cfg(unix)]
-#[path = "cli/conversation_thread_objects.rs"]
-mod conversation_thread_objects;
-#[cfg(unix)]
-#[path = "cli/conversation_threads.rs"]
-mod conversation_threads;
-#[cfg(unix)]
-#[path = "cli/conversation_tree.rs"]
-mod conversation_tree;
-#[cfg(unix)]
-#[path = "cli/dock_tab_placement.rs"]
-mod dock_tab_placement;
-#[cfg(unix)]
-#[path = "cli/explicit_socket.rs"]
-mod explicit_socket;
-#[cfg(unix)]
-#[path = "cli/feed_local.rs"]
-mod feed_local;
-#[path = "cli/frontend_browser_status.rs"]
-mod frontend_browser_status;
-#[path = "cli/git_branches.rs"]
-mod git_branches;
-#[path = "cli/git_review.rs"]
-mod git_review;
-#[path = "cli/git_write.rs"]
-mod git_write;
-#[cfg(unix)]
-#[path = "cli/home_inbox.rs"]
-mod home_inbox;
-#[cfg(unix)]
-#[path = "cli/hub.rs"]
-mod hub;
-#[path = "cli/icon_assets.rs"]
-mod icon_assets;
-#[path = "cli/launch_credential.rs"]
-mod launch_credential;
-#[path = "cli/layout_delta.rs"]
-mod layout_delta;
-#[path = "cli/left_dock_undock.rs"]
-mod left_dock_undock;
-#[path = "cli/list_filters.rs"]
-mod list_filters;
-#[path = "cli/lone_width.rs"]
-mod lone_width;
-#[path = "cli/new_terminal_cwd.rs"]
-mod new_terminal_cwd;
-#[cfg(unix)]
-#[path = "cli/newtab_agent_identity.rs"]
-mod newtab_agent_identity;
-#[cfg(unix)]
-#[path = "cli/remote_update_need.rs"]
-mod remote_update_need;
-#[path = "cli/settings_owner.rs"]
-mod settings_owner;
-#[path = "cli/state_helpers.rs"]
-mod state_helpers;
-#[path = "cli/status.rs"]
-mod status;
-#[path = "cli/tab_group_hex.rs"]
-mod tab_group_hex;
-#[cfg(unix)]
-#[path = "cli/tabless_terminals.rs"]
-mod tabless_terminals;
-#[cfg(unix)]
-#[path = "cli/terminal_copy_text.rs"]
-mod terminal_copy_text;
-#[cfg(unix)]
-#[path = "cli/terminal_paste.rs"]
-mod terminal_paste;
-#[cfg(unix)]
-#[path = "cli/wg_hub.rs"]
-mod wg_hub;
-#[cfg(unix)]
-#[path = "cli/workspace_open_url.rs"]
-mod workspace_open_url;
-#[cfg(unix)]
-#[path = "cli/ws_conversations.rs"]
-mod ws_conversations;
-use state_helpers::*;
+const WG_HUB_TEST_PEER_KEY: &str = "Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=";
 
 #[cfg(unix)]
-#[test]
-fn state_cli_rooms_status_and_closed_history_round_trip_through_a_real_daemon() {
-    let server = HeadlessServer::start("state-cli-rooms");
-    state_cli(&server, None, &["workspace", "create", "--name", "alpha", "--empty"]);
-    state_cli(&server, None, &["workspace", "create", "--name", "beta", "--empty"]);
-    let alpha = workspace_id_named(&server, "alpha");
-    let beta = workspace_id_named(&server, "beta");
-
-    // Rooms: created by name, then addressed by that name.
-    state_cli(&server, None, &["room", "create", "--name", "Work", "--color", "blue"]);
-    state_cli(&server, None, &["room", "Work", "pin", "--workspace", &alpha]);
-    let rooms = state_cli(&server, None, &["room", "list"]);
-    let work = rooms.as_array().unwrap().iter().find(|room| room["name"] == "Work").unwrap();
-    assert_eq!(work["color"], "blue");
-    assert!(
-        work["pins"].as_array().unwrap().iter().any(|pin| pin["workspace_id"] == alpha),
-        "{work}"
-    );
-    state_cli(&server, None, &["room", "Work", "update", "--clear-color", "--icon", "briefcase"]);
-    let rooms = state_cli(&server, None, &["room", "list"]);
-    let work = rooms.as_array().unwrap().iter().find(|room| room["name"] == "Work").unwrap();
-    assert_eq!(work["color"], serde_json::Value::Null);
-    assert_eq!(work["icon"], "briefcase");
-
-    // Workspace identity, status, progress and log.
-    state_cli(
-        &server,
-        None,
-        &["workspace", &alpha, "update", "--title", "API", "--color", "#336699"],
-    );
-    let shown = state_cli(&server, None, &["workspace", &alpha, "show"]);
-    assert_eq!(shown["extra"]["title"], "API", "{shown}");
-    assert_eq!(shown["extra"]["color"], "#336699", "{shown}");
-    state_cli(&server, None, &["workspace", &alpha, "status", "set", "build", "green"]);
-    state_cli(&server, None, &["workspace", &alpha, "progress", "set", "0.5", "--label", "tests"]);
-    state_cli(
-        &server,
-        None,
-        &["workspace", &alpha, "log", "append", "hello", "--level", "success"],
-    );
-    let status = state_cli(&server, None, &["workspace", &alpha, "status", "list"]);
-    let entry = &status.as_array().unwrap()[0];
-    assert_eq!(entry["workspace_id"], alpha);
-    assert_eq!(entry["entries"][0]["key"], "build");
-    assert_eq!(entry["entries"][0]["text"], "green");
-    assert_eq!(entry["progress"]["value"], 0.5);
-    let log = state_cli(&server, None, &["workspace", &alpha, "log", "list"]);
-    assert_eq!(log[0]["text"], "hello");
-    assert_eq!(log[0]["level"], "success");
-
-    // Closed history: a closed workspace is listed and reopens.
-    state_cli(&server, None, &["workspace", &beta, "close"]);
-    let closed = state_cli(&server, None, &["closed", "list"]);
-    let item = closed
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["kind"] == "workspace" && item["name"] == "beta")
-        .unwrap_or_else(|| panic!("beta is not in closed history: {closed}"));
-    let reopened = state_cli(&server, None, &["closed", item["id"].as_str().unwrap(), "reopen"]);
-    assert!(reopened.to_string().contains("\"kind\":\"workspace\""), "{reopened}");
-    workspace_id_named(&server, "beta");
+fn write_wg_hub_config(dir: &std::path::Path, mode: u32) -> PathBuf {
+    let config = dir.join("wg.conf");
+    fs::write(
+        &config,
+        format!(
+            "[Interface]\nPrivateKey = {WG_HUB_TEST_PRIVATE_KEY}\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {WG_HUB_TEST_PEER_KEY}\nAllowedIPs = 10.0.0.0/8, fd00::/8\nEndpoint = 127.0.0.1:9\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(mode)).unwrap();
+    config
 }
 
 #[cfg(unix)]
-#[path = "cli/history.rs"]
-mod history;
+#[test]
+fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
+    use base64::Engine;
+
+    let dir = TestTempDir::create("wg-hub");
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+    let (contents, peer) = runtime.block_on(async {
+        let cmux_wg::testing::LoopbackPair { client, server, server_socket, .. } =
+            cmux_wg::testing::loopback_pair().await.unwrap();
+        let peer = cmux_wg::WgNet::start(server, server_socket).await.unwrap();
+        let encoder = base64::engine::general_purpose::STANDARD;
+        let contents = format!(
+            "[Interface]\nPrivateKey = {}\nAddress = 10.200.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {}\nAllowedIPs = 10.200.0.0/24, fdcc::/64\nEndpoint = {}\nPersistentKeepalive = 5\n",
+            encoder.encode(client.private_key.as_ref()),
+            encoder.encode(client.peer_public_key),
+            client.endpoint.unwrap(),
+        );
+        (contents, peer)
+    });
+    let config = dir.path().join("wg.conf");
+    fs::write(&config, contents).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+    let socket = dir.path().join("hub").join("wg.sock");
+    let mut child = cmux_command()
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert!(
+        !line.is_empty(),
+        "hub exited before printing readiness: {:?}",
+        child.wait_with_output()
+    );
+    let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(ready["event"], "hub-ready", "{line}");
+    assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");
+    assert_eq!(ready["routes"], serde_json::json!(["10.200.0.0/24", "fdcc::/64"]), "{line}");
+
+    let socket_meta = fs::metadata(&socket).unwrap();
+    assert!(socket_meta.file_type().is_socket());
+    assert_eq!(socket_meta.permissions().mode() & 0o777, 0o600);
+    assert_eq!(fs::metadata(socket.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+
+    // A live socket must be refused by a second hub.
+    let second = cmux_command()
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(!second.status.success(), "second hub on a live socket must fail");
+    assert!(socket.exists(), "the losing hub must not remove the live socket");
+
+    let pid = i32::try_from(child.id()).unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "hub did not exit after SIGTERM");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(status.success(), "hub exited unsuccessfully after SIGTERM: {status}");
+    assert!(!socket.exists(), "hub must remove its socket on exit");
+    runtime.block_on(peer.shutdown());
+}
+
+#[cfg(unix)]
+#[test]
+fn wg_hub_refuses_a_readable_config_and_missing_options() {
+    let dir = TestTempDir::create("wg-hub-perms");
+    let config = write_wg_hub_config(dir.path(), 0o644);
+    let socket = dir.path().join("wg.sock");
+    let output = cmux_command()
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot read WireGuard config"), "{stderr}");
+    assert!(!socket.exists());
+
+    let missing = lifecycle_cli(&["wg", "hub", "--config", config.to_str().unwrap()]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8(missing.stderr).unwrap().contains("--socket"));
+
+    let help = lifecycle_cli(&["wg", "hub", "--help"]);
+    assert!(help.status.success());
+    assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
+}
+
+#[cfg(unix)]
+#[path = "cli/tabless_terminals.rs"]
+mod tabless_terminals;
+
+#[cfg(unix)]
+#[path = "cli/stop_start_lock.rs"]
+mod stop_start_lock;

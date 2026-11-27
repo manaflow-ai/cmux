@@ -128,7 +128,6 @@ struct OperationInfo {
     X(screen_close, "screen.close", mutation)                                         \
     X(screen_layout_export, "screen.layout.export", read)                             \
     X(screen_layout_undo, "screen.layout.undo", mutation)                             \
-    X(screen_column_update, "column.update", mutation)                                \
     X(pane_list, "pane.list", read)                                                   \
     X(pane_get, "pane.get", read)                                                     \
     X(pane_create, "pane.create", mutation)                                           \
@@ -2248,6 +2247,10 @@ SidebarView Client::sidebar_view(SidebarViewId id) const {
     return sidebar_view(Selector<SidebarViewId>::by_id(std::move(id)));
 }
 
+Result<std::vector<MachineSnapshot>> Client::machines() const {
+    return detail::ResourceReadResult(read(Operation::machine_list));
+}
+
 Result<std::vector<SessionSnapshot>> Client::sessions(
     std::optional<Selector<MachineId>> machine_selector) const {
     Json::Object params;
@@ -2273,6 +2276,22 @@ Result<std::vector<AgentSnapshot>> Client::agents(Json::Object params) const {
 Result<std::vector<PairingRequestSnapshot>> Client::pairing_requests(Json::Object params) const {
     return detail::ResourceReadResult(
         read(Operation::pairing_request_list, std::move(params)));
+}
+
+Result<MachineSnapshot> Machine::refresh() const {
+    return read(Operation::machine_get);
+}
+
+Result<std::vector<SessionSnapshot>> Machine::sessions() const {
+    return read(Operation::session_list);
+}
+
+Session Machine::session(Selector<SessionId> selector) const {
+    return Session(state_, std::move(selector), "session", route_);
+}
+
+Session Machine::session(SessionId id) const {
+    return session(Selector<SessionId>::by_id(std::move(id)));
 }
 
 Result<SessionSnapshot> Session::refresh() const {
@@ -2609,26 +2628,6 @@ Result<MutationResult<ScreenSnapshot>> Screen::clear_name(MutationOptions option
         Operation::screen_rename,
         Json::Object{{"name", Json(nullptr)}},
         std::move(options));
-}
-
-Result<MutationResult<ScreenSnapshot>> Screen::update_column(
-    SplitId column,
-    ColumnUpdateOptions update,
-    MutationOptions options) const {
-    Json::Object params{{"column", Json(column.value())}};
-    if (update.dock) {
-        params.emplace("dock", Json(*update.dock));
-    }
-    if (update.edge) {
-        params.emplace("edge", Json(std::move(*update.edge)));
-    }
-    if (update.mode) {
-        params.emplace("mode", Json(std::move(*update.mode)));
-    }
-    if (update.width) {
-        params.emplace("width", Json(*update.width));
-    }
-    return mutate(Operation::screen_column_update, std::move(params), std::move(options));
 }
 
 Result<MutationResult<ScreenSnapshot>> Screen::focus(MutationOptions options) const {

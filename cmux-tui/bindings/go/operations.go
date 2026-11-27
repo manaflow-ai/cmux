@@ -967,18 +967,11 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 
 	switch decoded := value.(type) {
 	case *MachineSnapshot:
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &fields); err != nil {
-			return err
-		}
-		if bytes.Equal(bytes.TrimSpace(fields["capabilities"]), []byte("null")) {
-			return fmt.Errorf("machine capabilities must be a string array")
-		}
 		if decoded.ID == "" {
 			return fmt.Errorf("machine snapshot id must be present")
 		}
 		switch decoded.Origin {
-		case "local", "cloud", "ssh", "server":
+		case "local":
 		default:
 			return fmt.Errorf("invalid machine origin %q", decoded.Origin)
 		}
@@ -1292,23 +1285,6 @@ func (s *Screen) Rename(ctx context.Context, options ScreenRenameOptions) (Mutat
 	merge(input, options.Extra)
 	return mutationHandle(
 		ctx, s.client, wirev2.ScreenRename, input, options.MutationOptions,
-		"screen snapshot", s.cache, s,
-	)
-}
-func (s *Screen) UpdateColumn(ctx context.Context, options ScreenColumnUpdateOptions) (MutationResult[*Screen], error) {
-	input := s.route.params()
-	input["column"] = options.Column
-	if options.Dock != nil {
-		input["dock"] = *options.Dock
-	}
-	putOptionalString(input, "edge", options.Edge)
-	putOptionalString(input, "mode", options.Mode)
-	if options.Width != nil {
-		input["width"] = *options.Width
-	}
-	merge(input, options.Extra)
-	return mutationHandle(
-		ctx, s.client, wirev2.ScreenColumnUpdate, input, options.MutationOptions,
 		"screen snapshot", s.cache, s,
 	)
 }

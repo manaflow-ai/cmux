@@ -14,34 +14,22 @@ import java.util.Objects;
 public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
     private final Field<String> agent;
-    /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
-    private final Field<String> agentSessionId;
-    /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
-    private final Field<String> lastPrompt;
     private final String session;
-    /** When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`. */
-    private final Field<UInt64> sinceMs;
     private final AgentSource source;
     private final AgentState state;
     private final UInt64 surface;
-    /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
-    private final Field<String> terminalId;
     private final UInt64 updatedAtMs;
 
     private AgentChangedEvent(Builder builder) {
         this.agent = builder.agent;
-        this.agentSessionId = builder.agentSessionId;
-        this.lastPrompt = builder.lastPrompt;
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = builder.session;
-        this.sinceMs = builder.sinceMs;
         if (!builder.sourceSet) throw new IllegalArgumentException("source is required");
         this.source = Wire.nonNull(builder.source, "source");
         if (!builder.stateSet) throw new IllegalArgumentException("state is required");
         this.state = Wire.nonNull(builder.state, "state");
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
-        this.terminalId = builder.terminalId;
         if (!builder.updatedAtMsSet) throw new IllegalArgumentException("updated_at_ms is required");
         this.updatedAtMs = Wire.nonNull(builder.updatedAtMs, "updated_at_ms");
     }
@@ -49,14 +37,10 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     public static Builder builder() { return new Builder(); }
 
     public Field<String> agent() { return agent; }
-    public Field<String> agentSessionId() { return agentSessionId; }
-    public Field<String> lastPrompt() { return lastPrompt; }
     public String session() { return session; }
-    public Field<UInt64> sinceMs() { return sinceMs; }
     public AgentSource source() { return source; }
     public AgentState state() { return state; }
     public UInt64 surface() { return surface; }
-    public Field<String> terminalId() { return terminalId; }
     public UInt64 updatedAtMs() { return updatedAtMs; }
     @Override public String event() { return "agent-changed"; }
 
@@ -68,30 +52,14 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         if (!Wire.isMissing(rawAgent)) {
             builder.agent(rawAgent == null ? null : Wire.string(rawAgent, "AgentChangedEvent.agent"));
         }
-        Object rawAgentSessionId = Wire.optional(object, "agent_session_id");
-        if (!Wire.isMissing(rawAgentSessionId)) {
-            builder.agentSessionId(rawAgentSessionId == null ? null : Wire.string(rawAgentSessionId, "AgentChangedEvent.agent_session_id"));
-        }
-        Object rawLastPrompt = Wire.optional(object, "last_prompt");
-        if (!Wire.isMissing(rawLastPrompt)) {
-            builder.lastPrompt(rawLastPrompt == null ? null : Wire.string(rawLastPrompt, "AgentChangedEvent.last_prompt"));
-        }
         Object rawSession = Wire.required(object, "session");
         builder.session(rawSession == null ? null : Wire.string(rawSession, "AgentChangedEvent.session"));
-        Object rawSinceMs = Wire.optional(object, "since_ms");
-        if (!Wire.isMissing(rawSinceMs)) {
-            builder.sinceMs(Wire.uint64(rawSinceMs, "AgentChangedEvent.since_ms"));
-        }
         Object rawSource = Wire.required(object, "source");
         builder.source(AgentSource.fromWire(rawSource));
         Object rawState = Wire.required(object, "state");
         builder.state(AgentState.fromWire(rawState));
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "AgentChangedEvent.surface"));
-        Object rawTerminalId = Wire.optional(object, "terminal_id");
-        if (!Wire.isMissing(rawTerminalId)) {
-            builder.terminalId(Wire.string(rawTerminalId, "AgentChangedEvent.terminal_id"));
-        }
         Object rawUpdatedAtMs = Wire.required(object, "updated_at_ms");
         builder.updatedAtMs(Wire.uint64(rawUpdatedAtMs, "AgentChangedEvent.updated_at_ms"));
         return builder.build();
@@ -102,14 +70,10 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "agent-changed");
         Wire.put(object, "agent", agent);
-        Wire.put(object, "agent_session_id", agentSessionId);
-        Wire.put(object, "last_prompt", lastPrompt);
         Wire.put(object, "session", session);
-        Wire.put(object, "since_ms", sinceMs);
         Wire.put(object, "source", source);
         Wire.put(object, "state", state);
         Wire.put(object, "surface", surface);
-        Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "updated_at_ms", updatedAtMs);
         return Collections.unmodifiableMap(object);
     }
@@ -117,29 +81,25 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentChangedEvent that)) return false;
-        return Objects.equals(agent, that.agent) && Objects.equals(agentSessionId, that.agentSessionId) && Objects.equals(lastPrompt, that.lastPrompt) && Objects.equals(session, that.session) && Objects.equals(sinceMs, that.sinceMs) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(updatedAtMs, that.updatedAtMs);
+        return Objects.equals(agent, that.agent) && Objects.equals(session, that.session) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(agent, agentSessionId, lastPrompt, session, sinceMs, source, state, surface, terminalId, updatedAtMs); }
+    public int hashCode() { return Objects.hash(agent, session, source, state, surface, updatedAtMs); }
 
     @Override
     public String toString() { return "AgentChangedEvent" + toWire(); }
 
     public static final class Builder {
         private Field<String> agent = Field.omitted();
-        private Field<String> agentSessionId = Field.omitted();
-        private Field<String> lastPrompt = Field.omitted();
         private String session;
         private boolean sessionSet;
-        private Field<UInt64> sinceMs = Field.omitted();
         private AgentSource source;
         private boolean sourceSet;
         private AgentState state;
         private boolean stateSet;
         private UInt64 surface;
         private boolean surfaceSet;
-        private Field<String> terminalId = Field.omitted();
         private UInt64 updatedAtMs;
         private boolean updatedAtMsSet;
 
@@ -147,21 +107,9 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
             this.agent = Field.ofNullable(value);
             return this;
         }
-        public Builder agentSessionId(String value) {
-            this.agentSessionId = Field.ofNullable(value);
-            return this;
-        }
-        public Builder lastPrompt(String value) {
-            this.lastPrompt = Field.ofNullable(value);
-            return this;
-        }
         public Builder session(String value) {
             this.session = value;
             this.sessionSet = true;
-            return this;
-        }
-        public Builder sinceMs(UInt64 value) {
-            this.sinceMs = Field.of(value);
             return this;
         }
         public Builder source(AgentSource value) {
@@ -177,10 +125,6 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         public Builder surface(UInt64 value) {
             this.surface = value;
             this.surfaceSet = true;
-            return this;
-        }
-        public Builder terminalId(String value) {
-            this.terminalId = Field.of(value);
             return this;
         }
         public Builder updatedAtMs(UInt64 value) {

@@ -282,5 +282,26 @@ pub fn derive_cute_code(relay_public_key: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "fingerprint_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    /// Vectors produced by the JS implementation
+    /// (`packages/relay/bin/fingerprint.mjs` `deriveCuteCode`).
+    #[test]
+    fn matches_the_js_implementation_on_pinned_vectors() {
+        assert_eq!(derive_cute_code("test-key"), "gecko-oriole-35");
+        assert_eq!(
+            derive_cute_code("MCowBQYDK2VuAyEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            "salmon-radish-40"
+        );
+        assert_eq!(derive_cute_code("abc"), "pebble-island-22");
+    }
+
+    #[test]
+    fn word_table_has_exactly_256_distinct_words() {
+        let mut sorted: Vec<&str> = CUTE_WORDS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), 256);
+    }
+}

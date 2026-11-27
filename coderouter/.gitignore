@@ -1,0 +1,5 @@
+/target/
+/dist/
+/dist-test/
+/npm/vendor/
+*.tgz

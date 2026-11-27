@@ -1,0 +1,111 @@
+{
+  "paths": [
+    "Sources/Ghostty*",
+    "Sources/*Terminal*Link*",
+    "Sources/*Hover*",
+    "Sources/*Modifier*",
+    "Packages/macOS/CmuxTerminal/*"
+  ],
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Example URL",
+        "initial_input": "clear; for i in $(seq 60); do echo 'https://example.com/ https://example.com/ https://example.com/ https://example.com/ '; done\n",
+        "focus": true
+      }
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "key": "b",
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "tree": "01-cmd-click-terminal-example"
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      }
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "tree": "01-plain-hover-example"
+    },
+    {
+      "hoverAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 0.5
+    },
+    {
+      "tree": "01-cmd-hover-example"
+    },
+    {
+      "clickAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 5.0
+    },
+    {
+      "shot": "01-cmd-click-opens-example"
+    },
+    {
+      "tree": "01-cmd-click-opens-example"
+    },
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "GitHub URL",
+        "initial_input": "clear; for i in $(seq 60); do echo 'https://github.com/manaflow-ai/cmux https://github.com/manaflow-ai/cmux https://github.com/manaflow-ai/cmux https://github.com/manaflow-ai/cmux '; done\n",
+        "focus": true
+      }
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "tree": "02-cmd-click-terminal-github"
+    },
+    {
+      "clickAt": {
+        "x": 0.01,
+        "y": 0.4
+      },
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 5.0
+    },
+    {
+      "shot": "02-cmd-click-opens-github"
+    },
+    {
+      "tree": "02-cmd-click-opens-github"
+    }
+  ]
+}

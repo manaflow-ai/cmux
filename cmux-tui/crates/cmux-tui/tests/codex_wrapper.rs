@@ -4,7 +4,6 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -12,18 +11,6 @@ use std::time::{Duration, Instant};
 
 const TERMINAL_ONE: &str = "term_00000000000000000000000000000001";
 const TERMINAL_TWO: &str = "term_00000000000000000000000000000002";
-/// The reads of the Codex shim's SessionStart hook for the context it gives the agent: the
-/// session's other agents (`agent.list`, `tab.list`; W5-Q #39040), then its place.
-const PLACE_READS: [&str; 8] = [
-    "agent.list",
-    "tab.list",
-    "session.get",
-    "terminal.get",
-    "tab.get",
-    "pane.get",
-    "screen.get",
-    "workspace.get",
-];
 
 #[cfg(target_os = "linux")]
 struct RouteOwner(std::process::Child);
@@ -51,22 +38,8 @@ impl Launch {
         listener.set_nonblocking(true).unwrap();
         let bin = root.path().join("bin");
         fs::create_dir(&bin).unwrap();
-        // A stand-in Codex: it prints the launch's arguments, and answers `mcp get cmux --json`
-        // (the shim asks it for the person's own `cmux` entry) with the file `$FAKE_MCP_GET`, or
-        // Codex's "no server" when there is none, logging where and how it was asked.
-        fs::write(
-            bin.join("codex"),
-            concat!(
-                "#!/bin/sh\n",
-                "case \" $* \" in *' mcp get cmux --json ') ",
-                "printf '%s|%s\\n' \"$(pwd -P)\" \"$*\" >> \"${FAKE_MCP_GET_LOG:-/dev/null}\"; ",
-                "if [ -n \"$FAKE_MCP_GET\" ]; then cat \"$FAKE_MCP_GET\"; exit 0; fi; ",
-                "echo \"Error: No MCP server named 'cmux' found.\" >&2; exit 1;; esac\n",
-                "printf '%s\\0' \"$@\"\n",
-            ),
-        )
-        .unwrap();
-        fs::set_permissions(bin.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
+        cmux_test_exec::write_executable(&bin.join("codex"), "#!/bin/sh\nprintf '%s\\0' \"$@\"\n")
+            .unwrap();
         Self { root, socket, listener }
     }
 
@@ -94,79 +67,42 @@ impl Launch {
             .collect()
     }
 
-    /// The next journal event a hook appends. A message-delivery event
-    /// (UserPromptSubmit, Stop) first asks for queued agent messages; the
-    /// session answers that it has none.
     fn event(&self) -> serde_json::Value {
+        let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            let deadline = Instant::now() + Duration::from_secs(5);
-            let mut stream = loop {
-                match self.listener.accept() {
-                    Ok((stream, _)) => break stream,
-                    Err(error)
-                        if error.kind() == std::io::ErrorKind::WouldBlock
-                            && Instant::now() < deadline =>
-                    {
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                    result => panic!("hook must reach this session: {result:?}"),
+            let mut stream = match self.listener.accept() {
+                Ok((stream, _)) => stream,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
                 }
+                result => panic!("hook must reach this session: {result:?}"),
             };
             // run_hook waits for the hook before this reads its requests, so
-            // the hook's bounded agent message lookup (1.5 s) may have closed
-            // its connection already: skip a connection that is gone.
-            if stream.set_read_timeout(Some(Duration::from_secs(3))).is_err() {
-                continue;
-            }
+            // the Codex SessionStart context read (session_context.rs, 1.5 s)
+            // has given up and closed its connection: macOS refuses
+            // SO_RCVTIMEO there, but its request is still buffered.
+            let _ = stream.set_nonblocking(false);
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
             let mut line = String::new();
             if BufReader::new(&stream).read_line(&mut line).unwrap_or(0) == 0 {
                 continue;
             }
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            // A SessionStart hook reads its terminal's place for the agent's context
-            // (session_context.rs) after its journal event. run_hook waits for the hook first,
-            // so those reads went unanswered and are left queued: skip them.
-            if PLACE_READS.contains(&request["operation"].as_str().unwrap_or_default()) {
+            if request["operation"] != "session.journal.append" {
+                let operation = request["operation"].as_str().unwrap_or_default();
+                assert!(operation.ends_with(".get"), "unexpected hook request {request}");
                 continue;
             }
-            if request["operation"] == "agent.message.list" {
-                let response = serde_json::json!({
-                    "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
-                    "ok":true, "result":[]
-                });
-                let _ = writeln!(stream, "{response}");
-                continue;
-            }
-            assert_eq!(request["operation"], "session.journal.append");
             let response = serde_json::json!({
                 "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
                 "ok":true, "result":{"value":{"sequence":"1"}}
             });
             writeln!(stream, "{response}").unwrap();
             return request["params"]["event"].clone();
-        }
-    }
-}
-
-impl Launch {
-    /// Answers the agent message lookups a finished hook left queued: a Stop
-    /// hook asks for queued messages again after its journal event, so a
-    /// later "nothing arrived" check must not count that lookup. Panics on any
-    /// other request.
-    fn drain_message_lookups(&self) {
-        while let Ok((stream, _)) = self.listener.accept() {
-            // A lookup whose hook already gave up (its bounded wait) has
-            // closed its end, and macOS refuses SO_RCVTIMEO on such a socket
-            // with EINVAL. Its request is still buffered and the read below
-            // cannot block on a closed peer, so read and check it anyway.
-            let _ = stream.set_nonblocking(false);
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
-            let mut line = String::new();
-            if BufReader::new(&stream).read_line(&mut line).unwrap_or(0) == 0 {
-                continue;
-            }
-            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["operation"], "agent.message.list", "{request}");
         }
     }
 }
@@ -211,10 +147,7 @@ fn hook_command(config: &toml::Value, event: &str) -> String {
         .to_owned()
 }
 
-/// Runs the hook for `event` of `terminal`'s Codex. Its output is the empty object, except the
-/// shim's SessionStart: the context that tells the agent it runs in cmux and names its terminal
-/// (#38290). Nothing answers the hook's place reads while it runs, so only the terminal is known.
-fn run_hook(command: &str, stale_socket: Option<&Path>, event: &str, terminal: &str) {
+fn run_hook(command: &str, stale_socket: Option<&Path>, session: &str) {
     let mut process = Command::new("/bin/sh");
     process.args(["-c", command]).env_clear();
     if let Some(socket) = stale_socket {
@@ -229,21 +162,23 @@ fn run_hook(command: &str, stale_socket: Option<&Path>, event: &str, terminal: &
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    writeln!(child.stdin.take().unwrap(), "{{\"session_id\":\"{terminal}\"}}").unwrap();
+    writeln!(child.stdin.take().unwrap(), "{{\"session_id\":\"{session}\"}}").unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success(), "{output:?}");
-    if event != "SessionStart" {
-        assert_eq!(output.stdout, b"{}\n", "{event}");
-        return;
+    // Codex reads one JSON object: the launch SessionStart hook's session
+    // context (cmux-tui-hook session_context.rs), `{}` for every other event.
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|error| panic!("{error}: {:?}", String::from_utf8_lossy(&output.stdout)));
+    if command.contains("codex 'SessionStart'") {
+        assert_eq!(value["hookSpecificOutput"]["hookEventName"], "SessionStart", "{value}");
+        let context = value["hookSpecificOutput"]["additionalContext"].as_str().unwrap();
+        // It names this build's CLI, the launcher the shim's hooks run.
+        let cli = fs::canonicalize(env!("CARGO_BIN_EXE_cmux-tui")).unwrap();
+        assert!(context.contains(&*cli.to_string_lossy()), "{context}");
+        assert!(context.contains(" skill show`"), "{context}");
+    } else {
+        assert_eq!(value, serde_json::json!({}));
     }
-    let printed: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("{error}: {}", String::from_utf8_lossy(&output.stdout)));
-    let context = &printed["hookSpecificOutput"];
-    assert_eq!(context["hookEventName"], "SessionStart", "{printed}");
-    let text = context["additionalContext"].as_str().unwrap_or_else(|| panic!("{printed}"));
-    assert!(text.starts_with("cmux: you run in a cmux terminal"), "{text}");
-    assert!(text.contains(&format!("terminal {terminal}.")), "{text}");
-    assert!(text.contains("`cmux skill show`"), "{text}");
 }
 
 #[test]
@@ -258,7 +193,7 @@ fn codex_wrapper_remote_hooks_keep_each_terminal_under_a_shared_daemon_environme
         let config = settings(&argv);
         assert!(!argv.iter().any(|arg| arg == "--dangerously-bypass-hook-trust"));
         for event in ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"] {
-            run_hook(&hook_command(&config, event), stale_socket, event, terminal);
+            run_hook(&hook_command(&config, event), stale_socket, terminal);
             let received = launch.event();
             assert_eq!(received["payload"]["native_event"], event);
             assert!(
@@ -272,329 +207,6 @@ fn codex_wrapper_remote_hooks_keep_each_terminal_under_a_shared_daemon_environme
         }
     }
     assert_eq!(stale.listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
-}
-
-#[cfg(target_os = "linux")]
-#[test]
-fn codex_wrapper_resolves_the_attached_tmux_terminal_when_launch_environment_is_missing() {
-    let launch = Launch::new();
-    // This process stands in for a tmux attach client. Its initial environment
-    // is readable through /proc, and the open stdin keeps it alive without a timer.
-    let route_owner = RouteOwner(
-        Command::new("/bin/cat")
-            .env_clear()
-            .env("CMUX_TUI_SOCKET", &launch.socket)
-            .env("CMUX_TUI_TERMINAL_ID", TERMINAL_TWO)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-    );
-
-    let tmux_dir = launch.root.path().join("tmux-bin");
-    fs::create_dir(&tmux_dir).unwrap();
-    let tmux = tmux_dir.join("tmux");
-    fs::write(
-        &tmux,
-        format!(
-            "#!/bin/sh\ncase \"$1\" in\ndisplay-message) printf '%b\\n' '$1\\t\\t@1';;\nlist-clients) printf '%b\\n' '{}\\t999\\t$1\\t\\t@1';;\nesac\n",
-            route_owner.0.id()
-        ),
-    )
-    .unwrap();
-    fs::set_permissions(&tmux, fs::Permissions::from_mode(0o700)).unwrap();
-
-    let mut command = launch.command();
-    command
-        .env_remove("CMUX_TUI_SOCKET")
-        .env_remove("CMUX_TUI_TERMINAL_ID")
-        .env("TMUX", "fake-server,1,0")
-        .env("TMUX_PANE", "%1")
-        .env(
-            "PATH",
-            format!(
-                "{}:{}:/usr/bin:/bin",
-                tmux_dir.display(),
-                launch.root.path().join("bin").display()
-            ),
-        )
-        .args(["exec", "hello"]);
-    let argv = launch.argv(&mut command);
-    let config = settings(&argv);
-    let hook = hook_command(&config, "SessionStart");
-    run_hook(&hook, None, "SessionStart", TERMINAL_TWO);
-    let received = launch.event();
-    assert_eq!(received["payload"]["native_event"], "SessionStart");
-    assert!(
-        received["subjects"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|subject| { subject["kind"] == "terminal" && subject["id"] == TERMINAL_TWO })
-    );
-}
-
-#[test]
-fn codex_wrapper_passes_through_management_opt_out_and_missing_routes() {
-    let launch = Launch::new();
-    for args in [["--version", ""], ["app-server", "--help"]] {
-        let args: Vec<_> = args.into_iter().filter(|arg| !arg.is_empty()).collect();
-        assert_eq!(launch.argv(launch.command().args(&args)), args);
-    }
-    for env in [
-        "CMUX_TUI_CODEX_HOOKS_DISABLED",
-        "CMUX_CODEX_HOOKS_DISABLED",
-        "CMUX_TUI_CODEX_WRAPPER_ACTIVE",
-    ] {
-        assert_eq!(
-            launch.argv(launch.command().env(env, "1").args(["exec", "hello"])),
-            ["exec", "hello"]
-        );
-    }
-    assert_eq!(
-        launch.argv(launch.command().env_remove("CMUX_TUI_SOCKET").args(["exec", "hello"])),
-        ["exec", "hello"]
-    );
-    assert_eq!(
-        launch.argv(
-            launch.command().env("CMUX_TUI_SOCKET", "/missing/socket").args(["exec", "hello"])
-        ),
-        ["exec", "hello"]
-    );
-}
-
-/// `codex agents` (the agent command center, a full interactive session) and
-/// `codex review` (an agent session, `exec review`) start agent sessions in
-/// Codex 0.160 and 0.169: they get hooks like any session.
-#[test]
-fn codex_wrapper_injects_into_agents_and_review_sessions() {
-    let launch = Launch::new();
-    for args in [&["agents"][..], &["review", "--uncommitted"], &["-m", "o3", "agents"]] {
-        let argv = launch.argv(launch.command().args(args));
-        assert!(argv.len() > args.len(), "{args:?}: {argv:?}");
-        assert_eq!(&argv[argv.len() - args.len()..], args, "{argv:?}");
-        assert!(settings(&argv).get("hooks").is_some(), "{args:?}: {argv:?}");
-    }
-    // A setting after the subcommand moves to the root list, which Codex
-    // 0.160.1 would otherwise drop for the subcommand's own.
-    for args in [&["review", "-c", "model=\"o3\"", "--uncommitted"][..], &["agents", "-c", "x=1"]] {
-        let argv = launch.argv(launch.command().args(args));
-        let at = argv.iter().position(|arg| arg == args[0]).unwrap();
-        assert!(!argv[at..].iter().any(|arg| arg == "-c"), "{argv:?}");
-        let config = settings(&argv);
-        let theirs = args[2].split('=').next().unwrap();
-        assert!(config.get("hooks").is_some() && config.get(theirs).is_some(), "{argv:?}");
-    }
-    // `a` is `apply`, which starts no session.
-    assert_eq!(launch.argv(launch.command().args(["a"])), ["a"]);
-    // With the person's yes, `agents` (which switches to other sessions, in their own folders) is
-    // doubt and gets the hooks only; `review` starts a new session and gets the server too.
-    let settings_file = launch.root.path().join("settings.json");
-    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
-    let on = |args: &[&str]| {
-        launch.argv(launch.command().env("CMUX_NEXT_CONFIG_FILE", &settings_file).args(args))
-    };
-    let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
-    for args in [&["agents"][..], &["-m", "o3", "agents"]] {
-        let argv = on(args);
-        assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{argv:?}");
-    }
-    assert!(has_server(&on(&["review", "--uncommitted"])));
-}
-
-/// With `agents.cmuxMcp` on (the default), every new Codex session started in a cmux
-/// terminal (interactive, with a prompt, `exec`, `review`) gets one MCP server, named `cmux`,
-/// running this build, over a stdio `cmux` entry of the person's own that Codex loads (another
-/// cmux's, user or trusted project). Codex merges the `-c`
-/// values into that entry key by key, so this build's command, args, env and `enabled = true`
-/// win; nothing is said on stderr.
-#[test]
-fn codex_wrapper_gives_codex_one_server_named_cmux() {
-    let launch = Launch::new();
-    let root = launch.root.path();
-    let settings_file = root.join("settings.json");
-    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
-    let codex_home = root.join("codex-home");
-    let project = root.join("project");
-    fs::create_dir_all(&codex_home).unwrap();
-    fs::create_dir_all(project.join(".codex")).unwrap();
-    let other = "[mcp_servers.cmux]\ncommand = \"/opt/other/cmux\"\nargs = [\"mcp\", \"serve\"]\nenabled = false\n";
-    let this = fs::canonicalize(env!("CARGO_BIN_EXE_cmux-tui")).unwrap();
-    // Codex's answer for the person's entry where it loads (the user config, or a trusted
-    // project's file): that entry. A project file Codex's answer does not show it loads is doubt,
-    // and gets no server (`codex_wrapper_skips_on_doubt`).
-    let answer = root.join("mcp-get.json");
-    fs::write(
-        &answer,
-        r#"{"transport":{"type":"stdio","command":"/opt/other/cmux","args":["mcp","serve"]}}"#,
-    )
-    .unwrap();
-    for (user, in_project) in [("", ""), (other, ""), ("", other), (other, other)] {
-        fs::write(codex_home.join("config.toml"), user).unwrap();
-        fs::write(project.join(".codex/config.toml"), in_project).unwrap();
-        for args in
-            [&[][..], &["fix the bug"], &["exec", "fix the bug"], &["review", "--uncommitted"]]
-        {
-            let mut command = launch.command();
-            command
-                .current_dir(&project)
-                .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
-                .env("CODEX_HOME", &codex_home)
-                .args(args);
-            if !user.is_empty() || !in_project.is_empty() {
-                command.env("FAKE_MCP_GET", &answer);
-            }
-            let argv = launch.argv(&mut command);
-            let config = settings(&argv);
-            let servers = config["mcp_servers"].as_table().unwrap();
-            assert_eq!(servers.keys().collect::<Vec<_>>(), ["cmux"], "{args:?}: {argv:?}");
-            let cmux = &servers["cmux"];
-            assert_eq!(cmux["command"].as_str(), this.to_str(), "{argv:?}");
-            assert_eq!(cmux["args"], toml::Value::Array(vec!["mcp".into(), "serve".into()]));
-            assert_eq!(cmux["enabled"].as_bool(), Some(true), "{argv:?}");
-            assert_eq!(cmux["env"]["CMUX_NEXT_CONFIG_FILE"].as_str(), settings_file.to_str());
-            assert!(cmux["env"]["CMUX_TUI_SOCKET"].as_str().is_some(), "{argv:?}");
-            // A `cmux` entry `cmux acp desktop link` wrote carries the acpmux server's guest mode,
-            // which Codex merges into this server: it is always sent empty.
-            assert_eq!(cmux["env"]["ACPMUX_MCP_GUEST"].as_str(), Some(""), "{argv:?}");
-        }
-    }
-}
-
-/// Codex refuses a server with both a command and a `url`: where the person's own server named
-/// `cmux` is HTTP, as the launch's Codex itself answers (`codex <their config options> mcp get
-/// cmux --json`, in the launch folder), the shim passes no MCP server (the hooks still go) and
-/// says nothing: the person's own server keeps the name. A stdio entry, none, or no answer from
-/// Codex: this build's server goes in.
-#[test]
-fn codex_wrapper_leaves_an_http_cmux_entry_alone() {
-    let launch = Launch::new();
-    let root = launch.root.path();
-    let settings_file = root.join("settings.json");
-    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
-    let project = root.join("project/sub");
-    fs::create_dir_all(&project).unwrap();
-    let (answer, log) = (root.join("mcp-get.json"), root.join("mcp-get.log"));
-    let run = |args: &[&str], answering: Option<&str>| {
-        let mut command = launch.command();
-        command
-            .current_dir(&project)
-            .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
-            .env("FAKE_MCP_GET_LOG", &log)
-            .args(args);
-        if let Some(text) = answering {
-            fs::write(&answer, text).unwrap();
-            command.env("FAKE_MCP_GET", &answer);
-        }
-        launch.argv(&mut command)
-    };
-    let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
-    let http = r#"{"transport":{"type":"streamable_http","url":"http://127.0.0.1:1/mcp"}}"#;
-    let stdio = r#"{"transport":{"type":"stdio","command":"/opt/x","args":[]}}"#;
-    let argv = run(&["-p", "work", "exec", "fix the bug"], Some(http));
-    assert!(!has_server(&argv), "{argv:?}");
-    assert!(settings(&argv).get("hooks").is_some(), "{argv:?}");
-    assert!(has_server(&run(&["exec", "fix the bug"], Some(stdio))));
-    assert!(has_server(&run(&["exec", "fix the bug"], None)));
-    // Skip on doubt: no answer from Codex is no server either.
-    let argv = run(&["exec", "fix the bug"], Some("not json"));
-    assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{argv:?}");
-    // Codex was asked in the launch folder, with the person's own config options only.
-    let asked = fs::read_to_string(&log).unwrap();
-    let first = asked.lines().next().unwrap();
-    let folder = project.canonicalize().unwrap();
-    assert_eq!(first, format!("{}|-p work mcp get cmux --json", folder.display()), "{asked}");
-}
-
-/// Skip on doubt: a project file that defines `cmux` and that Codex's answer does not show it
-/// loads (an untrusted folder the person may trust at Codex's prompt), and a launch whose loaded
-/// config can differ from the question (`--trust`, resume, fork, `--worktree`), get no MCP
-/// setting at all; the hooks still go, and nothing is said. A launch in doubt does not ask Codex.
-#[test]
-fn codex_wrapper_skips_on_doubt() {
-    let launch = Launch::new();
-    let root = launch.root.path();
-    let settings_file = root.join("settings.json");
-    fs::write(&settings_file, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
-    let codex_home = root.join("codex-home");
-    let project = root.join("new");
-    fs::create_dir_all(&codex_home).unwrap();
-    fs::create_dir_all(project.join(".git")).unwrap();
-    fs::create_dir_all(project.join(".codex")).unwrap();
-    fs::write(
-        project.join(".codex/config.toml"),
-        "[mcp_servers.cmux]\nurl = \"http://127.0.0.1:1/mcp\"\n",
-    )
-    .unwrap();
-    let log = root.join("mcp-get.log");
-    let run = |args: &[&str]| {
-        launch.argv(
-            launch
-                .command()
-                .current_dir(&project)
-                .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
-                .env("CODEX_HOME", &codex_home)
-                .env("FAKE_MCP_GET_LOG", &log)
-                .args(args),
-        )
-    };
-    let has_server = |argv: &[String]| argv.iter().any(|arg| arg.starts_with("mcp_servers."));
-    // Codex answers none (the folder is not trusted yet); the person may trust it at the prompt.
-    let argv = run(&[]);
-    assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{argv:?}");
-    assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 1);
-    fs::remove_dir_all(project.join(".codex")).unwrap();
-    assert!(has_server(&run(&["exec", "fix the bug"])), "no project entry: the server goes in");
-    for args in [
-        &["exec", "--trust", "fix the bug"][..],
-        &["resume", "--last"],
-        &["fork", "--last"],
-        &["exec", "resume", "--last", "go on"],
-        &["--worktree"],
-    ] {
-        let argv = run(args);
-        assert!(!has_server(&argv) && settings(&argv).get("hooks").is_some(), "{args:?}: {argv:?}");
-    }
-    assert_eq!(
-        fs::read_to_string(&log).unwrap().lines().count(),
-        2,
-        "a launch in doubt asks nothing"
-    );
-}
-
-#[test]
-fn codex_wrapper_scopes_trust_and_suppresses_only_installed_cmux_hooks() {
-    let launch = Launch::new();
-    let home = launch.root.path().join("codex ''' home");
-    fs::create_dir(&home).unwrap();
-    let hooks_path = home.join("hooks.json");
-    let contents = serde_json::json!({"hooks":{"Stop":[{"hooks":[
-        {"type":"command","command":"echo user-hook"},
-        {"type":"command","command":"echo {};#cmux-tui-journal-hook"}
-    ]}]}})
-    .to_string();
-    fs::write(&hooks_path, &contents).unwrap();
-    let argv = launch.argv(launch.command().env("CODEX_HOME", &home).args([
-        "resume",
-        "--last",
-        "-c",
-        "model=\"test\"",
-    ]));
-    let config = settings(&argv);
-    let state = config["hooks"]["state"].as_table().unwrap();
-    let installed_key = format!("{}:stop:0:1", hooks_path.canonicalize().unwrap().display());
-    assert_eq!(state[&installed_key]["enabled"].as_bool(), Some(false));
-    assert!(
-        !state.contains_key(&format!("{}:stop:0:0", hooks_path.canonicalize().unwrap().display()))
-    );
-    let trust = &state["/<session-flags>/config.toml:stop:0:0"]["trusted_hash"];
-    assert!(trust.as_str().unwrap().starts_with("sha256:"));
-    assert_eq!(config["model"].as_str(), Some("test"));
-    let resume = argv.iter().position(|arg| arg == "resume").unwrap();
-    assert_eq!(&argv[resume..], ["resume", "--last"]);
-    assert_eq!(fs::read_to_string(hooks_path).unwrap(), contents);
-    assert!(!home.join("config.toml").exists(), "per-launch trust must not edit persistent config");
 }
 
 /// A headless session whose terminals start `shell` with cmux-tui's shell
@@ -615,12 +227,11 @@ impl ShellSession {
         fs::create_dir_all(&bin).unwrap();
         fs::create_dir_all(home.join(".config/fish")).unwrap();
         // The fake Codex records the argv it was started with, then exits.
-        fs::write(
-            bin.join("codex"),
+        cmux_test_exec::write_executable(
+            &bin.join("codex"),
             "#!/bin/sh\nprintf '%s\\0' \"$@\" > \"$HOME/codex-argv.tmp\" && mv \"$HOME/codex-argv.tmp\" \"$HOME/codex-argv\"\n",
         )
         .unwrap();
-        fs::set_permissions(bin.join("codex"), fs::Permissions::from_mode(0o700)).unwrap();
         // The startup files prepend ~/bin, and a prompt hook prepends it
         // again at every prompt, as tool managers do.
         fs::write(home.join(".zshenv"), "setopt NO_GLOBAL_RCS\n").unwrap();
@@ -639,7 +250,6 @@ impl ShellSession {
             "set -gx PATH $HOME/bin $PATH\nfunction fish_prompt; echo -n 'ready> '; end\nfunction _reprepend --on-event fish_prompt; set -gx PATH $HOME/bin $PATH; end\n",
         )
         .unwrap();
-        fs::write(root.path().join("config.json"), "{}").unwrap();
         let socket = root.path().join("mux.sock");
         let server = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["--headless", "--ephemeral", "--socket"])
@@ -658,38 +268,29 @@ impl ShellSession {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        let session = Self { root, socket, server };
         let deadline = Instant::now() + Duration::from_secs(15);
-        while !session.socket.exists()
-            || session.try_cli(&["--json", "workspace", "list"]).is_none()
-        {
+        while cmux_tui_core::platform::transport::connect(&socket).is_err() {
             assert!(
                 Instant::now() < deadline,
                 "the session never listened at {}",
-                session.socket.display()
+                socket.display()
             );
             std::thread::sleep(Duration::from_millis(25));
         }
-        session
+        Self { root, socket, server }
     }
 
-    fn try_cli(&self, args: &[&str]) -> Option<String> {
-        let (flags, rest): (Vec<&str>, Vec<&str>) =
-            args.iter().partition(|arg| matches!(**arg, "--json" | "--quiet"));
+    fn cli(&self, args: &[&str]) -> String {
         let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
-            .args(flags)
             .arg("--socket")
             .arg(&self.socket)
-            .args(rest)
+            .args(args)
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_TUI_TERMINAL_ID")
             .output()
             .unwrap();
-        output.status.success().then(|| String::from_utf8(output.stdout).unwrap())
-    }
-
-    fn cli(&self, args: &[&str]) -> String {
-        self.try_cli(args).unwrap_or_else(|| panic!("cmux-tui {args:?} failed"))
+        assert!(output.status.success(), "cmux-tui {args:?} failed: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
     }
 
     fn home(&self) -> PathBuf {
@@ -739,10 +340,7 @@ fn codex_typed_in_a_terminal_reports_to_that_terminal_after_startup_files_reorde
             "codex",
         ]))
         .unwrap();
-        let terminal = created["value"]["terminal_id"]
-            .as_str()
-            .unwrap_or_else(|| panic!("no terminal in {created}"))
-            .to_owned();
+        let terminal = created["value"]["terminal_id"].as_str().unwrap().to_owned();
         session.cli(&[
             "terminal",
             &terminal,
@@ -791,12 +389,7 @@ fn codex_typed_in_a_terminal_reports_to_that_terminal_after_startup_files_reorde
         loop {
             let notifications: serde_json::Value =
                 serde_json::from_str(&session.cli(&["--json", "notification", "list"])).unwrap();
-            let rows = notifications
-                .as_array()
-                .or_else(|| notifications["value"].as_array())
-                .cloned()
-                .unwrap_or_default();
-            if rows.iter().any(|notification| {
+            if notifications.as_array().unwrap().iter().any(|notification| {
                 notification["title"] == "Codex finished" && notification["terminal_id"] == terminal
             }) {
                 break;
@@ -866,7 +459,6 @@ fn codex_daemon_hooks_never_post_to_the_terminal_whose_environment_the_daemon_in
     run_under_codex_daemon(installed, &inherited, false, 0);
     let received = launch.event();
     assert_eq!(received["payload"]["native_event"], "Stop", "the control run must post");
-    launch.drain_message_lookups();
 
     run_under_codex_daemon(installed, &inherited, true, 0);
     assert_eq!(
@@ -881,7 +473,6 @@ fn codex_daemon_hooks_never_post_to_the_terminal_whose_environment_the_daemon_in
         received["payload"]["native_event"], "Stop",
         "a hook below a daemon tool's own shell must still post"
     );
-    launch.drain_message_lookups();
 
     let argv = launch.argv(launch.command().env("CMUX_TUI_TERMINAL_ID", TERMINAL_TWO));
     run_under_codex_daemon(&hook_command(&settings(&argv), "Stop"), &inherited, true, 0);
@@ -896,69 +487,125 @@ fn codex_daemon_hooks_never_post_to_the_terminal_whose_environment_the_daemon_in
     );
 }
 
-/// Codex reads `-c key=value` by splitting the key on every `.` (it does not
-/// parse TOML quoting there), so a quoted key such as
-/// `hooks.state."/<session-flags>/config.toml:stop:0:0".trusted_hash` lands
-/// on the wrong path: the launch's hooks stay untrusted (Codex asks to review
-/// 11 hooks at every start and skips them) and the installed cmux hooks stay
-/// enabled. Every override key must be a path of bare segments; quoted keys
-/// belong inside the TOML value.
+#[cfg(target_os = "linux")]
 #[test]
-fn codex_wrapper_overrides_use_key_paths_that_codex_splits_on_dots() {
+fn codex_wrapper_resolves_the_attached_tmux_terminal_when_launch_environment_is_missing() {
     let launch = Launch::new();
-    let home = launch.root.path().join("codex home");
-    fs::create_dir(&home).unwrap();
-    fs::write(
-        home.join("hooks.json"),
-        serde_json::json!({"hooks":{"Stop":[{"hooks":[
-            {"type":"command","command":"echo {};#cmux-tui-journal-hook"}
-        ]}]}})
-        .to_string(),
+    // This process stands in for a tmux attach client. Its initial environment
+    // is readable through /proc, and the open stdin keeps it alive without a timer.
+    let route_owner = RouteOwner(
+        Command::new("/bin/cat")
+            .env_clear()
+            .env("CMUX_TUI_SOCKET", &launch.socket)
+            .env("CMUX_TUI_TERMINAL_ID", TERMINAL_TWO)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+
+    let tmux_dir = launch.root.path().join("tmux-bin");
+    fs::create_dir(&tmux_dir).unwrap();
+    let tmux = tmux_dir.join("tmux");
+    cmux_test_exec::write_executable(
+        &tmux,
+        format!(
+            "#!/bin/sh\ncase \"$1\" in\ndisplay-message) printf '%b\\n' '$1\\t\\t@1';;\nlist-clients) printf '%b\\n' '{}\\t999\\t$1\\t\\t@1';;\nesac\n",
+            route_owner.0.id()
+        ),
     )
     .unwrap();
-    let argv = launch.argv(launch.command().env("CODEX_HOME", &home).args(["exec", "hello"]));
-    let overrides: Vec<&str> =
-        argv.windows(2).filter(|pair| pair[0] == "-c").map(|pair| pair[1].as_str()).collect();
-    assert!(!overrides.is_empty(), "{argv:?}");
-    for setting in overrides {
-        let (key, _) = setting.split_once('=').unwrap();
-        assert!(
-            key.split('.').all(|segment| {
-                !segment.is_empty()
-                    && segment
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
-            }),
-            "Codex splits this override key on dots and misplaces it: {key}"
-        );
-    }
-    // The values still carry both the trust and the disabled installed copy.
+
+    let mut command = launch.command();
+    command
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .env("TMUX", "fake-server,1,0")
+        .env("TMUX_PANE", "%1")
+        .env(
+            "PATH",
+            format!(
+                "{}:{}:/usr/bin:/bin",
+                tmux_dir.display(),
+                launch.root.path().join("bin").display()
+            ),
+        )
+        .args(["exec", "hello"]);
+    let argv = launch.argv(&mut command);
     let config = settings(&argv);
-    let state = config["hooks"]["state"].as_table().unwrap();
-    assert!(state.contains_key("/<session-flags>/config.toml:stop:0:0"), "{state:?}");
+    let hook = hook_command(&config, "SessionStart");
+    run_hook(&hook, None, TERMINAL_TWO);
+    let received = launch.event();
+    assert_eq!(received["payload"]["native_event"], "SessionStart");
     assert!(
-        state.iter().any(|(key, value)| key.ends_with("hooks.json:stop:0:0")
-            && value["enabled"].as_bool() == Some(false)),
-        "{state:?}"
+        received["subjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|subject| { subject["kind"] == "terminal" && subject["id"] == TERMINAL_TWO })
     );
 }
 
-/// A Codex session started in a terminal gets the config overrides an agent chat's Codex starts
-/// with (`acpmux::harness_limits::CODEX_CONFIG`), unless Codex's own config sets the key (Leo
-/// 2026-11-24: "in terminals and guis alike perhaps terminal simply needs to also have the fixes
-/// and enhancements").
 #[test]
-fn codex_wrapper_gives_a_session_the_chats_config() {
+fn codex_wrapper_passes_through_management_opt_out_and_missing_routes() {
     let launch = Launch::new();
-    let argv = launch.argv(launch.command().args(["exec", "hello"]));
-    assert_eq!(&argv[argv.len() - 2..], ["exec", "hello"], "{argv:?}");
-    for (key, _) in acpmux::harness_limits::CODEX_CONFIG {
-        assert!(argv.iter().any(|arg| arg.starts_with(&format!("{key}="))), "{key}: {argv:?}");
+    for args in [["--version", ""], ["app-server", "--help"]] {
+        let args: Vec<_> = args.into_iter().filter(|arg| !arg.is_empty()).collect();
+        assert_eq!(launch.argv(launch.command().args(&args)), args);
     }
-    let home = launch.root.path().join("codex-home");
-    fs::create_dir_all(&home).unwrap();
-    fs::write(home.join("config.toml"), "[agents]\nmax_depth = 2\n").unwrap();
-    let argv = launch.argv(launch.command().env("CODEX_HOME", &home).args(["exec", "hello"]));
-    assert!(!argv.iter().any(|arg| arg.starts_with("agents.max_depth=")), "{argv:?}");
-    assert!(argv.iter().any(|arg| arg.starts_with("agents.max_concurrent_threads_per_session=")));
+    for env in [
+        "CMUX_TUI_CODEX_HOOKS_DISABLED",
+        "CMUX_CODEX_HOOKS_DISABLED",
+        "CMUX_TUI_CODEX_WRAPPER_ACTIVE",
+    ] {
+        assert_eq!(
+            launch.argv(launch.command().env(env, "1").args(["exec", "hello"])),
+            ["exec", "hello"]
+        );
+    }
+    assert_eq!(
+        launch.argv(launch.command().env_remove("CMUX_TUI_SOCKET").args(["exec", "hello"])),
+        ["exec", "hello"]
+    );
+    assert_eq!(
+        launch.argv(
+            launch.command().env("CMUX_TUI_SOCKET", "/missing/socket").args(["exec", "hello"])
+        ),
+        ["exec", "hello"]
+    );
+}
+
+#[test]
+fn codex_wrapper_scopes_trust_and_suppresses_only_installed_cmux_hooks() {
+    let launch = Launch::new();
+    let home = launch.root.path().join("codex ''' home");
+    fs::create_dir(&home).unwrap();
+    let hooks_path = home.join("hooks.json");
+    let contents = serde_json::json!({"hooks":{"Stop":[{"hooks":[
+        {"type":"command","command":"echo user-hook"},
+        {"type":"command","command":"echo {};#cmux-tui-journal-hook"}
+    ]}]}})
+    .to_string();
+    fs::write(&hooks_path, &contents).unwrap();
+    let argv = launch.argv(launch.command().env("CODEX_HOME", &home).args([
+        "resume",
+        "--last",
+        "-c",
+        "model=\"test\"",
+    ]));
+    let config = settings(&argv);
+    let state = config["hooks"]["state"].as_table().unwrap();
+    let installed_key = format!("{}:stop:0:1", hooks_path.canonicalize().unwrap().display());
+    assert_eq!(state[&installed_key]["enabled"].as_bool(), Some(false));
+    assert!(
+        !state.contains_key(&format!("{}:stop:0:0", hooks_path.canonicalize().unwrap().display()))
+    );
+    let trust = &state["/<session-flags>/config.toml:stop:0:0"]["trusted_hash"];
+    assert!(trust.as_str().unwrap().starts_with("sha256:"));
+    assert_eq!(config["model"].as_str(), Some("test"));
+    let resume = argv.iter().position(|arg| arg == "resume").unwrap();
+    assert_eq!(&argv[resume..], ["resume", "--last"]);
+    assert_eq!(fs::read_to_string(hooks_path).unwrap(), contents);
+    assert!(!home.join("config.toml").exists(), "per-launch trust must not edit persistent config");
 }

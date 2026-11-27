@@ -12,8 +12,6 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tests"))
-import workflow_jobs  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/admission_placement.py"
 WORKFLOWS = ROOT / ".github/workflows"
 ROOT_STD = "glaeda-root-std-xcode-26.6"
@@ -116,11 +114,10 @@ class Decide(unittest.TestCase):
     def test_main_reads_the_attempt_before_once_on_a_re_run(self):
         from unittest import mock
         paths = []
-        tokens = []
 
         class API:
             def __init__(self, token, repo):
-                tokens.append(token)
+                pass
 
             def runners(self):
                 return [runner("mini-a", 0), runner("mini-b", 0)]
@@ -130,12 +127,10 @@ class Decide(unittest.TestCase):
                 return {"jobs": [{"conclusion": "failure", "runner_name": "mini-a-glaeda"}]}
         with tempfile.NamedTemporaryFile("r+", suffix=".out") as out, \
                 mock.patch.object(placement.pool, "GitHub", API), mock.patch("sys.stdout"):
-            env = dict(ENV, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="route", GITHUB_TOKEN="workflow",
-                       GITHUB_REPOSITORY="o/r", GITHUB_RUN_ATTEMPT="2")
+            env = dict(ENV, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="t", GITHUB_REPOSITORY="o/r", GITHUB_RUN_ATTEMPT="2")
             self.assertEqual(placement.main(env), 0)
             text = Path(out.name).read_text()
         self.assertEqual(paths, ["/actions/runs/123/attempts/1/jobs?per_page=100"])
-        self.assertEqual(tokens, ["route", "workflow"])
         self.assertIn("glaeda-runner-mini-b-glaeda", text)
         self.assertTrue(text.endswith("attempt=2\n"), text)
         # Attempt 1 reads no jobs.
@@ -159,6 +154,7 @@ class Workflow(unittest.TestCase):
         for clause in ("vars.CI_OWNED_SPREAD == '1'",
                        "github.event.pull_request.head.repo.full_name == github.repository",
                        "startsWith(inputs.pr_root_runner, 'glaeda-root-')",
+                       "startsWith(inputs.pr_root_runner, 'glaeda-aws-root-')",
                        "contains(inputs.pr_owned_jobs, ' admission ')"):
             self.assertIn(clause, spec["if"])
         self.assertTrue(all(step.get("continue-on-error") for step in spec["steps"]))
@@ -167,11 +163,9 @@ class Workflow(unittest.TestCase):
         # The previous attempt's jobs, to skip the minis that failed one.
         for mint in ("route-token", "route-token-repo"):
             mint_step = next(step for step in spec["steps"] if step.get("id") == mint)
-            self.assertNotIn("permission-actions", mint_step["with"], mint)
+            self.assertEqual(mint_step["with"]["permission-actions"], "read", mint)
         place = next(step for step in spec["steps"] if step.get("id") == "place")
         self.assertEqual(place["run"], "python3 scripts/ci/admission_placement.py")
-        self.assertEqual(spec["permissions"], {"contents": "read", "actions": "read"})
-        self.assertEqual(place["env"]["GITHUB_TOKEN"], "${{ github.token }}")
         self.assertEqual(place["env"]["ROOT_RUNNER"], "${{ inputs.pr_root_runner }}")
         self.assertEqual(place["env"]["ADMISSION_WARM"], "${{ inputs.pr_admission_warm }}")
         # Admission waits for it, and a skipped or failed placement never skips admission.
@@ -179,11 +173,9 @@ class Workflow(unittest.TestCase):
         self.assertEqual(admission["needs"], ["admission-placement"])
         self.assertTrue(admission["if"].startswith("${{ !cancelled() && "), admission["if"])
         # Only the pin made in this attempt: a re-run of failed jobs keeps the earlier attempt's outputs.
-        cells = workflow_jobs.runs_on_cells(admission)
-        self.assertIsNotNone(cells, "macos-compile-admission: runs-on matrix does not resolve")
         self.assertIn("needs.admission-placement.outputs.attempt == github.run_attempt && "
                       "needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner)",
-                      "\n".join(cells))
+                      admission["runs-on"])
 
     def test_the_picker_hands_the_warm_names_through(self):
         ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]

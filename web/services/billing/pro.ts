@@ -28,10 +28,10 @@ import {
 import { activeApplePlanForUser } from "./apple/entitlement";
 import { hasCompanyPlanGrant } from "./companyPlan";
 import { planTierRank } from "./planTier";
+import { NEXT_PLAN_METADATA_KEY, isNextPlanId, nextPlanId } from "./nextPlans";
 import { planItem } from "./subscriptionItems";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 import type { BillingInterval } from "./plans";
-import { withoutEndedCloudIntro } from "./cloudIntro";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
@@ -173,12 +173,17 @@ async function writeProPlanMirror(
 
   if (isPro) {
     if (current === plan) return metadata as ProMetadataJson;
+    // A cmux NEXT subscription stays named by `cmuxNextPlan` while the
+    // classic plan takes `cmuxPlan`.
     metadata.cmuxPlan = plan;
   } else {
     // Any paid mirror value is stale once no Stripe Pro row backs it; VM
-    // entitlements read cmuxPlan whenever no override is set.
+    // entitlements read cmuxPlan whenever no override is set. A cmux NEXT
+    // plan is not a classic plan, so it is never cleared here.
     if (!isPaidPlanId(typeof current === "string" ? current : null)) return metadata as ProMetadataJson;
-    delete metadata.cmuxPlan;
+    const nextPlan = nextPlanId(metadata[NEXT_PLAN_METADATA_KEY]);
+    if (nextPlan) metadata.cmuxPlan = nextPlan;
+    else delete metadata.cmuxPlan;
   }
   // Existing metadata came from Stack as JSON; the only value added is a string.
   await lease.refresh();
@@ -294,8 +299,7 @@ export async function reconcileProPlanMetadata(
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const override = metadata.cmuxVmPlan;
-  if (typeof override === "string" && override.trim()) return false;
+  if (classicManualVmPlanOverride(metadata) !== null) return false;
 
   const activePlan = user.id
     ? highestPersonalPlanId([
@@ -368,7 +372,7 @@ export async function resolveProPlanStatus(
   // Stripe and Apple grant through the same mirror; the higher plan wins.
   const activeSubscriptionPlan = highestPersonalPlanId([activeStripePlan, activeApplePlan]);
   const hasActiveStripePro = activeStripePlan !== null;
-  const subscribedPlanId = personalPlanIdForStatus(activeSubscriptionPlan, manualVmPlanOverride(metadata));
+  const subscribedPlanId = personalPlanIdForStatus(activeSubscriptionPlan, classicManualVmPlanOverride(metadata));
   // Staff accounts are Pro without a subscription (see hasCompanyPlanGrant).
   const planId = subscribedPlanId === FREE_PLAN_ID && hasCompanyPlanGrant(user) ? PRO_PLAN_ID : subscribedPlanId;
   const isPro = planId !== FREE_PLAN_ID;
@@ -395,7 +399,6 @@ export async function resolveProPlanStatus(
       options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
     );
   }
-  const passEnded = await removeEndedCloudIntroIfAvailable(user, options.withFreshMetadataUser);
 
   return {
     planId,
@@ -405,7 +408,7 @@ export async function resolveProPlanStatus(
     manageUrl: billingSource === "apple" ? APPLE_MANAGE_SUBSCRIPTIONS_URL : null,
     metadataPlanId,
     hasManualVmPlanOverride,
-    metadataChanged: metadataChanged || passEnded,
+    metadataChanged,
     ...(billingSource === "stripe" && hasActiveStripePro ? stripeSubscriptionFlags(stripeBillingStatus) : {}),
   };
 }
@@ -565,45 +568,24 @@ async function reconcileProMetadataIfAvailable(
   activePlan: PersonalPlanId | null,
   withFreshMetadataUser: FreshProMetadataUserMutation,
 ): Promise<boolean> {
-  try {
-    return await withFreshMetadataUser(
-      userId,
-      (freshUser, lease) => reconcileFreshProMetadata(freshUser, activePlan, lease),
-    );
-  } catch (error) {
-    if (
-      error instanceof AccountDeletionMutationBlockedError ||
-      error instanceof AccountDeletionUserMutationInProgressError ||
-      error instanceof AccountMetadataUserUnavailableError
-    ) {
-      return false;
-    }
-    throw error;
-  }
+  return await withFreshProMetadataUserIfAvailable(
+    userId,
+    (freshUser, lease) => reconcileFreshProMetadata(freshUser, activePlan, lease),
+    withFreshMetadataUser,
+  );
 }
 
 /**
- * Read-time end of the cmux Cloud $1 pass (services/billing/cloudIntro.ts):
- * once `cmuxNextPlanEndsAt` has passed, the three pass keys are removed from
- * the fresh metadata under the account mutation lease, like the `cmuxPlan`
- * mirror above. `cmuxPlan` and `cmuxVmPlan` are untouched. The pass is never
- * granted again: its row in cloud_intro_passes stays `granted`.
+ * Runs `operation` on the user's fresh metadata under the account-deletion
+ * guard; false when the account is being deleted or is gone.
  */
-async function removeEndedCloudIntroIfAvailable(
-  user: ProReconcileUser,
+export async function withFreshProMetadataUserIfAvailable(
+  userId: string,
+  operation: (user: ProReconcileUser, lease: AccountDeletionUserMutationLease) => Promise<boolean>,
   withFreshMetadataUser: FreshProMetadataUserMutation = withDefaultFreshProMetadataUser,
-  now: Date = new Date(),
 ): Promise<boolean> {
-  if (!user.id || !withoutEndedCloudIntro(user.clientReadOnlyMetadata, now)) return false;
   try {
-    return await withFreshMetadataUser(user.id, async (freshUser, lease) => {
-      const metadata = proMetadataRecord(freshUser.clientReadOnlyMetadata);
-      const next = metadata.cmuxAccountDeleting === true ? null : withoutEndedCloudIntro(metadata, now);
-      if (!next) return false;
-      await lease.refresh();
-      await freshUser.update({ clientReadOnlyMetadata: next as ProMetadataJson });
-      return true;
-    });
+    return await withFreshMetadataUser(userId, operation);
   } catch (error) {
     if (
       error instanceof AccountDeletionMutationBlockedError ||
@@ -930,7 +912,21 @@ export async function syncTeamPlanMetadata(
   isTeam: boolean,
   seats: number | null = null,
 ): Promise<void> {
-  const raw = team.clientReadOnlyMetadata;
+  const metadata = nextTeamPlanMetadata(team.clientReadOnlyMetadata, isTeam, seats);
+  if (metadata === null) return;
+  await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+}
+
+/**
+ * The team metadata after mirroring the subscription, or null when it already
+ * matches and the write can be skipped. Decide from a team read under the
+ * team lease; an unleased read can be stale.
+ */
+export function nextTeamPlanMetadata(
+  raw: unknown,
+  isTeam: boolean,
+  seats: number | null,
+): Record<string, unknown> | null {
   const metadata: Record<string, unknown> =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
@@ -940,16 +936,16 @@ export async function syncTeamPlanMetadata(
 
   if (isTeam) {
     const nextSeats = seats !== null && Number.isSafeInteger(seats) && seats > 0 ? seats : null;
-    if (currentPlan === TEAM_PLAN_ID && currentSeats === (nextSeats ?? undefined)) return;
+    if (currentPlan === TEAM_PLAN_ID && currentSeats === (nextSeats ?? undefined)) return null;
     metadata.cmuxPlan = TEAM_PLAN_ID;
     if (nextSeats === null) delete metadata.cmuxSeats;
     else metadata.cmuxSeats = nextSeats;
   } else {
-    if (currentPlan !== TEAM_PLAN_ID && currentSeats === undefined) return;
+    if (currentPlan !== TEAM_PLAN_ID && currentSeats === undefined) return null;
     if (currentPlan === TEAM_PLAN_ID) delete metadata.cmuxPlan;
     delete metadata.cmuxSeats;
   }
-  await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
+  return metadata;
 }
 
 function proMetadataRecord(raw: unknown): Record<string, unknown> {
@@ -958,8 +954,22 @@ function proMetadataRecord(raw: unknown): Record<string, unknown> {
     : {};
 }
 
+/**
+ * Whether an operator override masks the classic plan mirror. A cmux NEXT
+ * grant does not: it names no classic plan, so the classic mirror keeps
+ * following Stripe and Apple underneath it.
+ */
 function hasManualVmOverride(metadata: Record<string, unknown>): boolean {
-  return manualVmPlanOverride(metadata) !== null;
+  return classicManualVmPlanOverride(metadata) !== null;
+}
+
+/**
+ * The operator override as the classic app reads it: null when unset or when
+ * it grants a cmux NEXT plan, which is no classic plan and no restriction.
+ */
+export function classicManualVmPlanOverride(raw: unknown): string | null {
+  const override = manualVmPlanOverride(raw);
+  return isNextPlanId(override) ? null : override;
 }
 
 /** The operator-owned `cmuxVmPlan` override, normalized, or null when unset. */

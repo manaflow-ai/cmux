@@ -2,13 +2,13 @@
   "metadataTitle": "Datenschutzrichtlinie – cmux",
   "metadataDescription": "Datenschutzrichtlinie für cmux",
   "title": "Datenschutzrichtlinie",
-  "lastUpdated": "Letzte Aktualisierung: 1. September 2026",
+  "lastUpdated": "Zuletzt aktualisiert: 24. November 2026",
   "sections": [
     {
       "paragraphs": [
-        "Manaflow (das „Unternehmen“) verpflichtet sich, einen strengen Datenschutz für seine Benutzer aufrechtzuerhalten. In dieser Datenschutzrichtlinie wird erläutert, wie wir die von Ihnen bereitgestellten Informationen erfassen, verwenden und schützen.",
+        "Manaflow, Inc. (das „Unternehmen“) verpflichtet sich, einen strengen Datenschutz für seine Benutzer aufrechtzuerhalten. In dieser Datenschutzrichtlinie wird erläutert, wie wir die von Ihnen bereitgestellten Informationen erfassen, verwenden und schützen.",
         "In dieser Richtlinie bezeichnet „Site“ die Website des Unternehmens unter [cmux.com](https://cmux.com). „Anwendung“ bezeichnet die cmux-Desktopanwendung für macOS und die cmux-Mobilanwendung für iPhone und iPad. „Dienst“ bezeichnet die Website und die Anwendung zusammen. Mit „wir“, „uns“ und „unser“ ist das Unternehmen gemeint. „Sie“ bezeichnet einen Benutzer unseres Dienstes.",
-        "Durch die Nutzung unseres Dienstes akzeptieren Sie diese Datenschutzrichtlinie und unsere [Nutzungsbedingungen](https://cmux.com/terms-of-service) und stimmen der hier beschriebenen Erfassung, Speicherung, Nutzung und Offenlegung zu."
+        "Diese Datenschutzrichtlinie erklärt Ihnen, wie wir Informationen erfassen, verwenden und offenlegen. Sie ist ein Hinweis: Sie bittet nicht um Ihre Einwilligung, es sei denn, sie sagt es ausdrücklich. Für Ihre Nutzung des Dienstes gelten unsere [Nutzungsbedingungen](https://cmux.com/terms-of-service)."
       ]
     },
     {
@@ -71,7 +71,7 @@
         "Slack: private interne Benachrichtigungen. Wenn Sie sich einer Plattform-Warteliste anschließen, werden die von Ihnen übermittelten E-Mails und Plattformen an unseren privaten Slack-Arbeitsbereich gesendet."
       ],
       "afterBullets": [
-        "Jeder Dienst hat seine eigene Datenschutzrichtlinie. Wenn ein Dritter personenbezogene Daten für cmux verarbeitet, benötigen wir Schutzmaßnahmen, die mindestens so schützend sind wie diese Richtlinie, und beschränken die Nutzung auf die Bereitstellung von Diensten für cmux."
+        "Jeder Dienst hat seine eigene Datenschutzrichtlinie. Soweit der Abschnitt zu cmux Cloud nichts anderes sagt, verlangen wir, wenn ein Dritter personenbezogene Daten für cmux verarbeitet, Schutzmaßnahmen, die mindestens so schützend sind wie diese Richtlinie, und beschränken die Nutzung auf die Bereitstellung von Diensten für cmux."
       ]
     },
     {

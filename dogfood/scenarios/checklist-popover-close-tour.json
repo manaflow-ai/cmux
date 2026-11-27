@@ -1,0 +1,154 @@
+{
+  "paths": [
+    "Sources/Sidebar/AppKitList/Cells/SidebarRowSwiftUIPopoverPresenter*",
+    "Sources/Sidebar/AppKitList/Cells/SidebarWorkspaceRowChecklistSection*",
+    "Sources/Sidebar/AppKitList/Cells/SidebarRowChecklistSummaryLine*",
+    "Sources/SidebarWorkspaceChecklistPopover*"
+  ],
+  "launch": {
+    "args": [
+      "-sidebar.beta.workspaceTodos.controls.enabled",
+      "YES",
+      "-sidebarWorkspaceTodosChecklistStyle",
+      "popover"
+    ]
+  },
+  "steps": [
+    {
+      "socket": "workspace.current",
+      "save": "ws"
+    },
+    {
+      "socket": "workspace.todo.add",
+      "params": {
+        "workspace_id": "${ws.workspace_id}",
+        "text": "Ship the popover close fix"
+      }
+    },
+    {
+      "socket": "workspace.todo.add",
+      "params": {
+        "workspace_id": "${ws.workspace_id}",
+        "text": "Check the sidebar after a click-away"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "checklist-summary"
+    },
+    {
+      "tree": "checklist-summary"
+    },
+    {
+      "tree": "sidebar-with-checklist"
+    },
+    {
+      "clickAt": {
+        "x": 0.05,
+        "y": 0.084
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "expect": {
+        "id": "SidebarWorkspaceChecklistPopover"
+      }
+    },
+    {
+      "shot": "popover-open"
+    },
+    {
+      "clickAt": {
+        "x": 0.9,
+        "y": 0.85
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "expect": {
+        "id": "SidebarWorkspaceChecklistPopover"
+      },
+      "exists": false
+    },
+    {
+      "shot": "after-click-away"
+    },
+    {
+      "clickAt": {
+        "x": 0.05,
+        "y": 0.084
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "expect": {
+        "id": "SidebarWorkspaceChecklistPopover"
+      }
+    },
+    {
+      "shot": "reopened-after-click-away"
+    },
+    {
+      "clickAt": {
+        "x": 0.05,
+        "y": 0.084
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "expect": {
+        "id": "SidebarWorkspaceChecklistPopover"
+      },
+      "exists": false
+    },
+    {
+      "shot": "after-toggle-close"
+    },
+    {
+      "clickAt": {
+        "x": 0.05,
+        "y": 0.084
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "expect": {
+        "id": "SidebarWorkspaceChecklistPopover"
+      }
+    },
+    {
+      "shot": "reopened-after-toggle"
+    },
+    {
+      "clickAt": {
+        "x": 0.9,
+        "y": 0.85
+      }
+    },
+    {
+      "wait": 2
+    },
+    {
+      "expect": {
+        "id": "SidebarWorkspaceChecklistPopover"
+      },
+      "exists": false
+    },
+    {
+      "shot": "end",
+      "screen": true
+    }
+  ]
+}

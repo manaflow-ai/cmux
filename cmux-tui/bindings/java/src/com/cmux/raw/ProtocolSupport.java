@@ -15,8 +15,4 @@ final class ProtocolSupport {
         if (!equal) throw new CmuxDecodeException(context + " must equal " + expected, null);
         return expected;
     }
-    static Object nonNull(Object actual, String context) {
-        if (actual == null) throw new CmuxDecodeException(context + " must not be null", null);
-        return actual;
-    }
 }

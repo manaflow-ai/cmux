@@ -1,6 +1,7 @@
 import type { Id } from "cmux/raw";
 
-export type RenameTarget = { kind: "workspace" | "screen" | "pane" | "surface"; id: Id; value: string };
+export type RenameTarget =
+  | { kind: "workspace" | "screen" | "pane" | "surface"; id: Id; value: string };
 
 export type RenameState = RenameTarget | null;
 

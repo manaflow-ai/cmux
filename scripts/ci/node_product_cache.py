@@ -170,14 +170,7 @@ def _mkdir(path: Path) -> None:
         pass
 
 
-def _atomic_json(path: Path, value: dict, *, durable: bool = True) -> None:
-    """Replace path with value atomically (temp file, rename).
-
-    durable=False skips both fsyncs. Use it only for records that die with their
-    process anyway: a fill's waiter list names FIFOs a crash removes, and stats are
-    counters. Those writes sit under the per-key lock once per waiter, so with six
-    or seven consumers on one node their fsyncs ran back to back and a busy disk
-    turned a sub-second fan-out into seconds (cmux#55833's red linux job)."""
+def _atomic_json(path: Path, value: dict) -> None:
     _mkdir(path.parent)
     fd, raw = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     tmp = Path(raw)
@@ -185,15 +178,13 @@ def _atomic_json(path: Path, value: dict, *, durable: bool = True) -> None:
         with os.fdopen(fd, "w") as handle:
             json.dump(value, handle, sort_keys=True, separators=(",", ":"))
             handle.flush()
-            if durable:
-                os.fsync(handle.fileno())
+            os.fsync(handle.fileno())
         try:
             tmp.chmod(0o660)
         except PermissionError:
             pass
         os.replace(tmp, path)
-        if durable:
-            _fsync_dir(path.parent)
+        _fsync_dir(path.parent)
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -564,7 +555,7 @@ def _stats_update(store: Store, **increments) -> dict:
         }
         for field, amount in increments.items():
             value[field] = int(value.get(field, 0)) + int(amount)
-        _atomic_json(path, value, durable=False)
+        _atomic_json(path, value)
         return value
 
 
@@ -635,7 +626,7 @@ def _register_waiter_locked(store: Store, key: str, fill: dict) -> tuple[str, Pa
         keepalive_fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
         updated = dict(fill)
         updated["waiters"] = [*waiters, token]
-        _atomic_json(store.fill(key), updated, durable=False)
+        _atomic_json(store.fill(key), updated)
         return token, path, read_fd, keepalive_fd
     except Exception:
         if read_fd >= 0:
@@ -655,7 +646,7 @@ def _remove_waiter_locked(store: Store, key: str, token: str) -> None:
         return
     updated = dict(fill)
     updated["waiters"] = [value for value in waiters if value != token]
-    _atomic_json(store.fill(key), updated, durable=False)
+    _atomic_json(store.fill(key), updated)
 
 
 def _finish_fill_locked(store: Store, key: str, token: str) -> list[str]:

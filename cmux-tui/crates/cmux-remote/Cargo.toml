@@ -18,32 +18,13 @@ iroh-transport = ["dep:iroh"]
 wireguard-transport = ["dep:cmux-wg"]
 
 [dependencies]
-cmux-braid-carrier.workspace = true
-cmux-braid-path.workspace = true
-cmux-json.workspace = true
-cmux-braid-session.workspace = true
-cmux-deadline = { workspace = true, features = ["tokio"] }
-cmux-process.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
 bytes.workspace = true
 cmux-pty.workspace = true
-cmux-link.workspace = true
-cmux-netwatch.workspace = true
-# The system proxy (PAC on macOS, the environment elsewhere) for the relay and `wss` routes, and the
-# inspected-TLS mark (src/provider/proxied.rs).
-cmux-proxy.workspace = true
 cmux-remote-protocol.workspace = true
-# The signed Linux release file an unbundled build's pin comes from (ssh_artifacts).
-cmux-signed-envelope.workspace = true
-# tailscaled's LocalAPI path hints for the opt-in tailnet carrier (provider/tailnet.rs).
-cmux-tailnet-local.workspace = true
-# The terminal host's wire and keepalive, and accept backoff, without cmux-tui-core: a
-# cmux-tui-core edit then rebuilds neither this crate nor acpmux (its hub carrier uses it).
-cmux-terminal-host-protocol.workspace = true
-cmux-tui-util.workspace = true
-cmux-unix-socket.workspace = true
+cmux-tui-core.workspace = true
 cmux-wg = { workspace = true, optional = true }
 diffy.workspace = true
 flate2.workspace = true
@@ -52,16 +33,11 @@ futures-util.workspace = true
 getrandom.workspace = true
 ghostty-vt.workspace = true
 hmac.workspace = true
-# secrets-v1: RFC 9180 HPKE, DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20Poly1305.
-hpke = { version = "0.13", default-features = false, features = ["alloc", "x25519"] }
 http.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 iroh = { workspace = true, optional = true }
 libc.workspace = true
-rand_core = { version = "0.9", default-features = false }
-# The relay's own TLS trust (RelayTls); already in the graph through tokio-tungstenite.
-rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -76,16 +52,16 @@ uuid.workspace = true
 x25519-dalek.workspace = true
 zeroize.workspace = true
 
+[build-dependencies]
+# This root package uses Cargo's Git-aware default fingerprint to notice new
+# workspace-root files without recursively walking target/.
+cmux-tui-source-watch = { path = "../.." }
+
 [dev-dependencies]
-# The tests bootstrap with this build's real identity, as the binary does.
-cmux-build-identity.workspace = true
+cmux-test-exec.workspace = true
 cmux-relay = { path = "../cmux-relay" }
-# The Remote and Cloud fault harness (tests/rc_faults.rs; the carrier simulation's generator).
-cmux-fault.workspace = true
-cmux-unix-socket = { workspace = true, features = ["test-support"] }
 cmux-wg.workspace = true
 rcgen = "0.14"
-ring.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }

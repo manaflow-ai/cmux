@@ -1,30 +1,227 @@
 #!/usr/bin/env python3
-"""The trusted complexity scoper and checker must not take policy from the tree they judge.
+"""The trusted complexity check must not take Bun configuration from the tree it judges.
 
-main's web-complexity-trusted.yml runs scripts/ci/scope-web-complexity.py and
-web/scripts/check-complexity.mjs from a trusted checkout of the pull request's
-base. feat-cmux-next carries no copy of that workflow (GitHub reads
-pull_request_target from main only; ci-v2 step 3, R12), so this file checks the
-two scripts, not the workflow.
+Bun loads bunfig.toml (including preload scripts) and .env from its working
+directory. The workflow runs on pull_request_target, so a check started inside
+the pull request's checkout would run that pull request's code.
+
+The two check steps are compared whole. A list of forbidden shell forms
+(`|| true`, `|| ( true )`, `set +e`, ...) can always be extended by one more
+form; an exact step cannot be weakened without this test changing with it.
 """
 
 from __future__ import annotations
 
+import ast
 import shutil
 import subprocess
 import tempfile
 import sys
 from pathlib import Path
 
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
+import yaml
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "web-complexity-trusted.yml"
+CANDIDATE_WORKFLOW = ROOT / ".github" / "workflows" / "web-complexity.yml"
+
+# --config takes its value with "=". As a separate argument Bun runs the config
+# file as the script, exits 0, and the check never happens.
+BUN = 'bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs'
+
+# Body/title edits do not change source or policy. Base retargets still do.
+# Keep ignored events off the required check name and its concurrency group:
+# GitHub treats a skipped required job as passing, and a new pending run can
+# replace a pending run even when cancel-in-progress is false.
+METADATA_ONLY = (
+    "github.event_name == 'pull_request_target' && github.event.action == 'edited' && "
+    "!github.event.changes.base && (github.event.changes.body || github.event.changes.title)"
+)
+REQUIRED_CHECK = "Web complexity"
+CONTENT_GROUP = (
+    "web-complexity-trusted-${{ github.event.pull_request.number || "
+    "github.event.merge_group.head_sha || github.ref }}"
+)
+
+
+def validate_metadata_routing(document: dict) -> None:
+    """Metadata edits must publish a real verdict under the required name."""
+    job = document["jobs"]["complexity"]
+    assert job["name"] == REQUIRED_CHECK, "required checks need a stable literal name"
+    assert "if" not in job, "metadata edits must execute the verdict, not publish a skipped check"
+    assert document["concurrency"]["group"] == (
+        CONTENT_GROUP + "${{ " + METADATA_ONLY + " && '-metadata' || '' }}"
+    ), "metadata edits must not cancel or replace an in-flight content check"
+    assert document["concurrency"]["cancel-in-progress"] is True
+    # PyYAML's YAML 1.1 loader treats the Actions `on` key as a boolean.
+    events = document.get("on", document.get(True))
+    assert events["pull_request_target"]["types"] == [
+        "opened", "edited", "reopened", "synchronize", "ready_for_review"
+    ], "source changes and base retargets must still validate"
+    assert "merge_group" in events and "push" in events
+
+
+
+def validate_scope_python(scope_run: str) -> None:
+    """Validate the executable Python used to select complexity work."""
+    marker = "python3 - <<'PY'\n"
+    assert scope_run.count(marker) == 1, "scope step must contain exactly one Python heredoc"
+    source = scope_run.split(marker, 1)[1]
+    body, terminator, tail = source.rpartition("\nPY")
+    assert terminator and not tail.strip(), "scope Python heredoc terminator changed"
+    tree = ast.parse(body)
+
+    assignments = {
+        target.id: node.value
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    assert ast.literal_eval(assignments["policy"]) == {
+        b".github/workflows/web-complexity-trusted.yml",
+        b".github/workflows/web-complexity.yml",
+        b"scripts/ci/scope-web-complexity.py",
+        b"scripts/ci/web_complexity_scope.py",
+        b"web/.oxlintrc.json",
+        b"web/bun.lock",
+        b"web/bunfig.toml",
+        b"web/package.json",
+        b"web/oxlint-complexity-baseline.txt",
+        b"web/scripts/check-complexity.mjs",
+    }, "trusted complexity policy inputs changed"
+    assert ast.literal_eval(assignments["excluded"]) == (
+        b".next/",
+        b"coverage/",
+        b"db/migrations/",
+        b"e2e/",
+        b"node_modules/",
+        b"out/",
+        b"public/",
+        b"scripts/",
+        b"tests/",
+        b"tools/",
+    ), "trusted complexity exclusions changed"
+
+    changed = assignments["changed"]
+    assert (
+        isinstance(changed, ast.Call)
+        and isinstance(changed.func, ast.Attribute)
+        and changed.func.attr == "split"
+        and len(changed.args) == 1
+        and isinstance(changed.args[0], ast.Constant)
+        and changed.args[0].value == b"\0"
+    ), "changed paths must split NUL-delimited git output"
+    check_output = changed.func.value
+    assert (
+        isinstance(check_output, ast.Call)
+        and isinstance(check_output.func, ast.Attribute)
+        and isinstance(check_output.func.value, ast.Name)
+        and check_output.func.value.id == "subprocess"
+        and check_output.func.attr == "check_output"
+        and len(check_output.args) == 1
+        and not check_output.keywords
+    ), "changed paths must come directly from subprocess.check_output"
+    argv = check_output.args[0]
+    assert isinstance(argv, ast.List), "git diff argv must be a literal list"
+    actual_argv = [
+        ("name", item.id) if isinstance(item, ast.Name)
+        else ("const", item.value) if isinstance(item, ast.Constant)
+        else ("other", ast.dump(item))
+        for item in argv.elts
+    ]
+    assert actual_argv == [
+        ("const", "git"),
+        ("const", "-C"),
+        ("name", "root"),
+        ("const", "diff"),
+        ("const", "--no-renames"),
+        ("const", "--name-only"),
+        ("const", "-z"),
+        ("name", "base"),
+        ("name", "head"),
+        ("const", "--"),
+    ], "trusted complexity git diff command changed"
+
+    if_tests = [node.test for node in ast.walk(tree) if isinstance(node, ast.If)]
+    assert any(
+        isinstance(test, ast.Compare)
+        and isinstance(test.left, ast.Name)
+        and test.left.id == "path"
+        and any(isinstance(op, ast.In) for op in test.ops)
+        and any(isinstance(value, ast.Name) and value.id == "policy" for value in test.comparators)
+        for test in if_tests
+    ), "policy must be used by an executable path filter"
+    assert any(
+        any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "startswith"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "web_path"
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "excluded"
+            for node in ast.walk(test)
+        )
+        for test in if_tests
+    ), "excluded prefixes must be used by an executable path filter"
+
+
+EXPECTED_CHECKS = [{'env': {'SCOPE_MODE': "${{ steps.selected_scope.outputs.mode || 'full' }}",
+          'SELECTED_COUNT': '${{ steps.selected_scope.outputs.selected_count }}',
+          'MERGE_REPO': '${{ steps.merge.outputs.repo }}',
+          'MERGE_TREE': '${{ steps.merge.outputs.tree }}'},
+  'if': "github.event_name != 'push' && steps.scope.outputs.run == 'true'",
+  'name': 'Check pull-request or merge-group source with trusted policy',
+  'run': 'set -euo pipefail\n'
+         'checker=(\n'
+         '  bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"\n'
+         '  scripts/check-complexity.mjs\n'
+         '  --repo-root "$GITHUB_WORKSPACE/candidate"\n'
+         '  --tool-root "$GITHUB_WORKSPACE/trusted"\n'
+         '  --base-baseline "$GITHUB_WORKSPACE/trusted/web/oxlint-complexity-baseline.txt"\n'
+         '  --head "$CANDIDATE_SHA"\n'
+         ')\n'
+         'if [[ -n "$MERGE_REPO" && -n "$MERGE_TREE" ]]; then\n'
+         '  checker+=(--merge-repo "$MERGE_REPO" --merge-tree "$MERGE_TREE")\n'
+         'fi\n'
+         'case "$SCOPE_MODE" in\n'
+         '  full|skip)\n'
+         '    echo "Web complexity: selected $SELECTED_COUNT production file(s) for conservative '
+         'full scan."\n'
+         '    "${checker[@]}"\n'
+         '    ;;\n'
+         '  changed)\n'
+         '    mapfile -d \'\' -t selected < "$RUNNER_TEMP/web-complexity-selected.zlist"\n'
+         '    [[ "${#selected[@]}" -eq "$SELECTED_COUNT" ]]\n'
+         '    echo "Web complexity: selected ${#selected[@]} changed existing production '
+         'file(s)."\n'
+         '    if [[ "${#selected[@]}" -eq 0 ]]; then\n'
+         '      exit 0\n'
+         '    fi\n'
+         '    "${checker[@]}" --files "${selected[@]}"\n'
+         '    ;;\n'
+         '  *)\n'
+         '    echo "::error::Unexpected Web complexity scope mode: $SCOPE_MODE"\n'
+         '    exit 1\n'
+         '    ;;\n'
+         'esac\n',
+  'working-directory': 'trusted/web'},
+ {'env': {'BEFORE_SHA': '${{ github.event.before }}', 'HEAD_SHA': '${{ github.sha }}'},
+  'if': "github.event_name == 'push'",
+  'name': 'Check main push with trusted policy',
+  'run': 'set -euo pipefail\n'
+         'if [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != '
+         '"0000000000000000000000000000000000000000" ]; then\n'
+         '  bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" '
+         'scripts/check-complexity.mjs --base "$BEFORE_SHA" --head "$HEAD_SHA"\n'
+         'else\n'
+         '  bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" '
+         'scripts/check-complexity.mjs\n'
+         'fi\n',
+  'working-directory': 'trusted/web'}]
 
 
 SCOPER = ROOT / "scripts" / "ci" / "scope-web-complexity.py"
@@ -361,6 +558,7 @@ def checker_fixture(candidate_baseline: str, base_baseline: str) -> tuple[Path, 
     return repo, previous, temp
 
 
+
 def test_checker_protects_trusted_scoper() -> None:
     if shutil.which("node") is None:
         raise AssertionError("node is required for the checker policy regression")
@@ -501,6 +699,106 @@ def test_checker_judges_trusted_files_in_the_merge() -> None:
         temp.cleanup()
 
 
+MERGE_STEP = "Merge pull request into its base for the trusted-file check"
+MERGE_UPSTREAM = 'upstream="https://github.com/${GITHUB_REPOSITORY}.git"'
+
+
+def test_merge_step_merges_only_when_rebase_merging_is_off() -> None:
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["complexity"]["steps"]
+    script = next(step["run"] for step in steps if step.get("name") == MERGE_STEP)
+    assert script.count(MERGE_UPSTREAM) == 1, "the merge step must fetch from the upstream repository"
+    script = script.replace(MERGE_UPSTREAM, 'upstream="$TEST_UPSTREAM"')
+
+    temp = tempfile.TemporaryDirectory()
+    try:
+        root = Path(temp.name)
+        repo = root / "upstream"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "config", "user.email", "ci@example.com")
+        git(repo, "config", "user.name", "CI")
+        git(repo, "config", "uploadpack.allowFilter", "true")
+        git(repo, "config", "uploadpack.allowAnySHA1InWant", "true")
+        write(repo, "scripts/ci/scope-web-complexity.py", "old\n")
+        write(repo, "web/scripts/check-complexity.mjs", "checker\n")
+        write(repo, ".github/workflows/web-complexity-trusted.yml", "workflow\n")
+        branch_point = commit(repo, "branch point")
+        write(repo, "scripts/ci/scope-web-complexity.py", "fixed\n")
+        commit(repo, "main fixes the scoper")
+
+        # A stale branch that never touches the trusted files.
+        git(repo, "checkout", "-q", "-b", "stale", branch_point)
+        write(repo, "README.md", "docs\n")
+        stale = commit(repo, "docs")
+
+        # A branch that merged main after main changed a trusted file, as
+        # "Update branch" does, before main changed it again.
+        git(repo, "checkout", "-q", "-b", "updated", stale)
+        git(repo, "merge", "-q", "--no-edit", "main")
+        updated = git(repo, "rev-parse", "HEAD").decode().strip()
+        git(repo, "checkout", "-q", "main")
+        write(repo, "scripts/ci/scope-web-complexity.py", "fixed again\n")
+        main = commit(repo, "main fixes the scoper again")
+
+        # The step asks the repository whether rebase merging is allowed.
+        stub = root / "bin"
+        stub.mkdir()
+        # The stub answers only the exact query the gate depends on, so a
+        # changed field, owner, name or jq path fails like a broken API.
+        write(
+            stub,
+            "gh",
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            "  'api graphql -f owner=example -f name=repo -f query=query($owner: String!, $name: String!) "
+            "{ repository(owner: $owner, name: $name) { rebaseMergeAllowed } } "
+            "--jq .data.repository.rebaseMergeAllowed') ;;\n"
+            '  *) echo "unexpected gh call: $*" >&2; exit 2 ;;\n'
+            "esac\n"
+            # Real gh prints the error body on stdout when a request fails.
+            '[ "$GH_STUB" = fail ] && { echo \'{"message":"Bad credentials"}\'; exit 1; }\n'
+            'echo "$GH_STUB"\n',
+        )
+        (stub / "gh").chmod(0o755)
+
+        def run_step(head: str, rebase: str) -> dict[str, str]:
+            label = f"{head[:7]}-{rebase}"
+            output = root / f"output-{label}"
+            runner_temp = root / f"runner-{label}"
+            runner_temp.mkdir()
+            output.touch()
+            run(
+                ["bash", "-c", script],
+                env={
+                    "PATH": f"{stub}:/usr/bin:/bin:/usr/local/bin",
+                    "HOME": str(root),
+                    "GITHUB_OUTPUT": str(output),
+                    "GITHUB_REPOSITORY": "example/repo",
+                    "RUNNER_TEMP": str(runner_temp),
+                    "TRUSTED_SHA": main,
+                    "CANDIDATE_SHA": head,
+                    "TEST_UPSTREAM": f"file://{repo}",
+                    "GH_STUB": rebase,
+                },
+            )
+            return dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+
+        def merged_tree(head: str) -> str:
+            return git(repo, "merge-tree", "--write-tree", main, head).decode().split("\n")[0]
+
+        # A rebase merge replays commits one by one, so the merge of the head
+        # does not describe what lands. The step must stay strict.
+        assert run_step(stale, "true") == {}, "rebase merging allowed: compare strictly"
+        assert run_step(stale, "fail") == {}, "unknown setting: compare strictly"
+
+        assert run_step(stale, "false").get("tree") == merged_tree(stale)
+        assert run_step(updated, "false").get("tree") == merged_tree(updated), (
+            "a branch that merged main is judged by its merge"
+        )
+    finally:
+        temp.cleanup()
+
+
 def test_checker_baseline_ratchet() -> None:
     if shutil.which("node") is None:
         raise AssertionError("node is required for the checker ratchet regression")
@@ -549,8 +847,243 @@ def test_checker_baseline_ratchet() -> None:
         temp.cleanup()
 
 
+
+TRIGGER_PATHS = [
+    "web/**",
+    ".github/workflows/web-complexity.yml",
+    ".github/workflows/web-complexity-trusted.yml",
+    "scripts/ci/scope-web-complexity.py",
+    "scripts/ci/web_complexity_scope.py",
+]
+
+
+def test_pull_request_target_queues_only_for_web_or_policy_changes() -> None:
+    """A pull request that touches no web/ source or complexity policy starts no run.
+
+    "Web complexity" is not a required check on main, so a path filter cannot
+    strand a pull request on an expected check. GitHub evaluates the filter on
+    the pull request's own diff (against the merge base), so a stale branch
+    that touches no web file is not queued because main changed web/.
+    """
+    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    events = document.get("on", document.get(True))
+    assert events["pull_request_target"].get("paths") == TRIGGER_PATHS, (
+        "pull_request_target must queue only for web/** and complexity policy changes"
+    )
+
+
+def _step_run(name: str) -> tuple[str, dict]:
+    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(step for step in document["jobs"]["complexity"]["steps"] if step.get("name") == name)
+    return step["run"], step.get("env", {})
+
+
+def _stale_branch_fixture(pr_change) -> tuple[Path, dict[str, str], tempfile.TemporaryDirectory[str]]:
+    """main advanced (web source and the baseline changed) after the PR branched.
+
+    Returns the workspace (trusted/ and candidate/ checkouts as the workflow
+    lays them out) and the step environment.
+    """
+    temp = tempfile.TemporaryDirectory()
+    root = Path(temp.name)
+    upstream = root / "upstream"
+    upstream.mkdir()
+    git(upstream, "init", "-q", "-b", "main")
+    git(upstream, "config", "user.email", "ci@example.com")
+    git(upstream, "config", "user.name", "CI")
+    git(upstream, "config", "commit.gpgsign", "false")
+    write(upstream, BASELINE, BASELINE_ENTRY)
+    write(upstream, "web/app/debt.ts", "export const debt = 1;\n")
+    write(upstream, "README.md", "base\n")
+    commit(upstream, "branch point")
+    git(upstream, "checkout", "-q", "-b", "pr")
+    pr_change(upstream)
+    head = commit(upstream, "pull request change")
+    git(upstream, "checkout", "-q", "main")
+    # Main moves on: a web source edit and a baseline cleanup the PR never saw.
+    write(upstream, "web/app/other.ts", "export const other = 2;\n")
+    write(upstream, BASELINE, "")
+    trusted_sha = commit(upstream, "main moves on")
+
+    workspace = root / "workspace"
+    workspace.mkdir()
+    run(["git", "clone", "-q", "--depth=1", "--branch", "pr", upstream.as_uri(), str(workspace / "candidate")])
+    # As on a runner: the shallow candidate holds main's tip but no history
+    # down to the merge base.
+    git(workspace / "candidate", "fetch", "-q", "--depth=1", upstream.as_uri(), "main")
+    run(["git", "clone", "-q", upstream.as_uri(), str(workspace / "trusted")])
+    git(workspace / "trusted", "checkout", "-q", trusted_sha)
+    scripts = workspace / "trusted" / "scripts" / "ci"
+    scripts.mkdir(parents=True, exist_ok=True)
+    shutil.copy(SCOPER, scripts / "scope-web-complexity.py")
+    output = root / "github-output.txt"
+    output.write_text("", encoding="utf-8")
+    env = {
+        "PATH": __import__("os").environ["PATH"],
+        "HOME": str(root),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GITHUB_WORKSPACE": str(workspace),
+        "GITHUB_OUTPUT": str(output),
+        "RUNNER_TEMP": str(root),
+        "TRUSTED_SHA": trusted_sha,
+        "CANDIDATE_SHA": head,
+        "UPSTREAM_REPOSITORY": "fixture/unused",
+        "UPSTREAM_URL": upstream.as_uri(),
+    }
+    return workspace, env, temp
+
+
+def _outputs(env: dict[str, str]) -> dict[str, str]:
+    outputs: dict[str, str] = {}
+    for line in Path(env["GITHUB_OUTPUT"]).read_text(encoding="utf-8").splitlines():
+        key, value = line.split("=", 1)
+        outputs[key] = value
+    return outputs
+
+
+def _run_step(name: str, workspace: Path, env: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
+    script, step_env = _step_run(name)
+    full_env = dict(env)
+    for key, value in step_env.items():
+        if "${{" not in str(value):
+            full_env[key] = str(value)
+    if "steps.scope.outputs.diff_base" in str(step_env.get("DIFF_BASE", "")):
+        full_env["DIFF_BASE"] = _outputs(env).get("diff_base", "")
+    return run(["bash", "-e", "-c", script], cwd=workspace, env=full_env, check=False)
+
+
+def test_stale_branch_without_web_changes_skips_the_scan() -> None:
+    """The pull request's own changes decide the scope, not main's later commits.
+
+    2026-10-06 20:00Z: the compare API hit the installation rate limit, the
+    local fallback diffed main's tip against a stale head (two-dot), counted
+    155 of main's own web changes as the PR's, and the full scan of the stale
+    head failed 357 runs on code main had already fixed.
+    """
+    workspace, env, temp = _stale_branch_fixture(
+        lambda repo: write(repo, "Sources/App.swift", "let answer = 42\n"))
+    try:
+        result = _run_step("Select complexity work before installing Bun", workspace, env)
+        assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+        assert _outputs(env).get("run") == "false", (
+            _outputs(env), result.stdout.decode("utf-8", errors="replace"))
+    finally:
+        temp.cleanup()
+
+
+def test_stale_branch_web_change_scans_only_its_own_files() -> None:
+    """A stale branch that edits one web file scans that file, not a full scan.
+
+    Main's baseline cleanup after the branch point is not the pull request's
+    policy change, so it must not force the conservative full scan of the
+    stale head.
+    """
+    workspace, env, temp = _stale_branch_fixture(
+        lambda repo: write(repo, "web/app/page.tsx", "export const value = 2;\n"))
+    try:
+        result = _run_step("Select complexity work before installing Bun", workspace, env)
+        assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+        assert _outputs(env).get("run") == "true", _outputs(env)
+        result = _run_step("Determine pull-request complexity scope", workspace, env)
+        assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+        outputs = _outputs(env)
+        assert outputs.get("mode") == "changed", (outputs, result.stdout.decode("utf-8", errors="replace"))
+        assert outputs.get("selected_count") == "1", outputs
+    finally:
+        temp.cleanup()
+
+
+
+def test_ephemeral_guard_admits_the_routed_runner() -> None:
+    """The ephemeral-runner guard must pass the runner the job routes to.
+
+    cmux#48329 moved the job to cmux-gcp-pr-control-jit-x64 while the guard still
+    admitted only GitHub-hosted and Blacksmith names, so every run failed. A
+    persistent pool runner (cmux-runner-pool-*) must still fail it.
+    """
+    import re
+
+    job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["complexity"]
+    assert "cmux-gcp-pr-control-jit-x64" in job["runs-on"], job["runs-on"]
+    guard = next(step for step in job["steps"] if step.get("name") == "Require an ephemeral runner")
+    allowed = re.findall(r"!startsWith\(runner\.name, '([^']+)'\)", guard["if"])
+
+    def fails(environment: str, name: str) -> bool:
+        return environment != "github-hosted" and not any(name.startswith(p) for p in allowed)
+
+    # cmuxterm-hq runner_pool.py: PR_CONTROL_JIT_LABEL's VMs are PREFIX + "pc-".
+    assert not fails("self-hosted", "cmux-gha-runner-pc-1121-130000-abc123")
+    assert not fails("self-hosted", "blacksmith-4vcpu-ubuntu-2404-xyz")
+    assert not fails("github-hosted", "GitHub Actions 12")
+    assert fails("self-hosted", "cmux-runner-pool-e1bx-0012")
+    assert fails("self-hosted", "cmux-gha-runner-nj-1121-130000-abc123")
+
+
 def main() -> int:
-    """Validate the trusted web-complexity scoper and checker."""
+    """Validate the trusted web-complexity workflow security contract."""
+    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    validate_metadata_routing(document)
+    job = document["jobs"]["complexity"]
+
+    candidate_text = CANDIDATE_WORKFLOW.read_text(encoding="utf-8")
+    pull_request_block = candidate_text.split("  pull_request:\n", 1)[1].split("  push:\n", 1)[0]
+    if "    paths:\n      - web/**\n" not in pull_request_block:
+        print("FAIL: contributor complexity workflow must only queue for web/** pull-request changes")
+        return 1
+    if ".github/workflows/web-complexity.yml" in pull_request_block:
+        print("FAIL: editing the candidate workflow must not self-queue the candidate complexity job")
+        return 1
+    if job.get("continue-on-error"):
+        print("FAIL: the complexity job must not continue on error")
+        return 1
+    trusted_checkout = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Checkout trusted policy revision"
+    )
+    expected_fetch_depth = "${{ github.event_name != 'push' && 1 || 0 }}"
+    if trusted_checkout.get("with", {}).get("fetch-depth") != expected_fetch_depth:
+        print(
+            "FAIL: trusted policy checkout must stay shallow on PR/merge-group runs "
+            "and retain full history only for main pushes"
+        )
+        return 1
+    steps = job["steps"]
+    checks = [step for step in steps if "check-complexity.mjs" in str(step.get("run", "")) and "bun " in step["run"]]
+    if checks != EXPECTED_CHECKS:
+        print(
+            "FAIL: the complexity check steps changed. They must run from trusted/web, start Bun with "
+            "--no-env-file and the empty --config=, and fail the job when the check fails. "
+            "Update EXPECTED_CHECKS in the same reviewed change."
+        )
+        return 1
+
+    names = [step.get("name") for step in steps]
+    scope_index = names.index("Select complexity work before installing Bun")
+    setup_index = names.index("Setup Bun")
+    if scope_index >= setup_index:
+        print("FAIL: PR complexity scope must be decided before Bun setup")
+        return 1
+
+    expensive = {
+        "Setup Bun",
+        "Install trusted web tooling",
+        "Create empty trusted Bun config",
+    }
+    expected_if = "github.event_name == 'push' || steps.scope.outputs.run == 'true'"
+    for step in steps:
+        if step.get("name") in expensive and step.get("if") != expected_if:
+            print(f"FAIL: {step['name']} must be skipped for complexity-irrelevant PRs")
+            return 1
+
+    scope = steps[scope_index]
+    scope_run = str(scope.get("run", ""))
+    try:
+        validate_scope_python(scope_run)
+    except (AssertionError, KeyError, SyntaxError, ValueError) as error:
+        print(f"FAIL: trusted complexity scope contract changed: {error}")
+        return 1
+
     test_scope_cases()
     test_deleted_grandfathered_source_fails_before_setup()
     test_full_scan_still_rejects_stale_deleted_baseline_entry()
@@ -560,8 +1093,13 @@ def main() -> int:
     test_selected_symlink_fails_closed()
     test_checker_protects_trusted_scoper()
     test_checker_judges_trusted_files_in_the_merge()
+    test_merge_step_merges_only_when_rebase_merging_is_off()
     test_checker_baseline_ratchet()
-    print("PASS: the trusted web complexity scoper and checker hold their contract")
+    test_pull_request_target_queues_only_for_web_or_policy_changes()
+    test_stale_branch_without_web_changes_skips_the_scan()
+    test_stale_branch_web_change_scans_only_its_own_files()
+    test_ephemeral_guard_admits_the_routed_runner()
+    print("PASS: trusted web complexity scopes work before Bun and runs checks from the trusted checkout")
     return 0
 
 

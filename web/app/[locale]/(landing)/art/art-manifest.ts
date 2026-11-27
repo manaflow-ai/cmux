@@ -9,7 +9,7 @@ export const ART_MANIFEST_URL = "https://files.cmux.com/cmux-art/manifest.json";
 const ART_ORIGIN = "https://files.cmux.com/cmux-art/";
 const ART_MANIFEST_TIMEOUT_MS = 10_000;
 
-export const artCollections = ["darkArt", "museumIcons", "calm", "dore", "eastAsian"] as const;
+export const artCollections = ["darkArt", "museumIcons", "calm", "dore"] as const;
 export type ArtCollection = (typeof artCollections)[number];
 
 export type ArtWork = {

@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-set -- ${POSITIONAL[@]+"${POSITIONAL[@]}"}
+set -- "${POSITIONAL[@]}"
 
 if [[ $# -ne 1 ]]; then
   usage >&2
@@ -62,8 +62,6 @@ echo "Pre-flight checks passed"
 # --- Build GhosttyKit ---
 echo "Building GhosttyKit..."
 rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
-# Ghostty's packages from our mirror, with bounded retries, before the build.
-scripts/cmux-next/zig-fetch-all.sh ghostty || echo "warning: Ghostty Zig package prefetch failed; the build fetches what it lacks" >&2
 (
   cd ghostty
   zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
@@ -71,58 +69,25 @@ scripts/cmux-next/zig-fetch-all.sh ghostty || echo "warning: Ghostty Zig package
 cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 
 # --- Build app (Release, unsigned) ---
-# The Embed CEF phase embeds the pinned Chromium engine when the private
-# manaflow-ai/cef release is readable (gh login or GH_TOKEN), else the app
-# ships the browser as unavailable.
 echo "Building app..."
 rm -rf build/
-# The cmux-tui client of this commit's own tree, as release.yml installs it
-# (cx-urd.9.1): resolve-exact waits for the tree's publication and prints the
-# publishing commit whose attested manifest carries it. Never another commit's daemon.
-CMUX_TUI_RESOLVED="$(./scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"
-CMUX_TUI_COMMIT="$(sed -n 's/^commit=//p' <<<"$CMUX_TUI_RESOLVED")"
-CMUX_TUI_KEY="$(sed -n 's/^key=//p' <<<"$CMUX_TUI_RESOLVED")"
-[[ "$CMUX_TUI_COMMIT" =~ ^[0-9a-f]{40}$ && "$CMUX_TUI_KEY" =~ ^[0-9a-f]{40}$ ]] || {
-  echo "error: pin-cmux-tui.sh resolve-exact printed no commit/key" >&2; exit 1; }
-# THIRD_PARTY_LICENSES.md for this commit's cmux-tui (tree mode, lock closures:
-# no cargo on a maintainer's Mac); the committed copy is restored afterwards,
-# which also drops any uncommitted local edit to that file.
-NOTICES_ROOT="$PWD"
-trap 'git -C "$NOTICES_ROOT" checkout -- THIRD_PARTY_LICENSES.md' EXIT
-./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree
-# cmux-next's web bundles are build output (cx-vn5): a release builds them from this
-# commit's sources, never from a stamp.
-if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
-  scripts/cmux-next/build-web-bundles.sh --force
-fi
-# The Bundle cmux-tui phase bundles none (deferred); this tree's client is installed below.
-CMUX_NEXT_TUI_MODE=deferred xcodebuild -skipPackagePluginValidation -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
-if [ ! -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
-  echo "WARNING: no Chromium engine embedded; this release ships the browser as unavailable" >&2
-fi
-# Chromium's license notices must ship with the engine (passes when no CEF is embedded).
-./scripts/cmux-next/check-cef-credits.sh "$APP_PATH"
-# An app built for the fleet benches keeps the debug.* commands; it never ships.
-./scripts/cmux-next/check-no-bench-hooks.sh "$APP_PATH"
 
-# The universal cmux-tui client of this commit's tree, as release.yml installs it.
-./scripts/install-cmux-tui-client.sh "$APP_PATH" \
-  --manifest-url "https://files.cmux.com/cmux-tui/${CMUX_TUI_COMMIT}/manifest.json" \
-  --expected-commit "$CMUX_TUI_COMMIT" \
-  --require-capability wireguard-hub
-./scripts/cmux-next/write-cmux-tui-version.sh "$APP_PATH" "$CMUX_TUI_COMMIT" "$CMUX_TUI_KEY"
-# The bundled daemon must serve every capability the app relies on.
-./scripts/cmux-next/check-daemon-capabilities.sh --binary "$APP_PATH/Contents/Resources/bin/cmux-tui"
-
-# The cmux-next target does not build the Ghostty CLI helper (theme picker);
-# release.yml and nightly.yml inject a prebuilt one, this script builds it.
 HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
-./scripts/build-ghostty-cli-helper.sh --universal --output "$HELPER_PATH"
 if [ ! -x "$HELPER_PATH" ]; then
   echo "Ghostty theme picker helper not found at $HELPER_PATH" >&2
   exit 1
 fi
+
+# Submit the independently signed Computer Use helper now. Apple can process
+# its first ticket while this script finishes bundle metadata and signing.
+COMPUTER_USE_NOTARY_STATE="build/computer-use-notarization.state"
+./scripts/ci/notarize-computer-use-helper.sh \
+  --start "$COMPUTER_USE_NOTARY_STATE" \
+  "$APP_PATH" \
+  "$ENTITLEMENTS" \
+  "$SIGN_HASH"
 
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
@@ -143,11 +108,17 @@ echo "Sparkle keys injected"
 
 # --- Codesign ---
 echo "Codesigning..."
-./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
+CMUX_SIGN_MODE=all-except-computer-use \
+  ./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
 echo "Codesign verified"
 
 # --- Notarize app ---
 echo "Notarizing app..."
+./scripts/ci/notarize-computer-use-helper.sh \
+  --finish "$COMPUTER_USE_NOTARY_STATE" \
+  "$APP_PATH" \
+  "$ENTITLEMENTS" \
+  "$SIGN_HASH"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" cmux-notary.zip
 xcrun notarytool submit cmux-notary.zip \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
@@ -170,11 +141,6 @@ echo "DMG notarized"
 
 # --- Generate Sparkle appcast ---
 echo "Generating appcast..."
-SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 ./scripts/ci/appcast_minimum_system_version.py floor "$APP_PATH")"
-export SPARKLE_MINIMUM_SYSTEM_VERSION
-if [[ -f scripts/cmux-next/legacy-appcast-item.xml ]]; then
-  export SPARKLE_LEGACY_APPCAST_ITEM_FILE=scripts/cmux-next/legacy-appcast-item.xml
-fi
 ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$TAG" appcast.xml
 # Stable installs from CI releases are thin and read appcast-<arch>.xml. This
 # script builds only the universal DMG, so both per-arch feeds carry the

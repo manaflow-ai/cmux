@@ -7,17 +7,11 @@ import sys
 import unittest
 import unittest.mock
 
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import seed_decide  # noqa: E402
-# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
-import importlib.util as _git_fixture_importlib  # noqa: E402
-from os import path as _git_fixture_path  # noqa: E402
-_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
-    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
-git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
-_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 REPO = "manaflow-ai/cmux"
 
@@ -274,6 +268,29 @@ class FarLane(unittest.TestCase):
                 self.assertEqual(commit({f"Sources/A{i}.swift": "a\n" for i in range(3)}), "near")
                 self.assertEqual(commit({f"Sources/B{i}.swift": "b\n" for i in range(3)}), "far")
                 self.assertEqual(commit({"Packages/Kit/K.swift": "public struct K {}\n"}), "rebuild")
+
+
+class Wiring(unittest.TestCase):
+    def test_decide_uses_the_nearest_seed_with_enough_history(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/seed-derived-data.yml").read_text())
+        decide_job = workflow["jobs"]["decide"]
+        checkout = decide_job["steps"][0]
+        self.assertGreater(checkout["with"]["fetch-depth"], seed_decide.ANCESTOR_LIMIT)
+        run_text = "\n".join(step.get("run", "") for step in decide_job["steps"])
+        self.assertIn("scripts/ci/seed_decide.py", run_text)
+        self.assertNotIn("HEAD^1", run_text)
+        self.assertEqual(decide_job["permissions"]["actions"], "read")
+        # The matrix is decide's list, and the product publisher is named, not
+        # the first matrix entry, which moves when a pool skips.
+        seed = workflow["jobs"][seed_decide.SEED_JOB]
+        self.assertEqual(seed["strategy"]["matrix"], "${{ fromJSON(needs.decide.outputs.matrix) }}")
+        self.assertEqual(decide_job["outputs"]["matrix"], "${{ steps.inputs.outputs.matrix }}")
+        stage = next(step for step in seed["steps"] if step.get("id") == "stage-products")
+        self.assertIn("matrix.pool == needs.decide.outputs.publisher", stage["if"])
+        self.assertNotIn("job-index", yaml.safe_dump(workflow))
+        # A rename would silently turn every skip into a build.
+        seed_steps = [step.get("name") for step in workflow["jobs"][seed_decide.SEED_JOB]["steps"]]
+        self.assertIn(seed_decide.SAVE_STEP, seed_steps)
 
 
 if __name__ == "__main__":

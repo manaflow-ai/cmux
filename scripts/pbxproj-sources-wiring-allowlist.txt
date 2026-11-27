@@ -1,0 +1,9 @@
+# Swift files under Sources/ that are deliberately NOT members of the cmux app
+# target's Sources build phase. scripts/lint-pbxproj-test-wiring.sh --target cmux
+# --tests-dir Sources --recursive reads this list. Keep it short and give each
+# entry a reason; an entry whose file is deleted or becomes a cmux member fails
+# the lint so the list cannot go stale.
+
+# Compiled into the CmuxDockTilePlugin bundle target, which the app embeds via
+# its "Copy Dock Tile Plugin" phase. Dock loads it out of process.
+Sources/AppIconDockTilePlugin.swift

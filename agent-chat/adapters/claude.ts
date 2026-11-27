@@ -91,20 +91,6 @@ interface ClaudeState {
   activeGenerations: Array<number | undefined>;
 }
 
-function compactCommand(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-export function claudeToolActivity(name: string, input: unknown): { name: string; detail?: string; description?: string } {
-  const record = input && typeof input === "object" ? input as Record<string, unknown> : {};
-  const command = typeof record.command === "string" ? compactCommand(record.command) : undefined;
-  const detail = command || truncate(JSON.stringify(input ?? {}));
-  const description = typeof record.description === "string" && record.description.trim().length > 0
-    ? record.description.trim()
-    : undefined;
-  return { name, detail, description };
-}
-
 export const claudeAdapter: Adapter = {
   capabilities: {
     triggers: ["/"],
@@ -216,13 +202,17 @@ function stringOption(sess: SessionCtx, id: string, fallback: string): string {
 
 function normalizeStartModel(value: string): string {
   if (value === "default") return defaultClaudeModel();
-  // An alias stays itself: only Claude Code says what it runs (cx-miuo).
-  return stripOneMillion(value).base;
+  const base = stripOneMillion(value).base;
+  return isRemoteClaudeId(base) ? base : aliasClaudeModel(base);
 }
 
 function seededClaudeDefault(sess: SessionCtx): string {
   const seeded = sess.seedOptions?.find((option) => option.id === "model");
   return typeof seeded?.value === "string" && seeded.value ? seeded.value : defaultClaudeModel();
+}
+
+function isRemoteClaudeId(value: string): boolean {
+  return agentModelCatalog.provider("claude")?.models.some((model) => model.id === value) === true;
 }
 
 function booleanOption(sess: SessionCtx, id: string, fallback: boolean): boolean {
@@ -491,7 +481,7 @@ function normalizeContext(st: Pick<ClaudeState, "model" | "modelMeta" | "context
   const beforeContext = st.context;
   const parsed = stripOneMillion(st.model);
   if (parsed.suffix) {
-    const base = parsed.base;
+    const base = aliasClaudeModel(parsed.base);
     if (st.modelMeta.get(base)?.context) {
       st.model = base;
       st.context = "1m";
@@ -517,7 +507,7 @@ function normalizeModelCatalog(models: any, version: string | null): { choices: 
     const value = String(m.value ?? m.model ?? m.id ?? "");
     if (!value || bareClaudeAlias(value) === "default") return null;
     const parsed = stripOneMillion(value);
-    const base = parsed.base;
+    const base = aliasClaudeModel(parsed.base);
     const normalizedValue = parsed.suffix ? `${base}${parsed.suffix}` : base;
     return {
       rawValue: value,
@@ -552,7 +542,7 @@ function normalizeModelCatalog(models: any, version: string | null): { choices: 
     const defaultEffort = validDefaultEffort(efforts, model.defaultEffort ?? binary?.meta.defaultEffort);
     choices.push({ value: model.slug, label: model.label, description: model.description, disabled: Boolean(disabledReason), disabledReason, efforts, defaultEffort });
     covered.add(model.slug);
-    covered.add(stripOneMillion(model.slug).base);
+    covered.add(aliasClaudeModel(stripOneMillion(model.slug).base));
     meta.set(model.slug, { efforts, defaultEffort, supportsFastMode: model.fast ?? binary?.meta.supportsFastMode ?? false, ...(context ? { context } : {}) });
   }
   for (const m of raw) {
@@ -613,6 +603,15 @@ function bareClaudeAlias(value: string): string {
   return stripOneMillion(value).base.toLowerCase();
 }
 
+function aliasClaudeModel(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower === "opus") return "claude-opus-4-8";
+  if (lower === "fable") return "claude-fable-5";
+  if (lower === "sonnet") return "claude-sonnet-5";
+  if (lower === "haiku") return "claude-haiku-4-5";
+  return value;
+}
+
 function enabledClaudeDefault(choices: OptionChoice[]): string {
   return selectEnabledModel(defaultClaudeModel(), choices.map((choice) => ({ id: choice.value, disabled: choice.disabled })));
 }
@@ -627,8 +626,9 @@ function dedupeChoices(choices: OptionChoice[]): OptionChoice[] {
   const out: OptionChoice[] = [];
   for (const choice of choices) {
     const base = stripOneMillion(choice.value).base;
-    if (seen.has(base)) continue;
-    seen.add(base);
+    const key = isRemoteClaudeId(base) ? base : aliasClaudeModel(base);
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push(choice);
   }
   return out.sort((a, b) => {
@@ -741,11 +741,11 @@ function handleLine(sess: SessionCtx, line: string) {
     case "assistant": {
       for (const block of ev.message?.content ?? []) {
         if (block.type === "tool_use") {
-          const activity = claudeToolActivity(block.name, block.input);
           sess.emit({
             kind: "tool-start",
             toolId: block.id,
-            ...activity,
+            name: block.name,
+            detail: truncate(JSON.stringify(block.input ?? {})),
           });
         }
       }

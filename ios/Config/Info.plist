@@ -28,14 +28,14 @@
 	<string>$(CMUX_IROH_V2_FORCE_RELAY)</string>
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
+	<key>CMUXAppStoreBuild</key>
+	<string>$(CMUX_APPSTORE_BUILD)</string>
+	<key>CMUXCloudVPNProviderBundleIdentifier</key>
+	<string>$(CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
-	<key>CMUXCloudAPIBaseURL</key>
-	<string>$(CMUX_CLOUD_API_BASE_URL)</string>
-	<key>CMUXDogfoodReadiness</key>
-	<string>app-receipt-v1</string>
 	<key>CMUXCrashReportingEnabled</key>
 	<string>$(CMUX_CRASH_REPORTING_ENABLED)</string>
 	<key>CMUXPresenceBaseURL</key>
@@ -73,16 +73,14 @@
 	<array>
 		<string>_cmux-iroh._udp</string>
 	</array>
-	<key>NSFaceIDUsageDescription</key>
-	<string>cmux uses Face ID to confirm that you want to lower the protection for texts to Chief.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your Mac on the local network for cmux mobile pairing and terminal sync.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record your voice for messages, voice notes and calls to your Chief.</string>
+	<string>Record audio to transcribe your voice into the message box.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach photos to send to your terminal agent.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Transcribe your speech on this iPhone into messages and voice notes for your Chief.</string>
+	<string>Transcribe your speech into the message box.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- The in-app browser (WKWebView) loads pages the user navigates to,
@@ -93,26 +91,11 @@
 		     alone would not cover routable private-LAN dev servers. -->
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
-		<!-- A self-hosted cmux chat server (Settings > Chat Server) listens only
-		     on its tailnet, over plain HTTP: WireGuard already encrypts and
-		     authenticates the path (dm-group-chat-DESIGN.md section 4.3). Plain
-		     HTTP is allowed for MagicDNS *.ts.net names only; every other
-		     origin stays under ATS. -->
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>ts.net</key>
-			<dict>
-				<key>NSIncludesSubdomains</key>
-				<true/>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-			</dict>
-		</dict>
 	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
+		<true/>
 		<key>UISceneConfigurations</key>
 		<dict/>
 	</dict>
@@ -120,9 +103,6 @@
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
-		<!-- A Chief call started from the Action Button keeps recording while
-		     the phone locks (plans/cmux-next/ios-action-button-DESIGN.md). -->
-		<string>audio</string>
 		<string>remote-notification</string>
 	</array>
 	<key>UILaunchScreen</key>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.developer.networking.networkextension</key>
+    <array>
+        <string>packet-tunnel-provider</string>
+    </array>
+    <!-- The host app's group, shared the way the notification service shares
+         it: the app writes the VPN configuration there and this extension
+         reads it back through the persistent reference in its preferences. -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)$(CMUX_HOST_BUNDLE_IDENTIFIER)</string>
+    </array>
+</dict>
+</plist>

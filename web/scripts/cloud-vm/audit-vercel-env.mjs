@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { auditAlertSink } from "./alertSinkAudit.mjs";
 import { auditCloudVmProviderCoherence } from "./defaultProviderAudit.mjs";
@@ -19,12 +18,20 @@ import {
 } from "./projects.mjs";
 
 const usage = "Usage: audit-vercel-env.mjs [web-dir] <staging|production> [--strict]";
+const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
+const strict = rest.includes("--strict") || parseBoolean(process.env.CMUX_CLOUD_VM_ENV_AUDIT_STRICT, false);
 
-export function auditRuntimeEnv({ env, metadata = [], webDir, target, projectName }) {
+try {
   // `target` selects which Vercel PROJECT to audit (staging and production
   // are separate projects: cmux-staging vs cmux). Each project's runtime env
   // is its own "production" environment, so the project object fully encodes
   // the target and the loader needs nothing else.
+  const { env: pulledEnv, metadata } = loadTargetEnvWithMetadata(project);
+  // Vercel CLI 50 writes Sensitive variables as empty strings. The metadata
+  // endpoint still proves that the key exists, so represent that fact with a
+  // non-secret marker for the pure audits below. This never enters a runtime
+  // client because only this audit path uses the merged object.
+  const env = mergeVercelSensitiveMetadata(pulledEnv, metadata);
   const keys = Object.keys(env).sort();
   const sensitiveKeys = metadata
     .filter((entry) => entry?.type === "sensitive" && typeof entry.key === "string")
@@ -59,14 +66,14 @@ export function auditRuntimeEnv({ env, metadata = [], webDir, target, projectNam
   // in a shared environment is an outage-class misconfiguration, not a note.
   const freeProvisioning = auditFreeProvisioningOverride(env);
 
-  return {
+  const result = {
     ok: missingRequired.length === 0 &&
       forbiddenPresent.length === 0 &&
       providerCoherence.problems.length === 0 &&
       freeProvisioning.problems.length === 0 &&
       alertSink.problems.length === 0,
     target,
-    project: projectName,
+    project: project.projectName,
     envKeyCount: keys.length,
     envKeys: keys,
     sensitiveKeys,
@@ -79,28 +86,9 @@ export function auditRuntimeEnv({ env, metadata = [], webDir, target, projectNam
     alertSink,
   };
 
-}
-
-// Keep the command-line entry point separate from the pure audit above so the
-// regression suite can exercise the exact strict result without invoking Vercel.
-const isEntryPoint =
-  process.argv[1] !== undefined &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isEntryPoint) {
-  const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
-  const strict = rest.includes("--strict") || parseBoolean(process.env.CMUX_CLOUD_VM_ENV_AUDIT_STRICT, false);
-  try {
-    const { env: pulledEnv, metadata } = loadTargetEnvWithMetadata(project);
-    // Vercel CLI 50 writes Sensitive variables as empty strings. The metadata
-    // endpoint still proves that the key exists, so represent that fact with a
-    // non-secret marker for the pure audits below. This never enters a runtime
-    // client because only this audit path uses the merged object.
-    const env = mergeVercelSensitiveMetadata(pulledEnv, metadata);
-    const result = auditRuntimeEnv({ env, metadata, webDir, target, projectName: project.projectName });
-    console.log(JSON.stringify(result, null, 2));
-    if (strict && !result.ok) process.exit(1);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  }
+  console.log(JSON.stringify(result, null, 2));
+  if (strict && !result.ok) process.exit(1);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
 }

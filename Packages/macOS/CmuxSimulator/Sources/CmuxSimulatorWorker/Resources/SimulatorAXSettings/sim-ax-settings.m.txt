@@ -1,0 +1,248 @@
+// sim-ax-settings — tiny CLI that runs *inside* the iOS Simulator (via
+// `simctl spawn`) to read and write the simulator-wide settings that
+// `simctl ui` does not cover. It drives the same private libAccessibility
+// and MediaAccessibility setters the Xcode Devices app uses, which write the
+// backing preference *and* post the darwin notification that makes running
+// apps pick the change up live.
+//
+// Adapted from serve-sim commit af681b8c3b0453f31dcb8e98a3389f23b7cfc6b0 (Apache-2.0).
+// Modified by cmux for native worker packaging. See
+// THIRD_PARTY_NOTICES.md and ../CameraInjector/LICENSE-serve-sim.
+
+#include <CoreFoundation/CoreFoundation.h>
+#include <dlfcn.h>
+#include <notify.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef int (*GetBoolFn)(void);
+typedef void (*SetBoolFn)(int);
+typedef long (*MAGetTypeFn)(long);
+typedef void (*MASetTypeFn)(long, long);
+typedef int (*MAGetEnabledFn)(long);
+typedef void (*MASetEnabledFn)(long, int);
+
+static const long kMAColorCategory = 1;
+
+enum {
+  kFilterNone = 0,
+  kFilterGrayscale = 1,
+  kFilterRedGreen = 2,
+  kFilterGreenRed = 4,
+  kFilterBlueYellow = 8,
+};
+
+static void *axHandle(void) {
+  static void *handle;
+  if (!handle) handle = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW);
+  return handle;
+}
+
+static void *maHandle(void) {
+  static void *handle;
+  if (!handle) {
+    handle = dlopen(
+        "/System/Library/Frameworks/MediaAccessibility.framework/MediaAccessibility",
+        RTLD_NOW);
+  }
+  return handle;
+}
+
+static void *requireSym(void *handle, const char *name) {
+  void *sym = handle ? dlsym(handle, name) : NULL;
+  if (!sym) {
+    fprintf(stderr, "sim-ax-settings: missing symbol %s\n", name);
+    exit(2);
+  }
+  return sym;
+}
+
+typedef struct {
+  const char *key;
+  const char *getter;
+  const char *setter;
+} BoolSetting;
+
+static const BoolSetting kBoolSettings[] = {
+    {"reduce-motion", "_AXSReduceMotionEnabled", "_AXSSetReduceMotionEnabled"},
+    {"show-borders", "_AXSButtonShapesEnabled", "_AXSSetButtonShapesEnabled"},
+    {"reduce-transparency", "_AXSEnhanceBackgroundContrastEnabled",
+     "_AXSSetEnhanceBackgroundContrastEnabled"},
+    {"voiceover", "_AXSVoiceOverTouchEnabled", "_AXSVoiceOverTouchSetEnabled"},
+};
+static const size_t kBoolSettingCount =
+    sizeof(kBoolSettings) / sizeof(kBoolSettings[0]);
+
+static const BoolSetting *findBoolSetting(const char *key) {
+  for (size_t i = 0; i < kBoolSettingCount; i++) {
+    if (strcmp(kBoolSettings[i].key, key) == 0) return &kBoolSettings[i];
+  }
+  return NULL;
+}
+
+static int getBoolSetting(const BoolSetting *s) {
+  GetBoolFn fn = (GetBoolFn)requireSym(axHandle(), s->getter);
+  return fn() ? 1 : 0;
+}
+
+static void setBoolSetting(const BoolSetting *s, int enabled) {
+  SetBoolFn fn = (SetBoolFn)requireSym(axHandle(), s->setter);
+  fn(enabled);
+}
+
+static const char *filterName(long type, int enabled) {
+  if (!enabled) return "none";
+  switch (type) {
+    case kFilterGrayscale: return "grayscale";
+    case kFilterRedGreen: return "red-green";
+    case kFilterGreenRed: return "green-red";
+    case kFilterBlueYellow: return "blue-yellow";
+    default: return "none";
+  }
+}
+
+static long filterTypeForName(const char *name) {
+  if (strcmp(name, "grayscale") == 0) return kFilterGrayscale;
+  if (strcmp(name, "red-green") == 0) return kFilterRedGreen;
+  if (strcmp(name, "green-red") == 0) return kFilterGreenRed;
+  if (strcmp(name, "blue-yellow") == 0) return kFilterBlueYellow;
+  return kFilterNone;
+}
+
+static const char *getColorFilter(void) {
+  MAGetTypeFn getType =
+      (MAGetTypeFn)requireSym(maHandle(), "MADisplayFilterPrefGetType");
+  MAGetEnabledFn getEnabled = (MAGetEnabledFn)requireSym(
+      maHandle(), "MADisplayFilterPrefGetCategoryEnabled");
+  return filterName(getType(kMAColorCategory), getEnabled(kMAColorCategory));
+}
+
+static void setColorFilter(const char *name) {
+  MASetTypeFn setType =
+      (MASetTypeFn)requireSym(maHandle(), "MADisplayFilterPrefSetType");
+  MASetEnabledFn setEnabled = (MASetEnabledFn)requireSym(
+      maHandle(), "MADisplayFilterPrefSetCategoryEnabled");
+  long type = filterTypeForName(name);
+  if (type == kFilterNone) {
+    setEnabled(kMAColorCategory, 0);
+  } else {
+    setType(kMAColorCategory, type);
+    setEnabled(kMAColorCategory, 1);
+  }
+  SetBoolFn setGrayscale =
+      (SetBoolFn)requireSym(axHandle(), "_AXSGrayscaleSetEnabled");
+  setGrayscale(type == kFilterGrayscale);
+}
+
+static CFStringRef kGlassDomain = CFSTR("com.apple.UIKit");
+static CFStringRef kGlassKey = CFSTR("UIViewGlassLegibilitySetting");
+
+static const char *getLiquidGlass(void) {
+  CFPropertyListRef value = CFPreferencesCopyValue(
+      kGlassKey, kGlassDomain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+  int tinted = 0;
+  if (value) {
+    if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+      int n = 0;
+      CFNumberGetValue((CFNumberRef)value, kCFNumberIntType, &n);
+      tinted = n == 1;
+    }
+    CFRelease(value);
+  }
+  return tinted ? "tinted" : "clear";
+}
+
+static void setLiquidGlass(const char *name) {
+  int tinted = strcmp(name, "tinted") == 0;
+  CFNumberRef value = CFNumberCreate(NULL, kCFNumberIntType, &tinted);
+  CFPreferencesSetValue(kGlassKey, value, kGlassDomain,
+                        kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+  CFRelease(value);
+  CFPreferencesSynchronize(kGlassDomain, kCFPreferencesCurrentUser,
+                           kCFPreferencesAnyHost);
+  notify_post("UIViewGlassLegibilityUpdateNotification");
+}
+
+static void printStatus(void) {
+  printf("{");
+  for (size_t i = 0; i < kBoolSettingCount; i++) {
+    printf("\"%s\":\"%s\",", kBoolSettings[i].key,
+           getBoolSetting(&kBoolSettings[i]) ? "on" : "off");
+  }
+  printf("\"color-filter\":\"%s\",", getColorFilter());
+  printf("\"liquid-glass\":\"%s\"}\n", getLiquidGlass());
+}
+
+static int parseOnOff(const char *value) {
+  if (strcmp(value, "on") == 0 || strcmp(value, "1") == 0 ||
+      strcmp(value, "true") == 0 || strcmp(value, "enabled") == 0)
+    return 1;
+  if (strcmp(value, "off") == 0 || strcmp(value, "0") == 0 ||
+      strcmp(value, "false") == 0 || strcmp(value, "disabled") == 0)
+    return 0;
+  return -1;
+}
+
+int main(int argc, char **argv) {
+  if (argc >= 2 && strcmp(argv[1], "status") == 0) {
+    printStatus();
+    return 0;
+  }
+
+  if (argc == 3 && strcmp(argv[1], "get") == 0) {
+    const char *key = argv[2];
+    const BoolSetting *bs = findBoolSetting(key);
+    if (bs) {
+      printf("%s\n", getBoolSetting(bs) ? "on" : "off");
+      return 0;
+    }
+    if (strcmp(key, "color-filter") == 0) {
+      printf("%s\n", getColorFilter());
+      return 0;
+    }
+    if (strcmp(key, "liquid-glass") == 0) {
+      printf("%s\n", getLiquidGlass());
+      return 0;
+    }
+    fprintf(stderr, "sim-ax-settings: unknown key %s\n", key);
+    return 1;
+  }
+
+  if (argc == 4 && strcmp(argv[1], "set") == 0) {
+    const char *key = argv[2];
+    const char *value = argv[3];
+    const BoolSetting *bs = findBoolSetting(key);
+    if (bs) {
+      int enabled = parseOnOff(value);
+      if (enabled < 0) {
+        fprintf(stderr, "sim-ax-settings: %s wants on|off, got %s\n", key, value);
+        return 1;
+      }
+      setBoolSetting(bs, enabled);
+      return 0;
+    }
+    if (strcmp(key, "color-filter") == 0) {
+      if (strcmp(value, "none") != 0 && filterTypeForName(value) == kFilterNone) {
+        fprintf(stderr, "sim-ax-settings: unknown color filter %s\n", value);
+        return 1;
+      }
+      setColorFilter(value);
+      return 0;
+    }
+    if (strcmp(key, "liquid-glass") == 0) {
+      if (strcmp(value, "clear") != 0 && strcmp(value, "tinted") != 0) {
+        fprintf(stderr, "sim-ax-settings: liquid-glass wants clear|tinted\n");
+        return 1;
+      }
+      setLiquidGlass(value);
+      return 0;
+    }
+    fprintf(stderr, "sim-ax-settings: unknown key %s\n", key);
+    return 1;
+  }
+
+  fprintf(stderr,
+          "Usage: sim-ax-settings status | get <key> | set <key> <value>\n");
+  return 64;
+}

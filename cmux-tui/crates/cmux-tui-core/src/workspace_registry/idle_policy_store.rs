@@ -55,8 +55,7 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<()> {
         validate_terminal_identity("terminal id", terminal_id)?;
         validate_terminal_idle_close_seconds(idle_close_seconds)?;
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
+        let tx = self.connection.transaction()?;
         let terminal = read_terminal(&tx, terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
         anyhow::ensure!(terminal.lifecycle != TerminalLifecycle::Tombstoned, "terminal_not_found");
@@ -86,7 +85,6 @@ impl WorkspaceRegistry {
         validate_terminal_identity("terminal id", terminal_id)?;
         let seconds = self
             .connection
-            .get()
             .query_row(
                 "SELECT idle_close_seconds FROM terminal_idle_policies WHERE terminal_id = ?1",
                 [terminal_id],
@@ -98,8 +96,7 @@ impl WorkspaceRegistry {
 
     /// Every non-tombstoned terminal that carries an idle-close policy.
     pub fn live_terminal_idle_policies(&self) -> anyhow::Result<Vec<TerminalIdlePolicy>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
+        let mut statement = self.connection.prepare(
             "SELECT policy.terminal_id, host.incarnation, policy.idle_close_seconds
              FROM terminal_idle_policies AS policy
              JOIN terminal_hosts AS host ON host.terminal_id = policy.terminal_id
@@ -124,7 +121,7 @@ impl WorkspaceRegistry {
     /// Delete policies whose terminal is tombstoned or no longer registered.
     /// Returns the number of rows removed.
     pub fn prune_terminal_idle_policies(&mut self) -> anyhow::Result<usize> {
-        Ok(self.connection.get().execute(
+        Ok(self.connection.execute(
             "DELETE FROM terminal_idle_policies
              WHERE terminal_id NOT IN (
                SELECT terminal_id FROM terminal_hosts WHERE lifecycle != 'tombstoned'

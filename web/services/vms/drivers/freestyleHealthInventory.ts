@@ -18,8 +18,6 @@ import type { VmHealthInventory } from "./types";
 const PAGE_SIZE = 100;
 /** 50 pages covers 5000 VMs or rules; past that the listing reports itself partial. */
 const MAX_PAGES = 50;
-/** Keep account inventory quick without turning a health sweep into a request burst. */
-const VM_PAGE_CONCURRENCY = 4;
 const LIST_REQUEST_TIMEOUT_MS = 20_000;
 
 type ClientFactory = (timeoutMs?: number, signal?: AbortSignal) => Freestyle;
@@ -37,45 +35,22 @@ type ListOptions = { readonly deadlineAtMs: number; readonly signal?: AbortSigna
 async function listAccountVms(client: ClientFactory, options: ListOptions): Promise<ProviderVmInventory> {
   const vms: ProviderInventoryVm[] = [];
   const seen = new Set<string>();
-  if (Date.now() >= options.deadlineAtMs) return { vms, complete: false };
-
-  // Read the first page alone: it supplies the account count that bounds the
-  // remaining requests. Subsequent pages are independent offset reads, so a
-  // small batch cuts wall time while the set de-duplication keeps a changing
-  // inventory conservative.
-  const readPage = (page: number) => client(LIST_REQUEST_TIMEOUT_MS, options.signal).vms.list({
-    limit: PAGE_SIZE,
-    offset: page * PAGE_SIZE,
-  });
-  const first = await readPage(0);
-  const add = (result: Awaited<ReturnType<typeof readPage>>) => {
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    if (Date.now() >= options.deadlineAtMs) return { vms, complete: false };
+    const result = await client(LIST_REQUEST_TIMEOUT_MS, options.signal).vms.list({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
     for (const vm of result.vms) {
       // Offset paging over a changing list can repeat a VM across pages.
       if (seen.has(vm.id)) continue;
       seen.add(vm.id);
       vms.push(inventoryVm(vm));
     }
-  };
-  add(first);
-  let totalCount = first.totalCount;
-  let shortPage = first.vms.length < PAGE_SIZE;
-  let nextPage = 1;
-  while (!shortPage && totalCount > nextPage * PAGE_SIZE && nextPage < MAX_PAGES) {
-    if (Date.now() >= options.deadlineAtMs) return { vms, complete: false };
-    const pages = Array.from({ length: Math.min(VM_PAGE_CONCURRENCY, MAX_PAGES - nextPage) }, (_, index) => nextPage + index)
-      .filter((page) => page * PAGE_SIZE < totalCount);
-    if (pages.length === 0) break;
-    const results = await Promise.all(pages.map(readPage));
-    for (const result of results) {
-      add(result);
-      totalCount = Math.max(totalCount, result.totalCount);
-      shortPage ||= result.vms.length < PAGE_SIZE;
+    if (result.vms.length < PAGE_SIZE || (page + 1) * PAGE_SIZE >= result.totalCount) {
+      // A delete during offset paging shifts a VM onto a page already read;
+      // a short count means some VM was never seen, so missing is unknown.
+      return { vms, complete: seen.size >= result.totalCount };
     }
-    nextPage += pages.length;
   }
-  // A delete during offset paging shifts a VM onto a page already read; a
-  // short count means some VM was never seen, so missing is unknown.
-  return { vms, complete: nextPage * PAGE_SIZE >= totalCount && seen.size >= totalCount };
+  return { vms, complete: false };
 }
 
 export function inventoryVm(vm: VmData): ProviderInventoryVm {

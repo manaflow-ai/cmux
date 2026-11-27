@@ -12,106 +12,66 @@ import java.util.Objects;
 
 /** Immutable shutdown-daemon request. Protocol v9; authority: local-admin. */
 public final class ShutdownDaemonRequest implements WireValue {
-    private final Field<Boolean> endTerminals;
     private final Field<Boolean> force;
     private final String generation;
-    private final Field<Boolean> ifIdle;
-    private final Field<Boolean> keepLayout;
     private final long pid;
-    private final Field<Boolean> restart;
 
     private ShutdownDaemonRequest(Builder builder) {
-        this.endTerminals = builder.endTerminals;
         this.force = builder.force;
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
-        this.ifIdle = builder.ifIdle;
-        this.keepLayout = builder.keepLayout;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
-        this.restart = builder.restart;
     }
 
     public static Builder builder() { return new Builder(); }
 
-    public Field<Boolean> endTerminals() { return endTerminals; }
     public Field<Boolean> force() { return force; }
     public String generation() { return generation; }
-    public Field<Boolean> ifIdle() { return ifIdle; }
-    public Field<Boolean> keepLayout() { return keepLayout; }
     public long pid() { return pid; }
-    public Field<Boolean> restart() { return restart; }
 
     public static ShutdownDaemonRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ShutdownDaemonRequest");
         Builder builder = builder();
-        Object rawEndTerminals = Wire.optional(object, "end_terminals");
-        if (!Wire.isMissing(rawEndTerminals)) {
-            builder.endTerminals(Wire.bool(rawEndTerminals, "ShutdownDaemonRequest.end_terminals"));
-        }
         Object rawForce = Wire.optional(object, "force");
         if (!Wire.isMissing(rawForce)) {
             builder.force(Wire.bool(rawForce, "ShutdownDaemonRequest.force"));
         }
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "ShutdownDaemonRequest.generation"));
-        Object rawIfIdle = Wire.optional(object, "if_idle");
-        if (!Wire.isMissing(rawIfIdle)) {
-            builder.ifIdle(Wire.bool(rawIfIdle, "ShutdownDaemonRequest.if_idle"));
-        }
-        Object rawKeepLayout = Wire.optional(object, "keep_layout");
-        if (!Wire.isMissing(rawKeepLayout)) {
-            builder.keepLayout(Wire.bool(rawKeepLayout, "ShutdownDaemonRequest.keep_layout"));
-        }
         Object rawPid = Wire.required(object, "pid");
         builder.pid(Wire.uint32(rawPid, "ShutdownDaemonRequest.pid"));
-        Object rawRestart = Wire.optional(object, "restart");
-        if (!Wire.isMissing(rawRestart)) {
-            builder.restart(rawRestart == null ? null : Wire.bool(rawRestart, "ShutdownDaemonRequest.restart"));
-        }
         return builder.build();
     }
 
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
-        Wire.put(object, "end_terminals", endTerminals);
         Wire.put(object, "force", force);
         Wire.put(object, "generation", generation);
-        Wire.put(object, "if_idle", ifIdle);
-        Wire.put(object, "keep_layout", keepLayout);
         Wire.put(object, "pid", pid);
-        Wire.put(object, "restart", restart);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ShutdownDaemonRequest that)) return false;
-        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(force, that.force) && Objects.equals(generation, that.generation) && Objects.equals(ifIdle, that.ifIdle) && Objects.equals(keepLayout, that.keepLayout) && Objects.equals(pid, that.pid) && Objects.equals(restart, that.restart);
+        return Objects.equals(force, that.force) && Objects.equals(generation, that.generation) && Objects.equals(pid, that.pid);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(endTerminals, force, generation, ifIdle, keepLayout, pid, restart); }
+    public int hashCode() { return Objects.hash(force, generation, pid); }
 
     @Override
     public String toString() { return "ShutdownDaemonRequest" + toWire(); }
 
     public static final class Builder {
-        private Field<Boolean> endTerminals = Field.omitted();
         private Field<Boolean> force = Field.omitted();
         private String generation;
         private boolean generationSet;
-        private Field<Boolean> ifIdle = Field.omitted();
-        private Field<Boolean> keepLayout = Field.omitted();
         private Long pid;
         private boolean pidSet;
-        private Field<Boolean> restart = Field.omitted();
 
-        public Builder endTerminals(Boolean value) {
-            this.endTerminals = Field.of(value);
-            return this;
-        }
         public Builder force(Boolean value) {
             this.force = Field.of(value);
             return this;
@@ -121,21 +81,9 @@ public final class ShutdownDaemonRequest implements WireValue {
             this.generationSet = true;
             return this;
         }
-        public Builder ifIdle(Boolean value) {
-            this.ifIdle = Field.of(value);
-            return this;
-        }
-        public Builder keepLayout(Boolean value) {
-            this.keepLayout = Field.of(value);
-            return this;
-        }
         public Builder pid(long value) {
             this.pid = value;
             this.pidSet = true;
-            return this;
-        }
-        public Builder restart(Boolean value) {
-            this.restart = Field.ofNullable(value);
             return this;
         }
         public ShutdownDaemonRequest build() { return new ShutdownDaemonRequest(this); }

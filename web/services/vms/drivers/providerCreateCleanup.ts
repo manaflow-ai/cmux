@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { FreestyleApiError } from "freestyle";
-import { ProviderError, type ProviderId } from "./types";
+import { ProviderError } from "./types";
 import type { FreestyleClientFactory } from "./freestyleGuestCli";
 
 export function isProviderCreateCleanupError(value: unknown): value is ProviderCreateCleanupError {
@@ -14,9 +14,8 @@ export class ProviderCreateCleanupError extends ProviderError {
     readonly providerVmId: string,
     cause: unknown,
     readonly cleanupCause: unknown,
-    provider: ProviderId = "freestyle",
   ) {
-    super(provider, "create rollback is unconfirmed", cause);
+    super("freestyle", "create rollback is unconfirmed", cause);
   }
 }
 

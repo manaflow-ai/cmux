@@ -18,7 +18,7 @@ import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from cmux import cmux, cmuxError, wait_until
+from cmux import cmux, cmuxError
 
 PAGE = (
     "<!doctype html><html><body style='margin:40px'>"
@@ -35,7 +35,7 @@ def _call(fn, *args):
         except cmuxError as error:
             if "rate_limited" not in str(error):
                 raise
-            time.sleep(0.3)  # keep: back-off the socket's rate limit asks for
+            time.sleep(0.3)
     return fn(*args)
 
 
@@ -57,6 +57,7 @@ def main() -> int:
         raise cmuxError("socket ping failed")
     c.activate_app()
     c.focus_window(c.current_window())
+    time.sleep(0.5)
 
     results = []
 
@@ -68,20 +69,24 @@ def main() -> int:
     opened = _call(c._call, "browser.open_split", {"url": url}) or {}
     surface = str(opened.get("surface_id") or "")
     check("a browser panel opens", bool(surface), str(opened))
-    if surface:
-        wait_until(lambda: _eval(c, surface, "document.readyState === 'complete' && !!document.getElementById('zebra')"), 15.0, 0.2)
+    deadline = time.time() + 15
+    while surface and time.time() < deadline:
+        try:
+            if _eval(c, surface, "document.readyState === 'complete' && !!document.getElementById('zebra')"):
+                break
+        except cmuxError:
+            pass
+        time.sleep(0.2)
     c.focus_window(c.current_window())
+    time.sleep(1.0)
 
     c.simulate_shortcut("cmd+j")
     shown = {}
-
-    def labels_shown() -> bool:
-        nonlocal shown
+    for _ in range(10):
+        time.sleep(0.3)
         shown = _hints(c)
-        # The page's labels arrive from its web content process after the window's own.
-        return bool(shown.get("active")) and any((h.get("title") or "") == "hintzebra" for h in shown.get("hints") or [])
-
-    wait_until(labels_shown, 3.0, 0.3)
+        if shown.get("active"):
+            break
     hints = shown.get("hints") or []
     check("cmd+j shows labels", shown.get("active") is True, "" if shown.get("active") else str(shown))
     # Exactly the button's name: the panel's tab and address bar show the data URL, which contains it.
@@ -92,11 +97,11 @@ def main() -> int:
     if button:
         for letter in button["label"]:
             c.simulate_shortcut(letter)
-        wait_until(lambda: _eval(c, surface, "window.hintClicked || 0"), 5.0, 0.2)
-        time.sleep(0.3)  # keep: negative check, gives a duplicate click time to land before counting
+            time.sleep(0.2)
+        time.sleep(1.0)
         clicked = _eval(c, surface, "window.hintClicked || 0")
         check("typing its label clicks the button once", clicked == 1, f"clicks={clicked}")
-        check("the labels hide after a pick", wait_until(lambda: _hints(c).get("active") is False, 3.0, 0.2))
+        check("the labels hide after a pick", _hints(c).get("active") is False)
     else:
         c.simulate_shortcut("escape")
         check("typing its label clicks the button once", False)

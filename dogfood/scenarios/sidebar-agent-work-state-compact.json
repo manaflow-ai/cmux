@@ -1,0 +1,50 @@
+{
+  "launch": {
+    "args": [
+      "-sidebarCompactAgentStatus",
+      "<true/>",
+      "-sidebarShellIntegration",
+      "<false/>",
+      "-newWorkspacePlacement",
+      "end"
+    ],
+    "env": {
+      "CMUX_UI_TEST_SOCKET_COMMANDS": "new_workspace api server\nselect_workspace {last}\nwait 500\nlet api\nset_agent_pid claude_code {pid} --tab={api}\nset_agent_lifecycle claude_code running --tab={api}\nset_status claude_code \"Running subagents\" --icon=point.3.filled.connected.trianglepath.dotted --color=#4C8DFF --work=subagents --tab={api}\nreport_git_branch feat/fan-out --status=dirty --tab={api}\nwait 400\nnew_workspace release gate\nselect_workspace {last}\nwait 500\nlet gate\nset_agent_pid claude_code {pid} --tab={gate}\nset_agent_lifecycle claude_code running --tab={gate}\nset_status claude_code Waiting --icon=hourglass --color=#8E8E93 --work=waiting --tab={gate}\nreport_git_branch feat/release-gate --status=clean --tab={gate}\nwait 400\nnew_workspace worker\nselect_workspace {last}\nwait 500\nlet worker\nset_agent_pid codex {pid} --tab={worker}\nset_agent_lifecycle codex running --tab={worker}\nset_status codex Running --icon=bolt.fill --color=#4C8DFF --work=running --tab={worker}\nreport_git_branch feat/worker-queue --status=clean --tab={worker}\nwait 400\nnew_workspace review\nselect_workspace {last}\nwait 500\nlet review\nset_agent_pid claude_code {pid} --tab={review}\nset_agent_lifecycle claude_code needsInput --tab={review}\nset_status claude_code \"Needs input\" --icon=bell.fill --color=#4C8DFF --tab={review}\nwait 400\nnew_workspace docs\nselect_workspace {last}\nwait 500\nlet docs\nset_agent_lifecycle claude_code idle --tab={docs}\nreport_git_branch docs/configuration --tab={docs}\nreport_pr 15164 https://github.com/manaflow-ai/cmux/pull/15164 --label=PR --state=merged --tab={docs}\nwait 400\nselect_workspace {api}\nwait 600"
+    }
+  },
+  "steps": [
+    {
+      "wait": 2.5
+    },
+    {
+      "shot": "work-state-compact-sidebar"
+    },
+    {
+      "tree": "work-state-compact-tree"
+    },
+    {
+      "hoverAt": {
+        "x": 0.06,
+        "y": 0.18
+      }
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "work-state-compact-hover-subagents"
+    },
+    {
+      "hoverAt": {
+        "x": 0.06,
+        "y": 0.22
+      }
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "work-state-compact-hover-waiting"
+    }
+  ]
+}

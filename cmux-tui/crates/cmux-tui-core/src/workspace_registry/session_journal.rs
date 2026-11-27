@@ -1,30 +1,18 @@
-use cmux_json::JsonSet as _;
-
-mod plugin_generation;
-mod reader;
-mod subjects;
-use super::output_cleanup::pruned_gap;
 use super::*;
 use base64::Engine;
 use flate2::bufread::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Result as IoResult};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use subjects::{collect_patch_subjects, collect_subjects};
-pub(crate) use subjects::{expand_topology_subjects, terminal_topology_subjects_batch};
 
-pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
-/// How long one call of the legacy kind backfill decodes
-/// ([`backfill_legacy_journal_segment_kinds`]).
-const KIND_BACKFILL_SLICE: std::time::Duration = std::time::Duration::from_millis(100);
-pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
-pub(crate) const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
-pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
+pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
+pub(super) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
 
@@ -38,7 +26,7 @@ pub enum JournalClass {
 }
 
 impl JournalClass {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::State => "state",
             Self::Observation => "observation",
@@ -57,7 +45,7 @@ pub enum JournalReplayPolicy {
 }
 
 impl JournalReplayPolicy {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Required => "required",
             Self::Advisory => "advisory",
@@ -76,7 +64,7 @@ pub enum JournalSensitivity {
 }
 
 impl JournalSensitivity {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Public => "public",
             Self::Metadata => "metadata",
@@ -87,12 +75,14 @@ impl JournalSensitivity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalProducer {
     pub kind: String,
     pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalAuthority {
     pub principal_id: String,
     pub lease_id: String,
@@ -107,11 +97,8 @@ pub struct JournalSubject {
     pub id: String,
 }
 
-/// Decoding tolerates unknown fields: a sealed segment written by a newer
-/// daemon must stay readable (P8 landing 2c); so do `JournalProducer` and
-/// `JournalAuthority` (stored only). Limits: `JournalSubject` stays strict (it
-/// is also `JournalIngress` wire input) and a new enum variant still breaks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionJournalRecord {
     pub sequence: u64,
     pub event_id: String,
@@ -151,9 +138,9 @@ pub(crate) struct SessionJournalSubjectPage {
     pub(crate) records: Vec<SessionJournalRecord>,
 }
 
-/// One retained `terminal.output` record's content and stream coverage
-/// (test-only: shipped builds read output from output_store.rs).
-#[cfg(test)]
+/// One retained `terminal.output` record's content and stream coverage.
+/// Output is no longer journaled (output_store.rs); these are records an
+/// older daemon wrote, read until retention removes them.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputChunk {
     pub(crate) stream_offset_start: u64,
@@ -162,7 +149,6 @@ pub(crate) struct TerminalOutputChunk {
 }
 
 /// A record-boundary window over one terminal generation's output stream.
-#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputRecordsWindow {
     pub(crate) chunks: Vec<TerminalOutputChunk>,
@@ -193,30 +179,250 @@ pub(crate) struct JournalRestoreCursor {
     segment_content_load_count: usize,
 }
 
-pub(crate) struct JournalAppend<'a> {
-    pub(crate) event_id: &'a str,
-    pub(crate) schema_version: u32,
-    pub(crate) kind: &'a str,
-    pub(crate) class: JournalClass,
-    pub(crate) replay: JournalReplayPolicy,
-    pub(crate) occurred_at_ms: u64,
-    pub(crate) producer: &'a JournalProducer,
-    pub(crate) authority: Option<&'a JournalAuthority>,
-    pub(crate) causation_id: Option<&'a str>,
-    pub(crate) correlation_id: Option<&'a str>,
-    pub(crate) causation_depth: u16,
-    pub(crate) subjects: &'a [JournalSubject],
-    pub(crate) sensitivity: JournalSensitivity,
-    pub(crate) payload: &'a Value,
-    pub(crate) content: Option<&'a [u8]>,
-    pub(crate) resource_revision: Option<u64>,
-    pub(crate) previous_resource_revision: Option<u64>,
-    /// [`crate::Actor::wire`] of the caller; stored beside the record JSON.
-    pub(crate) actor: Option<&'a str>,
+impl SessionJournalReader {
+    pub(crate) fn open(database_path: &Path) -> anyhow::Result<Self> {
+        let connection = open_registry_database_with_flags(
+            database_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .with_context(|| format!("open session journal reader {}", database_path.display()))?;
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.execute_batch("PRAGMA query_only=ON; PRAGMA foreign_keys=ON;")?;
+        Ok(Self { connection })
+    }
+
+    pub(crate) fn after(&self, sequence: u64, limit: usize) -> anyhow::Result<SessionJournalPage> {
+        query_session_journal_after(&self.connection, sequence, limit)
+    }
+
+    pub(crate) fn after_subjects(
+        &self,
+        sequence: u64,
+        limit: usize,
+        subjects: &[JournalSubject],
+    ) -> anyhow::Result<SessionJournalSubjectPage> {
+        query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
+    }
+
+    pub(crate) fn restore_cursor(
+        self,
+        source_sequence: u64,
+    ) -> anyhow::Result<JournalRestoreCursor> {
+        self.connection.execute_batch("BEGIN DEFERRED TRANSACTION")?;
+        let target_head = query_journal_head(&self.connection)?;
+        anyhow::ensure!(
+            source_sequence <= target_head,
+            "cursor.invalid: journal sequence {source_sequence} is ahead of {target_head}"
+        );
+        Ok(JournalRestoreCursor {
+            connection: self.connection,
+            source_sequence,
+            target_head,
+            next_segment_start: -1,
+            segments_exhausted: false,
+            decoded_segment: None,
+            record_offset: 0,
+            active_sequence: source_sequence,
+            previous_segment_end: None,
+            finished: false,
+            #[cfg(test)]
+            segment_decode_count: 0,
+            #[cfg(test)]
+            segment_content_load_count: 0,
+        })
+    }
+}
+
+impl JournalRestoreCursor {
+    pub(crate) fn next_page(&mut self, limit: usize) -> anyhow::Result<SessionJournalPage> {
+        anyhow::ensure!(!self.finished, "journal restore cursor is finished");
+        anyhow::ensure!(limit > 0, "journal page limit must be positive");
+        anyhow::ensure!(
+            limit <= MAX_JOURNAL_PAGE_SIZE,
+            "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
+        );
+        let mut records = Vec::with_capacity(limit);
+        while records.len() < limit {
+            if let Some(decoded) = self.decoded_segment.as_ref() {
+                if self.record_offset == decoded.records.len() {
+                    self.decoded_segment = None;
+                    self.record_offset = 0;
+                    continue;
+                }
+                let record = decoded.records[self.record_offset].clone();
+                self.record_offset += 1;
+                if record.sequence <= self.source_sequence {
+                    continue;
+                }
+                if record.sequence > self.target_head {
+                    break;
+                }
+                self.validate_and_advance(record, &mut records)?;
+                continue;
+            }
+
+            let Some(segment_id) = self.next_segment()? else {
+                break;
+            };
+            self.note_segment_decoded();
+            let decoded = decode_journal_segment(self.load_segment(&segment_id)?)?;
+            if let Some(previous_end) = self.previous_segment_end {
+                anyhow::ensure!(
+                    decoded.start_sequence == previous_end + 1,
+                    "journal segments contain a gap before sequence {}",
+                    decoded.start_sequence
+                );
+            } else {
+                anyhow::ensure!(
+                    decoded.start_sequence <= self.source_sequence.saturating_add(1),
+                    "journal segments contain a gap before sequence {}",
+                    decoded.start_sequence
+                );
+            }
+            self.previous_segment_end = Some(decoded.end_sequence);
+            self.decoded_segment = Some(decoded);
+        }
+
+        if records.len() < limit {
+            let remaining = limit - records.len();
+            let mut statement = self.connection.prepare(
+                "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
+                        occurred_at_ms, committed_at_ms, producer_json, authority_json,
+                        causation_id, correlation_id, causation_depth, subjects_json,
+                        sensitivity, payload_json, content, resource_revision,
+                        previous_resource_revision
+                 FROM session_journal
+                 WHERE sequence > ?1 AND sequence <= ?2
+                 ORDER BY sequence ASC
+                 LIMIT ?3",
+            )?;
+            let active = statement
+                .query_map(
+                    params![
+                        i64::try_from(self.active_sequence)?,
+                        i64::try_from(self.target_head)?,
+                        i64::try_from(remaining)?,
+                    ],
+                    stored_record_row,
+                )?
+                .map(|row| decode_record(row?))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            drop(statement);
+            for record in active {
+                self.validate_and_advance(record, &mut records)?;
+            }
+        }
+        anyhow::ensure!(
+            self.active_sequence == self.target_head || !records.is_empty(),
+            "session journal contains a gap after sequence {}",
+            self.active_sequence
+        );
+        Ok(SessionJournalPage { head_sequence: self.target_head, records })
+    }
+
+    fn next_segment(&mut self) -> anyhow::Result<Option<String>> {
+        if self.segments_exhausted {
+            return Ok(None);
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT segment_id, start_sequence
+             FROM journal_segments
+             WHERE end_sequence > ?1 AND start_sequence > ?2
+             ORDER BY start_sequence ASC
+             LIMIT 1",
+        )?;
+        let segment = statement
+            .query_row(
+                params![i64::try_from(self.source_sequence)?, self.next_segment_start,],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        let Some((segment_id, start_sequence)) = segment else {
+            self.segments_exhausted = true;
+            return Ok(None);
+        };
+        self.next_segment_start = start_sequence;
+        Ok(Some(segment_id))
+    }
+
+    #[cfg(test)]
+    fn note_segment_decoded(&mut self) {
+        self.segment_decode_count += 1;
+    }
+
+    #[cfg(not(test))]
+    fn note_segment_decoded(&mut self) {}
+
+    fn load_segment(&mut self, segment_id: &str) -> anyhow::Result<JournalSegmentRow> {
+        self.note_segment_content_loaded();
+        let mut statement = self.connection.prepare(
+            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                    content, uncompressed_bytes, sha256
+             FROM journal_segments
+             WHERE segment_id = ?1
+               AND length(content) <= ?2",
+        )?;
+        statement
+            .query_row(
+                params![segment_id, i64::try_from(MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES)?],
+                journal_segment_row,
+            )
+            .with_context(|| format!("load journal segment {segment_id}"))
+    }
+
+    #[cfg(test)]
+    fn note_segment_content_loaded(&mut self) {
+        self.segment_content_load_count += 1;
+    }
+
+    #[cfg(not(test))]
+    fn note_segment_content_loaded(&mut self) {}
+
+    fn validate_and_advance(
+        &mut self,
+        record: SessionJournalRecord,
+        records: &mut Vec<SessionJournalRecord>,
+    ) -> anyhow::Result<()> {
+        let expected = self.active_sequence.saturating_add(1);
+        anyhow::ensure!(
+            record.sequence == expected,
+            "session journal contains a gap before sequence {}",
+            record.sequence
+        );
+        self.active_sequence = record.sequence;
+        records.push(record);
+        Ok(())
+    }
+
+    pub(crate) fn finish(mut self) -> anyhow::Result<()> {
+        self.finished = true;
+        self.connection.execute_batch("COMMIT")?;
+        Ok(())
+    }
+}
+
+pub(super) struct JournalAppend<'a> {
+    pub(super) event_id: &'a str,
+    pub(super) schema_version: u32,
+    pub(super) kind: &'a str,
+    pub(super) class: JournalClass,
+    pub(super) replay: JournalReplayPolicy,
+    pub(super) occurred_at_ms: u64,
+    pub(super) producer: &'a JournalProducer,
+    pub(super) authority: Option<&'a JournalAuthority>,
+    pub(super) causation_id: Option<&'a str>,
+    pub(super) correlation_id: Option<&'a str>,
+    pub(super) causation_depth: u16,
+    pub(super) subjects: &'a [JournalSubject],
+    pub(super) sensitivity: JournalSensitivity,
+    pub(super) payload: &'a Value,
+    pub(super) content: Option<&'a [u8]>,
+    pub(super) resource_revision: Option<u64>,
+    pub(super) previous_resource_revision: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ResourceEffectJournalState {
+pub(super) enum ResourceEffectJournalState {
     Succeeded,
     Failed,
     Indeterminate,
@@ -232,7 +438,7 @@ impl ResourceEffectJournalState {
     }
 }
 
-pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let table_exists = |name: &str| {
         transaction.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
@@ -263,7 +469,6 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            content BLOB,
            resource_revision INTEGER UNIQUE,
            previous_resource_revision INTEGER,
-           actor TEXT,
            CHECK(
              (resource_revision IS NULL AND previous_resource_revision IS NULL)
              OR (
@@ -352,21 +557,18 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
     }
     ensure_session_journal_content_schema(transaction)?;
     ensure_journal_event_index_schema(transaction)?;
-    transaction.execute_batch(output_cleanup::PRUNED_RANGES_SCHEMA)?;
-    // Additive: an older build ignores the table and its sealed segments
-    // stay complete without it (`reducer_records`).
-    transaction.execute_batch(reducer_records::REDUCER_RECORDS_SCHEMA)?;
     Ok(())
 }
 
 fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let columns = journal_extensions::table_columns(transaction, "session_journal")?;
+    let columns = {
+        let mut statement = transaction.prepare("PRAGMA table_info(session_journal)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?
+    };
     if !columns.contains("content") {
         transaction.execute("ALTER TABLE session_journal ADD COLUMN content BLOB", [])?;
-    }
-    // Appends write it before the ledger pass; ADD COLUMN keeps rows and sequences (cx-0b8z).
-    if !columns.contains("actor") {
-        transaction.execute("ALTER TABLE session_journal ADD COLUMN actor TEXT", [])?;
     }
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS journal_terminal_streams (
@@ -379,7 +581,7 @@ fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyho
     Ok(())
 }
 
-pub(crate) fn ensure_journal_event_index_schema(
+pub(super) fn ensure_journal_event_index_schema(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let columns = {
@@ -496,7 +698,7 @@ pub(crate) fn ensure_journal_event_index_schema(
     Ok(())
 }
 
-pub(crate) fn migrate_resource_events_to_session_journal(
+pub(super) fn migrate_resource_events_to_session_journal(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     create_session_journal_schema(transaction)?;
@@ -566,7 +768,6 @@ pub(crate) fn migrate_resource_events_to_session_journal(
                 content: None,
                 resource_revision: None,
                 previous_resource_revision: None,
-                actor: None,
             },
         )?;
     }
@@ -618,7 +819,6 @@ pub(crate) fn migrate_resource_events_to_session_journal(
             &result,
             &changes,
             0,
-            false,
         )?;
     }
     if has_resource_events {
@@ -627,7 +827,33 @@ pub(crate) fn migrate_resource_events_to_session_journal(
     Ok(())
 }
 
-pub(crate) fn append_resource_effect_journal_record(
+#[allow(clippy::too_many_arguments)]
+pub(super) fn append_resource_journal_record(
+    transaction: &Transaction<'_>,
+    revision: u64,
+    previous_revision: u64,
+    origin: &str,
+    idempotency_key: &str,
+    operation: &str,
+    patch: Option<&ResourcePatch>,
+    result: &Value,
+    changes: &Value,
+) -> anyhow::Result<()> {
+    append_resource_journal_record_at(
+        transaction,
+        revision,
+        previous_revision,
+        origin,
+        idempotency_key,
+        operation,
+        patch,
+        result,
+        changes,
+        unix_epoch_ms()?,
+    )
+}
+
+pub(super) fn append_resource_effect_journal_record(
     transaction: &Transaction<'_>,
     idempotency_key: &str,
     operation: &str,
@@ -709,13 +935,11 @@ pub(crate) fn append_resource_effect_journal_record(
             content: None,
             resource_revision: None,
             previous_resource_revision: None,
-            actor: ledger_actor(transaction, idempotency_key)?.as_deref(),
         },
     )?;
     Ok(())
 }
 
-/// Gives the changes as the record states them (`session_journal/resource_record.rs`).
 #[allow(clippy::too_many_arguments)]
 fn append_resource_journal_record_at(
     transaction: &Transaction<'_>,
@@ -728,25 +952,14 @@ fn append_resource_journal_record_at(
     result: &Value,
     changes: &Value,
     occurred_at_ms: u64,
-    with_current_state: bool,
-) -> anyhow::Result<Value> {
+) -> anyhow::Result<()> {
     validate_identifier("journal operation", operation)?;
-    // Every upsert carries the state fields a fresh snapshot shows, whatever
-    // path produced it (state-ownership.md: clients rebuild from events).
-    // Migrated legacy revisions keep their stored changes: today's state
-    // tables do not describe the session at those revisions.
-    let mut decorated = changes.clone();
-    let mut placement_shift = None;
-    if with_current_state {
-        crate::state::values::decorate_changes(transaction, &mut decorated)?;
-        placement_shift =
-            crate::state::closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
-    }
-    let changes = &decorated;
     let kind = semantic_journal_kind(operation);
-    let session_id = transaction
-        .prepare_cached("SELECT value FROM meta WHERE key = 'session_public_id'")?
-        .query_row([], |row| row.get::<_, String>(0))?;
+    let session_id = transaction.query_row(
+        "SELECT value FROM meta WHERE key = 'session_public_id'",
+        [],
+        |row| row.get::<_, String>(0),
+    )?;
     let mut subjects = BTreeSet::from([JournalSubject { kind: "session".into(), id: session_id }]);
     if let Some(patch) = patch {
         collect_patch_subjects(patch, &mut subjects);
@@ -756,16 +969,12 @@ fn append_resource_journal_record_at(
     expand_topology_subjects(transaction, &mut subjects)?;
     let subjects = subjects.into_iter().collect::<Vec<_>>();
     let producer = JournalProducer { kind: "resource_operation".into(), id: origin.into() };
-    let mut payload = serde_json::json!({
+    let payload = serde_json::json!({
         "idempotency_key": idempotency_key,
         "result": result,
         "changes": changes,
     });
-    if let Some(shift) = placement_shift {
-        payload[crate::state::placement_shift::PAYLOAD_KEY] = shift.to_value();
-    }
     let event_id = format!("event_resource_{revision:020}");
-    let actor = resource_record_actor(transaction, origin, idempotency_key, with_current_state)?;
     append_journal_record(
         transaction,
         &JournalAppend {
@@ -786,40 +995,12 @@ fn append_resource_journal_record_at(
             content: None,
             resource_revision: Some(revision),
             previous_resource_revision: Some(previous_revision),
-            actor: actor.as_deref(),
         },
     )?;
-    Ok(decorated)
+    Ok(())
 }
 
-/// The registry journal's write budget per kind (`cmux_tui_platform::write_budget`): a kind past
-/// 2 MiB or 1,200 rows an hour, or one whose rows mostly repeat (a ping-pong), is a writer to fix.
-static JOURNAL_BUDGET: std::sync::LazyLock<cmux_tui_platform::write_budget::WriteBudget> =
-    std::sync::LazyLock::new(|| {
-        cmux_tui_platform::write_budget::WriteBudget::new(
-            "registry journal",
-            cmux_tui_platform::write_budget::WriteLimits {
-                bytes: 2 << 20,
-                records: 1_200,
-                repeat_percent: 50,
-                repeat_floor: 50,
-            },
-        )
-    });
-
-/// Counts a journal row against [`JOURNAL_BUDGET`] where budgets count (debug builds, tests,
-/// `CMUX_WRITE_BUDGET=1`), and warns once its kind is over.
-fn note_write_budget(append: &JournalAppend<'_>, payload_json: &str, now_ms: u64) {
-    if !cmux_tui_platform::write_budget::WriteBudget::enabled() {
-        return;
-    }
-    let bytes = payload_json.len() + append.content.map_or(0, <[u8]>::len);
-    if let Some(warning) = JOURNAL_BUDGET.note(append.kind, bytes, append.payload, now_ms) {
-        eprintln!("cmux-tui: {warning}");
-    }
-}
-
-pub(crate) fn append_journal_record(
+pub(super) fn append_journal_record(
     transaction: &Transaction<'_>,
     append: &JournalAppend<'_>,
 ) -> anyhow::Result<u64> {
@@ -840,19 +1021,14 @@ pub(crate) fn append_journal_record(
     );
     let committed_at_ms = unix_epoch_ms()?;
     let subjects_json = canonical_json(&serde_json::to_value(append.subjects)?)?;
-    let payload_json = canonical_json(append.payload)?;
-    note_write_budget(append, &payload_json, committed_at_ms);
-    transaction
-        .prepare_cached(
-            "INSERT INTO session_journal(
+    transaction.execute(
+        "INSERT INTO session_journal(
            event_id, schema_version, kind, class, replay_policy,
            occurred_at_ms, committed_at_ms, producer_json, authority_json,
            causation_id, correlation_id, causation_depth, subjects_json,
-           sensitivity, payload_json, content, resource_revision, previous_resource_revision, actor
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-                  ?19)",
-        )?
-        .execute(params![
+           sensitivity, payload_json, content, resource_revision, previous_resource_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        params![
             append.event_id,
             i64::from(append.schema_version),
             append.kind,
@@ -873,7 +1049,7 @@ pub(crate) fn append_journal_record(
             i64::from(append.causation_depth),
             &subjects_json,
             append.sensitivity.as_str(),
-            &payload_json,
+            canonical_json(append.payload)?,
             append.content,
             append
                 .resource_revision
@@ -885,26 +1061,26 @@ pub(crate) fn append_journal_record(
                 .map(i64::try_from)
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
-            append.actor,
-        ])?;
+        ],
+    )?;
     let sequence = transaction.last_insert_rowid();
     let causal_hook_id = if append.producer.kind == "hook_dispatcher" {
         Some(append.producer.id.clone())
     } else if let Some(causation_id) = append.causation_id {
-        transaction
-            .prepare_cached("SELECT causal_hook_id FROM journal_event_index WHERE event_id = ?1")?
-            .query_row([causation_id], |row| row.get::<_, Option<String>>(0))?
+        transaction.query_row(
+            "SELECT causal_hook_id FROM journal_event_index WHERE event_id = ?1",
+            [causation_id],
+            |row| row.get::<_, Option<String>>(0),
+        )?
     } else {
         None
     };
-    transaction
-        .prepare_cached(
-            "INSERT INTO journal_event_index(
+    transaction.execute(
+        "INSERT INTO journal_event_index(
            event_id, sequence, causation_depth, causation_id, causal_hook_id,
            resource_revision, previous_resource_revision
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        )?
-        .execute(params![
+        params![
             append.event_id,
             sequence,
             i64::from(append.causation_depth),
@@ -920,24 +1096,72 @@ pub(crate) fn append_journal_record(
                 .map(i64::try_from)
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
-        ])?;
-    transaction
-        .prepare_cached(
-            "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
+        ],
+    )?;
+    transaction.execute(
+        "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
          SELECT ?1, json_extract(value, '$.kind'), json_extract(value, '$.id')
          FROM json_each(?2)",
-        )?
-        .execute(params![sequence, subjects_json])?;
+        params![sequence, subjects_json],
+    )?;
     u64::try_from(sequence).context("journal sequence is negative")
 }
 
 impl WorkspaceRegistry {
+    /// Reserve a process generation for the userland journal-plugin
+    /// supervisor. The value lives in the session registry so a daemon restart
+    /// can never reuse a generation that a persisted roster fence retired.
+    pub(crate) fn reserve_journal_plugin_generation(&self) -> anyhow::Result<u64> {
+        let transaction =
+            Transaction::new_unchecked(&self.connection, rusqlite::TransactionBehavior::Immediate)?;
+        let current = transaction
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                [JOURNAL_PLUGIN_GENERATION_META_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|value| {
+                value.parse::<u64>().with_context(|| {
+                    format!("journal plugin generation {JOURNAL_PLUGIN_GENERATION_META_KEY} is not an unsigned integer")
+                })
+            })
+            .transpose()?
+            .unwrap_or(0);
+        let next = current
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("journal plugin generation exhausted"))?;
+        transaction.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![JOURNAL_PLUGIN_GENERATION_META_KEY, next.to_string()],
+        )?;
+        transaction.commit()?;
+        Ok(next)
+    }
+
     pub fn session_journal_after(
         &self,
         sequence: u64,
         limit: usize,
     ) -> anyhow::Result<SessionJournalPage> {
-        query_session_journal_after(&self.connection.get(), sequence, limit)
+        query_session_journal_after(&self.connection, sequence, limit)
+    }
+
+    /// Records in `(sequence, through]` other than `terminal.output`, oldest
+    /// first, at most `limit`, and the sequence the read covered through.
+    /// Terminal output is nearly the whole journal, and folding agent state
+    /// never reads it: its producer is the terminal runtime and its format is
+    /// fixed, so it can be neither an agent-hook nor an agent-plugin event.
+    /// Replaying such a reducer through this read costs the other records,
+    /// not the output history.
+    pub(crate) fn session_journal_without_output_after(
+        &self,
+        sequence: u64,
+        through: u64,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+        query_session_journal_without_output_after(&self.connection, sequence, through, limit)
     }
 
     /// Return the highest sequence in the active or archived journal without
@@ -945,7 +1169,7 @@ impl WorkspaceRegistry {
     /// snapshot cursor while remaining valid when the journal has compacted
     /// its earliest records.
     pub fn session_journal_head(&self) -> anyhow::Result<u64> {
-        query_journal_head(&self.connection.get())
+        query_journal_head(&self.connection)
     }
 
     /// Persisted fold position of one journal reducer: (version, cursor,
@@ -957,7 +1181,6 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<(u32, u64, String)>> {
         let raw = self
             .connection
-            .get()
             .query_row(
                 "SELECT value FROM meta WHERE key = ?1",
                 [format!("journal_reducer.{reducer_id}")],
@@ -978,75 +1201,8 @@ impl WorkspaceRegistry {
         Ok(Some((version, cursor, snapshot)))
     }
 
-    /// The reducer version a reducer's saved state was migrated from, while
-    /// its rebuild from the whole journal has not finished; `None` when the
-    /// state is the current reducer's own fold. A separate `meta` row, so an
-    /// older build, which reads only `journal_reducer.<id>`, ignores it.
-    pub(crate) fn journal_reducer_rebuild_pending(
-        &self,
-        reducer_id: &str,
-    ) -> anyhow::Result<Option<u32>> {
-        let raw = self
-            .connection
-            .get()
-            .query_row(
-                "SELECT value FROM meta WHERE key = ?1",
-                [journal_reducer_rebuild_key(reducer_id)],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        Ok(raw.map(|raw| {
-            serde_json::from_str::<Value>(&raw)
-                .ok()
-                .and_then(|value| value.get("from_version").and_then(Value::as_u64))
-                .and_then(|version| u32::try_from(version).ok())
-                .unwrap_or(0)
-        }))
-    }
-
-    /// Save a reducer state migrated from `from_version` and mark it stale
-    /// until a rebuild finishes
-    /// ([`RegistryConnection::finish_journal_reducer_rebuild`]), in one
-    /// transaction: a migrated snapshot is never saved at the current version
-    /// without its mark, or a later start would trust it as the current
-    /// reducer's fold.
-    pub(crate) fn start_journal_reducer_rebuild(
-        &self,
-        reducer_id: &str,
-        from_version: u32,
-        version: u32,
-        cursor: u64,
-        snapshot: &str,
-    ) -> anyhow::Result<()> {
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
-        tx.execute(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![
-                journal_reducer_rebuild_key(reducer_id),
-                serde_json::json!({"from_version": from_version}).to_string()
-            ],
-        )?;
-        write_journal_reducer_state(&tx, reducer_id, version, cursor, snapshot)?;
-        tx.commit()?;
-        Ok(())
-    }
-
-    /// [`RegistryConnection::finish_journal_reducer_rebuild`] on this
-    /// registry's connection.
-    pub(crate) fn finish_journal_reducer_rebuild(
-        &self,
-        reducer_id: &str,
-        version: u32,
-        cursor: u64,
-        snapshot: &str,
-    ) -> anyhow::Result<()> {
-        self.connection.finish_journal_reducer_rebuild(reducer_id, version, cursor, snapshot)
-    }
-
-    /// Durably record a reducer's fold position and state snapshot
-    /// ([`RegistryConnection::put_journal_reducer_state`]).
+    /// Durably record a reducer's fold position and state snapshot. Cursor
+    /// values are stored as strings so 64-bit sequences survive JSON.
     pub(crate) fn put_journal_reducer_state(
         &self,
         reducer_id: &str,
@@ -1054,19 +1210,51 @@ impl WorkspaceRegistry {
         cursor: u64,
         snapshot: &str,
     ) -> anyhow::Result<()> {
-        self.connection.put_journal_reducer_state(reducer_id, version, cursor, snapshot)
+        let value = serde_json::json!({
+            "version": version,
+            "cursor": cursor.to_string(),
+            "snapshot": snapshot,
+        });
+        self.connection.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// The most recently started journal output stream of every terminal
+    /// that has one (written by daemons that journaled output), by public
+    /// terminal id: (generation, exclusive end offset).
+    pub(crate) fn terminal_stream_ends_latest(
+        &self,
+    ) -> anyhow::Result<std::collections::HashMap<String, (String, u64)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, generation, next_offset FROM journal_terminal_streams
+             ORDER BY rowid ASC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+        })?;
+        let mut ends = std::collections::HashMap::new();
+        for row in rows {
+            let (terminal_id, generation, next_offset) = row?;
+            let next_offset =
+                u64::try_from(next_offset).context("terminal journal offset is negative")?;
+            // Later rows started later: the latest stream wins.
+            ends.insert(terminal_id, (generation, next_offset));
+        }
+        Ok(ends)
     }
 
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
-    #[cfg(test)]
     pub(crate) fn terminal_stream_latest(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<Option<(String, u64)>> {
         let Some((generation, next_offset)) = self
             .connection
-            .get()
             .query_row(
                 "SELECT generation, next_offset FROM journal_terminal_streams
                  WHERE terminal_id = ?1
@@ -1093,7 +1281,6 @@ impl WorkspaceRegistry {
     /// retained vt-replay snapshot (a checkpoint blob for live terminals, the
     /// terminal exit snapshot for exited ones) and readers see the coverage
     /// clamp through the window's start offset.
-    #[cfg(test)]
     pub(crate) fn terminal_output_records_after(
         &self,
         terminal_id: &str,
@@ -1101,8 +1288,7 @@ impl WorkspaceRegistry {
         after: u64,
         max_bytes: u64,
     ) -> anyhow::Result<TerminalOutputRecordsWindow> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
+        let mut statement = self.connection.prepare(
             "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                     occurred_at_ms, committed_at_ms, producer_json, authority_json,
                     causation_id, correlation_id, causation_depth, subjects_json,
@@ -1158,7 +1344,7 @@ impl WorkspaceRegistry {
     }
 }
 
-pub(crate) fn query_session_journal_after(
+pub(super) fn query_session_journal_after(
     connection: &Connection,
     sequence: u64,
     limit: usize,
@@ -1178,10 +1364,8 @@ pub(crate) fn query_session_journal_after(
         records.truncate(limit);
         return Ok(SessionJournalPage { head_sequence, records });
     }
-    #[cfg(test)]
-    run_between_journal_reads_for_test();
     let active_after = records.last().map_or(sequence, |record| record.sequence);
-    let mut statement = connection.prepare_cached(
+    let mut statement = connection.prepare(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                     occurred_at_ms, committed_at_ms, producer_json, authority_json,
                     causation_id, correlation_id, causation_depth, subjects_json,
@@ -1204,319 +1388,246 @@ pub(crate) fn query_session_journal_after(
         .map(|row| decode_record(row?))
         .collect::<anyhow::Result<Vec<_>>>()?;
     records.extend(active);
-    let mut previous = sequence;
+    let mut expected_sequence = sequence.saturating_add(1);
     for record in &records {
         anyhow::ensure!(
-            record.sequence == previous.saturating_add(1)
-                || (record.sequence > previous.saturating_add(1)
-                    && pruned_gap(connection, previous, record.sequence)?),
+            record.sequence == expected_sequence,
             "session journal contains a gap before sequence {}",
             record.sequence
         );
-        previous = record.sequence;
+        expected_sequence = expected_sequence.saturating_add(1);
     }
     anyhow::ensure!(
-        sequence == head_sequence
-            || !records.is_empty()
-            || pruned_gap(connection, sequence, head_sequence.saturating_add(1))?,
+        sequence == head_sequence || !records.is_empty(),
         "session journal contains a gap after sequence {sequence}"
     );
     Ok(SessionJournalPage { head_sequence, records })
 }
 
+fn query_session_journal_without_output_after(
+    connection: &Connection,
+    sequence: u64,
+    through: u64,
+    limit: usize,
+) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+    anyhow::ensure!(limit > 0, "journal page limit must be positive");
+    anyhow::ensure!(
+        limit <= MAX_JOURNAL_PAGE_SIZE,
+        "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
+    );
+    if sequence >= through {
+        return Ok((Vec::new(), through));
+    }
+    let archive_end = query_archived_journal_head(connection)?;
+    let archive_through = through.min(archive_end);
+    let mut records = Vec::new();
+    let mut reached = sequence;
+    if sequence < archive_through {
+        if let Some((archived, archived_reached)) =
+            archived_non_output_after(connection, sequence, archive_through, archive_end, limit)?
+        {
+            records = archived;
+            reached = archived_reached;
+        } else {
+            // Older sealed segments predate journal_segment_kinds. Decode those
+            // segments with the validating legacy path, then use the indexed
+            // active query below for any remaining tail.
+            let archived = archived_records_after(connection, sequence, limit)?;
+            let covered = archived
+                .into_iter()
+                .take_while(|record| record.sequence <= archive_through)
+                .collect::<Vec<_>>();
+            reached = covered.last().map_or(archive_through, |record| record.sequence);
+            records.extend(covered.into_iter().filter(|record| record.kind != "terminal.output"));
+            if records.len() >= limit || reached >= through {
+                records.truncate(limit);
+                return Ok((records, reached));
+            }
+        }
+        if records.len() >= limit || reached >= through {
+            records.truncate(limit);
+            return Ok((records, reached));
+        }
+    }
+    // Two ranges of the (kind, sequence) index around 'terminal.output'
+    // visit only the other kinds' entries, however much output there is.
+    let remaining = limit - records.len();
+    let mut statement = connection.prepare(
+        "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
+                occurred_at_ms, committed_at_ms, producer_json, authority_json,
+                causation_id, correlation_id, causation_depth, subjects_json,
+                sensitivity, payload_json, content, resource_revision,
+                previous_resource_revision
+         FROM session_journal INDEXED BY session_journal_by_kind_sequence
+         WHERE kind < 'terminal.output' AND sequence > ?1 AND sequence <= ?2
+         UNION ALL
+         SELECT sequence, event_id, schema_version, kind, class, replay_policy,
+                occurred_at_ms, committed_at_ms, producer_json, authority_json,
+                causation_id, correlation_id, causation_depth, subjects_json,
+                sensitivity, payload_json, content, resource_revision,
+                previous_resource_revision
+         FROM session_journal INDEXED BY session_journal_by_kind_sequence
+         WHERE kind > 'terminal.output' AND sequence > ?1 AND sequence <= ?2
+         ORDER BY sequence ASC
+         LIMIT ?3",
+    )?;
+    let active = statement
+        .query_map(
+            params![
+                i64::try_from(sequence).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(through).context("journal sequence exceeds SQLite range")?,
+                i64::try_from(remaining).context("journal page limit exceeds SQLite range")?,
+            ],
+            stored_record_row,
+        )?
+        .map(|row| decode_record(row?))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    reached = if active.len() < remaining {
+        through
+    } else {
+        active.last().map_or(reached, |record| record.sequence)
+    };
+    records.extend(active);
+    Ok((records, reached))
+}
+
 fn query_archived_journal_head(connection: &Connection) -> anyhow::Result<u64> {
-    let end: i64 = connection
-        .prepare_cached("SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments")?
-        .query_row([], |row| row.get(0))?;
+    let end: i64 = connection.query_row(
+        "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+        [],
+        |row| row.get(0),
+    )?;
     u64::try_from(end).context("archived journal sequence is negative")
+}
+
+/// Uses the seal-time kind map to skip output-only compressed segments without
+/// inflating them. A missing map means an older segment, so callers retain the
+/// validating legacy decoder for that range.
+fn archived_non_output_after(
+    connection: &Connection,
+    sequence: u64,
+    through: u64,
+    archive_end: u64,
+    limit: usize,
+) -> anyhow::Result<Option<(Vec<SessionJournalRecord>, u64)>> {
+    backfill_legacy_journal_segment_kinds(connection)?;
+    // This helper only owns the sealed prefix. Let the active indexed query
+    // handle an entirely-active range or a cursor at the archive boundary.
+    if sequence >= archive_end {
+        return Ok(None);
+    }
+    let mut statement = connection.prepare(
+        "SELECT segment_id, start_sequence, end_sequence
+         FROM journal_segments
+         WHERE end_sequence > ?1 AND start_sequence <= ?2
+         ORDER BY start_sequence ASC",
+    )?;
+    let rows = statement
+        .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let first_start = rows.first().map(|row| row.1).unwrap_or_default();
+    anyhow::ensure!(
+        first_start <= i64::try_from(sequence.saturating_add(1))?,
+        "journal segments contain a gap before sequence {first_start}"
+    );
+    let mut previous_end = None;
+    for row in &rows {
+        if let Some(previous_end) = previous_end {
+            anyhow::ensure!(
+                row.1 == previous_end + 1,
+                "journal segments contain a gap before sequence {}",
+                row.1
+            );
+        }
+        previous_end = Some(row.2);
+    }
+    let mut reached = sequence;
+    let mut records = Vec::new();
+    for row in rows {
+        let segment_id = row.0.as_str();
+        let (has_kind_rows, has_non_output): (bool, bool) = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1),
+                    EXISTS(SELECT 1 FROM journal_segment_kinds
+                           WHERE segment_id = ?1 AND kind != 'terminal.output')",
+            [segment_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if !has_kind_rows {
+            return Ok(None);
+        }
+        let end = u64::try_from(row.2)?.min(through);
+        if !has_non_output {
+            reached = reached.max(end);
+            continue;
+        }
+        let segment = load_journal_segment(connection, segment_id)?;
+        let decoded = decode_journal_segment(segment)?;
+        for record in decoded.records.into_iter().filter(|r| {
+            r.sequence > sequence && r.sequence <= through && r.kind != "terminal.output"
+        }) {
+            reached = record.sequence;
+            records.push(record);
+            if records.len() == limit {
+                return Ok(Some((records, reached)));
+            }
+        }
+        reached = reached.max(end);
+    }
+    Ok(Some((records, reached.max(through.min(reached)))))
 }
 
 /// Populate the seal-time kind index for segments written before the index was
 /// introduced. The marker makes this an open-time migration: subsequent reads
 /// use only the indexed metadata and retain the validating fallback for a
 /// segment that is concurrently discovered without an index row.
-///
-/// It resumes where a stopped run left off. Each segment's kind rows commit
-/// together, and the run records the last segment it finished
-/// (`journal_segment_kinds_backfill_through`), so a daemon killed partway
-/// does not decode every segment again at its next start.
 fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Result<()> {
-    // `progress`: this build's progress rows survive. Its own run deletes
-    // them with the marker's `1`, so a `1` next to them was written by an
-    // older build that ran after it (a downgrade). That build maps only the
-    // unmapped segments, one kind at a time, so a segment it was mapping
-    // when an earlier run of it stopped can still be partly mapped: the `1`
-    // is not trusted, and the run goes on as this build's (`2`).
-    let (complete, progress): (Option<String>, bool) = connection.query_row(
-        "SELECT (SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'),
-                EXISTS(SELECT 1 FROM meta WHERE key IN (
-                  'journal_segment_kinds_backfill_through', 'journal_segment_kinds_backfill_end'
-                ))",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    // A read-only reader (the history feed's, off the registry lock) cannot
-    // write the backfill; segments without kind rows take the validating
-    // legacy decoder instead, and the registry connection backfills later.
-    if (complete.as_deref() == Some("1") && !progress)
-        || connection.is_readonly(rusqlite::MAIN_DB)?
-    {
+    let complete: Option<String> = connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if complete.as_deref() == Some("1") {
         return Ok(());
     }
-    let rescan = unproven_kind_maps_after(connection, complete.as_deref())?;
-    // A run that is not this one's first decodes again every legacy segment
-    // after the last one this build finished, the inserts ignoring rows
-    // already there: an older build inserts kind rows one at a time, so a
-    // segment it was mapping when it stopped can have some of its kinds
-    // (say, without `terminal.output`, or with only `personal.session.put`).
-    // - A marker at `0` is an older build's run.
-    // - A marker at `2` is this build's run. An older build that runs after
-    //   it (a downgrade) keeps the `2` and maps the remaining segments its
-    //   own way, so `2` alone does not prove each segment whole. The run
-    //   recorded the last legacy segment when it began
-    //   (`journal_segment_kinds_backfill_end`): segments sealed later carry
-    //   their kind map from the seal, and only unmapped ones of those remain.
-    // - A marker at `1` next to the progress rows is a `2` an older build
-    //   marked done (above), resumed the same way.
-    if complete.is_none() {
-        all_or_nothing(connection, || {
-            connection.execute(
-                "INSERT OR IGNORE INTO meta(key, value)
-                 VALUES('journal_segment_kinds_backfill', '2')",
-                [],
-            )?;
-            connection.execute(
-                "INSERT INTO meta(key, value)
-                 SELECT 'journal_segment_kinds_backfill_end', CAST(COALESCE(MAX(start_sequence), 0) AS TEXT)
-                 FROM journal_segments
-                 WHERE NOT EXISTS (
-                   SELECT 1 FROM journal_segment_kinds
-                   WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
-                 )
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                [],
-            )?;
-            Ok(())
-        })?;
-    }
-    // Each call decodes for at most `KIND_BACKFILL_SLICE` (one segment at
-    // least), then returns with the rest left and its progress recorded. The
-    // backfill runs inside the kind read that needs it, and on a large
-    // registry the whole of it took minutes, inside the start's 1 s roster
-    // budget. The read takes the full-decode path for segments still
-    // unmapped, and each later read goes on with the backfill.
-    let deadline = std::time::Instant::now() + kind_slice();
-    let mut decoded_any = false;
-    for (segment_id, start_sequence) in legacy_backfill_segments(connection, rescan)? {
-        if decoded_any && std::time::Instant::now() >= deadline {
-            return Ok(());
-        }
-        decoded_any = true;
-        // The kinds are all it needs: output records are named, not
-        // validated (a base64 decode and a SHA-256 each). The segment's own
-        // digest still covers their bytes.
-        let inflated = inflate_journal_segment(
-            load_journal_segment(connection, &segment_id)?,
-            Some(not_output),
+    connection.execute(
+        "INSERT OR IGNORE INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')",
+        [],
+    )?;
+    let ids = {
+        let mut statement = connection.prepare(
+            "SELECT segment_id FROM journal_segments
+             WHERE NOT EXISTS (
+               SELECT 1 FROM journal_segment_kinds
+               WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
+             )
+             ORDER BY start_sequence ASC",
         )?;
-        let has_output = inflated.records.len() < inflated.sequences.len();
-        let mut kinds = check_segment_gaps(connection, inflated)?
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for segment_id in ids {
+        let segment = load_journal_segment(connection, &segment_id)?;
+        let kinds = decode_journal_segment(segment)?
             .records
             .into_iter()
             .map(|record| record.kind)
             .collect::<BTreeSet<_>>();
-        if has_output {
-            kinds.insert("terminal.output".to_owned());
-        }
-        all_or_nothing(connection, || {
-            for kind in &kinds {
-                connection.execute(
-                    "INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
-                    params![segment_id, kind],
-                )?;
-            }
+        for kind in kinds {
             connection.execute(
-                "INSERT INTO meta(key, value)
-                 VALUES('journal_segment_kinds_backfill_through', ?1)
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                [start_sequence.to_string()],
+                "INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                params![segment_id, kind],
             )?;
-            Ok(())
-        })?;
-    }
-    all_or_nothing(connection, || {
-        connection.execute(
-            "UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'",
-            [],
-        )?;
-        connection.execute(
-            "DELETE FROM meta WHERE key IN (
-               'journal_segment_kinds_backfill_through', 'journal_segment_kinds_backfill_end'
-             )",
-            [],
-        )?;
-        Ok(())
-    })
-}
-
-/// The segments whose kind map the legacy kind backfill has not proven
-/// whole ([`backfill_legacy_journal_segment_kinds`]), as `(after, through)`:
-/// a segment with `after < start_sequence <= through` (no upper bound when
-/// `through` is `None`). `None` when every map is whole: the backfill never
-/// started (every map is a seal's), or it finished (`1`) with no progress
-/// rows left. `marker` is the backfill's marker, when it was read already.
-fn unproven_kind_maps_after(
-    connection: &Connection,
-    marker: Option<&str>,
-) -> anyhow::Result<Option<(u64, Option<u64>)>> {
-    let meta_u64 = |key: &str| -> anyhow::Result<Option<u64>> {
-        Ok(connection
-            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
-                row.get::<_, String>(0)
-            })
-            .optional()?
-            .and_then(|value| value.parse::<u64>().ok()))
-    };
-    let through = meta_u64("journal_segment_kinds_backfill_through")?;
-    let end = meta_u64("journal_segment_kinds_backfill_end")?;
-    Ok(match marker {
-        None => None,
-        Some("1") if through.is_none() && end.is_none() => None,
-        Some("0") => Some((through.unwrap_or(0), None)),
-        Some(_) => Some((through.unwrap_or(0), end)),
-    })
-}
-
-/// Whether a reader may trust `journal_segment_kinds`, and where not: the
-/// one check every kind-scoped read of sealed history makes (`kind_read`,
-/// and the registry premigration's read). `None`, every map is whole: the
-/// `journal_segment_kinds_backfill` marker is absent, or is `1` with no
-/// `_through` or `_end` progress row. Otherwise the segments in the returned
-/// range ([`unproven_kind_maps_after`]) are read with the full decoder: an
-/// older build (a downgrade) maps a segment one kind at a time, and a
-/// read-only reader cannot run the backfill that would finish it. The active
-/// journal's `(kind, sequence)` index is always whole.
-pub(crate) fn unproven_kind_maps(
-    connection: &Connection,
-) -> anyhow::Result<Option<(u64, Option<u64>)>> {
-    let marker = connection
-        .query_row(
-            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    unproven_kind_maps_after(connection, marker.as_deref())
-}
-
-impl WorkspaceRegistry {
-    /// One slice of a legacy kind backfill that started and has not
-    /// finished ([`unproven_kind_maps`]): while it is unfinished, every kind
-    /// read decodes the segments it has not proven whole. It runs inside a
-    /// kind read on this (the writer's) connection, but on a persistent
-    /// registry the roster's replays read on their own read-only
-    /// connection, so without the owner's index backfill worker calling
-    /// this nothing would finish it. True while it remains. Never starts a
-    /// backfill: segments sealed before kind maps with no marker get their
-    /// maps from the reducer record backfill
-    /// ([`Self::plan_reducer_record_backfill`]).
-    pub(crate) fn continue_legacy_kind_backfill(&self) -> anyhow::Result<bool> {
-        let db = self.connection.get();
-        if unproven_kind_maps(&db)?.is_none() {
-            return Ok(false);
-        }
-        backfill_legacy_journal_segment_kinds(&db)?;
-        Ok(unproven_kind_maps(&db)?.is_some())
-    }
-}
-
-/// How long one call of the kind backfill, and one kind read's sealed part
-/// after it, may decode: each stops at the first segment or batch past it.
-pub(super) fn kind_slice() -> std::time::Duration {
-    #[cfg(test)]
-    if let Some(slice) = BACKFILL_SLICE_FOR_TEST.with(Cell::get) {
-        return slice;
-    }
-    KIND_BACKFILL_SLICE
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Test seam: how long one kind backfill call, and one kind read's sealed
-    /// part, may decode on this thread ([`kind_slice`]).
-    pub(crate) static BACKFILL_SLICE_FOR_TEST: Cell<Option<std::time::Duration>> =
-        const { Cell::new(None) };
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Test seam: runs once on this thread between a journal read's sealed
-    /// part and its active rows ([`query_session_journal_after`],
-    /// [`query_session_journal_sequences`]), where a concurrent seal can
-    /// commit.
-    pub(crate) static BETWEEN_JOURNAL_READS_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-#[cfg(test)]
-fn run_between_journal_reads_for_test() {
-    // Taken before it runs: a read the hook itself makes does not run it again.
-    let hook = BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| slot.borrow_mut().take());
-    if let Some(hook) = hook {
-        hook();
-    }
-}
-
-fn not_output(kind: &str) -> bool {
-    kind != "terminal.output"
-}
-
-/// Run `writes` under a savepoint: they commit together or not at all, inside
-/// a caller's transaction or on their own.
-fn all_or_nothing(
-    connection: &Connection,
-    writes: impl FnOnce() -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    connection.execute_batch("SAVEPOINT journal_kind_backfill")?;
-    match writes() {
-        Ok(()) => {
-            connection.execute_batch("RELEASE journal_kind_backfill")?;
-            Ok(())
-        }
-        Err(error) => {
-            let _ = connection
-                .execute_batch("ROLLBACK TO journal_kind_backfill; RELEASE journal_kind_backfill");
-            Err(error)
         }
     }
-}
-
-/// The segments a legacy kind backfill decodes, with their start sequence:
-/// those with no kind rows, and with `rescan` `(after, through)`, every
-/// segment that starts after `after` (and at or before `through`, when
-/// given): a backfill stopped partway may have left them partly mapped.
-pub(super) fn legacy_backfill_segments(
-    connection: &Connection,
-    rescan: Option<(u64, Option<u64>)>,
-) -> anyhow::Result<Vec<(String, u64)>> {
-    let mut statement = connection.prepare(
-        "SELECT segment_id, start_sequence FROM journal_segments
-         WHERE (?1 IS NOT NULL AND start_sequence > ?1 AND (?2 IS NULL OR start_sequence <= ?2))
-            OR NOT EXISTS (
-              SELECT 1 FROM journal_segment_kinds
-              WHERE journal_segment_kinds.segment_id = journal_segments.segment_id
-            )
-         ORDER BY start_sequence ASC",
-    )?;
-    let after = rescan.map(|(after, _)| i64::try_from(after)).transpose()?;
-    let through = rescan
-        .and_then(|(_, through)| through)
-        .map(|through| i64::try_from(through).unwrap_or(i64::MAX));
-    Ok(statement
-        .query_map(params![after, through], |row| {
-            Ok((row.get::<_, String>(0)?, u64::try_from(row.get::<_, i64>(1)?).unwrap_or(0)))
-        })?
-        .collect::<Result<Vec<_>, _>>()?)
+    connection
+        .execute("UPDATE meta SET value = '1' WHERE key = 'journal_segment_kinds_backfill'", [])?;
+    Ok(())
 }
 
 fn load_journal_segment(
@@ -1538,21 +1649,19 @@ fn load_journal_segment(
         .with_context(|| format!("load journal segment {segment_id}"))
 }
 
-pub(super) fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
-    let head_sequence = connection
-        .prepare_cached(
-            "SELECT MAX(
+fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
+    let head_sequence = connection.query_row(
+        "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
            COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
          )",
-        )?
-        .query_row([], |row| row.get::<_, i64>(0))?;
-    let head_sequence =
-        u64::try_from(head_sequence).context("journal head sequence is negative")?;
-    Ok(head_sequence.max(output_cleanup::pruned_head(connection)?))
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    u64::try_from(head_sequence).context("journal head sequence is negative")
 }
 
-pub(crate) fn query_session_journal_sequences(
+pub(super) fn query_session_journal_sequences(
     connection: &Connection,
     sequences: &[u64],
 ) -> anyhow::Result<Vec<SessionJournalRecord>> {
@@ -1568,7 +1677,7 @@ pub(crate) fn query_session_journal_sequences(
     let requested_set = sequences.iter().copied().collect::<HashSet<_>>();
     let mut records = BTreeMap::new();
 
-    let mut segment_statement = connection.prepare_cached(
+    let mut segment_statement = connection.prepare(
         "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                 content, uncompressed_bytes, sha256
          FROM journal_segments
@@ -1583,16 +1692,14 @@ pub(crate) fn query_session_journal_sequences(
         .collect::<Result<Vec<_>, _>>()?;
     drop(segment_statement);
     for segment in segments {
-        for record in decode_journal_segment(connection, segment)?.records {
+        for record in decode_journal_segment(segment)?.records {
             if requested_set.contains(&record.sequence) {
                 records.insert(record.sequence, record);
             }
         }
     }
-    #[cfg(test)]
-    run_between_journal_reads_for_test();
 
-    let mut active_statement = connection.prepare_cached(
+    let mut active_statement = connection.prepare(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                 occurred_at_ms, committed_at_ms, producer_json, authority_json,
                 causation_id, correlation_id, causation_depth, subjects_json,
@@ -1629,14 +1736,14 @@ fn query_session_journal_after_subjects(
         "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
     );
     anyhow::ensure!(!subjects.is_empty(), "journal subject filter must not be empty");
-    let head_sequence = connection
-        .prepare_cached(
-            "SELECT MAX(
+    let head_sequence = connection.query_row(
+        "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
            COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
          )",
-        )?
-        .query_row([], |row| row.get::<_, i64>(0))?;
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
     let head_sequence =
         u64::try_from(head_sequence).context("journal head sequence is negative")?;
     anyhow::ensure!(
@@ -1644,7 +1751,7 @@ fn query_session_journal_after_subjects(
         "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
     );
     let requested_json = canonical_json(&serde_json::to_value(subjects)?)?;
-    let mut statement = connection.prepare_cached(
+    let mut statement = connection.prepare(
         "SELECT DISTINCT indexed.sequence
          FROM json_each(?1) AS requested
          JOIN journal_subject_index AS indexed
@@ -1684,9 +1791,9 @@ fn query_session_journal_after_subjects(
     Ok(SessionJournalSubjectPage { head_sequence, scanned_through, records })
 }
 
-pub(super) type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
+type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
 
-pub(super) fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
+fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -1699,29 +1806,50 @@ pub(super) fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegm
     ))
 }
 
-pub(super) struct DecodedJournalSegment {
+struct DecodedJournalSegment {
     start_sequence: u64,
     end_sequence: u64,
-    pub(super) records: Vec<SessionJournalRecord>,
+    records: Vec<SessionJournalRecord>,
 }
 
-/// The records of a `gzip-json-v1` segment, streamed from the gzip reader
-/// into the JSON decoder without a second buffer the size of the segment.
-fn decode_gzip_segment(
-    segment_id: &str,
-    compressed: &[u8],
-    expected_bytes: usize,
-    expected_digest: &[u8],
-) -> anyhow::Result<Vec<SessionJournalRecord>> {
+fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJournalSegment> {
+    let (
+        segment_id,
+        start_sequence,
+        end_sequence,
+        record_count,
+        codec,
+        compressed,
+        expected_bytes,
+        expected_digest,
+    ) = row;
+    anyhow::ensure!(
+        compressed.len() <= MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES,
+        "journal segment {segment_id} exceeds the compressed size limit"
+    );
+    let start_sequence = u64::try_from(start_sequence)?;
+    let end_sequence = u64::try_from(end_sequence)?;
+    let record_count = usize::try_from(record_count)?;
+    anyhow::ensure!(codec == "gzip-json-v1", "journal segment {segment_id} codec is invalid");
+    anyhow::ensure!(record_count > 0, "journal segment {segment_id} record count is invalid");
+    anyhow::ensure!(
+        start_sequence <= end_sequence,
+        "journal segment {segment_id} sequence range is invalid"
+    );
+    let expected_bytes = usize::try_from(expected_bytes)?;
+    anyhow::ensure!(
+        expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
+        "journal segment {segment_id} exceeds the uncompressed size limit"
+    );
     // Feed the in-memory slice directly to the buffered decoder so its
     // returned reader is the exact unread compressed suffix.
-    let decoder = GzDecoder::new(compressed);
+    let decoder = GzDecoder::new(compressed.as_slice());
     // Decode directly from the bounded gzip stream. This avoids allocating a
     // second buffer the size of the complete segment before JSON parsing.
     let mut reader = BufReader::new(DigestReader::new(
         decoder.take(u64::try_from(expected_bytes)?.saturating_add(1)),
     ));
-    let records: Vec<SessionJournalRecord> = serde_json::from_reader(&mut reader)
+    let mut records: Vec<SessionJournalRecord> = serde_json::from_reader(&mut reader)
         .with_context(|| format!("decode journal segment {segment_id}"))?;
     // Force the bounded gzip reader to reach EOF. This validates the gzip
     // trailer even when the JSON decoder stops after the top-level value.
@@ -1745,146 +1873,53 @@ fn decode_gzip_segment(
     );
     anyhow::ensure!(bytes_read == expected_bytes, "journal segment {segment_id} length is invalid");
     anyhow::ensure!(
-        digest.as_slice() == expected_digest,
+        digest.as_slice() == expected_digest.as_slice(),
         "journal segment {segment_id} digest is invalid"
     );
-    Ok(records)
-}
-
-/// A segment that output cleanup re-encoded keeps its sequence range but
-/// holds fewer records: every missing run must be a pruned range of
-/// `connection` (see `output_cleanup::pruned`). Any other gap is an error.
-pub(super) fn decode_journal_segment(
-    connection: &Connection,
-    row: JournalSegmentRow,
-) -> anyhow::Result<DecodedJournalSegment> {
-    check_segment_gaps(connection, inflate_journal_segment(row, None)?)
-}
-
-/// A sealed segment inflated and checked on its own (codec, size, digest,
-/// record count and range), before [`check_segment_gaps`], the one check
-/// that reads the registry. It needs no connection, so segments can be
-/// inflated on other threads (`kind_read`).
-pub(super) struct InflatedJournalSegment {
-    segment_id: String,
-    start_sequence: u64,
-    end_sequence: u64,
-    /// Every record's sequence, the ones `keep` dropped included.
-    sequences: Vec<u64>,
-    records: Vec<SessionJournalRecord>,
-}
-
-/// Inflates a segment and checks it whole. With `keep`, only the records of
-/// the kinds it accepts are kept and validated: the others are dropped
-/// unread, which skips a base64 decode and a SHA-256 for each terminal
-/// output record a reader would only drop. The segment digest still covers
-/// their bytes, so a damaged segment fails the same way.
-pub(super) fn inflate_journal_segment(
-    row: JournalSegmentRow,
-    keep: Option<kind_read::JournalKinds>,
-) -> anyhow::Result<InflatedJournalSegment> {
-    let (
-        segment_id,
-        start_sequence,
-        end_sequence,
-        record_count,
-        codec,
-        compressed,
-        expected_bytes,
-        expected_digest,
-    ) = row;
-    anyhow::ensure!(
-        compressed.len() <= MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES,
-        "journal segment {segment_id} exceeds the compressed size limit"
-    );
-    let start_sequence = u64::try_from(start_sequence)?;
-    let end_sequence = u64::try_from(end_sequence)?;
-    let record_count = usize::try_from(record_count)?;
-    anyhow::ensure!(
-        segment_codec::is_known(&codec),
-        "journal segment {segment_id} codec is invalid"
-    );
-    anyhow::ensure!(record_count > 0, "journal segment {segment_id} record count is invalid");
-    anyhow::ensure!(
-        start_sequence <= end_sequence,
-        "journal segment {segment_id} sequence range is invalid"
-    );
-    let expected_bytes = usize::try_from(expected_bytes)?;
-    anyhow::ensure!(
-        expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
-        "journal segment {segment_id} exceeds the uncompressed size limit"
-    );
-    let mut records = if codec == segment_codec::GZIP_JSON_V1 {
-        decode_gzip_segment(&segment_id, &compressed, expected_bytes, &expected_digest)?
-    } else {
-        // A zstd segment is decoded whole: its JSON is at most 16 MiB, and
-        // the frame's own checks run before a single record is parsed.
-        let json = segment_codec::decode(&codec, &compressed, expected_bytes)
-            .with_context(|| format!("decode journal segment {segment_id}"))?;
-        anyhow::ensure!(
-            json.len() == expected_bytes,
-            "journal segment {segment_id} length is invalid"
-        );
-        anyhow::ensure!(
-            Sha256::digest(&json).as_slice() == expected_digest.as_slice(),
-            "journal segment {segment_id} digest is invalid"
-        );
-        serde_json::from_slice::<Vec<SessionJournalRecord>>(&json)
-            .with_context(|| format!("decode journal segment {segment_id}"))?
-    };
+    for record in &mut records {
+        normalize_terminal_output(record, None)
+            .with_context(|| format!("validate journal segment {segment_id}"))?;
+    }
     anyhow::ensure!(
         records.len() == record_count,
         "journal segment {segment_id} record count is invalid"
     );
     anyhow::ensure!(
-        records.first().is_some_and(|record| record.sequence >= start_sequence)
-            && records.last().is_some_and(|record| record.sequence <= end_sequence),
+        records.first().map(|record| record.sequence) == Some(start_sequence)
+            && records.last().map(|record| record.sequence) == Some(end_sequence),
         "journal segment {segment_id} sequence range is invalid"
     );
-    let sequences = records.iter().map(|record| record.sequence).collect::<Vec<_>>();
-    if let Some(keep) = keep {
-        records.retain(|record| keep(&record.kind));
-    }
-    for record in &mut records {
-        normalize_terminal_output(record, None)
-            .with_context(|| format!("validate journal segment {segment_id}"))?;
-    }
-    Ok(InflatedJournalSegment { segment_id, start_sequence, end_sequence, sequences, records })
-}
-
-/// The gap check of an inflated segment: a segment with fewer records than
-/// its range is valid only where output cleanup pruned the missing runs.
-pub(super) fn check_segment_gaps(
-    connection: &Connection,
-    segment: InflatedJournalSegment,
-) -> anyhow::Result<DecodedJournalSegment> {
-    let InflatedJournalSegment { segment_id, start_sequence, end_sequence, sequences, records } =
-        segment;
-    // A whole segment checks no pruned range; one with fewer records than
-    // its range checks each missing run once.
-    anyhow::ensure!(start_sequence > 0, "journal segment {segment_id} sequence range is invalid");
-    let mut previous = start_sequence - 1;
-    let after_end = end_sequence.saturating_add(1);
-    for sequence in sequences.into_iter().chain([after_end]) {
+    for pair in records.windows(2) {
         anyhow::ensure!(
-            sequence == previous.saturating_add(1)
-                || (sequence > previous.saturating_add(1)
-                    && pruned_gap(connection, previous, sequence)?),
+            pair[1].sequence == pair[0].sequence.saturating_add(1),
             "journal segment {segment_id} contains a sequence gap"
         );
-        previous = sequence;
     }
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
 }
 
-/// Sealed segments never overlap (sealing appends them in sequence order and
-/// the readers below reject a gap or overlap), so `ORDER BY end_sequence`
-/// is the same order as `ORDER BY start_sequence`. Ordering by the column
-/// the range filters on lets SQLite seek its unique index to the cursor.
-/// Ordering by `start_sequence` scanned every segment row on every read: the
-/// journal fanout tailer reads after each commit, and on a registry with 5 353
-/// segments that took about 10 ms per read, about 100% CPU at 100 commits/s
-/// (NIGHTLY 2026-10-20). The seek takes about 0.02 ms on the same file.
+struct DigestReader<R> {
+    inner: R,
+    hasher: Sha256,
+    bytes_read: usize,
+}
+impl<R: Read> DigestReader<R> {
+    fn new(inner: R) -> Self {
+        Self { inner, hasher: Sha256::new(), bytes_read: 0 }
+    }
+    fn finish(self) -> (R, usize, sha2::digest::Output<Sha256>) {
+        (self.inner, self.bytes_read, self.hasher.finalize())
+    }
+}
+impl<R: Read> Read for DigestReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+        let n = self.inner.read(buf)?;
+        self.bytes_read = self.bytes_read.saturating_add(n);
+        self.hasher.update(&buf[..n]);
+        Ok(n)
+    }
+}
+
 fn archived_records_after(
     connection: &Connection,
     sequence: u64,
@@ -1895,7 +1930,7 @@ fn archived_records_after(
                 content, uncompressed_bytes, sha256
          FROM journal_segments
          WHERE end_sequence > ?1
-         ORDER BY end_sequence ASC
+         ORDER BY start_sequence ASC
          LIMIT ?2",
     )?;
     let mut segments = statement
@@ -1903,7 +1938,7 @@ fn archived_records_after(
     let mut records = Vec::new();
     let mut previous_end = None;
     for segment in &mut segments {
-        let decoded = decode_journal_segment(connection, segment?)?;
+        let decoded = decode_journal_segment(segment?)?;
         let start_sequence = decoded.start_sequence;
         let end_sequence = decoded.end_sequence;
         if let Some(previous_end) = previous_end {
@@ -1928,7 +1963,7 @@ fn archived_records_after(
     Ok(records)
 }
 
-pub(super) type StoredRecordRow = (
+type StoredRecordRow = (
     i64,
     String,
     i64,
@@ -1950,7 +1985,7 @@ pub(super) type StoredRecordRow = (
     Option<i64>,
 );
 
-pub(super) fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
+fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -1974,7 +2009,7 @@ pub(super) fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordR
     ))
 }
 
-pub(super) fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
+fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
     let (
         sequence,
         event_id,
@@ -2084,7 +2119,7 @@ fn normalize_terminal_output(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .context("decode archived terminal output")?;
-        record.payload.set("encoding", Value::String("raw".into()));
+        record.payload["encoding"] = Value::String("raw".into());
         bytes
     };
     anyhow::ensure!(!bytes.is_empty(), "terminal output record is empty");
@@ -2131,7 +2166,7 @@ fn encode_bytes_hex(bytes: &[u8]) -> String {
     encoded
 }
 
-pub(crate) fn journal_record_for_archive(record: &SessionJournalRecord) -> SessionJournalRecord {
+pub(super) fn journal_record_for_archive(record: &SessionJournalRecord) -> SessionJournalRecord {
     let mut archived = record.clone();
     if let Some(bytes) = record.terminal_output.as_deref()
         && let Some(payload) = archived.payload.as_object_mut()
@@ -2144,6 +2179,273 @@ pub(crate) fn journal_record_for_archive(record: &SessionJournalRecord) -> Sessi
         archived.terminal_output = None;
     }
     archived
+}
+
+fn collect_patch_subjects(patch: &ResourcePatch, subjects: &mut BTreeSet<JournalSubject>) {
+    for change in &patch.changes {
+        match change {
+            ResourceChange::UpsertWorkspace { workspace, active_screen, .. } => {
+                insert_subject(subjects, "workspace", workspace.public_id.as_str());
+                if let Some(screen) = active_screen {
+                    insert_subject(subjects, "screen", screen.as_str());
+                }
+            }
+            ResourceChange::TombstoneWorkspace { workspace_id } => {
+                insert_subject(subjects, "workspace", workspace_id.as_str());
+            }
+            ResourceChange::SetWorkspaceOrder { workspace_ids } => {
+                for workspace in workspace_ids {
+                    insert_subject(subjects, "workspace", workspace.as_str());
+                }
+            }
+            ResourceChange::SetActiveWorkspace { workspace_id } => {
+                if let Some(workspace) = workspace_id {
+                    insert_subject(subjects, "workspace", workspace.as_str());
+                }
+            }
+            ResourceChange::UpsertScreen(screen) => {
+                insert_subject(subjects, "screen", screen.public_id.as_str());
+                insert_subject(subjects, "workspace", screen.workspace_id.as_str());
+                insert_subject(subjects, "pane", screen.active_pane.as_str());
+                if let Some(pane) = &screen.zoomed_pane {
+                    insert_subject(subjects, "pane", pane.as_str());
+                }
+                if let Some(panes) = &screen.auto_layout {
+                    for pane in panes {
+                        insert_subject(subjects, "pane", pane.as_str());
+                    }
+                }
+                collect_layout_subjects(&screen.layout, subjects);
+                for column in &screen.viewport.columns {
+                    insert_subject(subjects, "split", column.id.as_str());
+                    collect_layout_subjects(&column.layout, subjects);
+                    if let Some(panes) = &column.auto_layout {
+                        for pane in panes {
+                            insert_subject(subjects, "pane", pane.as_str());
+                        }
+                    }
+                }
+            }
+            ResourceChange::TombstoneScreen { screen_id } => {
+                insert_subject(subjects, "screen", screen_id.as_str());
+            }
+            ResourceChange::SetScreenOrder { workspace_id, screen_ids } => {
+                insert_subject(subjects, "workspace", workspace_id.as_str());
+                for screen in screen_ids {
+                    insert_subject(subjects, "screen", screen.as_str());
+                }
+            }
+            ResourceChange::UpsertPane(pane) => {
+                insert_subject(subjects, "pane", pane.public_id.as_str());
+                insert_subject(subjects, "screen", pane.screen_id.as_str());
+                if let Some(tab) = &pane.active_tab {
+                    insert_subject(subjects, "tab", tab.as_str());
+                }
+            }
+            ResourceChange::TombstonePane { pane_id } => {
+                insert_subject(subjects, "pane", pane_id.as_str());
+            }
+            ResourceChange::UpsertTab(tab) => {
+                insert_subject(subjects, "tab", tab.public_id.as_str());
+                insert_subject(subjects, "pane", tab.pane_id.as_str());
+                match &tab.content_id {
+                    ContentPublicId::Terminal(terminal) => {
+                        insert_subject(subjects, "terminal", terminal.as_str());
+                    }
+                    ContentPublicId::Browser(browser) => {
+                        insert_subject(subjects, "browser", browser.as_str());
+                    }
+                }
+            }
+            ResourceChange::TombstoneTab { tab_id, .. } => {
+                insert_subject(subjects, "tab", tab_id.as_str());
+            }
+            ResourceChange::SetTabOrder { pane_id, tab_ids } => {
+                insert_subject(subjects, "pane", pane_id.as_str());
+                for tab in tab_ids {
+                    insert_subject(subjects, "tab", tab.as_str());
+                }
+            }
+            ResourceChange::UpsertTerminal { public_id, .. }
+            | ResourceChange::TombstoneTerminal { public_id, .. } => {
+                insert_subject(subjects, "terminal", public_id.as_str());
+            }
+            ResourceChange::UpsertBrowser(browser) => {
+                insert_subject(subjects, "browser", browser.public_id.as_str());
+            }
+            ResourceChange::TombstoneBrowser { public_id } => {
+                insert_subject(subjects, "browser", public_id.as_str());
+            }
+        }
+    }
+}
+
+fn collect_layout_subjects(layout: &RegistryLayoutNode, subjects: &mut BTreeSet<JournalSubject>) {
+    match layout {
+        RegistryLayoutNode::Leaf { pane } => insert_subject(subjects, "pane", pane.as_str()),
+        RegistryLayoutNode::Split { split, first, second, .. } => {
+            insert_subject(subjects, "split", split.as_str());
+            collect_layout_subjects(first, subjects);
+            collect_layout_subjects(second, subjects);
+        }
+        RegistryLayoutNode::Stack { panes, expanded } => {
+            for pane in panes {
+                insert_subject(subjects, "pane", pane.as_str());
+            }
+            insert_subject(subjects, "pane", expanded.as_str());
+        }
+    }
+}
+
+fn insert_subject(subjects: &mut BTreeSet<JournalSubject>, kind: &str, id: &str) {
+    subjects.insert(JournalSubject { kind: kind.into(), id: id.into() });
+}
+
+fn collect_subjects(value: &Value, subjects: &mut BTreeSet<JournalSubject>) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                collect_subjects(value, subjects);
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values() {
+                collect_subjects(value, subjects);
+            }
+        }
+        Value::String(value) => {
+            if let Some(kind) = public_id_kind(value) {
+                subjects.insert(JournalSubject { kind: kind.into(), id: value.clone() });
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+pub(super) fn expand_topology_subjects(
+    transaction: &Transaction<'_>,
+    subjects: &mut BTreeSet<JournalSubject>,
+) -> anyhow::Result<()> {
+    if !subjects.iter().any(|subject| {
+        matches!(subject.kind.as_str(), "screen" | "pane" | "tab" | "terminal" | "browser")
+    }) {
+        return Ok(());
+    }
+    let ids = subjects.iter().map(|subject| &subject.id).collect::<Vec<_>>();
+    let ids_json = canonical_json(&serde_json::to_value(ids)?)?;
+    let mut statement = transaction.prepare(
+        "WITH seeds(id) AS (
+           SELECT value FROM json_each(?1)
+         ),
+         tab_paths(tab_id, pane_id, screen_id, workspace_id) AS (
+           SELECT tab.public_id, tab.pane_id, pane.screen_id, screen.workspace_id
+           FROM resource_tabs AS tab
+           JOIN resource_panes AS pane ON pane.public_id = tab.pane_id
+           JOIN resource_screens AS screen ON screen.public_id = pane.screen_id
+           WHERE tab.public_id IN (SELECT id FROM seeds)
+              OR tab.content_id IN (SELECT id FROM seeds)
+         ),
+         pane_paths(pane_id, screen_id, workspace_id) AS (
+           SELECT pane.public_id, pane.screen_id, screen.workspace_id
+           FROM resource_panes AS pane
+           JOIN resource_screens AS screen ON screen.public_id = pane.screen_id
+           WHERE pane.public_id IN (SELECT id FROM seeds)
+         ),
+         screen_paths(screen_id, workspace_id) AS (
+           SELECT screen.public_id, screen.workspace_id
+           FROM resource_screens AS screen
+           WHERE screen.public_id IN (SELECT id FROM seeds)
+         )
+         SELECT 'tab', tab_id FROM tab_paths
+         UNION SELECT 'pane', pane_id FROM tab_paths
+         UNION SELECT 'screen', screen_id FROM tab_paths
+         UNION SELECT 'workspace', workspace_id FROM tab_paths
+         UNION SELECT 'pane', pane_id FROM pane_paths
+         UNION SELECT 'screen', screen_id FROM pane_paths
+         UNION SELECT 'workspace', workspace_id FROM pane_paths
+         UNION SELECT 'screen', screen_id FROM screen_paths
+         UNION SELECT 'workspace', workspace_id FROM screen_paths",
+    )?;
+    let expanded = statement
+        .query_map([ids_json], |row| Ok(JournalSubject { kind: row.get(0)?, id: row.get(1)? }))?
+        .collect::<Result<Vec<_>, _>>()?;
+    subjects.extend(expanded);
+    Ok(())
+}
+
+pub(super) fn terminal_topology_subjects_batch(
+    transaction: &Transaction<'_>,
+    terminal_ids: impl IntoIterator<Item = String>,
+) -> anyhow::Result<HashMap<String, Vec<JournalSubject>>> {
+    let terminal_ids = terminal_ids.into_iter().collect::<BTreeSet<_>>();
+    if terminal_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let ids_json = canonical_json(&serde_json::to_value(&terminal_ids)?)?;
+    let mut statement = transaction.prepare(
+        "WITH seeds(terminal_id) AS (
+           SELECT value FROM json_each(?1)
+         ),
+         paths(terminal_id, tab_id, pane_id, screen_id, workspace_id) AS (
+           SELECT seed.terminal_id, tab.public_id, tab.pane_id,
+                  pane.screen_id, screen.workspace_id
+           FROM seeds AS seed
+           JOIN resource_tabs AS tab ON tab.content_id = seed.terminal_id
+           JOIN resource_panes AS pane ON pane.public_id = tab.pane_id
+           JOIN resource_screens AS screen ON screen.public_id = pane.screen_id
+         )
+         SELECT terminal_id, 'tab', tab_id FROM paths
+         UNION SELECT terminal_id, 'pane', pane_id FROM paths
+         UNION SELECT terminal_id, 'screen', screen_id FROM paths
+         UNION SELECT terminal_id, 'workspace', workspace_id FROM paths",
+    )?;
+    let expanded = statement
+        .query_map([ids_json], |row| {
+            Ok((row.get::<_, String>(0)?, JournalSubject { kind: row.get(1)?, id: row.get(2)? }))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut by_terminal = HashMap::<String, BTreeSet<JournalSubject>>::new();
+    for (terminal_id, subject) in expanded {
+        by_terminal.entry(terminal_id).or_default().insert(subject);
+    }
+    Ok(by_terminal
+        .into_iter()
+        .map(|(terminal_id, subjects)| (terminal_id, subjects.into_iter().collect()))
+        .collect())
+}
+
+fn public_id_kind(value: &str) -> Option<&'static str> {
+    const PREFIXES: [(&str, &str); 17] = [
+        ("frontend_projection", "projection"),
+        ("pairing_request", "pairing"),
+        ("sidebar_plugin", "sidebar_plugin"),
+        ("sidebar_view", "sidebar_view"),
+        ("notification", "notification"),
+        ("workspace", "ws"),
+        ("terminal", "term"),
+        ("session", "session"),
+        ("machine", "machine"),
+        ("screen", "screen"),
+        ("browser", "browser"),
+        ("client", "client"),
+        ("pane", "pane"),
+        ("split", "split"),
+        ("agent", "agent"),
+        ("stream", "stream"),
+        ("tab", "tab"),
+    ];
+    for (kind, prefix) in PREFIXES {
+        let Some(payload) = value.strip_prefix(prefix).and_then(|value| value.strip_prefix('_'))
+        else {
+            continue;
+        };
+        if payload.len() == 32
+            && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Some(kind);
+        }
+    }
+    None
 }
 
 fn semantic_journal_kind(operation: &str) -> Cow<'_, str> {
@@ -2173,90 +2475,541 @@ pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests {
+    use super::*;
 
-mod actors;
-mod digest_reader;
-#[cfg(test)]
-mod kind_map_backfill_tests;
-pub(crate) mod kind_read;
-#[cfg(test)]
-pub(crate) mod kind_read_tests;
-mod live_terminal;
-pub(crate) mod reducer_records;
-mod resource_record;
-use digest_reader::DigestReader;
-pub(crate) use resource_record::{append_resource_journal_record, journal_resource_record};
-#[cfg(test)]
-mod actor_tests;
+    #[test]
+    fn resource_record_is_typed_scoped_and_append_only() {
+        let mut registry = WorkspaceRegistry::in_memory("journal").unwrap();
+        let workspace_id = format!("ws_{}", "1".repeat(32));
+        let pane_id = format!("pane_{}", "2".repeat(32));
+        let result = serde_json::json!({"workspace_id":workspace_id});
+        let changes = serde_json::json!([{
+            "kind":"upsert",
+            "resource":"pane",
+            "id":pane_id,
+            "value":{"workspace_id":workspace_id,"pane_id":pane_id}
+        }]);
+        let tx = registry.connection.transaction().unwrap();
+        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+        append_resource_journal_record(
+            &tx,
+            1,
+            0,
+            "test-client",
+            "focus-one",
+            "pane.focus",
+            None,
+            &result,
+            &changes,
+        )
+        .unwrap();
+        tx.commit().unwrap();
 
-#[cfg(test)]
-pub(crate) use actors::journal_actor;
-pub(crate) use actors::{ledger_actor, resource_record_actor, segment_actors_json};
+        let page = registry.session_journal_after(0, 10).unwrap();
+        assert_eq!(page.head_sequence, 1);
+        assert_eq!(page.records.len(), 1);
+        let record = &page.records[0];
+        assert_eq!(record.kind, "pane.focus");
+        assert_eq!(record.class, JournalClass::State);
+        assert_eq!(record.replay, JournalReplayPolicy::Required);
+        assert_eq!(record.correlation_id.as_deref(), Some("focus-one"));
+        assert_eq!(record.resource_revision, Some(1));
+        assert_eq!(record.previous_resource_revision, Some(0));
+        assert!(
+            record
+                .subjects
+                .iter()
+                .any(|subject| { subject.kind == "workspace" && subject.id == workspace_id })
+        );
+        assert!(
+            record.subjects.iter().any(|subject| subject.kind == "pane" && subject.id == pane_id)
+        );
+        let indexed = registry
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM journal_subject_index
+                 WHERE kind = 'pane' AND id = ?1 AND sequence = 1",
+                [&pane_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(indexed, 1);
 
-/// Reducer snapshots on the connection alone (issue 23038). A snapshot row
-/// (`journal_reducer.<id>` in `meta`) is one statement of its own, written
-/// by its reducer and read back only at restore; no state commit reads it.
-/// So a save needs only the connection lock, like the journal writer, never
-/// the workspace registry lock: an agent history or roster snapshot written
-/// under the registry lock held every state commit (Cmd-N's pin, create and
-/// first tab) behind it.
-impl RegistryConnection {
-    /// Durably record a reducer's fold position and state snapshot. Cursor
-    /// values are stored as strings so 64-bit sequences survive JSON. The
-    /// caller need not hold the workspace registry lock.
-    #[track_caller]
-    pub(crate) fn put_journal_reducer_state(
-        &self,
-        reducer_id: &str,
-        version: u32,
-        cursor: u64,
-        snapshot: &str,
-    ) -> anyhow::Result<()> {
-        write_journal_reducer_state(&self.get(), reducer_id, version, cursor, snapshot)
+        let update = registry
+            .connection
+            .execute("UPDATE session_journal SET kind = 'pane.changed' WHERE sequence = 1", []);
+        assert!(update.unwrap_err().to_string().contains("append-only"));
+        let delete = registry.connection.execute("DELETE FROM session_journal", []);
+        assert!(delete.unwrap_err().to_string().contains("append-only"));
+        let delete_index = registry.connection.execute("DELETE FROM journal_subject_index", []);
+        assert!(delete_index.unwrap_err().to_string().contains("append-only"));
     }
 
-    /// Save a reducer state rebuilt from the whole journal and clear its
-    /// stale mark, in one transaction.
-    pub(crate) fn finish_journal_reducer_rebuild(
-        &self,
-        reducer_id: &str,
-        version: u32,
-        cursor: u64,
-        snapshot: &str,
-    ) -> anyhow::Result<()> {
-        let db = self.get();
-        let tx = db.unchecked_transaction()?;
-        write_journal_reducer_state(&tx, reducer_id, version, cursor, snapshot)?;
-        tx.execute("DELETE FROM meta WHERE key = ?1", [journal_reducer_rebuild_key(reducer_id)])?;
-        tx.commit()?;
-        Ok(())
+    #[test]
+    fn migration_marks_incomplete_history_and_preserves_retained_events() {
+        let mut registry = WorkspaceRegistry::in_memory("migration").unwrap();
+        let tx = registry.connection.transaction().unwrap();
+        tx.execute_batch(
+            "DROP TABLE session_journal;
+             CREATE TABLE resource_events (
+               revision INTEGER PRIMARY KEY NOT NULL,
+               previous_revision INTEGER NOT NULL,
+               origin TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               deltas_json TEXT NOT NULL
+             );
+             UPDATE meta SET value = '4' WHERE key = 'resource_revision';",
+        )
+        .unwrap();
+        let result = serde_json::json!({"focused":true});
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+             ) VALUES('test', 'focus-four', 'pane.focus', '{}', ?1, 4)",
+            [canonical_json(&result).unwrap()],
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO resource_events(
+               revision, previous_revision, origin, idempotency_key, deltas_json
+             ) VALUES(4, 3, 'test', 'focus-four', '[]')",
+            [],
+        )
+        .unwrap();
+        migrate_resource_events_to_session_journal(&tx).unwrap();
+        tx.commit().unwrap();
+
+        let page = registry.session_journal_after(0, 10).unwrap();
+        assert_eq!(page.records.len(), 2);
+        assert_eq!(page.records[0].kind, "session.journal.migrated");
+        assert_eq!(page.records[0].payload["history_complete"], false);
+        assert_eq!(page.records[1].kind, "pane.focus");
+        assert_eq!(page.records[1].resource_revision, Some(4));
+        assert_eq!(registry.resource_events_after(3).unwrap().batches.len(), 1);
     }
-}
 
-fn journal_reducer_rebuild_key(reducer_id: &str) -> String {
-    format!("journal_reducer_rebuild.{reducer_id}")
-}
+    #[test]
+    fn migration_marks_projection_only_legacy_history_incomplete() {
+        let mut registry = WorkspaceRegistry::in_memory("projection-only-migration").unwrap();
+        let tx = registry.connection.transaction().unwrap();
+        tx.execute_batch(
+            "DROP TABLE session_journal;
+             UPDATE meta SET value = '7' WHERE key = 'resource_revision';",
+        )
+        .unwrap();
+        migrate_resource_events_to_session_journal(&tx).unwrap();
+        tx.commit().unwrap();
 
-/// The `meta` row of a reducer's fold position and snapshot, written on
-/// `connection` (the registry's own, or the synthetic registry writer's).
-pub(crate) fn write_journal_reducer_state(
-    connection: &Connection,
-    reducer_id: &str,
-    version: u32,
-    cursor: u64,
-    snapshot: &str,
-) -> anyhow::Result<()> {
-    let value = serde_json::json!({
-        "version": version,
-        "cursor": cursor.to_string(),
-        "snapshot": snapshot,
-    });
-    connection
-        .prepare_cached(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )?
-        .execute(params![format!("journal_reducer.{reducer_id}"), value.to_string()])?;
-    Ok(())
+        let page = registry.session_journal_after(0, 10).unwrap();
+        assert_eq!(page.records.len(), 1);
+        assert_eq!(page.records[0].kind, "session.journal.migrated");
+        assert_eq!(page.records[0].payload["source"], "projection_only");
+        assert_eq!(page.records[0].payload["resource_head_revision"], "7");
+        assert_eq!(page.records[0].payload["history_complete"], false);
+    }
+
+    #[test]
+    fn journal_cursor_and_page_limits_fail_closed() {
+        let registry = WorkspaceRegistry::in_memory("limits").unwrap();
+        assert_eq!(registry.session_journal_head().unwrap(), 0);
+        assert!(registry.session_journal_after(1, 1).unwrap_err().to_string().contains("ahead"));
+        assert!(registry.session_journal_after(0, 0).unwrap_err().to_string().contains("positive"));
+        assert!(
+            registry
+                .session_journal_after(0, MAX_JOURNAL_PAGE_SIZE + 1)
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds")
+        );
+    }
+
+    #[test]
+    fn output_only_archived_segments_skip_corrupt_content() {
+        let registry = WorkspaceRegistry::in_memory("output-only-archive").unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec,
+                   content, uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES('output-only-corrupt', 1, 1, 1, 'gzip-json-v1', X'00', 1, ?1, 1)",
+                [vec![0_u8; 32]],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segment_kinds(segment_id, kind)
+                 VALUES('output-only-corrupt', 'terminal.output')",
+                [],
+            )
+            .unwrap();
+
+        let (records, reached) = registry.session_journal_without_output_after(0, 1, 512).unwrap();
+        assert!(records.is_empty());
+        assert_eq!(reached, 1);
+    }
+
+    #[test]
+    fn non_output_replay_mixes_archived_prefix_with_active_tail() {
+        let root = std::env::temp_dir().join(format!("cmux-mixed-archive-{}", new_uuid_v4()));
+        let mut registry = WorkspaceRegistry::open(&root, "mixed-archive-active").unwrap();
+        let first = registry.connection.transaction().unwrap();
+        first.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+        append_resource_journal_record(
+            &first,
+            1,
+            0,
+            "mixed-test",
+            "mixed-archive-event",
+            "workspace.added",
+            None,
+            &serde_json::json!({"workspace":"archive"}),
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        first.commit().unwrap();
+        let archived_through = registry.session_journal_head().unwrap();
+        registry
+            .create_journal_checkpoint(
+                archived_through,
+                1,
+                &serde_json::json!({
+                    "session_snapshot":{"cursor":{"revision":"1"}},
+                    "journal_extensions":{"producers":[],"hooks":[]},
+                }),
+                &[],
+                "client_test",
+                "mixed_archive_checkpoint",
+            )
+            .unwrap();
+        let plan = match registry
+            .begin_journal_segment_seal(archived_through, "client_test", "mixed_archive_segment")
+            .unwrap()
+        {
+            JournalSegmentSealStart::Prepare(plan) => plan,
+            JournalSegmentSealStart::Replay(_) => {
+                panic!("first mixed segment seal unexpectedly replayed")
+            }
+        };
+        let reader = SessionJournalReader::open(
+            &registry.session_journal_database_path().expect("persistent registry has a path"),
+        )
+        .unwrap();
+        let prepared = plan.prepare(&reader).unwrap();
+        registry
+            .commit_journal_segment_seal(prepared, "client_test", "mixed_archive_segment")
+            .unwrap()
+            .expect("mixed segment boundary remained stable");
+        let second = registry.connection.transaction().unwrap();
+        second.execute("UPDATE meta SET value = '2' WHERE key = 'resource_revision'", []).unwrap();
+        append_resource_journal_record(
+            &second,
+            2,
+            1,
+            "mixed-test",
+            "mixed-active-event",
+            "workspace.focus",
+            None,
+            &serde_json::json!({"workspace":"active"}),
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        second.commit().unwrap();
+        let head = registry.session_journal_head().unwrap();
+
+        let (records, reached) =
+            registry.session_journal_without_output_after(0, head, 512).unwrap();
+        assert_eq!(reached, head);
+        assert!(records.iter().any(|record| record.sequence <= archived_through));
+        assert!(records.iter().any(|record| record.sequence > archived_through));
+
+        // A cursor at the sealed boundary must still use the active indexed
+        // query, even though the archive helper has no range to own.
+        let (tail, tail_reached) =
+            registry.session_journal_without_output_after(archived_through, head, 512).unwrap();
+        assert!(!tail.is_empty());
+        assert!(tail.iter().all(|record| record.sequence > archived_through));
+        assert_eq!(tail_reached, head);
+        drop(reader);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archived_non_output_replay_rejects_compacted_gaps_before_kind_filtering() {
+        let registry = WorkspaceRegistry::in_memory("archive-gap-validation").unwrap();
+        // `journal_segments.sha256` is UNIQUE, so each fixture segment needs its own digest.
+        for (id, start, end, digest) in
+            [("gap-first", 1_i64, 1_i64, 1_u8), ("gap-second", 3_i64, 3_i64, 2_u8)]
+        {
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO journal_segments(
+                       segment_id, start_sequence, end_sequence, record_count, codec,
+                       content, uncompressed_bytes, sha256, sealed_at_ms
+                     ) VALUES(?1, ?2, ?3, 1, 'gzip-json-v1', X'00', 1, ?4, 1)",
+                    params![id, start, end, vec![digest; 32]],
+                )
+                .unwrap();
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO journal_segment_kinds(segment_id, kind)
+                     VALUES(?1, 'terminal.output')",
+                    [id],
+                )
+                .unwrap();
+        }
+
+        let error = registry.session_journal_without_output_after(0, 3, 512).unwrap_err();
+        assert!(error.to_string().contains("gap"), "{error:#}");
+    }
+
+    #[test]
+    fn persistent_reader_observes_commits_on_an_independent_connection() {
+        let root = std::env::temp_dir().join(format!("cmux-journal-reader-{}", new_uuid_v4()));
+        let mut registry = WorkspaceRegistry::open(&root, "reader").unwrap();
+        let database_path = registry.session_journal_database_path().unwrap();
+        let reader = SessionJournalReader::open(&database_path).unwrap();
+        assert_eq!(reader.after(0, 1).unwrap().head_sequence, 0);
+
+        let workspace_id = format!("ws_{}", "1".repeat(32));
+        let result = serde_json::json!({"workspace_id":workspace_id});
+        let tx = registry.connection.transaction().unwrap();
+        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+        append_resource_journal_record(
+            &tx,
+            1,
+            0,
+            "reader-test",
+            "reader-commit",
+            "workspace.focus",
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(registry.session_journal_head().unwrap(), 1);
+        let page = reader.after(0, 1).unwrap();
+        assert_eq!(page.head_sequence, 1);
+        assert_eq!(page.records[0].kind, "workspace.focus");
+        let matching = reader
+            .after_subjects(0, 1, &[JournalSubject { kind: "workspace".into(), id: workspace_id }])
+            .unwrap();
+        assert_eq!(matching.scanned_through, 1);
+        assert_eq!(matching.records.len(), 1);
+        let absent = reader
+            .after_subjects(
+                0,
+                1,
+                &[JournalSubject { kind: "agent_tree".into(), id: "agenttree_absent".into() }],
+            )
+            .unwrap();
+        assert_eq!(absent.scanned_through, 1);
+        assert!(absent.records.is_empty());
+        drop(reader);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archived_segment_metadata_is_verified_before_replay() {
+        let mut registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
+        let result = serde_json::json!({"focused":true});
+        let tx = registry.connection.transaction().unwrap();
+        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+        append_resource_journal_record(
+            &tx,
+            1,
+            0,
+            "segment-test",
+            "segment-record-1",
+            "pane.focus",
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let records = registry.session_journal_after(0, 10).unwrap().records;
+        let uncompressed = serde_json::to_vec(&records).unwrap();
+        let digest = Sha256::digest(&uncompressed);
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES('segment_bad_metadata', 1, 1, 2, 'gzip-json-v1', ?1, ?2, ?3, 1)",
+                params![compressed, i64::try_from(uncompressed.len()).unwrap(), digest.as_slice()],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "DROP TRIGGER session_journal_reject_delete;
+                 DELETE FROM session_journal;
+                 CREATE TRIGGER session_journal_reject_delete
+                   BEFORE DELETE ON session_journal
+                 BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+            )
+            .unwrap();
+
+        let error = registry.session_journal_after(0, 10).unwrap_err();
+        assert!(error.to_string().contains("record count"), "{error:#}");
+    }
+
+    #[test]
+    fn archived_segment_rejects_trailing_compressed_data() {
+        let mut trailing_encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        trailing_encoder.write_all(b"ignored").unwrap();
+        let trailing_member = trailing_encoder.finish().unwrap();
+        let variants = [("gzip member", trailing_member), ("non-gzip bytes", b"trailing".to_vec())];
+
+        for (label, suffix) in variants {
+            let mut registry = WorkspaceRegistry::in_memory("segment-trailing").unwrap();
+            let result = serde_json::json!({"focused":true});
+            let tx = registry.connection.transaction().unwrap();
+            tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+            append_resource_journal_record(
+                &tx,
+                1,
+                0,
+                "segment-test",
+                "segment-record-1",
+                "pane.focus",
+                None,
+                &result,
+                &serde_json::json!([]),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+
+            let records = registry.session_journal_after(0, 10).unwrap().records;
+            let uncompressed = serde_json::to_vec(&records).unwrap();
+            let digest = Sha256::digest(&uncompressed);
+            let mut encoder =
+                flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+            encoder.write_all(&uncompressed).unwrap();
+            let mut compressed = encoder.finish().unwrap();
+            compressed.extend_from_slice(&suffix);
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO journal_segments(
+                       segment_id, start_sequence, end_sequence, record_count, codec, content,
+                       uncompressed_bytes, sha256, sealed_at_ms
+                     ) VALUES(?1, 1, 1, 1, 'gzip-json-v1', ?2, ?3, ?4, 1)",
+                    params![
+                        format!("segment_bad_trailing_{label}"),
+                        compressed,
+                        i64::try_from(uncompressed.len()).unwrap(),
+                        digest.as_slice()
+                    ],
+                )
+                .unwrap();
+            registry
+                .connection
+                .execute_batch(
+                    "DROP TRIGGER session_journal_reject_delete;
+                     DELETE FROM session_journal;
+                     CREATE TRIGGER session_journal_reject_delete
+                       BEFORE DELETE ON session_journal
+                     BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+                )
+                .unwrap();
+
+            let error = registry.session_journal_after(0, 10).unwrap_err();
+            assert!(error.to_string().contains("trailing compressed data"), "{label}: {error:#}");
+        }
+    }
+
+    #[test]
+    fn restore_cursor_decodes_a_multi_page_segment_once() {
+        let root = std::env::temp_dir().join(format!("cmux-journal-cursor-{}", new_uuid_v4()));
+        let mut registry = WorkspaceRegistry::open(&root, "cursor").unwrap();
+        let workspace_id = format!("ws_{}", "1".repeat(32));
+        for sequence in 1..=4 {
+            let tx = registry.connection.transaction().unwrap();
+            tx.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+                [sequence.to_string()],
+            )
+            .unwrap();
+            append_resource_journal_record(
+                &tx,
+                sequence,
+                sequence - 1,
+                "cursor-test",
+                &format!("cursor-event-{sequence}"),
+                "workspace.focus",
+                None,
+                &serde_json::json!({"workspace_id":workspace_id}),
+                &serde_json::json!([]),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        let records = registry.session_journal_after(0, 10).unwrap().records;
+        let uncompressed = serde_json::to_vec(&records).unwrap();
+        let digest = Sha256::digest(&uncompressed);
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES('cursor-segment', 1, 4, 4, 'gzip-json-v1', ?1, ?2, ?3, 1)",
+                params![compressed, i64::try_from(uncompressed.len()).unwrap(), digest.as_slice()],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "DROP TRIGGER session_journal_reject_delete;
+                 DELETE FROM session_journal;
+                 CREATE TRIGGER session_journal_reject_delete
+                   BEFORE DELETE ON session_journal
+                 BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+            )
+            .unwrap();
+
+        let reader =
+            SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
+        let mut cursor = reader.restore_cursor(0).unwrap();
+        assert!(!cursor.segments_exhausted);
+        assert_eq!(cursor.segment_content_load_count, 0);
+        let mut replayed = Vec::new();
+        loop {
+            let page = cursor.next_page(1).unwrap();
+            if page.records.is_empty() {
+                assert_eq!(page.head_sequence, 4);
+                break;
+            }
+            replayed.extend(page.records.into_iter().map(|record| record.sequence));
+        }
+        assert_eq!(cursor.segment_decode_count, 1);
+        assert_eq!(cursor.segment_content_load_count, 1);
+        cursor.finish().unwrap();
+        assert_eq!(replayed, [1, 2, 3, 4]);
+
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
 }

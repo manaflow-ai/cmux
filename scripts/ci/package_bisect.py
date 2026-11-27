@@ -7,8 +7,8 @@ the probed commit's tree with today's iOS CI files laid over it and the
 package-lint gate dropped (old sources fail today's lint baseline). The
 package suite then runs exactly as it does now.
 
-    package_bisect.py --package CMUXMobileCore start --points 6 GOOD..BAD
-    package_bisect.py --package CMUXMobileCore start SHA [SHA ...]
+    package_bisect.py --package CmuxMobileShell start --points 6 GOOD..BAD
+    package_bisect.py --package CmuxMobileShell start SHA [SHA ...]
     package_bisect.py probe SHA [SHA ...]  # add chosen commits to this bisect
     package_bisect.py adopt SHA RUN_ID     # count a run that already exists
     package_bisect.py status [--wait]      # failure matrix + per-test windows
@@ -42,7 +42,7 @@ REPO = "manaflow-ai/cmux"
 REMOTE_URL = f"git@github.com:{REPO}.git"
 WORKFLOW = "test-ios.yml"
 WORKFLOW_PATH = ".github/workflows/test-ios.yml"
-PACKAGE_JOB = "mobile-core-linux"
+PACKAGE_JOB = "mobile-core-package"
 BRANCH_PREFIX = "bisect/"
 # Everything the package job runs from its checkout, taken from the CI base.
 OVERLAY_PATHS = (WORKFLOW_PATH, "scripts/ci", "scripts/select-ci-xcode.sh")
@@ -190,19 +190,13 @@ class State:
 
 
 def drop_lint_gate(workflow: str) -> str:
-    """Open the package job's lint gate, if it has one, so a lint red cannot hide a test verdict.
-
-    The Linux package job needs only detect-ios-changes, so it has no gate and the workflow is unchanged.
-    """
     start = workflow.find(f"\n  {PACKAGE_JOB}:")
     if start < 0:
         raise SystemExit(f"{WORKFLOW_PATH}: no {PACKAGE_JOB} job")
-    end = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 1 :])
-    stop = len(workflow) if end is None else start + 1 + end.start()
-    job = workflow[start:stop]
-    if LINT_GATE not in job:
-        return workflow
-    return workflow[:start] + job.replace(LINT_GATE, "&& (true", 1) + workflow[stop:]
+    body = workflow[start:]
+    if LINT_GATE not in body:
+        raise SystemExit(f"{WORKFLOW_PATH}: {PACKAGE_JOB} lint gate not found")
+    return workflow[:start] + body.replace(LINT_GATE, "&& (true", 1)
 
 
 def probe_commit(sha: str, ci_base: str, patches: list[str] = ()) -> str:
@@ -260,21 +254,6 @@ def find_dispatched_run(branch: str, since: str) -> int | None:
     return None
 
 
-def job_log(job_id: int) -> str:
-    """A job's own log; ANSI is normalized by the Python red classifiers."""
-    import importlib.util  # noqa: PLC0415
-    spec = importlib.util.spec_from_file_location("base_red_excuse", Path(__file__).with_name("base_red_excuse.py"))
-    excuse = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(excuse)
-    route = f"repos/{REPO}/actions/jobs/{job_id}/logs"
-    result = subprocess.run(["gh", "api", excuse.ESCAPE_FLAG, route], text=True, capture_output=True)
-    if result.returncode != 0 and excuse.escape_flag_unknown(result.stderr):
-        result = subprocess.run(["gh", "api", route], text=True, capture_output=True)
-    if result.returncode != 0:
-        raise SystemExit(f"gh api {excuse.ESCAPE_FLAG} {route} failed: {result.stderr.strip()}")
-    return result.stdout
-
-
 def log_cache(run_id: int, attempt: int) -> Path:
     common = Path(git("rev-parse", "--git-common-dir").strip()).resolve()
     return common / "package-bisect" / "logs" / f"{run_id}-{attempt}.log"
@@ -297,7 +276,7 @@ def package_job_log(run_id: int) -> tuple[str, str]:
     cached = log_cache(run_id, jobs.get("attempt", 1))
     if cached.exists():
         return "completed", cached.read_text()
-    log = job_log(job["databaseId"])
+    log = run("gh", "api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job['databaseId']}/logs")
     cached.parent.mkdir(parents=True, exist_ok=True)
     cached.write_text(log)
     return "completed", log
@@ -550,7 +529,7 @@ def cmd_cleanup(args) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--package", default="CMUXMobileCore")
+    parser.add_argument("--package", default="CmuxMobileShell")
     parser.add_argument("--bisect", help="name for this bisect (default: the package); lets experiments coexist")
     sub = parser.add_subparsers(dest="command", required=True)
     start = sub.add_parser("start")

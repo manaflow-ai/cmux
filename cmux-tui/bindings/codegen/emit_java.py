@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from codegen.ir import SdkIR, admits_json_null, mutable_document
+from codegen.ir import SdkIR, mutable_document
 from codegen.writer import Emitter
 
 _JAVA_RESERVED = {
@@ -363,14 +363,6 @@ class JavaEmitter:
         for value in expr["values"]:
             constants.append(f"    {_constant(str(value))}({_java_literal(value)})")
         body = ",\n".join(constants) + ";\n"
-        fallback = expr.get("fallback")
-        unknown = (
-            "        if (value instanceof String) {\n"
-            + f"            return {_constant(str(fallback))};\n"
-            + "        }\n"
-            if fallback is not None
-            else ""
-        )
         return (
             _HEADER
             + "import java.util.Objects;\n\n"
@@ -394,7 +386,6 @@ class JavaEmitter:
             + "                return candidate;\n"
             + "            }\n"
             + "        }\n"
-            + unknown
             + f"        throw new CmuxDecodeException(\"unknown {name} value \" + value, null);\n"
             + "    }\n"
             + "}\n"
@@ -705,14 +696,8 @@ class JavaEmitter:
         value: str,
         context: str,
     ) -> str:
-        if field["nullable"]:
-            decoded = self._decode(field["type"], value, context)
-            return f"{value} == null ? null : {decoded}"
-        if admits_json_null(self.document["types"], field["type"]):
-            # Opaque JSON keeps a null, so a field that is not nullable
-            # rejects it here with the typed decode error, not a later NPE.
-            value = f"ProtocolSupport.nonNull({value}, {_java_string(context)})"
-        return self._decode(field["type"], value, context)
+        decoded = self._decode(field["type"], value, context)
+        return f"{value} == null ? null : {decoded}" if field["nullable"] else decoded
 
     def _copy_expr(self, expr: Mapping[str, Any], value: str) -> str:
         kind = expr["kind"]
@@ -1120,10 +1105,6 @@ class JavaEmitter:
             + "        if (!equal) throw new CmuxDecodeException(context + \" must equal \" + expected, null);\n"
             + "        return expected;\n"
             + "    }\n"
-            + "    static Object nonNull(Object actual, String context) {\n"
-            + "        if (actual == null) throw new CmuxDecodeException(context + \" must not be null\", null);\n"
-            + "        return actual;\n"
-            + "    }\n"
             + "}\n"
         )
 
@@ -1193,14 +1174,6 @@ class JavaEmitter:
                 )
             lines.append("    }")
             lines.append("")
-            if wire_name in ("identify", "list-workspaces") and has_fields:
-                # Keep the original no-argument entry point as this command evolves.
-                lines.extend([
-                    f"    public final {result_type} {method}() throws CmuxException {{",
-                    f"        return {method}({request_name}.builder().build());",
-                    "    }",
-                    "",
-                ])
         lines.append("}")
         return "\n".join(lines) + "\n"
 
