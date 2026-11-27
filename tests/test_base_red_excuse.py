@@ -2797,6 +2797,59 @@ class FastGatesJobRedIsThePRsOwn(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
 
+class MergeTrainTurnAwayIsNoRed(unittest.TestCase):
+    """cmux#59074 at a3d4b1e0 (2026-11-27 04:41Z): the HQ merge train posted `merge-train` error "not seated: ..." at
+    the head, by design the fallback (the base merge, then the land; cmuxterm-hq docs/handbook/merge-train-turn-away.md).
+    The classifier judged it as a red, found no base run of it, and refused "merge-train: has not run on exact head"
+    twice with the other 173 checks green. Its turn-away is no red; its failure stays the PR's own."""
+
+    TURNED_AWAY = {"context": "merge-train", "state": "error", "created_at": "2026-11-27T04:41:24Z",
+                   "updated_at": "2026-11-27T04:41:24Z", "target_url": None,
+                   "description": "not seated: train T11270439-f0a5ca4 took 2 seats, the next no sooner than 05:39Z; "
+                                  "its base merge runs now (update_branch)"}
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.statuses = [copy.deepcopy(self.TURNED_AWAY)]
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": []}]
+            if route.endswith(f"commits/{HEAD}/statuses?per_page=100"):
+                self.gh.routes.append(route)
+                return copy.deepcopy(self.statuses)
+            if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                return {"statuses": []}
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["merge-train"])
+
+    def test_the_trains_turn_away_error_is_ignored_not_refused(self):
+        lines = self.judge()
+        self.assertTrue(any(line.startswith("ignored 'merge-train': the merge train turned") and "not seated" in line
+                            for line in lines), lines)
+        self.assertFalse(any("/actions/workflows/" in route for route in self.gh.routes), self.gh.routes)
+
+    def test_the_newest_post_decides(self):
+        older = dict(self.TURNED_AWAY, state="pending", created_at="2026-11-27T04:30:00Z", description="boarded")
+        self.statuses = [older, copy.deepcopy(self.TURNED_AWAY)]
+        self.assertTrue(any(line.startswith("ignored 'merge-train'") for line in self.judge()))
+
+    def test_the_trains_failure_is_the_prs_own_red(self):
+        self.statuses = [dict(self.TURNED_AWAY, state="failure", description="red: job 'swift tests' in run 9")]
+        with self.assertRaisesRegex(excuse.Refused, "pull request's own red on the merge train"):
+            self.judge()
+
+    def test_a_pending_train_is_not_excused(self):
+        self.statuses = [dict(self.TURNED_AWAY, state="pending", description="seated in T1")]
+        with self.assertRaisesRegex(excuse.Refused, "still pending"):
+            self.judge()
+
+
 class StatusOnlyChecks(unittest.TestCase):
     """A same-tree run posts 'cmux-next daemon tests (same-tree)' as a commit status, not a check run (cmux#30294):
     it is judged by the job behind it, in the run its target_url links."""
@@ -10327,6 +10380,11 @@ class TreeReuseGitHub(FakeGitHub):
         query = next(arg for arg in args if arg.startswith("query="))
         self.graphql.append(query)
         if "nodes(ids:" in query:
+            if self.nodes == "unread":  # as main_fix_evidence's GitHub.run raises the broker's refusal: a failed gh
+                raise excuse.Unread("GitHub evidence request failed: gh api graphql query=... name=CI fast guards: "
+                                    "gh: lane-gh call graphql manaflow-ai/cmux: refused: graphql: root field nodes "
+                                    "is refused (the broker reads the call's repo with a few fields only: "
+                                    "GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS)")
             if not self.nodes:
                 raise excuse.Refused("GitHub evidence request failed: gh: lane-gh call graphql manaflow-ai/cmux: "
                                      "refused: graphql: root field nodes is refused")
@@ -10347,6 +10405,39 @@ class TreeReuseGitHub(FakeGitHub):
                       if route.endswith("/jobs?filter=latest&per_page=100"))
 
 
+class SuiteChecksBrokerRefusal(unittest.TestCase):
+    """The lane-gh broker's refused `nodes` arrives as a failed read (Unread, then UnreadRead through rate_limit_aware):
+    SuiteChecks reads by commit instead, and only another failed read stays "not judged" (cmux#60059, 2026-11-27)."""
+
+    class GitHub:
+        def __init__(self, nodes_error):
+            self.nodes_error, self.queries = nodes_error, []
+
+        def run(self, args, *, repo=None):
+            query = next(arg for arg in args if arg.startswith("query="))
+            self.queries.append(query)
+            if "nodes(ids:" in query:
+                raise self.nodes_error
+            return json.dumps({"data": {"repository": {"c0": {"checkSuites": {"pageInfo": {"hasNextPage": False},
+                               "nodes": [{"id": "CS_1", "checkRuns": {"pageInfo": {"hasNextPage": False},
+                                                                     "nodes": [{"conclusion": "FAILURE"}]}}]}}}}})
+
+    RUNS = [{"id": 1, "check_suite_node_id": "CS_1", "head_sha": "a" * 40}]
+
+    def test_a_refused_nodes_read_as_unread_is_read_by_commit(self):
+        gh = self.GitHub(excuse.Unread("GitHub evidence request failed: gh: lane-gh call graphql manaflow-ai/cmux: "
+                                       "refused: graphql: root field nodes is refused"))
+        suites = excuse.SuiteChecks(excuse.rate_limit_aware(gh), REPO)
+        self.assertEqual(suites.conclusions(self.RUNS, 0, "build"), frozenset({"failure"}))
+        self.assertTrue(suites.rooted)
+        self.assertEqual(len(gh.queries), 2)
+
+    def test_another_failed_read_stays_not_judged(self):
+        gh = self.GitHub(excuse.Unread("GitHub evidence request exceeded 90 seconds: gh api graphql query=..."))
+        with self.assertRaises(excuse.UnreadRead):
+            excuse.SuiteChecks(excuse.rate_limit_aware(gh), REPO).conclusions(self.RUNS, 0, "build")
+
+
 class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
     """A base run whose check suite has no verdict for a job costs no job read and is not counted toward
     BASE_JOB_READS, so runs that never build a job do not push the one that did out of the window (cmux#42047)."""
@@ -10355,7 +10446,8 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
 
     def test_the_base_run_behind_the_tree_reuse_runs_excuses_the_red(self):
-        for nodes in (True, False):
+        # "unread": the refusal as a lane VM's gh shim gives it, a failed read (cmux#60059 exited 3 on it, 2026-11-27).
+        for nodes in (True, False, "unread"):
             with self.subTest(nodes=nodes):
                 gh = TreeReuseGitHub(nodes=nodes)
                 said = "\n".join(self.judge(gh))
@@ -10366,7 +10458,7 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
                 self.assertLessEqual(len(gh.graphql), 4)  # 52 suites, 25 a request (plus a refused `nodes` once)
 
     def test_a_green_base_job_there_stays_not_excused(self):
-        for nodes in (True, False):
+        for nodes in (True, False, "unread"):
             with self.subTest(nodes=nodes):
                 with self.assertRaisesRegex(excuse.Refused, f"'{re.escape(TreeReuseGitHub.MAC)}'.*not red on "
                                                             "feat-cmux-next run 20"):
