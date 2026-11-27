@@ -378,6 +378,52 @@ fn c_abi_the_ops_without_a_pane() {
     );
 }
 
+#[test]
+fn c_abi_prompt_ops_match_the_shared_presentation_rules() {
+    let none = std::ptr::null();
+    assert_eq!(
+        call(none, "prompt_scrub", json!({"text": "token: abcdefghijklmnop"})).unwrap(),
+        json!({"text": "token: [redacted]"})
+    );
+    assert_eq!(
+        call(none, "prompt_visible", json!({"text": "a\u{200b}\u{202e}b"})).unwrap(),
+        json!({"text": "a<U+200B><U+202E>b"})
+    );
+    assert_eq!(
+        call(none, "prompt_shown_command", json!({"value": ["bash", "-lc", "rm -rf ~"]})).unwrap(),
+        json!({"command": "bash -lc 'rm -rf ~'"})
+    );
+    assert_eq!(
+        call(none, "prompt_cut", json!({"text": "abcdef", "limit": 4})).unwrap(),
+        json!({"text": "abc…"})
+    );
+    let offered = json!([
+        {"kind": "allow_once", "optionId": "allow"},
+        {"kind": "reject_once", "optionId": "deny"},
+        {"kind": "allow_always", "optionId": "always"}
+    ]);
+    assert_eq!(
+        call(none, "prompt_once_option", json!({"allow": true, "offered": offered})).unwrap(),
+        json!({"option": "allow"})
+    );
+    assert_eq!(
+        call(none, "prompt_always_option", json!({"offered": offered})).unwrap(),
+        json!({"option": "always"})
+    );
+    assert_eq!(
+        call(none, "prompt_option", json!({"allow": false, "offered": offered})).unwrap(),
+        json!({"option": "deny"})
+    );
+    let request = json!({
+        "toolCall": {"title": "Run", "rawInput": {"command": ["echo", "hi"]}, "_meta": {}},
+        "options": [{"kind": "allow_once", "optionId": "allow"}, {"kind": "reject_once", "optionId": "deny"}]
+    });
+    let read = call(none, "prompt_read", json!({"request": request})).unwrap();
+    assert_eq!(read["is_question"], false);
+    assert_eq!(read["is_tool_permission"], true);
+    assert_eq!(read["summary"], "Run\necho hi");
+}
+
 /// The pick a gesture ticket is bound to, asked without a frame check (the
 /// host redeems a ticket for a page op such as `cloud.startChat`, and holds a
 /// click's intent by the same values): every case of tests/cases/picks.json
