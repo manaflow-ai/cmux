@@ -727,3 +727,41 @@ fn a_targeted_first_step_reuses_its_match_read_as_the_baseline() {
     };
     assert_eq!(walks_of(false), walks_of(true));
 }
+
+/// A target with a menu role is found in the app's menu bar, so one batch
+/// types and presses File > Save with no look first; any other target
+/// never matches a menu item, and a step's state leaves the menu bar out.
+#[test]
+fn a_menu_item_target_presses_a_menu_command_in_one_batch() {
+    let mut root = doc(false, "", "Save");
+    let mut save = el("ms", "menu_item", "Save");
+    save.actions = vec!["press".into()];
+    let mut file = el("mf", "menu_bar_item", "File");
+    file.actions = vec!["press".into()];
+    file.children = vec![Element { children: vec![save], ..el("mm", "menu", "") }];
+    root.children.push(Element { children: vec![file], ..el("mb", "menu_bar", "") });
+    identify(&mut root, 1);
+    let d = desktop_with(root);
+    let e = rig(d.clone());
+    let out = batch(
+        &e,
+        json!([
+            {"action": "type_text", "target": {"role": "text_area", "label": "Document"}, "text": "!"},
+            {"action": "click", "target": {"role": "menu_item", "label": "Save"}},
+        ]),
+    );
+    assert_eq!(step(&out, 0)["status"], "done", "{}", out.body);
+    assert_eq!(step(&out, 1)["status"], "done", "{}", out.body);
+    let matched = step(&out, 1)["target"]["matched"].as_str().unwrap_or_default().to_string();
+    assert!(matched.contains("menu_item \"Save\""), "{matched}");
+    assert!(
+        d.events()
+            .iter()
+            .any(|ev| matches!(ev, Event::Click { element: Some(el), .. } if el == "ms")),
+        "{:?}",
+        d.events()
+    );
+    // A target with no menu role reads the window alone: no menu item.
+    let out = batch(&e, json!([{"action": "click", "target": {"label": "Save"}}]));
+    assert_eq!(step(&out, 0)["code"], "target_not_found", "{}", out.body);
+}

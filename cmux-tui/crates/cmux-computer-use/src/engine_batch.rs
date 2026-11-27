@@ -629,8 +629,9 @@ impl Engine {
                 self.resolve_target(ctx, &window, m).map_err(|e| audited(e, Some(&app)))?;
             set_key(&mut step, "element_id", json!(n.to_string()));
             resolved = Some(json!({"element_id": n.to_string(), "matched": line}));
-            // The read that found the target is the elements' baseline too.
-            if prev.is_none() {
+            // The read that found the target is the elements' baseline too
+            // (not one that read the menu bar: a step's state never does).
+            if prev.is_none() && !m.in_menus() {
                 *prev = Some(self.baseline_from(ctx, window_id, tree, opts));
             }
         }
