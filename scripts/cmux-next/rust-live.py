@@ -380,8 +380,22 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
 PROFILE = os.environ.get("CMUX_RUST_LIVE_PROFILE") or "dev"
 
 
+# Codegen units for the two crates a cmux-tui-core edit rebuilds, in this build only (RFD 0174 slice 5).
+# At 1024 instead of the dev profile's 256, an edit's incremental rebuild has less to redo per unit:
+# 28.65 s -> 27.86 s p50 (fleet Linux, 32 cores, 12 edits per arm in two interleaved runs, job
+# e8cd7525058d39c377835ce2; scripts/measure/tui-core-edit-levers.py). 16 units took 92.7 s. Passed as
+# --config, so [profile.dev] and every other dev build keep their settings, and dependencies keep
+# their build. The first rust-live build after a plain `cargo build` redoes these two crates once.
+# CMUX_RUST_LIVE_CODEGEN_UNITS="" leaves the profile's own.
+CODEGEN_UNITS = os.environ.get("CMUX_RUST_LIVE_CODEGEN_UNITS", "1024")
+EDITED_CRATES = ("cmux-tui-core", "cmux-tui")
+
+
 def cargo_args(daemons: list[str], target: str | None) -> list[str]:
     argv = ["cargo", "build", "--message-format=short", "--profile", PROFILE]
+    if CODEGEN_UNITS:
+        for crate in EDITED_CRATES:
+            argv += ["--config", f'profile.{PROFILE}.package."{crate}".codegen-units={int(CODEGEN_UNITS)}']
     if target:
         argv += ["--target", target]
     for package in daemons:

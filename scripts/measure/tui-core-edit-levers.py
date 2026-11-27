@@ -5,6 +5,7 @@ Runs scripts/measure/tui-core-edit-breakdown.py (the same edit, rust-live's carg
 once per arm, each arm only an environment change, in arms order:
 
   base        rust-live's build as it is
+  profile     rust-live's build with the dev profile's own codegen units (CMUX_RUST_LIVE_CODEGEN_UNITS="")
   threads8    rustc's parallel frontend, -Z threads=8 (RUSTC_BOOTSTRAP=1: measured, never shipped)
   mold        link with mold (clang or cc -fuse-ld=mold), where mold is installed
   debug0      CARGO_PROFILE_DEV_DEBUG=0 (no line tables in our crates)
@@ -45,6 +46,7 @@ def arms() -> dict[str, dict | None]:
     mold = mold_flags()
     return {
         "base": {},
+        "profile": {"CMUX_RUST_LIVE_CODEGEN_UNITS": ""},  # before rust-live's codegen-units override
         "threads8": {"RUSTC_BOOTSTRAP": "1", "RUSTFLAGS": f"{flags} -Z threads=8".strip()},
         "mold": {"RUSTFLAGS": f"{flags} {mold}".strip()} if mold else None,
         "debug0": {"CARGO_PROFILE_DEV_DEBUG": "0"},
