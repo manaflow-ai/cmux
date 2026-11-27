@@ -27,6 +27,7 @@
 {"file":"agent-session/acpmux/chips/LinkChips.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/chips/LinkChips.tsx","kind":"title-attribute","count":2}
 {"file":"agent-session/acpmux/chips/LinkHoverCard.tsx","kind":"raw-button","count":2}
+{"file":"agent-session/acpmux/chips/PullRequestCard.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/chips/ReplyImage.tsx","kind":"raw-button","count":3}
 {"file":"agent-session/acpmux/chips/ReplyImage.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/chips/ReplyMedia.tsx","kind":"raw-button","count":7}
