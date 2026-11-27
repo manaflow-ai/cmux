@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextDevices
+import CmuxNextWakeups
 import Observation
 
 /// What the home page asks of its owner.
@@ -48,6 +49,9 @@ final class MacScreenHomeView: MacScreenThemedView {
     var offlineExpanded = false
     /// The snapshot the rows were last built from (the page's own or a test's), for a rebuild after a local toggle.
     private(set) var built: MacScreenHomeSnapshot?
+    /// Holds This Mac's hub note ("Connecting this Mac to the device hub…") back until this Mac has been off the hub
+    /// for the shared bound (``hubNoteHeld(_:delay:)``): most joins land under it, so a fast one says nothing.
+    private var hubNoteHold: QuietHold?
     /// `.frame(maxWidth: 620).padding(.horizontal, 32)`: the column's width for the page's.
     private lazy var columnWidth = column.widthAnchor.constraint(equalToConstant: 620)
 
@@ -153,6 +157,15 @@ final class MacScreenHomeView: MacScreenThemedView {
         build(snapshot)
         if snapshot.sharing != nil, !hadSharing, window != nil { Task { [host] in await host.refreshPermissions() } }
         readPermissions(snapshot.deviceIDs)
+    }
+
+    /// Whether This Mac's hub note is still held back: `joining` is this Mac off the hub now. The page redraws once
+    /// the stretch has lasted `delay`, so the note then shows; any registered read ends the stretch.
+    func hubNoteHeld(_ joining: Bool, delay: Duration) -> Bool {
+        let hold = hubNoteHold ?? QuietHold(owner: "mac-screen-home-hub-note", delay: delay)
+        hubNoteHold = hold
+        hold.update(joining) { [weak self] in self?.render() }
+        return hold.held
     }
 
     /// A switch shows its model's value, not the click: after a press, on the next turn (never

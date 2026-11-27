@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextDevices
 import Foundation
 
@@ -138,13 +139,16 @@ struct MacScreenHomeSnapshot: Equatable {
                 // says why. Gating the section on registration hid it (and its permissions) for as long as the
                 // hub was unreachable (run 45954248647: socket connect timeouts, no This Mac section).
                 let registered = hub.thisDevice != nil || hub.status == .ready
+                // The note says a state the person can do nothing about, so it waits the shared bound
+                // (NoticeTiming.connectionQuiet); the switch waits (busy) from the first read.
+                let noteHeld = home.hubNoteHeld(!registered, delay: NoticeTiming.connectionQuiet)
                 let hubHost = source.hubHost
                 sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy || !registered,
                                   screenRecordingGranted: home.host.screenRecordingGranted,
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : Self.hubNote(hub.status))
+                                  hubNote: registered || noteHeld ? nil : Self.hubNote(hub.status))
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
