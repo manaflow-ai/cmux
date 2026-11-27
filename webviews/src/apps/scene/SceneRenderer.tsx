@@ -14,7 +14,9 @@ import {
   type RefObject,
 } from "react";
 import { useHoverCard } from "../../agent-session/acpmux/chips/useHoverCard";
-import { Card as KitCard, Pill as KitPill, Tooltip as KitTooltip, type PillTone, Spinner } from "../../kit";
+import { Spinner } from "../../agent-session/acpmux/conversation/icons";
+import { Pill as KitPill, type PillTone } from "../../kit/Pill";
+import { AnchoredCard as KitCard, Tooltip as KitTooltip } from "../../ui/Tooltip";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneReorderable } from "./SceneReorderable";
