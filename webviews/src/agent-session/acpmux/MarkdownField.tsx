@@ -26,6 +26,8 @@ import {
   sliceHoldsInline,
   wholeSelected,
   withTextMarksEscaped,
+  INLINE_REMOVE,
+  onlyInline,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
 import { followActionsWidth, flashThumbOnLength } from "./composerScrollLane";
@@ -1192,6 +1194,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const copied = (editorView: EditorView, event: ClipboardEvent, cut: boolean) => {
     const surface = latest.current.onCopy;
     const { state } = editorView;
+    // The strip view's hidden nodes are not the person's text: a selection of only them copies and
+    // cuts nothing (composer/inlineNode.ts onlyInline).
+    if (latest.current.inlineHidden && !state.selection.empty && onlyInline(state.selection.content())) {
+      event.preventDefault();
+      return true;
+    }
     if (!surface || state.selection.empty) return false;
     const copy = {
       parts: inlineOn.current ? selectionParts(state) : [],
@@ -1876,6 +1884,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         sameChat && undoable
           ? replaceChanged(current.state.tr, next)
           : current.state.tr.replace(0, current.state.doc.content.size, new Slice(next.content, 0, 0));
+      // A value from outside is not the person removing a placed attachment (composer/inlineNode.ts INLINE_REMOVE).
+      if (inlineOn.current) tr.setMeta(INLINE_REMOVE, true);
       if (tr.docChanged) current.dispatch(tr.setMeta("addToHistory", undoable));
     });
     const current = view.current;
