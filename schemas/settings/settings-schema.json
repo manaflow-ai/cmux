@@ -182,140 +182,6 @@
       },
       {
         "actions" : [
-          "notifications"
-        ],
-        "aliases" : [
-          "notifications"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.banners",
-            "rows" : [
-              "notifications.desktop",
-              "notifications.sound",
-              "notifications.quietHours",
-              "notifications.suppressWhileTypingSeconds",
-              "status.runNotifyMinimumSeconds",
-              "status.runNotifyWhenVisible",
-              "notifications.dockBadge",
-              "notifications.dockBounce",
-              "notifications.showPreviews"
-            ],
-            "title" : {
-              "key" : "settings.group.banners",
-              "text" : "Banners and Sound"
-            }
-          },
-          {
-            "key" : "settings.group.notificationDelivery",
-            "rows" : [
-              "notifications.delivery.permissionRequest",
-              "notifications.delivery.question",
-              "notifications.delivery.blocked",
-              "notifications.delivery.taskComplete"
-            ],
-            "title" : {
-              "key" : "settings.group.notificationDelivery",
-              "text" : "Delivery by Event"
-            }
-          },
-          {
-            "key" : "settings.group.sounds",
-            "rows" : [
-              "notifications.sounds.events.finished",
-              "notifications.sounds.events.needsInput",
-              "notifications.sounds.events.error",
-              "notifications.sounds.events.bell",
-              "notifications.sounds.events.message",
-              "notifications.sounds.volume",
-              "notifications.sounds.maxSeconds",
-              "notifications.sounds.when",
-              "notifications.sounds.cooldownSeconds"
-            ],
-            "title" : {
-              "key" : "settings.group.sounds",
-              "text" : "Sounds"
-            }
-          },
-          {
-            "key" : "settings.group.dismissal",
-            "rows" : [
-              "notifications.dismissal",
-              "notifications.timeoutSeconds",
-              "notifications.sources.agent.dismissal",
-              "notifications.sources.terminal.dismissal",
-              "notifications.sources.cli.dismissal"
-            ],
-            "title" : {
-              "key" : "settings.group.dismissal",
-              "text" : "Dismissal"
-            }
-          },
-          {
-            "key" : "settings.group.attention",
-            "rows" : [
-              "notifications.attention.style",
-              "notifications.attention.color",
-              "notifications.attention.terminals",
-              "notifications.attention.agentChats",
-              "notifications.attention.agentChatBlinkCount",
-              "notifications.attention.width",
-              "notifications.attention.blinkCount",
-              "notifications.attention.duration",
-              "notifications.attention.persist",
-              "notifications.attention.flash",
-              "notifications.attention.flashOnTyping",
-              "notifications.attention.showOnTab",
-              "notifications.attention.showOnSidebar",
-              "notifications.attention.mark",
-              "notifications.attention.moveToTop",
-              "notifications.attention.moveToTopOnAgentFinish"
-            ],
-            "title" : {
-              "key" : "settings.group.attention",
-              "text" : "Attention Ring"
-            }
-          },
-          {
-            "key" : "settings.group.feedMirror",
-            "rows" : [
-              "feed.mirrorNotifications.agents",
-              "feed.mirrorNotifications.terminal",
-              "feed.agentPermissionPrompts",
-              "feed.needsYouInChief"
-            ],
-            "title" : {
-              "key" : "settings.group.feedMirror",
-              "text" : "Feed"
-            }
-          },
-          {
-            "key" : "settings.group.githubInbox",
-            "rows" : [
-              "feed.github.enabled",
-              "feed.github.pollIntervalSeconds"
-            ],
-            "title" : {
-              "key" : "settings.group.githubInbox",
-              "text" : "GitHub Inbox"
-            }
-          }
-        ],
-        "id" : "notifications",
-        "lead" : [
-
-        ],
-        "symbol" : "bell",
-        "title" : {
-          "key" : "settings.section.notifications",
-          "text" : "Notifications"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
 
         ],
         "aliases" : [
@@ -350,70 +216,6 @@
         "trail" : [
           "webUpdates",
           "channels"
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "newTab.0",
-            "rows" : [
-              "tabs.newTabTemplate",
-              "tabs.newTabClock.show",
-              "tabs.newTabClock.font",
-              "tabs.newTabClock.weight",
-              "tabs.newTabClock.color",
-              "tabs.newTabClock.date",
-              "tabs.newTabApp",
-              "tabs.nativeNewTabPage",
-              "sidebar.showChats",
-              "tabs.newTabNowPlaying"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.newTabPage",
-              "text" : "New Tab Page"
-            }
-          }
-        ],
-        "id" : "newTab",
-        "lead" : [
-
-        ],
-        "symbol" : "plus.square",
-        "title" : {
-          "key" : "settings.pageGroup.newTabPage",
-          "text" : "New Tab Page"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "menus",
-        "lead" : [
-          "contextMenus"
-        ],
-        "symbol" : "contextualmenu.and.cursorarrow",
-        "title" : {
-          "key" : "settings.category.menus",
-          "text" : "Menus"
-        },
-        "trail" : [
-
         ]
       },
       {
@@ -1053,6 +855,469 @@
       },
       {
         "actions" : [
+          "terminal"
+        ],
+        "aliases" : [
+          "terminal"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.terminalFont",
+            "rows" : [
+              "terminal.fontFamily",
+              "terminal.fontSize"
+            ],
+            "title" : {
+              "key" : "settings.group.terminalFont",
+              "text" : "Font"
+            }
+          },
+          {
+            "key" : "settings.group.terminalCursor",
+            "rows" : [
+              "terminal.cursorStyle",
+              "terminal.cursorBlink"
+            ],
+            "title" : {
+              "key" : "settings.group.terminalCursor",
+              "text" : "Cursor"
+            }
+          },
+          {
+            "key" : "settings.group.terminalCompatibility",
+            "rows" : [
+              "terminal.term"
+            ],
+            "title" : {
+              "key" : "settings.group.terminalCompatibility",
+              "text" : "Compatibility"
+            }
+          },
+          {
+            "key" : "terminal.3",
+            "rows" : [
+              "terminal.linkOpener.default",
+              "terminal.linkOpener.rules"
+            ],
+            "title" : {
+              "key" : "settings.group.links",
+              "text" : "Links"
+            }
+          },
+          {
+            "key" : "terminal.4",
+            "rows" : [
+              "newTerminal.opensWorkspace",
+              "app.warnBeforeClosingTab",
+              "terminal.predictiveLocalEcho"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.terminalBehavior",
+              "text" : "Behavior"
+            }
+          }
+        ],
+        "id" : "terminal",
+        "lead" : [
+          "terminalInfo"
+        ],
+        "symbol" : "terminal",
+        "title" : {
+          "key" : "settings.section.terminal",
+          "text" : "Terminal"
+        },
+        "trail" : [
+          "ghosttyDiagnostics"
+        ]
+      },
+      {
+        "actions" : [
+          "editor"
+        ],
+        "aliases" : [
+          "editor"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.editorDefaults",
+            "rows" : [
+              "editor.importFrom"
+            ],
+            "title" : {
+              "key" : "settings.group.editorDefaults",
+              "text" : "Defaults from Other Editors"
+            }
+          },
+          {
+            "key" : "settings.group.editorFont",
+            "rows" : [
+              "editor.fontFamily",
+              "editor.fontSize",
+              "editor.fontWeight",
+              "editor.fontLigatures",
+              "editor.lineHeight",
+              "editor.letterSpacing"
+            ],
+            "title" : {
+              "key" : "settings.group.editorFont",
+              "text" : "Font"
+            }
+          },
+          {
+            "key" : "settings.group.editorText",
+            "rows" : [
+              "editor.tabSize",
+              "editor.insertSpaces",
+              "editor.detectIndentation",
+              "editor.wordWrap",
+              "editor.wordWrapColumn"
+            ],
+            "title" : {
+              "key" : "settings.group.editorText",
+              "text" : "Indentation and Wrapping"
+            }
+          },
+          {
+            "key" : "settings.group.editorDisplay",
+            "rows" : [
+              "editor.lineNumbers",
+              "editor.rulers",
+              "editor.minimap.enabled",
+              "editor.renderWhitespace",
+              "editor.renderControlCharacters",
+              "editor.renderLineHighlight",
+              "editor.bracketPairColorization.enabled",
+              "editor.guides.bracketPairs",
+              "editor.guides.indentation",
+              "editor.matchBrackets",
+              "editor.stickyScroll.enabled",
+              "editor.folding",
+              "editor.scrollBeyondLastLine",
+              "editor.smoothScrolling",
+              "editor.mouseWheelZoom"
+            ],
+            "title" : {
+              "key" : "settings.group.editorDisplay",
+              "text" : "Display"
+            }
+          },
+          {
+            "key" : "settings.group.editorCursor",
+            "rows" : [
+              "editor.cursorStyle",
+              "editor.cursorBlinking",
+              "editor.cursorSmoothCaretAnimation",
+              "editor.cursorSurroundingLines",
+              "editor.multiCursorModifier"
+            ],
+            "title" : {
+              "key" : "settings.group.editorCursor",
+              "text" : "Cursor"
+            }
+          },
+          {
+            "key" : "settings.group.editorEditing",
+            "rows" : [
+              "editor.vimMode",
+              "editor.autoClosingBrackets",
+              "editor.autoClosingQuotes",
+              "editor.linkedEditing",
+              "editor.quickSuggestions",
+              "editor.wordBasedSuggestions",
+              "editor.acceptSuggestionOnEnter",
+              "editor.emptySelectionClipboard",
+              "editor.find.seedSearchStringFromSelection"
+            ],
+            "title" : {
+              "key" : "settings.group.editorEditing",
+              "text" : "Editing"
+            }
+          },
+          {
+            "key" : "settings.group.editorSaving",
+            "rows" : [
+              "editor.autoSave",
+              "editor.autoSaveDelay",
+              "editor.trimTrailingWhitespace",
+              "editor.insertFinalNewline",
+              "editor.formatOnSave"
+            ],
+            "title" : {
+              "key" : "settings.group.editorSaving",
+              "text" : "Saving"
+            }
+          },
+          {
+            "key" : "settings.group.diffViewer",
+            "rows" : [
+              "diff.layout",
+              "diff.diffIndicators",
+              "diff.colors",
+              "diff.wordWrap",
+              "diff.wordDiffs",
+              "diff.lineNumbers",
+              "diff.showBackgrounds",
+              "diff.expandUnchanged",
+              "diff.groupByKind",
+              "diff.hideWhitespace",
+              "diff.showBulkActions"
+            ],
+            "title" : {
+              "key" : "settings.group.diffViewer",
+              "text" : "Diff Viewer"
+            }
+          },
+          {
+            "key" : "settings.group.markdownViewer",
+            "rows" : [
+              "markdown.remoteImages",
+              "markdown.layout.width",
+              "markdown.layout.fullWidth",
+              "markdown.font.size",
+              "markdown.font.preset",
+              "markdown.font.lineHeight",
+              "markdown.spacing.paragraph",
+              "markdown.code.scale",
+              "markdown.code.family",
+              "markdown.tables",
+              "markdown.theme"
+            ],
+            "title" : {
+              "key" : "settings.group.markdownViewer",
+              "text" : "Markdown Viewer"
+            }
+          },
+          {
+            "key" : "settings.group.files",
+            "rows" : [
+              "editor.default",
+              "files.textEditor"
+            ],
+            "title" : {
+              "key" : "settings.group.files",
+              "text" : "Files"
+            }
+          },
+          {
+            "key" : "settings.group.screenshots",
+            "rows" : [
+              "screenshots.findTools",
+              "screenshots.folders"
+            ],
+            "title" : {
+              "key" : "settings.group.screenshots",
+              "text" : "Screenshots"
+            }
+          }
+        ],
+        "id" : "editor",
+        "lead" : [
+
+        ],
+        "symbol" : "chevron.left.forwardslash.chevron.right",
+        "title" : {
+          "key" : "settings.section.editor",
+          "text" : "Code Editor"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+          "browser"
+        ],
+        "aliases" : [
+          "browser"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.engine",
+            "rows" : [
+              "browser.defaultEngine",
+              "browser.siteEngines",
+              "browser.newTabPage"
+            ],
+            "title" : {
+              "key" : "settings.group.engine",
+              "text" : "Engine"
+            }
+          },
+          {
+            "key" : "settings.group.addressBar",
+            "rows" : [
+              "browser.searchEngine",
+              "browser.customSearchEngine.search",
+              "browser.customSearchEngine.suggest",
+              "browser.omnibar.inlineAutocomplete",
+              "browser.omnibar.maxRows",
+              "browser.omnibar.calculator",
+              "browser.omnibar.showFullURLs",
+              "browser.omnibar.quietIcons",
+              "browser.omnibar.glass",
+              "browser.omnibar.glassTint",
+              "browser.omnibar.glassTintStrength",
+              "browser.omnibar.cornerRadius",
+              "browser.omnibar.shadow",
+              "browser.omnibar.backgroundOpacity",
+              "browser.omnibar.height",
+              "browser.omnibar.fontSize"
+            ],
+            "title" : {
+              "key" : "settings.group.addressBar",
+              "text" : "Address Bar"
+            }
+          },
+          {
+            "key" : "settings.group.toolbar",
+            "rows" : [
+              "browser.toolbarButtons",
+              "browser.showLoadingBar"
+            ],
+            "title" : {
+              "key" : "settings.group.toolbar",
+              "text" : "Toolbar"
+            }
+          },
+          {
+            "key" : "settings.group.media",
+            "rows" : [
+              "media.pictureInPicture.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.media",
+              "text" : "Media"
+            }
+          },
+          {
+            "key" : "settings.group.bookmarks",
+            "rows" : [
+              "browser.showBookmarksBar"
+            ],
+            "title" : {
+              "key" : "settings.group.bookmarks",
+              "text" : "Bookmarks"
+            }
+          },
+          {
+            "key" : "settings.group.agentInput",
+            "rows" : [
+              "browser.showAgentCursor",
+              "browser.agentMouse.motion",
+              "browser.agentMouse.maxMoveMs"
+            ],
+            "title" : {
+              "key" : "settings.group.agentInput",
+              "text" : "Agent Input"
+            }
+          },
+          {
+            "key" : "settings.group.extensions",
+            "rows" : [
+              "browser.builtInAdBlocker"
+            ],
+            "title" : {
+              "key" : "settings.group.extensions",
+              "text" : "Extensions"
+            }
+          },
+          {
+            "key" : "settings.group.links",
+            "rows" : [
+              "browser.links.cmdClick",
+              "browser.links.cmdShiftClick",
+              "browser.links.shiftClick",
+              "browser.links.optionClick",
+              "browser.links.middleClick",
+              "browser.vimKeys"
+            ],
+            "title" : {
+              "key" : "settings.group.links",
+              "text" : "Links"
+            }
+          },
+          {
+            "key" : "settings.group.openingLinks",
+            "rows" : [
+              "browser.enabled",
+              "browser.openLinksInCmuxBrowser",
+              "browser.openSignInPagesInCmux",
+              "browser.openPullRequestsInGitHubPage",
+              "browser.hostsToOpenInEmbeddedBrowser",
+              "browser.urlsToAlwaysOpenExternally"
+            ],
+            "title" : {
+              "key" : "settings.group.openingLinks",
+              "text" : "Opening Links"
+            }
+          },
+          {
+            "key" : "settings.group.passwords",
+            "rows" : [
+              "browser.passwords.offerToSave",
+              "browser.passwords.generate",
+              "browser.passwords.allowExport",
+              "browser.verificationAutofill.enabled",
+              "browser.verificationAutofill.accounts"
+            ],
+            "title" : {
+              "key" : "settings.group.passwords",
+              "text" : "Passwords"
+            }
+          },
+          {
+            "key" : "settings.group.import",
+            "rows" : [
+              "browser.import.enabled",
+              "browser.import.cookieBanner",
+              "browser.import.cookieSync"
+            ],
+            "title" : {
+              "key" : "settings.group.import",
+              "text" : "Import"
+            }
+          },
+          {
+            "key" : "settings.group.memory",
+            "rows" : [
+              "browser.hibernation",
+              "browser.hibernationExclusions",
+              "browser.hibernatePinnedTabs",
+              "browser.freezeHiddenTabs",
+              "browser.keepNeighborTabsAwake",
+              "browser.wakeTabsOnHover"
+            ],
+            "title" : {
+              "key" : "settings.group.memory",
+              "text" : "Memory"
+            }
+          },
+          {
+            "key" : "settings.group.remote",
+            "rows" : [
+              "browser.remoteLocalhost"
+            ],
+            "title" : {
+              "key" : "settings.group.remote",
+              "text" : "Remote Machines"
+            }
+          }
+        ],
+        "id" : "browser",
+        "lead" : [
+
+        ],
+        "symbol" : "globe",
+        "title" : {
+          "key" : "settings.section.browser",
+          "text" : "Browser"
+        },
+        "trail" : [
+          "browserProfiles"
+        ]
+      },
+      {
+        "actions" : [
 
         ],
         "aliases" : [
@@ -1532,42 +1797,133 @@
       },
       {
         "actions" : [
-
+          "notifications"
         ],
         "aliases" : [
-
+          "notifications"
         ],
         "groups" : [
           {
-            "key" : "settings.group.computerUse",
+            "key" : "settings.group.banners",
             "rows" : [
-              "computerUse.mode",
-              "computerUse.deniedApps",
-              "computerUse.allowOwnMachines",
-              "computerUse.pauseOnTakeover",
-              "computerUse.showCursor",
-              "computerUse.cursorTag",
-              "computerUse.settle",
-              "computerUse.livePreview",
-              "computerUse.floatingPreview",
-              "computerUse.whileLocked",
-              "computerUse.menus",
-              "computerUse.allowForeground"
+              "notifications.desktop",
+              "notifications.sound",
+              "notifications.quietHours",
+              "notifications.suppressWhileTypingSeconds",
+              "status.runNotifyMinimumSeconds",
+              "status.runNotifyWhenVisible",
+              "notifications.dockBadge",
+              "notifications.dockBounce",
+              "notifications.showPreviews"
             ],
             "title" : {
-              "key" : "settings.group.computerUse",
-              "text" : "Computer Use"
+              "key" : "settings.group.banners",
+              "text" : "Banners and Sound"
+            }
+          },
+          {
+            "key" : "settings.group.notificationDelivery",
+            "rows" : [
+              "notifications.delivery.permissionRequest",
+              "notifications.delivery.question",
+              "notifications.delivery.blocked",
+              "notifications.delivery.taskComplete"
+            ],
+            "title" : {
+              "key" : "settings.group.notificationDelivery",
+              "text" : "Delivery by Event"
+            }
+          },
+          {
+            "key" : "settings.group.sounds",
+            "rows" : [
+              "notifications.sounds.events.finished",
+              "notifications.sounds.events.needsInput",
+              "notifications.sounds.events.error",
+              "notifications.sounds.events.bell",
+              "notifications.sounds.events.message",
+              "notifications.sounds.volume",
+              "notifications.sounds.maxSeconds",
+              "notifications.sounds.when",
+              "notifications.sounds.cooldownSeconds"
+            ],
+            "title" : {
+              "key" : "settings.group.sounds",
+              "text" : "Sounds"
+            }
+          },
+          {
+            "key" : "settings.group.dismissal",
+            "rows" : [
+              "notifications.dismissal",
+              "notifications.timeoutSeconds",
+              "notifications.sources.agent.dismissal",
+              "notifications.sources.terminal.dismissal",
+              "notifications.sources.cli.dismissal"
+            ],
+            "title" : {
+              "key" : "settings.group.dismissal",
+              "text" : "Dismissal"
+            }
+          },
+          {
+            "key" : "settings.group.attention",
+            "rows" : [
+              "notifications.attention.style",
+              "notifications.attention.color",
+              "notifications.attention.terminals",
+              "notifications.attention.agentChats",
+              "notifications.attention.agentChatBlinkCount",
+              "notifications.attention.width",
+              "notifications.attention.blinkCount",
+              "notifications.attention.duration",
+              "notifications.attention.persist",
+              "notifications.attention.flash",
+              "notifications.attention.flashOnTyping",
+              "notifications.attention.showOnTab",
+              "notifications.attention.showOnSidebar",
+              "notifications.attention.mark",
+              "notifications.attention.moveToTop",
+              "notifications.attention.moveToTopOnAgentFinish"
+            ],
+            "title" : {
+              "key" : "settings.group.attention",
+              "text" : "Attention Ring"
+            }
+          },
+          {
+            "key" : "settings.group.feedMirror",
+            "rows" : [
+              "feed.mirrorNotifications.agents",
+              "feed.mirrorNotifications.terminal",
+              "feed.agentPermissionPrompts",
+              "feed.needsYouInChief"
+            ],
+            "title" : {
+              "key" : "settings.group.feedMirror",
+              "text" : "Feed"
+            }
+          },
+          {
+            "key" : "settings.group.githubInbox",
+            "rows" : [
+              "feed.github.enabled",
+              "feed.github.pollIntervalSeconds"
+            ],
+            "title" : {
+              "key" : "settings.group.githubInbox",
+              "text" : "GitHub Inbox"
             }
           }
         ],
-        "id" : "computerUse",
+        "id" : "notifications",
         "lead" : [
-          "computerUse"
+
         ],
-        "symbol" : "cursorarrow.click.2",
+        "symbol" : "bell",
         "title" : {
-          "key" : "settings.category.computerUse",
-          "text" : "Computer Use"
+          "key" : "settings.section.notifications",
+          "text" : "Notifications"
         },
         "trail" : [
 
@@ -1575,31 +1931,82 @@
       },
       {
         "actions" : [
-
+          "keyboard"
         ],
         "aliases" : [
-
+          "keyboard"
         ],
         "groups" : [
           {
-            "key" : "settings.group.mcpServers",
+            "key" : "settings.group.keyStyle",
             "rows" : [
-              "agents.mcpServers.enabled"
+              "app.keyStyle",
+              "app.shortcutLayout"
             ],
             "title" : {
-              "key" : "settings.group.mcpServers",
-              "text" : "Agent Chats"
+              "key" : "settings.group.keyStyle",
+              "text" : "Key Style"
+            }
+          },
+          {
+            "key" : "settings.shortcuts.hintsGroup",
+            "rows" : [
+              "shortcuts.showModifierHoldHints"
+            ],
+            "title" : {
+              "key" : "settings.shortcuts.hintsGroup",
+              "text" : "Shortcut Hints"
+            }
+          },
+          {
+            "key" : "keyboard.2",
+            "rows" : [
+              "tabs.commandDigits",
+              "sidebar.numbering",
+              "sidebar.cmd9",
+              "sidebar.stepping",
+              "sidebar.steppingWraps"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarKeys",
+              "text" : "Sidebar Navigation"
+            }
+          },
+          {
+            "key" : "settings.group.palette",
+            "rows" : [
+              "palette.scopes.tabs.prefix",
+              "palette.scopes.workspaces.prefix",
+              "palette.scopes.commands.prefix",
+              "palette.scopes.settings.prefix",
+              "palette.scopes.scopes.prefix",
+              "palette.searchHistory"
+            ],
+            "title" : {
+              "key" : "settings.group.palette",
+              "text" : "Command Palette"
+            }
+          },
+          {
+            "key" : "settings.group.macScreenKeyboard",
+            "rows" : [
+              "macScreen.systemShortcuts",
+              "macScreen.shareWithoutAsking"
+            ],
+            "title" : {
+              "key" : "settings.group.macScreenKeyboard",
+              "text" : "Mac Screen"
             }
           }
         ],
-        "id" : "mcpServers",
+        "id" : "keyboard",
         "lead" : [
-          "mcpServers"
+
         ],
-        "symbol" : "server.rack",
+        "symbol" : "keyboard",
         "title" : {
-          "key" : "settings.category.mcpServers",
-          "text" : "MCP Servers"
+          "key" : "settings.section.keyboard",
+          "text" : "Keyboard"
         },
         "trail" : [
 
@@ -1744,6 +2151,168 @@
         "trail" : [
           "server",
           "tailnet"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "newTab.0",
+            "rows" : [
+              "tabs.newTabTemplate",
+              "tabs.newTabClock.show",
+              "tabs.newTabClock.font",
+              "tabs.newTabClock.weight",
+              "tabs.newTabClock.color",
+              "tabs.newTabClock.date",
+              "tabs.newTabApp",
+              "tabs.nativeNewTabPage",
+              "sidebar.showChats",
+              "tabs.newTabNowPlaying"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.newTabPage",
+              "text" : "New Tab Page"
+            }
+          }
+        ],
+        "id" : "newTab",
+        "lead" : [
+
+        ],
+        "symbol" : "plus.square",
+        "title" : {
+          "key" : "settings.pageGroup.newTabPage",
+          "text" : "New Tab Page"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "menus",
+        "lead" : [
+          "contextMenus"
+        ],
+        "symbol" : "contextualmenu.and.cursorarrow",
+        "title" : {
+          "key" : "settings.category.menus",
+          "text" : "Menus"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.computerUse",
+            "rows" : [
+              "computerUse.mode",
+              "computerUse.deniedApps",
+              "computerUse.allowOwnMachines",
+              "computerUse.pauseOnTakeover",
+              "computerUse.showCursor",
+              "computerUse.cursorTag",
+              "computerUse.settle",
+              "computerUse.livePreview",
+              "computerUse.floatingPreview",
+              "computerUse.whileLocked",
+              "computerUse.menus",
+              "computerUse.allowForeground"
+            ],
+            "title" : {
+              "key" : "settings.group.computerUse",
+              "text" : "Computer Use"
+            }
+          }
+        ],
+        "id" : "computerUse",
+        "lead" : [
+          "computerUse"
+        ],
+        "symbol" : "cursorarrow.click.2",
+        "title" : {
+          "key" : "settings.category.computerUse",
+          "text" : "Computer Use"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mcpServers",
+            "rows" : [
+              "agents.mcpServers.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.mcpServers",
+              "text" : "Agent Chats"
+            }
+          }
+        ],
+        "id" : "mcpServers",
+        "lead" : [
+          "mcpServers"
+        ],
+        "symbol" : "server.rack",
+        "title" : {
+          "key" : "settings.category.mcpServers",
+          "text" : "MCP Servers"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "extensions",
+        "lead" : [
+          "extensions"
+        ],
+        "symbol" : "puzzlepiece.extension",
+        "title" : {
+          "key" : "settings.group.extensions",
+          "text" : "Extensions"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -1966,89 +2535,6 @@
       },
       {
         "actions" : [
-          "keyboard"
-        ],
-        "aliases" : [
-          "keyboard"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.keyStyle",
-            "rows" : [
-              "app.keyStyle",
-              "app.shortcutLayout"
-            ],
-            "title" : {
-              "key" : "settings.group.keyStyle",
-              "text" : "Key Style"
-            }
-          },
-          {
-            "key" : "settings.shortcuts.hintsGroup",
-            "rows" : [
-              "shortcuts.showModifierHoldHints"
-            ],
-            "title" : {
-              "key" : "settings.shortcuts.hintsGroup",
-              "text" : "Shortcut Hints"
-            }
-          },
-          {
-            "key" : "keyboard.2",
-            "rows" : [
-              "tabs.commandDigits",
-              "sidebar.numbering",
-              "sidebar.cmd9",
-              "sidebar.stepping",
-              "sidebar.steppingWraps"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.sidebarKeys",
-              "text" : "Sidebar Navigation"
-            }
-          },
-          {
-            "key" : "settings.group.palette",
-            "rows" : [
-              "palette.scopes.tabs.prefix",
-              "palette.scopes.workspaces.prefix",
-              "palette.scopes.commands.prefix",
-              "palette.scopes.settings.prefix",
-              "palette.scopes.scopes.prefix",
-              "palette.searchHistory"
-            ],
-            "title" : {
-              "key" : "settings.group.palette",
-              "text" : "Command Palette"
-            }
-          },
-          {
-            "key" : "settings.group.macScreenKeyboard",
-            "rows" : [
-              "macScreen.systemShortcuts",
-              "macScreen.shareWithoutAsking"
-            ],
-            "title" : {
-              "key" : "settings.group.macScreenKeyboard",
-              "text" : "Mac Screen"
-            }
-          }
-        ],
-        "id" : "keyboard",
-        "lead" : [
-
-        ],
-        "symbol" : "keyboard",
-        "title" : {
-          "key" : "settings.section.keyboard",
-          "text" : "Keyboard"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
           "advanced"
         ],
         "aliases" : [
@@ -2082,492 +2568,6 @@
       },
       {
         "actions" : [
-          "terminal"
-        ],
-        "aliases" : [
-          "terminal"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.terminalFont",
-            "rows" : [
-              "terminal.fontFamily",
-              "terminal.fontSize"
-            ],
-            "title" : {
-              "key" : "settings.group.terminalFont",
-              "text" : "Font"
-            }
-          },
-          {
-            "key" : "settings.group.terminalCursor",
-            "rows" : [
-              "terminal.cursorStyle",
-              "terminal.cursorBlink"
-            ],
-            "title" : {
-              "key" : "settings.group.terminalCursor",
-              "text" : "Cursor"
-            }
-          },
-          {
-            "key" : "settings.group.terminalCompatibility",
-            "rows" : [
-              "terminal.term"
-            ],
-            "title" : {
-              "key" : "settings.group.terminalCompatibility",
-              "text" : "Compatibility"
-            }
-          },
-          {
-            "key" : "terminal.3",
-            "rows" : [
-              "terminal.linkOpener.default",
-              "terminal.linkOpener.rules"
-            ],
-            "title" : {
-              "key" : "settings.group.links",
-              "text" : "Links"
-            }
-          },
-          {
-            "key" : "terminal.4",
-            "rows" : [
-              "newTerminal.opensWorkspace",
-              "app.warnBeforeClosingTab",
-              "terminal.predictiveLocalEcho"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.terminalBehavior",
-              "text" : "Behavior"
-            }
-          }
-        ],
-        "id" : "terminal",
-        "lead" : [
-          "terminalInfo"
-        ],
-        "symbol" : "terminal",
-        "title" : {
-          "key" : "settings.section.terminal",
-          "text" : "Terminal"
-        },
-        "trail" : [
-          "ghosttyDiagnostics"
-        ]
-      },
-      {
-        "actions" : [
-          "editor"
-        ],
-        "aliases" : [
-          "editor"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.editorDefaults",
-            "rows" : [
-              "editor.importFrom"
-            ],
-            "title" : {
-              "key" : "settings.group.editorDefaults",
-              "text" : "Defaults from Other Editors"
-            }
-          },
-          {
-            "key" : "settings.group.editorFont",
-            "rows" : [
-              "editor.fontFamily",
-              "editor.fontSize",
-              "editor.fontWeight",
-              "editor.fontLigatures",
-              "editor.lineHeight",
-              "editor.letterSpacing"
-            ],
-            "title" : {
-              "key" : "settings.group.editorFont",
-              "text" : "Font"
-            }
-          },
-          {
-            "key" : "settings.group.editorText",
-            "rows" : [
-              "editor.tabSize",
-              "editor.insertSpaces",
-              "editor.detectIndentation",
-              "editor.wordWrap",
-              "editor.wordWrapColumn"
-            ],
-            "title" : {
-              "key" : "settings.group.editorText",
-              "text" : "Indentation and Wrapping"
-            }
-          },
-          {
-            "key" : "settings.group.editorDisplay",
-            "rows" : [
-              "editor.lineNumbers",
-              "editor.rulers",
-              "editor.minimap.enabled",
-              "editor.renderWhitespace",
-              "editor.renderControlCharacters",
-              "editor.renderLineHighlight",
-              "editor.bracketPairColorization.enabled",
-              "editor.guides.bracketPairs",
-              "editor.guides.indentation",
-              "editor.matchBrackets",
-              "editor.stickyScroll.enabled",
-              "editor.folding",
-              "editor.scrollBeyondLastLine",
-              "editor.smoothScrolling",
-              "editor.mouseWheelZoom"
-            ],
-            "title" : {
-              "key" : "settings.group.editorDisplay",
-              "text" : "Display"
-            }
-          },
-          {
-            "key" : "settings.group.editorCursor",
-            "rows" : [
-              "editor.cursorStyle",
-              "editor.cursorBlinking",
-              "editor.cursorSmoothCaretAnimation",
-              "editor.cursorSurroundingLines",
-              "editor.multiCursorModifier"
-            ],
-            "title" : {
-              "key" : "settings.group.editorCursor",
-              "text" : "Cursor"
-            }
-          },
-          {
-            "key" : "settings.group.editorEditing",
-            "rows" : [
-              "editor.vimMode",
-              "editor.autoClosingBrackets",
-              "editor.autoClosingQuotes",
-              "editor.linkedEditing",
-              "editor.quickSuggestions",
-              "editor.wordBasedSuggestions",
-              "editor.acceptSuggestionOnEnter",
-              "editor.emptySelectionClipboard",
-              "editor.find.seedSearchStringFromSelection"
-            ],
-            "title" : {
-              "key" : "settings.group.editorEditing",
-              "text" : "Editing"
-            }
-          },
-          {
-            "key" : "settings.group.editorSaving",
-            "rows" : [
-              "editor.autoSave",
-              "editor.autoSaveDelay",
-              "editor.trimTrailingWhitespace",
-              "editor.insertFinalNewline",
-              "editor.formatOnSave"
-            ],
-            "title" : {
-              "key" : "settings.group.editorSaving",
-              "text" : "Saving"
-            }
-          },
-          {
-            "key" : "settings.group.diffViewer",
-            "rows" : [
-              "diff.layout",
-              "diff.diffIndicators",
-              "diff.colors",
-              "diff.wordWrap",
-              "diff.wordDiffs",
-              "diff.lineNumbers",
-              "diff.showBackgrounds",
-              "diff.expandUnchanged",
-              "diff.groupByKind",
-              "diff.hideWhitespace",
-              "diff.showBulkActions"
-            ],
-            "title" : {
-              "key" : "settings.group.diffViewer",
-              "text" : "Diff Viewer"
-            }
-          },
-          {
-            "key" : "settings.group.markdownViewer",
-            "rows" : [
-              "markdown.remoteImages",
-              "markdown.layout.width",
-              "markdown.layout.fullWidth",
-              "markdown.font.size",
-              "markdown.font.preset",
-              "markdown.font.lineHeight",
-              "markdown.spacing.paragraph",
-              "markdown.code.scale",
-              "markdown.code.family",
-              "markdown.tables",
-              "markdown.theme"
-            ],
-            "title" : {
-              "key" : "settings.group.markdownViewer",
-              "text" : "Markdown Viewer"
-            }
-          },
-          {
-            "key" : "settings.group.files",
-            "rows" : [
-              "editor.default",
-              "files.textEditor"
-            ],
-            "title" : {
-              "key" : "settings.group.files",
-              "text" : "Files"
-            }
-          },
-          {
-            "key" : "settings.group.screenshots",
-            "rows" : [
-              "screenshots.findTools",
-              "screenshots.folders"
-            ],
-            "title" : {
-              "key" : "settings.group.screenshots",
-              "text" : "Screenshots"
-            }
-          }
-        ],
-        "id" : "editor",
-        "lead" : [
-
-        ],
-        "symbol" : "chevron.left.forwardslash.chevron.right",
-        "title" : {
-          "key" : "settings.section.editor",
-          "text" : "Code Editor"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-          "browser"
-        ],
-        "aliases" : [
-          "browser"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.engine",
-            "rows" : [
-              "browser.defaultEngine",
-              "browser.siteEngines",
-              "browser.newTabPage"
-            ],
-            "title" : {
-              "key" : "settings.group.engine",
-              "text" : "Engine"
-            }
-          },
-          {
-            "key" : "settings.group.addressBar",
-            "rows" : [
-              "browser.searchEngine",
-              "browser.customSearchEngine.search",
-              "browser.customSearchEngine.suggest",
-              "browser.omnibar.inlineAutocomplete",
-              "browser.omnibar.maxRows",
-              "browser.omnibar.calculator",
-              "browser.omnibar.showFullURLs",
-              "browser.omnibar.quietIcons",
-              "browser.omnibar.glass",
-              "browser.omnibar.glassTint",
-              "browser.omnibar.glassTintStrength",
-              "browser.omnibar.cornerRadius",
-              "browser.omnibar.shadow",
-              "browser.omnibar.backgroundOpacity",
-              "browser.omnibar.height",
-              "browser.omnibar.fontSize"
-            ],
-            "title" : {
-              "key" : "settings.group.addressBar",
-              "text" : "Address Bar"
-            }
-          },
-          {
-            "key" : "settings.group.toolbar",
-            "rows" : [
-              "browser.toolbarButtons",
-              "browser.showLoadingBar"
-            ],
-            "title" : {
-              "key" : "settings.group.toolbar",
-              "text" : "Toolbar"
-            }
-          },
-          {
-            "key" : "settings.group.media",
-            "rows" : [
-              "media.pictureInPicture.enabled"
-            ],
-            "title" : {
-              "key" : "settings.group.media",
-              "text" : "Media"
-            }
-          },
-          {
-            "key" : "settings.group.bookmarks",
-            "rows" : [
-              "browser.showBookmarksBar"
-            ],
-            "title" : {
-              "key" : "settings.group.bookmarks",
-              "text" : "Bookmarks"
-            }
-          },
-          {
-            "key" : "settings.group.agentInput",
-            "rows" : [
-              "browser.showAgentCursor",
-              "browser.agentMouse.motion",
-              "browser.agentMouse.maxMoveMs"
-            ],
-            "title" : {
-              "key" : "settings.group.agentInput",
-              "text" : "Agent Input"
-            }
-          },
-          {
-            "key" : "settings.group.extensions",
-            "rows" : [
-              "browser.builtInAdBlocker"
-            ],
-            "title" : {
-              "key" : "settings.group.extensions",
-              "text" : "Extensions"
-            }
-          },
-          {
-            "key" : "settings.group.links",
-            "rows" : [
-              "browser.links.cmdClick",
-              "browser.links.cmdShiftClick",
-              "browser.links.shiftClick",
-              "browser.links.optionClick",
-              "browser.links.middleClick",
-              "browser.vimKeys"
-            ],
-            "title" : {
-              "key" : "settings.group.links",
-              "text" : "Links"
-            }
-          },
-          {
-            "key" : "settings.group.openingLinks",
-            "rows" : [
-              "browser.enabled",
-              "browser.openLinksInCmuxBrowser",
-              "browser.openSignInPagesInCmux",
-              "browser.openPullRequestsInGitHubPage",
-              "browser.hostsToOpenInEmbeddedBrowser",
-              "browser.urlsToAlwaysOpenExternally"
-            ],
-            "title" : {
-              "key" : "settings.group.openingLinks",
-              "text" : "Opening Links"
-            }
-          },
-          {
-            "key" : "settings.group.passwords",
-            "rows" : [
-              "browser.passwords.offerToSave",
-              "browser.passwords.generate",
-              "browser.passwords.allowExport",
-              "browser.verificationAutofill.enabled",
-              "browser.verificationAutofill.accounts"
-            ],
-            "title" : {
-              "key" : "settings.group.passwords",
-              "text" : "Passwords"
-            }
-          },
-          {
-            "key" : "settings.group.import",
-            "rows" : [
-              "browser.import.enabled",
-              "browser.import.cookieBanner",
-              "browser.import.cookieSync"
-            ],
-            "title" : {
-              "key" : "settings.group.import",
-              "text" : "Import"
-            }
-          },
-          {
-            "key" : "settings.group.memory",
-            "rows" : [
-              "browser.hibernation",
-              "browser.hibernationExclusions",
-              "browser.hibernatePinnedTabs",
-              "browser.freezeHiddenTabs",
-              "browser.keepNeighborTabsAwake",
-              "browser.wakeTabsOnHover"
-            ],
-            "title" : {
-              "key" : "settings.group.memory",
-              "text" : "Memory"
-            }
-          },
-          {
-            "key" : "settings.group.remote",
-            "rows" : [
-              "browser.remoteLocalhost"
-            ],
-            "title" : {
-              "key" : "settings.group.remote",
-              "text" : "Remote Machines"
-            }
-          }
-        ],
-        "id" : "browser",
-        "lead" : [
-
-        ],
-        "symbol" : "globe",
-        "title" : {
-          "key" : "settings.section.browser",
-          "text" : "Browser"
-        },
-        "trail" : [
-          "browserProfiles"
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "extensions",
-        "lead" : [
-          "extensions"
-        ],
-        "symbol" : "puzzlepiece.extension",
-        "title" : {
-          "key" : "settings.group.extensions",
-          "text" : "Extensions"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
 
         ],
         "aliases" : [
@@ -2590,6 +2590,7 @@
               "labs.agentCustomization",
               "labs.commentThreads",
               "labs.previousBuild",
+              "labs.teamCompute",
               "labs.hostsSidebar",
               "labs.connectionsUpcoming",
               "appearance.experimentalControls",
@@ -2735,16 +2736,10 @@
         "categories" : [
           "general",
           "customize",
-          "notifications",
-          "updates",
-          "newTab",
-          "menus"
+          "updates"
         ],
-        "id" : "general",
-        "title" : {
-          "key" : "settings.section.general",
-          "text" : "General"
-        }
+        "id" : "app",
+        "title" : null
       },
       {
         "categories" : [
@@ -2752,10 +2747,22 @@
           "sidebar",
           "tabs"
         ],
-        "id" : "appearance",
+        "id" : "look",
         "title" : {
-          "key" : "settings.section.appearance",
-          "text" : "Appearance"
+          "key" : "settings.sidebarSection.lookAndFeel",
+          "text" : "Look and Feel"
+        }
+      },
+      {
+        "categories" : [
+          "terminal",
+          "editor",
+          "browser"
+        ],
+        "id" : "tools",
+        "title" : {
+          "key" : "settings.sidebarSection.tools",
+          "text" : "Tools"
         }
       },
       {
@@ -2764,9 +2771,7 @@
           "agents",
           "chief",
           "models",
-          "automations",
-          "computerUse",
-          "mcpServers"
+          "automations"
         ],
         "id" : "ai",
         "title" : {
@@ -2776,15 +2781,20 @@
       },
       {
         "categories" : [
+          "notifications",
+          "keyboard"
+        ],
+        "id" : "interaction",
+        "title" : {
+          "key" : "settings.sidebarSection.interaction",
+          "text" : "Interaction"
+        }
+      },
+      {
+        "categories" : [
           "accounts",
           "mobile",
-          "devices",
-          "cloud",
-          "keys",
-          "integrations",
-          "developer",
-          "import",
-          "privacy"
+          "devices"
         ],
         "id" : "devices",
         "title" : {
@@ -2794,28 +2804,26 @@
       },
       {
         "categories" : [
-          "keyboard"
-        ],
-        "id" : "keyboard",
-        "title" : {
-          "key" : "settings.section.keyboard",
-          "text" : "Keyboard"
-        }
-      },
-      {
-        "categories" : [
-          "advanced",
-          "terminal",
-          "editor",
-          "browser",
+          "newTab",
+          "menus",
+          "computerUse",
+          "mcpServers",
           "extensions",
+          "cloud",
+          "keys",
+          "integrations",
+          "developer",
+          "import",
+          "privacy",
+          "advanced",
           "experimental",
           "development"
         ],
-        "id" : "advanced",
+        "collapsed" : true,
+        "id" : "more",
         "title" : {
-          "key" : "settings.section.advanced",
-          "text" : "Advanced"
+          "key" : "settings.sidebarSection.more",
+          "text" : "More"
         }
       }
     ]
@@ -86144,7 +86152,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -130464,6 +130472,143 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.teamCompute.help",
+        "text" : "Show your team's compute allotment and each member's use in Settings > Cloud."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.teamCompute",
+      "keywords" : [
+        "labs",
+        "team",
+        "compute",
+        "allotment",
+        "usage",
+        "cloud",
+        "members",
+        "spend"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "teamCompute"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.teamCompute"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.teamCompute",
+        "text" : "Team Compute"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -136705,9 +136850,8 @@
     },
     {
       "accepts" : [
-        "click",
-        "never",
-        "always"
+        true,
+        false
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -136840,8 +136984,9 @@
     },
     {
       "accepts" : [
-        true,
-        false
+        "click",
+        "never",
+        "always"
       ],
       "agent_refusal" : "network",
       "agent_settable" : false,
