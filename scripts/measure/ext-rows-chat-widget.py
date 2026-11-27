@@ -20,13 +20,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import re
 import shlex
-import shutil
 import subprocess
 import sys
 import time
-import uuid
 from pathlib import Path
 
 
@@ -168,6 +165,7 @@ def _start_transcript(ctx) -> dict:
     except (ValueError, KeyError):
         return {"ok": False, "harness": added, "socket": sock,
                 "acp": (made.stdout + made.stderr)[-1000:], "error": "acpmux did not create a session"}
+    completed = _read_completed_tool(ctx, cli, session, env)
     opened = ctx.rpc("action.run", {"action": "agent.openSessionWorkspace", "focus": False,
                                      "wait": False, "session": session}, timeout=60)
     created = [value for value in opened.get("created", []) if str(value).startswith("ws_")]
@@ -177,8 +175,8 @@ def _start_transcript(ctx) -> dict:
                                         "workspace": workspace}, timeout=60)
     else:
         shown = {"error": "agent.openSessionWorkspace returned no workspace", "reply": opened}
-    return {"ok": bool(session and workspace and "error" not in shown), "harness": added, "socket": sock,
-            "session": session, "open": opened, "workspace": workspace, "shown": shown}
+    return {"ok": bool(session and workspace and "error" not in shown and completed["ok"]), "harness": added, "socket": sock,
+            "session": session, "completed_tool": completed, "open": opened, "workspace": workspace, "shown": shown}
 
 
 def _chat_views(ctx, base, marker: str) -> list[dict]:
@@ -198,40 +196,42 @@ def _chat_views(ctx, base, marker: str) -> list[dict]:
     return matches
 
 
-def _capture_and_ocr(ctx, marker: str) -> dict:
-    if not ctx.pid_file:
-        return {"ok": False, "error": "the isolated app pid file is required for a window capture"}
-    try:
-        pid = int(Path(ctx.pid_file).read_text().strip())
-    except (OSError, ValueError) as error:
-        return {"ok": False, "error": f"pid file: {error}"}
-    shot = ctx.work / "chat-widget-drawn.png"
-    try:
-        hot = _load("chat_widget_hot_verify", ROOT / "scripts/cmux-next/hot-verify.py")
-        how = hot.Shooter()(pid, shot)
-    except Exception as error:  # noqa: BLE001 - capture failures become row evidence
-        return {"ok": False, "pid": pid, "error": f"window capture: {error}"}
-    if not shot.is_file() or shot.stat().st_size == 0:
-        return {"ok": False, "pid": pid, "shot": str(shot), "error": "window capture produced no PNG"}
-    swiftc = shutil.which("swiftc")
-    if not swiftc:
-        return {"ok": False, "pid": pid, "shot": str(shot), "capture": how,
-                "error": "swiftc is required to OCR the captured NIGHTLY window"}
-    ocr = ctx.work / "chat-widget-ocr"
-    built = subprocess.run([swiftc, "-O", str(ROOT / "scripts/e2e/ocr.swift"), "-o", str(ocr)],
-                           capture_output=True, text=True, timeout=120)
-    if built.returncode != 0:
-        return {"ok": False, "pid": pid, "shot": str(shot), "capture": how,
-                "error": f"ocr compile: {(built.stdout + built.stderr)[-800:]}"}
-    read = subprocess.run([str(ocr), str(shot)], capture_output=True, text=True, timeout=60)
-    text = read.stdout
-    normalized = re.sub(r"[^A-Z0-9]", "", text.upper())
-    wanted = re.sub(r"[^A-Z0-9]", "", marker.upper())
-    return {"ok": read.returncode == 0 and wanted in normalized, "pid": pid, "shot": str(shot),
-            "capture": how, "ocr": text[-4000:], "marker": marker,
-            "marker_found": wanted in normalized, "ocr_exit": read.returncode,
-            **({"error": (read.stderr or "ocr did not find the widget marker")[-800:]}
-               if read.returncode != 0 or wanted not in normalized else {})}
+def _completed_tool_events(text: str) -> bool:
+    """Require the expected call and its final completed status in the daemon log."""
+    seen = False
+    status = None
+    for line in text.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            return False
+        if not isinstance(event, dict) or event.get("dir") != "in":
+            continue
+        msg = event.get("msg", {})
+        if msg.get("method") != "session/update":
+            continue
+        update = msg.get("params", {}).get("update", {})
+        if update.get("toolCallId") != "widget-proof-tool":
+            continue
+        if update.get("sessionUpdate") == "tool_call":
+            seen = update.get("title") == "mcp__rowsprobe__get_thing"
+        if update.get("sessionUpdate") in {"tool_call", "tool_call_update"}:
+            status = update.get("status", status)
+    return seen and status == "completed"
+
+
+def _read_completed_tool(ctx, cli: Path, session: str, env: dict) -> dict:
+    waited = subprocess.run([str(cli), "wait", session, "--timeout", "90"],
+                            capture_output=True, text=True, timeout=100, env=env)
+    if waited.returncode:
+        return {"ok": False, "error": "the fixture turn did not finish",
+                "wait_exit": waited.returncode, "detail": (waited.stdout + waited.stderr)[-2000:]}
+    read = subprocess.run([str(cli), "session", "tail", session, "--last", "200"],
+                          capture_output=True, text=True, timeout=30, env=env)
+    path = ctx.work / "chat-widget-transcript.ndjson"
+    path.write_text(read.stdout)
+    return {"ok": read.returncode == 0 and _completed_tool_events(read.stdout),
+            "path": str(path), "exit": read.returncode, "stderr": read.stderr[-2000:]}
 
 
 def row_chat_widget_drawn(ctx, base) -> dict:
@@ -255,14 +255,13 @@ def row_chat_widget_drawn(ctx, base) -> dict:
         if views:
             break
         time.sleep(0.5)
-    capture = _capture_and_ocr(ctx, marker) if views else {"ok": False, "error": "no ready chat-widget view to capture"}
+    capture = base.capture_marker(ctx, "chat-widget", marker) if views else {"drawn": False, "error": "no ready chat-widget view to capture"}
     checks = {
         "installed": install.get("installed") is True,
         "experiment_enabled_in_copy": enabled.get("ok") is True,
         "completed_transcript": transcript.get("ok") is True,
         "widget_view_ready": bool(views),
-        "drawn_capture": capture.get("ok") is True and bool(capture.get("shot")),
-        "drawn_marker_ocr": capture.get("marker_found") is True,
+        "drawn_capture": capture.get("drawn") is True and bool(capture.get("captures")),
     }
     return {"checks": checks, "marker": marker, "install": install, "experiment": enabled,
             "transcript": transcript, "views": views[:8], "capture": capture,

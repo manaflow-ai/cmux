@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -43,6 +44,41 @@ class ChatDrawingIntegrationTests(unittest.TestCase):
         self.assertIsNone(result["ok"])
         self.assertIn("skipped", result)
         fixture.row_chat_widget_drawn.assert_not_called()
+
+
+fixture = driver.load("chat_drawing_fixture_test", Path(__file__).with_name("ext-rows-chat-widget.py"))
+
+
+class ChatFixtureEvidenceTests(unittest.TestCase):
+    def event(self, kind, status, title="mcp__rowsprobe__get_thing", tool="widget-proof-tool"):
+        return json.dumps({"dir": "in", "msg": {"method": "session/update", "params": {
+            "update": {"sessionUpdate": kind, "status": status, "title": title, "toolCallId": tool}}}})
+
+    def test_only_the_expected_completed_tool_passes(self):
+        start = self.event("tool_call", "in_progress")
+        done = self.event("tool_call_update", "completed")
+        self.assertTrue(fixture._completed_tool_events(start + "\n" + done))
+        for text in ("", start, done, start + "\n" + self.event("tool_call_update", "failed"),
+                     self.event("tool_call", "completed", title="other"),
+                     self.event("tool_call", "completed", tool="other"),
+                     start + "\n" + done + "\nnot json"):
+            with self.subTest(text=text):
+                self.assertFalse(fixture._completed_tool_events(text))
+
+    def test_final_status_overrules_earlier_completion(self):
+        events = [self.event("tool_call", "completed"), self.event("tool_call_update", "failed")]
+        self.assertFalse(fixture._completed_tool_events("\n".join(events)))
+
+    def test_capture_refusal_cannot_pass_or_use_another_capture_path(self):
+        base = SimpleNamespace(install_customize=Mock(return_value={"installed": True}),
+                               capture_marker=Mock(return_value={"drawn": False, "error": "computer_use_off"}))
+        ctx = SimpleNamespace(token="test12345")
+        with patch.object(fixture, "_enable_running_copy", return_value={"ok": True}), \
+                patch.object(fixture, "_start_transcript", return_value={"ok": True}), \
+                patch.object(fixture, "_chat_views", return_value=[{"status": "ready"}]):
+            result = fixture.row_chat_widget_drawn(ctx, base)
+        self.assertFalse(result["checks"]["drawn_capture"])
+        base.capture_marker.assert_called_once_with(ctx, "chat-widget", "CHATWIDGETDRAWNest12345")
 
 
 if __name__ == "__main__":
