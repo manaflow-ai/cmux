@@ -46,6 +46,7 @@ function run(): number {
     addEventListener: (type: string, callback: () => void) => void (listeners[type] ??= []).push(callback),
     Element: class {},
   };
+  // oxlint-disable-next-line no-implied-eval -- runs the built report script against the stub scope above, on purpose.
   new Function(...Object.keys(scope), script)(...Object.values(scope));
   observers.forEach((callback) => callback());
   listeners.load?.forEach((callback) => callback());
