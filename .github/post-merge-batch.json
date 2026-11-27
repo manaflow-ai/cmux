@@ -151,6 +151,7 @@
         "scripts/ci/affected-jobs.json",
         "scripts/ci/cmux_next_route.py",
         "scripts/ci/fast_tier_cargo_route.py",
+        "scripts/ci/fleet_fast_tier_result.py",
         ".github/actions/setup-cmux-tui-rust/**",
         ".github/workflows/cmux-next-fast-tier-batch.yml"
       ],
