@@ -112,6 +112,12 @@ extension ScreenContentView {
         return (newPane, resized.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) })
     }
 
+    /// Exact pane bounds for an idle New Tab pre-render, using the drop's final split geometry.
+    func newSplitPaneSize(splitting pane: PaneID, zone: PaneDropZone) -> CGSize? {
+        guard !isCanvas, let cell = predictedGeometry(splitting: pane, zone: zone, removing: nil)?.panes[DropPreviewLayout.newPane] else { return nil }
+        return PaneChromeGeometry.contentRect(forCell: cell, style: context.style).size
+    }
+
     /// The screen's geometry after a split of `pane` at `zone` (the edge preview), or nil when no preview shows: once
     /// per layout, viewport, style and target (`dropAnswers`), not once per pointer move.
     private func predictedGeometry(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> ScreenGeometry? { // perf-hot: 0.05ms drag-frame (every tab-drag move over a pane edge)

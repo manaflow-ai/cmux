@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBridge
+import CmuxNextLayout
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
@@ -247,6 +249,8 @@ final class NewTabSparePool {
 
     /// Sizes the parking view and the spare in it to the target pane now, laid out, when it is parked in a window.
     private func fitParked() {
+        prefetchToken = nil
+        prefetchDeadline.cancel()
         guard let content = parking.superview else { return }
         let size = targetPaneSize ?? content.bounds.size
         schedulePrepare()
@@ -259,6 +263,10 @@ final class NewTabSparePool {
     /// pane's size in one background fit once the sizes settled (``fitSettle``) and the layout is still (`whenSettled`).
     func paneLayoutDidChange(in window: NSWindow?) {
         guard let window, window === target, parking.superview != nil else { return }
+        if services.windows.controllers.first(where: { $0.window === window })?.content?.layoutView.isInLayoutMotion == true {
+            prefetchToken = nil
+            prefetchDeadline.cancel()
+        }
         if targetIdentity != preparedFor { schedulePrepare() }
         services.windows.controllers.first { $0.window === window }?.content?.layoutView.whenSettled("NewTabSparePool.fit", after: Self.fitSettle, on: fits) { [weak self] in self?.fitParked() }
     }
@@ -274,6 +282,8 @@ final class NewTabSparePool {
         observeWindows()
         if target == nil, let window { retarget(window) }
         guard let view = slot.take() else { return nil }
+        prefetchToken = nil
+        prefetchDeadline.cancel()
         // Hand the parked page out now; its replacement comes once this open settled (`still`), the quiet-input warm
         // as the backstop. The next spare already has its own cover: the key's turn captures nothing.
         defer {
@@ -297,7 +307,68 @@ final class NewTabSparePool {
     private let covers = AgentPaneSpareCovers()
     func openingSize(of view: AgentPaneView) -> NSSize? { opening.flatMap { $0.view == ObjectIdentifier(view) ? $0.size : nil } }
     private func snapshotParked(_ view: AgentPaneView) {
-        covers.capture(view) { [weak self] page in page.superview === self?.parking && self?.slot.all.contains { $0 === page } == true }
+        guard prefetchToken == nil else { return }
+        covers.capture(view, parked: { [weak self] page in page.superview === self?.parking && self?.slot.all.contains { $0 === page } == true }) { [weak self, weak view] in
+            if let view { self?.prefetchSplits(view) }
+        }
+    }
+
+    /// The same geometry that a split's drop preview and even-sizing commit use; no half-size guess.
+    static func splitContentSize(in pane: PaneController, zone: PaneDropZone) -> NSSize? {
+        guard var size = pane.workspace?.layoutView.newSplitPaneSize(splitting: pane.layoutPaneID, zone: zone) else { return nil }
+        let full = newTabContentSize(in: pane)
+        size.height = max(0, size.height - (pane.view.bounds.height - full.height))
+        return size
+    }
+
+    private var prefetchToken: UUID?
+    private var prefetchAttempt: [AnyHashable]?
+    private let prefetchDeadline = DemandTimer(owner: "NewTabSparePool.prefetch")
+    /// Native rendering glue: run Rust's exact-size plan on the ONE spare while parked, then restore it.
+    private func prefetchSplits(_ view: AgentPaneView) {
+        guard prefetchToken == nil, !refills.isOpening, view.superview === parking, view === slot.peek,
+              let pane = targetPane, pane.workspace?.layoutView.isInLayoutMotion != true, view.model.hasPainted else { return }
+        let full = Self.newTabContentSize(in: pane), identity = targetIdentity
+        let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+        let frames = AgentPaneNewTabFrame.shared, generation = frames.generation
+        let sizes = [PaneDropZone.right, .bottom].compactMap { Self.splitContentSize(in: pane, zone: $0) }
+        let cached = sizes.filter { frames.image(size: $0, appearance: appearance) != nil }
+        let plan = NewPlacementPlan.newTabPrefetch(parked: full, splits: sizes, cached: cached)
+        let attempt: [AnyHashable] = [ObjectIdentifier(view), generation, full.width, full.height] + (identity ?? []) + sizes.flatMap { [AnyHashable($0.width), AnyHashable($0.height)] }
+        guard !plan.isEmpty, prefetchAttempt != attempt, frames.image(size: full, appearance: appearance) != nil else { return }
+        prefetchAttempt = attempt
+        let token = UUID()
+        prefetchToken = token
+        // A lost compositor answer must not leave the Cmd-T spare at a split size indefinitely.
+        prefetchDeadline.schedule(after: .seconds(3)) { @MainActor [weak self] in
+            guard let self, self.prefetchToken == token else { return }
+            self.fitParked()
+        }
+        covers.forget(view)
+        func render(_ index: Int) {
+            guard self.prefetchToken == token, view.superview === self.parking, view === self.slot.peek else { return }
+            guard !self.refills.isOpening, self.targetIdentity == identity, self.targetPaneSize == full,
+                  frames.generation == generation, pane.workspace?.layoutView.isInLayoutMotion != true else {
+                self.prefetchToken = nil
+                self.prefetchDeadline.cancel()
+                self.paneLayoutDidChange(in: self.target)
+                return
+            }
+            guard index < plan.count else {
+                self.prefetchToken = nil
+                self.prefetchDeadline.cancel()
+                self.snapshotParked(view)
+                return
+            }
+            view.isHidden = false
+            // Register before layout, so Chromium answers only a frame at this exact size.
+            view.redraw.when(view) { [weak self, weak view] in
+                guard let self, let view, self.prefetchToken == token, view.superview === self.parking else { return }
+                view.redraw.rememberFrame(of: view, appearance: appearance) { render(index + 1) }
+            }
+            self.parking.fit(to: plan[index])
+        }
+        render(0)
     }
 
     /// A closed new tab page that never became a chat or a terminal: reset to
@@ -347,6 +418,8 @@ final class NewTabSparePool {
 
     /// Drops the spare (memory pressure, the last window closing).
     func dropAll() {
+        prefetchToken = nil
+        prefetchDeadline.cancel()
         nativeSpare?.removeFromSuperview()
         nativeSpare = nil
         awaitingPaint.removeAll()

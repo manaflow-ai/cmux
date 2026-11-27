@@ -59,6 +59,9 @@ extension NewTabPage {
         }
         let split: SplitDirection? = placed != nil || !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
             : edge == .right ? .right : edge == .bottom ? .down : nil
+        // Read the target before showing the split's ratio overrides. Its cached cover was rendered at this size.
+        let targetSize = insertion == nil ? split.flatMap { NewTabSparePool.splitContentSize(in: source, zone: $0 == .right ? .right : .bottom) } : nil
+        let spare = split != nil && source.daemon.isLocal ? services.newTabSpares.take(for: source.view.window, size: targetSize)?.view : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { insertion?.sizing ?? source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
         // Shown with the split, in this frame (one spring for the whole chain); sent once the page is placed.
@@ -69,7 +72,7 @@ extension NewTabPage {
             if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
             input?.endIncoming(keys, pageMade: false)
         }
-        let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split,
+        let started = services.agentTabs.openTab(in: source, newTab: (page, handler), spare: spare, select: false, hidden: split == nil, split: split,
                                                  around: split == nil ? nil : insertion?.around, focuses: focusesPage) { [weak source] key in
             opened.value = key
             guard let source else { return }

@@ -11,13 +11,13 @@ public final class AgentPaneSpareCovers {
     public init() {}
 
     /// Captures `view`'s cover once it painted, while `parked(view)` holds; a late capture of the page replaces it.
-    public func capture(_ view: AgentPaneView, parked: @escaping @MainActor (AgentPaneView) -> Bool) {
+    public func capture(_ view: AgentPaneView, parked: @escaping @MainActor (AgentPaneView) -> Bool, completion: @escaping @MainActor () -> Void = {}) {
         let id = ObjectIdentifier(view)
         guard parked(view) else { return }
         view.redraw.newTabFrameCaptureChanged = { [weak self, weak view] capturing in
             guard let self, let view, parked(view) else { return }
             // A late chats.page answer invalidates the first cover: the replacement capture follows.
-            if capturing { generations[id, default: 0] &+= 1 } else { capture(view, parked: parked) }
+            if capturing { generations[id, default: 0] &+= 1 } else { capture(view, parked: parked, completion: completion) }
         }
         guard !view.redraw.givesNewTabFrame else { return }
         generations[id, default: 0] &+= 1
@@ -29,7 +29,7 @@ public final class AgentPaneSpareCovers {
         let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         view.model.whenPainted { [weak self, weak view] in
             guard let self, let view, generations[id] == generation, parked(view) else { return }
-            view.redraw.rememberFrame(of: view, appearance: appearance) {}
+            view.redraw.rememberFrame(of: view, appearance: appearance, completion: completion)
         }
     }
 
