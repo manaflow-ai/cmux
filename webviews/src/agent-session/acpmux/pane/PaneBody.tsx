@@ -74,7 +74,7 @@ import { NeedsYouButton } from "../needsYou/NeedsYou";
 import { ImageViewer } from "../conversation/ImageViewer";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "../header/ChatHeaderStatus";
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
-import { HEADER_ACTIONS, type ChatMenuItem } from "../header/chatHeaderToolsModel";
+import { HEADER_ACTIONS, type ChatMenuItem, filesFolder } from "../header/chatHeaderToolsModel";
 import { ThreadTitle } from "../header/ThreadTitle";
 import { setHeaderState } from "../header/headerState";
 import { tabRowStyle, type TabRow } from "../header/tabRow";
@@ -1460,7 +1460,12 @@ export function drawPaneBody({
                       // Changes owns the diff of the chat's folder, read on the chat's machine (a Cloud chat's too).
                       hasChanges={lastEditTurn !== undefined && chatCwd !== undefined}
                       onChanges={toggleChanges}
-                      onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
+                      // Files shows the chat's folder on its own machine, a Cloud chat's too (cmux#55413).
+                      onFiles={
+                        filesFolder(snapshot.summary)
+                          ? (mode) => runSplitAction(HEADER_ACTIONS.files, filesFolder(snapshot.summary), mode)
+                          : undefined
+                      }
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
                         ignoreFailure(

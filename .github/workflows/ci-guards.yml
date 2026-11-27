@@ -241,6 +241,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_receipt.py
 
+      - name: Validate the darwin pool leg makes its own room
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_make_room.py
+
       - name: Validate CDN readers name their client
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cdn_user_agent.py
@@ -347,7 +351,8 @@ jobs:
         run: python3 tests/test_network_allowlist.py
 
       # Every outbound HTTP client or socket NEXT makes goes through the egress gate, which refuses unlisted hosts
-      # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink.
+      # at run time; tests/egress_ungated.json lists the sites not moved yet and may only shrink. On a pull request
+      # it reads only the changed files and list entries (tests/guard_delta.py); a branch's own run reads them all.
       - name: Validate NEXT's outbound sites go through the egress gate
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_egress_gate.py
@@ -872,7 +877,9 @@ jobs:
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
-        run: bun test scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
+        run: |
+          python3 tests/test_auto_journal_nightly_artifact.py
+          bun test scripts/cmux-next/auto-journal-nightly-recovery.test.ts scripts/cmux-next/auto-journey-socket.test.ts scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
       # The staging test account sweep's picker: age, state, activity and creator decide what goes (pure; no
       # network, no secret).
@@ -1005,6 +1012,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/ci/install-actionlint.sh
+          ACTIONLINT="$RUNNER_TEMP/actionlint" python3 tests/test_ci_workflow_start_lint.py
           "$RUNNER_TEMP/actionlint"
 
       # zizmor over the workflows and composite actions this change adds or edits, at its base and its head: a
@@ -1485,6 +1493,18 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_branch_history_fetch.py
 
+      - name: Validate registered cargo delta matched entry
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cargo_delta_matched_entry.py
+
+      - name: Validate registered live base merge jobs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_live_base_jobs.py
+
+      - name: Validate registered private names fetch wait
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_private_names_fetch_wait.py
+
       - name: Validate registered ci cmux tui mac warm target
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cmux_tui_mac_warm_target.py
@@ -1717,6 +1737,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate workflow routing and iOS guard fixtures
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          status=0
+          python3 tests/test_ci_post_merge_call_concurrency.py || status=1
+          python3 tests/test_ci_pr_router_handoff_queue.py || status=1
+          python3 tests/test_ios_internal_archive_mirror_fetch.py || status=1
+          python3 tests/test_iphone_clips_priority.py || status=1
+          python3 tests/test_whats_new_gallery_triggers.py || status=1
+          exit "$status"
+
       - name: Validate workflow apt installs survive a mirror that is mid-sync
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         # "E: Failed to fetch ... File has unexpected size ... Mirror sync in progress?" was 10 false reds in 24 h
@@ -1884,6 +1915,10 @@ jobs:
       - name: Validate Rust workspace coverage on the landing head
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_workspaces_land_head.py
+
+      - name: Validate Rust workspace PR diff gating
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_rust_workspaces_pr_diff_gate.py
 
       - name: Validate workflow self-edit sweep routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}

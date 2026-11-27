@@ -115,6 +115,7 @@ mod fork;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+mod fork_model;
 mod fork_replay;
 mod fork_request;
 #[cfg(test)]
@@ -495,6 +496,7 @@ mod update_cost_bench;
 mod update_repeats;
 mod usage_answer;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
+mod sidecars;
 mod usage_share;
 mod usage_view;
 pub(crate) mod usage_warnings;
