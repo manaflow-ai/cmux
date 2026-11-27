@@ -296,6 +296,9 @@ const vaultSentences: Record<string, string> = {
   // Only a machine's start gives these, or the platform adds one later: the generic save sentence.
   "vault.boot_superseded": "Could not save changes. Your edits are kept; try again.",
   "vault.something_new": "Could not save changes. Your edits are kept; try again.",
+  // The app saves only on the person's own click; a click another process posted (a driver, a script) is refused.
+  "transport.gesture_required":
+    "Your edits are kept but not saved: saving needs your own click. Click Save changes again.",
 };
 
 for (const [code, sentence] of Object.entries(vaultSentences)) {
