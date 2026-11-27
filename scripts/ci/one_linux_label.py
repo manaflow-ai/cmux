@@ -45,6 +45,10 @@ FORK_PR = ("github.event_name == 'pull_request' && github.event.pull_request.hea
 # The cloud overflow switch: when the owned pool is saturated, this variable names a vendor label to spill onto.
 OVERFLOW = "vars.CI_OVERFLOW_LINUX"
 CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || {OVERFLOW} || '{LABEL}' }}}}"
+# The canonical route as it read before the overflow switch. A workflow added on the base in this form names no size,
+# so no picker triggers on it; it is upgraded by exact match. nightly.yml keeps its own route (it never spills).
+PRE_OVERFLOW = f"${{{{ {OWNER_GUARD} || {FORK_PR} || '{LABEL}' }}}}"
+NO_OVERFLOW = frozenset({"nightly.yml"})
 
 # A term naming or choosing a Linux x64 size.
 PICKER = re.compile(
@@ -319,6 +323,11 @@ FOLLOW_ON = (
 
 
 def follow_on(name: str, text: str, report: Report) -> str:
+    if name not in NO_OVERFLOW and PRE_OVERFLOW in text:
+        for n, line in enumerate(text.split("\n"), 1):
+            if PRE_OVERFLOW in line:
+                report.changed.append((name, n, f"{name}:{n} (overflow switch)"))
+        text = text.replace(PRE_OVERFLOW, CANONICAL)
     for workflow, old, new in FOLLOW_ON:
         if workflow == name and old in text:
             text = text.replace(old, new)
