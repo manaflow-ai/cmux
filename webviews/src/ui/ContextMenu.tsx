@@ -50,12 +50,14 @@ export interface ContextMenuItem {
   /** The row's key equivalent, in the trailing column (`⌘D`). */
   shortcut?: ReactNode;
   /** Why a disabled row is disabled, one line under its label ("Needs sign-in"); drawn under the
-   *  menu-row-states experiment. */
+   *  menu-row-states experiment.
+   * @status experimental */
   reason?: string;
   /**
    * Its `onSelect` returns a promise: under the menu-row-states experiment the menu stays open, the
    * row spins in its trailing slot until the promise settles, then the menu closes. Elsewhere it
    * closes at once, as any row.
+   * @status experimental
    */
   async?: boolean;
   /** The rows of a submenu the row opens (to the inline end, flush with the row). The page draws a
