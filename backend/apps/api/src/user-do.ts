@@ -42,7 +42,7 @@ const CHALLENGE_TTL_MS = 2 * 60_000
 /** networkIdentity's answer: public key, kind, live grant expiry and op classes, and the install authority version. */
 export interface NetworkIdentityView { key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> }
 
-export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid" | "owner.unreachable"; message: string }
+export type RedeemResult = ({ ok: true; readonly bound_machine?: string } & InstallClaims) | { ok: false; code: "auth.forbidden" | "validation.invalid" | "owner.unreachable"; message: string }
 
 /**
  * UserDO: the user's installs, devices, grants and revocation (identity spec
@@ -741,6 +741,22 @@ export class UserDO extends OwnerDO<UserState> {
   protected stackHeal: StackHealDeps | undefined
 
   /** One-time challenge + ES256 signature by the install key + revocation check. */
+  /**
+   * A VM install's sign-in through its machine's platform edge (MachineEdgeSignin): cmux-platform has verified the
+   * edge header Freestyle injects for `machine`, so no install-key signature is asked. Only a live `vm` install bound
+   * to that team and machine, under its own live vm-self grant, answers; the claims never carry `edge`.
+   */
+  async edgeRedeem(entity: string, install: string, grant: string, team: string, machine: string): Promise<RedeemResult> {
+    const engine = this.existing()
+    const refused = { ok: false as const, code: "auth.forbidden" as const, message: "machine install unknown, revoked or not bound to this machine" }
+    if (!engine || engine.stream !== `user:${entity}`) return refused
+    const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
+    if (!state.user || state.user.id !== entity || !inst || inst.revoked_at !== null || inst.kind !== "vm" || inst.grant !== grant || inst.bound_team !== team || inst.bound_machine !== machine) return refused
+    if (!held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("vm-self")) return refused
+    const emailDomain = emailDomainOf(state.user.email)
+    return { ok: true, user: entity, team, install, grant, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), vm: true as const }
+  }
+
   async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false, code: "auth.forbidden", message: "challenge unknown, used or expired" }
@@ -781,7 +797,7 @@ export class UserDO extends OwnerDO<UserState> {
     // non-CLI credentials cannot acquire MCP authority by supplying a scope in the request.
     const scopes = this.env.PLATFORM_AGENT_GATEWAY === "on" && ["development", "test"].includes(this.env.ENVIRONMENT) && agent === undefined
       ? mcpScopesForGrant(current.kind, held.op_classes) : []
-    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(scopes.length ? { scope: scopes.join(" ") } : {}), ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
+    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(scopes.length ? { scope: scopes.join(" ") } : {}), ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const, ...(current.bound_machine ? { bound_machine: current.bound_machine } : {}) } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
   }
 }
 
