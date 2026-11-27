@@ -936,9 +936,17 @@ jobs:
           # cmux-tui/Cargo.toml's release profile applies.
           # --timings (both modes): cargo-groups.sh prints each group's slowest and last units, so a
           # slow leg says where its time went (under fat LTO, the "bin" unit is the link).
+          # Incremental (thin only): acpmux's lib recompiled in full (445 s) on nearly every merge
+          # because a crate below it changed. With incremental on, rustc reuses the unchanged
+          # codegen units from target/<triple>/release/incremental, which the per-commit
+          # workspace delta (cargo-target-delta.sh pack: every file written, or under incremental/
+          # hard-linked, after the stamp) carries to the next build; cargo_target_strip.py still drops
+          # it from the dependency entry. Measured off vs on (acpmux after a cmux-config edit):
+          # 465/438/445 s vs 78/89/86 s; a cold build costs 660 s vs 612 s.
           profile=""
           if [[ "$LTO" == thin ]]; then
             export CARGO_PROFILE_RELEASE_LTO=off
+            export CARGO_PROFILE_RELEASE_INCREMENTAL=true
             for pkg in cmux-tui cmux-tui-core acpmux; do
               profile+=" --config profile.release.package.$pkg.codegen-units=16"
             done
@@ -1461,9 +1469,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml \
-            | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
-          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --workspace-crates "${crates[@]}"
+          # --cargo-metadata, not every target name as --workspace-crates: tests/http.rs and tests/digest.rs
+          # are named like the third-party http and digest, so that deleted them and a restore rebuilt 27 crates.
+          cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml > "$RUNNER_TEMP/cargo-metadata.json"
+          python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --cargo-metadata "$RUNNER_TEMP/cargo-metadata.json"
           # Extracted sources come back from the .crate files in registry/cache.
           rm -rf "$REGISTRY/src"
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
