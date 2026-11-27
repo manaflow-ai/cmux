@@ -21,6 +21,7 @@
 
 pub mod chrome_theme;
 pub mod effective;
+pub mod home_table;
 pub mod jsonc;
 pub mod looks;
 pub mod schema;
@@ -45,6 +46,7 @@ type AreaCall = fn(&str, &Value) -> Option<Result<Value, OpError>>;
 const AREAS: &[AreaCall] = &[
     chrome_theme::call,
     effective::call,
+    home_table::call,
     looks::call,
     schema::call,
     shortcut::call,
@@ -58,7 +60,10 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         "jsonc.parse" => jsonc::parse(request),
         "jsonc.strip" => jsonc::strip(request),
         "jsonc.position" => jsonc::position_of(request),
-        _ => AREAS.iter().find_map(|call| call(op, request)).unwrap_or(Err(OpError::Unknown)),
+        _ => AREAS
+            .iter()
+            .find_map(|call| call(op, request))
+            .unwrap_or(Err(OpError::Unknown)),
     }
 }
 

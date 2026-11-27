@@ -21,6 +21,8 @@ Exits 0 once the app came up for every engine (read results.json); 1 when it did
 import argparse, functools, http.server, json, os, socketserver, subprocess, sys, tempfile, threading, time, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pathlib import Path
+import desktop_goldens as goldens
 from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -32,8 +34,13 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--engines", default="chromium,webkit")
 parser.add_argument("--limit", type=int, default=0)
 parser.add_argument("--ready-timeout-ms", type=int, default=20000)
+parser.add_argument("--golden-root", type=Path)
+parser.add_argument("--runtime", help="versioned reference Mac display, font and OS profile")
+parser.add_argument("--rev", help="source revision of the tagged app")
 parser.add_argument("--input-keys", help="cmux-shotdiff desktop-gallery key metadata")
 opts = parser.parse_args()
+if opts.golden_root and not (opts.runtime and opts.rev):
+    parser.error("--golden-root requires --runtime and --rev")
 TAG, APP, OUT = opts.tag, os.path.abspath(opts.app.rstrip("/")), os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 INPUT_KEYS = {}
@@ -49,7 +56,7 @@ CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.env
            "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
 # Large enough for the widest component stage; the stage element is what is captured.
 WINDOW_FRAME = "20,20,1680,1200"
-CAPTURE_SELECTOR = os.environ.get("CMUX_GALLERY_CAPTURE_SELECTOR") or "[data-gallery-capture], #root"
+CAPTURE_SELECTOR = os.environ.get("CMUX_GALLERY_CAPTURE_SELECTOR") or goldens.GALLERY_SELECTOR
 
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
@@ -215,16 +222,26 @@ def main():
     results, came_up = [], True
     started = time.time()
     for engine in [e.strip() for e in opts.engines.split(",") if e.strip()]:
+        store = None
+        if opts.golden_root:
+            store = goldens.gallery_store(opts.golden_root, opts.runtime, opts.rev, engine, cases, CAPTURE_SELECTOR)
+            if store.is_dir():
+                results.extend(goldens.restore_gallery(store, cases, engine, Path(OUT)))
+                continue
         rows = run_engine(engine, cases)
         if rows is None:
             came_up = False
             continue
+        if store and rows and all(row.get("screenshot") and not row.get("error") for row in rows):
+            if not goldens.file_gallery(store, cases, rows, engine, Path(OUT)):
+                rows = goldens.restore_gallery(store, cases, engine, Path(OUT))
         results.extend(rows)
     with open(os.path.join(OUT, "results.json"), "w") as handle:
         json.dump(results, handle, indent=1)
     with open(os.path.join(OUT, "run.json"), "w") as handle:
         json.dump({"tag": TAG, "host": os.uname().nodename, "cases": len(cases), "seconds": round(time.time() - started, 1),
                    "engines": opts.engines, "selector": CAPTURE_SELECTOR,
+                   "reference_runtime": opts.runtime, "revision": opts.rev,
                    "input_keys": INPUT_KEYS or None}, handle, indent=1)
     server.shutdown()
     return 0 if came_up else 1
