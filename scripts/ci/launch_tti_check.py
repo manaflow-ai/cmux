@@ -145,7 +145,7 @@ CHAT_MARK = "agent_pane.input_echoed"
 TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
 CHAT_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT"  # LaunchTypeProbe's chat scope: one key at the chat's first paint
 CHAT_PROBE_TYPED, CHAT_PROBE_NO_KEY_WINDOW = "chat.probe_key_typed", "chat.probe_no_key_window"
-CHAT_PROBE_GRACE_S = 3.0  # after agent_pane.painted: a build with no chat.probe_* mark by then has no chat probe
+CHAT_PROBE_GRACE_S = 3.0  # after agent_pane.page_painted: a build with no chat.probe_* mark by then has no chat probe
 LAUNCH_DELAY_VARIABLE = "CMUX_NEXT_LAUNCH_TEST_DELAY_MS"  # LaunchTestDelay: the app waits this long before any window
 PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
 BROWSER_PAINT, BROWSER_INPUT = "browser_pane.first_paint", "browser_pane.input_ready"  # CEFLaunchMarks.swift
@@ -596,6 +596,21 @@ def chat_probe_state(marks: dict) -> str | None:
     return "typed" if CHAT_PROBE_TYPED in marks else None
 
 
+
+def chat_probe_finished(marks: dict, live_painted_at: float | None, now: float) -> tuple[bool, float | None]:
+    """Early end for an in-app chat probe: no key window, or no probe after the live page's grace.
+
+    A snapshot must not start the clock: under load it can precede the live page by seconds. Older builds without
+    a live-page mark keep the round's ordinary settle bound instead of guessing readiness from saved pixels.
+    """
+    if live_painted_at is None and "agent_pane.page_painted" in marks:
+        live_painted_at = now
+    state = chat_probe_state(marks)
+    finished = state == "no_key_window" or (
+        state is None and live_painted_at is not None and now - live_painted_at > CHAT_PROBE_GRACE_S)
+    return finished, live_painted_at
+
+
 def probe_focus(marks: dict) -> str | None:
     """How the in-app key found its window (pure): `key` (a window was key at the first frame), `app_inactive` or
     `window_not_key` (the probe took the front, PROBE_TOOK_FRONT), `none` (no window could take keys); None when the
@@ -950,12 +965,9 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run):
             # the round ends when the chat drew and types nothing into its draft; `no_mark`, not a failure of the app.
             took = CHAT_MARK in marks or (not has_marks["input"] and "agent_pane.painted" in marks)
-            # in_app: the app types into the chat when it drew (chat.probe_key_typed); a build with no chat probe marks
-            # nothing within CHAT_PROBE_GRACE_S, and one with no key window for it says so: both end the round.
-            if not took and path == "in_app" and "agent_pane.painted" in marks:
-                painted_at = painted_at or time.monotonic()
-                state = chat_probe_state(marks)
-                took = state == "no_key_window" or (state is None and time.monotonic() - painted_at > CHAT_PROBE_GRACE_S)
+            # in_app: wait for live-page readiness before the no-probe grace; a saved snapshot is not interactive.
+            if not took and path == "in_app":
+                took, painted_at = chat_probe_finished(marks, painted_at, time.monotonic())
         elif which == "browser":
             took = BROWSER_INPUT in marks or not has_marks["input"]
             # A build without the browser marks: the round ends 2 s after its first frame (nothing to read).
