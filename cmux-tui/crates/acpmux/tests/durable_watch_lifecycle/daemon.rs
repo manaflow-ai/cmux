@@ -176,6 +176,15 @@ impl Daemon {
         )
         .await
     }
+    /// A one-shot ready watch whose `match` is looked for in `match_in` of each turn.
+    pub async fn watch_in(&self, to: &str, source: &str, pattern: &str, match_in: &str) -> Value {
+        self.call(
+            "_acpmux/watch_add",
+            json!({"to": to, "sessions": [source], "until": ["ready"], "once": true,
+            "match": pattern, "matchIn": match_in}),
+        )
+        .await
+    }
     pub async fn list(&self) -> Value {
         self.call("_acpmux/watch_ls", json!({})).await
     }
@@ -230,6 +239,61 @@ impl Daemon {
         (self.child, self.client, self.listen, self.socket) = Self::start(self.dir.path()).await;
     }
 }
+/// Wakes to several sinks on one client. A client has one notification stream (a second
+/// `notifications()` closes the first), so wakes are read once and kept per sink session.
+pub struct Wakes {
+    notes: mpsc::Receiver<Message>,
+    seen: std::collections::HashMap<String, std::collections::VecDeque<String>>,
+}
+impl Wakes {
+    pub async fn observe(a: &Daemon, sinks: &[&str]) -> Self {
+        let notes = a.client.notifications().await.unwrap();
+        for sink in sinks {
+            a.call(
+                method::MUX_ATTACH,
+                json!({"sessionId": sink, "limit": 0, "eventStream": true, "visible": false}),
+            )
+            .await;
+        }
+        Self { notes, seen: Default::default() }
+    }
+    async fn pump(&mut self) {
+        let note = self.notes.recv().await.expect("notification stream closed");
+        if let Message::Notification { method: m, params: Some(p) } = note
+            && m == method::MUX_EVENT
+            && p["kind"] == "user_message"
+            && let Some(text) = p["msg"]["text"].as_str()
+            && text.starts_with("acpmux watch ")
+            && let Some(sink) = p["sessionId"].as_str()
+        {
+            self.seen.entry(sink.to_owned()).or_default().push_back(text.to_owned());
+        }
+    }
+    pub async fn next(&mut self, sink: &str) -> String {
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                if let Some(text) = self.seen.get_mut(sink).and_then(|q| q.pop_front()) {
+                    break text;
+                }
+                self.pump().await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("no wake reached {sink}"))
+    }
+    /// No wake reaches `sink` within half a second.
+    pub async fn quiet(&mut self, sink: &str) {
+        let _ = tokio::time::timeout(Duration::from_millis(500), async {
+            loop {
+                self.pump().await;
+            }
+        })
+        .await;
+        let extra = self.seen.get_mut(sink).and_then(|q| q.pop_front());
+        assert!(extra.is_none(), "unexpected wake to {sink}: {extra:?}");
+    }
+}
+
 pub async fn quiet(notes: &mut mpsc::Receiver<Message>) {
     assert!(
         tokio::time::timeout(Duration::from_millis(500), next_wake(notes)).await.is_err(),
