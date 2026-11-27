@@ -217,22 +217,40 @@ extension SidebarListViewComponents {
     func patchBlocks(_ new: SidebarListBlocks) -> Bool {
         guard let old = blocks, let drawn = drawnBlockHeights, old.differsOnlyInInfos(from: new), !holdsModelChange,
               drag == nil, settling == nil, landing == nil, external == nil else { return false }
+        let byUser = model.followsUserIntent
         return SidebarPerfCounters.timed {
+            // Under the pointer, a change nobody here asked for waits when it moves an item in a block (an inline
+            // chip that widens moves the chips after it, calm-sidebar-movement); one that moves nothing (a pinned
+            // row's status or progress) draws now.
+            let held = !byUser && holdsModelChangeNow
+            let before = held ? blockItemFrames() : nil
             blocks = new
-            guard blockHeights(includeGap: true) == drawn else {
+            guard blockHeights(includeGap: true) == drawn, before == nil || blockItemFrames() == before else {
                 blocks = old
                 return false
             }
             SidebarPerfCounters.add(.blockPatches)
             for (key, view) in rowViews {
                 guard case .block = key, let row = displayed.row(for: key) else { continue }
-                configure(view, row: row, animated: false)
+                // A change the user asked for moves its items on the spring, as its reload would.
+                configure(view, row: row, animated: byUser)
             }
             // A shown hover card reads its row's new status, and one whose anchor left closes, as after a reload.
             if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
             updateHover()
             return true
         }
+    }
+
+    /// Each block's items, headers and cards where its layout at the list's width places them.
+    func blockItemFrames() -> [String: [SidebarRegionRow]] {
+        guard let blocks else { return [:] }
+        var frames: [String: [SidebarRegionRow]] = [:]
+        for id in blocks.sections.keys {
+            guard let content = blockContent(id, includeGap: true) else { continue }
+            frames[id] = SidebarRegionView.layout(of: content, width: bounds.width).rows
+        }
+        return frames
     }
 
     /// Each block's height at the list's width.

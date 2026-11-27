@@ -152,6 +152,55 @@ struct SidebarPinnedTileStatusInPlaceTests {
         }
     }
 
+    /// Under the pointer (calm-sidebar-movement): a change nobody asked for that moves an item in a block (a chip turned
+    /// into a tile) waits for the pointer to leave, as its layout would; one the user asked for draws now.
+    @Test func underThePointerAChangeThatMovesAChipWaitsUnlessTheUserAskedForIt() throws {
+        let (model, sidebar) = Self.sidebar(pinned: Self.pinned([Self.other, Self.pin], .inline, id: Self.chipsID), window: true)
+        defer { sidebar.window?.close() }
+        let section = LayoutSectionID(Self.chipsID)
+        try #require(Self.pinKind(sidebar) == .chip(Self.pin.id, section: section), "fixture: the short title draws no chip")
+        sidebar.list.pointerIsOverList = { _ in true }
+        _ = SidebarPerfCounters.report(reset: true)
+        model.itemInfo[Self.pin.id] = Self.pinInfo(.idle, title: String(repeating: "W", count: 64))
+        Self.show(sidebar)
+        var counts = SidebarPerfCounters.report(reset: true)
+        #expect((counts["block_patches"] ?? 0) == 0, "the chips moved under the pointer")
+        #expect(counts["list_reloads"] == 0)
+        #expect(sidebar.list.holdsModelChange, "the change does not wait for the pointer")
+        #expect(Self.pinKind(sidebar) == .chip(Self.pin.id, section: section))
+        // The pointer leaves: the change shows.
+        sidebar.list.pointerIsOverList = { _ in false }
+        sidebar.list.releaseHeldModelChangeIfPointerLeft()
+        counts = SidebarPerfCounters.report(reset: true)
+        #expect(counts["list_reloads"] == 1)
+        #expect(Self.pinKind(sidebar) == .tile(Self.pin.id, section: section))
+        // The user asked for the next one (a rename from the menu): it draws under the pointer, in place.
+        sidebar.list.pointerIsOverList = { _ in true }
+        model.noteUserIntent()
+        model.itemInfo[Self.pin.id] = Self.pinInfo(.idle, title: "Ticker")
+        Self.show(sidebar)
+        counts = SidebarPerfCounters.report(reset: true)
+        #expect(counts["block_patches"] == 1, "the user's change waited for the pointer")
+        #expect(counts["list_reloads"] == 0)
+        #expect(Self.pinKind(sidebar) == .chip(Self.pin.id, section: section))
+    }
+
+    /// Under the pointer, a pinned workspace's progress moves nothing: it draws on its tile now, with no list layout.
+    @Test func underThePointerAPinnedTickDrawsInPlace() throws {
+        let (model, sidebar) = Self.sidebar(window: true)
+        defer { sidebar.window?.close() }
+        try #require(Self.pinView(sidebar) != nil, "the fixture's list draws no pinned block")
+        sidebar.list.pointerIsOverList = { _ in true }
+        _ = SidebarPerfCounters.report(reset: true)
+        model.itemInfo[Self.pin.id] = Self.pinInfo(.busy(progress: 0.5))
+        Self.show(sidebar)
+        let counts = SidebarPerfCounters.report(reset: true)
+        #expect(counts["block_patches"] == 1)
+        #expect(counts["list_reloads"] == 0)
+        #expect(!sidebar.list.holdsModelChange)
+        #expect(Self.pinView(sidebar)?.info.activity == .busy(progress: 0.5))
+    }
+
     /// A change held while the pointer is over the rows (an item added to Pinned) leaves the shown layout older than
     /// the blocks: a tick then waits with it, so the block never draws a height its row was not given.
     @Test func aTickUnderAHeldChangeWaitsWithIt() throws {
