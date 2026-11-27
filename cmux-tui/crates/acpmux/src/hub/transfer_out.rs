@@ -527,7 +527,7 @@ impl Hub {
             let deadline = tokio::time::Instant::now() + wait;
             let busy = || {
                 let why = format!(
-                    "the running turn did not end within {}s; try again, or pass --interrupt",
+                    "the running turn did not end within {}s, so nothing moved; --interrupt stops it and moves the chat now",
                     wait.as_secs()
                 );
                 transfer_error("busy", why)
