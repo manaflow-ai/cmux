@@ -211,6 +211,13 @@ on:
       - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/settings/source/notifications.json"
+      - "schemas/settings/source/page-layout.json"
+      - "docs/mdm/cmux-example.mobileconfig"
+      - "docs/mdm/com.manaflow.cmux.intune.plist"
+      - "docs/mdm/com.manaflow.cmux.json"
+      - "docs/mdm/com.manaflow.cmux.plist"
+      - "docs/mdm/managed-preferences.md"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -407,12 +414,21 @@ on:
       - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/settings/source/notifications.json"
+      - "schemas/settings/source/page-layout.json"
+      - "docs/mdm/cmux-example.mobileconfig"
+      - "docs/mdm/com.manaflow.cmux.intune.plist"
+      - "docs/mdm/com.manaflow.cmux.json"
+      - "docs/mdm/com.manaflow.cmux.plist"
+      - "docs/mdm/managed-preferences.md"
   workflow_dispatch:
 
 concurrency:
   # A pull request's newer push supersedes its run. A batch run and its bisect probes (one commit, one job each)
   # never cancel one another, and a started batch run is never cancelled.
-  group: cmux-tui-sdks-${{ github.workflow }}-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: cmux-tui-sdks-${{ github.workflow }}-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
