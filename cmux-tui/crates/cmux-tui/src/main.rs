@@ -2851,6 +2851,8 @@ fn run_server(
         cmux_tui_core::remote_host::set_agent_share_audit_dir(dir);
     }
     mux.configure_remote_host(&socket_path);
+    // `cmux live auto`: watch again the checkouts this socket's daemon watched.
+    cmux_tui_core::live_auto::resume(&mux, &socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))

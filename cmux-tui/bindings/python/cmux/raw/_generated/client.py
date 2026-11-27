@@ -468,6 +468,9 @@ class GeneratedClientMixin:
     def list_workspaces(self, *, after: Union[int, None, MissingType] = MISSING, known: Union[ListWorkspacesKnown, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING, since: Union[ListWorkspacesSince, None, MissingType] = MISSING) -> Tree:
         return self._invoke_command('list-workspaces', ListWorkspacesRequest(after=after, known=known, limit=limit, since=since))
 
+    def live_auto(self, op: str, *, worktree: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('live-auto', LiveAutoRequest(op=op, worktree=worktree))
+
     def machine_listening_tcp(self) -> MachineListeningTcpResult:
         return self._invoke_command('machine-listening-tcp', MachineListeningTcpRequest())
 
@@ -1107,6 +1110,7 @@ GeneratedClientMixin.list_terminal_commands.__cmux_command__ = COMMANDS['list-te
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
 GeneratedClientMixin.list_workspace_groups.__cmux_command__ = COMMANDS['list-workspace-groups']
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']
+GeneratedClientMixin.live_auto.__cmux_command__ = COMMANDS['live-auto']
 GeneratedClientMixin.machine_listening_tcp.__cmux_command__ = COMMANDS['machine-listening-tcp']
 GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']

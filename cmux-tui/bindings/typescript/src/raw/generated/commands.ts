@@ -1599,6 +1599,14 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
 }
 export type ListWorkspacesResult = T.Tree;
 
+/** Protocol v12; authority: local-admin. */
+export interface LiveAutoRequest extends CmuxRequestBase {
+  cmd: "live-auto";
+  "op": string;
+  "worktree"?: (string) | null;
+}
+export type LiveAutoResult = T.JsonValue;
+
 /** Protocol v12; authority: control. */
 export interface MachineListeningTcpRequest extends CmuxRequestBase {
   cmd: "machine-listening-tcp";
@@ -3354,6 +3362,7 @@ export type CmuxRequest =
   | ListTerminalsRequest
   | ListWorkspaceGroupsRequest
   | ListWorkspacesRequest
+  | LiveAutoRequest
   | MachineListeningTcpRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
@@ -4733,6 +4742,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "live-auto": {
+    request: LiveAutoRequest;
+    result: LiveAutoResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "live-auto-v1";
     stream: null;
   };
   "machine-listening-tcp": {

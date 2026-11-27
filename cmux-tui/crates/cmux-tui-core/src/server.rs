@@ -503,6 +503,9 @@ pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 /// siblings keep, from their records (`mux/process_census.rs`). Trusted local
 /// connections only.
 pub const PROCESS_CENSUS_CAPABILITY: &str = "process-census-v1";
+/// `live-auto`: the save router (`live_auto.rs`, `cmux live auto`) and its
+/// `swap.done` event. Trusted local connections only.
+pub const LIVE_AUTO_CAPABILITY: &str = "live-auto-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// A client that sends this in `set-client-info` gets `restart` on the
@@ -1026,6 +1029,14 @@ enum Command {
     /// connections only; read-only: it saves nothing (`cmux gc` saves the
     /// unowned-host sightings).
     ProcessCensus,
+    /// `cmux live auto`: start, stop or read the router that watches a
+    /// checkout and sends each save to the layer that swaps it, reporting
+    /// `swap.done` on `subscribe` (live_auto.rs). Trusted local connections only.
+    LiveAuto {
+        op: String,
+        #[serde(default)]
+        worktree: Option<String>,
+    },
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),

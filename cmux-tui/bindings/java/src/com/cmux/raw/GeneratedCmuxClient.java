@@ -781,6 +781,11 @@ public abstract class GeneratedCmuxClient {
         return listWorkspaces(ListWorkspacesRequest.builder().build());
     }
 
+    public final Object liveAuto(LiveAutoRequest request) throws CmuxException {
+        Object result = execute(Commands.LIVE_AUTO, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final MachineListeningTcpResult machineListeningTcp() throws CmuxException {
         Object result = execute(Commands.MACHINE_LISTENING_TCP, Map.of());
         return MachineListeningTcpResult.fromWire(result);

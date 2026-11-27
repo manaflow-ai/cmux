@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-scheduled-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `feed-view-changed`, `feed-reports-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `computer-use-activity` (local owner connections, macOS), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-scheduled-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `feed-view-changed`, `feed-reports-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `computer-use-activity` (local owner connections, macOS), `swap.done` (local owner connections), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -524,6 +524,44 @@ the menu bar (its calls are refused and do not count as actions). Only
 the person's own local Unix connections hear it (never a page relay or a
 remote device); the cmux app shows its menu bar badge and Computer Use row
 from it. `remote-host-status` carries the same list in `host.workers`.
+
+### swap.done
+
+| Field | Value |
+| --- | --- |
+| event | `swap.done` |
+| status | implemented |
+| since | capability `live-auto-v1` |
+
+Published by the save router (`live-auto`, `cmux live auto`) once per layer
+for each burst of saves in a watched checkout:
+
+```text
+object{
+  event: "swap.done",
+  worktree: string,
+  layer: "web" | "daemon" | "acpmux" | "swift" | "needs-build",
+  ms: float64,           // save to swapped; for an observed layer, save to dispatch
+  trigger_ms: float64,   // the last save's mtime to the router's dispatch
+  state_kept: bool,
+  paths: [string],       // repo-relative
+  error?: string,        // the swap failed, or the layer is not running
+  reason?: string,       // needs-build: why no layer takes it
+  daemons?: [string],    // daemon/acpmux: what rust-live swapped
+  outcome?: string,      // daemon/acpmux: rust-live's outcome
+}
+```
+
+`web` and `swift` are layers that watch the checkout themselves (the Vite
+dev server's Fast Refresh, the app's live code loop): the router observes
+and reports at dispatch. `daemon` and `acpmux` are handed to rust-live
+(`cmux live start --rust`); the event comes from its receipt, with its
+error when the build or swap failed. A save to Rust the app links (an app
+FFI input) also reports `needs-build`, as do Swift shape changes,
+resources, manifests and project files. A layer that is not running for
+the checkout reports `error` naming the command that starts it. Only the
+person's own local Unix connections hear it (never a page relay or a
+remote device). `live-auto {op:"status"}` carries the last 32.
 
 ### history-changed
 

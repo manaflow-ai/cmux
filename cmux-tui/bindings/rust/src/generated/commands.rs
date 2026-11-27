@@ -2304,6 +2304,17 @@ pub struct ListWorkspacesRequest {
 pub type ListWorkspacesResult = T::Tree;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiveAutoRequest {
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub worktree: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type LiveAutoResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct MachineListeningTcpRequest {
 }
@@ -5360,6 +5371,10 @@ impl CmuxClient {
             self.require_capability_field("list-workspaces", "workspace-list-delta-v1")?;
         }
         self.execute(&LIST_WORKSPACES_METADATA, &request)
+    }
+
+    pub fn live_auto(&mut self, request: LiveAutoRequest) -> Result<LiveAutoResult> {
+        self.execute(&LIVE_AUTO_METADATA, &request)
     }
 
     pub fn machine_listening_tcp(&mut self, request: MachineListeningTcpRequest) -> Result<T::MachineListeningTcpResult> {

@@ -430,8 +430,11 @@ pub(super) fn subscribe_command(
                 MuxEvent::StashChanged { .. } if page_events.is_none() => continue,
                 // Only the Tasks page hears its owner's changes.
                 MuxEvent::TasksChanged(_) if page_events.is_none() => continue,
-                // What agents do with the person's apps: their own local connections only.
-                MuxEvent::ComputerUseActivity(_) | MuxEvent::ComputerUsePreview(_)
+                // What agents do with the person's apps, and live swaps of their
+                // checkouts: their own local connections only.
+                MuxEvent::ComputerUseActivity(_)
+                | MuxEvent::ComputerUsePreview(_)
+                | MuxEvent::SwapDone(_)
                     if !trusted_pairing_client || page_events.is_some() =>
                 {
                     continue;
@@ -530,7 +533,8 @@ pub(super) fn subscribed_event_name(event: &MuxEvent) -> Option<&str> {
         MuxEvent::AppsChanged(payload)
         | MuxEvent::TasksChanged(payload)
         | MuxEvent::ComputerUseActivity(payload)
-        | MuxEvent::ComputerUsePreview(payload) => {
+        | MuxEvent::ComputerUsePreview(payload)
+        | MuxEvent::SwapDone(payload) => {
             return payload.get("event").and_then(Value::as_str);
         }
         MuxEvent::ChatsChanged { .. } | MuxEvent::GitHubChanged { .. } | MuxEvent::Empty => {
@@ -814,9 +818,9 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }
         MuxEvent::AppsChanged(payload) => payload.as_ref().clone(),
         MuxEvent::TasksChanged(payload) => payload.as_ref().clone(),
-        MuxEvent::ComputerUseActivity(payload) | MuxEvent::ComputerUsePreview(payload) => {
-            payload.as_ref().clone()
-        }
+        MuxEvent::ComputerUseActivity(payload)
+        | MuxEvent::ComputerUsePreview(payload)
+        | MuxEvent::SwapDone(payload) => payload.as_ref().clone(),
         // The subscribe loop never sends a chat change (apps hear it as `chat.changed`).
         MuxEvent::ChatsChanged { .. } | MuxEvent::GitHubChanged { .. } | MuxEvent::Empty => {
             json!({"event": "empty"})

@@ -31,7 +31,10 @@ import re
 import subprocess
 import sys
 
-# Folders and files that never ship in the app, checked before everything else. images/ is the Cloud
+# The rules live in live-apply-rules.json beside this file, one copy: the cmux-tui daemon's save
+# router (`cmux live auto`, cmux-tui-core src/live_auto/rules.rs) classifies each save with the same file.
+# What each rule is for:
+# NOAPP_PATH: folders and files that never ship in the app, checked before everything else. images/ is the Cloud
 # machine image (its bot's image rolls); ci-target-graph.json is CI's test-target map. Root examples/ holds
 # sample extensions only a lint reads; cmux-tui/bindings/examples/ is built into the app, so the rule is anchored.
 # A *-gallery.html page is a design gallery. The root .gitattributes only sets merge drivers and Linguist
@@ -41,47 +44,55 @@ import sys
 # their outputs are committed where the app reads them, cmux-icons.json, AgentBrandCatalog+Generated.swift, brand.rs)
 # and design pages. vault/ is the cmux-vault Go service (its own go.mod; the app's Rust uses cmux-vault-egress);
 # capture-scratch/ holds screenshot replay output. No Xcode phase, Package.swift resource or build script copies any of them.
-NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood|design|vault|capture-scratch)/|^Native/.+/evals/|^\.gitattributes$|(^|/)ci-target-graph\.json$|-gallery\.html$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
-# Extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
+# NOAPP_EXT: extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
 # Cargo.lock, a bundled Resources/x.sh or webviews' vite.config.mjs still counts.
-NOAPP_EXT = re.compile(r"\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$")
-# clients/ts and config/vite-plus hold TypeScript that only the web bundles import (the Cloud page's wire types,
+# WEB: the web bundles. clients/ts and config/vite-plus hold TypeScript that only the web bundles import (the Cloud page's wire types,
 # clients/ts/cloud/src/generated.ts) or lint with: nothing native reads them (cmux_next_route.py BUNDLE_INPUTS).
-WEB = re.compile(r"^(webviews|cmux-tui/frontends/web|clients/ts|config/vite-plus)/")
-# String catalogs: gen-strings.mjs builds the web pages' strings from them, and a Swift string shows its source
+# STRINGS: string catalogs. gen-strings.mjs builds the web pages' strings from them, and a Swift string shows its source
 # text without the compiled table, so trying the change needs no build; only the translations do.
-STRINGS = re.compile(r"\.xcstrings$")
-RUST = re.compile(r"\.rs$|(^|/)Cargo\.toml$|^cmux-tui/|^acpmux/")
-IOS = re.compile(r"^(ios|cmux-next-ios|Packages/iOS)/")
-# C, Objective-C and Zig sources need a new app, except under cmux-tui/: the cmux-tui tree build compiles those (a
+# REBUILD_FILE, NATIVE_SOURCE, NATIVE_EXEMPT: resources and manifests need a new app, and so do C, Objective-C
+# and Zig sources, except under cmux-tui/: the cmux-tui tree build compiles those (a
 # companion's shim, the Zig binding), so they are daemon, as hot-apply.py applies them; its linked_rust still leaves
 # an app FFI crate's to the ffi part (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
-REBUILD_FILE = re.compile(r"\.(strings|xcassets|plist|entitlements|pbxproj|xcconfig|storyboard|xib|metal|png|pdf|car|icns)$|(^|/)Package\.(swift|resolved)$|Contents\.json$|\.xcodeproj/|/Resources/|^ghostty|^(?!cmux-tui/).*\.(c|h|m|mm|zig)$")
-COMMENT = re.compile(r"^\s*(//|/\*|\*|\*/)")
-STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\([^)]*\))?\s+)*(let|var)\s+\w+[^{]*$")
-FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
-TYPE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\s+)*(struct|class|enum|actor|protocol|extension)\s+\w+")
-# A constant with an initializer that belongs to no instance: `static let x = ...` (any access, `nonisolated(unsafe)`
-# and the like) or a file-level `let x = ...` (indent 0). It changes no type's size, so a patch can carry it: the patch
-# defines the variable and its addressor, the app repoints the addressor, and every caller (patched or not) reaches the
-# patch's copy. Only `let`: a `static var` is state a patch would reset, and an instance property changes the layout.
-STATIC_LET = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|nonisolated(\([^)]*\))?)\s+)*"
-                        r"(static|class)\s+((public|private|fileprivate|internal|package|open|final|nonisolated(\([^)]*\))?)\s+)*let\s+\w+[^{]*=")
-FILE_LET = re.compile(r"^((public|private|fileprivate|internal|package|nonisolated(\([^)]*\))?)\s+)*let\s+\w+[^{]*=")
-ENTRY = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*@main\b")
-# The modules a patch can replace code in: the app's live code build makes every CmuxNext module's
+# LIVE_MODULE, LIVE_PACKAGE: the modules a patch can replace code in: the app's live code build makes every CmuxNext module's
 # symbols interposable (live_code_targets in scripts/live-code/lib/xcodebuild-args.sh: the
 # CmuxNext targets of Packages/macOS/CmuxNext/Package.swift, and MessagesLabHome, the Home transcript
 # CmuxNextHome links from Packages/Shared/CmuxMessagesLab), and the view shell's inject.sh patches
 # its own module. Third-party modules are linked into the app as they were built.
-LIVE_MODULE = re.compile(r"^(CmuxNext[A-Za-z0-9_]*|MessagesLabHome|ViewShell)$")
-LIVE_PACKAGE = re.compile(r"(?:^|/)Packages/macOS/CmuxNext/Sources/|(?:^|/)Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/"
-                          r"|(?:^|/)Prototypes/ViewShell/Sources/")
-SWIFT_MODULE = re.compile(r"(?:^|/)Sources/([^/]+)/")
-CASE = re.compile(r"^ {4}(\t)?case\s+\w+|^\tcase\s+\w+")
+# ORDER: heaviest first, a change takes the verdict of its heaviest file.
+RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "live-apply-rules.json")
+with open(RULES_FILE) as _rules_file:
+    RULES = json.load(_rules_file)
+NOAPP_PATH = re.compile(RULES["noapp_path"])
+NOAPP_EXT = re.compile(RULES["noapp_ext"])
+WEB = re.compile(RULES["web"])
+STRINGS = re.compile(RULES["strings"])
+RUST = re.compile(RULES["rust"])
+IOS = re.compile(RULES["ios"])
+REBUILD_FILE = re.compile(RULES["rebuild_file"])
+NATIVE_SOURCE = re.compile(RULES["native_source"])
+NATIVE_EXEMPT = re.compile(RULES["native_exempt"])
+COMMENT = re.compile(RULES["comment"])
+STORED = re.compile(RULES["stored"])
+FUNC = re.compile(RULES["func"])
+TYPE_DECL = re.compile(RULES["type_decl"])
+# A constant with an initializer that belongs to no instance: `static let x = ...` (any access, `nonisolated(unsafe)`
+# and the like) or a file-level `let x = ...` (indent 0). It changes no type's size, so a patch can carry it: the patch
+# defines the variable and its addressor, the app repoints the addressor, and every caller (patched or not) reaches the
+# patch's copy. Only `let`: a `static var` is state a patch would reset, and an instance property changes the layout.
+STATIC_LET = re.compile(RULES["static_let"])
+FILE_LET = re.compile(RULES["file_let"])
+ENTRY = re.compile(RULES["entry"])
+LIVE_MODULE = re.compile(RULES["live_module"])
+LIVE_PACKAGE = re.compile(RULES["live_package"])
+SWIFT_MODULE = re.compile(RULES["swift_module"])
+CASE = re.compile(RULES["case"])
+ORDER = list(RULES["order"])
 
-# Heaviest first: a change takes the verdict of its heaviest file.
-ORDER = ["rebuild", "swift-live", "daemon", "web-live", "strings", "ios-only", "no-app"]
+
+def rebuild_file(path):
+    """A resource, manifest or native source the app is built from."""
+    return bool(REBUILD_FILE.search(path) or (NATIVE_SOURCE.search(path) and not NATIVE_EXEMPT.search(path)))
 
 
 def swift_reasons(lines, added_file):
@@ -137,7 +148,7 @@ def classify(files, diffs):
             note("web-live", path)
         elif STRINGS.search(path):
             note("strings", path)
-        elif REBUILD_FILE.search(path):
+        elif rebuild_file(path):
             note("rebuild", path, "resource or manifest")
         elif RUST.search(path):
             note("daemon", path)
@@ -201,13 +212,31 @@ def classify_range(repo, base, head):
     return classify(files, diffs)
 
 
+def ffi_closure(repo):
+    """The app FFI archive's inputs and the folders under them Cargo never builds into it."""
+    from pathlib import Path  # noqa: PLC0415
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci"))
+    import cmux_next_route  # noqa: PLC0415 - scripts/ci
+    root = Path(repo).resolve()
+    return {"inputs": list(cmux_next_route.app_ffi_inputs(root)),
+            "excluded": list(cmux_next_route.app_ffi_excluded(root))}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--repo", default=os.getcwd())
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("base")
-    parser.add_argument("head")
+    parser.add_argument("--ffi-closure", action="store_true",
+                        help="print {inputs, excluded}: the paths the app FFI archive is built from "
+                             "(cmux_next_route.app_ffi_inputs, app_ffi_excluded), for the daemon's save router")
+    parser.add_argument("base", nargs="?")
+    parser.add_argument("head", nargs="?")
     args = parser.parse_args(argv)
+    if args.ffi_closure:
+        print(json.dumps(ffi_closure(args.repo)))
+        return 0
+    if not (args.base and args.head):
+        parser.error("BASE and HEAD are required")
     result = classify_range(args.repo, args.base, args.head)
     if args.json:
         print(json.dumps(result, indent=2))

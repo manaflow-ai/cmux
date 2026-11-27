@@ -4219,6 +4219,13 @@ class ListWorkspacesRequest:
 
 
 @dataclass(frozen=True)
+class LiveAutoRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/live-auto/request'
+    op: str
+    worktree: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class MachineListeningTcpRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/machine-listening-tcp/request'
     pass
@@ -7295,6 +7302,7 @@ __all__ = [
     'ListTerminalsRequest',
     'ListWorkspaceGroupsRequest',
     'ListWorkspacesRequest',
+    'LiveAutoRequest',
     'MachineListeningTcpRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',

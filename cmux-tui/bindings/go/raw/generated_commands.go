@@ -17068,6 +17068,107 @@ func (value *ListWorkspacesRequest) UnmarshalJSON(data []byte) error {
 
 type ListWorkspacesResult = Tree
 
+// LiveAutoRequest is the exact live-auto wire payload.
+type LiveAutoRequest struct {
+	Op       string           `json:"op"`
+	Worktree Presence[string] `json:"-"`
+}
+
+func (value LiveAutoRequest) MarshalJSON() ([]byte, error) {
+	type wire LiveAutoRequest
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Worktree.IsAbsent() {
+		delete(object, "worktree")
+	} else if value.Worktree.IsNull() {
+		object["worktree"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Worktree.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode LiveAutoRequest.Worktree: %w", err)
+		}
+		object["worktree"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *LiveAutoRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LiveAutoRequest: expected object")
+	}
+	var fields struct {
+		Op       *string          `json:"op"`
+		Worktree Presence[string] `json:"worktree"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LiveAutoRequest: %w", err)
+	}
+	type wire LiveAutoRequest
+	var decoded wire
+	if fields.Op == nil {
+		return fmt.Errorf("decode LiveAutoRequest: required field op is missing or null")
+	}
+	decoded.Op = *fields.Op
+	decoded.Worktree = fields.Worktree
+	*value = LiveAutoRequest(decoded)
+	return nil
+}
+
+type LiveAutoResult = JSONValue
+
+type LiveAutoOptions struct {
+	Worktree Presence[string] `json:"-"`
+}
+
+func (value LiveAutoOptions) MarshalJSON() ([]byte, error) {
+	type wire LiveAutoOptions
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	if value.Worktree.IsAbsent() {
+		delete(object, "worktree")
+	} else if value.Worktree.IsNull() {
+		object["worktree"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Worktree.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode LiveAutoOptions.Worktree: %w", err)
+		}
+		object["worktree"] = encodedField
+	}
+	return json.Marshal(object)
+}
+
+func (value *LiveAutoOptions) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode LiveAutoOptions: expected object")
+	}
+	var fields struct {
+		Worktree Presence[string] `json:"worktree"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode LiveAutoOptions: %w", err)
+	}
+	type wire LiveAutoOptions
+	var decoded wire
+	decoded.Worktree = fields.Worktree
+	*value = LiveAutoOptions(decoded)
+	return nil
+}
+
 // MachineListeningTcpRequest is the exact machine-listening-tcp wire payload.
 type MachineListeningTcpRequest struct {
 }
@@ -39473,6 +39574,18 @@ func (c *Client) ListTerminals(ctx context.Context) (ListTerminalsResult, error)
 func (c *Client) ListWorkspaceGroups(ctx context.Context) (ListWorkspaceGroupsResult, error) {
 	var result ListWorkspaceGroupsResult
 	err := c.requestGenerated(ctx, commandMetadata["list-workspace-groups"], "list-workspace-groups", nil, &result)
+	return result, err
+}
+
+// LiveAuto sends live-auto. Protocol v12; authority local-admin.
+func (c *Client) LiveAuto(ctx context.Context, op string, options LiveAutoOptions) (LiveAutoResult, error) {
+	var result LiveAutoResult
+	params, err := mergeCommandParams(map[string]any{"op": op}, options)
+	if err != nil {
+		err = fmt.Errorf("%w: encode live-auto parameters: %v", ErrInvalidArgument, err)
+		return result, err
+	}
+	err = c.requestGenerated(ctx, commandMetadata["live-auto"], "live-auto", params, &result)
 	return result, err
 }
 

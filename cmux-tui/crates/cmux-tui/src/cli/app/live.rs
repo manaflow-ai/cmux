@@ -25,6 +25,10 @@
 //! tree, swaps the new framework into the running app and restarts only its renderer processes,
 //! so open Chromium pages reload on the build while the app and every session stay up
 //! (`scripts/cmux-next/chromium-live.py`, [`chromium`]).
+//!
+//! `auto` is the router over all of them: `auto start` has the session daemon watch the checkout and
+//! send each save to the layer that swaps it (cmux-tui-core live_auto.rs), reporting each as a
+//! `swap.done` event on `subscribe`; no prompt, no toast, no focus change.
 
 use cmux_process::Command as Process;
 use std::path::{Path, PathBuf};
@@ -70,6 +74,8 @@ pub(crate) enum Command {
     /// `start|stop|status --chromium`: the engine loop of `worktree`'s `chromium-live.py`;
     /// `args` are its own `start` flags (`--build-host`, `--src`, `--out`, ...), passed through.
     Chromium { verb: RustVerb, worktree: Option<PathBuf>, args: Vec<String> },
+    /// `auto [start|stop|status]`: the daemon's save router (`live-auto`), for `worktree`.
+    Auto { verb: RustVerb, worktree: Option<PathBuf> },
 }
 
 /// What `--rust` (or `--chromium`) does.
@@ -108,6 +114,9 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         || rest.iter().any(|word| word == "--help" || word == "-h")
     {
         return Ok(Command::Help);
+    }
+    if verb == Some("auto") {
+        return parse_auto(rest.get(1..).unwrap_or_default());
     }
     let mut worktree = None;
     let mut port = None;
@@ -259,6 +268,37 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     }
 }
 
+/// `auto [start|stop|status] [--worktree PATH]`; `start` when no verb is given.
+fn parse_auto(rest: &[String]) -> Result<Command, UsageError> {
+    let messages = &crate::localization::catalog().app_control;
+    let mut verb = None;
+    let mut worktree = None;
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        let (flag, inline) = match word.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
+            _ => (word.as_str(), None),
+        };
+        match flag {
+            "--worktree" => {
+                let value = inline.or_else(|| words.next().cloned()).filter(|v| !v.is_empty());
+                worktree = Some(PathBuf::from(value.ok_or_else(|| {
+                    UsageError::new(messages.missing_value.replace("{flag}", flag))
+                })?));
+            }
+            "start" if verb.is_none() => verb = Some(RustVerb::Start),
+            "stop" if verb.is_none() => verb = Some(RustVerb::Stop),
+            "status" if verb.is_none() => verb = Some(RustVerb::Status),
+            other => {
+                return Err(UsageError::new(
+                    messages.unexpected_argument.replace("{value}", other),
+                ));
+            }
+        }
+    }
+    Ok(Command::Auto { verb: verb.unwrap_or(RustVerb::Start), worktree })
+}
+
 /// `command` with the daemon `cmux --socket S live ...` or `cmux --session S live ...` names, when
 /// `start --rust` names none itself (the flag after the noun wins).
 pub(super) fn routed(command: &Command, socket: Option<&Path>, session: Option<&str>) -> Command {
@@ -300,6 +340,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         Command::Rust { .. } => return run_rust(command),
         Command::Swift(swift) => return run_swift(swift),
         Command::Chromium { verb, worktree, args } => return chromium::run(*verb, worktree, args),
+        Command::Auto { verb, worktree } => return run_auto(global, *verb, worktree.as_deref()),
     };
     let started = matches!(command, Command::Stop { .. } | Command::Status { .. });
     let Some(tree) = checkout(worktree.as_deref(), started) else {
@@ -369,6 +410,122 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
             1
         }
     }
+}
+
+/// Runs `auto`: one `live-auto` request to the session daemon, which owns the router.
+fn run_auto(global: &GlobalArgs, verb: RustVerb, worktree: Option<&Path>) -> i32 {
+    use super::super::safe_mode::{Answer, ask};
+    let messages = &crate::localization::catalog().app_control.live;
+    let around = || {
+        Process::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
+    };
+    let tree = match worktree {
+        Some(path) => Some(path.canonicalize().unwrap_or_else(|_| path.to_path_buf())),
+        None => around(),
+    };
+    let op = match verb {
+        RustVerb::Start => "start",
+        RustVerb::Stop => "stop",
+        RustVerb::Status => "status",
+    };
+    if verb == RustVerb::Start && tree.is_none() {
+        eprintln!("{}", messages.no_checkout);
+        return 2;
+    }
+    let mut frame = json!({"id": "cmux-live-auto-1", "cmd": "live-auto", "op": op});
+    // `stop` with no --worktree outside a checkout stops every one.
+    if let Some(tree) = tree.as_ref().filter(|_| verb != RustVerb::Status) {
+        if let Some(map) = frame.as_object_mut() {
+            map.insert("worktree".to_owned(), json!(tree.display().to_string()));
+        }
+    }
+    let answer = match ask(global, frame) {
+        Answer::Ok(answer) => answer,
+        Answer::Refused { code, message } => {
+            eprintln!(
+                "{}",
+                messages.auto_refused.replace("{error}", &format!("{code}: {message}"))
+            );
+            return 1;
+        }
+        Answer::NoDaemon(error) => {
+            eprintln!("{}", messages.auto_no_daemon.replace("{error}", &error));
+            return 1;
+        }
+    };
+    if matches!(global.output, super::super::OutputMode::Json | super::super::OutputMode::JsonLines)
+    {
+        println!("{answer}");
+        return 0;
+    }
+    if global.output == super::super::OutputMode::Quiet {
+        return 0;
+    }
+    for line in auto_lines(&answer, verb) {
+        println!("{line}");
+    }
+    0
+}
+
+/// `live-auto`'s answer as the lines `cmux live auto` prints.
+pub(super) fn auto_lines(answer: &Value, verb: RustVerb) -> Vec<String> {
+    let messages = &crate::localization::catalog().app_control.live;
+    let trees = answer.get("trees").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut lines = Vec::new();
+    if verb == RustVerb::Stop {
+        for tree in answer.get("stopped").and_then(Value::as_array).into_iter().flatten() {
+            lines.push(messages.auto_stopped.replace("{worktree}", tree.as_str().unwrap_or("")));
+        }
+    }
+    if trees.is_empty() {
+        lines.push(messages.auto_not_watching.to_owned());
+        return lines;
+    }
+    let on = |tree: &Value, layer: &str| {
+        tree.get("live").and_then(|live| live.get(layer)).and_then(Value::as_bool) == Some(true)
+    };
+    for tree in &trees {
+        let layers: Vec<&str> =
+            ["web", "rust", "swift"].into_iter().filter(|layer| on(tree, layer)).collect();
+        let number = |key: &str| {
+            tree.get("trigger_ms").and_then(|ms| ms.get(key)).and_then(Value::as_f64).unwrap_or(0.0)
+        };
+        lines.push(
+            messages
+                .auto_watching
+                .replace("{worktree}", tree["worktree"].as_str().unwrap_or(""))
+                .replace(
+                    "{layers}",
+                    &if layers.is_empty() { "-".to_owned() } else { layers.join(", ") },
+                )
+                .replace("{saves}", &tree["saves"].as_u64().unwrap_or(0).to_string())
+                .replace("{p50}", &format!("{:.1}", number("p50")))
+                .replace("{p95}", &format!("{:.1}", number("p95"))),
+        );
+        if let Some(error) = tree["error"].as_str() {
+            lines.push(format!("  {error}"));
+        }
+    }
+    for event in answer.get("recent").and_then(Value::as_array).into_iter().flatten().rev().take(5)
+    {
+        let paths: Vec<&str> =
+            event["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        let note = event["error"].as_str().or(event["reason"].as_str()).unwrap_or("");
+        lines.push(format!(
+            "  {} {:.0} ms {}{}{}",
+            event["layer"].as_str().unwrap_or("?"),
+            event["ms"].as_f64().unwrap_or(0.0),
+            paths.join(" "),
+            if note.is_empty() { "" } else { ": " },
+            note
+        ));
+    }
+    lines
 }
 
 /// The cmux Live setting, read here for `status`.

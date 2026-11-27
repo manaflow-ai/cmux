@@ -434,6 +434,7 @@ MODEL_BY_PATH = {
     'commands/list-terminals/request': models.ListTerminalsRequest,
     'commands/list-workspace-groups/request': models.ListWorkspaceGroupsRequest,
     'commands/list-workspaces/request': models.ListWorkspacesRequest,
+    'commands/live-auto/request': models.LiveAutoRequest,
     'commands/machine-listening-tcp/request': models.MachineListeningTcpRequest,
     'commands/machine-usage/request': models.MachineUsageRequest,
     'commands/mark-workspaces-provider-managed/request': models.MarkWorkspacesProviderManagedRequest,

@@ -326,6 +326,7 @@ impl SurfaceSessionScope {
             | MuxEvent::TasksChanged(_)
             | MuxEvent::ComputerUseActivity(_)
             | MuxEvent::ComputerUsePreview(_)
+            | MuxEvent::SwapDone(_)
             | MuxEvent::ChatsChanged { .. }
             | MuxEvent::Empty => true,
         }

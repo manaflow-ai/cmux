@@ -19849,6 +19849,43 @@
     "Hosts are classified from records, leases and session guards, never from process arguments. See spec/commands.md."
    ]
   },
+  "live-auto": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "live-auto-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "op": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "worktree": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; never journaled.",
+    "op is start, stop or status; start needs worktree. Each routed save is a swap.done event on subscribe. See spec/commands.md."
+   ]
+  },
   "paste-image": {
    "authority": "control",
    "since": 12,

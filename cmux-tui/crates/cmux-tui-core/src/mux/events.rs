@@ -256,6 +256,11 @@ pub enum MuxEvent {
     /// [`MuxEvent::ComputerUseActivity`]: the person's own local connections
     /// only.
     ComputerUsePreview(Arc<Value>),
+    /// One save `cmux live auto` routed (live_auto.rs): `{event: "swap.done",
+    /// worktree, layer, ms, trigger_ms, state_kept, paths, error?, reason?,
+    /// daemons?, outcome?}`. Delivered like [`MuxEvent::ComputerUseActivity`]:
+    /// the person's own local connections only.
+    SwapDone(Arc<Value>),
     /// The chats `chat.list` answers changed (`chat_index.rs`): the index's
     /// new revision. Apps hear it as `chat.changed` (apps/routing.rs); raw
     /// `subscribe` clients do not get it.

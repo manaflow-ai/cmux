@@ -1,0 +1,32 @@
+{
+  "_comment": "The path and Swift-diff rules of live_apply.py, one copy: live_apply.py (try-pr.sh, the hot-swap verdicts) and the cmux-tui daemon's save router (`cmux live auto`, cmux-tui-core src/live_auto/rules.rs) both read this file. Python `re` syntax limited to what Rust's `regex` crate also compiles (no lookaround, no backreferences). Path rules match anywhere in a repo-relative path; the Swift line rules (comment through case) match at the start of a diff line. A C, Objective-C or Zig source (native_source) needs a new app unless it is under native_exempt: the cmux-tui tree build compiles those.",
+  "order": [
+    "rebuild",
+    "swift-live",
+    "daemon",
+    "web-live",
+    "strings",
+    "ios-only",
+    "no-app"
+  ],
+  "noapp_path": "(^|/)(docs?|plans|research|\\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood|design|vault|capture-scratch)/|^Native/.+/evals/|^\\.gitattributes$|(^|/)ci-target-graph\\.json$|-gallery\\.html$|(^|/)CHANGELOG|LICENSE|\\.gitignore$|\\.test\\.(ts|tsx)$|\\.gallery\\.(ts|tsx|css)$|/gallery/",
+  "noapp_ext": "\\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$",
+  "web": "^(webviews|cmux-tui/frontends/web|clients/ts|config/vite-plus)/",
+  "strings": "\\.xcstrings$",
+  "rust": "\\.rs$|(^|/)Cargo\\.toml$|^cmux-tui/|^acpmux/",
+  "ios": "^(ios|cmux-next-ios|Packages/iOS)/",
+  "native_source": "\\.(c|h|m|mm|zig)$",
+  "native_exempt": "^cmux-tui/",
+  "rebuild_file": "\\.(strings|xcassets|plist|entitlements|pbxproj|xcconfig|storyboard|xib|metal|png|pdf|car|icns)$|(^|/)Package\\.(swift|resolved)$|Contents\\.json$|\\.xcodeproj/|/Resources/|^ghostty",
+  "comment": "^\\s*(//|/\\*|\\*|\\*/)",
+  "stored": "^(\\s*)(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\\([^)]*\\))?\\s+)*(let|var)\\s+\\w+[^{]*$",
+  "func": "^\\s*(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\\([^)]*\\))?\\s+)*(func\\s+\\w+|init[?!]?\\s*[(<]|subscript\\s*[(<])",
+  "type_decl": "^\\s*(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\\s+)*(struct|class|enum|actor|protocol|extension)\\s+\\w+",
+  "static_let": "^(\\s*)(@\\w+(\\([^)]*\\))?\\s+)*((public|private|fileprivate|internal|package|open|final|nonisolated(\\([^)]*\\))?)\\s+)*(static|class)\\s+((public|private|fileprivate|internal|package|open|final|nonisolated(\\([^)]*\\))?)\\s+)*let\\s+\\w+[^{]*=",
+  "file_let": "^((public|private|fileprivate|internal|package|nonisolated(\\([^)]*\\))?)\\s+)*let\\s+\\w+[^{]*=",
+  "entry": "^\\s*(@\\w+(\\([^)]*\\))?\\s+)*@main\\b",
+  "live_module": "^(CmuxNext[A-Za-z0-9_]*|MessagesLabHome|ViewShell)$",
+  "live_package": "(?:^|/)Packages/macOS/CmuxNext/Sources/|(?:^|/)Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/|(?:^|/)Prototypes/ViewShell/Sources/",
+  "swift_module": "(?:^|/)Sources/([^/]+)/",
+  "case": "^ {4}(\\t)?case\\s+\\w+|^\\tcase\\s+\\w+"
+}

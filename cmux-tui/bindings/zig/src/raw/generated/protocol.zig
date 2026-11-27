@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6ca9835c2b5e897aea083c0a9ef5399cfceec848d825d37fd4bc0d69db6cfd89";
+pub const ir_sha256 = "9cf642f2887a0fa3f8bf5a5bbb6bf4827158bc6d0a89429873419f19ac054db9";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7440,6 +7440,26 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
     );
 }
 
+pub const LiveAutoRequest = struct {
+    op: []const u8,
+    worktree: wire.Field([]const u8) = .absent,
+};
+
+pub const LiveAutoResult = JsonValue;
+
+pub fn liveAuto(client: anytype, request: LiveAutoRequest) !wire.Decoded(LiveAutoResult) {
+    return client.callTyped(
+        LiveAutoResult,
+        .{
+            .name = "live-auto",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "live-auto-v1",
+        },
+        request,
+    );
+}
+
 pub const MachineListeningTcpRequest = struct {};
 
 pub fn machineListeningTcp(client: anytype, request: MachineListeningTcpRequest) !wire.Decoded(MachineListeningTcpResult) {
@@ -13074,7 +13094,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 314;
+pub const command_count: usize = 315;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13228,6 +13248,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "list-terminals", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "list-workspace-groups", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "list-workspaces", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "live-auto", .authority = "local-admin", .since = 12, .capability = "live-auto-v1", .stream = null },
     .{ .name = "machine-listening-tcp", .authority = "control", .since = 12, .capability = "machine-listening-tcp-v1", .stream = null },
     .{ .name = "machine-usage", .authority = "control", .since = 12, .capability = "machine-usage-v1", .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },

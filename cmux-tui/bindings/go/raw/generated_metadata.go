@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "6ca9835c2b5e897aea083c0a9ef5399cfceec848d825d37fd4bc0d69db6cfd89"
+	SDKIRSHA256        = "9cf642f2887a0fa3f8bf5a5bbb6bf4827158bc6d0a89429873419f19ac054db9"
 )
 
 type Authority string
@@ -214,6 +214,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"list-terminals":                     {Name: "list-terminals", GoMethod: "ListTerminals", Authority: AuthorityControl, Since: 9, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"list-workspace-groups":              {Name: "list-workspace-groups", GoMethod: "ListWorkspaceGroups", Authority: AuthorityControl, Since: 12, Capability: "workspace-groups-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"list-workspaces":                    {Name: "list-workspaces", GoMethod: "ListWorkspaces", Authority: AuthorityControl, Since: 5, Capability: "", Stream: "", FieldSince: map[string]uint32{"after": 12, "known": 12, "limit": 12}, FieldCapabilities: map[string]string{"after": "list-workspaces-page-v1", "known": "list-workspaces-known-v1", "limit": "list-workspaces-limit-v1", "since": "workspace-list-delta-v1"}},
+	"live-auto":                          {Name: "live-auto", GoMethod: "LiveAuto", Authority: AuthorityLocalAdmin, Since: 12, Capability: "live-auto-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"machine-listening-tcp":              {Name: "machine-listening-tcp", GoMethod: "MachineListeningTcp", Authority: AuthorityControl, Since: 12, Capability: "machine-listening-tcp-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"machine-usage":                      {Name: "machine-usage", GoMethod: "MachineUsage", Authority: AuthorityControl, Since: 12, Capability: "machine-usage-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"mark-workspaces-provider-managed":   {Name: "mark-workspaces-provider-managed", GoMethod: "MarkWorkspacesProviderManaged", Authority: AuthorityProviderAuthority, Since: 9, Capability: "provider-managed-workspace-authority-v2", Stream: "", FieldSince: nil, FieldCapabilities: nil},
@@ -524,7 +525,7 @@ func ProfileInfo(name Profile) (ProfileMetadata, bool) {
 }
 
 func AllCommandMetadata() []CommandMetadata {
-	result := make([]CommandMetadata, 0, 314)
+	result := make([]CommandMetadata, 0, 315)
 	result = append(result, cloneCommandMetadata(commandMetadata["ack-tab-notifications"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-screens-to-screen-group"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["add-tabs-to-tab-group"]))
@@ -677,6 +678,7 @@ func AllCommandMetadata() []CommandMetadata {
 	result = append(result, cloneCommandMetadata(commandMetadata["list-terminals"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["list-workspace-groups"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["list-workspaces"]))
+	result = append(result, cloneCommandMetadata(commandMetadata["live-auto"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["machine-listening-tcp"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["machine-usage"]))
 	result = append(result, cloneCommandMetadata(commandMetadata["mark-workspaces-provider-managed"]))

@@ -970,6 +970,52 @@ line follows. A host whose intent line cannot be written is not ended; log
 failures and a sightings file gc could not save are listed in the report's
 `errors`.
 
+### live-auto
+
+| Field | Value |
+| --- | --- |
+| name | `live-auto` |
+| status | implemented |
+| since | protocol 12, capability `live-auto-v1` |
+
+Starts, stops or reads the save router (`cmux live auto`,
+`crates/cmux-tui-core/src/live_auto.rs`). The daemon watches a cmux checkout,
+classifies each save with the rules `scripts/cmux-next/live_apply.py` uses
+(one source: `scripts/cmux-next/live-apply-rules.json` and
+`.github/change-classes.json`), routes it to the fastest layer that takes it
+into the running app and publishes one `swap.done` event per layer on
+`subscribe` ([events](events.md#swapdone)). Saves are coalesced while they
+keep coming (8 ms quiet, 40 ms at most). The watched checkouts survive a
+daemon swap: a daemon that starts on the same socket watches them again and
+reports the rust-live receipts that came while none ran. No prompt, toast or
+focus change. Trusted local connections only (a remote or relayed connection
+gets `bad request`).
+
+Params: `{op: "start" | "stop" | "status", worktree?: string}`. `start` needs
+`worktree`; `stop` without it stops every checkout.
+
+Result:
+
+```text
+object{
+  trees: [object{
+    worktree: string,
+    started_at: float64,              // unix seconds
+    live: object{web: bool, rust: bool, swift: bool},
+    bursts: uint64, saves: uint64, no_app: uint64,
+    trigger_ms: object{p50: float64, p95: float64, samples: uint32},
+    error: string | null,
+  }],
+  pending: [object{worktree, layer, paths, saved_at, dispatched_at, trigger_ms}],
+  recent: [swap.done],                // the last 32 events
+  debounce_ms: object{quiet: uint32, max: uint32},
+  stopped?: [string],                 // stop only
+}
+```
+
+CLI mapping: `cmux live auto [start|stop|status] [--worktree <path>]`
+(`--json` prints this object).
+
 ### browser-host-provider
 
 | Field | Value |

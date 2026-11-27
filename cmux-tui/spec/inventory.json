@@ -640,6 +640,7 @@
     "local-admin": [
       "server-stats",
       "process-census",
+      "live-auto",
       "subscribe-activity",
       "set-terminal-command-history",
       "list-terminal-commands",
