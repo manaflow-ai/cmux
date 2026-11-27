@@ -222,7 +222,7 @@ impl Capsule {
     pub fn seal(&mut self) {
         self.id.clear();
         let digest = Sha256::digest(serde_json::to_vec(self).unwrap_or_default());
-        self.id = hex(&digest)[..16].to_owned();
+        self.id = hex(&digest).chars().take(16).collect();
     }
 
     /// Masks every free-text field with `mask` and replaces each of `secrets` (exact values) with
@@ -388,8 +388,7 @@ fn normalize_line(line: &str) -> String {
 fn normalize_word(word: &str) -> String {
     let trimmed = word.trim_matches(|c: char| "()[],;".contains(c));
     let is_hex = trimmed.len() > 4
-        && trimmed.starts_with("0x")
-        && trimmed[2..].chars().all(|c| c.is_ascii_hexdigit());
+        && trimmed.strip_prefix("0x").is_some_and(|hex| hex.chars().all(|c| c.is_ascii_hexdigit()));
     if is_hex {
         return word.replace(trimmed, "<HEX>");
     }
@@ -466,7 +465,7 @@ pub fn derive_signature(output: &str, root: Option<&str>) -> Vec<String> {
         if MARKS.iter().any(|m| line.contains(m)) && !lines.iter().any(|l| l == line) {
             // A panic line names the test thread; the message after it is the signature.
             let line = match line.find("panicked at ") {
-                Some(at) => line[at..].to_owned(),
+                Some(at) => line.get(at..).unwrap_or(line).to_owned(),
                 None => line.to_owned(),
             };
             lines.push(line.chars().take(240).collect());
@@ -586,7 +585,7 @@ pub fn tail_bytes(text: &str, max: usize) -> String {
     while !text.is_char_boundary(start) {
         start += 1;
     }
-    text[start..].to_owned()
+    text.get(start..).unwrap_or_default().to_owned()
 }
 
 #[cfg(test)]

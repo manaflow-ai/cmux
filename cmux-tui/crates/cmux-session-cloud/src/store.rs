@@ -38,8 +38,12 @@ impl FsStore {
         Ok(Self { dir })
     }
 
-    fn path(&self, sha256: &str) -> PathBuf {
-        self.dir.join(&sha256[..2]).join(sha256)
+    fn path(&self, sha256: &str) -> anyhow::Result<PathBuf> {
+        if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+            bail!("sync.invalid_digest");
+        }
+        let prefix = sha256.get(..2).ok_or_else(|| anyhow::anyhow!("sync.invalid_digest"))?;
+        Ok(self.dir.join(prefix).join(sha256))
     }
 }
 
@@ -48,7 +52,7 @@ impl BlobStore for FsStore {
         if crate::sha256_hex(bytes) != sha256 {
             bail!("sync.digest_mismatch");
         }
-        let path = self.path(sha256);
+        let path = self.path(sha256)?;
         if path.exists() {
             return Ok(());
         }
@@ -60,11 +64,11 @@ impl BlobStore for FsStore {
     }
 
     fn get(&self, sha256: &str) -> anyhow::Result<Vec<u8>> {
-        std::fs::read(self.path(sha256)).with_context(|| format!("sync.blob_not_found {sha256}"))
+        std::fs::read(self.path(sha256)?).with_context(|| format!("sync.blob_not_found {sha256}"))
     }
 
     fn has(&self, sha256: &str) -> anyhow::Result<bool> {
-        Ok(self.path(sha256).exists())
+        Ok(self.path(sha256)?.exists())
     }
 
     fn set_root(&self, pair: &str, hashes: &[String]) -> anyhow::Result<()> {

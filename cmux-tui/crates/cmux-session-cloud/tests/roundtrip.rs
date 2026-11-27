@@ -192,3 +192,14 @@ fn tail_opens_in_one_response_and_backfill_resumes_by_verified_id() -> anyhow::R
     assert!(cache.verified(&older[0].0).unwrap());
     Ok(())
 }
+
+#[test]
+fn malformed_blob_addresses_are_errors_without_panicking() {
+    use cmux_session_cloud::store::BlobStore;
+    let dir = tempfile::tempdir().unwrap();
+    let store = FsStore::new(dir.path()).unwrap();
+    for address in ["", "a", "☃", "../outside", &"g".repeat(64)] {
+        assert_eq!(store.get(address).unwrap_err().to_string(), "sync.invalid_digest");
+        assert_eq!(store.has(address).unwrap_err().to_string(), "sync.invalid_digest");
+    }
+}

@@ -152,3 +152,18 @@ fn the_wire_layout_is_pinned() {
     assert_eq!(&a[126..130], &19u32.to_be_bytes());
     assert_eq!(open(&viewer, &pk(&source), "s", None, &a).unwrap().plaintext, b"abc");
 }
+
+#[test]
+fn overflowing_declared_ciphertext_length_is_malformed() {
+    let (source, viewer) = (identity(), viewer());
+    let mut sealed = seal(&source, &viewer.public_key(), "chat:s1", P1, b"hello").unwrap();
+    let length_start = 17 + KEY_ID_LEN + POINT_LEN + NONCE_LEN;
+    sealed
+        .get_mut(length_start..length_start + 4)
+        .unwrap()
+        .copy_from_slice(&u32::MAX.to_be_bytes());
+    assert_eq!(peek(&sealed), Err(Error::Malformed));
+    for len in 0..sealed.len() {
+        assert_eq!(peek(sealed.get(..len).unwrap()), Err(Error::Malformed));
+    }
+}

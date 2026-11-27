@@ -58,7 +58,7 @@ impl Cloud {
     pub fn root_pair(&self) -> String {
         let id =
             sha256_hex(&[b"cmux-session-cloud root\0".as_slice(), self.key.id_material()].concat());
-        format!("{}csh.{}", self.root_prefix, &id[..32])
+        format!("{}csh.{}", self.root_prefix, id.chars().take(32).collect::<String>())
     }
 
     /// Makes `cloud` the one [`Cloud::get`] answers, for this process.

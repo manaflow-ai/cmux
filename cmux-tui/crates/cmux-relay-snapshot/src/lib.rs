@@ -234,33 +234,43 @@ struct Parts<'a> {
 }
 
 fn split(bytes: &[u8]) -> Result<Parts<'_>, Error> {
-    if bytes.len() < FIXED_LEN || bytes[0] != VERSION {
+    if bytes.len() < FIXED_LEN || bytes.first() != Some(&VERSION) {
         return Err(Error::Malformed);
     }
-    let epoch = u64::from_be_bytes(bytes[1..9].try_into().map_err(|_| Error::Malformed)?);
-    let seq = u64::from_be_bytes(bytes[9..17].try_into().map_err(|_| Error::Malformed)?);
-    let source_key_id: [u8; KEY_ID_LEN] =
-        bytes[17..17 + KEY_ID_LEN].try_into().map_err(|_| Error::Malformed)?;
+    let epoch = u64::from_be_bytes(
+        bytes.get(1..9).ok_or(Error::Malformed)?.try_into().map_err(|_| Error::Malformed)?,
+    );
+    let seq = u64::from_be_bytes(
+        bytes.get(9..17).ok_or(Error::Malformed)?.try_into().map_err(|_| Error::Malformed)?,
+    );
+    let source_key_id: [u8; KEY_ID_LEN] = bytes
+        .get(17..17 + KEY_ID_LEN)
+        .ok_or(Error::Malformed)?
+        .try_into()
+        .map_err(|_| Error::Malformed)?;
     let ephemeral_start = 17 + KEY_ID_LEN;
     let nonce_start = ephemeral_start + POINT_LEN;
     let length_start = nonce_start + NONCE_LEN;
     let length = u32::from_be_bytes(
-        bytes[length_start..length_start + 4].try_into().map_err(|_| Error::Malformed)?,
+        bytes
+            .get(length_start..length_start + 4)
+            .ok_or(Error::Malformed)?
+            .try_into()
+            .map_err(|_| Error::Malformed)?,
     ) as usize;
     let ciphertext_start = length_start + 4;
-    if length < TAG_LEN
-        || bytes.len() != ciphertext_start + length + SIGNATURE_LEN
-        || bytes[ephemeral_start] != 4
-    {
+    let ciphertext_end = ciphertext_start.checked_add(length).ok_or(Error::Malformed)?;
+    let envelope_end = ciphertext_end.checked_add(SIGNATURE_LEN).ok_or(Error::Malformed)?;
+    if length < TAG_LEN || bytes.len() != envelope_end || bytes.get(ephemeral_start) != Some(&4) {
         return Err(Error::Malformed);
     }
     Ok(Parts {
         header: Header { position: Position { epoch, seq }, source_key_id },
-        ephemeral_point: &bytes[ephemeral_start..nonce_start],
-        nonce: &bytes[nonce_start..length_start],
-        ciphertext: &bytes[ciphertext_start..ciphertext_start + length],
-        body: &bytes[..ciphertext_start + length],
-        signature: &bytes[ciphertext_start + length..],
+        ephemeral_point: bytes.get(ephemeral_start..nonce_start).ok_or(Error::Malformed)?,
+        nonce: bytes.get(nonce_start..length_start).ok_or(Error::Malformed)?,
+        ciphertext: bytes.get(ciphertext_start..ciphertext_end).ok_or(Error::Malformed)?,
+        body: bytes.get(..ciphertext_end).ok_or(Error::Malformed)?,
+        signature: bytes.get(ciphertext_end..).ok_or(Error::Malformed)?,
     })
 }
 
@@ -293,7 +303,7 @@ pub fn open<V: Viewer + ?Sized>(
         PublicKey::from_sec1_bytes(parts.ephemeral_point).map_err(|_| Error::Malformed)?;
     let shared = viewer.agree(&ephemeral)?;
     let key = derive(&shared, parts.ephemeral_point, &point(&viewer_public), &context)?;
-    let mut aad = envelope[..HEADER_LEN].to_vec();
+    let mut aad = envelope.get(..HEADER_LEN).ok_or(Error::Malformed)?.to_vec();
     aad.extend_from_slice(&context);
     let plaintext = Aes256Gcm::new(&key.into())
         .decrypt(Nonce::from_slice(parts.nonce), Payload { msg: parts.ciphertext, aad: &aad })
