@@ -301,4 +301,22 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         try await backend(macID).deleteGroup(group, on: macID)
     }
 }
+// MARK: DiffReviewThreadsBackend
+
+/// Each Mac's review threads go over that Mac's own daemon lane.
+extension MultiMacWorkspaceBackend: DiffReviewThreadsBackend {
+    public func canReviewThreads(on macID: String) -> Bool { linked(macID)?.canReviewThreads(on: macID) ?? false }
+    public func reviewThreads(root: String, on macID: String) async throws -> [DiffReviewThread] {
+        try await backend(macID).reviewThreads(root: root, on: macID)
+    }
+    public func reply(_ text: String, to thread: String, root: String, on macID: String) async throws {
+        try await backend(macID).reply(text, to: thread, root: root, on: macID)
+    }
+    public func setResolved(_ resolved: Bool, thread: String, root: String, on macID: String) async throws {
+        try await backend(macID).setResolved(resolved, thread: thread, root: root, on: macID)
+    }
+    public func sendBack(_ threads: [DiffReviewThread], root: String, chat: String, on macID: String) async throws {
+        try await backend(macID).sendBack(threads, root: root, chat: chat, on: macID)
+    }
+}
 #endif

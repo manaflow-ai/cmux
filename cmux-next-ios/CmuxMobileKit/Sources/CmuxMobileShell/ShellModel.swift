@@ -519,6 +519,8 @@ final class ShellModel {
             // Each change goes to its workspace's Mac over that Mac's own link.
             let backend = MultiMacWorkspaceBackend(coordinator: live)
             creator.backend = backend
+            // Review Threads (behind its flag) reach each Mac over the same backend.
+            DiffReviewThreadsCenter.shared.backend = backend
             FeedRouting.shared.clearAllNotifications = { [weak live, weak backend] in
                 // The Feed holds every linked Mac's terminal events: each clears its own.
                 let macs = (live?.linkedMacIDs ?? []).filter { backend?.canClearNotifications(on: $0) == true }

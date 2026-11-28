@@ -2141,6 +2141,15 @@ fn folders_in(reply: &Value) -> Vec<PathBuf> {
     folders
 }
 
+/// Whether `root` (a diff's worktree root) is a git worktree that holds the
+/// folder of a tab in `list-workspaces` (`reply`): the tab's canonical cwd is
+/// the root or inside it. A missing folder, a non-worktree or one no tab is in
+/// is not the phone's to read.
+fn worktree_of_a_tab(reply: &Value, root: &str) -> bool {
+    let Ok(root) = std::fs::canonicalize(root) else { return false };
+    root.join(".git").exists() && folders_in(reply).iter().any(|folder| folder.starts_with(&root))
+}
+
 /// The address of every browser tab in a `list-workspaces` reply.
 pub fn browser_urls_in(reply: &Value) -> Vec<String> {
     let data = reply.get("data").unwrap_or(reply);
@@ -2224,6 +2233,7 @@ fn side_requirements(line: &[u8]) -> Option<(bool, bool, bool)> {
         Some(Ownership::PinnedWorkspaceTile { .. }) => Some((false, false, true)),
         Some(Ownership::OwnGroup { .. }) => Some((true, true, false)),
         Some(Ownership::PlaceWorkspace { group, .. }) => Some((true, group.is_some(), false)),
+        Some(Ownership::TabFolder { .. }) => Some((true, false, false)),
         None => serde_json::from_slice::<Value>(line)
             .ok()
             .filter(|v| {
@@ -2266,6 +2276,7 @@ fn owned_check(cache: &crate::workspace_cache::WorkspaceCache, line: &[u8], verd
                     (Some(_), None) => false,
                 }
         }),
+        Ownership::TabFolder { root } => tree.as_ref().is_some_and(|tree| worktree_of_a_tab(tree, root)),
     };
     if owned { verdict } else { Verdict::Refuse(not_owned(line, &what)) }
 }
@@ -3413,6 +3424,33 @@ mod tests {
             vec!["file:///Users/me/a%20b.html".to_owned(), "https://cmux.com/".into()]
         );
         assert!(browser_urls_in(&serde_json::json!({"ok": false})).is_empty());
+    }
+
+    /// The phone reads and answers diff comment threads only of a git worktree
+    /// a tab of this Mac is in (at its root or below), never of another folder.
+    #[test]
+    fn diff_comments_only_of_a_worktree_a_tab_is_in() {
+        let base = tempfile::tempdir().unwrap();
+        let base = std::fs::canonicalize(base.path()).unwrap();
+        let repo = base.join("repo");
+        let other = base.join("other");
+        let plain = base.join("plain");
+        for dir in [repo.join(".git"), repo.join("src"), other.join(".git"), plain.clone()] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let reply = serde_json::json!({"data": {"workspaces": [{"screens": [{"panes": [
+            {"id": 3, "active_tab": 0, "tabs": [{"cwd": repo.join("src")}, {"cwd": plain}]}]}]}]}});
+        assert!(worktree_of_a_tab(&reply, repo.to_str().unwrap()));
+        assert!(!worktree_of_a_tab(&reply, other.to_str().unwrap()), "no tab is in it");
+        assert!(!worktree_of_a_tab(&reply, plain.to_str().unwrap()), "not a worktree");
+        assert!(!worktree_of_a_tab(&reply, base.join("gone").to_str().unwrap()));
+        assert!(!worktree_of_a_tab(&serde_json::json!({"ok": false}), repo.to_str().unwrap()));
+        let line = |root: &std::path::Path| {
+            serde_json::to_vec(&serde_json::json!({"protocol": "cmux.protocol/2", "type": "request", "id": "r1",
+                "operation": "diff.comments.list", "params": {"machine": "current", "session": "current", "root": root}}))
+            .unwrap()
+        };
+        assert_eq!(side_requirements(&line(&repo)), Some((true, false, false)));
     }
 
     /// The forwarding loop uses the cached tree and does no socket I/O.
