@@ -23,6 +23,7 @@ CARGO = ["cargo", "build", "--locked", "--profile", "dev", "-p", "ghostty-vt",
 def stop_tree(pid):
     """Stop only this child tree; retain the CI step's group for outer cancellation."""
     stopped = {}
+    stop_deadline = time.monotonic() + 5
     def visit(child):
         if child in stopped:
             return
@@ -35,16 +36,29 @@ def stop_tree(pid):
             signal.pidfd_send_signal(descriptor, signal.SIGSTOP)
         except ProcessLookupError:
             return
-        # A stopped process cannot spawn more children while we enumerate every thread.
-        for task in (Path("/proc") / str(child) / "task").glob("*/children"):
+        tasks = Path("/proc") / str(child) / "task"
+        # Delivery is asynchronous: every thread must acknowledge the group stop
+        # before its child list is stable. Exited tasks need no acknowledgement.
+        while True:
+            states = []
+            for task in tasks.glob("*/stat"):
+                try:
+                    states.append(task.read_text().rsplit(")", 1)[1].split()[0])
+                except FileNotFoundError:
+                    continue
+            if all(state in {"T", "t", "Z", "X"} for state in states):
+                break
+            if time.monotonic() >= stop_deadline:
+                raise RuntimeError("owned process tree did not stop within 5 seconds")
+            time.sleep(0.001)
+        for task in tasks.glob("*/children"):
             try:
                 children = task.read_text().split()
             except FileNotFoundError:
                 continue
             for descendant in children:
                 visit(int(descendant))
-    try:
-        visit(pid)
+    def kill_and_wait():
         pending = select.poll()
         for descriptor in reversed(list(stopped.values())):
             pending.register(descriptor, select.POLLIN)
@@ -63,9 +77,14 @@ def stop_tree(pid):
             for descriptor, _events in pending.poll(milliseconds):
                 pending.unregister(descriptor)
                 remaining.remove(descriptor)
+    try:
+        visit(pid)
     finally:
-        for descriptor in stopped.values():
-            os.close(descriptor)
+        try:
+            kill_and_wait()
+        finally:
+            for descriptor in stopped.values():
+                os.close(descriptor)
 
 
 def run(name, command, output, env, timeout=180, expected=0):
