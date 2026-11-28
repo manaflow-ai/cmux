@@ -579,6 +579,8 @@ mod socket_and_render;
 mod stop_if_idle;
 mod subscribe_cap;
 mod subscribe_scroll_on_attach;
+#[cfg(unix)]
+mod team_policy_fetch;
 mod terminal_close_if_unplaced;
 mod terminal_progress_follower;
 #[cfg(unix)]
