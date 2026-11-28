@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import CmuxSettings
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -182,6 +183,70 @@ struct CloudWelcomeTests {
         #expect(fractions.first == 0.25)
         #expect(abs(fractions[60] - 0.375) < 0.0001)
         #expect(fractions == fractions.sorted())
+    }
+
+    /// The Sentry stack this guards: TimelineView body, `progress`, `fraction`,
+    /// `-[AVPlayerItem currentTime]`, which waits on an AVFoundation mutex while
+    /// the player is busy. This renders the shipped welcome with its real clip,
+    /// so it covers the view body that `playbackFractionDoesNotQueryPlayer` does not.
+    @Test("the rendered welcome progress bar re-renders during playback without reading the player's time")
+    @MainActor
+    func renderedProgressNeverReadsPlayerTime() async throws {
+        let counter = CarouselPlayheadReadCounter.install()
+        defer { counter.uninstall() }
+        CloudWelcomeMediaCarousel.readPlayheadForCounterCheck()
+        try #require(counter.reads == 1, "the counter missed a read from a carousel frame, so zero reads would prove nothing")
+
+        // Reduce Motion pauses the movie and the timeline, and hosted CI runners turn it on.
+        func card(headline: String) -> AnyView {
+            AnyView(
+                CloudWelcomeView(nextStep: .upgrade, onNotNow: {}, onNext: { _ in }, posterHeadline: headline)
+                    .environment(\._accessibilityReduceMotion, false)
+            )
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 720),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let hosting = NSHostingView(rootView: card(headline: "0"))
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        // The wall-clock fallback also moves the fill, and the old code only read
+        // the time once the duration was known, so both must be settled first.
+        let moviePlaying = await pump(seconds: 30) {
+            renderedMovieLayers(in: window).contains { layer in
+                guard layer.isReadyForDisplay, let player = layer.player, let item = player.currentItem else { return false }
+                return player.timeControlStatus == .playing && item.duration.seconds.isFinite
+            }
+        }
+        let state = renderedMovieLayers(in: window).map { layer -> String in
+            let player = layer.player
+            let item = player?.currentItem
+            return "ready \(layer.isReadyForDisplay) control \(player?.timeControlStatus.rawValue ?? -1) rate \(player?.rate ?? -1) waiting \(String(describing: player?.reasonForWaitingToPlay?.rawValue)) item \(item?.status.rawValue ?? -1) error \(String(describing: item?.error)) duration \(item?.duration.seconds ?? -1)"
+        }
+        try #require(moviePlaying, "the movie never played, so the old code path would not run either: \(state)")
+
+        // Each new input re-runs the TimelineView body, so this still exercises it
+        // on a host whose display is not delivering `.animation` frames.
+        var fills = Set<Int>()
+        for revision in 1...5 {
+            hosting.rootView = card(headline: "\(revision)")
+            _ = await pump(seconds: 5) {
+                let before = fills.count
+                fills.formUnion(renderedFillOffsets(in: window))
+                return fills.count > before
+            }
+        }
+        #expect(fills.count >= 3, "the progress fill took \(fills.count) positions, so its TimelineView body did not re-render")
+        #expect(counter.reads == 1, "the carousel read the player's time \(counter.reads - 1) times")
     }
 
     @Test("a cached playhead holds while stopped, clamps at the end and clears on detach")
@@ -498,6 +563,93 @@ struct CloudWelcomeTests {
         await CloudWelcomeWindowController.resume({ resumed += 1 }, after: failing)
         #expect(failing.state == .failed(.serviceUnavailable))
         #expect(resumed == 1)
+    }
+}
+
+/// Runs the main run loop until `condition` holds or the time is up.
+@MainActor
+private func pump(seconds: TimeInterval, until condition: () -> Bool) async -> Bool {
+    let deadline = Date().addingTimeInterval(seconds)
+    while Date() < deadline {
+        if condition() { return true }
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        await Task.yield()
+    }
+    return condition()
+}
+
+@MainActor
+private func renderedViews(in window: NSWindow) -> [NSView] {
+    var views: [NSView] = []
+    var pending = window.contentView.map { [$0] } ?? []
+    while let view = pending.popLast() {
+        views.append(view)
+        pending.append(contentsOf: view.subviews)
+    }
+    return views
+}
+
+@MainActor
+private func renderedMovieLayers(in window: NSWindow) -> [AVPlayerLayer] {
+    renderedViews(in: window).compactMap { $0.layer as? AVPlayerLayer }
+}
+
+/// Where each progress fill's layer sits, in whole points. The fill slides in as progress rises.
+@MainActor
+private func renderedFillOffsets(in window: NSWindow) -> [Int] {
+    renderedViews(in: window)
+        .filter { String(describing: type(of: $0)).contains("FillView") }
+        .compactMap { $0.layer?.sublayers?.first.map { Int($0.frame.minX.rounded()) } }
+}
+
+/// Counts `currentTime` calls on the player and its item made from the welcome
+/// carousel, across the real AVFoundation path. A call already inside a wrapper
+/// when the hook comes off still reaches the saved original.
+private final class CarouselPlayheadReadCounter {
+    private let lock = NSLock()
+    private var count = 0
+    private var restores: [() -> Void] = []
+
+    var reads: Int { lock.withLock { count } }
+
+    static func install() -> CarouselPlayheadReadCounter {
+        let counter = CarouselPlayheadReadCounter()
+        counter.hook(AVPlayerItem.self, #selector(AVPlayerItem.currentTime))
+        counter.hook(AVPlayer.self, #selector(AVPlayer.currentTime))
+        return counter
+    }
+
+    func uninstall() {
+        restores.forEach { $0() }
+        restores = []
+    }
+
+    private func hook(_ type: AnyClass, _ selector: Selector) {
+        guard let method = class_getInstanceMethod(type, selector) else {
+            Issue.record("\(type).\(selector) could not be hooked")
+            return
+        }
+        let original = method_getImplementation(method)
+        let read = unsafeBitCast(original, to: (@convention(c) (AnyObject, Selector) -> CMTime).self)
+        let counting: @convention(block) (AnyObject) -> CMTime = { [self] object in
+            recordIfFromCarousel()
+            return read(object, selector)
+        }
+        method_setImplementation(method, imp_implementationWithBlock(counting))
+        restores.append { method_setImplementation(method, original) }
+    }
+
+    private func recordIfFromCarousel() {
+        guard Thread.callStackSymbols.contains(where: { $0.contains("CloudWelcomeMediaCarousel") }) else { return }
+        lock.withLock { count += 1 }
+    }
+}
+
+private extension CloudWelcomeMediaCarousel {
+    /// A read from a carousel frame, which proves the counter can see one.
+    @inline(never)
+    static func readPlayheadForCounterCheck() {
+        _ = AVPlayerItem(url: URL(fileURLWithPath: "/dev/null")).currentTime()
     }
 }
 
