@@ -85,6 +85,7 @@ CMUX_IOS_FFI_TRUSTED_URL (the repository probe clones instead of GitHub's).
 """
 import hashlib
 import contextlib
+import http.client
 import fcntl
 import json
 import os
@@ -105,6 +106,7 @@ SWIFT_FILE = "CmuxMobileLinkFFI.swift"
 FLEET_FILES = (XCF_TAR, SWIFT_FILE)
 FLEET_MAX_MANIFEST = 16 << 10  # the controller's limit
 FLEET_MAX_FILE = 2 << 30
+FLEET_DOWNLOAD_SECONDS = 150  # a miss builds in ~230-600 s; a slower download is not worth waiting for
 WORKSPACE = "cmux-next-ios/rust"
 XCFRAMEWORK = "cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework"
 SWIFT = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift"
@@ -252,6 +254,9 @@ def build_env():
     env = {name: value for name, value in os.environ.items()
            if (name in BUILD_ENV_NAMES or name.startswith(BUILD_ENV_PREFIXES)) and name not in BUILD_ENV_LOCATIONS}
     env.setdefault("IPHONEOS_DEPLOYMENT_TARGET", "17.0")
+    # Values as their sha256: the manifest goes to the fleet store, where every step can read it, and a variable
+    # with a matching prefix may hold a credential (CARGO_REGISTRIES_*_TOKEN). The key still follows every value.
+    env = {name: hashlib.sha256(value.encode()).hexdigest() for name, value in env.items()}
     cargo_home = pathlib.Path(os.environ.get("CARGO_HOME") or pathlib.Path.home() / ".cargo")
     for name in ("config", "config.toml"):
         f = cargo_home / name
@@ -386,7 +391,15 @@ def restore(root, key):
             for out in OUTPUTS:
                 install(entry / "payload" / out, root / out)
             print("ios-ffi cache: hit %s%s" % (key[:12], " (" + fleet + ")" if fleet else ""))
-            return 0
+            hit = True
+        else:
+            hit = False
+    if hit:
+        if fleet:
+            # A worker that only gets hits never stores, so a fetched entry bounds the cache here (after the
+            # shared lock: prune takes the exclusive one; the new entry is busy, so it stays).
+            prune(cache)
+        return 0
     print("ios-ffi cache: dropped %s (%s)" % (key[:12], why))
     with cache_lock(cache, exclusive=True):
         if entry.is_dir() and not verify(entry, key)[0]:
@@ -459,7 +472,7 @@ def fleet_entry(key):
         if e.code != 404:
             print("ios-ffi cache: fleet store answered %d for %s" % (e.code, key[:12]))
         return None
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, http.client.HTTPException) as e:
         print("ios-ffi cache: fleet store unavailable (%s)" % e)
         return None
     manifest = entry.get("manifest") if isinstance(entry, dict) else None
@@ -493,8 +506,11 @@ def download(name, digest, size, target):
     if not isinstance(url, str) or not url.startswith(("https://", "http://")):
         raise OSError("no download URL for " + name)
     h, total = hashlib.sha256(), 0
-    with _open(url, 600) as res, open(target, "wb") as out:
+    deadline = time.monotonic() + FLEET_DOWNLOAD_SECONDS
+    with _open(url, 60) as res, open(target, "wb") as out:
         while True:
+            if time.monotonic() > deadline:
+                raise TimeoutError("%s took longer than %d s; building is faster" % (name, FLEET_DOWNLOAD_SECONDS))
             chunk = res.read(1 << 20)
             if not chunk:
                 break
@@ -516,8 +532,10 @@ def unpack(tar_path, dest):
         for m in members:
             parts = pathlib.PurePosixPath(m.name).parts
             if (not parts or parts[0] != top or ".." in parts or m.name.startswith("/")
-                    or not (m.isreg() or m.isdir())):
+                    or not (m.isreg() or m.isdir()) or m.issparse()):
                 raise ValueError("archive member %r is not a file or directory of the xcframework" % m.name)
+        if sum(m.size for m in members) > FLEET_MAX_FILE:
+            raise ValueError("archive unpacks larger than %d bytes" % FLEET_MAX_FILE)
         for m in members:
             target = dest / m.name
             if m.isdir():

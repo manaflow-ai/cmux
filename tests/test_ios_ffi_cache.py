@@ -578,7 +578,12 @@ class FleetTierTest(FFIRepoCase):
         return env, checkout
 
     def test_a_fresh_build_is_exported_for_the_fleet_store_under_its_content_key(self):
+        self.env["CARGO_REGISTRIES_PRIVATE_TOKEN"] = "s3cr3t-value"
         key = self.build_on_worker_a()
+        out = self.job / "component-outputs" / "ios-ffi" / key
+        # Every step can read a fleet manifest: build settings are there as hashes, never as values.
+        self.assertNotIn(b"s3cr3t-value", (out / "manifest.json").read_bytes())
+        self.assertIn("CARGO_REGISTRIES_PRIVATE_TOKEN", json.loads((out / "manifest.json").read_text())["env"])
         out = self.job / "component-outputs" / "ios-ffi" / key
         self.assertTrue(out.is_dir(), list(self.job.rglob("*")))
         manifest = (out / "manifest.json").read_bytes()

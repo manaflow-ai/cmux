@@ -109,6 +109,9 @@ def prior_failure(base, state, now):
             if context != state['context'] or receipt.get('reused_from'):
                 continue
             valid = valid_receipt(receipt, job)
+            limited = [p for p in os.environ.get('CMUX_CI_SUITE_FAILURE_PHASES', '').split(',') if p]
+            if valid and limited and receipt.get('phase') != 'passed' and receipt.get('phase') not in limited:
+                valid = False  # a phase this step shape does not reuse (an older receipt of its context)
             if valid and receipt['key'] != state['key']:
                 continue
             stamp = timestamp(receipt.get('reported_at')) if valid else timestamp(job.get('updated_at'))
@@ -188,6 +191,12 @@ def eligible_failure(phase, status, output):
     return False
 
 
+def host_failure_anywhere(path):
+    """Whether any line of the whole log names a host failure (read line by line, without escape sequences)."""
+    with path.open('rb') as log:
+        return any(HOST_FAILURE.search(ANSI.sub('', line.decode(errors='replace'))) for line in log)
+
+
 def record(arguments):
     if not arguments.state.exists() or not arguments.state.stat().st_size:
         return 0
@@ -201,6 +210,8 @@ def record(arguments):
     # artifact step's compile or discovery failure is its commit's, a test failure there may be its display's.
     limited = [p for p in os.environ.get('CMUX_CI_SUITE_FAILURE_PHASES', '').split(',') if p]
     unlisted = bool(limited) and arguments.phase != 'passed' and arguments.phase not in limited
+    if not unlisted and arguments.phase == 'compile' and arguments.log and host_failure_anywhere(arguments.log):
+        unlisted = True  # a host failure early in a long log, before the 2 MiB tail eligible_failure reads
     if unlisted or not eligible_failure(arguments.phase, arguments.status, output):
         state['blocked'] = True
         write_json(arguments.state, state)
