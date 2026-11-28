@@ -56,7 +56,7 @@ import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, PlanIcon, LiveContextRing } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph, SendSlot, StopPulse } from "./composer/SendSlotGlyph";
-import { useStopPresence } from "./composer/turnPresence";
+import { type StopPresence } from "./composer/turnPresence";
 import { SendMenu } from "./composer/SendMenu";
 import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
 import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
@@ -2617,10 +2617,9 @@ function ComposerFrame({
   // Whether the slot draws Stop: `running` with hysteresis (composer/turnPresence.ts, the Rust
   // model's copy). A turn shorter than the dwell draws no Stop, a turn's end keeps it a moment, a
   // turn that starts again then pulses it, and no frame shows or hides it for less than the hold.
-  // Only the drawing reads it; Esc, resume and the labels read `running`.
-  const stopPresence = useStopPresence(running, sessionId, lastSent);
-  const stopShown = !shell && stopPresence.shown;
-  const stop = stopShown && facts.empty;
+  // Only the drawing reads it; Esc, resume and the labels read `running`. The send slot owns it
+  // (SendSlot, below): its timer wakes draw the slot alone, never the whole composer, so a
+  // turn's start and end draw the composer once each, as before the hysteresis (#51225).
   const hasDraft = Boolean(!facts.empty || attachments.length || pending.length);
   useEffect(() => onFilled?.(hasDraft), [hasDraft, onFilled]);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
@@ -3005,32 +3004,33 @@ function ComposerFrame({
   // the first draw or a chat switch (composer/SendSlotGlyph.tsx). The Quick Composer can show both at
   // once, so its glyphs draw at once.
   const morphMemory = onOpenInWindow ? undefined : slotMemory;
-  const stopButton = stopShown ? (
-    <button
-      key="stop"
-      ref={sendButton}
-      type="button"
-      className="acpmux-send acpmux-cancel"
-      data-escape-armed={escapeStop.armed && !stopping ? "" : undefined}
-      data-stopping={stopping ? "" : undefined}
-      // A turn's end keeps Stop a moment (turnPresence.ts): it dims, and pulses if a turn starts again.
-      data-stop-lingering={stopPresence.lingering ? "" : undefined}
-      aria-label={stopLabel}
-      // tooltip-allow: names the icon-only Stop, once armed says to press Esc again, and once sent says it is stopping.
-      title={stopLabel}
-      // Lingering, nothing runs to stop; a turn that starts then makes it live again.
-      onClick={running ? stopTurn : undefined}
-    >
-      {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
-      <SendSlotGlyph
-        glyph={stopping ? "stopping" : "stop"}
-        state={stopping ? "stopping" : "stop"}
-        memory={morphMemory}
-        scope={sessionId}
-      />
-      <StopPulse pulses={stopPresence.pulses} />
-    </button>
-  ) : null;
+  const stopButtonFor = (stopPresence: StopPresence) =>
+    !shell && stopPresence.shown ? (
+      <button
+        key="stop"
+        ref={sendButton}
+        type="button"
+        className="acpmux-send acpmux-cancel"
+        data-escape-armed={escapeStop.armed && !stopping ? "" : undefined}
+        data-stopping={stopping ? "" : undefined}
+        // A turn's end keeps Stop a moment (turnPresence.ts): it dims, and pulses if a turn starts again.
+        data-stop-lingering={stopPresence.lingering ? "" : undefined}
+        aria-label={stopLabel}
+        // tooltip-allow: names the icon-only Stop, once armed says to press Esc again, and once sent says it is stopping.
+        title={stopLabel}
+        // Lingering, nothing runs to stop; a turn that starts then makes it live again.
+        onClick={running ? stopTurn : undefined}
+      >
+        {/* The first Esc of the double press keeps the glyph; its color and name say Esc again stops. */}
+        <SendSlotGlyph
+          glyph={stopping ? "stopping" : "stop"}
+          state={stopping ? "stopping" : "stop"}
+          memory={morphMemory}
+          scope={sessionId}
+        />
+        <StopPulse pulses={stopPresence.pulses} />
+      </button>
+    ) : null;
   // A draft of attachments alone is still a draft: it gets Send, never Stop alone. While dictating
   // the slot is Send, draft or not, as Claude's and ChatGPT's are: it ends the session and sends.
   const listening = !shell && dictation !== undefined && isActive(dictation.state);
@@ -3378,82 +3378,82 @@ function ComposerFrame({
     };
   });
   const emptyQuietSlot = quietActions && !shell && !hasDraft && !listening;
-  const sendOrStop =
-    stop && !hasDraft && !listening ? (
-      stopButton
-    ) : canResume ? (
+  // The slot's control when Stop does not take it.
+  const sendOrResume = canResume ? (
+    <button
+      key="resume"
+      ref={sendButton}
+      type="button"
+      className="acpmux-send acpmux-send-ready acpmux-resume"
+      aria-label={t("composer.queueResume")}
+      title={t("composer.queueResume")}
+      aria-busy={resuming || undefined}
+      disabled={resuming}
+      onClick={() => runResume(canResume)}
+    >
+      <SendSlotGlyph glyph="play" state="queued" memory={morphMemory} scope={sessionId} />
+    </button>
+  ) : remote.canSend && (!emptyQuietSlot || buttonsVisible) ? (
+    // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
+    // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
+    // into Send, which does what Return does: it steers an agent that steers, else queues.
+    // The quiet footer hides Send at rest unless Always Show Composer Buttons is on;
+    // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
+    // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
+    // A right-click or long press on it opens its menu (composer/SendMenu.tsx).
+    <SendMenu key="send" choices={sendChoices} onChoose={chooseSend}>
       <button
-        key="resume"
         ref={sendButton}
-        type="button"
-        className="acpmux-send acpmux-send-ready acpmux-resume"
-        aria-label={t("composer.queueResume")}
-        title={t("composer.queueResume")}
-        aria-busy={resuming || undefined}
-        disabled={resuming}
-        onClick={() => runResume(canResume)}
+        type="submit"
+        disabled={
+          emptyQuietSlot ||
+          (Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell)
+        }
+        className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && !startHoldsSend && hasDraft) ? " acpmux-send-ready" : ""}`}
+        aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+        title={
+          shell
+            ? t("composer.shellRun")
+            : escapeStop.armed && !stopping
+              ? t(COMPOSER_LABELS.escapeAgainToStop)
+              : authBlock
+                ? authBlock
+                : startHoldsSend
+                  ? t("composer.cloudStartingSend")
+                  : blocked?.reason
+                    ? t(blocked.reason)
+                    : t(
+                        !snapshot.isWorking
+                          ? "composer.sendTooltip"
+                          : returnHolds
+                            ? onOpenInWindow
+                              ? "composer.queueTooltip"
+                              : COMPOSER_LABELS.queueSteerTooltip
+                            : returnSteers && !steersAlways && !onOpenInWindow
+                              ? COMPOSER_LABELS.steerQueueTooltip
+                              : steersAlways || returnSteers
+                                ? "composer.steerTooltip"
+                                : "composer.queueTooltip",
+                      )
+        }
       >
-        <SendSlotGlyph glyph="play" state="queued" memory={morphMemory} scope={sessionId} />
+        <SendSlotGlyph
+          glyph={quietActions && !shell ? "return" : "arrow"}
+          // The slot's state (composer/sendSlotTransitions.ts): a draft to send, a send the host
+          // has not taken yet, or nothing.
+          state={hasDraft || listening ? "send-ready" : sendingShown ? "sending" : "idle"}
+          memory={morphMemory}
+          scope={sessionId}
+        />
       </button>
-    ) : remote.canSend && (!emptyQuietSlot || buttonsVisible) ? (
-      // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
-      // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
-      // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // The quiet footer hides Send at rest unless Always Show Composer Buttons is on;
-      // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
-      // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
-      // A right-click or long press on it opens its menu (composer/SendMenu.tsx).
-      <SendMenu key="send" choices={sendChoices} onChoose={chooseSend}>
-        <button
-          ref={sendButton}
-          type="submit"
-          disabled={
-            emptyQuietSlot ||
-            (Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell)
-          }
-          className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && !startHoldsSend && hasDraft) ? " acpmux-send-ready" : ""}`}
-          aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-          title={
-            shell
-              ? t("composer.shellRun")
-              : escapeStop.armed && !stopping
-                ? t(COMPOSER_LABELS.escapeAgainToStop)
-                : authBlock
-                  ? authBlock
-                  : startHoldsSend
-                    ? t("composer.cloudStartingSend")
-                    : blocked?.reason
-                      ? t(blocked.reason)
-                      : t(
-                          !snapshot.isWorking
-                            ? "composer.sendTooltip"
-                            : returnHolds
-                              ? onOpenInWindow
-                                ? "composer.queueTooltip"
-                                : COMPOSER_LABELS.queueSteerTooltip
-                              : returnSteers && !steersAlways && !onOpenInWindow
-                                ? COMPOSER_LABELS.steerQueueTooltip
-                                : steersAlways || returnSteers
-                                  ? "composer.steerTooltip"
-                                  : "composer.queueTooltip",
-                        )
-          }
-        >
-          <SendSlotGlyph
-            glyph={quietActions && !shell ? "return" : "arrow"}
-            // The slot's state (composer/sendSlotTransitions.ts): a draft to send, a send the host
-            // has not taken yet, or nothing.
-            state={hasDraft || listening ? "send-ready" : sendingShown ? "sending" : "idle"}
-            memory={morphMemory}
-            scope={sessionId}
-          />
-        </button>
-      </SendMenu>
-    ) : null;
+    </SendMenu>
+  ) : null;
   // The Quick Composer's Esc hides its panel, so Esc cannot stop a turn there: with a draft typed it
   // keeps Stop beside its one Send (one stop and one send, never two sends).
-  const sendControl =
-    onOpenInWindow && stopShown && hasDraft && sendOrStop ? (
+  const sendControlFor = (stopPresence: StopPresence) => {
+    const stopButton = stopButtonFor(stopPresence);
+    const sendOrStop = stopButton && facts.empty && !hasDraft && !listening ? stopButton : sendOrResume;
+    return onOpenInWindow && stopButton && hasDraft && sendOrStop ? (
       <>
         {stopButton}
         {sendOrStop}
@@ -3461,11 +3461,12 @@ function ComposerFrame({
     ) : (
       sendOrStop
     );
+  };
   // The slot's one reserved cell: Stop comes and goes in it without moving the row, and fades out
   // when it leaves with nothing in its place (composer/SendSlotGlyph.tsx SendSlot).
   const slot = (
-    <SendSlot memory={morphMemory} scope={sessionId}>
-      {sendControl}
+    <SendSlot memory={morphMemory} scope={sessionId} running={running} sentAt={lastSent}>
+      {sendControlFor}
     </SendSlot>
   );
   // The + menu's rows, the same array until what they list changes. ComposerFrame is left
