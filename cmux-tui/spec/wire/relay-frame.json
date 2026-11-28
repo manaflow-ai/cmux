@@ -1,0 +1,19 @@
+{
+  "protocol": "relay-frame",
+  "format": 1,
+  "negotiated_in": "the relay route and its hello (a relay that lacks a kind answers bad_frame:kind)",
+  "legacy": [
+    "frame:kind/candidates=2",
+    "frame:kind/datagrams=1",
+    "frame:kind/wake=3"
+  ],
+  "capabilities": {},
+  "versions": {
+    "relay-frame": 1
+  },
+  "accepts": {
+    "relay-frame": [
+      1
+    ]
+  }
+}

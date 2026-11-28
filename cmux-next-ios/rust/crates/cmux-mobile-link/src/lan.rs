@@ -49,7 +49,7 @@ pub const LAN_LINK_PORT: u16 = crate::dial::wireguard::LINK_PORT;
 pub const LAN_LANE_PORT: u16 = 7422;
 /// The service a phone opens on an authenticated link to enroll for the LAN
 /// path.
-pub const LAN_SERVICE: &str = "lan";
+pub const LAN_SERVICE: &str = crate::names::HostService::Lan.as_str();
 /// The Mac's address inside the LAN mesh.
 pub const MAC_OVERLAY: Ipv4Addr = Ipv4Addr::new(10, 78, 0, 1);
 /// The tunnel MTU: a LAN needs no room for TURN headers, but the phone's
