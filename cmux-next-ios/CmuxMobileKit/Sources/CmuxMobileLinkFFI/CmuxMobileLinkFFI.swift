@@ -29648,7 +29648,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_decode() != 25789) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 6491) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 37152) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_encode() != 63147) {
