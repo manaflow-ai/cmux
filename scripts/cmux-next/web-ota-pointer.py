@@ -282,6 +282,27 @@ def without_packages(value):
                                  for target, files in targets.items()}}
 
 
+def rollout_pct(value):
+    """The payload's staged rollout share (`rollout.pct`, cmuxterm-hq RFD 0224): a missing field is every host."""
+    rollout = value.get("rollout")
+    pct = rollout.get("pct") if isinstance(rollout, dict) else None
+    return pct if is_int(pct) and 0 <= pct <= 100 else 100
+
+
+def widens(new, current):
+    """True when NEW is CURRENT's Cloud machine build (same commit, key and bytes for every target) with a larger
+    `rollout.pct`: the ring gate's next step (cmux-machine-channel.py step). A machine already on the build has
+    nothing to download; a machine outside the old share takes it once the new share covers its bucket."""
+    if new.get("purpose") != MACHINE_UPDATE or current.get("purpose") != MACHINE_UPDATE:
+        return False
+    if (new.get("commit"), new.get("key"), new.get("committed_at")) != \
+            (current.get("commit"), current.get("key"), current.get("committed_at")):
+        return False
+    if new.get("targets") != current.get("targets"):
+        return False
+    return rollout_pct(new) > rollout_pct(current)
+
+
 def completes(new, current):
     """True when NEW is CURRENT's commit with more targets and the same bytes (sha256) for every
     binary of every target CURRENT names: a Cloud machine file that adds the aarch64 build to the
@@ -300,6 +321,9 @@ def completes(new, current):
         if not isinstance(entry, dict):
             return None
         return {name: binary.get("sha256") if isinstance(binary, dict) else None for name, binary in entry.items()}
+    # The ring gate may have widened the x86_64 file already: a completion never narrows it back.
+    if rollout_pct(new) < rollout_pct(current):
+        return False
     return all(shas(current_targets[target]) is not None and shas(new_targets[target]) == shas(current_targets[target])
                for target in current_targets)
 
@@ -452,6 +476,11 @@ def run(args):
         if completes(new, current):
             print(f"the published pointer ({current['commit'][:12]}) names {sorted(current['targets'])}; "
                   f"this file adds {sorted(set(new['targets']) - set(current['targets']))}", file=sys.stderr)
+            return 0
+        # The ring gate's next step of the published build: the same build at a larger `rollout.pct`.
+        if widens(new, current):
+            print(f"the published pointer ({current['commit'][:12]}) is at rollout {rollout_pct(current)}%; "
+                  f"this file widens it to {rollout_pct(new)}%", file=sys.stderr)
             return 0
         # Same key: nothing to move. An older commit never replaces a newer one (two runs that
         # finish out of order).

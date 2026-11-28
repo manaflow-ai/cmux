@@ -4,7 +4,7 @@
 // notes index listed on 2026-10-19, as published.
 import { expect, test } from "bun:test";
 import fixture from "../src/pages/changelog/fixtures/nightly-next-50.json";
-import { blocksPublish, checkNightlyNotes } from "../src/pages/changelog/notesCheck";
+import { blocksPublish, checkNightlyNotes, dedupeDefects, type NotesDefect } from "../src/pages/changelog/notesCheck";
 import type { ReleaseNotes, WhatsNewEntry } from "../src/pages/changelog/types";
 
 const nightlies = fixture as ReleaseNotes[];
@@ -245,4 +245,21 @@ test("a previous-day heading does not block a current summary with the same titl
   };
   older.whatsNew!.headline = { en: title };
   expect(checkNightlyNotes(current, [older])).toEqual([]);
+});
+
+test("dedupeDefects keeps the first of each (where, kind, text), identical to the findIndex scan", () => {
+  const kinds = ["duplicate", "truncated", "bead", "internal"] as const;
+  const wheres = ["notes", "page (1 nightly)", "page (10 nightlies)", "card"] as const;
+  let seed = 7;
+  const next = (n: number) => (seed = (seed * 1103515245 + 12345) % 2147483648) % n;
+  const defects: NotesDefect[] = Array.from({ length: 400 }, () => ({
+    kind: kinds[next(4)]!,
+    where: wheres[next(4)]!,
+    text: `t${next(30)}`,
+  }));
+  const scan = defects.filter(
+    (d, i) => defects.findIndex((o) => o.where === d.where && o.kind === d.kind && o.text === d.text) === i,
+  );
+  expect(dedupeDefects(defects)).toEqual(scan);
+  expect(dedupeDefects([])).toEqual([]);
 });

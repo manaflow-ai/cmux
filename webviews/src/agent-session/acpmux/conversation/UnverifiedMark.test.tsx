@@ -12,7 +12,8 @@ import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { incomingPrompt } from "./incomingMessage";
-import { programMarkText, UnverifiedMark } from "./UnverifiedMark";
+import { UnverifiedMark } from "./UnverifiedMark";
+import { programMarkText } from "./programMarkText";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
