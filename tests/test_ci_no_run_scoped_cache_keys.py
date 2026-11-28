@@ -275,6 +275,9 @@ class NoPerRefCacheSaves(unittest.TestCase):
 # so third-party crates added or bumped since rebuild on every run (run 45512288219: 70 crates
 # built in the debug and release `cargo test`). The key carries a `hashFiles` of the lockfile,
 # so a lockfile change makes a new entry that a base push saves.
+# A UTC day bucket (`steps.rust-day.outputs.day`, from `date -u +%Y%m%d`) moves the key too, at most once a day:
+# cmux-tui/Cargo.lock changed 24 times in the 24 h to 2026-11-28 02:30Z, and each change saved another 1.75 GB
+# headless-debug entry into the 10 GB GitHub cache, evicting pull requests' web-bundle entries within ~25 min.
 # The two iOS ones get theirs in #55162; cloud-journey-prod runs main's copy on its schedule and needs a main twin PR. Drop the entries once they land.
 LOCK_KEY_PENDING = {"first-user-journey-ios.yml", "ios-reliability-matrix.yml", "cloud-journey-prod.yml"}
 
@@ -292,7 +295,8 @@ def rust_cache_keys_without_lockfile() -> list[str]:
             if str(inputs.get("add-rust-environment-hash-key", "")).lower() != "false":
                 continue
             keys = f"{inputs.get('key', '')} {inputs.get('shared-key', '')}"
-            if "hashFiles(" not in keys or "Cargo.lock" not in keys:
+            moves = "Cargo.lock" in keys or "steps.rust-day.outputs.day" in keys
+            if "hashFiles(" not in keys or not moves:
                 bad.append(f"{_label(path)}: {step.get('name') or step.get('uses')}")
     return bad
 
