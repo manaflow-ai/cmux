@@ -47,14 +47,18 @@ for a different version), so bump the beta version with
 ### Internal
 
 - Require Mac 0.64.25 or NIGHTLY 0.64.25-nightly.3522337919701 for BETA and INTERNAL 1.0.6's v2 connection service and Iroh transport.
-- Show a new What's New notice only to BETA and INTERNAL 1.0.6, with exact Mac requirements, pairing opt-in, and rollback instructions.
+- Add faster Mac startup and background recovery, a stable computer picker during refresh, and browser access from the iPhone for paired Macs that advertise browser support.
+- Add the current terminal tab overview and close actions, plus the latest iOS auth and onboarding fixes from `main`.
+- Show one What's New notice only to BETA and INTERNAL 1.0.6, with the exact Mac requirements, update hints, pairing opt-in, and rollback instructions.
 - Keep the existing compatibility requirements for older iOS versions.
 - Verify updating from 1.0.5 preserves sign-in and saved computers, and exercise reconnects after backgrounding.
 
 ### External
 
 - Updated the Mac connection service and Iroh transport.
+- Improve Mac reconnects after launch and backgrounding, and add browser access from the iPhone when a paired Mac supports it.
 - Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac.
+- Update any Mac that shows an in-app update hint before using the feature that requires it.
 - If you cannot update your Mac, use cmux BETA 1.0.5 (20260914204800) in TestFlight > Previous Builds while available. Choose that exact build.
 
 ---
