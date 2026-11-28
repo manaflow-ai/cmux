@@ -13,6 +13,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { MeasurableRenderer, NativeRegistry, RowProps } from "../src/agent-session/acpmux/rows/rowProps";
 import { KeptLayouts, keptHeightFor } from "../src/agent-session/acpmux/conversation/keptLayouts";
 import { teardownDom } from "./support/domTeardown";
+import { actTurn, until } from "./support/until";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -160,11 +161,8 @@ test("a chat measured ahead while the page was idle measures none of its rows at
   try {
     await render("chat-ahead-a", chat("p", 30));
     // Q is folded ahead: its rows are measured in an idle slot, not at its show.
-    await act(async () => {
-      layoutAhead("chat-ahead-q", chat("q", 120));
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    });
-    expect(measuredOf("q")).toBe(120);
+    await act(async () => layoutAhead("chat-ahead-q", chat("q", 120)));
+    await until(() => measuredOf("q") === 120, actTurn);
     measured.clear();
     // Its first show, its rows built again with the newest reply grown since.
     const shown = chat("q", 120);
