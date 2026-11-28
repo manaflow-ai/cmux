@@ -1,5 +1,6 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
+import CmuxNextHomeModel
 import CmuxNextWakeups
 import Foundation
 
@@ -41,50 +42,15 @@ public final class HomeCloudLink {
     private let localID: ParticipantID
     /// The Stack project the account signs in to (the Worker's user ids derive from it).
     private let stackProjectID: String?
+    /// The link the rules act on, with its endpoint (the rules see only whether it has one).
     private var last: Link?
-    /// Lease work started and not finished. A missing lease asks for a new
-    /// one only while none is in flight: that one's outcome answers it.
-    private var leasing = 0
-    /// The first wait before a failed lease is tried again; each failure
-    /// doubles it up to `maxRetry`, and a lease that holds resets it. The
-    /// same steps space forced renewals (`forcedWait`).
-    static let firstRetry: Duration = .seconds(1)
-    static let maxRetry: Duration = .seconds(60)
-    private var retryDelay = HomeCloudLink.firstRetry
-    /// The pending retry; cancelled by a new link, a lease that holds, or
-    /// this link ending.
+    /// The lease state machine's state: the rules are the Rust op `cloud.link_step`
+    /// (cmux-home-rules `cloud/link.rs`); this runs the effects each step returns.
+    private var state = LinkState()
+    /// The pending retry of a failed lease.
     private let retry: DemandTimer
-    /// The expiry of the lease this link set last.
-    private var leasedExpiry: UInt64? {
-        didSet {
-            guard let oldValue, oldValue != leasedExpiry else { return }
-            answered(oldValue)
-        }
-    }
-    /// Expiries a lease this link set replaced: its own earlier leases, and
-    /// the leases a renewal answered (one another local client set
-    /// included). A daemon request that names one of them is already
-    /// answered. Any other expiry (a lease another trusted local client set
-    /// and nothing replaced yet) is renewed. The newest few are kept.
-    private var replacedExpiries: [UInt64] = []
-    static let replacedExpiryLimit = 8
-    /// How long a forced renewal waits after a forced renewal that
-    /// succeeded. Zero until one succeeds; each doubles it up to
-    /// `maxRetry`, and only a reply or a live socket on a lease (not the
-    /// lease itself) resets it, so a Worker that refuses every new token
-    /// cannot make renewals and resends loop.
-    private var forcedWait: Duration = .zero
-    /// Runs while forced renewals wait; one asked for meanwhile goes when it
-    /// ends. Its first `firstRetry` always runs: a proof only shortens the
-    /// rest, so a lease one socket proves while another is refused under
-    /// it cannot make forced renewals go back to back.
+    /// Runs while forced renewals wait (its first second, then the rest).
     private let cooldown: DemandTimer
-    /// The cooldown is in its first `firstRetry`.
-    private var cooldownInFloor = false
-    /// A proof came during that first part: the cooldown ends with it.
-    private var provenInFloor = false
-    /// The reason of a forced renewal asked for while `cooldown` runs.
-    private var pendingForced: String?
     /// The hops and timer deadlines in flight, for tests to wait on.
     let probe = HomeCloudLinkProbe()
 
@@ -101,7 +67,7 @@ public final class HomeCloudLink {
             probe.hopStarted()
             // task-owner: one hop to the main actor; ends at once
             Task { @MainActor in
-                self?.leaseMissing()
+                self?.handle(.init(kind: "leaseMissing"))
                 probe.hopEnded()
             }
         }
@@ -109,7 +75,7 @@ public final class HomeCloudLink {
             probe.hopStarted()
             // task-owner: one hop to the main actor; ends at once
             Task { @MainActor in
-                self?.leaseProven()
+                self?.handle(.init(kind: "leaseProven"))
                 probe.hopEnded()
             }
         }
@@ -118,217 +84,111 @@ public final class HomeCloudLink {
     /// One observed link. Returns once the source is configured for it.
     ///
     /// The source acts as an account only once the daemon holds that
-    /// account's lease: a lease that failed (no token, or a token for
-    /// another account because the user switched meanwhile) leaves the
-    /// daemon without one and the source holding the account unleased. It
-    /// sends no op and makes no read then. The daemon asks again only when a
-    /// command reaches it, and none does, so the source asks instead: an op
-    /// or read it refused for the missing lease leases again
-    /// (`leaseMissing`), and a failed lease is tried again after a backoff
-    /// until it holds or the link changes. A new display name alone is the
-    /// same account on the same connection and keeps the lease.
-    ///
-    /// A self-hosted server (`link.server`) needs no Stack account: the
-    /// daemon leases it without a token and the server names the person, so
-    /// a Stack sign-in or sign-out changes nothing there. Another server is
-    /// another account: the previous one ends first.
+    /// account's lease; a failed lease is tried again after a backoff until
+    /// it holds or the link changes. A new display name alone keeps the
+    /// lease. A self-hosted server needs no Stack account; another server is
+    /// another account, and the previous one ends first.
     public func apply(_ link: Link) async {
-        guard link != last else { return }
-        if let previous = last, previous.id == link.id, previous.server == link.server,
-           previous.userID == link.userID || link.server != .hosted {
-            last = link
-            if link.server == .hosted, let identity = identity(link.userID, link) { source.rename(identity) }
-            return
-        }
-        if let previous = last, previous.server != link.server || (previous.userID != nil && previous.userID != link.userID) {
-            // The previous account ends before the daemon holds the next
-            // one's lease: an op submitted in between is refused here
-            // instead of committing under the new account.
-            source.configure(commands: previous.endpoint, link: previous.id, identity: nil)
-        }
-        last = link
-        retry.cancel()
-        retryDelay = Self.firstRetry
-        cooldown.cancel()
-        cooldownInFloor = false
-        provenInFloor = false
-        pendingForced = nil
-        forcedWait = .zero
-        leasedExpiry = nil
-        replacedExpiries = []
-        guard let endpoint = link.endpoint else {
-            // No transport, so no lease and nothing goes out: offline.
-            source.configure(commands: nil, link: nil, identity: identity(link.userID, link), leased: false)
-            return
-        }
-        leasing += 1
-        probe.setLeasing(leasing)
-        let outcome = await lease.sync(endpoint, expectedUserID: link.userID, server: link.server)
-        leasing -= 1
-        switch outcome {
-        case .leased(let subject, let expiresAt):
-            leasedExpiry = expiresAt
-            source.configure(commands: endpoint, link: link.id, identity: identity(subject, link), leased: true)
-        case .selfHosted(let info):
-            source.configure(commands: endpoint, link: link.id, identity: selfHostedIdentity(info), leased: true)
-        case .signedOut:
-            source.configure(commands: endpoint, link: link.id, identity: nil)
-        case .failed, .superseded:
-            // A self-hosted server that did not answer names nobody yet: the retry asks it again.
-            let pending = link.server == .hosted ? identity(link.userID, link) : nil
-            source.configure(commands: endpoint, link: link.id, identity: pending, leased: false)
-        }
-        settled(outcome, reason: "missing")
+        let previous = last
+        let effects = step(.init(kind: "apply", link: WireLink(link)))
+        if WireLink(link) != previous.map(WireLink.init) { last = link }
+        guard let sync = run(effects, links: [previous, link]), let endpoint = link.endpoint else { return }
+        let outcome = await lease.sync(endpoint, expectedUserID: sync.expectedUserId, server: link.server)
+        run(step(.init(kind: "synced", link: WireLink(link), outcome: WireOutcome(outcome))), links: [link])
         // Published after the follow-up work above, so a test that waits
         // for idle never sees the gap between two lease steps.
-        probe.setLeasing(leasing)
+        probe.setLeasing(Int(state.leasing))
     }
 
-    /// The daemon asked for a lease (`cloud-session-needed`): it is for the
-    /// account the source acts as when the lease work runs, and only a
-    /// lease for that account counts as renewed.
-    ///
-    /// Every upstream socket refused with one token asks (the inbox and up
-    /// to 64 conversations), so one renewal answers them all: a request
-    /// that names a lease this link already replaced (`expiresAt`), or that
-    /// arrives while lease work is queued or running, needs nothing more. A
-    /// forced renewal asked for soon after one succeeded waits
-    /// (`forcedWait`).
+    /// The daemon asked for a lease (`cloud-session-needed`). A request that
+    /// names a lease this link already replaced (`expiresAt`), or that
+    /// arrives while lease work runs, needs nothing more; a forced renewal
+    /// soon after one succeeded waits for the cooldown.
     public func sessionNeeded(reason: String, expiresAt: UInt64? = nil) {
-        if let expiresAt, replacedExpiries.contains(expiresAt) { return }
-        guard leasing == 0 else { return }
-        if Self.isForced(reason), cooldown.isScheduled {
-            pendingForced = reason
-            return
+        handle(.init(kind: "sessionNeeded", reason: reason, expiresAt: expiresAt))
+    }
+
+    private func handle(_ event: LinkEvent) {
+        run(step(event), links: [])
+    }
+
+    /// One `cloud.link_step`: the new state and the effects to run.
+    private func step(_ event: LinkEvent) -> [LinkEffect] {
+        do {
+            let reply: LinkReply = try HomeRules.call("cloud.link_step", LinkRequest(state: state, event: event))
+            state = reply.state
+            return reply.effects
+        } catch {
+            assertionFailure("cloud.link_step: \(error)")
+            return []
         }
-        renew(reason: reason, answering: expiresAt)
     }
 
-    private func answered(_ expiry: UInt64) {
-        replacedExpiries.removeAll { $0 == expiry }
-        replacedExpiries.append(expiry)
-        if replacedExpiries.count > Self.replacedExpiryLimit { replacedExpiries.removeFirst() }
-    }
-
-    /// The source refused an op or a read because the daemon holds no lease
-    /// for its account.
-    private func leaseMissing() {
-        guard leasing == 0 else { return }
-        retry.cancel()
-        renew(reason: "missing")
-    }
-
-    /// A reply or a live socket came through the current lease: the Worker
-    /// takes its token, so the forced wait starts over. The cooldown ends
-    /// (at the end of its first `firstRetry` when it is still in it) and a
-    /// renewal that waited for it goes then.
-    private func leaseProven() {
-        forcedWait = .zero
-        if cooldownInFloor {
-            provenInFloor = true
-            return
+    /// Runs `effects` in order. `links`: the Swift links an effect's link can
+    /// name (by the rules' equality), besides `last`. Returns a `sync` effect
+    /// for the caller to await.
+    @discardableResult
+    private func run(_ effects: [LinkEffect], links: [Link?]) -> LinkEffect? {
+        func resolve(_ wire: WireLink?) -> Link? {
+            guard let wire else { return nil }
+            return (links + [last]).lazy.compactMap { $0 }.first { WireLink($0) == wire }
         }
-        cooldown.cancel()
-        sendPendingForced()
+        var sync: LinkEffect?
+        for effect in effects {
+            switch effect.kind {
+            case "rename":
+                if let identity = effect.identity { source.rename(cloudIdentity(identity)) }
+            case "configure":
+                let link = resolve(effect.link)
+                source.configure(commands: effect.commands == "endpoint" ? link?.endpoint : nil, link: link?.id,
+                                 identity: effect.identity.map(cloudIdentity), leased: effect.leased ?? true)
+            case "sync":
+                probe.setLeasing(Int(state.leasing))
+                sync = effect
+            case "renew":
+                if let link = resolve(effect.link) { renew(effect, on: link) }
+            case "leaseRenewed":
+                if let subject = effect.subject { source.leaseRenewed(subject: subject) }
+            case "scheduleRetry":
+                retry.schedule(after: .milliseconds(Int64(effect.afterMs ?? 0))) { @MainActor [weak self, probe] in
+                    self?.handle(.init(kind: "retryFired"))
+                    probe.fired()
+                }
+            case "cancelRetry": retry.cancel()
+            case "scheduleCooldown":
+                cooldown.schedule(after: .milliseconds(Int64(effect.afterMs ?? 0))) { @MainActor [weak self, probe] in
+                    self?.handle(.init(kind: "cooldownFired"))
+                    probe.fired()
+                }
+            case "cancelCooldown": cooldown.cancel()
+            default: assertionFailure("cloud.link_step effect \(effect.kind)")
+            }
+        }
+        return sync
     }
 
-    /// The forced renewal that waited for the cooldown, once no cooldown
-    /// runs and no lease work is in flight; otherwise it stays for later.
-    private func sendPendingForced() {
-        guard let reason = pendingForced, leasing == 0, !cooldown.isScheduled else { return }
-        pendingForced = nil
-        renew(reason: reason)
-    }
-
-    /// `missing` takes the current token; the others refresh it.
-    private static func isForced(_ reason: String) -> Bool { reason != "missing" }
-
-    /// `answering`: the expiry the daemon's request named; once a new lease
-    /// holds, a late request naming it needs nothing more.
-    private func renew(reason: String, answering expiry: UInt64? = nil) {
-        guard let current = last, let endpoint = current.endpoint else { return }
-        leasing += 1
-        probe.setLeasing(leasing)
+    /// The `renew` effect: lease work on `current`, whose outcome steps `renewed`.
+    private func renew(_ effect: LinkEffect, on current: Link) {
+        guard let endpoint = current.endpoint else { return }
+        let reason = effect.reason ?? "missing"
+        let answering = effect.answering
+        probe.setLeasing(Int(state.leasing))
         lease.renew(endpoint, reason: reason, server: current.server,
                     expectedUserID: { [source] in source.accountID }) { [weak self, source] outcome in
-            if case .leased(let subject, let expiresAt) = outcome {
-                if let expiry, expiry != expiresAt { self?.answered(expiry) }
-                self?.leasedExpiry = expiresAt
-                source.leaseRenewed(subject: subject)
+            guard let self else {
+                if case .leased(let subject, _) = outcome { source.leaseRenewed(subject: subject) }
+                return
             }
-            // The server named the person again (the first time, after a failed lease): the
-            // source acts as them on the link it was asked for, unless a newer link replaced it.
-            if case .selfHosted(let info) = outcome, let self, last?.id == current.id, last?.server == current.server {
-                source.configure(commands: endpoint, link: current.id, identity: selfHostedIdentity(info), leased: true)
-            }
-            guard let self else { return }
-            leasing -= 1
-            if case .leased = outcome, Self.isForced(reason) { startCooldown() }
-            settled(outcome, reason: reason)
-            sendPendingForced()
-            probe.setLeasing(leasing)
+            let event = LinkEvent(kind: "renewed", link: WireLink(current), outcome: WireOutcome(outcome),
+                                  reason: reason, answering: answering)
+            run(step(event), links: [current])
+            probe.setLeasing(Int(state.leasing))
         }
     }
 
-    /// A forced renewal succeeded: the next one waits, twice as long as the
-    /// last wait, unless a reply or a live socket proves this lease first.
-    private func startCooldown() {
-        forcedWait = forcedWait == .zero ? Self.firstRetry : min(forcedWait * 2, Self.maxRetry)
-        let rest = forcedWait - Self.firstRetry
-        cooldownInFloor = true
-        provenInFloor = false
-        cooldown.schedule(after: Self.firstRetry) { @MainActor [weak self, probe] in
-            self?.cooldownFloorPassed(rest: rest)
-            probe.fired()
-        }
-    }
-
-    /// The cooldown's first `firstRetry` passed: it ends now when a proof
-    /// came meanwhile or nothing of it is left, else it runs the rest.
-    private func cooldownFloorPassed(rest: Duration) {
-        cooldownInFloor = false
-        guard !provenInFloor, rest > .zero else {
-            provenInFloor = false
-            // Lease work running now keeps it; it goes when that work ends.
-            sendPendingForced()
-            return
-        }
-        cooldown.schedule(after: rest) { @MainActor [weak self, probe] in
-            self?.sendPendingForced()
-            probe.fired()
-        }
-    }
-
-    /// A lease that holds ends the backoff; a failed one is tried again
-    /// after it. No account (signed out) or newer work needs no retry.
-    private func settled(_ outcome: HomeCloudLease.Outcome, reason: String) {
-        switch outcome {
-        case .leased, .selfHosted:
-            retry.cancel()
-            retryDelay = Self.firstRetry
-        case .failed:
-            guard !retry.isScheduled else { return }
-            let delay = retryDelay
-            retryDelay = min(retryDelay * 2, Self.maxRetry)
-            retry.schedule(after: delay) { @MainActor [weak self, probe] in
-                defer { probe.fired() }
-                guard let self, leasing == 0 else { return }
-                renew(reason: reason)
-            }
-        case .signedOut, .superseded:
-            break
-        }
-    }
-
-    /// The person a self-hosted server named: its user id is both the
-    /// account and the participant (no Stack project derives it).
-    private func selfHostedIdentity(_ info: CloudSelfHostInfo) -> CloudIdentity {
-        let name = info.displayName.flatMap { $0.isEmpty ? nil : $0 } ?? info.login
-        return CloudIdentity(stackUserID: info.userID, displayName: name, localID: localID)
-    }
-
-    private func identity(_ userID: String?, _ link: Link) -> CloudIdentity? {
-        userID.map { CloudIdentity(stackUserID: $0, displayName: link.displayName, localID: localID, stackProjectID: stackProjectID) }
+    private func cloudIdentity(_ identity: WireIdentity) -> CloudIdentity {
+        CloudIdentity(stackUserID: identity.stackUserId, displayName: identity.displayName, localID: localID,
+                      stackProjectID: identity.selfHosted ? nil : stackProjectID)
     }
 
     #if DEBUG
@@ -345,4 +205,121 @@ public final class HomeCloudLink {
         await probe.wait { $0.fires >= count }
     }
     #endif
+}
+
+// The JSON of `cloud.link_step` (cmux-home-rules `cloud/link.rs`).
+
+/// `Link`: two are equal when all but `hasEndpoint` match.
+private nonisolated struct WireLink: Codable, Equatable {
+    struct Server: Codable, Equatable {
+        var kind: String
+        var url: String?
+    }
+
+    var hasEndpoint: Bool
+    var id: String?
+    var userId: String?
+    var displayName: String
+    var server: Server
+
+    init(_ link: HomeCloudLink.Link) {
+        hasEndpoint = link.endpoint != nil
+        id = link.id.map { "\($0)" }
+        userId = link.userID
+        displayName = link.displayName
+        switch link.server {
+        case .hosted: server = Server(kind: "hosted")
+        case .selfHosted(let url): server = Server(kind: "selfHosted", url: url.absoluteString)
+        }
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id && lhs.userId == rhs.userId && lhs.displayName == rhs.displayName && lhs.server == rhs.server
+    }
+}
+
+/// `Outcome`.
+private nonisolated struct WireOutcome: Codable {
+    struct Info: Codable {
+        var userId: String
+        var login: String
+        var displayName: String?
+    }
+
+    var kind: String
+    var subject: String?
+    var expiresAt: UInt64?
+    var info: Info?
+
+    @MainActor init(_ outcome: HomeCloudLease.Outcome) {
+        switch outcome {
+        case .leased(let subject, let expiresAt): kind = "leased"; self.subject = subject; self.expiresAt = expiresAt
+        case .selfHosted(let info):
+            kind = "selfHosted"
+            self.info = Info(userId: info.userID, login: info.login, displayName: info.displayName)
+        case .signedOut: kind = "signedOut"
+        case .failed: kind = "failed"
+        case .superseded: kind = "superseded"
+        }
+    }
+}
+
+/// `Identity`.
+private nonisolated struct WireIdentity: Codable {
+    var stackUserId: String
+    var displayName: String
+    var selfHosted: Bool
+}
+
+/// `State`, kept between steps.
+private nonisolated struct LinkState: Codable {
+    struct Cooldown: Codable {
+        var phase: String
+        var restMs: UInt64?
+        var proven: Bool?
+    }
+
+    var last: WireLink?
+    var leasing: UInt32 = 0
+    var retryDelayMs: UInt64?
+    var retryReason: String?
+    var leasedExpiry: UInt64?
+    var replacedExpiries: [UInt64]?
+    var forcedWaitMs: UInt64?
+    var cooldown: Cooldown?
+    var pendingForced: String?
+}
+
+/// `Event`.
+private nonisolated struct LinkEvent: Encodable {
+    var kind: String
+    var link: WireLink?
+    var outcome: WireOutcome?
+    var reason: String?
+    var expiresAt: UInt64?
+    var answering: UInt64?
+}
+
+private nonisolated struct LinkRequest: Encodable {
+    var state: LinkState
+    var event: LinkEvent
+}
+
+/// `Effect`.
+private nonisolated struct LinkEffect: Decodable {
+    var kind: String
+    var identity: WireIdentity?
+    var commands: String?
+    var link: WireLink?
+    var leased: Bool?
+    var expectedUserId: String?
+    var reason: String?
+    var answering: UInt64?
+    var subject: String?
+    var afterMs: UInt64?
+}
+
+private nonisolated struct LinkReply: Decodable {
+    var state: LinkState
+    var effects: [LinkEffect]
 }

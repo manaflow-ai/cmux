@@ -581,9 +581,11 @@ jobs:
     # Staging half. cmux-next-vm-image-dev is limited to feat-cmux-next by GitHub's branch policy and holds the
     # staging agent account. Always runs after resolve (skipped for build=tagged), so its result is a gate: `!cancelled()`.
     # flow: github-pr-app runs in cmux-next-cloud-journey instead (also feat-cmux-next only): the GitHub test user's secrets
-    # are sealed there, beside the same staging account as CMUX_STAGING_STACK_*.
+    # are sealed there, beside the same staging account as CMUX_STAGING_STACK_*. agent: codex does too: CODEX_AUTH_JSON
+    # lives only in cmux-next-cloud-journey, so in cmux-next-vm-image-dev the staging codex chat had no login to import
+    # and every codex proof went red on staging (runs 46133860048, 46040021553).
     environment:
-      name: ${{ inputs.flow == 'github-pr-app' && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
+      name: ${{ (inputs.flow == 'github-pr-app' || inputs.agent == 'codex') && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
       deployment: false
     needs: [resolve, pick-proof-runner, github-config]
     # Attempt 1 takes the owned M4 Pro GUI pool (glaeda-gui-std, a console session, as stable-next.yml's smoke)
@@ -752,9 +754,10 @@ jobs:
 
       - name: Materialize the staging agent profile
         env:
-          # flow github-pr-app: cmux-next-cloud-journey's staging pair (its CMUX_DOGFOOD_STACK_* is production's).
-          STACK_EMAIL: ${{ inputs.flow == 'github-pr-app' && secrets.CMUX_STAGING_STACK_EMAIL || secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          STACK_PASSWORD: ${{ inputs.flow == 'github-pr-app' && secrets.CMUX_STAGING_STACK_PASSWORD || secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # flow github-pr-app and agent codex (both run in cmux-next-cloud-journey): that environment's staging pair
+          # (its CMUX_DOGFOOD_STACK_* is production's).
+          STACK_EMAIL: ${{ (inputs.flow == 'github-pr-app' || inputs.agent == 'codex') && secrets.CMUX_STAGING_STACK_EMAIL || secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ (inputs.flow == 'github-pr-app' || inputs.agent == 'codex') && secrets.CMUX_STAGING_STACK_PASSWORD || secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -z "${STACK_EMAIL:-}" ] || [ -z "${STACK_PASSWORD:-}" ]; then
@@ -783,8 +786,9 @@ jobs:
         if: env.CMUX_PROOF_BUILD == 'published'
         env:
           ASSET_SHA256: ${{ needs.resolve.outputs.asset_sha256 }}
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          # agent codex runs in cmux-next-cloud-journey, whose staging account is CMUX_STAGING_STACK_*.
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ inputs.agent == 'codex' && secrets.CMUX_STAGING_STACK_EMAIL || secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ inputs.agent == 'codex' && secrets.CMUX_STAGING_STACK_PASSWORD || secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/published"
@@ -855,6 +859,8 @@ jobs:
           PROOF_AGENT: ${{ inputs.agent }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # A Codex chat's login, imported as the chatgpt-plan connection Cloud serves codex from (codex_chatgpt_import.py).
+          CODEX_AUTH_JSON: ${{ inputs.agent == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           PROOF_FROM_FOLDER: ${{ inputs.empty_folder && '--empty-folder' || inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
@@ -1166,6 +1172,8 @@ jobs:
           PROOF_AGENT: ${{ inputs.agent }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # A Codex chat's login, imported as the chatgpt-plan connection Cloud serves codex from (codex_chatgpt_import.py).
+          CODEX_AUTH_JSON: ${{ inputs.agent == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           PROOF_FROM_FOLDER: ${{ inputs.empty_folder && '--empty-folder' || inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
