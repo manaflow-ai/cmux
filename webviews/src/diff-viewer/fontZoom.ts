@@ -20,10 +20,6 @@ const CHAT_CODE = { size: 12, line: 20 } as const;
 
 export type DiffZoomCommand = "zoomIn" | "zoomOut" | "zoomReset";
 
-export function isDiffZoomCommand(command: string): command is DiffZoomCommand {
-  return command === "zoomIn" || command === "zoomOut" || command === "zoomReset";
-}
-
 const clamp = (size: number) => Math.min(DIFF_CODE_SIZE.max, Math.max(DIFF_CODE_SIZE.min, Math.round(size)));
 
 /** The default code size: the host's (a positive number), else the chat's code block size at `chatScale`. */

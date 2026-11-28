@@ -35,7 +35,10 @@
 //! The switch: nothing reads a store unless one is configured, `CMUX_REPO_ARCHIVE_STORE` or
 //! the machine's [`CONFIG`] (`{"store": "..."}`) ([`configured_store`]). S3 keys come
 //! from the projection's variables (`CMUX_PROJECTION_S3_ACCESS_KEY_ID` and the rest, else
-//! `AWS_*`); with none the store is read unsigned (a public bucket) and cannot be written.
+//! `AWS_*`), then the `CMUX_PROJECTION_S3_CONFIG` file, then [`CONFIG`] itself
+//! (`access_key_id`, `secret_access_key`: a VM's read-only key, so every process on the machine
+//! reads the private bucket, not only one started with the variables); with none the store is
+//! read unsigned (a public bucket) and cannot be written.
 
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek as _, SeekFrom, Write};
@@ -318,18 +321,38 @@ pub const CONFIG: &str = "/etc/cmux/repo-archive.json";
 pub fn store_from_env() -> anyhow::Result<Option<Box<dyn Store>>> {
     let env = |name: &str| std::env::var(name).ok();
     let Some(spec) = configured_store(&env, Path::new(CONFIG)) else { return Ok(None) };
-    let file: serde_json::Value = std::env::var("CMUX_PROJECTION_S3_CONFIG")
-        .ok()
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default();
-    let lookup = |name: &str| {
-        std::env::var(name).ok().or_else(|| {
-            let key = name.strip_prefix("CMUX_PROJECTION_S3_")?.to_ascii_lowercase();
-            file.get(key)?.as_str().map(str::to_owned)
-        })
+    let json = |path: &Path| -> serde_json::Value {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
     };
+    let file = std::env::var("CMUX_PROJECTION_S3_CONFIG")
+        .map(|path| json(Path::new(&path)))
+        .unwrap_or_default();
+    let machine = json(Path::new(CONFIG));
+    let lookup = |name: &str| store_setting(name, &env, &file, &machine);
     open(&spec, &lookup).map(Some)
+}
+
+/// One S3 setting (`CMUX_PROJECTION_S3_ACCESS_KEY_ID` and the rest) for the store: the process
+/// environment, else the `CMUX_PROJECTION_S3_CONFIG` file's lower-case key, else the machine's
+/// [`CONFIG`] file's (where an image or the controller puts the VM's read-only key). Blank values
+/// count as unset.
+#[must_use]
+pub fn store_setting(
+    name: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+    file: &serde_json::Value,
+    machine: &serde_json::Value,
+) -> Option<String> {
+    let set = |value: Option<String>| value.filter(|value| !value.trim().is_empty());
+    if let Some(value) = set(env(name)) {
+        return Some(value);
+    }
+    let key = name.strip_prefix("CMUX_PROJECTION_S3_")?.to_ascii_lowercase();
+    let from = |config: &serde_json::Value| set(config.get(&key)?.as_str().map(str::to_owned));
+    from(file).or_else(|| from(machine))
 }
 
 /// `<host>/<owner>/<name>` of a repo URL (`https://github.com/o/n.git`) or `OWNER/NAME` (GitHub).

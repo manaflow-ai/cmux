@@ -1,9 +1,11 @@
 //! Every git call of the seed plan. Each one turns off fsmonitor, refuses
 //! implicit bare repositories, reads no system config, runs no hook, starts
-//! no background gc, signs nothing and reads nothing from stdin. Caller
-//! environment that would point git at another repository, index or object
-//! store is dropped; the plan sets its own where it needs one.
+//! no background gc, signs nothing and reads nothing from stdin but what
+//! [`output_fed`] gives it. Caller environment that would point git at
+//! another repository, index or object store is dropped; the plan sets its
+//! own where it needs one.
 
+use std::io::{Seek as _, Write as _};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -65,6 +67,14 @@ pub(super) fn bare(git_dir: &Path) -> Command {
     let mut command = base();
     command.arg("--git-dir").arg(git_dir);
     command
+}
+
+/// Feed a batch from an anonymous file, as the LFS scan does. Git can read and write in
+/// either order without filling a pipe or needing a second thread.
+pub(super) fn output_fed(command: &mut Command, input: &[u8]) -> Result<Vec<u8>, String> {
+    let mut file = tempfile::tempfile().map_err(|error| error.to_string())?;
+    file.write_all(input).and_then(|()| file.rewind()).map_err(|error| error.to_string())?;
+    output(command.stdin(file))
 }
 
 /// stdout of a successful run, else git's stderr (or why it did not run).
