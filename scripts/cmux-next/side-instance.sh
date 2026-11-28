@@ -22,7 +22,7 @@
 #                                   Every copy shows the SIM icon (side-icon/AppIcon-Side.icns: a dark tile
 #                                   with an amber SIM band) so it is never taken for the real app in the Dock or
 #                                   the app switcher; --keep-icon keeps the original's icon (a look of the icon)
-#   side-instance.sh launch NAME [--parked|--shown|--front] [-- ARGS...]
+#   side-instance.sh launch NAME [--parked|--shown|--front] [--env KEY=VALUE] [-- ARGS...]
 #                                   open it and record its pid. Where its windows go (CMUX_SIDE_PLACEMENT
 #                                   parked|shown|front sets the default; parked when unset):
 #                                   --parked  on a virtual display no person looks at (park-display.m, held
@@ -49,6 +49,8 @@
 #   side-instance.sh socket NAME    the copy's control socket (CMUX_NEXT_SOCKET_PATH in its LSEnvironment), for
 #                                   `cmux --app-socket` and hot-verify.py: NAME/control.sock, or
 #                                   cmux-side-<hash>.sock in the per-user TMPDIR when that is too long for a Unix socket
+#   side-instance.sh logs NAME      the files launch sends the copy's stdout and stderr to (one per line):
+#                                   hot-verify.py reads their ends when the copy's socket never answers
 #   side-instance.sh list           the side instances and whether each runs
 #   side-instance.sh remove NAME [--keep-sign-in]
 #                                   stop it, then delete the folder make wrote and the state the copy
@@ -448,12 +450,15 @@ PY
     echo "$name: $app ($bundle)"
     ;;
   launch)
-    placement="${CMUX_SIDE_PLACEMENT:-parked}" args=()
+    placement="${CMUX_SIDE_PLACEMENT:-parked}" args=() launch_env=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --front) placement=front; shift ;;
         --shown) placement=shown; shift ;;
         --parked) placement=parked; shift ;;
+        --env)
+          [[ $# -ge 2 && "$2" =~ ^[A-Z_][A-Z_0-9]*= ]] || die "--env needs KEY=VALUE"
+          launch_env+=(--env "$2"); shift 2 ;;
         --) shift; args=("$@"); break ;;
         *) usage 1 ;;
       esac
@@ -475,7 +480,11 @@ PY
     rm -f "$dir/pid"
     park_stop
     # -n: a new process even when Launch Services still maps the id elsewhere; -g: behind the front app.
-    open_args=(-n)
+    # --stdout/--stderr: the copy's own output, which `open` otherwise drops, so a copy that dies or hangs before
+    # its socket answers says why (hot-verify.py launch_failure; a look on 2026-11-28 said only "nothing within
+    # 120 s").
+    rm -f "$dir/app.stdout.log" "$dir/app.stderr.log"
+    open_args=(-n --stdout "$dir/app.stdout.log" --stderr "$dir/app.stderr.log")
     [[ "$placement" == front ]] || open_args+=(-g)
     if [[ "$placement" == parked ]]; then
       # The app never activates and no window of it becomes key; every window opens on the park display's screen
@@ -491,7 +500,10 @@ PY
     # copy under test never writes the account's ~/Downloads, whose first write waits on macOS's access
     # prompt, a prompt nobody answers on a fleet Mac (browser-auth-webkit.sh, as kit_downloads.py).
     [[ -n "${CMUX_NEXT_DOWNLOADS_DIR:-}" ]] && open_args+=(--env CMUX_NEXT_DOWNLOADS_DIR="$CMUX_NEXT_DOWNLOADS_DIR")
-    if ! open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
+    # A driver that reads the copy's web pages through the accessibility tree (CuaDriver holds no grant that makes
+    # CEF build one): CMUX_NEXT_ACCESSIBILITY=1 in the driver's environment goes to the copy (AssistiveClientRequests).
+    [[ "${CMUX_NEXT_ACCESSIBILITY:-}" == 1 ]] && open_args+=(--env CMUX_NEXT_ACCESSIBILITY=1)
+    if ! open "${open_args[@]}" ${launch_env[@]+"${launch_env[@]}"} "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
     launched=""
     # The newest process whose executable is exactly the copy's (a plain comparison: the path holds
@@ -559,6 +571,10 @@ PY
     ;;
   path)
     app_of
+    ;;
+  logs)
+    app_of >/dev/null
+    printf '%s\n%s\n' "$dir/app.stdout.log" "$dir/app.stderr.log"
     ;;
   list)
     [[ -d "$root" ]] || exit 0

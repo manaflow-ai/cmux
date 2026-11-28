@@ -25,6 +25,9 @@ import urllib.error
 import urllib.request
 import zipfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402  (scripts/ci: every call ends by its deadline)
+
 HERE = Path(__file__).resolve().parent
 NOTES = HERE.parent / "cmux-next" / "release-notes.py"
 UPLOADER = HERE / "upload-r2-object.py"
@@ -135,8 +138,8 @@ def verify_withdrawal_status(build: str) -> None:
         url = os.environ.get("NIGHTLY_NEXT_PULLED_URL", url)
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "cmux-nightly-notes-restore/1"})
-        with urllib.request.urlopen(request, timeout=20) as response:
-            value = json.load(response)
+        _, raw, _ = deadline_http.request(request, 20, raise_errors=True)
+        value = json.loads(raw)
     except urllib.error.HTTPError as error:
         fail(f"withdrawal record read failed for {url}: HTTP {error.code}")
     except (OSError, json.JSONDecodeError) as error:
@@ -380,9 +383,9 @@ def main() -> int:
         for path, _, _, content in staged:
             url = f"{PUBLIC_FEED_BASE}/notes/{path.name}"
             request = urllib.request.Request(url, headers={"User-Agent": "fleet-reconciler-now/1"})
-            with urllib.request.urlopen(request, timeout=30) as response:
-                if response.read(len(content) + 1) != content:
-                    fail(f"public readback differs from signed artifact at {url}")
+            _, raw, _ = deadline_http.request(request, 30, raise_errors=True)
+            if raw != content:
+                fail(f"public readback differs from signed artifact at {url}")
             print(f"{digest(content)}  {url}")
     return 0
 
