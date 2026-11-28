@@ -242,10 +242,12 @@ name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
  "cmux-unix-socket",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -263,6 +265,7 @@ dependencies = [
  "cmux-cookie-sync",
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
+ "cmux-design-core",
  "cmux-health-core",
  "cmux-home-rules",
  "cmux-interactivity",
@@ -471,6 +474,14 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-local-auth",
  "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-design-core"
+version = "0.1.0"
+dependencies = [
  "serde",
  "serde_json",
 ]
