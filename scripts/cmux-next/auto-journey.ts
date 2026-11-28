@@ -82,9 +82,9 @@ const harnessProfile = (cmuxTui: string, script: string) =>
 
 // ---------------------------------------------------------------- the install's token, for the Mac daemon
 
-type InstallState = { api: string; user: string; install: string; jwk: JsonWebKey; team?: string };
+export type InstallState = { api: string; user: string; install: string; jwk: JsonWebKey; team?: string };
 
-async function mintInstallToken(state: InstallState): Promise<{ access_token: string; expires_in?: number }> {
+export async function mintInstallToken(state: InstallState): Promise<{ access_token: string; expires_in?: number }> {
   const key = await crypto.subtle.importKey("jwk", state.jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
   const ch = await http("POST", `${state.api}/v1/auth/challenge`, { user: state.user, install: state.install }, {});
   if (ch.status !== 200) throw new Error(`challenge HTTP ${ch.status} ${short(ch.body)}`);
@@ -105,11 +105,22 @@ async function mintMode(stateFile: string): Promise<number> {
 
 // ---------------------------------------------------------------- the Mac daemon's socket (ACP + acpmux methods)
 
-class Socket {
+export class Socket {
   private buf = "";
   private next = 1;
   private waiting = new Map<number, { ok: (v: any) => void; err: (e: Error) => void }>();
   readonly notes: any[] = [];
+  private changes = new Set<() => void>();
+  private closeWaiters = new Set<() => void>();
+  private closed = false;
+  private markClosed() {
+    if (this.closed) return;
+    this.closed = true;
+    for (const w of this.waiting.values()) w.err(new Error("the daemon's socket closed"));
+    this.waiting.clear();
+    for (const changed of this.changes) changed();
+    for (const closed of this.closeWaiters) closed();
+  }
   private constructor(private conn: net.Socket) {
     conn.setEncoding("utf8");
     conn.on("data", (chunk: string) => {
@@ -127,6 +138,7 @@ class Socket {
           else w.ok(msg.result);
         } else if (msg.method) {
           this.notes.push(msg);
+          for (const changed of this.changes) changed();
           // A permission request: the stand-in never asks, but a request left unanswered would hang the turn.
           if (msg.id !== undefined && msg.method === "session/request_permission") {
             const allow = (msg.params?.options ?? []).find((o: any) => /allow/.test(String(o.kind ?? "")))?.optionId;
@@ -135,7 +147,9 @@ class Socket {
         }
       }
     });
-    conn.on("close", () => { for (const w of this.waiting.values()) w.err(new Error("the daemon's socket closed")); this.waiting.clear(); });
+    conn.on("close", () => {
+      this.markClosed();
+    });
   }
   static open(socketPath: string): Promise<Socket> {
     return new Promise((ok, err) => {
@@ -145,6 +159,7 @@ class Socket {
     });
   }
   call(method: string, params: unknown, timeoutMs = 60_000): Promise<any> {
+    if (this.closed) return Promise.reject(new Error("the daemon's socket closed"));
     const id = this.next++;
     return new Promise((ok, err) => {
       const timer = setTimeout(() => { this.waiting.delete(id); err(new Error(`${method}: no answer in ${timeoutMs} ms`)); }, timeoutMs);
@@ -152,7 +167,46 @@ class Socket {
       this.conn.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     });
   }
-  close() { this.conn.destroy(); }
+  /** Wait on socket notifications, not a repeated status read. Register before reading so
+   * a change between the read and wait cannot be lost. */
+  async waitUntil(read: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (this.closed) throw new Error("the daemon's socket closed");
+      let wake!: () => void;
+      const changed = new Promise<void>(resolve => { wake = resolve; });
+      this.changes.add(wake);
+      let closeWake!: () => void;
+      const closed = new Promise<void>(resolve => { closeWake = resolve; });
+      this.closeWaiters.add(closeWake);
+      const timers = new Set<ReturnType<typeof setTimeout>>();
+      const timeout = (ms: number) => new Promise<"timeout">(resolve => {
+        const timer = setTimeout(() => { timers.delete(timer); resolve("timeout"); }, ms);
+        timers.add(timer);
+      });
+      try {
+        if (Date.now() >= deadline) return false;
+        const first = await Promise.race([
+          Promise.resolve().then(read).then(value => ({ kind: "read" as const, value })),
+          closed.then(() => ({ kind: "closed" as const })),
+          timeout(deadline - Date.now()),
+        ]);
+        if (first === "timeout") return false;
+        if (first.kind === "closed") throw new Error("the daemon's socket closed");
+        if (first.value) return Date.now() < deadline;
+        const left = deadline - Date.now();
+        if (left <= 0) return false;
+        const next = await Promise.race([changed.then(() => "changed" as const), closed.then(() => "closed" as const), timeout(left)]);
+        if (next === "closed") throw new Error("the daemon's socket closed");
+        if (next === "timeout") return false;
+      } finally {
+        for (const timer of timers) clearTimeout(timer);
+        this.changes.delete(wake);
+        this.closeWaiters.delete(closeWake);
+      }
+    }
+  }
+  close() { this.markClosed(); this.conn.destroy(); }
 }
 
 /** The text of every agent_message_chunk and user_message_chunk the socket saw for `session` since `from`. */

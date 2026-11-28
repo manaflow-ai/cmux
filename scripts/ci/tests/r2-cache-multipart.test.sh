@@ -50,6 +50,7 @@ case "$method" in
         else code=400; fi ;;
   PUT) if [[ "$query" == partNumber=*'&uploadId=id%2B%2F%3D' ]]; then
          n="${query#partNumber=}"; n="${n%%&*}"
+         if [[ "$n" == "${FAKE_FAIL_PART:-}" ]]; then printf '%s' 503; exit 0; fi
          mkdir -p "$b/parts"; cp "$upload" "$b/parts/$n"
          [[ -z "$dump" ]] || printf 'etag: "e%s"\r\n' "$n" > "$dump"
        elif [[ -z "$query" ]]; then
@@ -95,6 +96,24 @@ obj="$(ls "$tmp/bucket"/bkt_v1_Linux-X64_objects_big-key-2.*)"
 mkdir "$tmp/back2"
 if [[ "$obj" == *.zst ]]; then zstd -dc "$obj" | tar -xf - -C "$tmp/back2"; else tar -xzf "$obj" -C "$tmp/back2"; fi
 cmp "$tmp/dir/blob" "$tmp/back2/blob" || { echo "FAIL: 3-part object does not reassemble"; exit 1; }
+
+# 2b. The same three parts two at a time (two batches) reassemble the same.
+rm -rf "$tmp/bucket"/*
+FAKE_PUT_LIMIT=1000 CI_CACHE_R2_MULTIPART_BYTES=1000 CI_CACHE_R2_PART_BYTES=5242880 CI_CACHE_R2_PART_JOBS=2 \
+  bash "$script" save "$tmp/dir" big-key-2b > "$tmp/out2b" 2>&1
+grep -q 'uploaded 3 parts, 2 at a time' "$tmp/out2b" || { cat "$tmp/out2b"; echo "FAIL: 2 at a time"; exit 1; }
+obj="$(ls "$tmp/bucket"/bkt_v1_Linux-X64_objects_big-key-2b.*)"
+mkdir "$tmp/back2b"
+if [[ "$obj" == *.zst ]]; then zstd -dc "$obj" | tar -xf - -C "$tmp/back2b"; else tar -xzf "$obj" -C "$tmp/back2b"; fi
+cmp "$tmp/dir/blob" "$tmp/back2b/blob" || { echo "FAIL: 2-at-a-time object does not reassemble"; exit 1; }
+
+# 2c. A part that keeps failing aborts the upload and saves nothing.
+rm -rf "$tmp/bucket"/*
+FAKE_FAIL_PART=2 FAKE_PUT_LIMIT=1000 CI_CACHE_R2_MULTIPART_BYTES=1000 CI_CACHE_R2_PART_BYTES=5242880 \
+  bash "$script" save "$tmp/dir" big-key-2c > "$tmp/out2c" 2>&1 || true
+grep -q 'part 2 got HTTP 503; aborting' "$tmp/out2c" || { cat "$tmp/out2c"; echo "FAIL: failed part not reported"; exit 1; }
+grep -q aborted "$tmp/bucket/log" || { echo "FAIL: upload not aborted"; exit 1; }
+! ls "$tmp/bucket"/bkt_v1_Linux-X64_objects_big-key-2c.* >/dev/null 2>&1 || { echo "FAIL: object saved"; exit 1; }
 
 # 3. Under the threshold: one conditional PUT, no multipart calls.
 rm -rf "$tmp/bucket"/*
