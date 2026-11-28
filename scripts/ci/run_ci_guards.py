@@ -955,6 +955,7 @@ def main(argv: list[str]) -> int:
         deadline.daemon = True
         deadline.start()
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
+    pending: dict[concurrent.futures.Future, tuple[Unit, list[Step]]] = {}
     try:
         def submit(task: tuple[Unit, list[Step]]) -> concurrent.futures.Future:
             runner = run_in_clean_copy if needs_clean_tree(task[1]) else run_steps
@@ -977,7 +978,6 @@ def main(argv: list[str]) -> int:
                             submit(follow_up)
                     yield step_results
 
-        pending: dict[concurrent.futures.Future, tuple[Unit, list[Step]]] = {}
         for batch in batches:
             for task in batch:
                 submit(task)
@@ -994,11 +994,17 @@ def main(argv: list[str]) -> int:
                         for line in passed_step_annotations(result.output):
                             safe_print(line, flush=True)
     except KeyboardInterrupt:
+        # Before the stop: the steps on a worker now, not the queued ones.
+        running = sorted({step.name for future, task in pending.items() if future.running() for step in task[1]})
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
         if TIMED_OUT.is_set():
             safe_print(f"cmux guards: timed out after {args.deadline:.0f}s: {len(results)} steps finished, "
                        "the running ones were stopped and have no result", flush=True)
+            if running:
+                # Name them: a slow guard is otherwise invisible behind the deadline.
+                safe_print(f"cmux guards: still running at the deadline ({len(running)}): " + "; ".join(running),
+                           flush=True)
             return 124
         safe_print("cmux guards: interrupted", file=sys.stderr)
         return 130
