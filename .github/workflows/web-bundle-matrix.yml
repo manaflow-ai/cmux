@@ -112,7 +112,11 @@ jobs:
             echo "result=success" >> "$GITHUB_OUTPUT"
           elif [ -s "$MATRIX_OUT/failure.tsv" ]; then
             echo "result=failure" >> "$GITHUB_OUTPUT"
-            IFS='|' read -r job file line message < "$MATRIX_OUT/failure.tsv"
+            # web-bundle-matrix.sh writes job TAB file TAB line TAB message. cut, not `IFS=$'\t' read`: read
+            # folds a run of tabs into one, so an empty FILE would shift LINE and the message into it.
+            f="$MATRIX_OUT/failure.tsv"
+            job="$(head -n 1 "$f" | cut -f1)"; file="$(head -n 1 "$f" | cut -f2)"
+            line="$(head -n 1 "$f" | cut -f3)"; message="$(head -n 1 "$f" | cut -f4-)"
             {
               echo "job=$job"; echo "file=$file"; echo "line=$line"
               echo "message=${message//$'\n'/ }"
@@ -136,7 +140,7 @@ jobs:
     needs: matrix
     if: ${{ !cancelled() && needs.matrix.result != 'skipped' }}
     name: web bundle matrix status and fix
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }} # ephemeral-required: holds a statuses, contents and pull-requests write App token
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || 'cmux-linux' }} # ephemeral-required: holds a statuses, contents and pull-requests write App token
     environment:
       name: ci-routing-agent
       deployment: false

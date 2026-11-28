@@ -31,10 +31,6 @@ export function diffViewerLabelsFor(language: DiffViewerLanguage): Record<DiffVi
 /** The viewer's own keys; the table also carries the changes view's git strings (diff-viewer/git.ts). */
 const viewerKeys = (keys: string[]) => keys.filter((key) => key.startsWith("diffViewer."));
 
-export const DEFAULT_DIFF_VIEWER_LABELS = Object.fromEntries(
-  viewerKeys(Object.keys(english)).map((key) => [key.slice("diffViewer.".length), english[key as CatalogKey]]),
-) as Record<DiffViewerLabelKey, string>;
-
 /** The loaded table's changes view strings in `language` and English, for the reused Stage, Commit and Push. */
 export function diffGitStrings(language: DiffViewerLanguage): Record<string, Record<string, string>> {
   const pick = (table: Record<string, string>) =>
