@@ -2,13 +2,26 @@
 // A clock time anywhere in an agent's prose is hoverable, not only right after "at" (Leo,
 // 2026-11-07, on "...at 03:22..." with no hover: "we should probably be able to just detect this
 // as like, oh yeah, this is a timestamp"). Numbers that only look like clock times stay plain.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "./Markdown";
 import { timestampHoverLabel } from "./timeHoverModel";
+import { resetIntlCacheForTests } from "../../../ui/intl";
 
 // Local-zone rows read in the person's zone; this one is on standard time (UTC-8) on 2026-11-07.
-process.env.TZ = "America/Los_Angeles";
+// The zone is set for this file alone, with the shared formatter cache (ui/intl.ts) dropped on the way
+// in and out: a formatter an earlier file made in its zone kept that zone here when the whole folder
+// ran (UTC hovers in place of PST), and this file's zone stayed set for the files after it.
+const zoneBefore = process.env.TZ;
+beforeAll(() => {
+  process.env.TZ = "America/Los_Angeles";
+  resetIntlCacheForTests();
+});
+afterAll(() => {
+  if (zoneBefore === undefined) delete process.env.TZ;
+  else process.env.TZ = zoneBefore;
+  resetIntlCacheForTests();
+});
 
 // 23:00Z is 3:00 PM PST.
 const sent = Date.parse("2026-11-07T23:00:00Z");
