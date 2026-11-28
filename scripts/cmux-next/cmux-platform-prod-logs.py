@@ -989,10 +989,18 @@ def work_machine(j):
 # met (admitWaitMs, admitQueueMs, admitInFlight, admitQueued), and on a refusal its fixed reason and estimated wait;
 # vm_create_admission_unavailable is the line of a create sent without the queue because the queue could not be
 # reached. Without them a staging burst after the deploy could not say whether the queue held creates back at all.
-VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable"})
+#
+# vm_start (handlers/vms.ts timedStart) is a start's or resume's line: startMs, the provider's start call, and totalMs,
+# the handler's whole time with its caller gate, ownership read and audit. totalMs - startMs is cmux-vm's own share of a
+# start; the platform's power call_ms minus totalMs is the hop. wake-echo run 46000366770: call_ms minus provider_ms
+# was 1-2 s a start, and without this line no read could say which side held it.
+VM_EVENTS = frozenset({"vm_create", "vm_create_admission_unavailable", "vm_start"})
 VM_EVENT_MS = ("preMs", "recoverMs", "verifyImageMs", "createMs", "recoverAfterMs", "resizeMs", "recordMs", "memberMs",
                "providerTotalMs", "totalMs", "admitWaitMs", "admitQueueMs", "admitRetryAfterMs", "admitInFlight",
-               "admitQueued")
+               "admitQueued", "readMs", "startMs")
+# vm_start's fixed words: its route, and the VM's state before and after (workers/cmux-vm src/api.ts VmState).
+VM_START_ROUTES = ("start", "resume")
+VM_STATES = ("starting", "running", "pausing", "paused", "stopped", "unknown")
 VM_EVENT_BOOLS = ("ok", "recovered", "oversized", "meshAtCreate", "meshJoined")
 VM_ADMISSION_REASONS = ("queue_full", "wait_expired")
 
@@ -1012,6 +1020,11 @@ def vm_event(j):
         out["imageVariant"] = variant
     if j.get("admission") in VM_ADMISSION_REASONS:
         out["admission"] = j["admission"]
+    if j.get("route") in VM_START_ROUTES:
+        out["route"] = j["route"]
+    for k in ("stateBefore", "stateAfter"):
+        if j.get(k) in VM_STATES:
+            out[k] = j[k]
     timings = token_counts(j.get("providerTimingsMs"))
     if timings is not None:
         out["providerTimingsMs"] = timings
