@@ -27,8 +27,10 @@ on:
   push:
     branches: [main, feat-cmux-next]
     # Tag pushes ran it before the branch filter (path filters do not apply to
-    # tags); a branch filter alone would drop them.
-    tags: ["**"]
+    # tags); a branch filter alone would drop them. Not the CI's own tags, which are no release: cmux-bot's
+    # replay/<sha> tags (the uncached replay; 14 rails runs, 220 runner-min in 6 h, none of them a release, 13
+    # cancelled at the 15-minute cap) and the cmux-app-ffi-<sha> artifact tags (2026-11-28 06-12Z).
+    tags: ["**", "!replay/**", "!cmux-app-ffi-*"]
     paths:
       - scripts/cmux-next/release/**
       - workers/cmux-vm/migrations/**

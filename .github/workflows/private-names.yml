@@ -105,7 +105,34 @@ jobs:
             done
             return 1
           }
-          if ! fetch_round && [ -n "$soonest" ]; then
+          # The checker comes from cmuxterm-hq main over git first, which costs no REST quota. The contents API read
+          # below spent one cmux-bot call per run (about 630 runs an hour, every push and title or body edit) in an
+          # installation (175618676) that reaches 12,500 used about 30 minutes after each reset; the REST rounds now
+          # run only when the git read fails. Remote named hq, not origin (see the pool git shim note below).
+          git_fetch() {
+            for name in BOT_TOKEN ROUTE_TOKEN; do
+              token="${!name}"
+              [ -n "$token" ] || continue
+              hqdir="$RUNNER_TEMP/hq-$name.git"
+              gauth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$token" | base64 -w0)"
+              if git init --quiet --bare "$hqdir" \
+                  && git -C "$hqdir" remote add hq "https://github.com/${GITHUB_REPOSITORY_OWNER}/cmuxterm-hq.git" \
+                  && GIT_TERMINAL_PROMPT=0 timeout 60 git -C "$hqdir" -c "http.https://github.com/.extraheader=$gauth" \
+                    fetch --quiet --no-tags --depth=1 --filter=blob:none hq main \
+                  && GIT_TERMINAL_PROMPT=0 timeout 60 git -C "$hqdir" -c "http.https://github.com/.extraheader=$gauth" \
+                    cat-file blob FETCH_HEAD:tools/agent-guards/private_names.py > "$checker" \
+                  && [ -s "$checker" ]; then
+                fetched="git:$name"
+                echo "checker read over git with $name (no REST call)"
+                return 0
+              fi
+              echo "::notice::the checker's git read failed with $name; trying the next token"
+            done
+            return 1
+          }
+          if git_fetch; then
+            :
+          elif ! fetch_round && [ -n "$soonest" ]; then
             wait=$(( soonest - $(date +%s) + 5 ))
             [ "$wait" -ge 1 ] || wait=1
             if [ "$wait" -le "$FETCH_WAIT_S" ]; then

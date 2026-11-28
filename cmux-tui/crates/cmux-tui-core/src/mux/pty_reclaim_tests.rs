@@ -58,13 +58,13 @@ fn parks_only_idle_quiet_unwatched_unkept_shells_oldest_first() {
         resumable,
     ];
     assert_eq!(
-        pick_reclaim(&candidates, now, 20),
+        pick_reclaim(&candidates, now, 20, false),
         [sid(8), sid(1)],
         "the oldest prompt first; nothing busy, watched, kept, reporting, printing, fresh, \
          running a job, unread or an agent"
     );
-    assert_eq!(pick_reclaim(&candidates, now, 1), [sid(8)]);
-    assert!(pick_reclaim(&candidates, now, 0).is_empty());
+    assert_eq!(pick_reclaim(&candidates, now, 1, false), [sid(8)]);
+    assert!(pick_reclaim(&candidates, now, 0, false).is_empty());
 }
 
 #[test]
@@ -134,4 +134,60 @@ fn a_failed_launch_forces_the_next_pass() {
     assert!(!clock.due(start + Duration::from_millis(10), false));
     assert!(clock.due(start + Duration::from_millis(20), true));
     assert!(clock.due(start + RECLAIM_CHECK_EVERY * 2, false));
+}
+
+#[test]
+fn at_the_limit_shells_idle_a_minute_fill_what_the_long_floor_leaves() {
+    let now = 200 * HOUR_MS;
+    let old = idle(1, now - HOUR_MS);
+    let young = idle(2, now - 2 * 60 * 1000);
+    let fresh = idle(3, now - 10 * 1000);
+    let printing =
+        ReclaimCandidate { last_output_ms: Some(now - 5 * 1000), ..idle(4, now - HOUR_MS) };
+    let watched = with(idle(5, now - 2 * 60 * 1000), |f| f.attached = true);
+    let c = [young, old, fresh, printing, watched];
+    assert_eq!(
+        pick_reclaim(&c, now, 5, false),
+        [sid(1)],
+        "away from the limit, the long floor holds"
+    );
+    assert_eq!(
+        pick_reclaim(&c, now, 5, true),
+        [sid(1), sid(2)],
+        "the long floor first, then a minute"
+    );
+    assert_eq!(pick_reclaim(&c, now, 1, true), [sid(1)]);
+}
+
+/// The infinite-tabs bench: workspaces made a few seconds apart, two shells each, on a
+/// machine with 511 PTYs. Before the limit floor every one past 255 was refused.
+#[test]
+fn a_burst_of_new_workspaces_never_runs_out_of_ptys() {
+    const MAX: usize = 511;
+    let step_ms = 3 * 1000;
+    let mut open: Vec<ReclaimCandidate> = Vec::new();
+    let mut refused = 0;
+    let mut most = 0;
+    for n in 0..2000u64 {
+        let now = 100 * HOUR_MS + n * step_ms;
+        // The reaper pass that runs between launches (module docs: reserve, refill, limit).
+        let used = open.len();
+        let free = MAX - used;
+        if free < PTY_RESERVE {
+            let want = PTY_REFILL - free;
+            let at_limit = free < PTY_FLOOR;
+            let parked = pick_reclaim(&open, now, want, at_limit);
+            open.retain(|c| !parked.contains(&c.surfaces[0]));
+        }
+        for shell in 0..2 {
+            if open.len() >= MAX {
+                refused += 1;
+                continue;
+            }
+            open.push(idle(n * 2 + shell, now));
+        }
+        most = most.max(open.len());
+    }
+    assert_eq!(refused, 0, "every new workspace got its shells");
+    assert!(most <= MAX, "PTYs in use stay under the machine's cap: {most}");
 }
