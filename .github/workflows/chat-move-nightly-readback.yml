@@ -32,7 +32,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  readback:
+  # The id ends in -fleet: the gateway runner's job-started hook (glaeda-cmux-runner-hook) takes only fleet-client
+  # jobs, by that suffix, and refused this job as `readback` at Set up runner (runs 46199487155, 46199736166).
+  readback-fleet:
     if: github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' && vars.CI_EVAL_STEP_GATEWAY != ''
     environment:
       name: cmux-next-cloud-journey

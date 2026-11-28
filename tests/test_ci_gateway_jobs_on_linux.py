@@ -51,6 +51,9 @@ GATEWAY_MAC = frozenset({
     "cmux-next-ios-verify-auto.yml#verify-fleet",  # #63833 put it on the pool after #64245 moved the rest
     "nightly-interaction-latency.yml#benches-fleet",
     "rivals-nightly.yml#record-rivals-fleet",
+    # #65798: the NIGHTLY readbacks submit one fleet step and wait; cmux-linux timed out fetching the client.
+    "chat-move-nightly-readback.yml#readback-fleet",
+    "cloud-mvp-nightly-readback.yml#readback-fleet",
     # Already on the gateway by vars.CI_EVAL_STEP_GATEWAY; linux-pickers-gone (host pins) froze them to the label.
     "cmux-next-ios-gestures.yml#gestures",
     "cmux-next-ios-try-ahead.yml#build-ahead",
