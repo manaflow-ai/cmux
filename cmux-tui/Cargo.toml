@@ -419,6 +419,9 @@ exclude = [
     "crates/cmux-rd-host",
     "crates/cmux-codecs",
     "crates/acpmux-hot/guest",
+    # Its own workspace and lockfile (a standalone reference plugin); cmux-tui
+    # links it as a path dependency (bin/cmux runs it by argv[0]).
+    "bindings/examples/rust-agent-screen-detection",
 ]
 
 [workspace.package]
