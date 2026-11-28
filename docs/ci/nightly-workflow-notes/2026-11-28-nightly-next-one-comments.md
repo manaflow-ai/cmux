@@ -99,3 +99,8 @@ Above `- name: Fail when this build's publication was refused`:
 Above `- name: Wipe this job's credentials and temp files`:
 
     # The workspace stays (the next build fetches into it); this job's tokens and temp files do not.
+
+Above `env: &one-env` (the job-level env of `nightly-next-one`):
+
+    # GH_TOKEN_SPARES (c-bedbdb1917) sits on this job's github.token gh steps, not here: a signing job holds no
+    # secret at job level, or every bundle step sees the pool tokens (test_ci_signing_keychain_is_deleted_before_bundle_code.py).
