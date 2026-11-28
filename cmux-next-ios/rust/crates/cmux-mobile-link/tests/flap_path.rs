@@ -7,8 +7,9 @@
 //! Each flap: the current socket stops working, the OS reports the new path
 //! `FLAP_ROAM_MS` later (default 300), and the stream must resume. The test
 //! prints one line per flap with the time from the loss to the first echoed
-//! byte after it, and fails if any flap takes longer than `FLAP_BOUND_MS`
-//! (default 3000) or loses a byte.
+//! byte after the network came back, and fails if any flap takes longer than
+//! `FLAP_BOUND_MS` (default 3000) or loses a byte. `FLAP_MODE` picks the
+//! flap: `roam` (default), `late` or `dark`.
 //!
 //! `FLAPS=20 cargo test -p cmux-mobile-link --test flap_path -- --nocapture`
 
@@ -40,7 +41,19 @@ async fn wireguard_reconnects_across_twenty_flaps() {
         .with_test_writer()
         .try_init();
     let flaps = env_u64("FLAPS", 20) as usize;
-    let roam_after = Duration::from_millis(env_u64("FLAP_ROAM_MS", 300));
+    // `roam`: the network goes away and the OS reports a new one
+    // `FLAP_ROAM_MS` later (default 300). `late`: the same, reported 3 s
+    // later. `dark`: the network goes dark and comes back `FLAP_ROAM_MS`
+    // later (default 2000) on the same socket, with no OS event, so only
+    // the link's own probes can notice it is back (what #54697 changed).
+    let mode = std::env::var("FLAP_MODE").unwrap_or_else(|_| "roam".into());
+    let default_ms = match mode.as_str() {
+        "roam" => 300,
+        "late" => 3000,
+        "dark" => 2000,
+        other => panic!("FLAP_MODE {other}: roam, late or dark"),
+    };
+    let roam_after = Duration::from_millis(env_u64("FLAP_ROAM_MS", default_ms));
     // Time on each network before the next flap: long enough for the
     // proven-path skip (#54697) to kick in on the new path.
     let dwell = Duration::from_millis(env_u64("FLAP_DWELL_MS", 6000));
@@ -123,18 +136,25 @@ async fn wireguard_reconnects_across_twenty_flaps() {
     let mut gaps = Vec::with_capacity(flaps);
     for flap in 0..flaps {
         let lost_at = Instant::now();
-        let roam_at;
-        assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1, "flap {flap}: loss");
+        if mode == "dark" {
+            assert_eq!(wireguard::simulate_blackout(Some(&session_id), true, true), 1, "flap {flap}: dark");
+        } else {
+            assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1, "flap {flap}: loss");
+        }
         tokio::time::sleep(roam_after).await;
-        roam_at = Instant::now();
-        let roam = {
+        // The network is back (dark) or the OS reported the new one.
+        let back_at = Instant::now();
+        let roam = if mode == "dark" {
+            assert_eq!(wireguard::simulate_blackout(Some(&session_id), true, false), 1, "flap {flap}: light");
+            None
+        } else {
             let session_id = session_id.clone();
-            tokio::spawn(async move { wireguard::roam_session(&session_id, true).await })
+            Some(tokio::spawn(async move { wireguard::roam_session(&session_id, true).await }))
         };
-        // Reconnected: the first echo that arrives after the roam began.
-        let deadline = roam_at + bound + Duration::from_secs(10);
+        // Reconnected: the first echo that arrives after the network came back.
+        let deadline = back_at + bound + Duration::from_secs(10);
         let back = loop {
-            if let Some(at) = arrivals.lock().unwrap().iter().find(|at| **at > roam_at).copied() {
+            if let Some(at) = arrivals.lock().unwrap().iter().find(|at| **at > back_at).copied() {
                 break Some(at);
             }
             if Instant::now() > deadline {
@@ -142,12 +162,17 @@ async fn wireguard_reconnects_across_twenty_flaps() {
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
         };
-        let _ = roam.await;
-        let gap = back.map(|at| at.duration_since(lost_at));
+        if let Some(roam) = roam {
+            let _ = roam.await;
+        }
+        // What the link controls: from the network's return to the first echo.
+        let gap = back.map(|at| at.duration_since(back_at));
         eprintln!(
-            "flap {:>2}: loss->first echo {} (roam reported at +{} ms), path {:?}",
+            "flap {:>2} [{mode}]: back->first echo {} (loss->echo {}, outage {} ms), path {:?}",
             flap + 1,
             gap.map(|g| format!("{} ms", g.as_millis())).unwrap_or_else(|| "NEVER".into()),
+            back.map(|at| format!("{} ms", at.duration_since(lost_at).as_millis()))
+                .unwrap_or_else(|| "-".into()),
             roam_after.as_millis(),
             *connected.path.borrow()
         );
@@ -166,7 +191,7 @@ async fn wireguard_reconnects_across_twenty_flaps() {
     ms.sort_unstable();
     let pick = |q: f64| ms.get(((ms.len() as f64 - 1.0) * q).round() as usize).copied().unwrap_or(0);
     eprintln!(
-        "flap summary: {}/{} reconnected, p50 {} ms, p90 {} ms, max {} ms, bytes {}/{}",
+        "flap summary [{mode}]: {}/{} reconnected (back->first echo), p50 {} ms, p90 {} ms, max {} ms, bytes {}/{}",
         ms.len(),
         flaps,
         pick(0.5),
