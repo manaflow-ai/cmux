@@ -355,6 +355,13 @@ async fn a_chat_round_the_ring_imports_in_flat_time() {
         )
         .await;
     let id = made["sessionId"].as_str().unwrap().to_owned();
+    // The harness's durable files, as in the relay move above; they travel with each move.
+    let agent = "fake-session-1";
+    let sessions = state.path().join(machines[0].name).join("store/sessions");
+    std::fs::create_dir_all(sessions.join(agent)).unwrap();
+    std::fs::write(sessions.join(agent).join("journal.ndjson"), b"{\"turn\":1}\n").unwrap();
+    let header = json!({"type":"session", "id":agent, "cwd":root});
+    std::fs::write(sessions.join("ring.jsonl"), format!("{header}\n")).unwrap();
     let laps: usize = std::env::var("RING_LAPS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
     let turns: usize = std::env::var("RING_TURNS").ok().and_then(|v| v.parse().ok()).unwrap_or(6);
     let mut finish = Vec::new();
