@@ -1051,6 +1051,11 @@ public abstract class GeneratedCmuxClient {
         return ReattachViewResult.fromWire(result);
     }
 
+    public final Object recordNotificationDelivery(RecordNotificationDeliveryRequest request) throws CmuxException {
+        Object result = execute(Commands.RECORD_NOTIFICATION_DELIVERY, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final BrowserProviderSnapshot registerBrowserProvider(RegisterBrowserProviderRequest request) throws CmuxException {
         Object result = execute(Commands.REGISTER_BROWSER_PROVIDER, request.toWire());
         return BrowserProviderSnapshot.fromWire(result);

@@ -1423,6 +1423,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-feed"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
@@ -2446,6 +2459,7 @@ dependencies = [
  "cmux-supervise-core",
  "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-vault-e2e",
  "flate2",
  "libc",
  "ring",
@@ -2765,6 +2779,8 @@ dependencies = [
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
+ "memchr",
+ "proptest",
  "serde",
  "serde_json",
  "unicode-general-category",
@@ -3309,6 +3325,7 @@ name = "cmux-signed-envelope"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-process",
  "ring",
  "serde",
  "serde_json",
@@ -4203,6 +4220,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "bytes",
+ "cmux-scope",
  "http",
  "http-body-util",
  "hyper",
@@ -4210,6 +4228,8 @@ dependencies = [
  "rcgen",
  "rustls",
  "rustls-native-certs",
+ "serde",
+ "serde_json",
  "time",
  "tokio",
  "tokio-rustls",
