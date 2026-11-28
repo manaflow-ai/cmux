@@ -504,7 +504,7 @@ fn replace(path: &Path, text: &str) -> std::io::Result<()> {
 
 /// Whether `host:port` is the joined hub the machine credential goes to: its model requests
 /// are held through 429s, 5xx and resets instead of failing the agent's turn
-/// (`cmux_vault_egress::Hold`; the fs lanes' api_errors, 11-28).
+/// (`cmux_vault_egress::Hold`).
 fn toward_hub(host: &str, port: u16) -> bool {
     policy_now().secrets().iter().any(|s| {
         s.name() == crate::joined_model_plane::CREDENTIAL_NAME

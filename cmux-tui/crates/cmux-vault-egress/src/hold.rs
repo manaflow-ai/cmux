@@ -4,10 +4,9 @@
 //! this proxy (`joined_model_plane.rs` in acpmux), and an answer the hub could
 //! not give (a 429 or 529 from the inference pool, a 5xx from its edge, a
 //! reset connection) used to reach Claude Code as an api_error that ends the
-//! turn's call. The fs lanes ended 450 to 1054 of every 1000 sessions that way
-//! (NOW `tx.api_errors_per_1k_requests`, 11-28): they are hub-joined, so the
-//! model front that holds these for the sr2 lanes (leo-workspace
-//! `tools/model_front.py`) never sees them.
+//! turn's call. Joined machines saw 450 to 1054 such errors per 1000 sessions
+//! (2026-11-28) while the hub's pool was busy, and nothing between Claude Code
+//! and the hub waited out a busy minute for them.
 //!
 //! For a `POST /v1/messages` (and `/v1/messages/...`) to a host [`Hold::applies`]
 //! names, the proxy reads the body whole and, until a response byte reached the
