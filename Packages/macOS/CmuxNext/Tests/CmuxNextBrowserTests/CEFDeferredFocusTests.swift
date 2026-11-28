@@ -313,6 +313,44 @@ import Testing
         #expect(FocusSpyShim.granted == [62], "its window became key after the panel, and the page that waited got no grant")
     }
 
+    /// The hold itself, not only the wake-up: while a panel of the page's window has the keys, a re-ask from another
+    /// path (here the content lifecycle showing the page again) still waits, and the window's own key change grants it.
+    @Test func aReAskWhileAPanelOfItsWindowIsKeyStillWaits() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 63)
+        let window = Self.offScreenWindow(runtime)
+        let other = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 150), styleMask: .borderless, backing: .buffered, defer: true)
+        defer {
+            window.removeChildWindow(panel)
+            panel.closeAfterTest()
+            window.closeAfterTest()
+            other.closeAfterTest()
+        }
+        window.addChildWindow(panel, ordered: .above) // a panel of the cmux window, not a page window
+        let keys = KeyRecorder(key: other)
+        tab.keyWindows = keys.seam
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        Self.endTurn()
+        window.onScreen = true // on screen, still behind the key window
+        Self.endTurn()
+        Self.becomeKey(panel, keys, runtime)
+        Self.endTurn()
+        try #require(FocusSpyShim.granted.isEmpty)
+
+        tab.setContentVisible(false)
+        tab.setContentVisible(true) // re-asks at once, while the panel is key
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "a re-ask took the keys from a panel of its window the person types in")
+        Self.becomeKey(window, keys, runtime) // the panel closed: its parent is key
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [63], "its window became key after the panel, and the page that waited got no grant")
+    }
+
     /// The other order: the window becomes key while it is still off screen (AppKit reports the key change first). The
     /// ask waits on, and is granted once, when the window comes on screen.
     @Test func aWindowKeyBeforeItIsOnScreenGetsItsGrantWhenItIs() throws {
