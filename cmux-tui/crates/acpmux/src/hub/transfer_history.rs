@@ -640,7 +640,8 @@ impl Hub {
     ) -> anyhow::Result<(u64, String, bool)> {
         use std::io::Write as _;
         let mut out = Counted(std::io::BufWriter::new(crate::home_fs::create_file(lines)?), 0);
-        let (last, digest, capped) = self.emit_lines_capped(session, after, through, &mut out, cap)?;
+        let (last, digest, capped) =
+            self.emit_lines_capped(session, after, through, &mut out, cap)?;
         out.flush()?;
         Ok((last, digest, capped))
     }
@@ -755,7 +756,8 @@ impl Hub {
         out: &mut dyn std::io::Write,
     ) -> anyhow::Result<(u64, String)> {
         let mut out = Counted(out, 0);
-        let (last, digest, _) = self.emit_lines_capped(session, after, through, &mut out, u64::MAX)?;
+        let (last, digest, _) =
+            self.emit_lines_capped(session, after, through, &mut out, u64::MAX)?;
         Ok((last, digest))
     }
 

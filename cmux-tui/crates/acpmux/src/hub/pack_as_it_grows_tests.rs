@@ -410,3 +410,53 @@ fn a_whole_pack_runs_in_pieces_and_is_the_one_pass_pack() {
     let (_, again, _) = hub.pack_through(&session, through, &store, &work).unwrap();
     assert_eq!(again.kept_segments as usize, sealed(&Some(one_pass)), "{again:?}");
 }
+
+/// The duress number (`--ignored`, prints; `ACPMUX_DURESS_SESSION=<a session folder>`): a whole
+/// pack of a copy of a real chat's log: its time, the most scratch its work folder held, and the
+/// process's peak memory (VmHWM).
+#[test]
+#[ignore]
+fn duress_whole_pack_of_a_real_chat() {
+    let Ok(src) = std::env::var("ACPMUX_DURESS_SESSION") else { return };
+    let src = PathBuf::from(src);
+    let id = src.file_name().unwrap().to_string_lossy().into_owned();
+    let root = tempfile::tempdir_in(std::env::var("ACPMUX_DURESS_TMP").unwrap_or("/tmp".into())).unwrap();
+    let sessions = root.path().join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let st = std::process::Command::new("cp").arg("-a").arg(&src).arg(sessions.join(&id)).status();
+    assert!(st.is_ok_and(|s| s.success()));
+    let _ = std::fs::remove_dir_all(sessions.join(&id).join("history-pack"));
+    let hub = hub(&sessions);
+    let meta = hub.store.load(&id).unwrap().expect("a meta");
+    let session = hub.make_session(meta);
+    hub.sessions.lock().unwrap().insert(id.clone(), session.clone());
+    let through = session.read_meta(|m| m.last_seq);
+    let store = hub.pack_store(&id).unwrap();
+    let work = root.path().join("work");
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watcher = {
+        let (work, done) = (work.clone(), done.clone());
+        std::thread::spawn(move || {
+            let mut peak = 0u64;
+            while !done.load(Ordering::Relaxed) {
+                let n: u64 = std::fs::read_dir(&work).into_iter().flatten().flatten()
+                    .filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum();
+                peak = peak.max(n);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            peak
+        })
+    };
+    let started = Instant::now();
+    let (manifest, stats, _) = hub.pack_through(&session, through, &store, &work).unwrap();
+    let took = started.elapsed();
+    done.store(true, Ordering::Relaxed);
+    let peak = watcher.join().unwrap();
+    let hwm = std::fs::read_to_string("/proc/self/status").unwrap_or_default().lines()
+        .find(|l| l.starts_with("VmHWM")).unwrap_or("").to_owned();
+    println!(
+        "DURESS log={} MB seq={through} segments={} took={:.1}s peak_scratch={} MB {hwm} encoded={} MB",
+        log_bytes(&sessions, &id) >> 20, manifest.segments.len(), took.as_secs_f64(),
+        peak >> 20, stats.encoded_bytes >> 20,
+    );
+}
