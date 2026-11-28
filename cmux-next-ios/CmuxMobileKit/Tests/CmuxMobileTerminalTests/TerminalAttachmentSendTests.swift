@@ -249,52 +249,26 @@ import Testing
         #expect(progress.isCancelled)
     }
 
-    /// A load that advances every time the monitor looks, whatever the
-    /// scheduler does: each read of `fractionCompleted` moves it forward, so
-    /// no idle window can pass between two looks. It finishes on the first
-    /// look after more than one idle window of wall time, so it outlives one
-    /// window and must complete without a `.deadline`. A wall-clock stepping
-    /// task (20 ms steps against 1 s) threw `.deadline` on a loaded simulator
-    /// (job 140692767687): the stepper starved while the monitor ran.
-    final class AdvancesOnEveryLook: Progress, @unchecked Sendable {
-        private let lock = NSLock()
-        private var looks: Int64 = 0
-        private let started = ContinuousClock.now
-        private let outlive: Duration
-        private var onOutlived: (() -> Void)?
-
-        init(outlive: Duration) {
-            self.outlive = outlive
-            super.init(parent: nil, userInfo: nil)
-        }
-
-        func finishAfterOutliving(_ finish: @escaping () -> Void) {
-            lock.withLock { onOutlived = finish }
-        }
-
-        override var fractionCompleted: Double {
-            let (fraction, finish): (Double, (() -> Void)?) = lock.withLock {
-                looks += 1
-                var finish: (() -> Void)?
-                if ContinuousClock.now - started > outlive {
-                    finish = onOutlived
-                    onOutlived = nil
-                }
-                return (Double(looks) / Double(Int64.max), finish)
-            }
-            finish?()
-            return fraction
-        }
-    }
-
+    /// Progress moves every 100 ms of clock time against a 150 ms idle window,
+    /// for 1 s in all. The clock moves only when the test advances it, so a
+    /// slow simulator can't stretch a step past the window.
     @Test func advancingPhotoLoadOutlivesOneIdleWindowAndCompletesWithoutCancellation() async throws {
-        let window: Duration = .milliseconds(150)
-        let progress = AdvancesOnEveryLook(outlive: window * 2)
-        let value: Int = try await TerminalComposer.loadWithInactivityDeadline({ finish in
-            progress.finishAfterOutliving { finish(.success(42)) }
+        let clock = StepClock()
+        let progress = Progress(totalUnitCount: 10)
+        let finisher = Finisher()
+        async let value: Int = TerminalComposer.loadWithInactivityDeadline({ finish in
+            finisher.set(finish)
             return progress
-        }, inactivityDeadline: window, progressPoll: .milliseconds(5))
-        #expect(value == 42)
+        }, inactivityDeadline: .milliseconds(150), progressPoll: .milliseconds(5), clock: clock)
+        for step in 1...10 {
+            await clock.untilSleeping()
+            progress.completedUnitCount = Int64(step)
+            clock.advance(by: .milliseconds(100))
+        }
+        await clock.untilSleeping()
+        #expect(clock.now.offset == .seconds(1))
+        finisher.finish(.success(42))
+        #expect(try await value == 42)
         #expect(!progress.isCancelled)
     }
 
@@ -419,15 +393,23 @@ import Testing
         let first = ComposerAttachment(kind: .video, name: "first.mov", data: Data([1]))
         let second = ComposerAttachment(kind: .video, name: "second.mov", data: Data([2]))
         var waiting: CheckedContinuation<String, Never>?
+        // The first upload says when it is held, so the test waits on that
+        // event, not on a wall-clock window a slow simulator can outlast.
+        let (held, heldSignal) = AsyncStream.makeStream(of: Void.self)
         model.uploader = { _, name in
-            if name == "first.mov" { return await withCheckedContinuation { waiting = $0 } }
+            if name == "first.mov" {
+                return await withCheckedContinuation {
+                    waiting = $0
+                    heldSignal.yield()
+                }
+            }
             return "/mac/" + name
         }
         model.addAttachment(first)
         model.addAttachment(second)
         model.composerText = "keep"
         model.send()
-        try #require(await Self.waitFor { waiting != nil })
+        for await _ in held { break }
         model.removeAttachment(first.id)
         let late = try #require(waiting)
         late.resume(returning: "/mac/late")

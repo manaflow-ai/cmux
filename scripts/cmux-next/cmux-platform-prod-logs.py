@@ -362,6 +362,7 @@ PLATFORM_MSGS = frozenset({
     "mesh.device.intent_pending",
     "mesh.device.mesh_unknown",
     "mesh.device.unavailable",
+    "mesh.hub.slow",
     "mesh.hub.unavailable",
     "mesh.node.detached",
     "native network target",
