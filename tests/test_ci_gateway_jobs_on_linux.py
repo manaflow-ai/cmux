@@ -47,6 +47,7 @@ GATEWAY_MAC = frozenset({
     "cmux-next-sidebar-bench.yml#bench-fleet",
     "cmux-next-split-table.yml#measure-fleet",
     "cmux-next-tip-test-compile.yml#compile-fleet",
+    "cmux-next-ios-verify-auto.yml#verify-fleet",  # #63833 put it on the pool after #64245 moved the rest
     "nightly-interaction-latency.yml#benches-fleet",
     "rivals-nightly.yml#record-rivals-fleet",
     # Already on the gateway by vars.CI_EVAL_STEP_GATEWAY; linux-pickers-gone (host pins) froze them to the label.

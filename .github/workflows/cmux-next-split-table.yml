@@ -3,7 +3,8 @@ name: cmux-next split table
 # Instant-splits goal (Leo's persona: one probe, one table, run on every PR): a pull request into feat-cmux-next that
 # touches split, pane, panel or divider code gets one split-scale run (scripts/cmux-next/split-scale-bench.py --quick:
 # 1 and 4 splits, empty and browser panes, one round) on the bench Mac, and the table of every transition, worst row
-# first, input to first frame in ms and blank frames, on the run's summary and in one pull request comment (updated
+# first, input to first frame in ms, blank frames and retargets (end-point drift), before (the newest measured
+# nightly's same cells) -> after (this head), on the run's summary and in one pull request comment (updated
 # in place). A row over 16 ms, with a blank frame or unmeasured is marked. REPORT-ONLY: no job here fails on a row
 # and no required check reads it (no new blocking gate without data; the pull request that added it proposes one).
 # Same-repo, non-draft pull requests only (a fork's head cannot run on an owned Mac). A fleet step is queued
@@ -133,6 +134,81 @@ jobs:
           if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
             detach=(--repo "$GITHUB_REPOSITORY" --report-check "$REPORT_CHECK" --detach)
           fi
+          # The before column: the newest NEXT nightly's own split-scale measurement (split_scale_nightly.py's step,
+          # key split-scale-nightly-<sha12>) of the same quick cells, read from the controller and passed to the bench
+          # as --baseline (split_scale_metrics.encode_baseline's format, kept in step here: the gateway has no
+          # checkout). One bench run gives before and after, so a pull request adds no second exclusive hold on the
+          # bench Mac. Each call is bounded (30-120 s); any miss leaves no before column, never a red.
+          baseline=()
+          # The script goes to a file first: macOS bash 3.2 misparses a heredoc inside $(...) whose body has quotes
+          # and parentheses ("unexpected EOF while looking for matching `)'").
+          cat > "$RUNNER_TEMP/split-table-baseline.py" <<'PY'
+          import base64, json, os, re, subprocess, sys, urllib.request, xml.etree.ElementTree as ET, zlib
+          client, out = sys.argv[1], sys.argv[2]
+          feed = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+          ns = "{https://cmux.com/xml-namespaces/cmux}sourceCommit"
+          sparkle = "{http://www.andymatuschak.org/xml-namespaces/sparkle}version"
+          try:
+              body = urllib.request.urlopen(urllib.request.Request(feed, headers={"User-Agent": "split-table"}), timeout=30).read()
+              items = ET.fromstring(body).findall("./channel/item")
+          except Exception as e:
+              sys.exit(f"split table: no nightly feed ({e})")
+          builds = []
+          for item in items:
+              v = (item.findtext(sparkle) or "").strip()
+              m = re.search(r"cmux-published-sha:\s*([0-9a-f]{40})", item.findtext("description") or "")
+              sha = m.group(1) if m else (item.findtext(ns) or "").strip()
+              if v.isdigit() and re.fullmatch(r"[0-9a-f]{40}", sha):
+                  builds.append((int(v), sha))
+          def steps_of(sha):
+              try:
+                  steps = json.loads(subprocess.run([client, "status", "--ref", sha], capture_output=True, text=True, timeout=60).stdout or "[]")
+              except Exception:
+                  return []
+              return [(j["id"], sha) for j in steps if isinstance(j, dict) and j.get("state") == "done"
+                      and str(j.get("step_key") or "").startswith(f"split-scale-nightly-{sha[:12]}")][-1:]
+          # The feed keeps only its two newest builds and the newest is often still queued for the bench Mac: then the
+          # newest finished full-matrix split-scale step of the last 3 days (the nightly tick's args, no cell filter).
+          found = [hit for _, sha in sorted(builds, reverse=True) for hit in steps_of(sha)][:1]
+          if not found:
+              import datetime as dt
+              since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+              try:
+                  hist = json.loads(subprocess.run([client, "history", "--since", since, "--state", "done", "--class", "exclusive",
+                                                    "--fields", "id,ref,args,updated_at", "--format", "json"],
+                                                   capture_output=True, text=True, timeout=120).stdout or "[]")
+              except Exception:
+                  hist = []
+              full = [j for j in hist if isinstance(j, dict) and "--suite=split-scale" in (j.get("args") or [])
+                      and not any(a.startswith(("--quick", "--splits", "--contents", "--workspaces", "--transitions",
+                                                "--moves", "--diag", "--app-env", "--baseline")) for a in j.get("args") or [])]
+              full.sort(key=lambda j: j.get("updated_at") or "")
+              found = [(j["id"], j["ref"]) for j in full[-1:] if re.fullmatch(r"[0-9a-f]{40}", j.get("ref") or "")]
+          for step, sha in found:
+              path = f"{out}/baseline-report.json"
+              try:
+                  subprocess.run([client, "artifact", step, path], capture_output=True, timeout=120, check=True)
+                  report = json.load(open(path))
+                  os.remove(path)  # 1.7 MB: not the artifact upload's business
+              except Exception:
+                  continue
+              keep = re.compile(r"s[14]-(empty|browser)-w1")  # split-scale-bench.py --quick's cells
+              cells = {c: {t: {k: s.get(k) for k in ("first_frame_ms", "blank_frames", "retargets", "settled_ms")}
+                           for t, s in per.items() if isinstance(s, dict)}
+                       for c, per in (report.get("cells") or {}).items() if keep.fullmatch(c)}
+              if cells:
+                  raw = json.dumps({"sha": sha, "cells": cells}, separators=(",", ":")).encode()
+                  print(base64.urlsafe_b64encode(zlib.compress(raw, 9)).decode())
+                  sys.exit(0)
+          sys.exit("split table: no finished split-scale measurement to compare with")
+          PY
+          base_arg="$(python3 -I "$RUNNER_TEMP/split-table-baseline.py" "$client" "$out" || true)"
+          if [[ -n "$base_arg" ]]; then
+            baseline=("--arg=--baseline=$base_arg")
+            echo "::notice title=Split table::before column: the newest measured split-scale matrix (${#base_arg} byte arg)"
+          else
+            echo "::notice title=Split table::no before column (no finished split-scale matrix to compare with)"
+          fi
           # Build at light class first, so the bench Mac's exclusive hold covers only the measuring
           # (split-spring.sh CMUX_MEASURE_PHASE). Only a client that knows the flag sends it.
           build_first=()
@@ -143,7 +219,7 @@ jobs:
             --key "split-table-$SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" ${build_first[@]+"${build_first[@]}"} \
             --artifact artifacts/split-spring/report.json ${detach[@]+"${detach[@]}"} \
             --arg=--suite=split-scale --arg=--config=$MEASURE_CONFIG --arg=--quick --arg=--vdisplay=120 \
-            2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+            ${baseline[@]+"${baseline[@]}"} 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           [[ "$status" == 0 ]] || echo "::warning title=Split table::the fleet step did not finish (exit $status; report-only: nothing fails)"
           if [[ ${#detach[@]} -gt 0 ]] && grep -q ') detached; check run' "$log"; then
             # Submitted: the check run carries the table when the bench Mac is done; nothing to fetch here.
@@ -223,16 +299,17 @@ jobs:
           report, out = sys.argv[1:3]
           sha, run = os.environ["SHA"], os.environ["RUN_URL"]
           try:
-              rows = json.load(open(report)).get("row_table")
+              data = json.load(open(report))
+              rows, base_sha = data.get("row_table"), data.get("baseline_sha")
           except (OSError, ValueError):
-              rows = None
+              rows = base_sha = None
           head = "<!-- cmux-next-split-table -->\n## Split table (report-only)\n\n"
           foot = f"\n\nSplit-scale quick (1 and 4 splits, empty and browser) at `{sha[:12]}`; [run]({run}). Report-only: no check reads it."
           if os.environ.get("DETACHED") == "1":
               text = (f"The bench Mac posts this head's table as the check run **cmux-next split table (report-only)** "
                       f"([checks]({os.environ['CHECKS_URL']})) when it is done; no runner waits for it here.")
           else:
-              text = ssm.row_table_markdown(rows) if rows else "No table: the bench Mac returned no report (none free in time, or the run failed; see the run)."
+              text = ssm.row_table_markdown(rows, base_sha=base_sha) if rows else "No table: the bench Mac returned no report (none free in time, or the run failed; see the run)."
           open(out, "w").write(head + text + foot)
           PY
           cat "$body" >> "$GITHUB_STEP_SUMMARY"

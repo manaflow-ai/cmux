@@ -707,6 +707,14 @@ class WorkflowTest(unittest.TestCase):
     def test_the_runner_script_parses(self) -> None:
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/ios_fast_verdict.sh")], check=True)
 
+    def test_the_kit_tests_are_bounded(self) -> None:
+        # Run 46154061623: a hung kit test held the verdict 1962 s, to near the job's 40 min ceiling.
+        text = (ROOT / "scripts/ci/ios_fast_verdict.sh").read_text()
+        run = text[text.index('if [[ -n "$tests" ]]; then'):text.index('phase "kit tests')]
+        self.assertIn("hung_test_watchdog.py", run)
+        self.assertIn('--timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}"', run)
+        self.assertLess(run.index("hung_test_watchdog.py"), run.index("xcodebuild test"))
+
 
 if __name__ == "__main__":
     unittest.main()

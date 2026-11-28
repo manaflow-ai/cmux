@@ -1008,6 +1008,10 @@ path = "tests/test_ci_reusable_job_name_lookups.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_reusable_route_key_passed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_reusable_workflow_permissions.py"
 lane = "linux-guard"
 

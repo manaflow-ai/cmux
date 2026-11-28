@@ -511,9 +511,12 @@ jobs:
           fetch-depth: 1
           filter: blob:none
           sparse-checkout-cone-mode: false
+          # cargo loads every package of the cmux-tui workspace, and cmux-tui links workers/cmux-vm/cli by path
+          # (tests/test_ci_sparse_cargo_path_deps.py).
           sparse-checkout: |
             /scripts/ci/
             /cmux-tui/
+            /workers/cmux-vm/cli/
             /.github/actions/
       - name: Download the receipt
         continue-on-error: true

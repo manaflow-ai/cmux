@@ -284,6 +284,9 @@
     "agent-session-tabs-v1": [
       "field:list-workspaces#agent_session"
     ],
+    "api-describe-v1": [
+      "service:api"
+    ],
     "appearance-v1": [
       "param:appearance-wallpaper#id",
       "service:appearance",
