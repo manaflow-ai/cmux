@@ -325,7 +325,7 @@ async fn a_stalled_hub_queues_the_send_within_the_bound_and_the_retry_delivers_i
 }
 
 /// A hub that holds every request (`hubslow`): the first send waits [`INLINE_WAIT`] for it and is
-/// queued; a send after the gate's window ended is queued at once, with no inline probe, since
+/// queued; a send the instant the gate's window ends is queued at once, with no inline probe, since
 /// the queued delivery's retry is the probe (`mesh_send::post_or_queue`). Before, the first send
 /// after each window drew the probe and paid the whole wait (duress bench, 2026-11-28: hubslow
 /// send p99 513 ms with p50 13 ms).
@@ -337,11 +337,20 @@ async fn a_send_after_a_stalled_hubs_window_is_not_the_probe() {
     assert_eq!(first.unwrap()["status"], "queued");
     assert!(runtime >= crate::server::mesh_send::INLINE_WAIT, "the first send asked: {runtime:?}");
     assert!(hub.mesh.gate().shut());
-    // A send every 400 ms for two minutes: some land after a window ended while the retry's own
-    // probe still waits on the hub, which is when a send used to draw a probe of its own.
-    let mut slow = Vec::new();
+    // Each send lands the instant a window ends while the retry's own probe still waits on the
+    // hub (the queue's wakes come up to `GATE_JITTER` later). That instant is when a send used to
+    // claim the probe itself and wait the whole `INLINE_WAIT`; at a fixed pace a send hits it
+    // only now and then (the bench: 1 run in 3).
+    let (mut slow, mut at_window_end) = (Vec::new(), 0);
     for n in 0..300 {
-        tokio::time::sleep(Duration::from_millis(400)).await;
+        let reopens = hub.mesh.gate().reopens_at().filter(|at| *at > tokio::time::Instant::now());
+        match reopens {
+            Some(at) => {
+                tokio::time::sleep_until(at).await;
+                at_window_end += 1;
+            }
+            None => tokio::time::sleep(Duration::from_millis(400)).await,
+        }
         let params = request(&format!("far-host/lane-{n}"), &format!("prompt-slow-b{n}"));
         let (answer, runtime, _) = timed_send(&hub, params).await;
         assert_eq!(answer.unwrap()["status"], "queued");
@@ -349,6 +358,7 @@ async fn a_send_after_a_stalled_hubs_window_is_not_the_probe() {
             slow.push((n, runtime));
         }
     }
+    assert!(at_window_end >= 10, "only {at_window_end} sends landed as a window ended");
     assert!(slow.is_empty(), "sends that waited on the hub: {slow:?}");
     // The outbox still probes: the retries asked the hub again, not only the first send.
     assert!(stub.posts.lock().unwrap().len() > 1, "the queued deliveries' retries probe");
