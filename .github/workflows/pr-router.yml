@@ -524,13 +524,16 @@ jobs:
       contents: read
 
   compile-preflight:
-    # A web-bundle input can break the build on every tier (Leo, 2026-11-27: "surely we can just have legit build
-    # fail preflight checks"). The router's conservative `affects` superset admits web inputs and unknown diffs,
-    # while docs/tooling-only changes skip this Linux runner at the caller job. cmux#57269 landed a web break through
-    # the tier gates; actual web inputs still run the callee, whose first step remains a cache-aware build.
+    # The build a change can break, on every tier (Leo, 2026-11-27: "surely we can just have legit build fail
+    # preflight checks"). No tier rule and no `start` gate: the land tier's cheap and none tiers skip every other
+    # build, and cmux#57269 landed a web bundle build break through them. A change whose every path no web bundle
+    # reads (the route's preflight_web: Rust, Swift, Python, prose, other workflows) passes web: false and the
+    # callee's job skips before taking a runner (Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can
+    # reuse, we reuse."); any other change starts it, and its first step decides from the exact web bundle inputs,
+    # so a change that reaches a web bundle always gets a verdict, never "skipped".
     name: compile preflight
     needs: route
-    if: ${{ !cancelled() && needs.route.result == 'success' && contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-compile-preflight.yml') }}
+    if: ${{ !cancelled() && needs.route.result == 'success' }}
     uses: ./.github/workflows/cmux-next-compile-preflight.yml
     with:
       web: ${{ needs.route.outputs.preflight_web || 'true' }}
