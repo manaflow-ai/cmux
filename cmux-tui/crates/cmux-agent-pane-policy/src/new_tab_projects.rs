@@ -5,14 +5,16 @@
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
+use super::new_tab_project_groups::{field, set};
+
 fn path(cwd: &str) -> &str {
     let trimmed = cwd.trim_end_matches('/');
     if trimmed.is_empty() && cwd.starts_with('/') { "/" } else { trimmed }
 }
 
 pub(super) fn is_home(cwd: &str) -> bool {
-    let parts: Vec<_> = cwd.split('/').filter(|s| !s.is_empty()).collect();
-    parts.len() == 2 && matches!(parts[0], "Users" | "home")
+    let mut parts = cwd.split('/').filter(|s| !s.is_empty());
+    matches!((parts.next(), parts.next(), parts.next()), (Some("Users" | "home"), Some(_), None))
 }
 
 fn agent_home(cwd: &str) -> bool {
@@ -27,10 +29,14 @@ fn agent_home(cwd: &str) -> bool {
 }
 
 pub fn snapshot(request: &Value) -> Value {
-    let warm: Value =
-        request["warm"].as_str().and_then(|s| serde_json::from_str(s).ok()).unwrap_or(Value::Null);
-    let seed: Vec<Value> =
-        request["seed"].as_str().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
+    let warm: Value = field(&request, "warm")
+        .as_str()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or(Value::Null);
+    let seed: Vec<Value> = field(&request, "seed")
+        .as_str()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
     let mut rows = Vec::new();
     let mut seen = HashSet::new();
     let mut recency: HashMap<String, (i64, usize)> = HashMap::new();
@@ -47,36 +53,36 @@ pub fn snapshot(request: &Value) -> Value {
             cwd.rsplit('/').next().unwrap_or(cwd)
         };
         let mut row = json!({"cwd": cwd, "label": label});
-        if request["repos"][cwd].is_object() {
-            row["repo"] = request["repos"][cwd].clone();
+        if field(field(request, "repos"), cwd).is_object() {
+            set(&mut row, "repo", field(field(request, "repos"), cwd).clone());
         }
         rows.push(row);
     };
-    if let Some(projects) = request["projects"].as_array() {
+    if let Some(projects) = field(&request, "projects").as_array() {
         for cwd in projects.iter().filter_map(Value::as_str) {
             add(cwd);
         }
     }
-    if let Some(sessions) = warm["sessions"].as_array() {
+    if let Some(sessions) = field(&warm, "sessions").as_array() {
         for (index, session) in sessions.iter().enumerate() {
             if ["startedBy", "spawnedBy"]
                 .iter()
-                .any(|key| session[key].as_str().is_some_and(|s| !s.is_empty()))
+                .any(|key| field(&session, key).as_str().is_some_and(|s| !s.is_empty()))
                 || ["chiefChild", "chiefTurn"]
                     .iter()
-                    .any(|key| session[key].as_bool() == Some(true))
-                || session["peer"].as_str().is_some_and(|s| !s.is_empty())
-                || session["hostKind"].as_str().is_some_and(|s| s != "local")
-                || session["archived"].as_bool() == Some(true)
-                || session["side"].as_bool() == Some(true)
+                    .any(|key| field(&session, key).as_bool() == Some(true))
+                || field(&session, "peer").as_str().is_some_and(|s| !s.is_empty())
+                || field(&session, "hostKind").as_str().is_some_and(|s| s != "local")
+                || field(&session, "archived").as_bool() == Some(true)
+                || field(&session, "side").as_bool() == Some(true)
             {
                 continue;
             }
-            if let Some(cwd) = session["cwd"].as_str() {
+            if let Some(cwd) = field(&session, "cwd").as_str() {
                 add(cwd);
-                let at = session["activityAt"]
+                let at = field(&session, "activityAt")
                     .as_i64()
-                    .or_else(|| session["updatedAt"].as_i64())
+                    .or_else(|| field(&session, "updatedAt").as_i64())
                     .unwrap_or(0);
                 if cwd != "~" && path(cwd) != "/" {
                     recency
@@ -91,11 +97,11 @@ pub fn snapshot(request: &Value) -> Value {
             }
         }
     }
-    if let Some(cwd) = request["cwd"].as_str() {
+    if let Some(cwd) = field(&request, "cwd").as_str() {
         add(cwd);
     }
     rows.sort_by_key(|row| {
-        let recent = recency.get(row["cwd"].as_str().unwrap_or_default());
+        let recent = recency.get(field(&row, "cwd").as_str().unwrap_or_default());
         (
             recent.is_none(),
             std::cmp::Reverse(recent.map_or(0, |r| r.0)),
@@ -104,11 +110,11 @@ pub fn snapshot(request: &Value) -> Value {
     });
     let mut remaining: HashMap<String, Value> = rows
         .iter()
-        .map(|row| (row["cwd"].as_str().unwrap_or_default().to_owned(), row.clone()))
+        .map(|row| (field(&row, "cwd").as_str().unwrap_or_default().to_owned(), row.clone()))
         .collect();
     let mut ordered = Vec::new();
     for row in seed {
-        if let Some(cwd) = row["cwd"].as_str()
+        if let Some(cwd) = field(&row, "cwd").as_str()
             && remaining.remove(cwd).is_some()
         {
             // Repository identity controls grouping. Keep it for this opening;
@@ -117,11 +123,11 @@ pub fn snapshot(request: &Value) -> Value {
         }
     }
     for row in rows {
-        if remaining.remove(row["cwd"].as_str().unwrap_or_default()).is_some() {
+        if remaining.remove(field(&row, "cwd").as_str().unwrap_or_default()).is_some() {
             ordered.push(row);
         }
     }
-    super::new_tab_project_groups::freeze(&mut ordered, request["cwd"].as_str());
+    super::new_tab_project_groups::freeze(&mut ordered, field(&request, "cwd").as_str());
     json!({"rows": serde_json::to_string(&ordered).ok()})
 }
 
