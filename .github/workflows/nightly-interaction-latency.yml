@@ -26,7 +26,10 @@ concurrency:
 jobs:
   benches:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # The fleet controller is tailnet-only and the cmux-linux pool's VMs are not on the tailnet ("runner NAME has no route
+    # to the controller"), so a job that fetches the fleet client runs on the gateway runner.
+    # tests/test_ci_gateway_jobs_on_linux.py fails a fleet-client job that names only cmux-linux.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # The script's 90-minute bench budget plus setup, plus the state read's rate-limit waits.
     timeout-minutes: 160
     permissions:
