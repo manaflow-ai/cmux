@@ -201,6 +201,11 @@ impl Answer {
                 out.push_str(
                     "  cmux customize save NAME       keep this setup as a profile you can share\n",
                 );
+                // The chat's Undo chip (wow-20 idea 15, "Make me a panel"): end the turn with it,
+                // and one click puts back exactly the setup before this apply.
+                if let Some(before) = applied.before {
+                    out.push_str(&undo_actions(before));
+                }
             }
             Answer::Discarded(restored) => {
                 out.push_str(&format!(
@@ -638,4 +643,12 @@ fn schema_lines(out: &mut String, schema: &Schema, only: Option<Section>) {
     out.push_str(
         "Next:\n  cmux customize schema settings --json   every key with its JSON Schema, range and default\n  cmux customize schema --typescript       the same as TypeScript types (cmux-extension-sdk/customize)\n  cmux customize 'make the sidebar compact'   ask an agent to change it\n",
     );
+}
+
+/// The `wrap_up` actions line an apply ends with: one Undo that rolls back to `before`, the
+/// generation current before it (`_acpmux/customize_run` `{customize: "undo", to}`).
+pub(super) fn undo_actions(before: u32) -> String {
+    format!(
+        "  wrap_up actions: [{{\"label\":\"Undo\",\"run\":{{\"customize\":\"undo\",\"to\":{before}}}}}]\n"
+    )
 }

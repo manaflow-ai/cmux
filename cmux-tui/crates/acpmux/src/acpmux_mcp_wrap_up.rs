@@ -38,7 +38,7 @@ pub(crate) const MAX_FACT: usize = 200;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "Finish with a recap below your answer. An answer button sends the person's next message; a {label, run} answer runs cmux customize try, keep, revert or go.",
+        "description": "Finish with a recap below your answer. An answer button sends the person's next message; a {label, run} answer runs cmux customize try, keep, revert, undo or go.",
         "inputSchema": {
             "type": "object",
             "properties": {

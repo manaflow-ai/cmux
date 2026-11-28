@@ -50,6 +50,26 @@ test("runReducer: try then keep or revert, failures go back", () => {
   });
 });
 
+test("undo: an apply's chip rolls back by number (wow-20 idea 15)", () => {
+  expect(readRun({ customize: "undo", to: 4 })).toEqual({ customize: "undo", to: 4 });
+  expect(readRun({ customize: "undo" })).toBeUndefined();
+  expect(readRun({ customize: "undo", to: "4" })).toBeUndefined();
+  expect(readRun({ customize: "undo", to: -1 })).toBeUndefined();
+  expect(readRun({ customize: "undo", to: 1.5 })).toBeUndefined();
+  const done = runReducer(runReducer(idleRun, { type: "start" }), {
+    type: "done",
+    run: { customize: "undo", to: 4 },
+    ok: true,
+  });
+  expect(done.phase).toBe("undone");
+  const failed = runReducer(runReducer(idleRun, { type: "start" }), {
+    type: "done",
+    run: { customize: "undo", to: 4 },
+    ok: false,
+  });
+  expect(failed).toMatchObject({ phase: "idle", failed: true });
+});
+
 test("runner hook", async () => {
   expect(hasCustomizeRunner()).toBe(false);
   expect((await runCustomize({ customize: "keep" })).ok).toBe(false);

@@ -219,7 +219,7 @@ export const NextStepCard = memo(function NextStepCard({
   // After a try-on the card offers Keep and Revert, and Go first when a PR was tried (it marks the
   // PR merge-ready at the head seen); once one ran, the typed answers are done.
   const tried = run.phase === "tried";
-  const done = run.phase === "kept" || run.phase === "reverted" || run.phase === "went";
+  const done = run.phase === "kept" || run.phase === "reverted" || run.phase === "went" || run.phase === "undone";
   // Save is Keep: a kept try-on stays in the person's library (RFD 0150). Share copies the line
   // (code as it is; a profile as the setup repo the daemon writes; a folder as its pushed branch)
   // that tries the same code on another cmux, while it is on and once it is kept.
@@ -286,7 +286,9 @@ export const NextStepCard = memo(function NextStepCard({
                     ? "liveCustomize.kept"
                     : run.phase === "went"
                       ? "liveCustomize.went"
-                      : "liveCustomize.reverted",
+                      : run.phase === "undone"
+                        ? "liveCustomize.undone"
+                        : "liveCustomize.reverted",
                 )}
         </output>
       )}

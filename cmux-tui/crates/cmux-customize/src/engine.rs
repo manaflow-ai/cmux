@@ -230,6 +230,7 @@ impl Customize {
         now_ms: u64,
     ) -> Result<Applied, Error> {
         let mut index = self.store.index()?;
+        let before = index.current;
         let draft = self.store.draft()?;
         let scan = tree::scan(&self.roots)?;
         let base = self.current_tree(&index)?;
@@ -251,6 +252,7 @@ impl Customize {
                 recorded: false,
                 changes: changed,
                 library: None,
+                before,
             });
         }
         let label = label
@@ -267,7 +269,7 @@ impl Customize {
         // Every apply saves itself in the library; a library that cannot be
         // written never fails the apply it follows.
         let library = self.remember_locked(&generation, draft.as_ref(), now_ms).ok().flatten();
-        Ok(Applied { generation, recorded: true, changes: changed, library })
+        Ok(Applied { generation, recorded: true, changes: changed, library, before })
     }
 
     pub(crate) fn current_generation(&self) -> Result<Option<u32>, Error> {
