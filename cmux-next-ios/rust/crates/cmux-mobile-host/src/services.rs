@@ -549,6 +549,7 @@ async fn cloud_acpmux(
     served
 }
 
+#[cfg(test)]
 const MAX_CLOUD_NATIVE_LINE: usize = cmux_cloud_phone_acp::MAX_NATIVE_LINE;
 
 fn cloud_refusal(fault: cmux_cloud_phone_acp::Fault) -> Refusal {

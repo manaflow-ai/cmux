@@ -109,6 +109,8 @@ fn to_hint(hint: CloudWakeHint) -> Hint {
         allowed: hint.allowed,
         loaded: hint.loaded,
         status: hint.status,
+        // The phone does not serve a machine's chat without it, so a focus or unlock still wakes.
+        reads_without_wake: false,
     }
 }
 
