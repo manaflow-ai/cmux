@@ -51,7 +51,8 @@ jobs:
       deployment: false
     # Two cold debug builds (acpmux --features tailnet, then cmux-tui) took 52 min in run 45715050700
     # and 68 min on a freestyle runner in run 45830130860, whose move then hit a 100-min cap mid-step.
-    timeout-minutes: 150
+    # Run 46187511771 (cmux-fleet-linux-x64, fsr runner) spent 106 min on acpmux alone and hit 150 inside cmux-tui.
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -115,6 +116,9 @@ jobs:
           # most of a debug target dir, and this binary is only run, never debugged.
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_INCREMENTAL: "0"
+          # Workspace crates unoptimized (dependencies keep profile.dev.package."*" at opt-level 3), as
+          # cloud-journey-pr.yml builds: cmux-tui at the workspace's opt-level 1 is most of a cold build.
+          CARGO_PROFILE_DEV_OPT_LEVEL: "0"
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
         run: |
