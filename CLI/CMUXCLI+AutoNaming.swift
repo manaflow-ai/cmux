@@ -215,7 +215,7 @@ struct AutoNamingEnvironmentPolicy: Sendable {
 /// credentials remain in its mode-restricted config file instead of argv.
 struct CodexAutoNamingArguments: Sendable {
     static func build(configToml: String?, usesTemporaryConfig: Bool = false) -> [String] {
-        var arguments = [
+        var fixedArguments = [
             "exec",
             "-c", "default_tools_enabled=false",
             "-c", "tools={}",
@@ -229,17 +229,34 @@ struct CodexAutoNamingArguments: Sendable {
             "--sandbox", "read-only"
         ]
         if !usesTemporaryConfig {
-            arguments.insert("--ignore-user-config", at: arguments.firstIndex(of: "--ignore-rules")!)
+            fixedArguments.insert("--ignore-user-config", at: fixedArguments.firstIndex(of: "--ignore-rules")!)
         }
-        guard let configToml else { return arguments }
+        guard let configToml else { return fixedArguments }
         let overrides = providerOverrides(
             from: configToml,
             usesTemporaryConfig: usesTemporaryConfig
         )
-        for override in overrides.reversed() {
-            arguments.insert(contentsOf: ["-c", override], at: 1)
+        var arguments = ["exec"]
+        arguments.reserveCapacity(fixedArguments.count + (overrides.count * 2))
+        for override in overrides {
+            arguments.append(contentsOf: ["-c", override])
         }
+        arguments.append(contentsOf: fixedArguments.dropFirst())
         return arguments
+    }
+
+    /// Resolves the Codex home used to read the user's configuration.
+    ///
+    /// Codex treats an empty `CODEX_HOME` as unset, so an empty override must
+    /// fall back to the normal `$HOME/.codex` location. Non-empty values,
+    /// including a leading tilde, remain unchanged for the child CLI to
+    /// interpret consistently.
+    static func configHome(from env: [String: String]) -> String? {
+        if let configured = env["CODEX_HOME"], !configured.isEmpty {
+            return configured
+        }
+        guard let home = env["HOME"], !home.isEmpty else { return nil }
+        return home + "/.codex"
     }
 
     static func removingComment(from rawLine: Substring) -> Substring {
