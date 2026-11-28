@@ -12,18 +12,38 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { IncomingMessageLine } from "../src/agent-session/acpmux/conversation/IncomingMessageCard";
-import { InboxNoticeCard } from "../src/agent-session/acpmux/conversation/InboxNoticeCard";
-import { inboxNotice, type InboxNotice } from "../src/agent-session/acpmux/conversation/inboxNotice";
-import { incomingPrompt, type IncomingMessage } from "../src/agent-session/acpmux/conversation/incomingMessage";
-import { relayEnvelope, withoutRelayHead } from "../src/agent-session/acpmux/conversation/relayEnvelope";
-import { AcpmuxSendLine } from "../src/agent-session/acpmux/conversation/SentMessageLine";
-import { acpmuxSendCall } from "../src/agent-session/acpmux/conversation/acpmuxSends";
-import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
-import { DoneReportLookContext } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
-import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
+import type { InboxNotice } from "../src/agent-session/acpmux/conversation/inboxNotice";
+import type { IncomingMessage } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { IncomingMessageLine } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/IncomingMessageCard"),
+);
+const { InboxNoticeCard } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/InboxNoticeCard"),
+);
+const { inboxNotice } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/inboxNotice"));
+const { incomingPrompt } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/incomingMessage"),
+);
+const { relayEnvelope, withoutRelayHead } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/relayEnvelope"),
+);
+const { AcpmuxSendLine } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/SentMessageLine"),
+);
+const { acpmuxSendCall } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/acpmuxSends"));
+const { SubagentDoneLine } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/SubagentDoneLine"),
+);
+const { DoneReportLookContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subagentDoneLineModel"),
+);
+const { SubagentNavContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subagentGroupModel"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

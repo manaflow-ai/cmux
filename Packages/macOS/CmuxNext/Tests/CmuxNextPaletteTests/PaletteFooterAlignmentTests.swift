@@ -108,10 +108,12 @@ struct PaletteFooterAlignmentTests {
             let font = try #require(text.font, "\(label)")
             let frame = footer.convert(text.bounds, from: text)
             let span = try #require(ink.rows(in: frame), "\(label): \"\(text.stringValue)\" draws no ink")
-            // The ink's bottom is the baseline (none of these words has a descender); its top is an
-            // ascender, taller than the capitals, so the capitals' middle is measured up from the baseline.
-            #expect(!text.stringValue.contains(where: { "gjpqy,".contains($0) }), "\(label): \"\(text.stringValue)\" has a descender")
-            let capsMid = span.min + font.capHeight / 2
+            // The capitals' middle is measured up from the baseline (the ink's top is an ascender, taller than the
+            // capitals). A word with no descender has its baseline at its ink's bottom; one with a descender ("Open",
+            // "All Scopes") has it where the field lays its first line out, the ink's bottom being the descender.
+            let hasDescender = text.stringValue.contains(where: { "gjpqy,".contains($0) })
+            let baseline = hasDescender ? frame.maxY - text.firstBaselineOffsetFromTop : span.min
+            let capsMid = baseline + font.capHeight / 2
             #expect(abs(capsMid - midY) <= tolerance,
                     "\(label): \"\(text.stringValue)\" capitals center at \(capsMid), the footer's middle is \(midY)")
             measured.append(text.stringValue)

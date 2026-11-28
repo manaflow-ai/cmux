@@ -50,6 +50,10 @@ APP_TOKEN_EXEMPT = {
         "signs and notarizes the live code variant and uploads it to R2 with the nightly-next R2 keys; "
         "it writes nothing to a release and sends no github.token"
     ),
+    "restore-historical-notes": (
+        "a manual nightly-next restore (#62726) under release-next: restores archived notes and verifies the public "
+        "signed pair behind the R2 publish lease; its github.token holds only actions/contents: read, no App key"
+    ),
     "nightly-next-deltas": (
         "builds and uploads the nightly-next deltas after the feed with the Sparkle key and the nightly-next "
         "R2 keys; it writes nothing to a release and sends no github.token"

@@ -12,6 +12,8 @@
 Packages/Shared/CmuxTerminalSizing  CmuxTerminalSizingTests  -
 Packages/Shared/CmuxTerminalStream  CmuxTerminalStreamTests  -
 Packages/Shared/CmuxAgentQuestion  CmuxAgentQuestionTests  -
+Packages/Shared/CmuxChiefList  CmuxChiefListTests  -
+Packages/Shared/CmuxEgress  CmuxEgressTests  -
 Packages/Shared/CMUXAuthCore  CMUXAuthCoreTests  -
 Packages/Shared/CmuxFeedPushCore  CmuxFeedPushCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/Shared/CmuxInstallAuthCore  CmuxInstallAuthCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1
@@ -24,7 +26,6 @@ Packages/Shared/CmuxLiveCode  CmuxLiveCodeTests  -
 Packages/Shared/CmuxSpinner  CmuxSpinnerTests  -
 Packages/iOS/CmuxMobileBilling  CmuxMobileBillingTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/iOS/CmuxMobileRPC  CmuxMobileRPCTests  CMUX_SWIFTPM_TARGET_LINUX=1
-Packages/Shared/CmuxVisibleRows  CmuxVisibleRowsTests  -
 Packages/Shared/CMUXMobileCore  CMUXMobileCoreTests  -
 Packages/iOS/CmuxMobilePairedMac  CmuxMobilePairedMacTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/iOS/CmuxMobileShellModel  CmuxMobileShellModelTests  -
@@ -32,6 +33,7 @@ Packages/iOS/CmuxMobileSSH  CmuxMobileSSHTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/iOS/CmuxMobileTunnel  CmuxMobileTunnelTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/iOS/CmuxMobileSupport  CmuxMobileSupportTests  -
 Packages/iOS/CmuxTabsKit  CmuxTabsKitTests  -
+Packages/iOS/CmuxPushRegistration  CmuxPushRegistrationTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/iOS/CmuxConversation  CmuxConversationCoreTests,CmuxConversationGeometryTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/macOS/CmuxNext  CmuxNextHostPressureTests,CmuxNextChromiumRuntimeTests,CmuxNextAgentPanePlacementTests,CmuxNextCompatTests,CmuxNextTerminalGeometryTests,CmuxNextCLIInstallTests,CmuxNextFocusTests  CMUX_SWIFTPM_TARGET_LINUX=1
 Packages/macOS/CmuxUpdater  CmuxUpdaterCoreTests  CMUX_SWIFTPM_TARGET_LINUX=1

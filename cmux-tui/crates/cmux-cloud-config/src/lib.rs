@@ -28,6 +28,8 @@
 //! - [`identity`]: the install identity's rules that are not key calls: the
 //!   `cmux auth token` mint's team, token claims, transient refusals, install
 //!   key names, share install origins.
+//! - [`install_auth`]: the install token mint and revoke as a step machine (events in, one
+//!   effect out): every rule of the challenge exchange the app's InstallAuthClient drives.
 //! - [`install_key_slots`]: which login Keychain item holds an install key, and
 //!   where a rotation puts the fresh key when another build's item stays.
 //! - [`keychain`]: the deadline of the app's calls into its own Keychain items,
@@ -52,6 +54,7 @@ pub mod device_identity_slots;
 pub mod device_list;
 pub mod handoff;
 pub mod identity;
+pub mod install_auth;
 pub mod install_key_slots;
 pub mod keychain;
 pub mod origin;

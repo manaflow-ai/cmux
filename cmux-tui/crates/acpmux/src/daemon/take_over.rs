@@ -162,6 +162,10 @@ async fn take_over_holder(
         .into());
     }
     tracing::info!(pid, "another daemon of this home serves its socket; asking it to hand over");
+    #[cfg(unix)]
+    if let Some(pid) = pid {
+        listener_handover::note_took_over_from(pid);
+    }
     // Its listeners too, by descriptor, so the listen queue never closes
     // (`daemon/listener_handover.rs`). A daemon from before this ignores the key and stops.
     #[cfg(unix)]

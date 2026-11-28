@@ -79,8 +79,14 @@ setup
 lane_push source.txt "tip already fails parity"
 tip_red="$(remote_tip)"
 printf '%s action_list_export_matches\n* english_catalog_equals_the_swift_dump\n' "$tip_red" > "$tmp/parity-fails"
-STUB_ACTION_PARITY_FAILS="$tmp/parity-fails" run > "$tmp/out" 2>&1 || fail "a repair failing only the tip's own parity tests was refused: $(cat "$tmp/out")"
+rm -f "$tmp/parity-targets"
+STUB_ACTION_PARITY_TARGETS="$tmp/parity-targets" STUB_ACTION_PARITY_FAILS="$tmp/parity-fails" run > "$tmp/out" 2>&1 || fail "a repair failing only the tip's own parity tests was refused: $(cat "$tmp/out")"
 [[ "$(remote_show "$gen")" == repaired ]] || fail "the repair did not land on a tip that already fails parity"
+# The tip's checkout builds into its own target dir: the tests bake their checkout's path in, and a
+# shared one left the candidate's next run reading the deleted tip tree (run 46102037292).
+grep -q '^tip ' "$tmp/parity-targets" || fail "the tip was not checked in its own checkout: $(cat "$tmp/parity-targets")"
+shared="$(LC_ALL=C comm -12 <(sed -n 's/^main //p' "$tmp/parity-targets" | LC_ALL=C sort -u) <(sed -n 's/^tip //p' "$tmp/parity-targets" | LC_ALL=C sort -u))"
+[[ -z "$shared" ]] || fail "the tip's parity check built into the candidate's target dir: $shared"
 grep -q 'adds no failure' "$tmp/out" || fail "the landing does not say the tip fails parity too"
 [[ -z "$(git -C "$tmp/bot" worktree list --porcelain | grep -c '^worktree ' | grep -vx 1)" ]] || fail "the tip's parity checkout was left behind"
 # A test that passes at the tip and fails on the candidate still refuses.
