@@ -313,6 +313,54 @@ def env_gates(ps_env_output: str, names=APP_GATES) -> dict | None:
     return {name: found.get(name) for name in names}
 
 
+def acpmux_env_words(ps_env_output: str) -> dict:
+    """ACPMUX_HOME and ACPMUX_SOCKET in `ps -E -ww -o command=` output for one process (pure): {name: value} for those
+    present. A value runs to the next NAME= word, so a home under "Application Support" keeps its space; the environment
+    follows the command, so the last match is the env's own."""
+    found = {}
+    for name in ("ACPMUX_HOME", "ACPMUX_SOCKET"):
+        values = re.findall(rf"(?:^|\s){name}=(.*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|\s*$)", ps_env_output)
+        if values:
+            found[name] = values[-1]
+    return found
+
+
+def acpmux_daemon_home(socket_path: str | None, rows=None, read_env=None) -> str | None:
+    """The ACPMUX_HOME of the acpmux daemon serving `socket_path`, from its own environment: the app launches it with
+    both (AcpmuxEnvironment+Resolve childEnvironment). A CLI given that ACPMUX_SOCKET alone resolves its home from
+    HOME, and acpmux refuses the pair ("acpmux starts a daemon only where its lock and socket share one home"; cmux19
+    step 1e1bb17a129d, 2026-11-28). None when no daemon shows it. `rows` and `read_env` stand in for the process table
+    and `ps -E` in tests."""
+    if not socket_path:
+        return None
+    want = {socket_path, os.path.realpath(socket_path)}
+    if read_env is None:
+        def read_env(pid):
+            return subprocess.run(["ps", "-E", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True,
+                                  text=True, timeout=10).stdout
+    for pid, _ppid, cmd in (process_table() if rows is None else rows):
+        if " daemon run" not in cmd:
+            continue
+        try:
+            env = acpmux_env_words(read_env(pid))
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        sock = env.get("ACPMUX_SOCKET")
+        if env.get("ACPMUX_HOME") and sock and (sock in want or os.path.realpath(sock) in want):
+            return env["ACPMUX_HOME"]
+    return None
+
+
+def acpmux_cli_env(socket_path: str, base: dict | None = None, home: str | None = None) -> dict:
+    """The environment for the bundled acpmux CLI on the daemon at `socket_path`: ACPMUX_SOCKET with the ACPMUX_HOME it
+    belongs to (`home`, else the daemon's own, acpmux_daemon_home), so the CLI never pairs it with HOME's."""
+    env = dict(os.environ if base is None else base, ACPMUX_SOCKET=socket_path)
+    home = home or acpmux_daemon_home(socket_path)
+    if home:
+        env["ACPMUX_HOME"] = home
+    return env
+
+
 def app_gates(pid: int | None, launch_env: dict) -> dict:
     """What the app process runs with for each of APP_GATES: read from its environment (`source: process`), else the
     environment this run gave it plus launchd's (`open` merges `launchctl setenv` values in; `source: launch`)."""
@@ -1227,7 +1275,7 @@ class FakeChats:
             added = {}  # five timeouts: the work went on in the app; a missing harness fails `acp new` below
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
-        self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
+        self.env = acpmux_cli_env(self.acpmux_socket(bundle))
 
     @staticmethod
     def acpmux_socket(bundle: str) -> str:

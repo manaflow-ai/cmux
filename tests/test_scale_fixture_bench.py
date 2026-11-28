@@ -126,7 +126,7 @@ class Config(unittest.TestCase):
 class GateStep(unittest.TestCase):
     """The workflow's measure step, run as Actions runs it (bash -e), with a stub fleet client."""
 
-    def run_step(self, client_body):
+    def run_step(self, client_body, **extra):
         import os, re, subprocess, tempfile
         wf = (ROOT / ".github/workflows/cmux-next-scale-fixture.yml").read_text()
         m = re.search(r"        run: \|\n((?:          .*\n|\n)+?)(?=      - |\Z)", wf[wf.index("Scale fixture on a fleet GUI Mac"):])
@@ -138,7 +138,10 @@ class GateStep(unittest.TestCase):
             summary = Path(d, "summary")
             env = dict(os.environ, CMUX_CI_CLIENT=str(client), RUNNER_TEMP=d, RUNNER_NAME="t",
                        GITHUB_STEP_SUMMARY=str(summary), GITHUB_RUN_ID="1", GITHUB_RUN_ATTEMPT="1",
-                       SHA="a" * 40, WORKSPACES="1100")
+                       SHA="a" * 40, WORKSPACES="1100", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                       DETACH="1", REPORT_CHECK="cmux-next scale fixture (fleet)", CONTROLLER="",
+                       LOCAL_CLIENT_ONLY="0", ARGS_FILE=str(Path(d, "args")))
+            env.update(extra)
             r = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True)
             return r, summary.read_text() if summary.exists() else ""
 
@@ -147,6 +150,40 @@ class GateStep(unittest.TestCase):
         r, summary = self.run_step(
             'if [ "$1" = run ]; then echo "cmux-ci: step 743efa36842a32ca8dfdeaca (exclusive)"; exit 75; fi\nexit 0\n')
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("still queued after 30 min", summary)
+
+    DETACHING = ('if [ "$1" = run ] && [ "$2" = --help ]; then echo "usage: run ... --report-check NAME --detach"; exit 0; fi\n'
+                 'if [ "$1" = run ]; then echo "$@" > "$ARGS_FILE"; '
+                 'echo "cmux-ci: step 743efa36842a32ca8dfdeaca (exclusive) detached; check run posts later"; exit 0; fi\n'
+                 'echo "unexpected $*" >&2; exit 3\n')
+
+    def test_detached_submits_and_ends(self):
+        # 11-28 15-19Z: every waiting run held its gateway runner 30-31 min, most passing open with no result.
+        r, summary = self.run_step(self.DETACHING)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("detached", summary)
+        self.assertNotIn("unexpected", r.stderr)  # no artifact fetch, no cancel: nothing waits
+
+    def test_detached_names_the_check(self):
+        import os, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            args = Path(d, "args")
+            r, _ = self.run_step(self.DETACHING, ARGS_FILE=str(args))
+            sent = args.read_text()
+        self.assertIn("--report-check cmux-next scale fixture (fleet) --detach", sent)
+        self.assertIn("--repo manaflow-ai/cmux", sent)
+
+    def test_detach_off_waits_as_before(self):
+        import tempfile
+        waiting = ('if [ "$1" = run ] && [ "$2" = --help ]; then echo "usage: run ... --detach"; exit 0; fi\n'
+                   'if [ "$1" = run ]; then echo "$@" > "$ARGS_FILE"; echo "cmux-ci: step 743efa36842a32ca8dfdeaca"; exit 75; fi\n'
+                   'exit 0\n')
+        with tempfile.TemporaryDirectory() as d:
+            args = Path(d, "args")
+            r, summary = self.run_step(waiting, DETACH="0", ARGS_FILE=str(args))
+            sent = args.read_text()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("--detach", sent)
         self.assertIn("still queued after 30 min", summary)
 
 
