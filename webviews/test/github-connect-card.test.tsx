@@ -6,6 +6,7 @@
 // `accounts.githubConnect` with the call's repository, and the chat goes on by itself once the
 // person is back from GitHub's page: one Continue, never two.
 import { afterAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
@@ -295,8 +296,9 @@ const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -354,15 +356,17 @@ async function render(
   return { sent, asked };
 }
 
+// The button reads Sign in with GitHub since #57143 (Leo, ask-e3ca38dae1: "Convienient beats all. Just make
+// good ui for it so people flow."); the action it runs is still accounts.githubConnect.
 test("one line, one filled Connect GitHub; the tap names the repository; back from GitHub, one Continue", async () => {
   const { sent, asked } = await render(async () => undefined);
   expect(card()!.getAttribute("data-github-connect")).toBe("idle");
   expect(card()!.textContent).toContain("GitHub isn't connected for this chat, so it can't reach acme/web");
-  expect(buttons()).toEqual(["Connect GitHub"]);
+  expect(buttons()).toEqual(["Sign in with GitHub"]);
   expect([...card()!.querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent)).toEqual([
-    "Connect GitHub",
+    "Sign in with GitHub",
   ]);
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   expect(asked).toEqual(["acme/web"]);
   expect(card()!.getAttribute("data-github-connect")).toBe("waiting");
   expect(card()!.textContent).toContain("Finish on GitHub");
@@ -395,7 +399,7 @@ test("an org with no installation: one line naming it, one Install GitHub App th
 
 test("the waiting card's Continue is the same step by hand, sent once", async () => {
   const { sent } = await render(async () => undefined);
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   await press("Continue");
   await leave();
   await back();
@@ -408,7 +412,7 @@ test("a Connect the app did not run says why, with the button that tries again",
   const { asked } = await render(async () => {
     if (refuse) throw new NativeError({ code: "unavailable", userMessage: reason, details: { reason } });
   });
-  await press("Connect GitHub");
+  await press("Sign in with GitHub");
   expect(card()!.getAttribute("data-github-connect")).toBe("refused");
   expect(card()!.getAttribute("role")).toBe("alert");
   expect(card()!.textContent).toContain(reason);
@@ -495,13 +499,15 @@ test("popover arm: the ask opens a Needs you popover once, its Connect names the
     const chip = () => host.querySelector<HTMLButtonElement>(".cv-settings-ask-chip");
     const popup = () => dom.window.document.querySelector(".cv-settings-ask-popover");
     expect(host.querySelector("[data-settings-ask]")?.getAttribute("data-settings-ask")).toBe("popover");
-    expect(chip()?.textContent).toContain("Connect GitHub");
+    expect(chip()?.textContent).toContain("Sign in with GitHub");
     // Opened by itself, with the Needs you header and the one control, no focus taken.
     expect(popup()).not.toBeNull();
     expect(popup()!.textContent).toContain("Needs you");
     expect(popup()!.textContent).toContain("manaflow-ai");
     expect(popup()!.contains(dom.window.document.activeElement)).toBe(false);
-    const connectButton = [...popup()!.querySelectorAll("button")].find((b) => b.textContent === "Connect GitHub")!;
+    const connectButton = [...popup()!.querySelectorAll("button")].find(
+      (b) => b.textContent === "Sign in with GitHub",
+    )!;
     await act(async () => connectButton.click());
     expect(orgs).toEqual(["manaflow-ai"]);
     expect(popup()!.textContent).toContain("Finish on GitHub");
