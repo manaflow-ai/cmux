@@ -64,7 +64,10 @@ fn show(c: &Command) -> String {
 
 fn spawn(c: &Command) -> std::io::Result<Child> {
     let mut cmd = std::process::Command::new(&c.program);
-    cmd.args(&c.args).current_dir(&c.cwd).envs(c.env.iter().map(|(k, v)| (k, v)));
+    cmd.args(&c.args).current_dir(&c.cwd);
+    for (k, v) in &c.env {
+        cmd.env(k, v);
+    }
     for k in &c.env_remove {
         cmd.env_remove(k);
     }
@@ -132,11 +135,11 @@ fn open_window(plan: &Plan, children: Children) -> std::io::Result<()> {
         window.default_vbox().ok_or_else(|| std::io::Error::other("the window has no GTK box"))?;
     let webview =
         WebViewBuilder::new().with_url(&plan.url).build_gtk(vbox).map_err(std::io::Error::other)?;
-    let mut held = Some((window, webview, children));
+    let mut held = Some((webview, window, children));
     event_loop.run(move |event, _, flow| {
         *flow = ControlFlow::Wait;
         if let Event::WindowEvent { event: WindowEvent::CloseRequested, .. } = event {
-            held.take(); // drops the webview, then stops the daemon and dev server
+            drop(held.take()); // drops the webview, then stops the daemon and dev server
             *flow = ControlFlow::Exit;
         }
     })
