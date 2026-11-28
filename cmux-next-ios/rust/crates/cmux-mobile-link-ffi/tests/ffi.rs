@@ -930,6 +930,48 @@ async fn the_hub_wins_against_a_hung_worker() {
     pool.reset().await;
 }
 
+/// The Worker is blackholed (Leo, ask-550344ffc4: "if im on wifi and so is my mac, we should be
+/// able to do anything"): its address drops every packet, so the Worker's connect neither refuses
+/// nor accepts (TEST-NET-1, RFC 5737, routes nowhere). The phone and the Mac share a network, so
+/// the hub wins the race on its own, for both transports, and the link carries data.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_hub_wins_against_a_blackholed_worker() {
+    let _ads = local_ads().await;
+    for transport in [Transport::WebRtc, Transport::WireGuard] {
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let device = uuid::Uuid::new_v4().to_string();
+        let (_hub, instance) = nearby_hub(&mac_id, &device, "blackhole").await;
+        let pool = WarmPool::new();
+        let request = ConnectRequest {
+            base_url: "http://192.0.2.1:443".into(),
+            transport,
+            ..request_to(&device, &mac_id)
+        };
+        let started = std::time::Instant::now();
+        let handle = tokio::time::timeout(Duration::from_secs(10), pool.connect(request, None))
+            .await
+            .expect("the blackholed Worker held the dial")
+            .expect("connect");
+        let elapsed = started.elapsed();
+        let marks = handle.timings();
+        let names = names(&marks);
+        assert!(names.contains(&"local_link"), "{transport:?}: {marks:?}");
+        assert!(!names.contains(&"signaling_open"), "{transport:?}: {marks:?}");
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "{transport:?}: the hub's win waited on the Worker: {elapsed:?}"
+        );
+        echo_once(&handle).await;
+        println!(
+            "MATRIX {{\"cell\": \"nearby_blackholed_worker\", \"variant\": \"{transport:?}\", \"dial_ms\": {:.1}}}",
+            elapsed.as_secs_f64() * 1000.0
+        );
+        handle.close();
+        forget_hub(instance, mac_id);
+        pool.reset().await;
+    }
+}
+
 /// The service dial the hub beat is dropped mid-flight: here after its socket opened and while
 /// `GET /v1/ice` was still out (a slow Worker). What it left behind is sound: the next dial (the
 /// Mac no longer nearby) reuses the socket it opened, fetches ICE afresh, and comes up.
