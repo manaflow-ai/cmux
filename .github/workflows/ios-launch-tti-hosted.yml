@@ -40,9 +40,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: premain
-            ref: 63240ca15f87fb8e14d42c2cfe94de700c0f04b2
-            profile: "0"
+          - leg: attach
+            ref: b20cbcbbe0a67e302a3f18f7325713eb48320cc2
+            profile: "1"
             nomirror: "0"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -96,7 +96,7 @@ jobs:
           grep -rhoI 'LAUNCHENV .*' artifacts/ios-sim --include='*.txt' | sort -u > artifacts/ios-sim/launch-env.txt || true
 
       - name: Plain launches (no XCUITest)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.leg == 'premain' }}
         run: |
           # Splits pre-main: the warm suite's `main` mark sits 2.5-3.8 s after process start. The same
           # Demo app launched by simctl alone, 10 times, its own `timing launch NAME (Nms)` lines.
