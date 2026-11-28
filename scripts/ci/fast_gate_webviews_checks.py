@@ -120,6 +120,12 @@ VITE_TEMP = re.compile(r"\.timestamp-\d+-[0-9a-f]+\.(m?js)\b")
 # process id, which differs between the base's run and the merge's, so the base's crash read as the merge's new
 # finding `pid: 1276995,` (lane/tmm-list-flip's web lint, 11-27). The field is kept, the number dropped.
 PID = re.compile(r"\b(pid['\"]?\s*[:=]\s*)\d+")
+# A check that writes its logs to a fresh `mktemp -d` dir names that dir (`log: /tmp/web-bundle-matrix.QNX9SC/logs/
+# bundle-pages.log`), whose random suffix differs between the base's run and the merge's, so the base's own bundle red
+# read as the merge's one new finding (cmux#54186's fast gates, run 46043766720, 11-27). The dir's name is kept, its
+# suffix dropped; a dir under a temp root, macOS's /var/folders/../T included.
+TEMP_DIR = re.compile(r"((?:/private)?(?:/tmp|/var/tmp|/var/folders/[^/\s]+/[^/\s]+/T|/home/runner/work/_temp)/"
+                      r"[\w-]+)\.[A-Za-z0-9]{6,}(?=/|\s|$)")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
 # message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
@@ -197,9 +203,10 @@ def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str
 
 
 def key(line: str, root: str = "") -> str:
-    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers, timings, process ids and Vite's
-    temp config stamp dropped."""
+    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers, timings, process ids, Vite's
+    temp config stamp and a mktemp dir's suffix dropped."""
     text = VITE_TEMP.sub(r".timestamp.\1", PID.sub(r"\1<pid>", unroot(line, root).strip()))
+    text = TEMP_DIR.sub(r"\1.<tmp>", text)
     return TIMING.sub("<time>", LINE_REF.sub(r"\1", text))
 
 
