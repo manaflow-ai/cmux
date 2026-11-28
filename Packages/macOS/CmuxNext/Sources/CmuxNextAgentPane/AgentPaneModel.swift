@@ -87,6 +87,8 @@ public final class AgentPaneModel {
     /// Every `pane.painted` report, the first one too, after ``markPainted()``: a page that loaded again
     /// (a reload, a crash retry) reports its first frame here (``AgentPaneDocumentCover``).
     @ObservationIgnored var onPaintReport: (() -> Void)?
+    /// The page's error boundary caught a render error (`pane.renderFailed`): the view covers the empty document.
+    @ObservationIgnored var onRenderFailed: (() -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? {
         didSet {
@@ -641,7 +643,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .composerFilled, .painted, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .composerFilled, .painted, .renderFailed, .launchSettle, .inputEchoed, .clientReady, .newTabInputReady, .newTabContext, .newTabCloudPick, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportAck, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
              .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .projectIcon, .completeFolder, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.freshList), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown, .dictationSources: break
@@ -706,6 +708,9 @@ public final class AgentPaneModel {
             if newTab == nil {
                 AgentPaneLaunchTimings.shared.layoutSettle(at: settledAt, maxMovePx: maxMovePx, element: element, shifts: shifts)
             }
+            return AgentPaneReply.success()
+        case .renderFailed:
+            onRenderFailed?()
             return AgentPaneReply.success()
         case .inputEchoed(let echoedAt):
             // A New Tab page's composer is not the launch's front chat.

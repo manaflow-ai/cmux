@@ -10,14 +10,16 @@ import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineSt
 import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt,
+  journeyTextPrompt,
+  journeyTextReply, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
 import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, KEPT_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
@@ -590,6 +592,13 @@ server.shutdown()
       rmSync(dir, { recursive: true, force: true });
     }
   });
+  test("Codex's reserved home chat turn is text only: Codex offers no Read, and its shell waits under policy ask", () => {
+    // Prod run 46090508199: the Read came back "unsupported call: Read" and the reply said "The tool printed .".
+    const turn = JOURNEY_STUB_SCRIPT.turns.find((t) => new RegExp(t.match).test(journeyTextPrompt("Name the planet.")));
+    expect(turn?.steps).toEqual([{ text: journeyTextReply("{{nonce}}") }]);
+    expect(new RegExp(turn!.match).test(journeyReadPrompt("Name the planet.", "/tmp/x"))).toBe(false);
+    expect(journeyTextReply("3bde18dfd6b9")).toStartWith("Stub reply 3bde18dfd6b9. ");
+  });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
     expect(team.preflight).toContain("owner|team");
@@ -854,11 +863,35 @@ describe("cloud journey: leaked machine sweep", () => {
     ])).toEqual(["vm_short", "vm_short_cold", "vm_long_old", "vm_glued"]);
   });
 
-  test("never a --keep run's plain name, another name or a tag that is not a time", () => {
+  test("a --keep run's machine is the sweep's once failed past LONG_JOURNEY_MS, or idle past KEPT_JOURNEY_MS (589544f1's rollback)", () => {
+    expect(KEPT_JOURNEY_MS).toBe(7 * 24 * 3_600_000);
+    // 2026-11-28 00:17Z: the production agent test account held these two, 4/5 of its team's cap with the other members'.
+    const at = Date.UTC(2026, 10, 28, 0, 17, 0);
+    const leaked = { id: "vm_5c394603ba9c2b33e108", name: "cloud journey jr-mw8lvrpa", status: "failed", last_active_at: at };
+    const lease = { id: "vm_784c3bce74a49b4cb062", name: "lease-lease_z0_5c66c087", status: "paused", last_active_at: at - 298 * 3_600_000 };
+    expect(ids([leaked, lease], at)).toEqual(["vm_5c394603ba9c2b33e108"]);
+    const day = tagAt(now - 24 * 3_600_000), pastLong = tagAt(now - LONG_JOURNEY_MS - 60_000), young = tagAt(now - LONG_JOURNEY_MS + 60_000);
+    const week = tagAt(now - KEPT_JOURNEY_MS - 60_000), inWeek = tagAt(now - KEPT_JOURNEY_MS + 60_000);
+    expect(ids([
+      { id: "failed_old", name: `cloud journey ${pastLong}`, status: "failed" },
+      { id: "failed_gw", name: `cloud journey ${pastLong} gateway`, status: "failed", last_active_at: now },
+      { id: "failed_young", name: `cloud journey ${young}`, status: "failed" },
+      { id: "paused_day", name: `cloud journey ${day}`, status: "paused" },
+      { id: "paused_in_week", name: `cloud journey ${inWeek}`, status: "paused" },
+      { id: "paused_week", name: `cloud journey ${week}`, status: "paused" },
+      { id: "running_week_active", name: `cloud journey ${week}`, status: "running", last_active_at: now - 60_000 },
+      { id: "running_week_idle", name: `cloud journey ${week} gateway`, status: "running", last_active_at: now - IDLE_JOURNEY_MS - 1 },
+      { id: "deleting", name: `cloud journey ${week}`, status: "deleting" },
+      { id: "glued", name: `cloud journey ${week}x`, status: "failed" },
+      { id: "person", name: `my cloud journey ${week}`, status: "failed" },
+    ])).toEqual(["failed_old", "failed_gw", "paused_week", "running_week_idle"]);
+  });
+
+  test("never a young --keep run's name, another name or a tag that is not a time", () => {
     const old = tagAt(now - 48 * 3600_000);
     expect(ids([
       { id: "vm_kept", name: `cloud journey ${old}`, status: "paused" },
-      { id: "vm_kept_gw", name: `cloud journey ${old} gateway`, status: "failed" },
+      { id: "vm_kept_gw", name: `cloud journey ${tagAt(now - 5 * 3600_000)} gateway`, status: "failed" },
       { id: "vm_dev", name: "dev machine", status: "paused" },
       { id: "vm_named", name: `my cloud journey auto ${old}`, status: "paused" },
       { id: "vm_bad", name: "cloud journey auto jr-!!", status: "paused" },
@@ -3005,8 +3038,15 @@ except probe.OutOfTime as cut:
       polls++;
       return { status: 503, body: {} };
     };
-    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("no answer");
-    expect(polls).toBe(5);
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 5, 1, down, 200)).rejects.toThrow("provider outage");
+    expect(polls).toBeGreaterThan(5);
+    // Rebake 45960390204 (2026-11-27): 503 to every poll for 9 min while the command ran on; it is waited out.
+    let n = 0;
+    const overloaded = async () => (++n <= 9 ? { status: 503, body: {} } : { status: 200, body: { statusCode: 0 } });
+    expect((await settleBackground(accepted, "http://fs", {}, Date.now() + 5, 1, overloaded, 5_000)).status).toBe(200);
+    expect(n).toBe(10);
+    const pending = async () => ({ status: 202, body: {} });
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 20, 1, pending, 200)).rejects.toThrow("by the deadline");
     const refused = await settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, async () => ({ status: 409, body: { error: "busy" } }));
     expect(refused.status).toBe(409);
     await expect(settleBackground({ status: 202, body: { requestId: "../x" } }, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("names no request");
