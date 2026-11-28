@@ -220,6 +220,20 @@ export function isBackdropPicture(value: unknown, choices: readonly string[] = [
   return choices.includes(value) || /^(system|file):\/./.test(value) || /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value);
 }
 
+/** Rust schema/backdrop.rs `RECENTS_CAP`: how many past backgrounds `appearance.backgroundRecents` keeps. */
+const BACKDROP_RECENTS_CAP = 8;
+
+/**
+ * A value `appearance.background` takes (Rust schema/backdrop.rs `is_selection`): a picture, a mode
+ * (`none`, `daily`, `appearance`, `schedule`) or a folder by absolute path.
+ */
+function isBackdropSelection(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return (
+    ["none", "daily", "appearance", "schedule"].includes(value) || /^folder:\/./.test(value) || isBackdropPicture(value)
+  );
+}
+
 /** A Time of Day time: `H:MM` / `HH:MM`, or a sun event with an optional `±Nm` (≤1440) / `±Nh` (≤24) offset. */
 export function isBackdropTime(key: string): boolean {
   const clock = /^(\d{1,2}):(\d{2})$/.exec(key);
@@ -253,6 +267,21 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     return isBackdropPicture(value, choices)
       ? null
       : "expected desktop, a listed painting, system:<absolute path> or file:<absolute path>";
+  }
+  if (row.validation === "domain:backdrop_pictures") {
+    // Rust schema/accepts.rs `BackdropPictures`: a list of fixed pictures (`appearance.paneArt.*`).
+    return Array.isArray(value) && value.every((item) => isBackdropPicture(item))
+      ? null
+      : "expected a list of pictures: desktop, a listed painting, system:<absolute path> or file:<absolute path>";
+  }
+  if (row.validation === "domain:backdrop_recents") {
+    // Rust schema/backdrop.rs `is_recents`: at most RECENTS_CAP distinct background values, newest first.
+    return Array.isArray(value) &&
+      value.length <= BACKDROP_RECENTS_CAP &&
+      value.every(isBackdropSelection) &&
+      new Set(value).size === value.length
+      ? null
+      : `expected at most ${BACKDROP_RECENTS_CAP} distinct backgrounds`;
   }
   if (row.validation === "domain:backdrop_schedule") {
     const ok =

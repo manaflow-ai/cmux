@@ -99,6 +99,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const [ownScope, setOwnScope] = useState(false);
   const own = ownScope ? workspaceBackground : null;
   const revealedTile = useRef(false);
+  const revealing = useRef(false);
   useLayoutEffect(() => {
     if (focus !== BACKGROUND_KEY) revealedTile.current = false;
   }, [focus]);
@@ -108,7 +109,11 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     if (!tile || revealedTile.current) return;
     revealedTile.current = true;
     tile.scrollIntoView?.({ block: "center" });
+    // The reveal's own focus previews nothing: the tile is the saved background already, and a
+    // preview here would race the person's first edit on the page (an opacity drag's preview).
+    revealing.current = true;
     tile.focus({ preventScroll: true });
+    revealing.current = false;
   };
   const backdrops = host?.backdrops ?? [];
   const cancelDwell = () => {
@@ -287,7 +292,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
         onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
         onPointerLeave={pending ? undefined : endPreview}
-        onFocus={(event) => !pending && focusRingShown(event.currentTarget) && preview(id, PREVIEW_DWELL_MS)}
+        onFocus={(event) =>
+          !pending && !revealing.current && focusRingShown(event.currentTarget) && preview(id, PREVIEW_DWELL_MS)
+        }
         onBlur={pending ? undefined : endPreview}
       >
         {id === "none" || id === FOLLOW_ID ? (

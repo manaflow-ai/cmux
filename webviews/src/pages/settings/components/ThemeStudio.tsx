@@ -53,6 +53,7 @@ import {
   THEME_FILE_KEY,
   SELECTION_KEY,
   DOCTOR_NOTICE_KEY,
+  APPEARANCE_MODE_KEY,
 } from "../cardRows";
 
 export {
@@ -167,6 +168,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const rotateRow = rowsByKey.get(ROTATE_FAVORITES_KEY);
   const themeFileRow = rowsByKey.get(THEME_FILE_KEY);
   const doctorNoticeRow = rowsByKey.get(DOCTOR_NOTICE_KEY);
+  const modeRow = rowsByKey.get(APPEARANCE_MODE_KEY);
   const accentState = useRowState(ACCENT_KEY);
   // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
   // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
@@ -320,6 +322,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       <ThemeOverrides disabled={!state.connected} />
       <section className="group" data-theme-rows="">
         <div className="rows">
+          {modeRow && <SettingRow row={modeRow} focused={focused === APPEARANCE_MODE_KEY} />}
           {names.length === 0 ? (
             // The app published no theme names: the plain setting row (a text field for the spec).
             <SettingRow row={row} focused={focused === THEME_KEY} />

@@ -131,6 +131,20 @@ function resolveFocus(focus: string, category: string | null, pathSection: strin
   // The URL scheme's second segment, bare: `accounts/github`, `accounts/machines`.
   const named = connectionNamed(focus);
   if (named) return { section: named.section, focus: named.focus, card: null, target: named.target, required: true };
+  // A card named with a fresh token after a colon (`channels:N`: the Mac's Install an Earlier
+  // Nightly… opens `#/settings/updates?focus=channels:<new N>` each time, so a second open scrolls to
+  // the card again) lands on that card and keeps the focus as given, token and all.
+  const token = /^([A-Za-z][A-Za-z0-9]*):[A-Za-z0-9-]+$/.exec(focus);
+  const tokenHome = token ? cardHome(token[1]!, category) : null;
+  if (token && tokenHome) {
+    return {
+      section: tokenHome,
+      focus,
+      card: token[1] as CategoryCard,
+      target: cardTarget(token[1]!),
+      required: false,
+    };
+  }
   const where = cardHome(focus, category);
   if (where) {
     return {

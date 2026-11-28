@@ -98,6 +98,9 @@ export const ROTATE_FAVORITES_KEY = "appearance.rotateFavoriteThemes";
 /** appearance.themeFile: the look from a file in the themes folder, drawn here as its setting row
  * after the Highlight Color (another App Theme key: its group would draw a second card for it). */
 export const THEME_FILE_KEY = "appearance.themeFile";
+/** appearance.mode: the app's Light, Dark or Match System (#58014), drawn here as its setting row first
+ * in the card (another App Theme key: its group would draw a second "App Theme" card for it). */
+export const APPEARANCE_MODE_KEY = "appearance.mode";
 /** customize.doctorNotice: the customization notices toggle, drawn here as its setting row after the
  * theme file (the App Theme group's last key: its group would draw a second card for it). */
 export const DOCTOR_NOTICE_KEY = "customize.doctorNotice";
