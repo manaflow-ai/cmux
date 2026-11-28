@@ -50,7 +50,8 @@ fn stable_across_runs_and_known_values() {
     assert_eq!(pinned, PINNED);
 }
 
-const PINNED: [u8; 3] = [0, 0, 0];
+/// `bucket` of host-a, host-b, host-c for BUILD: a change here moves every host's ring.
+const PINNED: [u8; 3] = [20, 12, 52];
 
 #[test]
 fn shares_are_roughly_the_pct() {

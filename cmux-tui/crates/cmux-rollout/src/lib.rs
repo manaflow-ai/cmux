@@ -63,7 +63,10 @@ impl Rollout {
             return None;
         }
         Some(match host.filter(|h| !h.is_empty()) {
-            None => format!("staged rollout at {}%: this host has no id, so it waits for 100%", self.pct),
+            None => format!(
+                "staged rollout at {}%: this host has no id, so it waits for 100%",
+                self.pct
+            ),
             Some(h) => format!(
                 "staged rollout at {}%: this host's bucket for {build} is {}",
                 self.pct,

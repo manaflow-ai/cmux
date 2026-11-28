@@ -38,6 +38,8 @@ zeroize.workspace = true
 cmux-server = { path = "../cmux-server" }
 # The signed envelope of the update channels (`updater/channel.rs`).
 cmux-signed-envelope.workspace = true
+# The channel's staged rollout share (`rollout.pct`, RFD 0224).
+cmux-rollout.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
 # `cmux app` through the agent socket (`cloud/apps_call.rs`): the listener inference and slugs.
 cmux-apps = { path = "../cmux-apps" }

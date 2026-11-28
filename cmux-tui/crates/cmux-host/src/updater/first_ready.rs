@@ -207,6 +207,7 @@ fn restore_step<C>(
         Ok(Decision::RolledBack) => {
             return First::OnImage("the channel's build was rolled back here".to_owned());
         }
+        Ok(Decision::Staged(why)) => return First::OnImage(why),
         Err(e) => return First::OnImage(e),
     }
     let mut read = Read { payload: Some(payload), io, last_look, commit: None };
@@ -374,6 +375,7 @@ fn step(
         Ok(Decision::RolledBack) => {
             return First::OnImage("the channel's build was rolled back here".to_owned());
         }
+        Ok(Decision::Staged(why)) => return First::OnImage(why),
         Err(e) => return First::OnImage(e),
     };
     if let Err(e) = role::stage_with(paths, &plan, |bin, file| io.download(bin, file)) {

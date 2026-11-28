@@ -136,6 +136,8 @@ pub enum Decision {
     Older,
     /// The channel's build was rolled back here before.
     RolledBack,
+    /// The channel's staged rollout does not cover this machine yet (why).
+    Staged(String),
     Update(Box<Plan>),
 }
 
@@ -194,11 +196,22 @@ pub fn decide(
     if old_tui == tui.sha256 && old_hook == hook.sha256 {
         return Ok(Decision::Current);
     }
-    if payload.committed_at < state.applied_committed_at {
+    // A machine on a revoked build leaves it for the channel's, older or not, staged or not.
+    let revoked =
+        [Some(old_tui.as_str()), Some(old_hook.as_str()), state.applied_commit.as_deref()]
+            .into_iter()
+            .flatten()
+            .any(|have| !have.is_empty() && payload.revoked.iter().any(|r| r == have));
+    if !revoked && payload.committed_at < state.applied_committed_at {
         return Ok(Decision::Older);
     }
     if state.rolled_back.contains(&tui.sha256) {
         return Ok(Decision::RolledBack);
+    }
+    if !revoked
+        && let Some(why) = payload.rollout.held_back(host_id(paths).as_deref(), &payload.commit)
+    {
+        return Ok(Decision::Staged(why));
     }
     let to = store::generations(paths).last().copied().unwrap_or(from).max(from) + 1;
     Ok(Decision::Update(Box::new(Plan {
@@ -211,6 +224,16 @@ pub fn decide(
         from,
         to,
     })))
+}
+
+/// The id a staged rollout buckets this machine by: its bound instance id, else its
+/// machine id; `None` when neither file names one (the machine waits for 100%).
+pub fn host_id(paths: &Paths) -> Option<String> {
+    [crate::config::BOUND_INSTANCE_FILE, crate::config::MACHINE_ID_FILE].iter().find_map(|file| {
+        let text = std::fs::read_to_string(paths.at(file)).ok()?;
+        let id = text.trim();
+        (!id.is_empty()).then(|| id.to_owned())
+    })
 }
 
 /// A build a client hands the machine itself (`cmux host update install`, the cmux NEXT

@@ -85,6 +85,7 @@ fn paths(peer: &FakePeer) -> Paths {
         rd: None,
         tui: Some(peer.home.join(".local/bin/cmux-tui")),
         allow_downgrade: false,
+        host_id: Some("self-update-test-host".to_owned()),
     }
 }
 
@@ -848,6 +849,71 @@ async fn a_revoked_installed_build_goes_back_to_the_channels_now() {
     );
     assert_eq!(row["outcome"], json!("updated"));
     assert!(row["revokedInstalled"].is_string(), "{row}");
+}
+
+/// A channel body offering `binary` at `rollout` (and revoking `revoked`).
+fn staged(binary: &str, rollout: Value, revoked: &[String]) -> Files {
+    let mut files = serving(binary);
+    let name = format!("cmux-tui-acpmux-{TARGET}");
+    let body = json!({"key": KEY, "commit": COMMIT, "binaries": {name: sha_of(binary)},
+        "rollout": rollout, "revoked": revoked});
+    files.bodies.insert(channel_url(CHANNEL).unwrap(), body.to_string().into_bytes());
+    files
+}
+
+/// The staged rollout (hq RFD 0224): a host outside the channel's `rollout.pct` keeps the build
+/// it runs and downloads nothing; the same host goes ahead once `pct` covers its bucket.
+#[tokio::test]
+async fn a_host_outside_the_staged_rollout_keeps_its_build_until_pct_covers_it() {
+    let peer = FakePeer::new("self-staged");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let bucket = cmux_rollout::bucket("self-update-test-host", COMMIT);
+
+    let files = staged(&new, json!({"pct": bucket}), &[]);
+    let plan = ready(&peer, &files).await;
+    assert!(matches!(&plan.step, Step::Current(_)), "held back: nothing to install");
+    let why = plan.picked.kept_installed.as_deref().unwrap_or_default();
+    assert!(why.contains("staged rollout"), "{why}");
+    assert_eq!(files.asked().len(), 1, "only the channel file was read: {:?}", files.asked());
+    let up = apply(&peer, &plan, TARGET, true);
+    assert!(!up.outcome.failed(), "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+    drop(plan);
+
+    let files = staged(&new, json!({"pct": bucket + 1}), &[]);
+    let plan = ready(&peer, &files).await;
+    assert!(plan.picked.kept_installed.is_none());
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), new);
+}
+
+/// The kill switch is never staged: a revoked installed build goes back to the channel's at 0%.
+#[tokio::test]
+async fn a_revoked_build_goes_back_even_at_zero_pct() {
+    let peer = FakePeer::new("self-staged-revoked");
+    let installed = fake_acpmux(OLD, Some(OLD));
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = staged(&new, json!({"pct": 0}), &[sha_of(&installed)]);
+    let plan = ready(&peer, &files).await;
+    assert!(plan.revoked_installed.is_some());
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), new);
+}
+
+#[test]
+fn a_channel_rollout_is_a_share_and_missing_means_every_host() {
+    let sha = "a".repeat(64);
+    let none = json!({"key": KEY, "commit": COMMIT, "binaries": {"x": sha}});
+    let channel = Channel::parse(none.to_string().as_bytes()).unwrap();
+    assert_eq!(channel.rollout, cmux_rollout::Rollout::FULL, "pre-field");
+    let half =
+        json!({"key": KEY, "commit": COMMIT, "binaries": {"x": sha}, "rollout": {"pct": 50}});
+    assert_eq!(Channel::parse(half.to_string().as_bytes()).unwrap().rollout.pct, 50);
+    let bad =
+        json!({"key": KEY, "commit": COMMIT, "binaries": {"x": sha}, "rollout": {"pct": 101}});
+    assert!(Channel::parse(bad.to_string().as_bytes()).is_err());
 }
 
 #[test]

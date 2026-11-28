@@ -91,6 +91,12 @@ pub(crate) struct Channel {
     /// installed. Missing in channel files from before the field.
     #[serde(default)]
     pub(super) revoked: Vec<String>,
+    /// The staged rollout (hq RFD 0224): the share of hosts that take this channel build
+    /// ([`cmux_rollout::Rollout::takes`], bucketed by host and commit). A host left out keeps
+    /// what it runs until a later file raises `pct`; a revoked installed build still goes back
+    /// at once. Missing in channel files from before the field: every host.
+    #[serde(default)]
+    pub(super) rollout: cmux_rollout::Rollout,
 }
 
 impl Channel {
@@ -112,6 +118,7 @@ impl Channel {
         {
             bail!("the channel file names a build it also revokes");
         }
+        channel.rollout.checked().map_err(|e| anyhow!("the channel file's {e}"))?;
         Ok(channel)
     }
 
@@ -423,6 +430,9 @@ pub(super) struct Paths {
     /// a newer commit (`--allow-downgrade`: pulling a bad channel build back).
     /// Off, the host keeps a newer build ([`apply`]).
     pub(super) allow_downgrade: bool,
+    /// This host's id for the channel's staged rollout ([`Channel::rollout`]): the machine
+    /// credential's host fingerprint. None (no machine id) waits for 100%.
+    pub(super) host_id: Option<String>,
 }
 
 impl Paths {
@@ -442,6 +452,7 @@ impl Paths {
             cloud_vm: PathBuf::from(CLOUD_VM_MARK),
             unit: user.join(OWN_UNIT),
             target,
+            host_id: crate::host_fingerprint::current(),
         })
     }
 }
@@ -592,6 +603,19 @@ pub(super) async fn prepare(
     let mut picked =
         Picked { source: Source::R2, marker_skipped: Some(marker_skipped), kept_installed: None };
     let sha = feed.sha256_for(paths.target)?.to_owned();
+    // The staged rollout holds a host that has a build back from the channel's new one; a
+    // revoked installed build (`allow_downgrade`) and a host with nothing installed go ahead.
+    if let Some(bytes) = installed.as_deref().filter(|_| !allow_downgrade)
+        && crate::sha256::sha256_hex(bytes) != sha
+        && let Some(why) = feed.rollout.held_back(paths.host_id.as_deref(), &feed.commit)
+    {
+        picked.kept_installed = Some(why);
+        let commit = embedded_build(bytes)
+            .as_deref()
+            .and_then(build_commit)
+            .map_or_else(|| feed.commit.clone(), str::to_owned);
+        return kept(paths, &downloads, bytes, commit, rd, picked, tui_source, lease);
+    }
     // The controller's build of a commit has another sha256 than R2's build
     // of it (another profile): an installed build of the channel's commit,
     // most likely the marker's, is kept, not swapped for R2's every run the
