@@ -103,14 +103,14 @@ pub(super) fn names() -> BTreeSet<String> {
                 owner_user_id: Some("user".into()),
             },
         },
-        SignalMessage::Signal(SignalEnvelope {
+        SignalMessage::Signal(Box::new(SignalEnvelope {
             to: "mac".into(),
             from: "phone".into(),
             session_id: "session".into(),
             payload: SignalPayload::Bye { reason: "closed".into() },
             from_user_id: Some("user".into()),
             relay_ticket: Some("ticket".into()),
-        }),
+        })),
         SignalMessage::Mailbox {
             items: vec![MailboxItem {
                 id: "id".into(),
@@ -156,6 +156,7 @@ pub(super) fn names() -> BTreeSet<String> {
             version: WG_VERSION,
             relay: Some("relay".into()),
             ticket_early: true,
+            hop: Some("127.0.0.1:2".into()),
         },
         SignalPayload::WgResp {
             public_key: "key".into(),
@@ -174,6 +175,7 @@ pub(super) fn names() -> BTreeSet<String> {
             relayed_tls: vec!["127.0.0.1:2".into()],
             mapped: vec!["127.0.0.1:1".into()],
             mapped_by: Some("pcp".into()),
+            hop: Some("127.0.0.1:2".into()),
         },
         SignalPayload::WgRelay {},
         SignalPayload::WgTicket {},
@@ -187,6 +189,7 @@ pub(super) fn names() -> BTreeSet<String> {
             relayed_tls: vec!["127.0.0.1:2".into()],
             mapped: vec!["127.0.0.1:1".into()],
             mapped_by: Some("pcp".into()),
+            hop: Some("127.0.0.1:2".into()),
         },
         RoamMessage::Ack { generation: 1 },
         RoamMessage::Metered { addresses: vec!["127.0.0.1:3".into()] },

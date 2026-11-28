@@ -25,7 +25,22 @@ fn target_peer(hub: &Hub, m: &str, params: &Value) -> Option<Arc<crate::peer::Pe
     if !super::peer_forward::names_a_session(m) {
         return None;
     }
-    super::peer_forward::demand_target(hub, m, params).map(|(peer, ..)| peer)
+    super::peer_forward::demand_target(hub, m, params)
+        .map(|(peer, ..)| peer)
+        .or_else(|| named_peer(hub, params))
+}
+
+/// The peer a `PEER/NAME` key names when this daemon has no row of NAME there: a peer left
+/// undialed has listed nothing to this daemon yet, so a chat opened there by its address would
+/// otherwise dial nothing and meet the refusal of a link that is down (`Hub::peer_down_for`).
+/// A key that names a chat here is not a peer's.
+fn named_peer(hub: &Hub, params: &Value) -> Option<Arc<crate::peer::Peer>> {
+    let key = super::session_key(params).ok()?;
+    let (name, rest) = key.split_once('/')?;
+    if rest.is_empty() || hub.resolve(key).is_ok() {
+        return None;
+    }
+    hub.peer_by_name(name)
 }
 
 /// Whether request `m` only reads what a chat's listed row already holds: no use of its peer.

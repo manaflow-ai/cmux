@@ -115,6 +115,14 @@
       "param:invoke-computer-use#invocation",
       "service:computer-use"
     ],
+    "git-host-tokens-v1": [
+      "field:response.git-host-token-replaced#host",
+      "field:response.git-host-token-replaced#present",
+      "method:replace-git-host-token",
+      "method:response/git-host-token-replaced",
+      "param:replace-git-host-token#host",
+      "param:replace-git-host-token#item"
+    ],
     "mux-control-v9": [
       "service:mux-control"
     ],

@@ -7,7 +7,7 @@ use cmux_mobile_host::services::{LINK_PROTOCOL, version_reply};
 use cmux_mobile_link::frame::FrameType;
 use cmux_mobile_link::key_echo;
 use cmux_mobile_link::link::{self, CloseInfo, OpenRequest};
-use cmux_mobile_link::link_stat::{self, LinkStat, Reason, RttSummary};
+use cmux_mobile_link::link_stat::{self, HopStats, LinkStat, Reason, RttSummary};
 use cmux_mobile_link::names::{self, HostService};
 use cmux_mobile_link::{build_space, dial, signaling};
 use cmux_wire_lockstep::{Manifest, OldPeer, assert_manifest_current, base_manifest};
@@ -269,6 +269,7 @@ pub(super) fn manifest() -> Manifest {
         setup_ms: Some(0),
         marks: link_stat::MARKS.iter().map(|&mark| (mark, 0)).collect(),
         rtt: RttSummary::of(&[1]),
+        hop: Some(HopStats { srtt_ms: 1, loss_permille: 0, resent: 0, repaired: 0 }),
         pings: 1,
         lost: 0,
         switches: 0,

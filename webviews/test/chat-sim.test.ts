@@ -8,7 +8,13 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createSimulation, runSimulation, type SimResult, type RowProbe } from "../src/agent-session/acpmux/sim/run";
+import {
+  backgroundRunRemapped,
+  createSimulation,
+  runSimulation,
+  type RowProbe,
+  type SimResult,
+} from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun, FORK_MID_STREAM, forkMidStream } from "../src/agent-session/acpmux/sim/scenarios";
@@ -41,6 +47,14 @@ describe("chat simulator: (d) received lines on the tool rows' pitch", () => {
       expect(broken(runSimulation(make()), "d-received")).toEqual([]);
     });
   }
+});
+
+// A turn the agent sent nothing draws its prompt and footer only (map.ts empty-turn); d-action-only
+// flags only a turn whose thoughts, calls or words all went missing. Found by the fold baseline for
+// cmux#52785 (Leo: "we need to compare against current behaviour").
+describe("chat simulator: no scenario ends a turn with only its action row", () => {
+  for (const [name, make] of Object.entries(SCENARIOS))
+    test(name, () => expect(broken(runSimulation(make()), "d-action-only")).toEqual([]));
 });
 
 /** Turn 2's rows at the first step its live line stands under the line that opened it (its calls fold into the live line). */
@@ -141,6 +155,11 @@ const burst = (from = 0) => {
 };
 describe("chat simulator: Leo's 22:05-22:11Z subagent burst keeps rule d", () => {
   const whole = burst();
+  test("the completed task joins a run and both members reappear when a start separates them", () => {
+    const remapped = whole.folds.filter((fold) => fold.verdict === "remapped").map((fold) => fold.id);
+    expect(remapped).toContain("bgtask-1032");
+    expect(remapped).toContain("backgroundRun-bgtask-1032");
+  });
   for (const rule of [
     "d-started-pill",
     "d-started-lines",
@@ -157,6 +176,17 @@ describe("chat simulator: Leo's 22:05-22:11Z subagent burst keeps rule d", () =>
   for (const from of [400, 1_200])
     test(`read from record ${from}: no start line for subagents it never saw start`, () =>
       expect(broken(burst(from), "d-started")).toEqual([]));
+});
+
+test("a run with a missing member still counts as a fold", () => {
+  const run = {
+    id: "run",
+    backgroundRun: { finished: 2, stopped: 0, failed: 0, scheduled: 0, other: 0, commands: 2, rows: ["a", "b"] },
+  };
+  const drawn = new Map([["a", true]]);
+  expect(backgroundRunRemapped(run, drawn, new Set(["unrelated"]))).toBe(false);
+  expect(backgroundRunRemapped(run, drawn, new Set(["b"]))).toBe(true);
+  expect(backgroundRunRemapped({ ...run, foldOpen: true }, drawn, new Set(["b"]))).toBe(false);
 });
 
 test("chat simulator: the sanitizer keeps the shape and drops every word", () => {

@@ -80,6 +80,19 @@
       }
     },
     {
+      "name": "Cloud peer, registry",
+      "params": {
+        "mcpServers": [],
+        "_meta": {
+          "acpmux": {
+            "harness": "claude",
+            "peer": "cloud-builder",
+            "cloudRegistryId": "registry-builder"
+          }
+        }
+      }
+    },
+    {
       "name": "adopt",
       "params": {
         "mcpServers": [],

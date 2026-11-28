@@ -214,9 +214,7 @@ impl std::fmt::Debug for Minted {
 /// The person-facing reason a mint gave no token, from the CLI's error `code`.
 pub fn refusal_text(code: Option<&str>) -> String {
     match code {
-        Some("not_signed_in") => {
-            "Not signed in to cmux: sign in in the cmux app, then try again.".to_owned()
-        }
+        Some("not_signed_in") => "Not signed in to cmux: sign in in the cmux app.".to_owned(),
         Some("no_team") => "No cmux team is chosen: choose one in the cmux app.".to_owned(),
         Some("app.unreachable" | "app.not_found" | "socket.unreachable" | "socket.no_app") => {
             "The cmux app is not reachable from this chat, so it cannot sign the request."

@@ -177,6 +177,7 @@
     "method:_acpmux/context_override",
     "method:_acpmux/defaults",
     "method:_acpmux/detach_parent",
+    "method:_acpmux/device_challenge",
     "method:_acpmux/device_enroll",
     "method:_acpmux/device_hello",
     "method:_acpmux/directories",
@@ -204,7 +205,9 @@
     "method:_acpmux/harness/restore",
     "method:_acpmux/harness/secret/set",
     "method:_acpmux/harness/update",
+    "method:_acpmux/heap_profile",
     "method:_acpmux/history",
+    "method:_acpmux/history/read",
     "method:_acpmux/history_delete",
     "method:_acpmux/history_offload",
     "method:_acpmux/host_health",
@@ -223,6 +226,7 @@
     "method:_acpmux/journal_restore",
     "method:_acpmux/keep",
     "method:_acpmux/keys_mint",
+    "method:_acpmux/lifecycle",
     "method:_acpmux/mac_approver_set",
     "method:_acpmux/mac_approvers",
     "method:_acpmux/machine.tunnel.attach",
@@ -294,8 +298,10 @@
     "method:_acpmux/run_elsewhere/start",
     "method:_acpmux/schema",
     "method:_acpmux/scorecard",
+    "method:_acpmux/scorecard_replay",
     "method:_acpmux/secret_request",
     "method:_acpmux/secret_run",
+    "method:_acpmux/send_hop",
     "method:_acpmux/send_queue",
     "method:_acpmux/send_status",
     "method:_acpmux/session_search",
@@ -344,8 +350,10 @@
     "method:_acpmux/vm_host",
     "method:_acpmux/wait",
     "method:_acpmux/watch_take_over",
+    "method:_acpmux/watchdog_hold",
     "method:_acpmux/web_modes",
     "method:_acpmux/web_token_rotate",
+    "method:_acpmux/wireguard_admit",
     "method:_acpmux/workspace_purge",
     "method:_acpmux/workspace_roots_set",
     "method:agent/credentials.update",
@@ -355,7 +363,6 @@
     "method:chat.fix_from_link",
     "method:chat.fix_from_link.prepare",
     "method:session/close",
-    "method:session/delete",
     "method:session/fork",
     "method:session/list",
     "method:session/load",
@@ -411,6 +418,7 @@
     "param:_acpmux/attach#attending",
     "param:_acpmux/attach#beforeSeq",
     "param:_acpmux/attach#eventStream",
+    "param:_acpmux/attach#hold",
     "param:_acpmux/attach#kinds",
     "param:_acpmux/attach#limit",
     "param:_acpmux/attach#maxBytes",
@@ -437,7 +445,9 @@
     "param:_acpmux/chat/route.set#when",
     "param:_acpmux/customize_run#run",
     "param:_acpmux/detach#sessionId",
+    "param:_acpmux/draft_get#attachments",
     "param:_acpmux/draft_get#sessionId",
+    "param:_acpmux/draft_set#attachments",
     "param:_acpmux/draft_set#sessionId",
     "param:_acpmux/draft_set#text",
     "param:_acpmux/events#afterSeq",
@@ -495,8 +505,10 @@
     "param:_acpmux/kill#cancelFork",
     "param:_acpmux/kill#cancelToken",
     "param:_acpmux/kill#expectRevision",
+    "param:_acpmux/kill#grace",
     "param:_acpmux/kill#purge",
     "param:_acpmux/kill#sessionId",
+    "param:_acpmux/live#live",
     "param:_acpmux/mail/ack#messageId",
     "param:_acpmux/mail/ack#recipient",
     "param:_acpmux/mail/read#after",
@@ -551,6 +563,7 @@
     "param:_acpmux/permission_groups#sessionId",
     "param:_acpmux/permission_respond#annotations",
     "param:_acpmux/permission_respond#answers",
+    "param:_acpmux/permission_respond#forkCheckpoint",
     "param:_acpmux/permission_respond#optionId",
     "param:_acpmux/permission_respond#permissionId",
     "param:_acpmux/permission_respond#sessionId",
@@ -669,6 +682,7 @@
     "param:_acpmux/turn_shots#turnId",
     "param:_acpmux/typing#on",
     "param:_acpmux/typing#sessionId",
+    "param:_acpmux/undelete#sessionId",
     "param:_acpmux/usage#known",
     "param:_acpmux/view#attending",
     "param:_acpmux/view#cutoverSeq",
@@ -819,10 +833,18 @@
     ],
     "chat-presence-v1": [
       "method:_acpmux/follow",
+      "method:_acpmux/live",
+      "method:_acpmux/live_list",
       "method:_acpmux/rooms",
       "method:_acpmux/typing",
       "notify:_acpmux/presence",
       "notify:_acpmux/room"
+    ],
+    "chat-soft-delete-v1": [
+      "method:_acpmux/deleted",
+      "method:_acpmux/kill",
+      "method:_acpmux/undelete",
+      "method:session/delete"
     ],
     "chunk-deltas-v1": [
       "method:_acpmux/attach",
@@ -845,6 +867,14 @@
     ],
     "connections-events-v1": [
       "notify:_acpmux/connections.changed"
+    ],
+    "consent-grant-v1": [
+      "method:_acpmux/consent_account_set",
+      "method:_acpmux/consent_grantor_trust",
+      "method:_acpmux/consent_remote_set",
+      "method:_acpmux/consent_remote_status",
+      "method:_acpmux/consent_screen_auto",
+      "method:_acpmux/consent_trust_refresh"
     ],
     "cost-ledger-v1": [
       "method:_acpmux/ledger"
@@ -876,6 +906,9 @@
     ],
     "feature:approverDecisions": [
       "field:_meta.acpmux#approverDecisions"
+    ],
+    "feature:bgRearm": [
+      "method:_acpmux/bg/rearm"
     ],
     "feature:cancelRequest": [
       "method:$/cancel_request"
@@ -1145,6 +1178,10 @@
     "session-bg-facts-v1": [
       "method:_acpmux/sessions"
     ],
+    "session-bg-waits-v1": [
+      "method:_acpmux/bg/rearm",
+      "method:_acpmux/sessions"
+    ],
     "session-changed-delta-v1": [
       "method:initialize",
       "notify:_acpmux/session_changed",
@@ -1226,6 +1263,11 @@
     ],
     "team-audit-v1": [
       "method:_acpmux/team_audit"
+    ],
+    "team-directory-v1": [
+      "method:_acpmux/team/navigator",
+      "method:_acpmux/team/pick",
+      "method:_acpmux/team/session_info"
     ],
     "team-listen-v1": [
       "method:_acpmux/team/listen"

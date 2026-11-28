@@ -259,6 +259,15 @@ class SwapBinaryTests(unittest.TestCase):
         self.assertTrue(any(line.startswith("--force --sign -") and line.endswith(str(copy)) for line in signs), signs)
         self.assertTrue(any(line.startswith("--verify --strict") for line in signs), signs)
 
+    def test_fetches_never_recurse_into_submodules(self):
+        # A fetch of one commit still fetches, per submodule, every pin in the history it brings in; one gone
+        # ghostty pin (51cad05, "not our ref") failed cmux#60058's launch-ready measurement after 17 h queued.
+        import re
+        fetches = [line for line in TOOL.read_text().splitlines() if re.search(r"git (-C \S+ )?fetch ", line)]
+        self.assertTrue(fetches)
+        for line in fetches:
+            self.assertIn("--no-recurse-submodules", line)
+
 
 if __name__ == "__main__":
     unittest.main()
