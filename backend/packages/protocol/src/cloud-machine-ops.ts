@@ -213,7 +213,7 @@ export const CloudPlan = Schema.Struct({
    * The team's spending cap on Cloud machines (cmux-platform SpendCap.ts `capView`), absent where the cap is off. The
    * last read of the team's spend (state under, near or at_cap; null before the first read; cap_usd null when the
    * team has no cap), when running member machines pause if the team is still at its cap (pause_at, null when none is
-   * pending), and when the cap paused them (paused_at, null when it has not).
+   * pending), and when the cap paused them (paused_at, null when it has not); the pool and overage behind the cap.
    */
   spend_cap: Schema.optionalKey(
     Schema.Struct({
@@ -223,7 +223,14 @@ export const CloudPlan = Schema.Struct({
       period_end: Schema.NullOr(Millis),
       checked_at: Schema.NullOr(Millis),
       pause_at: Schema.NullOr(Millis),
-      paused_at: Schema.NullOr(Millis)
+      paused_at: Schema.NullOr(Millis),
+      /**
+       * RFD 0080 piece 8: the period's pool (USD, every seat; absent before the first billing period) and the admin's
+       * overage past it when the cap was set that way (usage.cap.set `overage_usd`; null = overage off, the cap is the
+       * pool; absent when set as a total). Settings > Cloud > Spending edits the overage, never the total.
+       */
+      included_usd: Schema.optionalKey(Schema.Number),
+      overage_usd: Schema.optionalKey(Schema.NullOr(Schema.Number))
     })
   )
 }).annotate({ identifier: "CloudPlan" })

@@ -47,7 +47,11 @@ runs:
           echo "::error title=fleet client::the controller's client could not be fetched after 3 tries"
           exit 1
         fi
-        printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$client_dir/ci-client.py" > "$client_dir/cmux-ci"
+        # Isolated mode (-I) keeps the job's folder and environment off the import path; it also leaves out the
+        # client's own folder, and ci-client.py imports its sibling files (fleet_client.py), so the wrapper adds
+        # that one folder back. Run 46086119436: "ModuleNotFoundError: No module named 'fleet_client'".
+        launch='import runpy, sys; d = sys.argv.pop(1); sys.path.insert(0, d); sys.argv[0] = d + "/ci-client.py"; runpy.run_path(sys.argv[0], run_name="__main__")'
+        printf '#!/bin/sh\nexec python3 -I -c %q %q "$@"\n' "$launch" "$client_dir" > "$client_dir/cmux-ci"
         chmod +x "$client_dir/cmux-ci"
         env_name="CMUX_CI_"CLIENT
         printf '%s=%s\n' "$env_name" "$client_dir/cmux-ci" >> "$GITHUB_ENV"

@@ -205,6 +205,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColumnDock, "permanent");
     try expectExplicitNullRejected(protocol.ColumnDock, "pinned");
     try expectExplicitNullRejected(protocol.ColumnDock, "role");
+    try expectExplicitNullRejected(protocol.ClientInfo, "capabilities");
     try expectExplicitNullRejected(protocol.ConversationChange, "conversation");
     try expectExplicitNullRejected(protocol.ConversationChange, "message");
     try expectExplicitNullRejected(protocol.ConversationChange, "participant");
