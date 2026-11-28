@@ -34,6 +34,7 @@ EXEMPT = {
     "nightly.yml:pick-classic-sign-runner": NIGHTLY_MAIN,
     "nightly.yml:prepare-nightly-variant": NIGHTLY_MAIN,
     "nightly.yml:publish-nightly": NIGHTLY_MAIN,
+    "nightly.yml:verify-signed-nightly": NIGHTLY_MAIN + "; its artifact waits poll every 10 s to a 5100 s deadline",
     "storage-maintenance.yml:r2-binaries": "job route permits only the daily 07:53 schedule or manual dispatch; not hourly",
     "storage-maintenance.yml:pr-media": "job route permits only the Monday 06:41 schedule or manual dispatch; not hourly",
     "storage-maintenance.yml:actions-artifacts": "its own floor: stops at 50 calls left, deletes paced 0.4 s apart",

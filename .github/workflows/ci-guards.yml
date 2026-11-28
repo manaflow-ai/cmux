@@ -1119,6 +1119,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_api_call_log_bootstrap.py
 
+      - name: Validate the nightly artifact wait stops at its deadline
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_wait_for_run_artifact.py
+
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
