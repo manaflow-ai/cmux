@@ -23,7 +23,12 @@
 # (default 300) it reads each candidate's cmux-tui artifacts runs (pin-cmux-tui.sh runs-state)
 # and then pin-cmux-tui.sh active-publisher <key>, and two answers
 # in a row of "no active cmux-tui artifacts run has this tree" end the wait
-# (an unreadable runs list keeps waiting). An active run counts only while it makes
+# (an unreadable runs list keeps waiting, unless CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS is set: that many
+# unreadable answers in a row then end the wait too; app-bundle-cmux-tui-client.sh sets 2 when it has a
+# fallback tree, so about 5 min of failed reads bundles the fallback instead of holding the signing
+# Mac's shared nightly-next-one slot for the full limit: 2026-11-28, run 46105117438 read
+# "could not all be read" five times in a row and waited 25 min, and the next NIGHTLY waited 41 min
+# on its slot). An active run counts only while it makes
 # progress (pin-cmux-tui.sh run-progress): a build failed on its last retry attempt, or a job queued with no runner
 # past CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900), is "not building" too. Otherwise it waits up to
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
@@ -57,6 +62,9 @@ wait_seconds="${CMUX_TUI_TREE_CLIENT_WAIT_SECONDS:-2700}"
 poll_seconds="${CMUX_TUI_TREE_CLIENT_POLL_SECONDS:-20}"
 check_seconds="${CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS:-300}"
 rebuild_grace="${CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS:-1200}"
+unread_limit="${CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS:-0}"
+[[ "$unread_limit" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS must be a whole number" >&2; exit 2; }
+unread_limit=$((10#$unread_limit))
 [[ "$wait_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
 [[ "$rebuild_grace" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_REBUILD_GRACE_SECONDS must be whole seconds" >&2; exit 2; }
 rebuild_grace=$((10#$rebuild_grace))
@@ -76,6 +84,7 @@ manifest_exists() {
 started=$(date +%s)
 next_check=0
 idle_checks=0
+unread_checks=0
 rebuilding=false
 while :; do
   rc=0
@@ -125,7 +134,13 @@ while :; do
       *) publisher=unknown ;;
     esac
     case "$publisher" in
-      unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read (${publisher_why:-no note}); waiting on" >&2 ;;
+      unknown)
+        idle_checks=0 unread_checks=$(( unread_checks + 1 ))
+        if (( unread_limit > 0 )); then
+          echo "the cmux-tui artifacts runs could not all be read (${publisher_why:-no note}; check $unread_checks of $unread_limit)" >&2
+        else
+          echo "the cmux-tui artifacts runs could not all be read (${publisher_why:-no note}); waiting on" >&2
+        fi ;;
       "")
         idle_checks=$(( idle_checks + 1 ))
         if [[ -n "$stuck" ]]; then
@@ -141,6 +156,11 @@ while :; do
           echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key" >&2
         fi ;;
     esac
+    [[ "$publisher" == unknown ]] || unread_checks=0
+    if (( unread_limit > 0 && unread_checks >= unread_limit )); then
+      echo "error: tree $key is not published, no candidate manifest is uploaded, and the cmux-tui artifacts runs could not be read $unread_checks times in a row; not waiting blind" >&2
+      exit 1
+    fi
     if (( idle_checks >= 2 )); then
       if [[ -n "$stuck" ]]; then
         echo "error: tree $key is not published, no candidate manifest is uploaded, and no cmux-tui artifacts run that builds it is making progress ($stuck); nothing will publish it in time" >&2

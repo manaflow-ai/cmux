@@ -37,7 +37,7 @@ if [[ "$TREE_PENDING" == true ]]; then
   fallback_commit="" fallback_key=""
   read -r fallback_commit fallback_key _ <<<"${TREE_FALLBACK:-}" || true
   if [[ "${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}" != off && "$fallback_commit" =~ ^[0-9a-f]{40}$ && "$fallback_key" =~ ^[0-9a-f]{40}$ ]]; then
-    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
+    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS="${CMUX_TUI_TREE_CLIENT_UNREAD_CHECKS:-2}" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
       echo "::notice title=cmux-tui client::exact tree $CMUX_TUI_CLIENT_KEY of the build commit, from ${cmux_tui_commit:0:12}"
     else
       cmux_tui_commit="$fallback_commit" client_key="$fallback_key" tree_used=fallback
