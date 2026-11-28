@@ -2387,6 +2387,7 @@
         "lead" : [
           "cloudModels",
           "cloudEnvironments",
+          "environmentVault",
           "cloudCompute"
         ],
         "symbol" : "cloud",

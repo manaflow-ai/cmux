@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.vault.valueOnce" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تظهر الآن فقط. بعد حفظها، لن يعرضها cmux مرة أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikazuje se samo sada. Nakon čuvanja, cmux je više nikad ne prikazuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vises kun nu. Når du har gemt den, viser cmux den aldrig igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur jetzt sichtbar. Nach dem Speichern zeigt cmux den Wert nie wieder."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown only now. After you save it, cmux never shows it again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo se muestra ahora. Cuando lo guardes, cmux no volverá a mostrarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichée seulement maintenant. Une fois enregistrée, cmux ne l'affiche plus jamais."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Visibile solo ora. Dopo il salvataggio, cmux non lo mostra mai più."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示されるのは今だけです。保存後、cmux が再び表示することはありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញតែពេលនេះប៉ុណ្ណោះ។ ក្រោយរក្សាទុក cmux នឹងមិនបង្ហាញវាម្ដងទៀតទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "지금만 표시됩니다. 저장한 뒤에는 cmux가 다시 보여 주지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vises bare nå. Når du har lagret den, viser cmux den aldri igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Widoczna tylko teraz. Po zapisaniu cmux nigdy jej nie pokaże."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrado só agora. Depois de salvar, o cmux nunca o mostra de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Видно только сейчас. После сохранения cmux больше никогда его не покажет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงเฉพาะตอนนี้ เมื่อบันทึกแล้ว cmux จะไม่แสดงอีก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yalnızca şimdi gösterilir. Kaydettikten sonra cmux bunu bir daha göstermez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Видно лише зараз. Після збереження cmux більше ніколи його не покаже."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chỉ hiện lúc này. Sau khi lưu, cmux sẽ không bao giờ hiện lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅现在显示。保存后，cmux 不会再显示它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅現在顯示。儲存後，cmux 不會再顯示它。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

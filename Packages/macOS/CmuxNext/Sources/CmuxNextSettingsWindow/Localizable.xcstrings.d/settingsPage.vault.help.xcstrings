@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.vault.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "المتغيرات والأسرار لوكلائك، على الأجهزة التي تمنحها الوصول."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varijable i tajne za vaše agente, na mašinama kojima date pristup."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variabler og hemmeligheder til dine agenter på de maskiner, du giver adgang."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variablen und Geheimnisse für deine Agenten auf den Rechnern, denen du Zugriff gibst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variables and secrets for your agents, on the machines you grant."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variables y secretos para tus agentes, en las máquinas a las que des acceso."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variables et secrets pour vos agents, sur les machines auxquelles vous donnez accès."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variabili e segreti per i tuoi agenti, sulle macchine a cui concedi l'accesso."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "許可したマシン上のエージェントが使う変数とシークレット。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អថេរ និងអាថ៌កំបាំងសម្រាប់ភ្នាក់ងាររបស់អ្នក នៅលើម៉ាស៊ីនដែលអ្នកអនុញ្ញាត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "허용한 머신에서 에이전트가 쓰는 변수와 시크릿입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variabler og hemmeligheter for agentene dine, på maskinene du gir tilgang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zmienne i sekrety dla Twoich agentów na maszynach, którym dasz dostęp."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variáveis e segredos para seus agentes, nas máquinas que você autorizar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переменные и секреты для ваших агентов на машинах, которым вы дали доступ."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตัวแปรและความลับสำหรับเอเจนต์ของคุณ บนเครื่องที่คุณอนุญาต"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erişim verdiğiniz makinelerde ajanlarınız için değişkenler ve gizli bilgiler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Змінні та секрети для ваших агентів на машинах, яким ви надали доступ."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biến và bí mật cho các tác tử của bạn, trên những máy bạn cấp quyền."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "供你的代理在你授权的机器上使用的变量和机密。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "供你的代理在你授權的機器上使用的變數和機密。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

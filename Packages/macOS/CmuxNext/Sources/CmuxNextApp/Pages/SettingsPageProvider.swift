@@ -43,6 +43,8 @@ final class SettingsPageProvider: PageProvider {
     var devicesState: (@MainActor () -> JSONValue)?
     /// Settings > Accounts > Cloud Environments (``CloudEnvironmentsSettings``).
     var environments: CloudEnvironmentsSettings?
+    /// Settings > Environment (RFD 0222): CmuxNextDaemon's `SettingsVault`, JSON in and out; nil in tests without an app.
+    var vault: (state: @MainActor () async -> Data, run: @MainActor (Data) async -> Data)?
     /// Settings > Cloud > Compute (``CloudAllotmentPage``): only the read; `cmux.settings.cloud.allotment.set` stays unknown here.
     var allotment: CloudAllotmentPage?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
@@ -228,6 +230,10 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.models.state", "cmux.settings.models.run": return try await Self.host(models, "models").call(op, params: params, context: context)
         case "cmux.settings.environments.state": return try await Self.host(environments, "environments").pageState()
         case "cmux.settings.environments.run": return try await Self.host(environments, "environments").runPage(params)
+        case "cmux.settings.vault.state": return try JSONValue.parse(await Self.host(vault, "vault").state())
+        case "cmux.settings.vault.run": // SECURITY: a secret's value and the hosts it may reach: the person's own click or key only.
+            try requirePersonsGesture(context)
+            return try JSONValue.parse(await Self.host(vault, "vault").run(JSONEncoder().encode(params)))
         case "cmux.settings.cloud.allotment.get": return try await Self.host(allotment, "allotment").read()
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
         case "cmux.settings.shares.list": return try await Self.host(sharesList, "shares")()
