@@ -144,6 +144,7 @@ import { aptUpdateCommand } from "./apt-update";
 import {
   baseInputTree,
   cachedInstallCommand,
+  evictedLayerSlug,
   imageInputsSha256,
   imagePackagesCommand,
   layerLabel,
@@ -152,7 +153,9 @@ import {
   layerName,
   overlayPrepareCommand,
   overlayPruneCommand,
+  pickLayer,
   type LayerName,
+  type ListedSnapshot,
 } from "./layers";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, SELF_UPDATE_OFF, hostConfig, hostUnit } from "./host-agent";
 import {
@@ -1510,8 +1513,17 @@ export function bakeInputsSha256(options: BakeOptions, lockText: string, inputTr
 }
 
 /** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
-async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Array<{ id: string; slug?: string | null }>> {
-  const all: Array<{ id: string; slug?: string | null }> = [];
+/**
+ * A builder that stopped answering rather than a step that failed on its own: a step past its budget (guest.ts
+ * timedOutSuffix), a step that lost its status, or the client's TimeoutError. Only these evict a cached layer.
+ */
+export function isStallError(error: unknown): boolean {
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return /TimeoutError|timed out|no status/i.test(text);
+}
+
+async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<ListedSnapshot[]> {
+  const all: ListedSnapshot[] = [];
   for (let offset = 0; ; offset += SNAPSHOT_PAGE) {
     const page = await fs.vms.snapshots.list({ limit: SNAPSHOT_PAGE, offset });
     all.push(...page.snapshots);
@@ -1639,32 +1651,56 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       const keys = layerKeys(lockText, layerFlags(options), inputTree!);
       const layerLedger = new Ledger(path.join(options.outDir, "layers", "resources.tsv"));
       const snapshots = await allSnapshots(fs);
-      const layers: Array<Record<string, unknown>> = [];
-      result.layers = layers;
-      let parent = lock.base.snapshot;
-      let parentSlug: string | undefined;
-      for (const layer of ["system", "agents"] as LayerName[]) {
-        const slug = layerName(layer, keys[layer]);
-        const cached = snapshots.find((snapshot) => snapshot.slug === slug)?.id;
-        const row: Record<string, unknown> = { layer, key: keys[layer], slug, hit: Boolean(cached), parent };
-        layers.push(row);
-        L.log(cached ? `LAYER HIT ${layer} ${slug} ${cached}` : `LAYER MISS ${layer} ${slug}: building on ${parent}`);
-        if (!cached) {
+      // A builder booted from a cached layer that stalls (isStallError) evicts the layers it booted from and the
+      // bake runs once more on layers built fresh, under the rebuild slug pickLayer prefers from then on. One
+      // fallback only: a fresh build that stalls too is the bake's failure, as before.
+      const evicted = new Map<LayerName, string>();
+      for (let pass = 0; ; pass++) {
+        const layers: Array<Record<string, unknown>> = [];
+        result.layers = layers;
+        const hits: Array<{ layer: LayerName; slug: string; id: string }> = [];
+        try {
+          let parent = lock.base.snapshot;
+          let parentSlug: string | undefined;
+          for (const layer of ["system", "agents"] as LayerName[]) {
+            const own = layerName(layer, keys[layer]);
+            const picked = evicted.has(layer) ? undefined : pickLayer(snapshots, own);
+            const slug = picked?.slug ?? evicted.get(layer) ?? own;
+            const cached = picked?.id;
+            const row: Record<string, unknown> = { layer, key: keys[layer], slug, hit: Boolean(cached), parent };
+            layers.push(row);
+            L.log(cached ? `LAYER HIT ${layer} ${slug} ${cached}` : `LAYER MISS ${layer} ${slug}: building on ${parent}`);
+            if (!cached) {
+              const t = Date.now();
+              const steps = layer === "system" ? (vm: Vm) => baseSteps(ctxFor(vm, slug)) : (vm: Vm) => overlaySteps(ctxFor(vm, slug), "agents");
+              parent = await bakeOn(fs, layerLedger, parent, slug, options, steps, row, L, false, parentSlug);
+              row.ms = Date.now() - t;
+            } else {
+              hits.push({ layer, slug, id: cached });
+              parent = cached;
+            }
+            row.snapshotId = parent;
+            parentSlug = slug;
+          }
+          const app: Record<string, unknown> = { layer: "app", hit: false, parent };
+          layers.push(app);
           const t = Date.now();
-          const steps = layer === "system" ? (vm: Vm) => baseSteps(ctxFor(vm, slug)) : (vm: Vm) => overlaySteps(ctxFor(vm, slug), "agents");
-          parent = await bakeOn(fs, layerLedger, parent, slug, options, steps, row, L, false, parentSlug);
-          row.ms = Date.now() - t;
-        } else parent = cached;
-        row.snapshotId = parent;
-        parentSlug = slug;
+          result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug, large);
+          if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
+          app.ms = Date.now() - t;
+          app.snapshotId = result.snapshotId;
+          break;
+        } catch (error) {
+          if (pass > 0 || hits.length === 0 || !isStallError(error)) throw error;
+          const reason = String(error).replace(/\s+/g, " ").slice(0, 160);
+          for (const hit of hits) {
+            const fresh = evictedLayerSlug(hit.slug, hit.id);
+            evicted.set(hit.layer, fresh);
+            L.log(`LAYER EVICT ${hit.layer} ${hit.slug} ${hit.id} reason=${reason}: rebuilding as ${fresh}`);
+          }
+          result.layerEvicted = hits.map((hit) => ({ ...hit, reason, rebuild: evicted.get(hit.layer) }));
+        }
       }
-      const app: Record<string, unknown> = { layer: "app", hit: false, parent };
-      layers.push(app);
-      const t = Date.now();
-      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug, large);
-      if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
-      app.ms = Date.now() - t;
-      app.snapshotId = result.snapshotId;
     } else {
       result.snapshotId = await bakeOn(fs, ledger, lock.base.snapshot, name, options, (vm) => baseSteps(ctxFor(vm, name)), result, L, false, undefined, large);
     }
