@@ -1223,6 +1223,14 @@ jobs:
         with:
           path: cmux-tui/target/debug/cmux-tui
           key: ${{ steps.headless-key.outputs.key }}
+      # The target dir's key is the toolchain and the UTC day, not Cargo.lock: feat-cmux-next changed cmux-tui/Cargo.lock
+      # 24 times in the 24 h to 2026-11-28 02:30Z, and each change saved another 1.75 GB entry into the repository's
+      # 10 GB GitHub cache, evicting the rest (every pull request's 18 MB web-bundle entry within ~25 min). One save
+      # a day; a later lock restores the day's entry and cargo rebuilds only what changed.
+      - name: Day of the target-dir cache
+        id: rust-day
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
       - name: Cache the cmux-tui target dir
         id: headless-target
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
@@ -1233,7 +1241,7 @@ jobs:
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}
           cache-workspace-crates: "true"
           # cmux-tui-headless-debug.yml owns this key; read-only here.
           save-if: false
@@ -1263,7 +1271,7 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ steps.headless-target-paths.outputs.paths }}
-          key: v0-rust-cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}-${{ runner.os }}-x64
+          key: v0-rust-cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}-${{ runner.os }}-x64
           restore-keys: |
             v0-rust-cmux-tui-headless-debug-
       - name: Build Linux cmux-tui for the headless journey
