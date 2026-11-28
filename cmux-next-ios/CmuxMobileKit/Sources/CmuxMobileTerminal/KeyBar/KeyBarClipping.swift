@@ -49,16 +49,33 @@ public struct TerminalDockVisibility: Equatable, Sendable {
     public var chromeHidden = false
     public var composerPresented = true
     public var softKeyboard: SoftKeyboard = .none
+    /// The composer is in use (`ComposerTuck`): it has focus, or holds a draft while the
+    /// terminal does not.
+    public var composerInUse = false
+    /// The harness on screen asks a question the person must answer (`harness_tuck`'s
+    /// `prompt`): nothing tucks, its arrows and Return stay at hand.
+    public var harnessPrompt = false
+    public var tuck: ComposerTuck = .both
 
-    public init(chromeHidden: Bool = false, composerPresented: Bool = true, softKeyboard: SoftKeyboard = .none) {
+    public init(chromeHidden: Bool = false, composerPresented: Bool = true, softKeyboard: SoftKeyboard = .none,
+                composerInUse: Bool = false, harnessPrompt: Bool = false, tuck: ComposerTuck = .both) {
         self.chromeHidden = chromeHidden
         self.composerPresented = composerPresented
         self.softKeyboard = softKeyboard
+        self.composerInUse = composerInUse
+        self.harnessPrompt = harnessPrompt
+        self.tuck = tuck
     }
 
-    /// Only over a docked soft keyboard: tapping the terminal or the
-    /// composer raises the keyboard and the row with it.
-    public var showsKeyRow: Bool { !chromeHidden && softKeyboard == .shown }
+    /// Only over a docked soft keyboard: tapping the terminal raises the
+    /// keyboard and the row with it. While the composer is in use the row
+    /// tucks away (`ComposerTuck`), unless the harness asks a question.
+    public var showsKeyRow: Bool {
+        !chromeHidden && softKeyboard == .shown && !(tuck.tucksKeys && composerInUse && !harnessPrompt)
+    }
+
+    /// Whether the harness's status rows tuck under the composer.
+    public var tucksHarnessRows: Bool { tuck.tucksChrome && composerInUse && !harnessPrompt && !chromeHidden && composerPresented }
     public var showsComposer: Bool { !chromeHidden && composerPresented }
 
     /// A will-show or will-change-frame notification's end frame height (pt
