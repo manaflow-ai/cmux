@@ -272,8 +272,8 @@ struct CloudStartChat {
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         // The agent the page's first send will start, warmed now beside the page's load and its first send (cmux#45953): after the copied folder's trust, which the daemon's prewarm checks as the start does. A background step, logged with its own time and kept off the send's steps.
         let credentials = services.cloud.agentCredentials, machineID = machine.machineID, logger = services.cloud.logger
-        CloudAgentPrewarm.begin(cwd: cwd, harness: start.harness, model: start.model, mode: start.mode,
-                                supports: { claudeAuth == nil && daemon.supports($0) }, surface: opened.surface.rawValue,
+        CloudAgentPrewarm.begin(cwd: cwd, harness: start.harness, model: start.model, mode: start.mode, claudeAuth: claudeAuth,
+                                supports: { daemon.supports($0) }, surface: opened.surface.rawValue,
                                 endpoint: AgentTabRemoteHost.endpoint(on: daemon), ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink,
                                 permissionMode: services.agentTabs.startPermissionMode(), credentials: { [services, account = origin.account] in
             guard account == services.cloud.account else { throw CancellationError() }

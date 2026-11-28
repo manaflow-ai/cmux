@@ -73,7 +73,10 @@ use crate::panic_free::JsonFields;
 mod prewarm;
 pub(crate) use prewarm::chat_folder_prewarm_on;
 pub(super) use prewarm::prewarm;
-pub use prewarm::{AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY};
+pub use prewarm::{
+    AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY,
+    AGENT_SESSION_PREWARM_CLAUDE_AUTH_CAPABILITY,
+};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

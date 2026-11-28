@@ -37,6 +37,43 @@ use crate::codex_cloud_auth::{Inputs, PLACEHOLDER_KEY};
 /// Persisted in the session env by the owner start RPC, separate from a profile's team preference.
 pub(crate) const REQUIRED_TEAM: &str = "ACPMUX_CLAUDE_TEAM_REQUIRED";
 
+/// The session env key naming a start's explicit Claude auth choice (`own` or `team`).
+pub(crate) const AUTH: &str = "CMUX_CLAUDE_AUTH";
+
+/// The session env a start's explicit Claude auth choice asks (`claudeMachineLogin` or
+/// `claudeTeamRoute` in its `_meta.acpmux`), checked as `session/new` checks it. One reader for
+/// `session/new` and `_acpmux/prewarm`, so a Cloud chat's warmed agent keys as its start does.
+pub(crate) fn requested_env(
+    meta: Option<&Value>,
+    credential: bool,
+) -> Result<BTreeMap<String, String>, crate::rpc::RpcError> {
+    use crate::rpc::RpcError;
+    let flag = |k: &str| meta.and_then(|m| m.get(k)) == Some(&Value::Bool(true));
+    let (own, team) = (flag("claudeMachineLogin"), flag("claudeTeamRoute"));
+    if (own || team) && credential {
+        return Err(RpcError::invalid_params(
+            "an explicit Claude auth choice cannot carry a delivered credential",
+        ));
+    }
+    if own && team {
+        return Err(RpcError::invalid_params("conflicting Claude auth choices"));
+    }
+    let mut env = BTreeMap::new();
+    if own {
+        env.insert(AUTH.to_owned(), "own".to_owned());
+    } else if team {
+        env.insert(AUTH.to_owned(), "team".to_owned());
+        env.insert(REQUIRED_TEAM.to_owned(), "1".to_owned());
+    }
+    Ok(env)
+}
+
+/// Whether a session env holds nothing beyond an explicit Claude auth choice
+/// ([`requested_env`]): such a start can take a pooled agent warmed with the same choice.
+pub(crate) fn only_auth_choice(env: &BTreeMap<String, String>) -> bool {
+    env.keys().all(|k| k == AUTH || k == REQUIRED_TEAM)
+}
+
 /// The model-plane pair to add to a Claude launch in team mode, or None (own mode, a pair already
 /// set, or not an owner Cloud image). `env` is the launch's effective env (`inputs.var` reads the
 /// same), `cwd` its project for project settings, and `resolves` answers whether the team

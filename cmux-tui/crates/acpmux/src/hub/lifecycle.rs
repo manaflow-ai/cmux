@@ -368,7 +368,8 @@ impl Hub {
             && starter.is_none()
             && (profile.kind != crate::config::HarnessKind::ClaudeStdio
                 || super::host_level::made_for_a_person(meta.created_by.as_ref(), person))
-            && meta.session_env.is_empty()
+            // A Cloud chat's Claude auth choice keys its entry (`PrewarmShape::claude_auth`).
+            && crate::claude_cloud_auth::only_auth_choice(&meta.session_env)
             && route.is_none()
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
@@ -386,7 +387,7 @@ impl Hub {
         };
         // Only a shape with no credential of its own is remembered for a spare or the last-used
         // role: those start with no credential, so they never hold one.
-        let claimable = shaped && credential.is_none();
+        let claimable = shaped && credential.is_none() && meta.session_env.is_empty();
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));

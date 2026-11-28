@@ -272,8 +272,8 @@ struct CloudStartSession {
             let tabs = services.agentTabs; services.cloud.agentCredentials.use(choice: choice, chat: tabKey, machine: id, harness: agent, claudeAuth: choice.claudeAuth)
             await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
             let credentials = services.cloud.agentCredentials, logger = services.cloud.logger, model = request.model
-            CloudAgentPrewarm.begin(cwd: cwd, harness: agent, model: model, mode: nil,
-                                    supports: { choice.claudeAuth == nil && daemon.supports($0) }, surface: opened.surface.rawValue,
+            CloudAgentPrewarm.begin(cwd: cwd, harness: agent, model: model, mode: nil, claudeAuth: choice.claudeAuth,
+                                    supports: { daemon.supports($0) }, surface: opened.surface.rawValue,
                                     endpoint: AgentTabRemoteHost.endpoint(on: daemon), ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
                                     permissionMode: tabs.startPermissionMode(), credentials: {
                 guard account == services.cloud.account else { throw CancellationError() }

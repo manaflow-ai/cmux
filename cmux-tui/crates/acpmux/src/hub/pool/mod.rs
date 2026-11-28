@@ -265,6 +265,9 @@ pub struct PrewarmShape {
     pub model: Option<String>,
     pub workspace_id: Option<String>,
     pub credential: Option<crate::agent_credentials::AgentCredential>,
+    /// Its explicit Claude auth choice as session env (`claude_cloud_auth::requested_env`): a
+    /// Cloud chat's start names one, so a hint without it warmed an agent that start never took.
+    pub claude_auth: std::collections::BTreeMap<String, String>,
 }
 
 /// A pool lock. A panic while one was held leaves plain data behind, so a
@@ -621,6 +624,7 @@ impl Hub {
             draft.cmux_context = Some(crate::context_inventory::snapshot_session(&draft, &cfg));
         }
         draft.workspace_id = shape.workspace_id.clone();
+        draft.session_env = shape.claude_auth.clone();
         // The pool is the person's (an agent's create warms nothing, `lifecycle.rs`; a pooled
         // Claude Code starts for the person, `start.rs`): an entry starts as a person's chat
         // would, so its agent asks sr2 for the person's reserve (`sr2_priority::mark`) like the
@@ -978,7 +982,9 @@ impl Hub {
         loop {
             // A credentialed start (cmux#45953) never ends another key's entry: only one
             // warmed with its own credential is its, and the folder's spare stays.
-            let took = lock(&self.pool.pool).take_or_keep(&spec.key, credential.is_none());
+            // A Claude auth choice is the same: its entry is the hint's, never the plain spare.
+            let plain = credential.is_none() && meta.session_env.is_empty();
+            let took = lock(&self.pool.pool).take_or_keep(&spec.key, plain);
             match took {
                 Take::Ready(mut p) => {
                     #[cfg(debug_assertions)]

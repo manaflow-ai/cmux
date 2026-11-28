@@ -33,6 +33,13 @@ pub const AGENT_SESSION_PREWARM_CAPABILITY: &str = "agent-session-prewarm-v1";
 pub const AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY: &str =
     "agent-session-prewarm-chat-folder-v1";
 
+/// A prewarm may carry the start's explicit Claude auth choice (`claude_machine_login`,
+/// `claude_team_route`), which acpmux keys the warmed agent by: a Claude Cloud start names one
+/// every time, so a prewarm without it warmed an agent that start never took. An older daemon
+/// would warm the plain agent instead, so the app sends a prewarm with one only where this is served.
+pub const AGENT_SESSION_PREWARM_CLAUDE_AUTH_CAPABILITY: &str =
+    "agent-session-prewarm-claude-auth-v1";
+
 /// The kill switch of the no-folder prewarm: on by default (Leo, 2026-11-25: "it doesnt work if
 /// it's not \"on by default\""), off with `CMUX_PREWARM_CHAT_FOLDER=0` (or `false`, `off`) in the
 /// daemon's environment. Off, `identify` leaves out its capability, so the app sends no prewarm
@@ -75,6 +82,13 @@ fn prewarm_body(params: &StartParams, cwd: &str, workspace: Option<String>) -> V
     if let Some(credentials) = &params.credentials {
         body.insert("credentials", credentials.wire());
     }
+    // The start's Claude auth choice, as `start_and_bind` puts it in `session/new`'s meta.
+    if params.claude_machine_login {
+        body.insert("claudeMachineLogin", json!(true));
+    }
+    if params.claude_team_route {
+        body.insert("claudeTeamRoute", json!(true));
+    }
     body
 }
 
@@ -101,6 +115,17 @@ pub(in crate::server::agent_session_attach) fn prewarm(
     }
     if let Err(refusal) = startable(mux, params.surface) {
         return refuse(writer, id, refusal);
+    }
+    // The start's own refusals of a Claude auth choice (`agent_session_start.rs`): one choice, no
+    // credential beside it, and a machine login never on a team VM.
+    if (params.claude_machine_login || params.claude_team_route)
+        && (params.credentials.is_some()
+            || (params.claude_machine_login && params.claude_team_route))
+    {
+        return super::super::bad_field::refuse_field(writer, id, Some("claude_team_route"));
+    }
+    if params.claude_machine_login && mux.control_clients.agent_sessions.starts.is_team_vm() {
+        return refuse(writer, id, Refusal::PersonalConnectionOnTeamVm);
     }
     // A pooled child has no chat binding for Cloud opt-out or Disconnect to withdraw.
     if params.credentials.as_ref().is_some_and(|credential| {
