@@ -570,6 +570,64 @@ function lookTiming(look: TurnEndLook, settled: { ms: number; easing: string }):
   return settled;
 }
 
+/// The `dropped-window-200` arm of hidden-measure-caches also samples the fold's overlap curve once per pass
+/// (`clearFractionSampled`), read once at load like `HELD_KEPT` (direct/heldRecords.ts).
+const FOLD_SAMPLES_ONCE =
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments?.["hidden-measure-caches"] ===
+  "dropped-window-200";
+
+/// How many steps along the move `clearFraction` samples for a row that arrives.
+const CLEAR_STEPS = 200;
+
+/// The time fraction of the move after which no row that moves crosses row `index`'s box (its last crossing
+/// step, plus one, over CLEAR_STEPS), 0 when none ever does: every step's progress read again, and every row
+/// asked whether it moves, at every step.
+export function clearFractionScan(
+  index: number,
+  tops: readonly number[],
+  heights: readonly number[],
+  drift: readonly number[],
+  moves: (k: number) => boolean,
+  progressAt: (x: number) => number,
+): number {
+  const top = tops[index]!;
+  const bottom = top + heights[index]!;
+  let last = -1;
+  for (let step = 0; step <= CLEAR_STEPS; step++) {
+    const progress = progressAt(step / CLEAR_STEPS);
+    const overlaps = tops.some((_, k) => {
+      if (k === index || !moves(k)) return false;
+      const drawn = tops[k]! + drift[k]! * (1 - progress);
+      return Math.min(bottom, drawn + heights[k]!) - Math.max(top, drawn) > 0.5;
+    });
+    if (overlaps) last = step;
+  }
+  return Math.min(1, (last + 1) / CLEAR_STEPS);
+}
+
+/// `clearFractionScan`'s answer from the pass's `samples` (progress at each step, read once) and `movers` (the
+/// rows that move, found once), scanning from the move's end so it stops at the last crossing.
+export function clearFractionSampled(
+  index: number,
+  tops: readonly number[],
+  heights: readonly number[],
+  drift: readonly number[],
+  movers: readonly number[],
+  samples: readonly number[],
+): number {
+  const top = tops[index]!;
+  const bottom = top + heights[index]!;
+  for (let step = CLEAR_STEPS; step >= 0; step--) {
+    const remaining = 1 - samples[step]!;
+    for (const k of movers) {
+      if (k === index) continue;
+      const drawn = tops[k]! + drift[k]! * remaining;
+      if (Math.min(bottom, drawn + heights[k]!) - Math.max(top, drawn) > 0.5) return Math.min(1, (step + 1) / CLEAR_STEPS);
+    }
+  }
+  return 0;
+}
+
 /// A curve's progress at a time fraction: a cubic-bezier() or a linear() of evenly spaced points.
 function curveProgress(easing: string): ((x: number) => number) | undefined {
   const curve = parseBezier(easing);
@@ -1727,21 +1785,19 @@ export function playTurnEnd(
     // Heights from the pass's reads (`heights`), never the rows' offsetHeight: this runs after the
     // pass's first animation started, where each read forced a style pass (R2; cmux#48689 read
     // 46,640 of them in one turn's end, turn-end-fold-restyle.browser.test.ts).
+    // The `dropped-window-200` arm reads the curve's 201 samples and the moving rows once per pass, not once
+    // per arriving row and step: the old loop called `arrives` (a `dataset.rowId` string per call) for every
+    // row at every step, 201 x rows x rows, which was the grow's top allocation site at 100k rows
+    // (chat-100k-flat GROW_ALLOC: 361 MB of 4893 MB, 3.8 KB per arrived row). Same answer.
+    let samples: number[] | undefined;
+    let movers: number[] | undefined;
+    const moves = (k: number) => drift[k] !== 0 && !arrives(nodes[k]!, k);
     const clearFraction = (index: number) => {
       if (!progressAt) return 1;
-      const top = tops[index]!;
-      const bottom = top + heights[index]!;
-      let last = -1;
-      for (let step = 0; step <= 200; step++) {
-        const progress = progressAt(step / 200);
-        const overlaps = nodes.some((other, k) => {
-          if (k === index || drift[k] === 0 || arrives(other, k)) return false;
-          const drawn = tops[k]! + drift[k]! * (1 - progress);
-          return Math.min(bottom, drawn + heights[k]!) - Math.max(top, drawn) > 0.5;
-        });
-        if (overlaps) last = step;
-      }
-      return Math.min(1, (last + 1) / 200);
+      if (!FOLD_SAMPLES_ONCE) return clearFractionScan(index, tops, heights, drift, moves, progressAt);
+      samples ??= Array.from({ length: CLEAR_STEPS + 1 }, (_, step) => progressAt(step / CLEAR_STEPS));
+      movers ??= nodes.flatMap((_, k) => (moves(k) ? [k] : []));
+      return clearFractionSampled(index, tops, heights, drift, movers, samples);
     };
     /// How far into the move this pass runs, and the latest hold it gives a row that arrives.
     const elapsed = Math.max(0, -toMove());
