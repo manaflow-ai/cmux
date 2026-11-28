@@ -79,6 +79,19 @@ class ClientTransport(str, Enum):
 class CloseReason(str, Enum):
     SESSION_END = 'session_end'
 
+class ColumnDockEdge(str, Enum):
+    LEFT = 'left'
+    RIGHT = 'right'
+    TOP = 'top'
+    BOTTOM = 'bottom'
+
+class ColumnDockMode(str, Enum):
+    DOCKED = 'docked'
+    OVERLAY = 'overlay'
+
+class ColumnDockRole(str, Enum):
+    AGENT_CHAT = 'agent_chat'
+
 class ColumnMoveDirection(str, Enum):
     LEFT = 'left'
     RIGHT = 'right'
@@ -592,6 +605,18 @@ class CloudConversationPresenceParticipant:
     __cmux_schema_path__: ClassVar[str] = 'types/CloudConversationPresenceParticipant'
     participant: str
     viewing: bool
+
+
+@dataclass(frozen=True)
+class ColumnDock:
+    __cmux_schema_path__: ClassVar[str] = 'types/ColumnDock'
+    edge: ColumnDockEdge
+    mode: ColumnDockMode
+    allow_tabs: Union[bool, MissingType] = field(default=MISSING)
+    permanent: Union[bool, MissingType] = field(default=MISSING)
+    pinned: Union[bool, MissingType] = field(default=MISSING)
+    role: Union[ColumnDockRole, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -1125,7 +1150,7 @@ class LayoutColumnNode:
     id: Id
     layout: Layout
     width: float
-    dock: Union[JsonValue, MissingType] = field(default=MISSING)
+    dock: Union[ColumnDock, MissingType] = field(default=MISSING)
     rows: Union[List[LayoutRowNode], MissingType] = field(default=MISSING)
 
 
@@ -7023,6 +7048,9 @@ __all__ = [
     'BrowserProviderHosting',
     'ClientTransport',
     'CloseReason',
+    'ColumnDockEdge',
+    'ColumnDockMode',
+    'ColumnDockRole',
     'ColumnMoveDirection',
     'ColumnSide',
     'ConversationThreadStatus',
@@ -7077,6 +7105,7 @@ __all__ = [
     'ClientSize',
     'CloseTerminalResult',
     'CloudConversationPresenceParticipant',
+    'ColumnDock',
     'ColumnPin',
     'ConversationChange',
     'ConversationImportMessage',

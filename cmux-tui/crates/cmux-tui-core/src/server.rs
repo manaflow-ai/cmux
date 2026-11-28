@@ -43,7 +43,7 @@ use ghostty_vt::KittyReplayState;
 use ghostty_vt::{KeyAction, Mods, sys};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 #[cfg(test)]
 use tungstenite::WebSocket;
 use zeroize::Zeroize;
@@ -71,7 +71,7 @@ use crate::browser::BrowserPointerOwner;
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 #[cfg(test)]
 use crate::journal_kernel::JournalDocument;
-use crate::model::{Screen, State};
+use crate::model::State;
 use crate::mux::ClientSizingIdentity;
 use crate::platform::{self, transport};
 #[cfg(test)]
@@ -90,10 +90,13 @@ use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::AttachLifecycle;
 use crate::surface::{ClearHistoryDelivery, ClearHistoryFailure};
 use crate::{
-    Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent, Node,
-    PairingDecision, PaneId, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind, TreeDecorations,
+    Direction, LayoutLeafSpec, LayoutRatioError, LayoutSpec, MachineUsage, Mux, MuxEvent,
+    PairingDecision, PaneId, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceKind,
     ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
+// `Node`: only the tests below `server` build layout nodes; `node_json` is in `tree_wire`.
+#[cfg(test)]
+use crate::Node;
 #[cfg(test)]
 use crate::{Rgb, TerminalColors};
 #[cfg(test)]
@@ -234,7 +237,6 @@ mod feed_places;
 pub(crate) mod forum_routed;
 mod frontend_browser_history;
 mod history_search;
-mod home;
 mod icon_assets;
 mod launch_snapshot;
 #[cfg(unix)]
@@ -250,7 +252,6 @@ mod new_screen;
 mod personal;
 #[cfg(unix)]
 mod phone_carrier;
-mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
 mod remote_relay;
@@ -291,7 +292,6 @@ pub use page_files::page_bundle_dir;
 pub use page_listener::{PageListenerOpener, WS_LISTEN_CAPABILITY, WS_LISTEN_ORIGINS_CAPABILITY};
 mod responses;
 mod rows;
-mod screen_json;
 mod server_stats;
 mod session_stream;
 mod split_kind;
@@ -301,6 +301,7 @@ mod tab_create_wire;
 mod tab_park;
 mod tab_restart;
 mod websocket_listener;
+use crate::tree_wire::{node_json, screen_json, tree_json};
 pub(crate) use cmd_subscribe::AGENT_PRESENCE_REPLAY_CAPABILITY;
 pub(crate) use cmd_subscribe::SCREEN_DEVICE_IDENTITY_CAPABILITY;
 pub(crate) use cmd_subscribe::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY;
@@ -323,8 +324,6 @@ use responses::{
     response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
     send_response,
 };
-use screen_json::screen_json;
-pub(crate) use screen_json::screen_layout_json;
 mod group_outcome_json;
 use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
@@ -3182,42 +3181,6 @@ use connection_frame::{
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
 
-/// One layout node. `split_ids`: the public ids of the splits
-/// (`State::resource_indexes`); a split with one carries it as `split_id`
-/// (`split-client-split-id-v1`).
-fn node_json(
-    node: &Node,
-    active_pane: PaneId,
-    split_ids: &HashMap<SplitId, crate::resource::SplitPublicId>,
-) -> Value {
-    match node {
-        Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b, .. } => {
-            let mut value = json!({
-                "type": "split",
-                "split": id,
-                "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
-                "ratio": ratio,
-                "a": node_json(a, active_pane, split_ids),
-                "b": node_json(b, active_pane, split_ids),
-            });
-            if let Some(public_id) = split_ids.get(id) {
-                value.set("split_id", json!(public_id));
-            }
-            value
-        }
-        Node::Stack { panes, expanded } => json!({
-            "type": "stack",
-            "panes": panes.as_slice(),
-            "expanded": if panes.contains(&active_pane) {
-                active_pane
-            } else {
-                *expanded
-            },
-        }),
-    }
-}
-
 fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     match layout {
         LayoutRequest::Leaf { cwd, command } => {
@@ -3241,16 +3204,10 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     }
 }
 
-mod tree_json;
-pub(crate) use tree_json::selection_changed_json;
-#[cfg(all(test, unix))]
-pub(crate) use tree_json::skip_entity_check_on_this_thread_for_bench as skip_tree_entity_check;
-pub(crate) use tree_json::tree_entity_json;
-pub(crate) use tree_json::workspace_presentation_changed_json;
-pub(crate) use tree_json::workspaces_json;
 use tree_json::{ShortIds, pane_json, tree_delta_json};
+// Tests below `server` build trees through these; the daemon reaches them via `tree_wire`.
 #[cfg(test)]
-pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
+use tree_json::{tree_entity_json, workspaces_json};
 
 /// The live runtime of tab `id`. A parked terminal tab (`relaunch.on_show`:
 /// lazy start, `park-tabs`) starts here on its first need, and the request
