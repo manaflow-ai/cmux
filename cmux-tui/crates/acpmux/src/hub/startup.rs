@@ -109,22 +109,15 @@ impl Hub {
             // A read slower than `login_env::TIMEOUT` is read again in the background with
             // longer limits (`login_env::settle`), never waited on by a spawn: the daemon caches
             // the login environment even when no agent starts to ask for it.
-            if plan.run_shell && plan.wait {
-                if crate::login_env::import().await {
-                    reloaded = self.after_login_env().await || reloaded;
-                }
-                if crate::login_env::outcome() == crate::login_env::Outcome::Failed {
-                    let hub = self.clone();
-                    tokio::spawn(async move {
-                        if crate::login_env::settle().await {
-                            hub.after_login_env().await;
-                        }
-                    });
-                }
-            } else if plan.run_shell {
+            if plan.run_shell && plan.wait && crate::login_env::import().await {
+                reloaded = self.after_login_env().await || reloaded;
+            }
+            if plan.run_shell {
+                // Awaited above, only `settle` runs here (free when that read answered).
+                let read = !plan.wait;
                 let hub = self.clone();
                 tokio::spawn(async move {
-                    let changed = crate::login_env::import().await;
+                    let changed = read && crate::login_env::import().await;
                     if crate::login_env::settle().await || changed {
                         hub.after_login_env().await;
                     }
