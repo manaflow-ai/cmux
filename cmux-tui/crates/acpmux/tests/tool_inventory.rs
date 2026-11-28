@@ -260,7 +260,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         row("mcp:cmux-sessions", "cmux", "cmux", true, false),
         row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
         row("mcp:cmux-forum", "cmux", "cmux", true, false),
-        row("mcp:acpmux", "cmux", "cmux", true, false),
+        row("mcp:cmux-agent", "cmux", "cmux", true, false),
         // A gateway-served server now (tools_mcp::SERVERS), so it lists like the others.
         row("mcp:cmux-hosted", "cmux", "cmux", true, false),
         row("mcp:cmux", "cmux", "cmux", true, false),
@@ -345,7 +345,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             row("mcp:cmux-sessions", "cmux", "cmux", true, true),
             row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
             row("mcp:cmux-forum", "cmux", "cmux", true, true),
-            row("mcp:acpmux", "cmux", "cmux", true, true),
+            row("mcp:cmux-agent", "cmux", "cmux", true, true),
             row("mcp:cmux-hosted", "cmux", "cmux", true, true),
             row("mcp:cmux", "cmux", "cmux", true, true),
             row("skill:cmux:cmux-browser", "cmux", "cmux", true, false),
@@ -414,6 +414,33 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         list.as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_owned()).collect()
     };
     assert!(upstreams(&args).contains(&"cmux-computer-use".to_owned()), "{args:?}");
+    // A client with the old row name can turn it off; the new row can turn it back on.
+    for (id, enabled) in [
+        ("mcp:acpmux", false),
+        ("mcp:cmux-agent", true),
+        ("mcp:cmux-agent", false),
+        ("mcp:acpmux", true),
+    ] {
+        let set = local
+            .call(
+                "_acpmux/set_tools",
+                json!({
+                    "sessionId": claude, "id": id, "enabled": enabled,
+                }),
+            )
+            .await
+            .unwrap();
+        let agent =
+            set["tools"].as_array().unwrap().iter().find(|r| r["id"] == "mcp:cmux-agent").unwrap();
+        assert_eq!(agent["enabled"], enabled, "{set}");
+        let args = argv(&local.ask(&claude, "hi").await);
+        assert_eq!(upstreams(&args).contains(&"cmux-agent".to_owned()), enabled, "{args:?}");
+        let denied = disallowed(&args);
+        for name in ["mcp__acpmux", "mcp__cmux-agent"] {
+            assert_eq!(denied.iter().any(|arg| arg == name), !enabled, "{args:?}");
+        }
+    }
+
     for enabled in [false, true] {
         let set = local
             .call(

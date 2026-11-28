@@ -19,6 +19,11 @@ pub fn is_server_name(name: &str) -> bool {
     name == SERVER_NAME || LEGACY_SERVER_NAMES.contains(&name)
 }
 
+/// Names persisted before the rename still identify the same server.
+pub fn same_server(left: &str, right: &str) -> bool {
+    left == right || (is_server_name(left) && is_server_name(right))
+}
+
 /// The tool a Claude Code MCP call name (`mcp__cmux-agent__send`, `mcp__acpmux__send`) runs on
 /// this server, or None for any other call.
 pub fn tool_of(call: &str) -> Option<&str> {
@@ -34,12 +39,17 @@ pub fn runs_this_server(entry: &serde_json::Value) -> bool {
     let program = entry.get("command").and_then(serde_json::Value::as_str).unwrap_or("");
     let program = program.rsplit(['/', '\\']).next().unwrap_or(program);
     let program = program.strip_suffix(".exe").unwrap_or(program);
-    let known = matches!(program, "acpmux" | "acpmux-debug-cli" | "cmux");
+    let known = matches!(program, "acpmux" | "acpmux-debug-cli" | "cmux-tui-acpmux" | "cmux");
     let serves = entry
         .get("args")
         .and_then(serde_json::Value::as_array)
         .is_some_and(|a| a.iter().any(|v| v.as_str() == Some("acpmux-mcp")));
-    known && serves
+    let multicall = program == "cmux-tui"
+        && entry
+            .get("args")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|args| args.first().and_then(serde_json::Value::as_str) == Some("acp"));
+    (known || multicall) && serves
 }
 
 #[cfg(test)]
@@ -66,5 +76,21 @@ mod tests {
         assert!(runs_this_server(&json!({"command": "cmux", "args": ["acpmux-mcp"]})));
         assert!(!runs_this_server(&json!({"command": "acpmux", "args": ["forum-mcp"]})));
         assert!(!runs_this_server(&json!({"command": "npx", "args": ["acpmux-mcp"]})));
+    }
+
+    #[test]
+    fn leftover_multicall_and_standalone_binaries_are_recognized() {
+        for command in ["/opt/cmux/cmux-tui-acpmux", r"C:\cmux\cmux-tui-acpmux.exe"] {
+            assert!(runs_this_server(&json!({"command": command, "args": ["acpmux-mcp"]})));
+        }
+        assert!(runs_this_server(
+            &json!({"command": "/opt/cmux/cmux-tui", "args": ["acp", "acpmux-mcp"]})
+        ));
+        assert!(!runs_this_server(
+            &json!({"command": "/opt/cmux/cmux-tui", "args": ["acpmux-mcp"]})
+        ));
+        assert!(!runs_this_server(
+            &json!({"command": "/opt/cmux/cmux-tui", "args": ["acp", "forum-mcp"]})
+        ));
     }
 }
