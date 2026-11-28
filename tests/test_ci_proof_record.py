@@ -6,6 +6,7 @@ import copy
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -830,6 +831,41 @@ class SeededRegression(unittest.TestCase):
 
     def test_a_failed_run_still_fails(self):
         self.assertEqual(ios_verify.verdict([{"name": "sim", "result": "error"}], []), "fail")
+
+
+class GateRerun(unittest.TestCase):
+    """cmux#61741, 2026-11-28: the lane-gh broker refused the plain rerun of the passed ui proof status job, so the
+    gate never read the new record and cmux/ui-proof stayed failed."""
+
+    REFUSED = ("gh: lane-gh call rerun manaflow-ai/cmux: refused: job 140960974380 of run 46139109983 passed; a rerun "
+               "only repeats its answer, so nothing was rerun (`gh run rerun 46139109983 --force` sends it anyway)")
+
+    def fake(self, answers):
+        calls = []
+
+        def run(cmd, **_):
+            calls.append(cmd)
+            code, err = answers.pop(0)
+            return subprocess.CompletedProcess(cmd, code, "", err)
+        return run, calls
+
+    def test_broker_refusal_of_a_passed_job_reruns_with_force(self):
+        run, calls = self.fake([(1, self.REFUSED), (0, "")])
+        self.assertIn("--force", pr.rerun_gate_job("manaflow-ai/cmux", 46139109983, 140960974380, run=run))
+        self.assertEqual(calls[1][-1], "--force")
+        self.assertNotIn("--force", calls[0])
+
+    def test_plain_gh_success_never_sends_force(self):
+        run, calls = self.fake([(0, "")])
+        self.assertEqual(pr.rerun_gate_job("o/r", 1, 2, run=run), "reran")
+        self.assertEqual(len(calls), 1)
+
+    def test_other_failure_raises_with_its_stderr(self):
+        run, calls = self.fake([(1, "HTTP 403: Resource not accessible")])
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            pr.rerun_gate_job("o/r", 1, 2, run=run)
+        self.assertIn("403", caught.exception.stderr)
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":
