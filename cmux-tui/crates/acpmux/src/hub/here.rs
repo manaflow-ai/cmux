@@ -145,7 +145,7 @@ impl HereTable {
                 .then((a.kind == HereKind::Agent).cmp(&(b.kind == HereKind::Agent)))
                 .then_with(|| a.name.cmp(&b.name))
         });
-        HereResult { here }
+        HereResult { here, sync: None }
     }
 }
 
@@ -225,7 +225,14 @@ impl Hub {
                 Agent { session: s.id.clone(), name }
             })
             .collect();
-        Ok(self.here.here(p.scope.as_deref(), agents, wall_ms()))
+        let mut result = self.here.here(p.scope.as_deref(), agents, wall_ms());
+        if p.include_sync {
+            result.sync = Some(self.synced().peer_status(|name| {
+                self.peer(name)
+                    .is_some_and(|peer| peer.connected.load(std::sync::atomic::Ordering::Acquire))
+            }));
+        }
+        Ok(result)
     }
 }
 

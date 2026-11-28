@@ -1,10 +1,10 @@
-import { lazy, Suspense, useMemo, useState, memo } from "react";
-import { shownCategories, sidebarSections } from "../categories";
-import { useStore, shallowEqual, useSettingsSelector, useSettingsRouter } from "../context";
+import { memo, useMemo, useState, lazy, Suspense } from "react";
+import { categoryById, shownCategories, sidebarSections } from "../categories";
+import { shallowEqual, useSettingsSelector, useStore, useSettingsRouter } from "../context";
 import type { SettingsState } from "../store";
 import { Icon } from "../icons";
-import { sectionHref } from "../router";
-import { filterRows, filterPages, filterPlaces, joinConsentPlaces } from "../search";
+import { CLOUD_MODELS_FOCUS, sectionHref } from "../router";
+import { filterRows, filterPages, modelSettingsMatches, filterPlaces, joinConsentPlaces } from "../search";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { CHIEF_PET_ROWS } from "../cardRows";
@@ -69,9 +69,13 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
   const shownPlaces = useMemo(() => new Set(places.map((place) => place.key)), [places]);
   // Pages the words name (their title, or the words of cards that draw no schema rows, such as
   // Devices' Screen sharing and Control): a link to each, above the rows.
-  const pages = useMemo(() => filterPages({ query, devBuild }), [devBuild, query]);
+  const modelMatches = modelSettingsMatches(query);
+  const pages = useMemo(() => {
+    const hits = filterPages({ query, devBuild });
+    return modelMatches.models && !hits.some((page) => page.id === "models") ? [categoryById("models"), ...hits] : hits;
+  }, [devBuild, modelMatches.models, query]);
   const router = useSettingsRouter();
-  const empty = shown.size === 0 && places.length === 0 && pages.length === 0;
+  const empty = shown.size === 0 && places.length === 0 && pages.length === 0 && !modelMatches.cloud;
   const crumb = (category: { id: string; title: Parameters<typeof text>[0] }) => {
     const page = pageTitles.get(category.id);
     const name = page ? text(page) : null;
@@ -90,7 +94,7 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
           {empty && query.trim() ? <AskCmuxRow words={query} onAsk={() => void store.askCmux(query)} /> : null}
         </div>
       </div>
-      {pages.length > 0 && (
+      {(pages.length > 0 || modelMatches.cloud) && (
         <div className="search-pages" data-search-pages="">
           {pages.map((page) => {
             const section = sidebarSections.find((run) => run.categories.includes(page.id))?.title;
@@ -110,6 +114,20 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
               </button>
             );
           })}
+          {modelMatches.cloud && (
+            <button
+              type="button"
+              className="ask-cmux search-page"
+              data-page-hit="cloudModels"
+              onClick={() => router.history.push(sectionHref("cloud", CLOUD_MODELS_FOCUS))}
+            >
+              <Icon name="arrow.turn.down.right" />
+              <span className="ask-cmux-text">
+                <span className="ask-cmux-title">{t("settingsWindow.cloud.models.title")}</span>
+                <span className="ask-cmux-words">{text(categoryById("cloud").title)}</span>
+              </span>
+            </button>
+          )}
         </div>
       )}
       {categories.map((category) => {
