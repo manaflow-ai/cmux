@@ -264,3 +264,17 @@ fn limits_sign_in_bad_requests_and_refusals_are_never_continued() {
     assert!(!is_refused_request("check your inference gateway (127.0.0.1:4016)"));
     assert!(!is_refused_request("retry after 4003s"));
 }
+
+/// The SR2 gateway's own 529s (RFD 0205 §3.3, subrouter-internal#89 and #185), as Claude Code
+/// shows them: each is a capacity wait whose time is the gateway's `retry after`, so the chat
+/// reads "Waiting for capacity, about 1m" and never the raw text.
+#[test]
+fn the_gateway_shed_and_budget_529s_wait_for_capacity_until_their_retry_after() {
+    for m in [
+        r#"API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded: upstream is overloaded and background requests are shed; retry after 60s (set X-Subrouter-Priority: interactive for a chat)"}}"#,
+        r#"API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded: the pool's forecast budget for background work is spent until the people's reserve is safe; retry after 60s (set X-Subrouter-Priority: interactive for a chat)"}}"#,
+    ] {
+        assert_eq!(resume_cause(m, m), Some("capacity"), "{m}");
+        assert_eq!(crate::hub::retry_after_ms(m), Some(60_000), "{m}");
+    }
+}
