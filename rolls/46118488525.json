@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46118488525",
+  "recorded_at": "2026-11-28T07:11:04Z",
+  "reason": "image inputs changed in 32a3bc884bfb1f58bfa32fb7b82583765b17cad6..fc71c127ecacdd080d4e1b84cca36a2c8a76d1ad; cmux-tui 397f9a5ca342, the newest build published on HEAD (pinned 86e97213f187; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "397f9a5ca34236518282bc331c4caa3f6ddd097c",
+  "fixes": [
+    {
+      "sha": "fc71c127ecacdd080d4e1b84cca36a2c8a76d1ad",
+      "mergedAt": "2026-11-28T06:50:42Z",
+      "subject": "cloud image bake: a cached layer that stalls its builder is evicted and the bake runs once more on fresh layers (roll 46107492079) (#64203)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T07:11:04Z",
+    "snapshot_id": "sh-9c1ac1765ef44a2da90861e1c8caa39b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46118488525): 35 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ae065fdd42f0eb4bed8e5f823e9394f85bbbcb3c",
+    "image": "cloud-native-auto-397f9a5c-46118488525-1",
+    "revision": "ci-46118488525-1",
+    "at": "2026-11-28T07:11:04Z"
+  },
+  "rolled_back": false
+}
