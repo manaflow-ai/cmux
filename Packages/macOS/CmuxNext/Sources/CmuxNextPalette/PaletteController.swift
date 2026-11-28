@@ -304,7 +304,8 @@ public final class PaletteController {
         presentationGeneration += 1
         registry.context.insert(.paletteOpen)
         if isVisible {
-            // Already open: switch pages in place.
+            // Already open: switch pages in place, drawn in this frame.
+            contentView?.render()
             panel.makeKey()
             return
         }
@@ -324,6 +325,11 @@ public final class PaletteController {
             panel.parent?.removeChildWindow(panel)
             parent.addChildWindow(panel, ordered: .above)
         }
+        // Draw the model as it is now before the panel's first frame: the view follows the model
+        // through an observation Task that runs a pass later, so the scope chip (the Workspaces
+        // pill on Cmd-P) and the page's rows came in one frame after the panel.
+        contentView?.render()
+        panel.contentView?.layoutSubtreeIfNeeded()
         // Without the keys while the app is inactive (ActiveAppKeyPanel).
         panel.makeKeyAndOrderFront(nil)
         contentView?.focusField()
