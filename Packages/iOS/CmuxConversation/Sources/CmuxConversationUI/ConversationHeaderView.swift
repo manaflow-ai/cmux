@@ -137,6 +137,12 @@ final class ConversationHeaderView: UIView {
         // The buttons sit on the navigation bar's layout margin (16 or 20 pt).
         preservesSuperviewLayoutMargins = true
         addSubview(trailingGlass)
+        // The page menu morphs out of this glass and back into it as it
+        // closes. iOS 26 draws that morph from the view's corner
+        // configuration, not the layer's radius, so with only the layer
+        // radius the glass came back square and stayed so for a moment
+        // before it rounded again. A capsule keeps the circle throughout.
+        if #available(iOS 26.0, *) { trailingGlass.cornerConfiguration = .capsule() }
         trailingGlass.contentView.addSubview(trailingButton)
         trailingButton.tintColor = .label
         trailingButton.addAction(UIAction { [weak self] _ in self?.onTrailing?() }, for: .touchUpInside)
