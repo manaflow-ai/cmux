@@ -891,40 +891,9 @@ final class CloudService {
     }
 
     /// A guest link's owner token from `api` (the daemon's room's, cmux#31372; nil: the build's default), registering that install first when
-    /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team.
-    /// With `team`, a token scoped to that team, only while Rust's `identity::share_team_allowed` says the account may share
-    /// with it, asked before and after the mint; with `accountScope`, only while ``CloudAuth/accountKey`` is still that one, so a
-    /// changed account or membership never hands a token back to an old consent.
+    /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team;
+    /// with `team` or `accountScope`, a scoped token, by Rust's share-team rules (`CloudAuth.shareOwnerToken`).
     func shareOwnerToken(api: URL?, team: String? = nil, accountScope: String? = nil) async -> String? {
-        guard !policyDisabled, let stackUser = await auth.restoredUserID(), auth.managedTeamID == nil || auth.teamID != nil else { return nil }
-        let auth = auth, scope = auth.accountKey
-        if let accountScope, scope != accountScope { return nil }
-        let unchanged = { auth.user?.id == stackUser && auth.accountKey == scope && (team.map { self.shareTeamAllowed($0) } ?? true) }
-        let share = await shareInstalls.identity(for: api)
-        guard unchanged() else { return nil }
-        do {
-            try await share.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
-            guard unchanged() else { return nil }
-            let token = if let team { try await share.installToken(team: team) } else { try await share.installToken() }
-            return unchanged() ? token : nil // an account switch meanwhile: not the old account's token
-        } catch {
-            logger.error("share owner token failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-    }
-
-    /// The teams a chat can be shared with (Rust's `identity::share_teams`): `(id, name)`, the id a backend team id.
-    var shareTeams: [(id: String, name: String)] { shareTeamRules(requested: nil)?.teams.map { ($0.id, $0.name) } ?? [] }
-
-    private func shareTeamAllowed(_ team: String) -> Bool { shareTeamRules(requested: team)?.allowed ?? false }
-
-    private struct ShareTeamRules: Decodable { struct Team: Decodable { var id: String, name: String }; var teams: [Team], allowed: Bool? }
-    private func shareTeamRules(requested: String?) -> ShareTeamRules? {
-        struct Row: Encodable { var id: String, title: String }
-        struct Request: Encodable { var signedIn: Bool, rows: [Row], requested: String?, activeStackTeam: String?, managedStackTeam: String?, stackProjectId: String }
-        let request = Request(signedIn: auth.isSignedIn, rows: auth.activeTeam.rows.map { Row(id: $0.id, title: $0.title) }, requested: requested,
-                              activeStackTeam: auth.activeTeam.id, managedStackTeam: auth.managedTeamID,
-                              stackProjectId: auth.configuration.stackProjectID)
-        return CloudStartCore().call("cloud_identity_share_teams", request, as: ShareTeamRules.self)
+        policyDisabled ? nil : await auth.shareOwnerToken(installs: shareInstalls, api: api, team: team, accountScope: accountScope)
     }
 }
