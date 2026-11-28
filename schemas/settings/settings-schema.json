@@ -1369,6 +1369,16 @@
               "agentPane.display.rail.show",
               "agentPane.display.rail.control",
               "agentPane.display.sessionInfo.placement",
+              "agentPane.display.sessionInfo.sections.environment",
+              "agentPane.display.sessionInfo.sections.context",
+              "agentPane.display.sessionInfo.sections.subagents",
+              "agentPane.display.sessionInfo.sections.tasks",
+              "agentPane.display.sessionInfo.sections.sources",
+              "agentPane.display.sessionInfo.sections.outputs",
+              "agentPane.display.sessionInfo.sections.changes",
+              "agentPane.display.sessionInfo.sections.usage",
+              "agentPane.display.sessionInfo.sections.connectors",
+              "agentPane.display.sessionInfo.sections.carried",
               "agentPane.display.environment.placement",
               "agentPane.display.layout.messages",
               "agentPane.display.layout.composer",
@@ -1601,6 +1611,18 @@
             "title" : {
               "key" : "settings.group.agentCache",
               "text" : "Prompt Cache"
+            }
+          },
+          {
+            "key" : "settings.group.agentSettle",
+            "rows" : [
+              "agents.autoSettle.onMerge",
+              "agents.autoSettle.onClose",
+              "agents.autoSettle.idleDays"
+            ],
+            "title" : {
+              "key" : "settings.group.agentSettle",
+              "text" : "Settle Chats"
             }
           },
           {
@@ -2332,6 +2354,7 @@
               "cloud.defaultImage",
               "cloud.agentsStartWithoutAsking",
               "cloud.turnCheckpoints",
+              "cloud.addFolderLive",
               "cloud.autoCloud",
               "cloud.agentMemory.follow"
             ],
@@ -2344,7 +2367,8 @@
         "id" : "cloud",
         "lead" : [
           "cloudModels",
-          "cloudEnvironments"
+          "cloudEnvironments",
+          "cloudCompute"
         ],
         "symbol" : "cloud",
         "title" : {
@@ -2632,6 +2656,7 @@
               "experiments.cloudToggle",
               "experiments.expandedEditsEstimate",
               "experiments.introWalk",
+              "experiments.setupShelf",
               "experiments.appsTier",
               "experiments.chatInstantUnderLoad",
               "experiments.eventsAsToolCalls",
@@ -18396,6 +18421,142 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.addFolderLive.help",
+        "text" : "Sources shows Add Folder, and a folder an agent asks for joins its chat. Copies are read-only; secret files never go."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.addFolderLive",
+      "keywords" : [
+        "cloud",
+        "folder",
+        "add",
+        "sources",
+        "share",
+        "access",
+        "directory",
+        "attach",
+        "machine"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "addFolderLive"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.addFolderLive"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.addFolderLive",
+        "text" : "Add Folders to Running Cloud Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -21549,6 +21710,415 @@
       "title" : {
         "key" : "settings.agents.coldWake.compactAbove",
         "text" : "Compact Cold Chats Above (Tokens)"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentSettle",
+        "text" : "Settle Chats"
+      },
+      "help" : {
+        "key" : "settings.agents.autoSettle.onMerge.help",
+        "text" : "Moves a chat to Settled once every pull request it opened is merged or closed. Your next message brings it back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.autoSettle.onMerge",
+      "keywords" : [
+        "settle",
+        "archive",
+        "pull request",
+        "merge",
+        "done",
+        "auto"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "autoSettle",
+        "onMerge"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.autoSettle.onMerge"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.autoSettle.onMerge",
+        "text" : "Settle When Its Pull Request Merges"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentSettle",
+        "text" : "Settle Chats"
+      },
+      "help" : {
+        "key" : "settings.agents.autoSettle.onClose.help",
+        "text" : "Moves a chat to Settled once every pull request it opened was closed without a merge."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.autoSettle.onClose",
+      "keywords" : [
+        "settle",
+        "archive",
+        "pull request",
+        "close",
+        "auto"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "autoSettle",
+        "onClose"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.autoSettle.onClose"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.autoSettle.onClose",
+        "text" : "Settle When Its Pull Request Closes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        365,
+        182.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentSettle",
+        "text" : "Settle Chats"
+      },
+      "help" : {
+        "key" : "settings.agents.autoSettle.idleDays.help",
+        "text" : "Moves a chat to Settled after this many days with no activity. 0 never does. Running work, a pending question or a draft keeps it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.autoSettle.idleDays",
+      "keywords" : [
+        "settle",
+        "archive",
+        "idle",
+        "days",
+        "stale",
+        "auto"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "autoSettle",
+        "idleDays"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 365,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "days"
+      },
+      "refuses" : [
+        -365,
+        730,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.autoSettle.idleDays"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.autoSettle.idleDays",
+        "text" : "Settle After Idle Days"
       },
       "validation" : "portable"
     },
@@ -30500,7 +31070,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.storage",
@@ -33940,7 +34510,16 @@
         "wang-ximeng-thousand-li",
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
-        "kim-hong-do-samgong"
+        "kim-hong-do-samgong",
+        "kuniyoshi-takiyasha",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -35134,6 +35713,69 @@
             "text" : "Nature Better than the Official Ranks — Kim Hong-do"
           },
           "value" : "kim-hong-do-samgong"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-takiyasha"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fight atop the Hōryūkaku — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-horyukaku"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Evening Cherry Blossoms at Gotenyama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-gotenyama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry-Blossom Viewing at Asukayama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-asukayama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry Blossoms at Yoshino — Katsushika Hokusai"
+          },
+          "value" : "hokusai-yoshino"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Sesshū Tōyō"
+          },
+          "value" : "sesshu-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+          },
+          "value" : "ma-yuan-spring-path"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sound of Autumn — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-chuseongbu"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Lovers under the Moon — Sin Yun-bok"
+          },
+          "value" : "sin-yun-bok-moonlit-lovers"
         }
       ],
       "consumers" : [
@@ -35703,6 +36345,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-takiyasha"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
           },
           "value" : "rembrandt-prodigal-son"
@@ -36637,6 +37286,62 @@
             "text" : "Nature Better than the Official Ranks — Kim Hong-do"
           },
           "value" : "kim-hong-do-samgong"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fight atop the Hōryūkaku — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-horyukaku"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Evening Cherry Blossoms at Gotenyama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-gotenyama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry-Blossom Viewing at Asukayama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-asukayama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry Blossoms at Yoshino — Katsushika Hokusai"
+          },
+          "value" : "hokusai-yoshino"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Sesshū Tōyō"
+          },
+          "value" : "sesshu-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+          },
+          "value" : "ma-yuan-spring-path"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sound of Autumn — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-chuseongbu"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Lovers under the Moon — Sin Yun-bok"
+          },
+          "value" : "sin-yun-bok-moonlit-lovers"
         },
         {
           "title" : {
@@ -37222,6 +37927,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-takiyasha"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
           },
           "value" : "rembrandt-prodigal-son"
@@ -38156,6 +38868,62 @@
             "text" : "Nature Better than the Official Ranks — Kim Hong-do"
           },
           "value" : "kim-hong-do-samgong"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fight atop the Hōryūkaku — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-horyukaku"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Evening Cherry Blossoms at Gotenyama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-gotenyama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry-Blossom Viewing at Asukayama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-asukayama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry Blossoms at Yoshino — Katsushika Hokusai"
+          },
+          "value" : "hokusai-yoshino"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Sesshū Tōyō"
+          },
+          "value" : "sesshu-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+          },
+          "value" : "ma-yuan-spring-path"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sound of Autumn — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-chuseongbu"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Lovers under the Moon — Sin Yun-bok"
+          },
+          "value" : "sin-yun-bok-moonlit-lovers"
         },
         {
           "title" : {
@@ -38560,6 +39328,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "Takiyasha the Witch and the Skeleton Spectre — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-takiyasha"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
           },
           "value" : "rembrandt-prodigal-son"
@@ -39494,6 +40269,62 @@
             "text" : "Nature Better than the Official Ranks — Kim Hong-do"
           },
           "value" : "kim-hong-do-samgong"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Fight atop the Hōryūkaku — Utagawa Kuniyoshi"
+          },
+          "value" : "kuniyoshi-horyukaku"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Evening Cherry Blossoms at Gotenyama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-gotenyama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry-Blossom Viewing at Asukayama — Utagawa Hiroshige"
+          },
+          "value" : "hiroshige-asukayama"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Cherry Blossoms at Yoshino — Katsushika Hokusai"
+          },
+          "value" : "hokusai-yoshino"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Winter Landscape — Sesshū Tōyō"
+          },
+          "value" : "sesshu-winter-landscape"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Walking on a Mountain Path in Spring — Ma Yuan"
+          },
+          "value" : "ma-yuan-spring-path"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Sound of Autumn — Kim Hong-do"
+          },
+          "value" : "kim-hong-do-chuseongbu"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Lovers under the Moon — Sin Yun-bok"
+          },
+          "value" : "sin-yun-bok-moonlit-lovers"
         },
         {
           "title" : {
@@ -50078,7 +50909,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.cornerRadius.help",
+        "text" : "The corner radius of menus."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.cornerRadius",
       "keywords" : [
@@ -50222,7 +51056,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.borderOpacity.help",
+        "text" : "How visible the menu's edge line is."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.borderOpacity",
       "keywords" : [
@@ -50393,7 +51230,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.shadow.help",
+        "text" : "The shadow under menus."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.shadow",
       "keywords" : [
@@ -50529,7 +51369,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.fill.help",
+        "text" : "The menu background color, as #RRGGBB or #RRGGBBAA."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.fill",
       "keywords" : [
@@ -50668,7 +51511,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.padding.help",
+        "text" : "The space inside the menu's edges."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.padding",
       "keywords" : [
@@ -50810,7 +51656,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.highlightRadius.help",
+        "text" : "The corner radius of the hovered row's highlight."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.highlightRadius",
       "keywords" : [
@@ -50953,7 +51802,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.rowHeight.help",
+        "text" : "The height of a one-line menu row."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.rowHeight",
       "keywords" : [
@@ -51108,7 +51960,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.shortcuts.help",
+        "text" : "How strongly menu shortcuts are drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.shortcuts",
       "keywords" : [
@@ -51257,7 +52112,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.sectionLabel.help",
+        "text" : "How menu section labels are drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.sectionLabel",
       "keywords" : [
@@ -51413,7 +52271,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.separator.help",
+        "text" : "How the lines between menu row groups are drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.separator",
       "keywords" : [
@@ -51560,7 +52421,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.destructiveInk.help",
+        "text" : "Whether destructive menu rows, such as Delete, are drawn in red."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.destructiveInk",
       "keywords" : [
@@ -51708,7 +52572,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.submenu.help",
+        "text" : "Where a submenu opens next to its menu."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.submenu",
       "keywords" : [
@@ -51857,7 +52724,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.menu.subtitle.help",
+        "text" : "How the second line of a menu row is drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.menu.subtitle",
       "keywords" : [
@@ -51993,7 +52863,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.popover.padding.help",
+        "text" : "The space inside a popover's edges."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.popover.padding",
       "keywords" : [
@@ -52147,7 +53020,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.popover.header.help",
+        "text" : "How a popover's header line is drawn."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.popover.header",
       "keywords" : [
@@ -52282,7 +53158,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.popover.progressHeight.help",
+        "text" : "The height of progress bars in popovers."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.popover.progressHeight",
       "keywords" : [
@@ -52446,7 +53325,10 @@
         "key" : "settings.group.menuLook",
         "text" : "Menus and Popovers"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.popover.progressFill.help",
+        "text" : "The color of progress bars in popovers."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.popover.progressFill",
       "keywords" : [
@@ -71208,6 +72090,1470 @@
       "title" : {
         "key" : "settings.agentPane.display.inspector",
         "text" : "Session Info"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.environment.help",
+        "text" : "Where the chat runs: this Mac or Cloud, its folder and branch."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.environment",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "machine",
+        "folder",
+        "branch",
+        "cloud"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "environment"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.environment"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.environment",
+        "text" : "Session Info: Environment"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.context.help",
+        "text" : "How full the context window is, and what fills it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.context",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "context",
+        "tokens",
+        "window"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "context"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.context"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.context",
+        "text" : "Session Info: Context"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.subagents.help",
+        "text" : "The subagents and chats this chat started."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.subagents",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "subagents",
+        "agents",
+        "children"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "subagents"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.subagents"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.subagents",
+        "text" : "Session Info: Subagents"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.tasks.help",
+        "text" : "The commands, servers and scheduled jobs the chat runs."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.tasks",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "tasks",
+        "background",
+        "commands",
+        "servers"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "tasks"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.tasks"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.tasks",
+        "text" : "Session Info: Background Tasks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.sources.help",
+        "text" : "The files and pages the agent read."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.sources",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "sources",
+        "files",
+        "read"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "sources"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.sources"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.sources",
+        "text" : "Session Info: Sources"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.outputs.help",
+        "text" : "The documents and files the chat made for you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.outputs",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "outputs",
+        "files",
+        "documents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "outputs"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.outputs"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.outputs",
+        "text" : "Session Info: Outputs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.changes.help",
+        "text" : "The chat's pull requests and their checks."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.changes",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "changes",
+        "pull request",
+        "pr",
+        "checks"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "changes"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.changes"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.changes",
+        "text" : "Session Info: Pull Requests"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.usage.help",
+        "text" : "Tokens, cost and time this chat used."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.usage",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "usage",
+        "tokens",
+        "cost",
+        "time"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "usage"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.usage"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.usage",
+        "text" : "Session Info: Usage"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.connectors.help",
+        "text" : "The MCP servers and connectors the chat has."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.connectors",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "connectors",
+        "mcp",
+        "servers"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "connectors"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.connectors"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.connectors",
+        "text" : "Session Info: Connectors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.carried.help",
+        "text" : "The MCP servers and carried the chat has."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.sections.carried",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "session",
+        "info",
+        "thread",
+        "details",
+        "section",
+        "show",
+        "hide",
+        "carried",
+        "memory",
+        "instructions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "sections",
+        "carried"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.sections.carried"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.sections.carried",
+        "text" : "Session Info: Carried memory"
       },
       "validation" : "portable"
     },
@@ -130621,6 +132967,141 @@
         "text" : "Labs"
       },
       "help" : {
+        "key" : "settings.labs.teamCompute.help",
+        "text" : "Show your team's compute allotment and each member's use in Settings > Cloud."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.teamCompute",
+      "keywords" : [
+        "labs",
+        "team",
+        "compute",
+        "allotment",
+        "usage",
+        "cloud",
+        "members",
+        "spend"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "teamCompute"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.teamCompute"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.teamCompute",
+        "text" : "Team Compute"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
         "key" : "settings.labs.hostsSidebar.help",
         "text" : "Shows your machines in the sidebar with Add Host and per-host terminal actions."
       },
@@ -134618,6 +137099,146 @@
       "title" : {
         "key" : "settings.experiments.introWalk",
         "text" : "Intro Walk"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.setupShelf.help",
+        "text" : "Make cmux Yours offers four setups, such as Calm or Dense. Try one, then keep it or put your settings back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.setupShelf",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "onboarding",
+        "first run",
+        "setup",
+        "setups",
+        "profile",
+        "calm",
+        "dense",
+        "try"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "setupShelf"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.setupShelf"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.setupShelf",
+        "text" : "Setups in Make cmux Yours"
       },
       "validation" : "portable"
     },

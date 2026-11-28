@@ -92,7 +92,8 @@ turn; Claude Code then runs a turn of its own for the notification ("agent-503-h
 holds that turn until PATH exists; "agent-503-late: PATH" fails only once PATH exists, with no
 turn of its own, as a failure that lands while a person's turn runs; "agent-400" fails on a bad
 request instead, "agent-reset" on a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
-again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again; with
+again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again, with FAKE_CLAUDE_RESUME_FAILS=agent-reset
+on a dropped connection; with
 FAKE_CLAUDE_FORGET_AGENTS=1, 64 other agents fail first; with FAKE_CLAUDE_RESUME_COMPLETES=1 it
 completes).
 "cost-probe" ends its turn the way Claude Code reports spend: the turn's own
@@ -1379,8 +1380,12 @@ while True:
                   "description": "Push relay", "task_type": "local_agent", "is_backgrounded": True})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_send",
                   "content": '{"success":true,"resumedAgentId":"%s"}' % AGENT_503}]}})
-            if os.environ.get("FAKE_CLAUDE_RESUME_FAILS") == "1":
-                agent_failure("toolu_send", os.environ.get("FAKE_CLAUDE_RESUME_ERROR", "agent-503"))
+            fails = os.environ.get("FAKE_CLAUDE_RESUME_FAILS") or ""
+            if fails:
+                agent_failure(
+                    "toolu_send",
+                    os.environ.get("FAKE_CLAUDE_RESUME_ERROR", "agent-503") if fails == "1" else fails,
+                )
             if os.environ.get("FAKE_CLAUDE_RESUME_COMPLETES") == "1":
                 send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503,
                       "tool_use_id": "toolu_send", "status": "completed", "output_file": "",
