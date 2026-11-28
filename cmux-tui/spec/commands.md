@@ -6854,6 +6854,36 @@ first console ack or client read the store records. The window is the retained
 ledger (`window.since_ms`, the oldest agent notice in it), so a restart keeps
 the numbers and the cost stays constant.
 
+Each row also carries `delivery`: `null` until the app reports what it did
+with that notification's desktop banner (see `record-notification-delivery`),
+then `object{desktop:"shown"|"suppressed", reason:string|null, at_ms:uint64}`.
+It is memory only, for notifications posted this daemon run.
+
+### record-notification-delivery
+
+| Field | Value |
+| --- | --- |
+| name | `record-notification-delivery` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `notification-ack-v1` |
+
+The app's report of what it did with a notification's desktop banner, so a
+poster can later read whether its notice was shown. Memory only; the record
+goes with the notification when the ledger evicts or clears it. Not on the
+agent or remote allowlists, so an agent cannot write its own receipt.
+
+Params: `notification` (uint64, required: the event number from `notify`);
+`desktop` (`"shown"` or `"suppressed"`, required); `reason` (optional, one of
+`viewed`, `typing`, `muted`, `quiet-hours`, `desktop-never`, `app-active`,
+`poster-no-banner`, `permission-denied`, `incognito`, `digest`). An unknown
+`desktop` or `reason`, or a notification not posted this run, is an error.
+
+Result:
+
+```text
+object{id:string, notification:uint64, desktop:"shown"|"suppressed", reason:string|null}
+```
+
 ### set-tab-pinned
 
 | Field | Value |
