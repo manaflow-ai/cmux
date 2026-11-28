@@ -413,9 +413,7 @@ const firstRunProps = {
 
 test("bare modifiers leave the new tab's first-use refresh for actual input", async () => {
   let touches = 0;
-  await act(async () =>
-    root!.render(<NewTabScreen {...firstRunProps} onTouched={() => touches++} />),
-  );
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} onTouched={() => touches++} />));
   const field = await promptField();
   for (const key of ["Meta", "Shift", "Control", "Alt", "CapsLock", "Fn", "AltGraph"]) {
     await press(field, key);
