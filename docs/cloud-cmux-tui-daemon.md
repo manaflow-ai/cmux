@@ -174,6 +174,27 @@ the spent budget. A later failed run stays exhausted, so routine snapshot
 refreshes cannot cause an unbounded spawn loop. A new authenticated connection
 is an explicit reset boundary.
 
+### Version skew on the workspace RPC channel
+
+The Mac and the VM daemon ship from different commits, so either side may be a
+release ahead. A message the reader cannot decode is that message's problem,
+never the channel's (`cmux-remote-protocol/src/skew.rs`):
+
+- A request this daemon cannot decode gets `unsupported-request` under its own
+  id; the stream serves the next request.
+- A response this client cannot decode fails only the request that asked, with
+  `unsupported-response`.
+- A process event of a type this build does not know is skipped.
+- Only a message with no readable `id` still closes the channel, and that is
+  counted as a `channel_resets` entry.
+
+Before this, each case closed the whole workspace RPC channel, so the client
+reconnected and read a full snapshot. `skew::SKEW` counts each absorbed message
+and each remaining reset, so the reloads-per-hour number is read from one place
+before and after. A new request, response, or event variant must be added
+behind a capability the peer advertised, and `KNOWN_PROCESS_EVENT_TYPES` must
+list every `ProcessEvent` tag (a test fails otherwise).
+
 The client applies deltas only for resource kinds whose snapshot storage shape
 is known. A newly added daemon kind is therefore a synchronization barrier, not
 an event the client guesses how to pluralize or identify. The next complete
