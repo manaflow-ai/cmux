@@ -45,11 +45,12 @@ impl Hub {
                 continue;
             }
             let Some((now, profile, defaults)) = profiles.get(&meta.harness) else { continue };
-            let changed = match meta.launch_digest.as_deref() {
-                Some(started) => started != now,
-                None => self.legacy_stale(profile, &meta, defaults).await,
-            };
-            if !changed || session.child.lock().await.is_none() {
+            // A hibernated chat starts on the profile as it is then: nothing to judge, and no
+            // launch built for it.
+            if session.child.lock().await.is_none() {
+                continue;
+            }
+            if !self.launch_changed(&session, &meta, now, profile, defaults).await {
                 continue;
             }
             tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed: hibernating now if quiet, otherwise waiting");
@@ -101,8 +102,54 @@ impl Hub {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Launches `legacy_stale` built on this thread (tests are single-threaded runtimes).
+    pub(super) static LEGACY_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl Hub {
-    /// A session started before agents kept their launch digest: stale when the argv its agent
+    /// Whether the session's live agent started from a launch other than `now`, the digest of
+    /// its profile as the catalog holds it. One with no recorded digest is judged by its argv
+    /// (`legacy_stale`, a whole launch built); found current, it keeps `now` as its digest, so
+    /// the next sweep compares two strings instead of building that launch again. Without
+    /// that, every catalog reload rebuilt one launch per adopted agent (one daemon,
+    /// 2026-11-28: 48 adopted chats, 1,170 builds in 3 minutes).
+    async fn launch_changed(
+        &self,
+        session: &Session,
+        meta: &SessionMeta,
+        now: &str,
+        profile: &HarnessProfile,
+        defaults: &BTreeMap<String, String>,
+    ) -> bool {
+        if let Some(started) = meta.launch_digest.as_deref() {
+            return started != now;
+        }
+        match self.legacy_stale(profile, meta, defaults).await {
+            Some(true) => return true,
+            // Not judged (no argv, a remote or cmux-harness chat, a launch not built now): the
+            // next sweep judges it again.
+            None => return false,
+            Some(false) => {}
+        }
+        {
+            let recorded = {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                let fresh = m.launch_digest.is_none() && m.spawn_argv == meta.spawn_argv;
+                if fresh {
+                    m.launch_digest = Some(now.to_owned());
+                }
+                fresh
+            };
+            if recorded {
+                self.save_meta(session);
+            }
+        }
+        false
+    }
+
+    /// A session started before agents kept their launch digest (`None`: not judged): stale when the argv its agent
     /// last started with (`spawn_argv`, kept on disk since #23322) is not, word for word, the
     /// argv a start would build now (`spawn_profile_for`: the profile expanded, the launcher
     /// resolved, then the preset's args, the system prompt file and the tools it turned off).
@@ -116,14 +163,16 @@ impl Hub {
         profile: &HarnessProfile,
         meta: &SessionMeta,
         defaults: &BTreeMap<String, String>,
-    ) -> bool {
-        let Some(started) = meta.spawn_argv.as_deref() else { return false };
+    ) -> Option<bool> {
+        let started = meta.spawn_argv.as_deref()?;
         if meta.remote_origin || profile.family.as_deref() == Some("cmux-harness") {
-            return false;
+            return None;
         }
+        #[cfg(test)]
+        LEGACY_BUILDS.with(|n| n.set(n.get() + 1));
         match self.spawn_profile_for(meta, profile, defaults).await {
-            Ok(now) => now.argv != started,
-            Err(_) => false,
+            Ok(now) => Some(now.argv != started),
+            Err(_) => None,
         }
     }
 }
