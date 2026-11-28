@@ -478,7 +478,11 @@ public struct WorkspaceInbox: Hashable, Sendable {
         if membership {
             rowMacIDs = Set((needsYou + pinned + recent).map(\.macID))
             showsMacNames = scope == .all && Set(recent.map(\.macID)).count > 1
-            isLoading = isUpdating && needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && query.isEmpty
+            // As `init` reads it: loading only while an online Mac in scope waits for its first answer.
+            let firstAnswerPending = macs.contains { mac in
+                (scope.macID == nil || mac.id == scope.macID) && mac.isOnline && context.listState(mac.id) == .loading
+            }
+            isLoading = firstAnswerPending && needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && query.isEmpty
         }
         return result
     }
