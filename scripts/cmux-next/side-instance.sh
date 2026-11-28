@@ -22,7 +22,7 @@
 #                                   Every copy shows the SIM icon (side-icon/AppIcon-Side.icns: a dark tile
 #                                   with an amber SIM band) so it is never taken for the real app in the Dock or
 #                                   the app switcher; --keep-icon keeps the original's icon (a look of the icon)
-#   side-instance.sh launch NAME [--parked|--shown|--front] [-- ARGS...]
+#   side-instance.sh launch NAME [--parked|--shown|--front] [--env KEY=VALUE] [-- ARGS...]
 #                                   open it and record its pid. Where its windows go (CMUX_SIDE_PLACEMENT
 #                                   parked|shown|front sets the default; parked when unset):
 #                                   --parked  on a virtual display no person looks at (park-display.m, held
@@ -450,12 +450,15 @@ PY
     echo "$name: $app ($bundle)"
     ;;
   launch)
-    placement="${CMUX_SIDE_PLACEMENT:-parked}" args=()
+    placement="${CMUX_SIDE_PLACEMENT:-parked}" args=() launch_env=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --front) placement=front; shift ;;
         --shown) placement=shown; shift ;;
         --parked) placement=parked; shift ;;
+        --env)
+          [[ $# -ge 2 && "$2" =~ ^[A-Z_][A-Z_0-9]*= ]] || die "--env needs KEY=VALUE"
+          launch_env+=(--env "$2"); shift 2 ;;
         --) shift; args=("$@"); break ;;
         *) usage 1 ;;
       esac
@@ -500,7 +503,7 @@ PY
     # A driver that reads the copy's web pages through the accessibility tree (CuaDriver holds no grant that makes
     # CEF build one): CMUX_NEXT_ACCESSIBILITY=1 in the driver's environment goes to the copy (AssistiveClientRequests).
     [[ "${CMUX_NEXT_ACCESSIBILITY:-}" == 1 ]] && open_args+=(--env CMUX_NEXT_ACCESSIBILITY=1)
-    if ! open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
+    if ! open "${open_args[@]}" ${launch_env[@]+"${launch_env[@]}"} "$app" ${args[@]+--args "${args[@]}"}; then park_stop; die "open $app failed"; fi
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
     launched=""
     # The newest process whose executable is exactly the copy's (a plain comparison: the path holds

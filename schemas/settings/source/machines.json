@@ -971,6 +971,34 @@
           ]
         },
         {
+          "key": "mobile.siteDataHandoff",
+          "title": {
+            "key": "settings.mobile.siteDataHandoff",
+            "text": "Share Cookies and Site Data on iPhone"
+          },
+          "help": {
+            "key": "settings.mobile.siteDataHandoff.help",
+            "text": "When you open a browser tab on your iPhone, share this Mac's cookies and site storage for that site."
+          },
+          "summary": {
+            "key": "settings.mobile.siteDataHandoff.summary",
+            "text": "Shares cookies and site storage when opening on iPhone"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "iphone",
+            "phone",
+            "mobile",
+            "browser",
+            "cookie",
+            "cookies",
+            "site data",
+            "storage",
+            "handoff"
+          ]
+        },
+        {
           "key": "mobile.autoApprovePhones",
           "title": {
             "key": "settings.mobile.autoApprovePhones",
@@ -1349,7 +1377,7 @@
         {
           "key": "transport.tailnetCarrier",
           "name": "tailnetCarrier",
-          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Off is the default.",
+          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate, which carries only when it wins the race. DERP and peer-relay paths are excluded until their cost is measured. Off is the default; without Tailscale, direct-only adds nothing.",
           "title": {
             "key": "settings.transport.tailnetCarrier",
             "text": "Tailscale Carrier"
