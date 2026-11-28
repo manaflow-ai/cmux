@@ -3,26 +3,24 @@ import { ProviderNetworkFullError, providerConflictKind } from "./drivers/types"
 /**
  * Explicit wait state for a Cloud VM create that found no room.
  *
- * Leo, 2026-11-28 (#general capacity thread): "Queue with an explicit wait
- * state instead of failing after provider start/address exhaustion."
+ * Leo, 2026-11-28: "Queue with an explicit wait state instead of failing
+ * after provider start/address exhaustion."
  *
  * A create that opts in (`waitForCapacity` plus an idempotency key) and finds
  * its private network full at admission, or is refused by the provider's
- * start capacity before any machine exists, is not failed. Its row stays
- * `provisioning` with `providerMetadata.createWait` naming why it waits
- * (`waiting_for_address` or `waiting_for_capacity`), when the wait began and
- * when it ends. The answer is 202 `vm_create_waiting` with a retry-after.
+ * start capacity before any machine exists, is answered 202
+ * `vm_create_waiting` with a retry-after instead of a 409/503. The row is
+ * failed as before (so it holds no address and no pool reservation), and
+ * `providerMetadata.createWait` records why it waits (`waiting_for_address`
+ * or `waiting_for_capacity`), when the wait began and when it ends.
  *
- * A same-key retry is the drain: it claims the wait atomically (one retry
- * wins; a concurrent one is told the create is in progress), re-runs
- * admission and, when an address or capacity is free, starts the machine on
- * the same row. Starting needs the caller's request-scoped inputs (provider
- * credential, model-plane gateway, image choice), which are never stored, so
- * the server cannot start a waiting machine on its own. The reaper ends every
- * wait past its deadline with the terminal failure `vm_create_wait_expired`.
- *
- * Waiting rows hold no address: network admission does not count them, so a
- * queue of waiters never makes the network look fuller than it is.
+ * The same-key retry is the drain: it replaces the failed row, re-runs
+ * admission and starts the machine once an address or capacity is free. The
+ * first deadline carries forward, so retries never extend the bound. A retry
+ * past the deadline fails terminally with `vm_create_wait_expired`. Starting
+ * needs the caller's request-scoped inputs (provider credential, model-plane
+ * gateway), which are never stored, so the server cannot start a waiting
+ * machine on its own.
  */
 
 export const CREATE_WAIT_METADATA_KEY = "createWait";
@@ -39,7 +37,7 @@ export type VmCreateWait = {
   readonly state: VmCreateWaitState;
   /** Epoch ms the create first waited. */
   readonly since: number;
-  /** Epoch ms past which the reaper fails the row. */
+  /** Epoch ms past which a retry fails with `vm_create_wait_expired`. */
   readonly deadline: number;
 };
 
@@ -76,3 +74,21 @@ export function nextCreateWait(state: VmCreateWaitState, previous: VmCreateWait 
 export function isCreateWaitExpired(wait: VmCreateWait, now: number): boolean {
   return now >= wait.deadline;
 }
+
+/**
+ * Client contract of the 202 `vm_create_waiting` answer (the create and
+ * workspace routes). Retry the same request with the same idempotency key
+ * after `retryAfterSeconds`; past `waitDeadline` the retry fails with
+ * `vm_create_wait_expired`.
+ */
+export type VmCreateWaitingBody = {
+  readonly error: "vm_create_waiting";
+  readonly message: string;
+  readonly retryable: true;
+  readonly retryAfterSeconds: number;
+  readonly waitState: VmCreateWaitState;
+  /** Epoch ms the create first waited. */
+  readonly waitingSince: number;
+  /** Epoch ms the wait ends. */
+  readonly waitDeadline: number;
+};

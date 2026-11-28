@@ -835,7 +835,7 @@ const vmCreateInProgressResponse = (error: VmCreateInProgressError, action: stri
  * machine once room frees, until `deadline`, after which it fails with
  * `vm_create_wait_expired`.
  */
-const vmCreateWaitingResponse = (error: VmCreateWaitingError): Response => {
+export const vmCreateWaitingResponse = (error: VmCreateWaitingError): Response => {
   const forAddress = error.state === "waiting_for_address";
   const message = forAddress
     ? "Waiting for a free address in this account's private network."
