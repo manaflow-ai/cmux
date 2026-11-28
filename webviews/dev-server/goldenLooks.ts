@@ -111,6 +111,16 @@ export function lookFromSetup(dir: string, base: Partial<RegistryLook> = {}): Go
     settings?: Record<string, unknown>;
   };
   const settings = { ...setup.settings };
+  // A setting the look keeps in a file of its folder ({"$file": PATH}, a thinking glyph's particles
+  // document) is that file's document, as `cmux setup install` puts it in place (cmux-customize
+  // setup::inline_files); the chat would otherwise get the reference and draw nothing.
+  for (const [key, value] of Object.entries(settings)) {
+    const file = (value as { $file?: unknown } | null)?.$file;
+    if (typeof file !== "string") continue;
+    const target = path.resolve(dir, file);
+    if (!target.startsWith(path.resolve(dir) + path.sep) || !fs.existsSync(target)) continue;
+    settings[key] = parseJsonc(readText(target));
+  }
   const schemes: GoldenLook["schemes"] = { light: {}, dark: {} };
   const themeName = settings["appearance.themeFile"];
   if (typeof themeName === "string") {

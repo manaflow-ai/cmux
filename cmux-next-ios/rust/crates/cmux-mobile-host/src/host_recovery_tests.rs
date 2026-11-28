@@ -71,6 +71,9 @@ async fn recovery_sample(wake: bool, abandon_headers: bool) -> Duration {
         let mut first_socket = true;
         'accept: while let Ok((mut stream, _)) = listener.accept().await {
             // Read just the HTTP headers. All requests in this rig are bounded.
+            // A client that closes before its headers end (the host dropping a
+            // dial it no longer needs) is skipped, not a panic that takes the
+            // whole proxy down with it.
             let mut head = Vec::new();
             while !head.ends_with(b"\r\n\r\n") {
                 match stream.read_u8().await {
