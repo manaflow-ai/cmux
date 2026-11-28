@@ -38,7 +38,7 @@ pub(crate) fn lane_branch_for(branch: &str) -> Option<String> {
 /// source's git refuses it as [`OUTSIDE_LANE`] (a lane VM's chat on a branch like `ux-trust`),
 /// once more to `refs/heads/lane/BRANCH` ([`lane_branch_for`]), which the target then checks
 /// out. Returns the ref pushed and its commit. Before, the refusal failed the move and held
-/// the VM draining for deletion (gcp-codex-swarm-10, 2026-11-28).
+/// the VM draining for deletion (a held lane VM, 2026-11-28).
 pub(crate) fn push_or_lane_branch(
     dest: &str,
     push: impl Fn(&str) -> Result<String>,

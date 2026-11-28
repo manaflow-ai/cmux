@@ -1251,7 +1251,7 @@ fn a_branch_outside_lane_moves_as_its_lane_branch() {
     assert_eq!(lane_branch_for("..."), None);
 }
 
-/// A lane VM's git pushes only `lane/` branches: gcp-codex-swarm-10's held drain could not move
+/// A lane VM's git pushes only `lane/` branches: a held lane VM's drain could not move
 /// a chat on `ux-trust` ("ux-trust is not under lane/ ... name it lane/<name>"), so the VM sat
 /// idle "draining for deletion". Origin's pre-receive hook stands in for that git.
 #[cfg(unix)]
