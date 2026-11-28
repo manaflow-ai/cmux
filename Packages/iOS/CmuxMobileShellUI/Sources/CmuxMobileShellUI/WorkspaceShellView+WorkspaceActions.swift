@@ -457,6 +457,7 @@ extension WorkspaceShellView {
     }
 
     func createWorkspaceInCompactStack(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
+        noteWorkspacePicked()
         guard canCreateWorkspaceForMacSelection else { return }
         if let hostID = sshCreateHostID {
             createSSHWorkspace(hostID: hostID)
@@ -490,6 +491,7 @@ extension WorkspaceShellView {
     }
 
     func createWorkspaceIfConnected(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
+        noteWorkspacePicked()
         guard canCreateWorkspaceForMacSelection else { return }
         if let hostID = sshCreateHostID {
             createSSHWorkspace(hostID: hostID)
@@ -511,6 +513,7 @@ extension WorkspaceShellView {
     /// New Workspace from a Cloud machine's workspace: made on that machine,
     /// then opened through the same navigation a Mac-side create takes.
     func createWorkspaceOnExternalHost(beside workspaceID: MobileWorkspacePreview.ID) {
+        noteWorkspacePicked()
         runExternalHostWorkspaceCreate { store in
             await store.createExternalHostWorkspace(beside: workspaceID)
         }
@@ -519,6 +522,7 @@ extension WorkspaceShellView {
     /// New Workspace targeting a Cloud machine from the list's menu, or from
     /// a computers scope naming one.
     func createWorkspaceOnExternalHost(onHost hostID: String) {
+        noteWorkspacePicked()
         runExternalHostWorkspaceCreate { store in
             await store.createExternalHostWorkspace(onHost: hostID)
         }
@@ -561,6 +565,7 @@ extension WorkspaceShellView {
     /// kind of the workspace on screen when it is on this computer, else
     /// the first kind the computer can create (cmux-tui, tmux, shell).
     func createSSHWorkspace(hostID: UUID, kind: MobileSSHWorkspaceKind? = nil) {
+        noteWorkspacePicked()
         let store = store
         let compact = usesCompactStack
         let resolved = kind ?? defaultSSHWorkspaceKind(hostID: hostID)

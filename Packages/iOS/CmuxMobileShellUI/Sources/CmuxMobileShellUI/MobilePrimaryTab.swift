@@ -9,5 +9,18 @@ enum MobilePrimaryTab: Hashable {
     case notifications
     case cloud
     case search
+
+    /// The SF Symbol shared by the tab bar, the phone split sidebar's
+    /// destination bar, and the detail bar's destination menu.
+    var symbolName: String {
+        switch self {
+        case .home: "bubble.left.and.bubble.right"
+        case .workspaces: "rectangle.stack"
+        case .feed: "waveform"
+        case .notifications: "bell"
+        case .cloud: "cloud"
+        case .search: "magnifyingglass"
+        }
+    }
 }
 #endif
