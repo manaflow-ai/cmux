@@ -72,6 +72,27 @@ RECORDS_FILE = RECORDS_DIR / "records.json"
 PROMO_SIZE = (1024, 1024)
 
 
+def rename_products(body: dict, rename: str | None) -> dict:
+    """Retarget records.json at another app's products. rename is FROM=TO: the
+    productId prefix FROM becomes TO (com.cmux.app.=dev.cmux.app.internal. for
+    the internal app, whose products carry the same plans under another id).
+    Retired entries belong to the production record and are dropped."""
+    if not rename:
+        return body
+    old, sep, new = rename.partition("=")
+    if not sep or not old or not new:
+        raise PackageError(f"--rename is FROM=TO, not {rename!r}")
+    out = dict(body)
+    out["retired"] = []
+    out["subscriptions"] = []
+    for sub in body.get("subscriptions") or []:
+        pid = sub["productId"]
+        if not pid.startswith(old):
+            raise PackageError(f"{pid} does not start with {old}")
+        out["subscriptions"].append({**sub, "productId": new + pid[len(old):]})
+    return out
+
+
 def load_records(path: Path = RECORDS_FILE) -> dict:
     body = json.loads(path.read_text())
     subs = body.get("subscriptions") or []
@@ -322,11 +343,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", nargs="?", choices=("plan", "apply"), default="plan")
     parser.add_argument("--app", required=True, help="App Store Connect app id")
     parser.add_argument("--records", default=str(RECORDS_FILE))
+    parser.add_argument("--rename", help="FROM=TO productId prefix swap, to run the same records on another app "
+                        "(internal app: com.cmux.app.=dev.cmux.app.internal.)")
     parser.add_argument("--json", help="write the summary here")
     args = parser.parse_args(argv)
     records_path = Path(args.records)
     try:
-        records = load_records(records_path)
+        records = rename_products(load_records(records_path), args.rename)
         problems = check_inputs(records, records_path.parent)
         for problem in problems:
             print(f"input: {problem}", file=sys.stderr)

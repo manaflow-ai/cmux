@@ -62,5 +62,21 @@ class PlanForImages(unittest.TestCase):
         self.assertEqual(self.kinds(state([])), ["promotionalImage"])
 
 
+class RenameProducts(unittest.TestCase):
+    def test_internal_prefix(self):
+        body = records.load_records()
+        out = records.rename_products(body, "com.cmux.app.=dev.cmux.app.internal.")
+        self.assertEqual(
+            sorted(s["productId"] for s in out["subscriptions"]),
+            ["dev.cmux.app.internal.next_max.monthly", "dev.cmux.app.internal.next_plus.monthly",
+             "dev.cmux.app.internal.next_pro.monthly"])
+        self.assertEqual(out["retired"], [])
+        self.assertEqual(records.rename_products(body, None), body)
+
+    def test_bad_rename(self):
+        with self.assertRaises(records.PackageError):
+            records.rename_products(records.load_records(), "nope.=x.")
+
+
 if __name__ == "__main__":
     unittest.main()
