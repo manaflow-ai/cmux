@@ -14,6 +14,8 @@ let package = Package(
         // A heavy module's scene host, built only when a push touches its module (ui-preview-worker.py
         // HEAVY_SCENES), so a leaf change never waits on it.
         .executable(name: "cmux-ui-home", targets: ["UiHomeHost"]),
+        .executable(name: "cmux-ui-settings", targets: ["UiSettingsHost"]),
+        .executable(name: "cmux-ui-cloud", targets: ["UiCloudHost"]),
     ],
     dependencies: [
         .package(path: "../../Packages/macOS/CmuxNext"),
@@ -38,6 +40,22 @@ let package = Package(
                 "UiShellShootKit",
             ],
             path: "Sources/UiHomeHost"
+        ),
+        .executableTarget(
+            name: "UiSettingsHost",
+            dependencies: [
+                .product(name: "CmuxNextUiSettingsModules", package: "CmuxNext"),
+                "UiShellShootKit",
+            ],
+            path: "Sources/UiSettingsHost"
+        ),
+        .executableTarget(
+            name: "UiCloudHost",
+            dependencies: [
+                .product(name: "CmuxNextUiCloudModules", package: "CmuxNext"),
+                "UiShellShootKit",
+            ],
+            path: "Sources/UiCloudHost"
         ),
         .executableTarget(name: "UiLayerSourceWatcher", path: "Sources/UiLayerSourceWatcher"),
         .testTarget(name: "UiLayerHostTests", dependencies: ["UiLayerHost", "UiShellShootKit"]),
