@@ -2595,5 +2595,9 @@ path = "tests/test_ci_stale_route_runs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_decide_bounded.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_readiness_gate_wait.py"
 lane = "linux-guard"
