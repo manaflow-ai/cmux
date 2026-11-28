@@ -7233,10 +7233,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }
           if (!now || now === old) throw new Error(`no new daemon within 60 s of killing pid ${old}`);
           const back = Math.round((Date.now() - t0) / 100) / 10;
-          const ls = await exec(`${GUEST}"$c" acp ls --json 2>&1`);
-          if (!ls.stdout.includes(session)) throw new Error(`the new daemon (pid ${now}) does not list ${session}: ${ls.stdout.slice(-200)}`);
+          // A daemon names its pid in `daemon status` before it answers `ls`: on 11-28 prod twice (runs 46093719678,
+          // 46098236710) the first ls after the restart stalled ("request step stalled after 4s ... the daemon is not
+          // answering", retryable:true). So ls is asked again while the daemon says that answer is retryable, for up to
+          // 30 s; an ls that answers without the session fails at once, and the wait shows in the detail.
+          const l0 = Date.now();
+          let ls = await exec(`${GUEST}"$c" acp ls --json 2>&1`);
+          let asks = 1;
+          while (!ls.stdout.includes(session) && /"retryable":\s*true/.test(ls.stdout) && Date.now() - l0 < 30_000) {
+            await sleep(2_000);
+            ls = await exec(`${GUEST}"$c" acp ls --json 2>&1`);
+            asks++;
+          }
+          const listed = Math.round((Date.now() - l0) / 100) / 10;
+          if (!ls.stdout.includes(session)) throw new Error(`the new daemon (pid ${now}) does not list ${session} (${asks} ls in ${listed} s): ${ls.stdout.slice(-200)}`);
           const turn = await laterTurn("Are you still there? Answer in one short sentence.");
-          return { value: null, detail: `daemon ${old} killed, ${now} serves after ${back} s; ${turn.detail}` };
+          return { value: null, detail: `daemon ${old} killed, ${now} serves after ${back} s, lists the session after ${listed} s (${asks} ls); ${turn.detail}` };
         });
       }
       // The agent itself does the GitHub cells, as a person would ask it in the chat: clone, branch, commit, push and a
