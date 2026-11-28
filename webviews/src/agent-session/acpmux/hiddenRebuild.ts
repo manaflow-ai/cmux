@@ -91,6 +91,10 @@ export function installHiddenRebuild(doc: Document = document, options: HiddenRe
     clear: (id) => view.clearTimeout(id),
   };
   let timer: number | undefined;
+  // The hold a grown page last logged: each new one is said once (`cmux.hiddenRebuildHeld`), so a hold that keeps
+  // every grown chat from rebuilding shows in a session's console and in chat-100k-flat's grown launches (an
+  // overflowing prompt rail's own scroll read "scroll" on every grown chat until its list was marked kept).
+  let held: string | undefined;
   const clear = () => {
     if (timer !== undefined) timers.clear(timer);
     timer = undefined;
@@ -99,6 +103,10 @@ export function installHiddenRebuild(doc: Document = document, options: HiddenRe
     timer = undefined;
     const block = rebuildBlock(doc, grownFrames, minGapMs, now());
     if (block === "shown") return;
+    if (block && block !== "small" && block !== held) {
+      held = block;
+      console.info(`cmux.hiddenRebuildHeld ${block} frames=${frames}`);
+    }
     if (block) return void (timer = timers.set(look, recheckMs));
     try {
       view.sessionStorage.setItem(LAST_REBUILD_KEY, String(now()));

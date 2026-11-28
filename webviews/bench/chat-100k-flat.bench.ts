@@ -398,13 +398,15 @@ try {
             params?: Record<string, unknown>;
           };
           if (message.id === undefined) return;
-          ws.send(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              id: message.id,
-              result: answer(ws, message.method, message.params ?? {}),
-            }),
-          );
+          const result = answer(ws, message.method, message.params ?? {});
+          if (process.env.BENCH_LOG_ASKS) {
+            const p = message.params ?? {};
+            const n = (result as { events?: unknown[] } | null)?.events?.length;
+            console.log(
+              `ASK ${Date.now()} ${message.method} ${String(p.sessionId ?? "").slice(-6)} pi=${p.promptIndex === true} before=${p.beforeSeq ?? "-"} n=${n ?? "-"}`,
+            );
+          }
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         },
       },
     });
@@ -517,11 +519,20 @@ try {
       const pages: { page: Page; cdp: CDPSession }[] = [];
       // Hidden pages that rebuilt their document (hiddenRebuild.ts), printed with the launch's numbers.
       let rebuilds = 0;
+      // And the holds that kept a grown hidden page from it (hiddenRebuild.ts `cmux.hiddenRebuildHeld`), by reason.
+      const held = new Map<string, number>();
       for (let index = 0; index < count; index++) {
         const page = await context.newPage();
         const said: string[] = [];
         page.on("console", (message) => {
-          if (message.text().startsWith("cmux.hiddenRebuild")) rebuilds++;
+          const text = message.text();
+          if (text.startsWith("cmux.hiddenRebuild ")) rebuilds++;
+          if (text.startsWith("cmux.hiddenRebuildHeld ")) {
+            const reason = text.split(" ")[1]!;
+            held.set(reason, (held.get(reason) ?? 0) + 1);
+          }
+          if (process.env.BENCH_LOG_ASKS)
+            console.log(`PAGELOG ${Date.now()} ${index} ${message.type()}: ${text.slice(0, 200)}`);
           said.push(`${message.type()}: ${message.text().slice(0, 300)}`);
           if (said.length > 40) said.shift();
         });
@@ -1254,6 +1265,62 @@ try {
       const heapMb = usedSize / 1048576;
       const elements = await shownPage.page.evaluate(() => document.getElementsByTagName("*").length);
       console.log(`  ${name}: JS heap ${heapMb.toFixed(1)} MB; shown page ${elements} elements`);
+      if (process.env.CPU_PROFILE_S) {
+        // CPU_PROFILE_S=N: N s of the renderer's JS, by self time, from the first (hidden) page and the shown page.
+        for (const at of [0, pages.length - 1]) {
+          const { cdp } = pages[at]!;
+          await cdp.send("Profiler.enable");
+          await cdp.send("Profiler.setSamplingInterval", { interval: 500 });
+          await cdp.send("Profiler.start");
+          await new Promise((resolve) => setTimeout(resolve, Number(process.env.CPU_PROFILE_S) * 1000));
+          const { profile } = (await cdp.send("Profiler.stop")) as {
+            profile: {
+              nodes: {
+                id: number;
+                callFrame: { functionName: string; url: string; lineNumber: number };
+                parent?: number;
+                children?: number[];
+              }[];
+              samples: number[];
+              timeDeltas: number[];
+            };
+          };
+          const self = new Map<number, number>();
+          profile.samples.forEach((id, i) => self.set(id, (self.get(id) ?? 0) + (profile.timeDeltas[i] ?? 0)));
+          const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+          const parentOf = new Map<number, number>();
+          for (const n of profile.nodes) for (const c of n.children ?? []) parentOf.set(c, n.id);
+          const name = (id: number) => {
+            const f = byId.get(id)!.callFrame;
+            return `${f.functionName || "(anon)"} ${f.url.split("/").pop()}:${f.lineNumber + 1}`;
+          };
+          const bySelf = new Map<string, number>();
+          const byStack = new Map<string, number>();
+          for (const [id, us] of self) {
+            bySelf.set(name(id), (bySelf.get(name(id)) ?? 0) + us);
+            const stack: string[] = [];
+            for (let at = id as number | undefined; at !== undefined && stack.length < 8; at = parentOf.get(at))
+              stack.push(name(at));
+            const key = stack.join(" < ");
+            byStack.set(key, (byStack.get(key) ?? 0) + us);
+          }
+          const total = [...self.values()].reduce((a, b) => a + b, 0);
+          console.log(`CPUPROF page ${at}: ${(total / 1000).toFixed(0)} ms sampled`);
+          for (const [k, us] of [...bySelf].sort((a, b) => b[1] - a[1]).slice(0, 25))
+            console.log(`CPUPROF self ${(us / 1000).toFixed(1)} ms ${k}`);
+          for (const [k, us] of [...byStack].sort((a, b) => b[1] - a[1]).slice(0, 12))
+            console.log(`CPUPROF stack ${(us / 1000).toFixed(1)} ms ${k}`);
+          await cdp.send("Profiler.disable");
+        }
+      }
+      if (process.env.BENCH_LOG_ASKS) {
+        for (const [i, { page }] of pages.entries()) {
+          const n = await page
+            .evaluate(() => `${document.visibilityState} ${document.getElementsByTagName("*").length}`)
+            .catch((e) => String(e).slice(0, 80));
+          console.log(`PAGEDOM ${name} ${i} ${n}`);
+        }
+      }
       if (HEAP_SNAPSHOT) {
         // HEAP_SNAPSHOT=DIR: the first page's (hidden in an xN launch) and the shown page's V8 heap, for DevTools.
         fs.mkdirSync(HEAP_SNAPSHOT, { recursive: true });
@@ -1393,6 +1460,10 @@ try {
         );
       }
       if (rebuilds) console.log(`  ${name}: ${rebuilds} hidden page(s) rebuilt their document`);
+      if (held.size)
+        console.log(
+          `  ${name}: hidden rebuild held: ${[...held].map(([reason, pages]) => `${reason} (${pages} page(s))`).join(", ")}`,
+        );
       const row: Launch = {
         name,
         idlePct,
