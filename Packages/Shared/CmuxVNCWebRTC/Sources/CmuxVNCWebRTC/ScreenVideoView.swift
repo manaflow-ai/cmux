@@ -58,8 +58,10 @@ func metalDrawStamp(_ frame: RTCVideoFrame) -> Int64 {
 /// buffer, no copy), so the view draws each new frame once.
 // crash-allow: `metal` is set once in init and RTCMTLVideoView's renderFrame/setSize are safe off the main thread.
 private final class MetalStamper: NSObject, RTCVideoRenderer, @unchecked Sendable {
-    private let metal: RTCMTLVideoView
-    init(metal: RTCMTLVideoView) { self.metal = metal }
+    /// Held as the renderer protocol (nonisolated, as the track calls it), not as the UIView, so
+    /// these calls stay on the decode thread instead of being treated as main-actor sends.
+    private let metal: any RTCVideoRenderer
+    init(metal: any RTCVideoRenderer) { self.metal = metal }
     func setSize(_ size: CGSize) { metal.setSize(size) }
     func renderFrame(_ frame: RTCVideoFrame?) {
         guard let frame else { return }
