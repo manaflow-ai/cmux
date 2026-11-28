@@ -1068,6 +1068,9 @@ NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
 # Runs on every head: deletes the pull request's preview when it closes; ios-placeholder-bounds (seconds of Python)
 # records a pass on every pull request so land-judge's required list can name it; spec-checks (about 35 s of Python)
 # catches a spec inventory red before the merge (#56203 merged one on the affected tier).
+# Runs only once a gated job it needs has already failed on this head (#54837 head fail-fast), so the gate it
+# needs is its gate: a cheap head whose fast-gates never ran never starts it.
+AFTER_GATED_FAILURE = {("cmux-next-fast-gates.yml", "fast-gates-fail-fast"): "needs.fast-gates.result == 'failure'"}
 KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds"),
                       ("cmux-next-guards.yml", "app-store-shelf-pr"), ("cmux-next-guards.yml", "spec-checks")}
 # The full-ci base merge carry job (head_tier.full_carry): runs only on the full-ci or ready-to-land label event the
@@ -1181,6 +1184,9 @@ class GatedWorkflowTests(unittest.TestCase):
                                   "vars.CI_LAND_FULL_PER_PR == '1')", condition or "", f"{name}: job {job}")
                     if name == "ios-e2e.yml":
                         self.assertIn("vars.IOS_E2E_PR_TAILNET == 'true'", condition or "", f"{name}: job {job}")
+                    continue
+                if (name, job) in AFTER_GATED_FAILURE:
+                    self.assertIn(AFTER_GATED_FAILURE[(name, job)], condition or "", f"{name}: job {job}")
                     continue
                 if (name, job) in KEEP_ON_EVERY_HEAD:
                     self.assertNotIn("CI_LAND_TIER", condition or "", f"{name}: job {job}")
@@ -1699,8 +1705,10 @@ class RustWorkspacesTierTests(unittest.TestCase):
         self.assertLess(names.index("CI tier of this head"), names.index("Plan the workspaces this change reaches"))
 
     def test_only_none_skips_the_lock_check_and_the_plan(self) -> None:
+        # #61781 also skips them when the diff touches no Cargo manifest, lock or toolchain file.
         for name in ("Set up pinned Rust (lock check)", "Every Cargo.lock matches its manifests"):
-            self.assertEqual(self.steps[name].get("if"), "${{ steps.tier.outputs.tier != 'none' }}", name)
+            self.assertEqual(self.steps[name].get("if"),
+                             "${{ steps.tier.outputs.tier != 'none' && steps.diff.outputs.locks != 'false' }}", name)
         plan = self.steps["Plan the workspaces this change reaches"]
         self.assertEqual(plan["env"]["TIER"], "${{ steps.tier.outputs.tier }}")
         self.assertIn('if [[ "$TIER" == none ]]; then\n  echo "jobs=[]" >> "$GITHUB_OUTPUT"', plan["run"])
