@@ -1109,6 +1109,7 @@ fn outcome(name: &str, error: Option<&str>) -> Outcome {
         interrupts: None,
         arrival_key: None,
         reachable: None,
+        env_lacking: Vec::new(),
     }
 }
 
