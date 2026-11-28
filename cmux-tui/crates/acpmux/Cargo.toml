@@ -92,6 +92,9 @@ cmux-tailnet = { workspace = true, optional = true }
 cmux-tailnet-join = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3"
+
 [dependencies]
 # What an upstream error says (529, 503, retry-after), shared with OptChat's Chief.
 cmux-upstream-error = { path = "../cmux-upstream-error" }
@@ -109,6 +112,9 @@ cmux-cloud-start-core.workspace = true
 # The disk budget the evictor shares with the disk bar and the Cloud grow (`disk_evict.rs`).
 cmux-cloud-disk.workspace = true
 cmux-sync.workspace = true
+# A move's history pages: the zstd level per page, from the event-log curve and the copy's measured
+# link and compressor (`cmux_bytes::serial`, `cli/run/transfer_live.rs`).
+cmux-bytes.workspace = true
 cmux-team-messaging.workspace = true
 cmux-session-cloud.workspace = true
 # The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
