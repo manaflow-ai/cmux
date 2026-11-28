@@ -877,6 +877,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "startedAt", true, "1")
 	})
+	t.Run("ClientInfo.Capabilities", func(t *testing.T) {
+		var missing ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Capabilities != nil {
+			t.Fatal("Capabilities did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "capabilities", false, "")
+		var nullValue ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\",\"capabilities\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field capabilities accepted null")
+		}
+		var presentValue ClientInfo
+		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"kind\":null,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\",\"capabilities\":[]}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Capabilities == nil {
+			t.Fatal("Capabilities lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "capabilities", true, "[]")
+	})
 	t.Run("ClientInfo.Kind", func(t *testing.T) {
 		var missing ClientInfo
 		if err := json.Unmarshal([]byte("{\"attached\":[],\"client\":1,\"connected_seconds\":1,\"name\":null,\"self\":true,\"sizes\":[],\"transport\":\"local\"}"), &missing); err == nil {
@@ -70152,10 +70174,10 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1977
+	generatedFieldShapeCount               = 1978
 	generatedOptionalNullableFieldCount    = 1370
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 429
+	generatedOptionalNonnullableFieldCount = 430
 	generatedRequiredFieldCount            = 1662
 	generatedRequiredNonnullableFieldCount = 1484
 	generatedConstrainedFieldCount         = 139
