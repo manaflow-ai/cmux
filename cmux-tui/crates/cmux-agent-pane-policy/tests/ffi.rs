@@ -434,6 +434,24 @@ fn c_abi_runs_the_pick_corpus() {
     assert_eq!(call(none, "pick", json!({"method": "m", "params": []})), Err(ERR_INVALID));
 }
 
+/// Swift writes integral floats as Int64, including both signs of zero. A
+/// gesture ticket and its answer must therefore hash the same bytes for each.
+#[test]
+fn canonical_answer_zero_matches_swift_through_the_c_abi() {
+    let pane = std::ptr::null();
+    let integer = json!({"value": {"q": [0]}});
+    let digest = call(pane, "canonical_digest", integer).unwrap();
+    assert!(digest["digest"].is_string());
+    for zero in [-0.0_f64, 0.0] {
+        let answer = json!({"value": {"q": [zero]}});
+        assert_eq!(
+            call(pane, "canonical_json", answer.clone()).unwrap(),
+            json!({"json": r#"{"q":[0]}"#})
+        );
+        assert_eq!(call(pane, "canonical_digest", answer).unwrap(), digest);
+    }
+}
+
 /// The host reserves a permission answer's ticket only for an option the
 /// daemon offered as an allow (Swift `AcpmuxPermissionOptions.isKnownAllow`).
 #[test]
