@@ -114,6 +114,12 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
     }
+    // A parked wait (`parked_wait.rs`): one `sleep` handed to the platform, no CLI.
+    if args.first().is_some_and(|a| a == crate::parked_wait::ARG) {
+        let rest: Vec<String> =
+            args.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+        return crate::parked_wait::main(&rest);
+    }
     // `cmux github` for an agent session on a machine added from a Mac (`github_lane_mint.rs`):
     // git's credential helper and the `gh` shim the session's env names. No runtime, no daemon
     // start; stdout is git's or gh's alone.
@@ -135,6 +141,12 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
         return crate::codex_repo_gate::main();
     }
+    // A Codex start's dedupe hooks (`codex_dedupe.rs`): no runtime, and it fails open.
+    if args.first().is_some_and(|a| a == crate::codex_dedupe::HOOK_ARG) {
+        let event = args.get(1).and_then(|a| a.to_str());
+        let dir = args.get(2).map(std::path::Path::new);
+        return crate::codex_dedupe::main(event, dir);
+    }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
         return crate::linux_sandbox::keeper::canary_unix(args.get(1..).unwrap_or_default())
@@ -152,6 +164,9 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-keeper") {
         crate::linux_sandbox::keeper::main(args.into_iter().skip(1).collect());
+    }
+    if args.first().is_some_and(|arg| arg == crate::subscriptions::grok_hook::ARG) {
+        return crate::subscriptions::grok_hook::run(args.get(1).and_then(|arg| arg.to_str()));
     }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
@@ -383,6 +398,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
     match command {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
+        Some(Command::GhRead(args)) => crate::cli::gh_read::run(args, json_out).await,
         Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
         Some(Command::RunAsk { file }) => crate::run_ask::run_cli(file).await,
         // Before anything that reads or writes the home: this runs as root.
@@ -431,7 +447,22 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             allow_dev_origin,
             dev,
             take_over,
+            handoff_lock_fd,
+            handoff_unix_fd,
+            handoff_ws_fd,
+            handoff_count,
         }) => {
+            // Any of them: this start is a restart's exec in place (`daemon/handoff.rs`).
+            let handoff = (handoff_lock_fd.is_some()
+                || handoff_unix_fd.is_some()
+                || handoff_ws_fd.is_some()
+                || handoff_count.is_some())
+            .then(|| crate::daemon::HandoffOptions {
+                lock_fd: handoff_lock_fd,
+                unix_fd: handoff_unix_fd,
+                ws_fd: handoff_ws_fd,
+                count: handoff_count.unwrap_or(0),
+            });
             let logs = tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
@@ -481,6 +512,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                     dev_origins: allow_dev_origin,
                     dev,
                     take_over,
+                    handoff,
                 },
                 &exit_tasks,
             )
@@ -511,7 +543,24 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             // (a launcher `--version` check can take 20 s); 74 when its store
             // asked for a restart (`daemon::EXIT_REPAIR`).
             crate::heap_profile::finish();
-            std::process::exit(crate::daemon::exit_status())
+            // A restart request armed an exec in place: the installed build runs as this pid with
+            // the kept listeners and lock. Back here only when the exec failed: that status.
+            #[cfg(unix)]
+            let status =
+                crate::daemon::handoff::exec_if_armed().unwrap_or_else(crate::daemon::exit_status);
+            #[cfg(not(unix))]
+            let status = crate::daemon::exit_status();
+            std::process::exit(status)
+        }
+        // No lock and no home: what a restart's exec in place asks the installed build.
+        #[cfg(unix)]
+        Some(Command::DaemonHandoffCheck) => {
+            println!("{}", crate::daemon::handoff::check_line());
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        Some(Command::DaemonHandoffCheck) => {
+            Err(anyhow::anyhow!("daemon handoff-check runs only on Unix"))
         }
         Some(Command::CliAgent {
             last_block,
@@ -694,7 +743,9 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         }
         // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
         // A CI log through the shared cache (`ci_log_cache.rs`): no daemon.
-        Some(cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. })) => {
+        Some(
+            cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. } | Command::SpecServe { .. }),
+        ) => {
             let code = match cmd {
                 Command::RunVm { shim, command } => {
                     let ran = match shim {
@@ -712,6 +763,7 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                     }
                 }
                 Command::CiLogCache { command } => crate::ci_log_cache::main(&command),
+                Command::SpecServe { command } => crate::spec_exec::main(&command),
                 _ => 1,
             };
             // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
@@ -719,6 +771,12 @@ async fn async_main(parsed: Parsed) -> Result<()> {
         }
         Some(Command::Exec(crate::cli::command::ExecCmd::Trace { last })) => {
             match crate::placement::exec_router::trace_main(last, cli.json) {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
+        Some(Command::Exec(crate::cli::command::ExecCmd::Conformance { cases, dir, keep })) => {
+            match crate::placement::exec_conformance::main(&cases, dir, keep, cli.json).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, cli.json),
             }

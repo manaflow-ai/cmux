@@ -8,7 +8,6 @@ import {
   makeChatDetailDefault,
   resetChatDetails,
   setChatDetail,
-  useChatDetail,
 } from "./chatDetailChoice";
 import { presentationOfDetail, type Presentation } from "../chatDetail";
 import { defaultChatDetail } from "../chatDisplay";
@@ -21,10 +20,6 @@ export const presentationOf = (sessionId: string | undefined): Presentation =>
 
 /// Whether the chat has a level of its own.
 export const hasOwnPresentation = hasOwnChatDetail;
-
-/// The chat's presentation as a hook.
-export const usePresentation = (sessionId: string | undefined): Presentation =>
-  presentationOfDetail(useChatDetail(sessionId));
 
 /// The level a presentation puts a chat at: Transcript keeps a transcript level, else the default's,
 /// else Normal.

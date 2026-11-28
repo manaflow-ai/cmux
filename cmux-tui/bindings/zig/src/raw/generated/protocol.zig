@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c";
+pub const ir_sha256 = "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -411,6 +411,8 @@ pub const ChiefWorkTask = struct {
 
 pub const ClientInfo = struct {
     attached: []const Id,
+    /// The capabilities this connection declared in set-client-info that the daemon recognized, sorted (for example agent-cli-hybrid-v1). Absent from daemons older than this field.
+    capabilities: ?[]const []const u8 = null,
     client: u64,
     connected_seconds: u64,
     kind: wire.Nullable([]const u8),
@@ -418,6 +420,10 @@ pub const ClientInfo = struct {
     self: bool,
     sizes: []const ClientSize,
     transport: ClientTransport,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "capabilities",
+    };
 };
 
 pub const ClientSize = struct {
@@ -480,6 +486,85 @@ pub const CloudConversationPresenceParticipant = struct {
 };
 
 pub const ColorHex = []const u8;
+
+pub const ColumnDock = struct {
+    /// `pinned-dock-v1`: a pinned column takes more tabs; omitted when false.
+    allow_tabs: ?bool = null,
+    /// left or right (`dock-columns-v1`), top or bottom (also `edge-docks-v1`).
+    edge: ColumnDockEdge,
+    /// `docked` takes its width out of the scrolling area; `overlay` floats above the scrolling columns.
+    mode: ColumnDockMode,
+    /// `permanent-dock-v1`: the column stays docked on `edge` for every client; omitted when false.
+    permanent: ?bool = null,
+    /// `pinned-dock-v1`: a pinned column (the Home dock); omitted when false.
+    pinned: ?bool = null,
+    /// `dock-column-role-v1`: what the column is for; omitted when unset.
+    role: ?ColumnDockRole = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "allow_tabs",
+        "permanent",
+        "pinned",
+        "role",
+    };
+};
+
+pub const ColumnDockEdge = enum {
+    left,
+    right,
+    top,
+    bottom,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "left")) return .left;
+        if (std.mem.eql(u8, value, "right")) return .right;
+        if (std.mem.eql(u8, value, "top")) return .top;
+        if (std.mem.eql(u8, value, "bottom")) return .bottom;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .left => "left",
+            .right => "right",
+            .top => "top",
+            .bottom => "bottom",
+        };
+    }
+};
+
+pub const ColumnDockMode = enum {
+    docked,
+    overlay,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "docked")) return .docked;
+        if (std.mem.eql(u8, value, "overlay")) return .overlay;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .docked => "docked",
+            .overlay => "overlay",
+        };
+    }
+};
+
+pub const ColumnDockRole = enum {
+    agent_chat,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "agent_chat")) return .agent_chat;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .agent_chat => "agent_chat",
+        };
+    }
+};
 
 pub const ColumnMoveDirection = enum {
     left,
@@ -915,6 +1000,19 @@ pub const ExportedPane = struct {
     surfaces: []const Id,
 };
 
+pub const FloatingPane = struct {
+    /// The height, 0 to 1.
+    h: f64,
+    /// floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area.
+    pane: Id,
+    /// The width, 0 to 1.
+    w: f64,
+    /// The left edge, 0 to 1.
+    x: f64,
+    /// The top edge, 0 to 1.
+    y: f64,
+};
+
 pub const FocusDirectionResult = struct {
     pane: Id,
 };
@@ -1347,7 +1445,7 @@ pub const Layout = union(enum) {
 
 pub const LayoutColumnNode = struct {
     /// dock-columns-v1: the viewport edge the column is pinned to.
-    dock: ?JsonValue = null,
+    dock: ?ColumnDock = null,
     id: Id,
     layout: Layout,
     /// rows-v1: only for a column with two or more rows.
@@ -2091,7 +2189,7 @@ pub const Screen = struct {
     /// The screen's layout columns.
     columns: ?[]const LayoutColumnNode = null,
     /// floating-panes-v1: panes above the tiled layout, back to front.
-    floating: ?JsonValue = null,
+    floating: ?[]const FloatingPane = null,
     /// The screen group the screen is in.
     group: wire.Field([]const u8) = .absent,
     /// split-divider-visibility-v1: splits whose divider is hidden.

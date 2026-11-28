@@ -32,7 +32,16 @@ import { currentChatMetrics } from "../chatDisplay";
 import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
-import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath, isLiveClockNode } from "./turnFold";
+import {
+  boxOf,
+  clippedBottom,
+  clippedBottomOf,
+  coverClip,
+  ghostOf,
+  type CoverPath,
+  isLiveClockNode,
+  placeCopy,
+} from "./turnFold";
 import { LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
@@ -320,6 +329,8 @@ export type TurnEndFold = {
   /// Runs once when the fold is settled (its timer, a later fold, an unmount): the transcript reads
   /// and places its mounted rows again then (VirtualTranscript.tsx `settleMotion`).
   ended?: () => void;
+  /// Settled (`settleTurnEnd`): its copies are gone, and no pass of it draws one again.
+  done?: boolean;
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
@@ -713,6 +724,7 @@ const GROW_WINDOW_MS = 3 * FRAME_MS;
 /// Ends `fold` at once, drawn where it lands: its animations finish and its copies go.
 export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | undefined): void {
   if (!fold) return;
+  fold.done = true;
   clearTimeout(fold.timer);
   fold.stop?.();
   fold.stop = undefined;
@@ -984,12 +996,15 @@ function playReplace(
   };
   let inserted = false;
   const pass = () => {
+    // A settled fold draws nothing: its copies went with it, and a pass after that (one already
+    // queued when it settled) put them back in the thread with nothing left to take them out.
+    if (fold.done) return;
     const nodes = [...mounted(thread)];
     if (!inserted) {
       inserted = true;
       const below = nodes[0] ?? null;
       for (const element of old.keys()) {
-        thread.insertBefore(element, below);
+        placeCopy(thread, element, below);
         fold.copies.add(element);
       }
     }
@@ -1429,6 +1444,9 @@ export function playTurnEnd(
   /// says why there.
   const startSeen = (from: number, height: number) => bandSeen(from, height);
   const pass = () => {
+    // A settled fold draws nothing: its copies went with it, and a pass after that (one already
+    // queued when it settled) put them back in the thread with nothing left to take them out.
+    if (fold.done) return;
     let nodes = [...mounted(thread)];
     // Scrolled before any place is read, so the pass plays every row from where it was to where it is
     // with the anchor's move already taken out (a scroll it causes runs this pass again, finding none).
@@ -1444,7 +1462,7 @@ export function playTurnEnd(
       // The rows that went: each copy goes in before the rows that stay, so they draw over it.
       const below = nodes[0] ?? null;
       for (const row of gone) {
-        thread.insertBefore(row.copy!, below);
+        placeCopy(thread, row.copy!, below);
         fold.copies.add(row.copy!);
       }
     }
@@ -1453,7 +1471,7 @@ export function playTurnEnd(
       const below = nodes[0] ?? null;
       for (const row of was.values())
         if (row.snapshot) {
-          thread.insertBefore(row.snapshot, below);
+          placeCopy(thread, row.snapshot, below);
           fold.copies.add(row.snapshot);
           snapshots.set(row.id, row.snapshot);
         }
@@ -2088,7 +2106,7 @@ export function playTurnEnd(
         element.setAttribute("aria-hidden", "true");
         const fill = thread.ownerDocument.createElement("div");
         element.append(fill);
-        thread.insertBefore(element, thread.firstElementChild);
+        placeCopy(thread, element, thread.firstElementChild);
         fold.copies.add(element);
         card = { element, key, animations: [] };
         const comesIn = fill.animate([{ opacity: 0 }, { opacity: 1 }], {

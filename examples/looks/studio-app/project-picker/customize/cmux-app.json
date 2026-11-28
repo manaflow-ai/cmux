@@ -1,0 +1,36 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": {
+    "en": "Project picker"
+  },
+  "description": "Search available project folders and start a chat in the selected directory.",
+  "version": "1.0.0",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderProjectPicker",
+      "title": "Project picker",
+      "symbol": "folder",
+      "options": {
+        "defaultRegion": "top"
+      }
+    }
+  },
+  "scopes": {
+    "project:read": "Search available project folders.",
+    "actions:run": "Start a chat in the chosen folder or open the folder chooser."
+  },
+  "activation": [
+    "onInterface:cmux.section/1"
+  ],
+  "files": [
+    "main.js"
+  ]
+}

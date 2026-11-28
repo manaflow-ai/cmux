@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.cloud.status.offForNewChats" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "متوقف للمحادثات الجديدة. يمكن للأجهزة الأقدم مواصلة استخدام المفتاح حتى تنتهي محادثاتها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isključeno za nove razgovore. Starije mašine mogu nastaviti koristiti ključ dok se njihovi razgovori ne završe."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slået fra for nye chats. Ældre maskiner kan fortsætte med at bruge nøglen, indtil deres chats afsluttes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für neue Chats deaktiviert. Ältere Maschinen können den Schlüssel weiter verwenden, bis ihre Chats beendet sind."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off for new chats. Older machines can keep using the key until their chats end."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desactivado para los chats nuevos. Las máquinas antiguas pueden seguir usando la clave hasta que terminen sus chats."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Désactivé pour les nouvelles conversations. Les anciennes machines peuvent continuer à utiliser la clé jusqu’à la fin de leurs conversations."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disattivato per le nuove chat. Le macchine meno recenti possono continuare a usare la chiave fino al termine delle loro chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいチャットでは無効です。古いマシンでは、チャットが終了するまでキーが使われることがあります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានបិទសម្រាប់ការជជែកថ្មី។ ម៉ាស៊ីនចាស់អាចបន្តប្រើសោរហូតដល់ការជជែករបស់វាបញ្ចប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 채팅에서는 꺼져 있습니다. 이전 버전의 머신은 채팅이 끝날 때까지 키를 계속 사용할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slått av for nye chatter. Eldre maskiner kan fortsette å bruke nøkkelen til chattene deres avsluttes."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wyłączone dla nowych czatów. Starsze maszyny mogą nadal używać klucza do zakończenia swoich czatów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desativado para novas conversas. Máquinas antigas podem continuar usando a chave até que suas conversas terminem."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отключено для новых чатов. Старые машины могут продолжать использовать ключ до завершения своих чатов."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ปิดสำหรับแชทใหม่ เครื่องรุ่นเก่าอาจใช้คีย์ต่อไปจนกว่าแชทบนเครื่องเหล่านั้นจะสิ้นสุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni sohbetler için kapalı. Eski makineler, sohbetleri sona erene kadar anahtarı kullanmaya devam edebilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вимкнено для нових чатів. Старі машини можуть і далі використовувати ключ, доки їхні чати не завершаться."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã tắt cho các cuộc trò chuyện mới. Máy cũ có thể tiếp tục dùng khóa cho đến khi các cuộc trò chuyện trên máy đó kết thúc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已对新聊天关闭。旧版机器仍可使用此密钥，直至其聊天结束。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已對新聊天關閉。舊版機器仍可使用此金鑰，直至其聊天結束。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

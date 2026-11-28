@@ -841,3 +841,154 @@ fn person_master_another_live_host_uses_is_kept() {
     assert_eq!(find_master(&other, PERSON_MASTER).unwrap(), None);
     xvfb.alive();
 }
+
+/// A local page in Chrome on the Xvfb that reports every mousedown and click (with the
+/// event's coordinates) to a loopback HTTP server, so a test can tell a click the page
+/// got from one only sent.
+struct ClickPage {
+    chrome: std::process::Child,
+    events: std::sync::Arc<Mutex<Vec<String>>>,
+    _dir: std::path::PathBuf,
+}
+
+impl ClickPage {
+    fn start(display: &str) -> Self {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let events = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let log = events.clone();
+        std::thread::spawn(move || {
+            const PAGE: &str = "<!doctype html><html><body style='margin:0;height:100vh;background:#3a6'>\
+                <script>\
+                const say = (k, e) => fetch('/ev?' + k + ',' + e.screenX + ',' + e.screenY + ',' + e.isTrusted, {cache: 'no-store'});\
+                addEventListener('mousedown', e => say('down', e));\
+                addEventListener('click', e => say('click', e));\
+                addEventListener('load', () => fetch('/ev?ready,0,0,true'));\
+                </script></body></html>";
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { continue };
+                let mut line = String::new();
+                let _ = BufReader::new(&s).read_line(&mut line);
+                let path = line.split_whitespace().nth(1).unwrap_or("").to_string();
+                if let Some(ev) = path.strip_prefix("/ev?") {
+                    log.lock().unwrap().push(ev.to_string());
+                    let _ = write!(s, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+                } else {
+                    let _ = write!(
+                        s,
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{PAGE}",
+                        PAGE.len()
+                    );
+                }
+            }
+        });
+        let chrome_bin =
+            std::env::var("CMUX_RD_TEST_CHROME").unwrap_or_else(|_| "google-chrome".into());
+        let dir = std::env::temp_dir().join(format!("cmux-rd-clickpage-{}", std::process::id()));
+        let chrome = std::process::Command::new(chrome_bin)
+            .env("DISPLAY", display)
+            .args([
+                format!("--user-data-dir={}", dir.display()),
+                "--no-first-run".into(),
+                "--no-default-browser-check".into(),
+                "--disable-gpu".into(),
+                "--kiosk".into(),
+                "--window-position=0,0".into(),
+                "--window-size=1280,800".into(),
+                format!("http://127.0.0.1:{port}/"),
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("google-chrome");
+        let page = Self { chrome, events, _dir: dir };
+        assert!(page.wait(Duration::from_secs(30), |e| e.iter().any(|x| x.starts_with("ready"))));
+        // Kiosk Chrome maps after load on a slow host; give it a moment to take input.
+        std::thread::sleep(Duration::from_millis(1500));
+        page
+    }
+
+    fn wait(&self, limit: Duration, f: impl Fn(&[String]) -> bool) -> bool {
+        let t = Instant::now();
+        while t.elapsed() < limit {
+            if f(&self.events.lock().unwrap()) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    fn clicks(&self) -> usize {
+        count_clicks(&self.events.lock().unwrap())
+    }
+
+    /// Whether a click the agent makes now, with core XTest the way cmux-cua does, reaches
+    /// the page within two seconds.
+    fn agent_click_lands(&self, agent: &RustConnection, root: Window, x: i16, y: i16) -> bool {
+        let before = self.clicks();
+        agent.xtest_fake_input(MOTION_NOTIFY_EVENT, 0, 0, root, x, y, 0).unwrap();
+        agent.xtest_fake_input(BUTTON_PRESS_EVENT, 1, 0, root, 0, 0, 0).unwrap();
+        agent.xtest_fake_input(BUTTON_RELEASE_EVENT, 1, 0, root, 0, 0, 0).unwrap();
+        agent.sync().unwrap();
+        self.wait(Duration::from_secs(2), |e| count_clicks(e) > before)
+    }
+}
+
+fn count_clicks(events: &[String]) -> usize {
+    events.iter().filter(|e| e.starts_with("click")).count()
+}
+
+impl Drop for ClickPage {
+    fn drop(&mut self) {
+        let _ = self.chrome.kill();
+        let _ = self.chrome.wait();
+    }
+}
+
+/// The Cloud desktop journey: the person takes over (moves and clicks in the page) and,
+/// while they hold control, the agent clicks the same page with core XTest. Both clicks
+/// must reach Chrome. `cargo test -- --ignored agent_click_lands` on a Linux host with
+/// Xvfb and Google Chrome.
+#[test]
+#[ignore = "needs Xvfb and Google Chrome; run with --ignored on a Linux host"]
+fn agent_click_lands_in_chrome_while_the_person_holds_control() {
+    agent_and_person_click_chrome(false);
+}
+
+/// The same under openbox, the window manager a Linux host's shared desktop runs.
+#[test]
+#[ignore = "needs Xvfb, openbox and Google Chrome; run with --ignored on a Linux host"]
+fn agent_click_lands_in_chrome_while_the_person_holds_control_under_openbox() {
+    agent_and_person_click_chrome(true);
+}
+
+fn agent_and_person_click_chrome(openbox: bool) {
+    let mut xvfb = Xvfb::start();
+    let _wm = openbox.then(|| Openbox::start(&xvfb.display));
+    let (agent, root) = connect(&xvfb.display);
+    let page = ClickPage::start(&xvfb.display);
+    assert!(page.agent_click_lands(&agent, root, 350, 300), "baseline: no person");
+
+    let mut person = Injector::new(&xvfb.display).unwrap();
+    person.apply(&InputEvent::Pointer { x: 900, y: 600 }).unwrap();
+    person.conn.sync().unwrap();
+    assert!(person.master().is_some());
+    let moved = page.agent_click_lands(&agent, root, 350, 300);
+
+    let before = page.clicks();
+    person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
+    person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
+    person.conn.sync().unwrap();
+    let person_landed = page.wait(Duration::from_secs(2), |e| count_clicks(e) > before);
+    let after_person_click = page.agent_click_lands(&agent, root, 350, 300);
+    eprintln!(
+        "events: {:?}\nagent after person moved: {moved}; person click: {person_landed}; agent after person clicked: {after_person_click}",
+        page.events.lock().unwrap()
+    );
+    assert!(person_landed, "the person's click reaches Chrome");
+    assert!(moved, "the agent's click lands while the person's pointer is in the page");
+    assert!(after_person_click, "the agent's click lands after the person clicked");
+    xvfb.alive();
+}
