@@ -33,6 +33,34 @@ class SelectTests(unittest.TestCase):
     def sel(self, *paths):
         return fs.select(MANIFEST, list(paths))
 
+    def test_screen_share_changes_run_real_decoder_and_presentation(self):
+        for path in (
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBrowserStream/BrowserVideoDecoder.swift",
+            "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing/MacScreenRdConnection.swift",
+            "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests.swift",
+            "cmux-tui/crates/cmux-rd-host/src/stream.rs",
+            "cmux-tui/crates/cmux-rd-link/src/lib.rs",
+            "cmux-tui/crates/cmux-rd-proto/src/lib.rs",
+            "cmux-tui/crates/cmux-transport/src/lib.rs",
+        ):
+            with self.subTest(path=path):
+                result = self.sel(path)
+                self.assertIn("screen-share-synthetic-frames", result["flows"])
+                self.assertIn("CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests", result["kit"])
+
+    def test_screen_share_fast_gate_and_flow_paths_agree(self):
+        sys.path.insert(0, str(fs.REPO / "scripts/ci"))
+        try:
+            import ios_fast_verdict as verdict
+        finally:
+            sys.path.pop(0)
+        paths = list(verdict.SCREEN_SHARE_DEPENDENCIES)
+        paths += [prefix + "Changed.swift" for prefix in verdict.SCREEN_SHARE_PATHS]
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertTrue(verdict.affects_screen_sharing(path))
+                self.assertIn(verdict.SCREEN_SHARE_SUITE, self.sel(path)["kit"])
+
     def test_unrelated_change_runs_nothing(self):
         r = self.sel("webviews/src/App.tsx", "docs/readme.md")
         self.assertFalse(r["ios"])
@@ -106,6 +134,13 @@ class SelectTests(unittest.TestCase):
         self.assertTrue(r["ios"])
         self.assertIn("pairing-mac-identity", r["flows"])
         self.assertEqual(r["swift"], [{"package": "Packages/macOS/CmuxNext", "filter": "MobileHostMacIdentityKeychainTests"}])
+        self.assertEqual(fs.sim_args(r, 1)[-1], "pair-e2e")
+
+    def test_boolean_pairing_rows_can_share_a_run_with_reconnect_arguments(self):
+        r = self.sel("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/Link.swift")
+        self.assertIn("workspaces-empty-mac-loads", r["flows"])
+        self.assertEqual(r["pair_e2e"], ["reconnect-drops=10,60"])
+        self.assertEqual(fs.sim_args(r, 1)[-1], "pair-e2e reconnect-drops=10,60")
 
     def test_a_flow_added_or_edited_in_flows_json_runs_in_that_pr(self):
         r = fs.select(MANIFEST, [fs.MANIFEST_PATH], edited=["read-first-kept-chat-first-frame"])

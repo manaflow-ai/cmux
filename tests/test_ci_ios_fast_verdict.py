@@ -78,7 +78,8 @@ class PlanTest(unittest.TestCase):
         for path in [*files, "cmux-tui/crates/cmux-wg/src/gone.rs", "cmux-tui/rust-toolchain.toml"]:
             with self.subTest(path=path):
                 p = fv.plan([path], root=root)
-                self.assertTrue(p["build"])
+                # A screen-sharing dependency runs the detector suite, whose test run builds the kit.
+                self.assertTrue(p["build"] or fv.SCREEN_SHARE_SUITE in p["tests"])
                 self.assertTrue(p["app"])
                 self.assertTrue(p["proof"])
                 self.assertTrue(fv.affects([path], root=root))
@@ -95,12 +96,19 @@ class PlanTest(unittest.TestCase):
             "cmux-tui/vendor/smoltcp/src/lib.rs": "pub mod iface;\n",
         }
         root = self.rust_root(files)
-        p = fv.plan(list(files), root=root)
+        inner = [f for f in files if not fv.affects_screen_sharing(f)]
+        p = fv.plan(inner, root=root)
         self.assertFalse(p["run"], p)
         self.assertFalse(p["proof"])
-        self.assertFalse(fv.affects(list(files), root=root))
+        self.assertFalse(fv.affects(inner, root=root))
+        # A workspace lock or manifest bump runs only the screen-sharing detector: no kit build, no app.
+        p = fv.plan(list(files), root=root)
+        self.assertEqual(p["tests"], [fv.SCREEN_SHARE_SUITE])
+        self.assertFalse(p["build"])
+        self.assertFalse(p["app"])
+        self.assertFalse(p["proof"])
         # With a Swift change beside them, only the Swift plans.
-        p = fv.plan([*files, KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift"], root=root)
+        p = fv.plan([*inner, KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift"], root=root)
         self.assertEqual(p["tests"], ["CmuxMobileVoiceTests"])
         self.assertFalse(p["app"])
 
@@ -172,7 +180,8 @@ class PlanTest(unittest.TestCase):
         import ios_link_ffi_key
         packages, _ = ios_link_ffi_key.closure("HEAD")
         crates = ROOT / "cmux-tui" / "crates"
-        other = sorted(d.name for d in crates.iterdir() if d.is_dir() and f"cmux-tui/crates/{d.name}" not in packages)
+        other = sorted(d.name for d in crates.iterdir() if d.is_dir() and f"cmux-tui/crates/{d.name}" not in packages
+                       and not f"cmux-tui/crates/{d.name}/".startswith(fv.SCREEN_SHARE_PATHS))
         if not other:
             self.skipTest("the FFI compiles every cmux-tui crate")
         path = f"cmux-tui/crates/{other[0]}/src/lib.rs"
@@ -193,7 +202,7 @@ class PlanTest(unittest.TestCase):
         for module in sorted(d.name for d in sources.iterdir() if d.is_dir()):
             with self.subTest(module=module):
                 p = self.plan(f"{KIT}Sources/{module}/X.swift")
-                self.assertTrue(set(p["tests"]) <= have)
+                self.assertTrue({t.split("/")[0] for t in p["tests"]} <= have)
                 self.assertTrue(p["tests"] or p["build"], "a changed kit module always gets a verdict")
 
     def test_the_skipped_targets_never_run(self) -> None:
@@ -216,9 +225,14 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(p["tests"], [])
         self.assertFalse(p["build"])
 
-    def test_the_package_manifest_builds_the_kit(self) -> None:
-        p = self.plan(KIT + "Package.swift")
-        self.assertTrue(p["build"])
+    def test_screen_sharing_dependency_bumps_run_the_detector(self) -> None:
+        for path in fv.SCREEN_SHARE_DEPENDENCIES:
+            with self.subTest(path=path):
+                p = self.plan(path)
+                self.assertTrue(fv.affects([path]))
+                self.assertIn(fv.SCREEN_SHARE_SUITE, p["tests"])
+                self.assertFalse(p["build"])  # testing builds the same bundle
+                self.assertFalse(fv.affects_screen_sharing(path + ".notes"))
 
     def test_a_path_ios_kit_does_not_route_plans_nothing(self) -> None:
         for path in ("docs/a.md", "web/app/page.tsx", "cmux-next-ios/verify/parity-mac/row.md", KIT + "README.md"):
@@ -251,13 +265,23 @@ class PlanTest(unittest.TestCase):
         have = sorted(fv.test_targets(fv.ROOT) - fv.SKIPPED_TESTS)
         self.assertGreater(len(have), fv.MAX_TEST_TARGETS)
         p = self.plan(*(f"{KIT}Tests/{t}/A.swift" for t in have))
-        self.assertEqual(p["tests"], [])
-        self.assertTrue(p["build"])
+        self.assertEqual(p["tests"], [fv.SCREEN_SHARE_SUITE])
+        self.assertFalse(p["build"])  # running the required suite builds the bundle
+
+    def test_screen_sharing_changes_run_the_presentation_detector(self) -> None:
+        for prefix in fv.SCREEN_SHARE_PATHS:
+            with self.subTest(prefix=prefix):
+                path = prefix + "Changed.swift"
+                p = self.plan(path)
+                self.assertTrue(fv.affects([path]))
+                self.assertTrue(p["run"])
+                self.assertTrue(fv.SCREEN_SHARE_SUITE in p["tests"] or
+                                "CmuxMobileBrowserStreamTests" in p["tests"])
 
     def test_tests_and_a_build_run_the_tests_only(self) -> None:
         # A test run builds the kit's bundle: no separate build-for-testing.
         p = self.plan(KIT + "Sources/CmuxMobileShell/Foo.swift", KIT + "Package.swift")
-        self.assertEqual(p["tests"], ["CmuxMobileShellTests"])
+        self.assertEqual(p["tests"], [fv.SCREEN_SHARE_SUITE, "CmuxMobileShellTests"])
         self.assertFalse(p["build"])
 
     def test_why_is_capped(self) -> None:

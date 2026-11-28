@@ -90,6 +90,34 @@ MAX_TEST_TARGETS = 6
 MAX_WHY = 20
 # The commit status a ruleset can require (pr-router.yml posts the route's state, pr-pipeline.yml the verdict).
 STATUS_CONTEXT = "cmux/ios-fast"
+SCREEN_SHARE_SUITE = "CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests"
+SCREEN_SHARE_PATHS = (
+    KIT + "Sources/CmuxMobileBrowserStream/",
+    KIT + "Sources/CmuxMobileScreenSharing/",
+    KIT + "Sources/CmuxMobileTransport/",
+    KIT + "Tests/CmuxMobileBrowserStreamTests/",
+    "cmux-tui/crates/cmux-rd-host/",
+    "cmux-tui/crates/cmux-rd-link/",
+    "cmux-tui/crates/cmux-rd-proto/",
+    "cmux-tui/crates/cmux-transport/",
+)
+
+# Dependency and compiler changes can alter the decoder or wire codec without touching
+# a source directory. Keep these exact (README-like suffixes must not match).
+SCREEN_SHARE_DEPENDENCIES = frozenset({
+    KIT + "Package.swift",
+    KIT + "Package.resolved",
+    "cmux-tui/Cargo.toml",
+    "cmux-tui/Cargo.lock",
+    "cmux-tui/rust-toolchain.toml",
+    "cmux-next-ios/rust/Cargo.toml",
+    "cmux-next-ios/rust/Cargo.lock",
+    "cmux-next-ios/rust/rust-toolchain.toml",
+})
+
+
+def affects_screen_sharing(path: str) -> bool:
+    return path.startswith(SCREEN_SHARE_PATHS) or path in SCREEN_SHARE_DEPENDENCIES
 
 
 # Data only kit tests read (ConnectivityMatrixTests, TickHarnessCellsTests): their test target, no build of the app.
@@ -184,7 +212,8 @@ def affects(paths: list[str], step: ci_steps.Step | None = None, root: Path = RO
     """Whether any of PATHS is one this check builds (the router's instant-success test; plan()'s `run` without the
     kit's test-target listing, which the router's sparse checkout does not have). A Rust file it cannot read affects."""
     step = step or kit_step()
-    return any(path in SELF or (routes_ios(step, path) and (not rust_inner(path) or swift_facing(path, root)))
+    return any(path in SELF or affects_screen_sharing(path)
+               or (routes_ios(step, path) and (not rust_inner(path) or swift_facing(path, root)))
                for path in paths)
 
 
@@ -246,6 +275,12 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None,
         why.append(f"{len(tests)} test targets: kit build only, the full matrix runs the tests")
         tests = set()
         build = True
+    # A small end-to-end viewer detector must run for host/protocol changes too,
+    # including broad changes whose general tests fall back to compile-only.
+    if any(affects_screen_sharing(path) for path in paths):
+        if SCREEN_SHARE_SUITE.split("/")[0] not in tests:
+            tests.add(SCREEN_SHARE_SUITE)
+        why.append("screen-sharing path: synthetic frames decode and present")
     return {
         "run": bool(tests or build or app),
         "tests": sorted(tests),
