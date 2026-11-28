@@ -1,6 +1,7 @@
 import CmuxNextAccounts
 import CmuxNextCodeRouter
 import CmuxNextControl
+import CmuxNextSettings
 import Foundation
 
 // `accounts.list`: every provider row (status, account label, sources).
