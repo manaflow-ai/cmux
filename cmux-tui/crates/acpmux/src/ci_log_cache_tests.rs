@@ -149,6 +149,47 @@ fn a_run_in_progress_or_a_failed_fetch_is_never_kept() {
     assert!(left.is_empty(), "no log and no temp file kept: {left:?}");
 }
 
+#[cfg(unix)]
+#[test]
+fn a_cache_stays_in_the_held_home_after_replacement() {
+    crate::lost_home_race_tests::isolated(
+        module_path!(),
+        "a_cache_stays_in_the_held_home_after_replacement",
+        |home| {
+            let tmp = tempfile::tempdir().unwrap();
+            let d = tmp.path();
+            let cache = home.join(".cache/acpmux/ci-logs");
+            let gh = fake_gh(d);
+            std::fs::write(d.join("log"), "first\n").unwrap();
+            std::fs::write(d.join("status.json"), r#"{"status":"completed","run_attempt":1}"#)
+                .unwrap();
+            let mut call = vec![gh];
+            call.extend(w("run view 7 -R o/r --log"));
+            assert_eq!(run_in(&call, &cache, None), 0);
+            let ask = ask_of(&call[1..], None).unwrap();
+            let first = path_for(&cache, &ask.key(Some(1)));
+            assert!(first.exists());
+
+            crate::config::hold_home();
+            crate::lost_home_race_tests::replace(home);
+            std::fs::write(d.join("log"), "second\n").unwrap();
+            std::fs::write(d.join("status.json"), r#"{"status":"completed","run_attempt":2}"#)
+                .unwrap();
+
+            assert_eq!(run_in(&call, &cache, None), 0);
+            assert_eq!(runs(d), 2);
+            assert!(home.with_extension("old").join(first.strip_prefix(home).unwrap()).exists());
+            assert!(
+                home.with_extension("old")
+                    .join(path_for(&cache, &ask.key(Some(2))).strip_prefix(home).unwrap())
+                    .exists()
+            );
+            assert!(!cache.exists(), "the replacement home stays untouched");
+        },
+        |_, _| {},
+    );
+}
+
 #[test]
 fn eviction_drops_the_old_and_the_oldest_past_the_size_bound() {
     let tmp = tempfile::tempdir().unwrap();
