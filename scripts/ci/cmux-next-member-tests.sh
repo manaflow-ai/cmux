@@ -5,14 +5,26 @@
 # feat-cmux-next push) is fresh here and only what the pull request changed compiles.
 #
 #   scripts/ci/cmux-next-member-tests.sh MEMBER_DIR     (MEMBER_DIR under cmux-tui/, e.g. crates/acpmux)
+#   scripts/ci/cmux-next-member-tests.sh MEMBER_DIR TEST FILTER
+#                                         one of the member's gate test targets only, and only the gate tests whose
+#                                         path holds FILTER (FILTER starts within cmux_next_'s module path, e.g.
+#                                         `it idle_wakeups::cmux_next_`: ci/steps.toml cmux-next-idle-wakeups)
 #
 # Fails when a test fails, when nothing compiles, and when the filter runs no test (as the gate does). A recognized
 # Cargo fetch failure is retried twice, as in the gate.
 set -euo pipefail
-member="${1:?usage: $0 MEMBER_DIR}"
+member="${1:?usage: $0 MEMBER_DIR [TEST FILTER]}"
+only_test="${2:-}"
+filter="${3:-cmux_next_}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo/cmux-tui"
 read -r -a args <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh "$member")"
+if [[ -n "$only_test" ]]; then
+  # The gate's own target only, so the gate's saved target covers it and a red here is a red there.
+  [[ " ${args[*]} " == *" --test $only_test "* ]] || { echo "::error::$member's gate targets (${args[*]}) have no --test $only_test"; exit 2; }
+  [[ "$filter" == *cmux_next_* ]] || { echo "::error::filter $filter selects tests the gate does not run (it holds no cmux_next_)"; exit 2; }
+  args=("${args[0]}" "${args[1]}" --test "$only_test")
+fi
 channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
 # cmux-next-daemon-tests' env, word for word: the saved target's fingerprints hold it.
@@ -30,7 +42,7 @@ for attempt in 1 2 3; do
   # set -e would end the script on a failing pipeline: keep it off for the test so the retry, the timing line and the
   # daemon cleanup below still run.
   set +e
-  cargo test "${args[@]}" --locked cmux_next_ 2>&1 | tee "$log"
+  cargo test "${args[@]}" --locked "$filter" 2>&1 | tee "$log"
   status=${PIPESTATUS[0]}
   set -e
   if [ "$status" -ne 0 ] && python3 ../scripts/cmux-next/cargo-locks.py explain "$log"; then break; fi

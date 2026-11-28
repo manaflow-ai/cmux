@@ -341,13 +341,21 @@ pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: &Path) -> McpSer
     if all_tools {
         args.push("--all-tools".to_owned());
     }
-    let env = vec![
+    let mut env = vec![
         (
             crate::user_settings::CONFIG_OVERRIDE.to_owned(),
             settings_file.to_string_lossy().into_owned(),
         ),
         (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
     ];
+    // macOS: the server runs malloc in space-efficient mode, as the daemons do (malloc_space.rs).
+    // An idle chat's server held 32 MB, about 20 of it freed blocks still dirty in its footprint
+    // (goal ram-baseline); its `main` drops the variable, so the tools it starts run the default.
+    env.extend(
+        cmux_tui_platform::malloc_space::child_env()
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value.to_owned())),
+    );
     McpServer { name: CMUX_SERVER.into(), command: cmux.to_path_buf(), args, env }
 }
 
@@ -1109,7 +1117,13 @@ pub(crate) fn claude_args_and_hooks_for(
             .for_session(session_id)
             // Claude Code has tool search unless its env or settings turn
             // it off, send it to another provider, or opt in to code mode.
-            .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
+            // The session's manifest answers when the hub marked it (`session_manifest.rs`).
+            .listing(
+                all_tools_opted_in(env)
+                    && crate::session_manifest::claude_all_tools(env, || {
+                        claude_lists_all_tools(env, cwd)
+                    }),
+            )
             .without_off(env)
             .fit_skills()
             .folded();
