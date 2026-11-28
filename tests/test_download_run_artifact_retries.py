@@ -9,7 +9,10 @@ import email.message
 import email.utils
 import importlib.util
 import json
+import os
+import sys
 from pathlib import Path
+import time
 import unittest
 from unittest import mock
 import urllib.error
@@ -42,6 +45,12 @@ class RetryTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         download.retry_deadline = None
         self.addCleanup(setattr, download, "retry_deadline", None)
+        download.spares.clear()
+        download.active = None
+        self.addCleanup(download.spares.clear)
+        self.addCleanup(setattr, download, "active", None)
+        download.job_refusal = None
+        self.addCleanup(setattr, download, "job_refusal", None)
 
     def flaky(self, errors: list[Exception], result: str = "ok"):
         def call() -> str:
@@ -49,6 +58,51 @@ class RetryTests(unittest.TestCase):
                 raise errors.pop(0)
             return result
         return call
+
+    def test_dead_spares_hand_back_to_the_job_token_and_wait_for_its_reset(self) -> None:
+        # Run 46125411693 (2026-11-28 09:46Z): github.token's hour was spent, both spares answered 401,
+        # and the 401 ended keep-published-dsyms in 1 s with the reset 300 s away.
+        download.spares.extend(["spare-1", "spare-2"])
+        tokens: list[str | None] = []
+        errors = [refused(403, X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(time.time()) + 300)),
+                  refused(401), refused(401)]
+
+        def call() -> str:
+            tokens.append(download.active)
+            if errors:
+                raise errors.pop(0)
+            return "ok"
+
+        with mock.patch.object(download, "RETRY_BUDGET_SECONDS", 3600.0):
+            self.assertEqual(download.with_retries(call, "GET x"), "ok")
+        self.assertEqual(tokens, [None, "spare-1", "spare-2", None])
+        self.assertEqual(len(self.slept), 1)
+        self.assertGreaterEqual(self.slept[0], 290)
+
+    def test_a_spent_hour_moves_to_a_spare_token_with_no_wait(self) -> None:
+        # Runs 45823496118 and 45825165164 (2026-11-26): github.token's hour was spent and the reset was 1098 s
+        # away, past the 240 s budget, so the dSYMs and the deltas' variant were never downloaded.
+        download.spares.extend(["spare-1", "spare-2"])
+        seen = []
+
+        def call() -> str:
+            seen.append(download.token_for("job"))
+            if len(seen) == 1:
+                raise refused(403, X_RateLimit_Remaining="0", X_RateLimit_Reset="9999999999")
+            if len(seen) == 2:
+                raise refused(401)  # a dead spare is skipped too
+            return "ok"
+
+        self.assertEqual(download.with_retries(call, "lookup"), "ok")
+        self.assertEqual(seen, ["job", "spare-1", "spare-2"])
+        self.assertEqual(self.slept, [])
+
+    def test_a_permission_403_on_the_jobs_own_token_does_not_move(self) -> None:
+        download.spares.append("spare-1")
+        call = self.flaky([refused(403)])
+        self.assertEqual(download.with_retries(call, "lookup"), "ok")
+        self.assertEqual(download.spares, ["spare-1"])
+        self.assertIsNone(download.active)
 
     def test_a_secondary_limit_403_without_headers_is_retried_with_backoff(self) -> None:
         call = self.flaky([refused(403), refused(403), refused(502), refused(501)])
@@ -128,6 +182,12 @@ class CallSiteTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         download.retry_deadline = None
         self.addCleanup(setattr, download, "retry_deadline", None)
+        download.spares.clear()
+        download.active = None
+        self.addCleanup(download.spares.clear)
+        self.addCleanup(setattr, download, "active", None)
+        download.job_refusal = None
+        self.addCleanup(setattr, download, "job_refusal", None)
 
     def test_the_lookup_retries_a_403_then_returns_the_listing(self) -> None:
         body = json.dumps({"artifacts": [{"name": "app", "expired": False, "created_at": "1"}]}).encode()
@@ -195,6 +255,41 @@ class WorkflowTests(unittest.TestCase):
         unbounded = [f"{job}: {step.get('name')}" for job, step in steps
                      if step.get("continue-on-error") and not step.get("timeout-minutes")]
         self.assertEqual(unbounded, [])
+
+
+    def test_every_dsyms_download_action_is_a_fallback_behind_the_waiting_script(self) -> None:
+        # Run 46137161280 (2026-11-28 10:53Z): sentry-dsyms-nightly's bare download-artifact died on
+        # "API rate limit exceeded for installation"; the action cannot wait through a reset.
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
+        bare = []
+        for job in ("sentry-dsyms-nightly", "keep-published-dsyms"):
+            steps = jobs[job]["steps"]
+            ids = {step.get("id") for step in steps if "download-run-artifact.py" in str(step.get("run", ""))}
+            for step in steps:
+                if "download-artifact@" in str(step.get("uses", "")) and not any(
+                        f"steps.{i}.outcome" in str(step.get("if", "")) for i in ids if i):
+                    bare.append(f"{job}: {step.get('name')}")
+        self.assertEqual(bare, [])
+
+
+class ArtifactIdListTests(unittest.TestCase):
+    def test_comma_separated_artifact_ids_each_download(self) -> None:
+        # dsyms-find-attempt.sh's `artifacts` output is every found id, comma-separated.
+        seen: list[str] = []
+
+        def by_id(repo, run_id, artifact_id, token):
+            seen.append(artifact_id)
+            return {"name": f"a{artifact_id}"}
+
+        argv = ["x", "--artifact-id", "11, 22,", "--run-id", "9", "--out", "/nonexistent/out"]
+        env = {"GITHUB_TOKEN": "t", "GITHUB_REPOSITORY": "o/r"}
+        with mock.patch.object(sys, "argv", argv), mock.patch.dict(os.environ, env), \
+                mock.patch.object(download, "find_artifact_by_id", by_id), \
+                mock.patch.object(download.os, "makedirs", side_effect=SystemExit("stop")):
+            with self.assertRaises(SystemExit):
+                download.main()
+        self.assertEqual(seen, ["11", "22"])
 
 
 if __name__ == "__main__":

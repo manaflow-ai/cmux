@@ -893,7 +893,7 @@ impl Hub {
 
     /// After a restart, before the guard checks an agent's message: the sender's log too. A
     /// pause the restart keeps may be only there (what the pair held for the sender), and the
-    /// receiver's log is read already (`turns.rs` `prompt_with`, `log_load.rs`).
+    /// receiver's log is read already (`turns/prompt_entry.rs` `prompt_with`, `log_load.rs`).
     pub(super) async fn pair_logs(self: &Arc<Self>, provenance: Option<&Value>) {
         if self.logs_loaded() {
             return;

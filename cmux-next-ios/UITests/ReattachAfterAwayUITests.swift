@@ -225,7 +225,7 @@ final class ReattachAfterAwayUITests: XCTestCase {
     @MainActor
     private func openChatField(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let field = app.textViews["chat.composer.field"]
-        let reply = app.buttons["Reply to Claude"].firstMatch
+        let reply = app.buttons["agentChat.composer.collapsed"].firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         while !field.exists, Date() < deadline {
             if reply.exists, reply.isHittable { reply.tap() }

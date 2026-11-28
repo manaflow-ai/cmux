@@ -7,6 +7,16 @@ import CmuxNextCompat
 struct ControlAuthorizer: Sendable {
     let configuration: ControlSocketServer.Configuration
     let peer: ControlSocketServer.Peer
+    /// Answers `auth.session.request` with its own peer checks and the person's consent, ahead of the access
+    /// mode (NIGHTLY only).
+    let consent: SessionConsentResponder?
+
+    init(configuration: ControlSocketServer.Configuration, peer: ControlSocketServer.Peer,
+         consent: SessionConsentResponder? = nil) {
+        self.configuration = configuration
+        self.peer = peer
+        self.consent = consent
+    }
 
     static let accessDenied = "ERROR: Access denied - only processes started inside cmux can connect"
 
@@ -15,6 +25,11 @@ struct ControlAuthorizer: Sendable {
     mutating func respond(to rawLine: String, router: ControlRouter, connection: ControlConnectionID = .inProcess) async -> (String?, Bool) {
         let line = Self.unwrapEnvelopes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !line.isEmpty else { return (nil, true) }
+        // The consent request checks its peer itself (uid, any valid signature, then the person's answer) and
+        // closes the connection after its one answer, whatever the access mode admits.
+        if configuration.accessMode != .off, let consent, let request = consent.request(in: line) {
+            return (await consent.respond(to: request, peer: peer.consent), false)
+        }
         guard isPeerAdmitted else { return (Self.accessDenied, false) }
 
         let isJSON = line.hasPrefix("{")

@@ -95,6 +95,7 @@ pub(crate) mod mutation_ledger_retention;
 mod open_guard;
 pub(crate) mod output_cleanup;
 pub(crate) mod personal_bookmarks;
+mod personal_browser_grants;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 mod personal_session_icon;
@@ -164,7 +165,6 @@ use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
     initialize_resource_input_receipt_retention, recover_resource_effects,
 };
-#[cfg(test)]
 pub(crate) use journal_extensions::JOURNAL_CHECKPOINTS_KEPT;
 use journal_extensions::create_journal_extensions_schema;
 pub use journal_extensions::{
@@ -179,6 +179,7 @@ pub(crate) use journal_extensions::{
 };
 pub(crate) use mutation_ledger::insert_resource_mutation;
 pub use mutation_ledger::{Actor, WorkspaceMutation};
+pub use personal_browser_grants::{BrowserGrant, BrowserGrantHolder, BrowserGrantInput};
 pub use personal_browser_profiles::{BrowserProfileInput, BrowserProfileUpdate};
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};

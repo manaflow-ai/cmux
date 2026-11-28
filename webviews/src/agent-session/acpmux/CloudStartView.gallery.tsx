@@ -319,6 +319,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       },
     },
     "start-failed-retry": {
+      // retry-prompt-ok: Retry sends the start prompt again and starts a billed Cloud machine.
       note: "A start that failed on its way with no retry flag (the agent didn't start): Retry sends it again under the same key, Run on This Mac beside it.",
       props: {
         start: {
@@ -454,6 +455,53 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           clone: { state: "done", ...timing },
           setup: { state: "failed", status: "failed", logTail: "npm ERR! missing script: build", ...timing },
         },
+      },
+    },
+    "recovery-setup-selected": {
+      note: "A failed setup keeps its target and offers Edit cloud environment before Retry.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          environment: "env_selected",
+          retryable: true,
+          message: "Environment setup failed.",
+          setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
+        },
+        onOpenEnvironment: () => undefined,
+        onRetry: () => undefined,
+      },
+    },
+    "recovery-setup-resolved": {
+      note: "A failed setup keeps its target and offers Edit cloud environment before Retry.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          environment: "env_selected",
+          environmentId: "env_resolved",
+          retryable: true,
+          message: "Environment setup failed.",
+          setup: { state: "failed", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
+        },
+        onOpenEnvironment: () => undefined,
+        onRetry: () => undefined,
+      },
+    },
+    "recovery-setup-status-only": {
+      note: "A failed setup keeps its target and offers Edit cloud environment before Retry.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          environment: "env_selected",
+          environmentId: "env_resolved",
+          retryable: true,
+          message: "Environment setup failed.",
+          setup: { state: "pending", status: "failed", hasScript: true, logTail: "setup exited with status 1" },
+        },
+        onOpenEnvironment: () => undefined,
+        onRetry: () => undefined,
       },
     },
     "checklist-setup-skipped": {

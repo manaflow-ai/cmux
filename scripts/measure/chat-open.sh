@@ -48,6 +48,7 @@ for arg in "$@"; do
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     --app=*) app="${arg#--app=}" ;;
     --build-at=*) build_at="${arg#--build-at=}" ;;
+    --coordinator-cpu) tag="coordinator-cpu" ;;
     --skip-build) skip_build=1 ;;
     --native-arch) reload_args+=(--native-arch) ;;
     --universal) export CMUX_RELOAD_NATIVE_ARCH=0 ;;
@@ -59,7 +60,7 @@ done
 set -- ${bench_args[@]+"${bench_args[@]}"}
 # Before the caller's arguments: a --page-engine of the caller's own wins. `--fork-open` runs
 # fork-open-bench.py, and that bench has no `--page-engine` (measure_engine_asked).
-if [[ "$ask_engine" == 1 ]]; then
+if [[ "$ask_engine" == 1 && "$tag" == chatopen ]]; then
   set -- --page-engine=cef "$@"
 fi
 # The commit, configuration and architecture an app was built for: --skip-build reuses only a match.
@@ -68,6 +69,9 @@ build_id="${build_at:-$(git rev-parse HEAD)}/${reload_config[1]}/${CMUX_RELOAD_N
 build_id="${build_id// /,}"
 # What the last build left: its commit and its app, so --skip-build reuses only an app of this commit.
 last_build=".build/chat-open-last-build"
+if [[ "$tag" == coordinator-cpu ]]; then
+  last_build=".build/coordinator-cpu-last-build"
+fi
 if [[ -z "$app" && "$skip_build" -eq 1 && -f "$last_build" ]]; then
   read -r built_at built_app <"$last_build" || true
   if [[ "${built_at:-}" == "$build_id" && -d "${built_app:-}" ]]; then
@@ -118,6 +122,11 @@ else
   printf '%s %s\n' "$build_id" "$app" >"$last_build"
 fi
 mkdir -p artifacts
+if [[ "$tag" == coordinator-cpu ]]; then
+  python3 scripts/cmux-next/coordinator_cpu.py --app "$app" --sha "${build_at:-$(git rev-parse HEAD)}" \
+    --out artifacts/coordinator-cpu "$@"
+  exit
+fi
 # A fleet step has no LaunchServices session: the bench launches the app binary directly.
 CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/chat-open-bench.py --app "$app" \
   --json artifacts/chat-open.json --md artifacts/chat-open.md "$@"

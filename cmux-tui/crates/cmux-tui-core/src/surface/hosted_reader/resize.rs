@@ -93,7 +93,22 @@ impl HostedReader {
         let mut title_moved = false;
         let generation = pty.with_terminal_stream_update(|term| {
             let before = terminal_scroll_position(term);
+            // A replay of the same grid holds the same lines (a legacy host
+            // re-sends one for every viewer size without a request id, also
+            // an unchanged one, and after a cell-metric or kitty-limit change).
+            // A fresh parser starts at the live bottom: a reader scrolled
+            // back would be snapped down with no input of theirs. Keep the
+            // viewport's top line, counted from the end of the content.
+            let kept_from_end = (!before.1 && (geometry.cols, geometry.rows) == (cols, rows))
+                .then(|| term.scrollbar())
+                .flatten()
+                .map(|scrollbar| scrollbar.total.saturating_sub(scrollbar.offset));
             *term = replacement;
+            if let Some(from_end) = kept_from_end
+                && let Some(scrollbar) = term.scrollbar()
+            {
+                set_terminal_scroll_offset(term, scrollbar.total.saturating_sub(from_end));
+            }
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(term);
             *geometry = next_geometry;
             pty.journal_geometry(next_geometry);
@@ -137,8 +152,8 @@ impl HostedReader {
                 mux.emit_terminal_title(surface.id, title.into());
             }
             mux.emit_terminal_resized(surface.id, cols, rows, None);
-            if let Some((offset, at_bottom)) = scroll_changed {
-                pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
+            if scroll_changed.is_some() {
+                pty.frame_requests.flush_scroll(&mux, surface.id);
             }
         }
         Flow::Continue

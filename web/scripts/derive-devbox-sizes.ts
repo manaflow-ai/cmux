@@ -33,7 +33,7 @@ import {
 } from "../services/vms/images/sizes";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+import { deriveRowFailureAction, isFreestyleOverload, isFreestyleTransient, retryFreestyleOverload, argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -124,7 +124,7 @@ async function assignSlug(snapshotId: string, slug: string): Promise<string | nu
 const result: Record<string, { imageId: string; slug: string | null; size: VmImageSize; measured: unknown }> = {};
 
 // The master's own shape, so a size it already has is recorded without a copy.
-const probe = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} size-probe`, firewall: FIREWALL });
+const probe = await retryFreestyleOverload("size probe", () => fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} size-probe`, firewall: FIREWALL }));
 let masterShape: Awaited<ReturnType<typeof measure>>;
 try {
   masterShape = await measure(probe.vm);
@@ -152,7 +152,7 @@ const smokeSize = sizes[sizes.length - 1];
  * Every row is independent (its own VMs, its own snapshot), so they run
  * concurrently; the master and the manifest are read-only here.
  */
-async function deriveSize(name: VmImageSizeName): Promise<void> {
+async function deriveSize(name: VmImageSizeName, startBudgetMs?: number): Promise<void> {
     const size = vmImageSize(name);
     const slug = name === "md" && slugPrefix !== masterSlug ? slugPrefix : `${slugPrefix}-${name}`;
     const t0 = Date.now();
@@ -165,11 +165,12 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
       if (masterShape.cpu > size.cpu || masterShape.memoryMb > size.memoryMb) {
         throw new Error(`${name}: master (${masterShape.cpu} vCPU, ${masterShape.memoryMb} MiB) is larger than the target; resize is grow-only, bake on a smaller base`);
       }
-      const { vm } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL });
+      const { vm } = await retryFreestyleOverload(`${name} derive`, () => fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL }), startBudgetMs);
       try {
         const clock = await sh(vm, devboxSnapshotClockCommand);
         if (clock.code !== 0) throw new Error(`${name}: snapshot clock is unavailable`);
-        await vm.resize({ cpu: size.cpu, memory: size.memoryMb, storage: size.storageMb });
+        // Grow-only to a fixed target, so asking again is safe; see isFreestyleTransient.
+        await retryFreestyleOverload(`${name} resize`, () => vm.resize({ cpu: size.cpu, memory: size.memoryMb, storage: size.storageMb }), 5 * 60_000, 10_000, isFreestyleTransient);
         // The disk grows in place while the guest runs; wait for the root fs to
         // reflect it, then let the daemon units settle before the snapshot.
         let grown: Awaited<ReturnType<typeof measure>> | null = null;
@@ -206,7 +207,7 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
     }
 
     // Boot the derived snapshot itself: the shape must survive the round trip.
-    const check = await fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL });
+    const check = await retryFreestyleOverload(`${name} verify`, () => fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL }), startBudgetMs);
     let measured: Awaited<ReturnType<typeof measure>>;
     try {
       // The daemon is the last thing to come up on a resumed snapshot, so
@@ -246,13 +247,32 @@ const t0All = Date.now();
 // while the other workers still hold VMs, leaking them. Every worker runs to
 // completion (each cleans up in its own finally), then the first failure is
 // rethrown. A failed worker also drains the queue so the rest stop early.
+//
+// A row that failed only because Freestyle had no start capacity (429 past
+// retryFreestyleOverload's budget) is not a failure yet: it is set aside and
+// run again after the concurrent pass, one row at a time, when the ladder's
+// own VMs are gone. Rebake run 45857305941 (11-26) lost xl and 2xl verify to
+// eight minutes of 429 while md..lgx passed beside them; nothing was promoted.
 let failure: unknown;
+const deferred: VmImageSizeName[] = [];
+// Rows set aside for a failure other than a 429; see DERIVE_MAX_RETRIED_ROWS.
+let retriedRows = 0;
 const outcomes = await Promise.allSettled(
   Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
     for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
       try {
         await deriveSize(next);
       } catch (error) {
+        if (failure === undefined && deriveRowFailureAction(error, retriedRows) === "defer") {
+          if (isFreestyleOverload(error)) {
+            console.log(`${next}: Freestyle start capacity still overloaded; retrying after the other rows finish`);
+          } else {
+            retriedRows += 1;
+            console.log(`${next}: failed (${error instanceof Error ? error.message : String(error)}); retrying alone after the other rows finish`);
+          }
+          deferred.push(next);
+          continue;
+        }
         failure ??= error;
         queue.length = 0;
         throw error;
@@ -264,6 +284,11 @@ if (failure !== undefined) {
   const failed = outcomes.filter((o) => o.status === "rejected").length;
   console.error(`${failed} of ${outcomes.length} derive workers failed; all VMs have been cleaned up`);
   throw failure;
+}
+const deferredBudgetMs = Number(process.env.CMUX_DEVBOX_DERIVE_DEFERRED_BUDGET_MS ?? 20 * 60_000) || 20 * 60_000;
+for (const name of deferred) {
+  console.log(`${name}: retrying alone (VM start budget ${deferredBudgetMs / 60_000} min)`);
+  await deriveSize(name, deferredBudgetMs);
 }
 console.log(`derived ${sizes.length} sizes in ${((Date.now() - t0All) / 1000).toFixed(0)}s (concurrency ${concurrency})`);
 

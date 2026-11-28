@@ -39,8 +39,6 @@
 .acpmux-context-card-hint {
   margin-block-start: var(--ds-space-2);
   margin-inline-end: var(--ds-space-2);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
 }
 
 /* The composer popover stays compact in both states. It uses the same glass material supplied by

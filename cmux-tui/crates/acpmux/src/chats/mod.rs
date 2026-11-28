@@ -101,7 +101,10 @@ impl ChatService {
         let (found, settings_refused) = discover_roots(&sources, recorded.roots(), &settings);
         let index = ChatIndex::load(&cache_path(&sources), found.roots);
         let (changes, _) = broadcast::channel(256);
-        let text = text::ChatText::new(text_path(&sources));
+        let text = text::ChatText::with_legacy(
+            text_path(&sources),
+            sources.acpmux_home.join("chat-index/text-v1.json"),
+        );
         let service = Arc::new(Self {
             sources,
             state: Mutex::new(State {
@@ -577,7 +580,7 @@ fn cache_path(sources: &ChatSources) -> PathBuf {
 }
 
 fn text_path(sources: &ChatSources) -> PathBuf {
-    sources.acpmux_home.join("chat-index/text-v1.json")
+    sources.acpmux_home.join("chat-index/text-v2.bin")
 }
 
 /// The text thread reads changed chats this long after a change, so a chat being written is read
@@ -664,10 +667,15 @@ pub fn key_text(key: &ChatKey) -> String {
     format!("{}:{}", key.harness.id(), key.session_id)
 }
 
-/// Parses `key_text`.
+/// Parses `key_text`. The acpmux harness id `claude` (what classic cmux recorded and the
+/// classic import passes on) reads as the index's `claude-code`, so a key built from a
+/// session's harness opens its chat instead of refusing it.
 pub fn parse_key(text: &str) -> Option<ChatKey> {
     let (harness, session_id) = text.split_once(':')?;
-    let harness = AdapterKind::from_id(harness)?;
+    let harness = match harness {
+        "claude" => AdapterKind::ClaudeCode,
+        id => AdapterKind::from_id(id)?,
+    };
     (!session_id.is_empty()).then(|| ChatKey { harness, session_id: session_id.to_owned() })
 }
 
@@ -703,3 +711,7 @@ mod update_cost_bench;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "follow_bench.rs"]
 mod follow_bench;
+
+#[cfg(test)]
+#[path = "parse_key_tests.rs"]
+mod parse_key_tests;

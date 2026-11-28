@@ -1,5 +1,5 @@
 import React from "react";
-import { rowMark, MARK_PROMPT, MARK_INDICATOR } from "../transcriptGrid";
+import { rowMark, MARK_PROMPT, MARK_INDICATOR, ownMessagesJoin } from "../transcriptGrid";
 import { LoadFadeWindow } from "../../shared/loadFade";
 import {
   type AcpmuxRow,
@@ -18,6 +18,7 @@ import {
   rowPropsWindow,
 } from "../model";
 import { RowFrameCache } from "../conversation/rowFrameCache";
+import { settledRowHeight } from "../conversation/settledRowSkip";
 import { type ReferenceScope } from "../conversation/bareReferences";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
 import { isEditRow } from "../turnChanges/sessionRows";
@@ -31,7 +32,8 @@ import { rowKind } from "../virtualTranscriptModel";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
 import { rowDomId, RowFrame, RowContent } from "./RowFrame";
-import { entersUnseen, mountsOffscreen, skipsOffscreenRows } from "../conversation/offscreenRows";
+import { mountsOffscreen, skipsOffscreenRows, entersUnseen } from "../conversation/offscreenRows";
+import { shelvedHeight } from "../conversation/shelvedRows";
 
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
 /// compaction, a failover, a policy the harness cannot keep, and the one-line
@@ -98,11 +100,18 @@ export type RowFrameSources = {
 type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
+  /// The chat render pipeline experiment (settledRowSkip.ts): settled rows hold their indexed height
+  /// while the browser skips them off screen. Rows above `settledBefore` are settled by position.
+  skipSettledRows: boolean;
+  settledBefore: number;
   geometry: { topAt(index: number): number; gapAt(index: number): number; heightAt(index: number): number };
   /// The content in view, in the geometry's offsets: rows mounted far from it skip their contents
   /// (conversation/offscreenRows.ts). `viewHeight` 0 skips none.
   viewTop: number;
   viewHeight: number;
+  /// Rows that end above this offset (the geometry's) are shelved (conversation/shelvedRows.ts);
+  /// -Infinity shelves none.
+  shelfAbove: number;
   frameKey: string;
   registry: NativeRegistry;
   setSizeRef: React.MutableRefObject<string>;
@@ -200,6 +209,7 @@ export function drawRowFrames(
       const inputs = cache.scratch;
       inputs.index = absoluteIndex;
       inputs.top = geometry.topAt(absoluteIndex);
+      inputs.intrinsicHeight = settledRowHeight(view.skipSettledRows, row, absoluteIndex, view.settledBefore, geometry);
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
@@ -209,6 +219,7 @@ export function drawRowFrames(
       inputs.sendThinking = row.kind === THINKING && row.verbKey !== undefined && view.sentPromptIds.has(row.verbKey);
       inputs.enter = entering?.has(frameId) ?? false;
       inputs.loadFade = loadFade?.fades(row.id) ?? false;
+      inputs.shelved = shelvedHeight(inputs.top, geometry.heightAt(absoluteIndex), view.shelfAbove);
       inputs.older = older?.has(row.id) ? older : undefined;
       inputs.repository = view.githubRepository ?? view.rowRepositories?.(absoluteIndex);
       inputs.scope = view.scopeAt(absoluteIndex);
@@ -239,6 +250,9 @@ export function drawRowFrames(
           opensTurn={opensBackgroundTurn(row, prev)}
           beforeFooter={isBeforeFooter(row, next)}
           beforeIndicator={next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR}
+          beforeOwnMessage={
+            next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_PROMPT && ownMessagesJoin()
+          }
           replyActions={keepsReplyRoom(row, next)}
           status={statusEdge(row, next, prev)}
           lastFooter={isLastFooter(row, next)}
@@ -247,6 +261,7 @@ export function drawRowFrames(
           lastTurn={row.lastTurn === true}
           index={absoluteIndex}
           setSizeRef={view.setSizeRef}
+          intrinsicHeight={inputs.intrinsicHeight}
           top={inputs.top}
           gapBelow={inputs.gapBelow}
           rowWidth={view.rowWidth}
@@ -257,6 +272,7 @@ export function drawRowFrames(
           enter={inputs.enter}
           onEntered={view.onEntered}
           loadFade={inputs.loadFade}
+          shelved={inputs.shelved}
           onLoadFaded={view.onLoadFaded}
           older={inputs.older as OlderRowFade | undefined}
           onOlderShown={view.onOlderShown}

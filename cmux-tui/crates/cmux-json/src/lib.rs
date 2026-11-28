@@ -20,6 +20,9 @@
 //! assert_eq!(peer, json!([1, 2]));
 //! ```
 
+mod jsonc;
+pub use jsonc::strip_jsonc;
+
 use serde_json::{Map, Value};
 
 /// String-key writes that never panic, for [`Value`] and JSON object maps.

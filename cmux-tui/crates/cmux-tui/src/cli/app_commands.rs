@@ -335,6 +335,9 @@ pub(super) fn unknown_words(args: &[String]) -> Option<i32> {
 pub(super) fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     use super::{action_hint, agent_view, app, share_cli, wire};
     let (mut global, command_args) = super::parse_action_globals(args).ok()?;
+    if let Some(code) = app::run_pane_record(&global, &command_args) {
+        return Some(code);
+    }
     if let Some((name, action_args)) = agent_view::action(&command_args) {
         return app::run_cli_action(&global, &name, &action_args);
     }

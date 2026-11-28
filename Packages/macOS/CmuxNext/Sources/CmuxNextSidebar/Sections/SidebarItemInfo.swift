@@ -43,11 +43,11 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var textOnly = false
     /// The item's icon is its workspace's shown tab's (``SidebarWorkspace/iconFromShownTab``), not the workspace's own.
     public var iconFromShownTab = false
-    /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
+    /// A pin leading the row, before its icon and title. The sidebar's own rows leave it off: a pinned workspace leads
+    /// as its list row does (Leo 2026-11-23, ask c-b5d3e0efb6: "it puts a symbol at the left").
     public var leadingPin = false
-    /// The open workspace a workspace tile names: its row shows a workspace row's hover more
-    /// button, and no close x, since the item is pinned (`SidebarItemRowView+HoverActions`,
-    /// Lawrence msg 19392). Nil for every other item.
+    /// The open workspace a workspace tile names: its row shows a workspace row's hover controls, the ✕, the ⋮ and
+    /// Unpin (`SidebarItemRowView+HoverActions`). Nil for every other item.
     public var workspace: WorkspaceID?
     /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
     /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for
@@ -171,12 +171,13 @@ extension SidebarBuiltIn {
         case .chief: "sparkles"
         case .automations: "clock.badge.checkmark"
         case .forum: "text.bubble"
+        case .feed: "list.bullet.rectangle"
         }
     }
 
     /// The built-in's cmux icon, or nil where its SF Symbol (``symbol``) draws.
     ///
-    /// The Chief Activity item draws the sparkles symbol, not the cmux pack's `agent.chief` crown (Lawrence
+    /// The Chief Activity item draws the pack's `sparkles` glyph, not the `agent.chief` crown (Lawrence
     /// 2026-11-23, msg 48175: "get rid of the crown"); the Chief's top row draws Home's house (#53281).
     public var icon: IconName? {
         switch self {
@@ -192,9 +193,10 @@ extension SidebarBuiltIn {
         case .newAgentChat: .agentChatNew
         case .customize: .theme
         case .searchChats: .search
-        case .chief: nil
+        case .chief: .sparkles
         case .automations: .automation
         case .forum: .agentChatList
+        case .feed: nil
         }
     }
 
@@ -221,6 +223,7 @@ extension SidebarBuiltIn {
         case .chief: SectionStrings.chief
         case .automations: SectionStrings.automations
         case .forum: SectionStrings.forum
+        case .feed: SectionStrings.feed
         }
     }
 
@@ -234,17 +237,19 @@ extension SidebarBuiltIn {
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
 
-    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready, and for the Forum while its
-    /// experiment is off.
+    /// ``defaultInfo``, hidden for the App Store while it is hidden until it is ready, and for the Forum and the Feed
+    /// while their experiments are off.
     /// - Parameters:
     ///   - showsStore: Whether the App Store shows (`CmuxConfigSnapshot.showsAppStore`, Labs on).
     ///   - showsForum: Whether the Forum shows (`CmuxConfigSnapshot.showsForum`, `experiments.forum` on).
+    ///   - showsFeed: Whether the Feed shows (`CmuxConfigSnapshot.showsFeed`, `experiments.feed` on).
     /// - Returns: The built-in's presentation; the App Store's is hidden when `showsStore` is false, the Forum's
-    ///   when `showsForum` is false.
-    public func defaultInfo(showsStore: Bool, showsForum: Bool = false) -> SidebarItemInfo {
+    ///   when `showsForum` is false, the Feed's when `showsFeed` is false.
+    public func defaultInfo(showsStore: Bool, showsForum: Bool = false, showsFeed: Bool = false) -> SidebarItemInfo {
         var info = defaultInfo
         if self == .appStore, !showsStore { info.isHidden = true }
         if self == .forum, !showsForum { info.isHidden = true }
+        if self == .feed, !showsFeed { info.isHidden = true }
         return info
     }
 }

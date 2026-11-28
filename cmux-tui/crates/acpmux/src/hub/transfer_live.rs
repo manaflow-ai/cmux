@@ -41,6 +41,21 @@ const LIVE_CLIENT: std::time::Duration = std::time::Duration::from_secs(30);
 static PROGRESS: LazyLock<Mutex<HashMap<String, (std::time::Instant, Value)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Each chat's last import split ([`MoveSteps::split`]), kept by `import_placing` for the
+/// finish that called it to put under `finishSteps.importSteps` (taken once, so it never grows).
+static IMPORT_STEPS: LazyLock<Mutex<HashMap<String, Value>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Keeps chat `id`'s import split for its finish.
+pub(in crate::hub) fn keep_import_steps(id: &str, split: Value) {
+    IMPORT_STEPS.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned(), split);
+}
+
+/// Chat `id`'s import split, once.
+pub(in crate::hub) fn take_import_steps(id: &str) -> Option<Value> {
+    IMPORT_STEPS.lock().unwrap_or_else(|e| e.into_inner()).remove(id)
+}
+
 /// The steps of one move request (a finish, a stage's finish, a prepare), timed: one
 /// `acpmux::move_steps` line when it ends, at info once it took a second, else at debug. A slow
 /// move then says which step grew with the history (cmux#54461: a 250 MB move's target finish
@@ -63,6 +78,20 @@ impl MoveSteps {
         let now = std::time::Instant::now();
         self.steps.push((name, now - self.last));
         self.last = now;
+    }
+
+    /// Each step so far and the whole, in ms (`{"lock": 0, ..., "totalMs": 12}`): the finish
+    /// puts it in its answer, so a move's record names which step a slow freeze spent its time
+    /// in, not only the daemon log of a move past 1 s.
+    pub(in crate::hub) fn split(&self) -> Value {
+        let mut out = serde_json::Map::new();
+        for (name, took) in &self.steps {
+            let ms = took.as_millis() as u64;
+            let had = out.get(*name).and_then(Value::as_u64).unwrap_or(0);
+            out.insert((*name).to_owned(), Value::from(had + ms));
+        }
+        out.insert("totalMs".to_owned(), Value::from(self.started.elapsed().as_millis() as u64));
+        Value::Object(out)
     }
 }
 
@@ -452,62 +481,5 @@ pub(in crate::hub) fn seeded(dir: &Path, path: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_compressed_page_is_taken_and_a_bomb_is_refused() {
-        let page = vec![b'a'; 1 << 20];
-        let packed = zstd::bulk::compress(&page, 3).unwrap();
-        assert!(packed.len() < page.len() / 100);
-        let params = json!({"data": BASE64.encode(&packed), "encoding": "zstd"});
-        assert_eq!(page_bytes(&params).unwrap(), page);
-        let plain = json!({"data": BASE64.encode(b"abc")});
-        assert_eq!(page_bytes(&plain).unwrap(), b"abc");
-        let big = vec![0u8; (MAX_PAGE + 1) as usize];
-        let bomb = json!({"data": BASE64.encode(zstd::bulk::compress(&big, 3).unwrap()),
-                          "encoding": "zstd"});
-        assert!(page_bytes(&bomb).is_err());
-        let other = json!({"data": "", "encoding": "br"});
-        assert!(page_bytes(&other).unwrap_err().message.contains("transfer.encoding"));
-    }
-
-    /// A stage's native files (a Claude chat's transcript) go to the receive that takes it, with
-    /// what each holds, so the freeze pages only what they grew by; the receive may write a
-    /// seeded file again from an earlier offset.
-    #[test]
-    fn a_stages_native_files_seed_the_receive() {
-        let root = tempfile::tempdir().unwrap();
-        let (stage, receive) = (root.path().join("in-stage"), root.path().join("in-receive"));
-        let file = stage.join("bundle/native/claude/.claude/projects/p/s.jsonl");
-        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        std::fs::write(&file, b"{\"a\":1}\n").unwrap();
-        let native = keep_staged_native(&stage);
-        let path = "native/claude/.claude/projects/p/s.jsonl";
-        assert_eq!(
-            native,
-            vec![json!({"path": path, "bytes": 8,
-            "sha256": crate::sha256::sha256_hex(b"{\"a\":1}\n")})]
-        );
-        assert!(!stage.join("bundle/native").exists());
-        std::fs::create_dir_all(&receive).unwrap();
-        let staged = json!({"native": native});
-        let have = seed_native(&stage, &receive, Some(&staged));
-        assert_eq!(have, native);
-        assert!(receive.join("bundle").join(path).is_file());
-        assert!(seeded(&receive, path));
-        assert!(!seeded(&receive, "events/000001.ndjson"));
-    }
-
-    #[test]
-    fn a_prefix_digest_is_of_the_first_bytes_only() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("f");
-        std::fs::write(&file, b"abcdef").unwrap();
-        assert_eq!(
-            prefix_digest(&file, 3).unwrap().as_deref(),
-            Some(crate::sha256::sha256_hex(b"abc").as_str())
-        );
-        assert_eq!(prefix_digest(&file, 7).unwrap(), None);
-    }
-}
+#[path = "transfer_live_tests.rs"]
+mod tests;

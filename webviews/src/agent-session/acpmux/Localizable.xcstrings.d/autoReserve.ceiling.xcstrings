@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "autoReserve.ceiling" : {
+      "comment" : "Agent pane: the month's pooled Cloud hours are used up; Auto leaves agents on this Mac",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "انتهى وقت Cloud لهذا الشهر. يُبقي Auto الوكلاء على هذا الجهاز، لذا لم تعد حصتك مضمونة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cloud vrijeme za ovaj mjesec je potrošeno. Auto drži agente na ovom Macu, pa vaš dio više nije zajamčen."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Månedens Cloud-tid er brugt. Auto beholder agenter på denne Mac, så din andel er ikke længere garanteret."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Cloud-Zeit dieses Monats ist aufgebraucht. Auto lässt Agenten auf diesem Mac, dein Anteil ist daher nicht mehr garantiert."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud time is used up this month. Auto keeps agents on this Mac, so your share is no longer guaranteed."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El tiempo de Cloud de este mes se ha agotado. Auto mantiene los agentes en este Mac, así que tu parte ya no está garantizada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le temps Cloud de ce mois est épuisé. Auto garde les agents sur ce Mac, votre part n’est donc plus garantie."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il tempo Cloud di questo mese è esaurito. Auto lascia gli agenti su questo Mac, quindi la tua quota non è più garantita."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "今月のCloud時間を使い切りました。AutoはエージェントをこのMacに残すため、確保分は保証されません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេលវេលា Cloud ខែនេះបានអស់។ Auto រក្សាភ្នាក់ងារនៅលើ Mac នេះ ដូច្នេះចំណែករបស់អ្នកលែងធានាទៀតហើយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이번 달 Cloud 시간을 모두 사용했습니다. Auto가 에이전트를 이 Mac에 두므로 내 몫이 더 이상 보장되지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Månedens Cloud-tid er brukt opp. Auto beholder agenter på denne Macen, så din andel er ikke lenger garantert."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Czas Cloud na ten miesiąc się skończył. Auto zostawia agentów na tym Macu, więc Twój udział nie jest już gwarantowany."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O tempo de Cloud deste mês acabou. O Auto mantém os agentes neste Mac, então sua parte não é mais garantida."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Время Cloud на этот месяц исчерпано. Auto оставляет агентов на этом Mac, поэтому ваша доля больше не гарантирована."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เวลา Cloud ของเดือนนี้หมดแล้ว Auto จะให้เอเจนต์อยู่บน Mac เครื่องนี้ ส่วนของคุณจึงไม่รับประกันอีกต่อไป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu ayki Cloud süresi bitti. Auto ajanları bu Mac'te tutar, bu yüzden payınız artık garanti edilmez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Час Cloud на цей місяць вичерпано. Auto залишає агентів на цьому Mac, тому ваша частка більше не гарантована."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã hết thời gian Cloud của tháng này. Auto giữ các tác nhân trên Mac này nên phần của bạn không còn được đảm bảo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "本月 Cloud 时间已用完。Auto 会让代理留在这台 Mac 上，因此不再保证为你保留的份额。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "本月 Cloud 時間已用完。Auto 會讓代理留在這台 Mac 上，因此不再保證為你保留的份額。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

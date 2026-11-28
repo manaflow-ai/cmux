@@ -4,7 +4,7 @@
 //! A value goes into the login Keychain (service `cmux-cloud-secret`, account `<scope>/<NAME>`,
 //! scope `OWNER/NAME` or `*` for every repo) through `security -i` on stdin, as `cmux harness
 //! secret set` does: it is read from a no-echo prompt or stdin, never from argv, and is never
-//! printed or logged. `~/.config/cmux/cloud-secrets.json` (0600) lists the accounts and when each
+//! printed or logged. `~/.config/cmux-next/cloud-secrets.json` (0600) lists the accounts and when each
 //! was set, never a value: `ls` reads it, and the app's `cloud deliver-secrets` uses the times to
 //! deliver a changed value again. Values reach a machine only over its daemon link.
 
@@ -24,7 +24,7 @@ pub(crate) const SERVICE_OVERRIDE: &str = "CMUX_NEXT_CLOUD_SECRETS_SERVICE";
 
 /// This build's Keychain service: [`SERVICE_OVERRIDE`], else [`SERVICE`]; a `cmux` bundled in
 /// another app than the terminal's ignores the variable.
-fn service() -> String {
+pub(super) fn service() -> String {
     let other_app = crate::app_identity::this_process_in_other_apps_terminal();
     service_from(|key| std::env::var(key).ok().filter(|v| !v.trim().is_empty()), other_app)
 }
@@ -190,7 +190,7 @@ fn repo_scope(repo: &str) -> Result<String, UsageError> {
 /// build never reads or changes nightly's or another tag's list.
 pub(crate) const INDEX_OVERRIDE: &str = "CMUX_NEXT_CLOUD_SECRETS_FILE";
 
-fn index_path() -> Option<PathBuf> {
+pub(super) fn index_path() -> Option<PathBuf> {
     let other_app = crate::app_identity::this_process_in_other_apps_terminal();
     index_path_from(|key| std::env::var_os(key).filter(|v| !v.is_empty()), other_app)
 }

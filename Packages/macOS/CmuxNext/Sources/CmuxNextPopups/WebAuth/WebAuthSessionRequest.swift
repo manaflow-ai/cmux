@@ -14,4 +14,14 @@ package protocol WebAuthSessionRequest: AnyObject {
     func complete(with url: URL)
     /// The person ended the sign-in (ASWebAuthenticationSessionError.canceledLogin).
     func cancel()
+    /// The page to load instead of `url`, a stopped navigation that is not the callback but must not load as it is
+    /// (the app's own GitHub connect sends GitHub's code-less return on to the authorize page); nil: `url` loads.
+    func redirect(_ url: URL) -> URL?
+    /// The app's own flow: its panel opens over the app's front window. Another app's sign-in opens centered on screen.
+    var opensOverAppWindow: Bool { get }
+}
+
+extension WebAuthSessionRequest {
+    package func redirect(_ url: URL) -> URL? { nil }
+    package var opensOverAppWindow: Bool { false }
 }

@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. A live agent whose harness profile's launch (its argv and
 //! env, `HarnessProfile::launch_digest`) changed since it started restarts on the new profile
-//! and resumes the same conversation (`claude --resume`, ACP `session/load`), the way an update's
-//! restart does (`route_switch.rs` `restart_harnesses`): between turns now, in a turn when the
-//! turn ends, never cancelled. Checked when the catalog reloads (a profile file changed,
+//! and resumes the same conversation (`claude --resume`, ACP `session/load`). Every idle gate
+//! and the process census must find it quiet (`idle.rs`); it then hibernates until the next
+//! prompt. Never cancelled. Checked when the catalog reloads (a profile file changed,
 //! `cmux harness reload`, `_acpmux/reload_config`) and once the daemon has adopted the agents
 //! the previous one left, by the digest each session keeps on disk (`SessionMeta::launch_digest`).
 //! Until the new agent starts, lists say `respawn pending: profile changed`.
@@ -13,9 +13,9 @@
 
 use super::*;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-/// What `respawnPending` says while a respawn waits for the turn to end.
+/// What `respawnPending` says while a respawn waits for all work to end.
 pub(crate) const PROFILE_CHANGED: &str = "profile changed";
 
 /// The log record a respawn's mark writes, a change every list and watcher sees.
@@ -37,7 +37,7 @@ impl Hub {
                 })
                 .collect()
         };
-        let mut stale = BTreeSet::new();
+        let mut marked = 0;
         for session in self.sessions() {
             let meta = session.meta();
             // A Home Chief session is never swept, as Update Everything never sweeps one.
@@ -52,24 +52,20 @@ impl Hub {
             if !changed || session.child.lock().await.is_none() {
                 continue;
             }
-            tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed since its agent started: respawning it at its turn end");
+            tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed: hibernating now if quiet, otherwise waiting");
             self.mark_profile_respawn(&session);
-            // A background process or subagent at work would end with the harness, at the turn's
-            // end too: it restarts once nothing runs in it instead (`idle.rs` `respawn_when_quiet`),
-            // as an agent on a replaced binary does (`stale_host_respawn.rs`).
-            if self.holds_work_below(&session) {
+            // A reload of an idle chat should take effect immediately. Work can start after
+            // this snapshot, including an unreported child; the shared quietness/census path
+            // rechecks every gate before ending it and leaves a mark when it refuses.
+            if !self.end_quiet_stale(&session, "profile-changed", None).await {
                 self.respawn_when_quiet(&session);
-                continue;
+                marked += 1;
             }
-            stale.insert(session.id.clone());
         }
-        if stale.is_empty() {
-            return HarnessRestarts::default();
-        }
-        self.restart_harnesses(None, Some(&stale)).await
+        HarnessRestarts { after_turn: marked, ..HarnessRestarts::default() }
     }
 
-    /// The session's agent restarts on its profile's new launch at its turn end. Lists and
+    /// The session's agent hibernates when quiet, then starts on its profile's new launch. Lists and
     /// watchers see it (`respawnPending`, a `respawn_pending` record) until the new agent starts.
     pub(super) fn mark_profile_respawn(&self, session: &Session) {
         if !session.profile_respawn.swap(true, Ordering::SeqCst) {
@@ -80,8 +76,12 @@ impl Hub {
     /// The session's agent ended or a start runs the profile as it is now: no respawn waits.
     pub(super) fn settle_profile_respawn(&self, session: &Session) {
         // So does a restart that waited for its agent to be quiet (`idle.rs` `quiet_respawn`).
-        session.respawn_when_quiet.store(false, Ordering::SeqCst);
-        if session.profile_respawn.swap(false, Ordering::SeqCst) {
+        let quiet_was = session.respawn_when_quiet.swap(false, Ordering::SeqCst);
+        session.respawn_required.store(false, Ordering::SeqCst);
+        // Clear both marks independently: a quiet restart can be set alongside the profile mark,
+        // and short-circuiting the second swap leaves `profile_respawn` stuck until a later spawn.
+        let profile_was = session.profile_respawn.swap(false, Ordering::SeqCst);
+        if quiet_was || profile_was {
             // The next list is built anew; the start's own records follow.
             session.state_seq.fetch_add(1, Ordering::SeqCst);
             self.events.row_changed(session);
@@ -129,60 +129,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn hub(argv: &[&str]) -> Arc<Hub> {
-        let mut config: crate::config::Config = serde_json::from_value(serde_json::json!({
-            "harnesses": {"lane": {"argv": argv, "family": "claude"}},
-        }))
-        .unwrap();
-        config.store.mode = crate::config::StoreMode::Memory;
-        config.profile_sources = crate::config::ProfileSources::none();
-        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
-        Hub::new(config, store)
-    }
-
-    fn meta(spawn_argv: Option<&[&str]>) -> SessionMeta {
-        let mut m: SessionMeta = serde_json::from_value(serde_json::json!({
-            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "lane",
-            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
-        }))
-        .unwrap();
-        m.spawn_argv = spawn_argv.map(|a| a.iter().map(|w| (*w).to_owned()).collect());
-        m
-    }
-
-    async fn stale(profile: &[&str], started: Option<&[&str]>) -> bool {
-        let hub = hub(profile);
-        let p = hub.config.read().await.harnesses["lane"].clone();
-        hub.legacy_stale(&p, &meta(started), &BTreeMap::new()).await
-    }
-
-    #[tokio::test]
-    async fn a_legacy_agent_is_stale_unless_its_argv_is_what_a_start_builds_now() {
-        let capped = ["/u/bin/claude", "--autocompact", "402530"];
-        // Started before the profile gained the flag (the 2026-10-31 session at 650k of 1M).
-        assert!(stale(&capped, Some(&["/u/bin/claude"])).await);
-        // Started after: the same argv.
-        assert!(!stale(&capped, Some(&capped)).await);
-        // A different cap, another program, a word the profile dropped at its end (review 3).
-        assert!(stale(&capped, Some(&["/u/bin/claude", "--autocompact", "300000"])).await);
-        assert!(stale(&capped, Some(&["/other/claude", "--autocompact", "402530"])).await);
-        assert!(stale(&["/u/bin/claude"], Some(&capped)).await);
-        // `${cwd}` is expanded as a start expands it.
-        let at = ["/u/bin/agent", "--cwd", "${cwd}"];
-        assert!(!stale(&at, Some(&["/u/bin/agent", "--cwd", "/w"])).await);
-        // Nothing to judge: no recorded argv.
-        assert!(!stale(&capped, None).await);
-    }
-
-    #[tokio::test]
-    async fn a_remote_origin_legacy_agent_is_not_judged() {
-        let hub = hub(&["/u/bin/claude", "--autocompact", "402530"]);
-        let p = hub.config.read().await.harnesses["lane"].clone();
-        let mut m = meta(Some(&["/u/bin/claude"]));
-        m.remote_origin = true;
-        assert!(!hub.legacy_stale(&p, &m, &BTreeMap::new()).await);
-    }
-}
+#[path = "profile_respawn_tests.rs"]
+mod tests;

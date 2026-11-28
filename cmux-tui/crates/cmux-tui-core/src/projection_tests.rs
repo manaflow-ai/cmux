@@ -26,6 +26,28 @@ fn a_mount_point_outside_the_roots_or_not_plain_is_refused() {
 }
 
 #[test]
+fn a_rejected_mount_does_not_create_parent_directories() {
+    let root = cmux_unix_socket::short_test_dir("proj-root");
+    let outside = cmux_unix_socket::short_test_dir("proj-outside");
+    let missing = outside.path().join("never-created").join("chat");
+    assert!(mount_point(missing.to_str().unwrap(), &[root.path().to_path_buf()]).is_err());
+    assert!(!outside.path().join("never-created").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_mount_point_symlink_cannot_escape_the_roots() {
+    use std::os::unix::fs::symlink;
+
+    let home = cmux_unix_socket::short_test_dir("proj-symlink");
+    let roots = vec![home.path().to_path_buf()];
+    let outside = cmux_unix_socket::short_test_dir("proj-outside");
+    let link = home.path().join("link");
+    symlink(outside.path(), &link).unwrap();
+    assert!(mount_point(link.to_str().unwrap(), &roots).is_err());
+}
+
+#[test]
 fn a_bad_name_or_an_unknown_reattach_is_refused_with_its_code() {
     let home = cmux_unix_socket::short_test_dir("proj");
     let roots = vec![home.path().to_path_buf()];
@@ -77,7 +99,7 @@ fn a_revision_in_the_store_is_fetched_and_assembled() {
     let split = cmux_projection::revision::split(&manifest).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let pieces: std::collections::HashMap<String, Vec<u8>> =
+    let pieces: HashMap<String, Vec<u8>> =
         split.pieces.iter().map(|piece| (piece.sha256.clone(), piece.bytes.clone())).collect();
     let served = std::thread::spawn(move || {
         // One request per connection, until the test drops the last reference.
@@ -402,6 +424,7 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
         let git = |args: &[&str]| {
             std::process::Command::new("git")
                 .env("HOME", &home)
+                .env("GIT_CONFIG_GLOBAL", home.join(".gitconfig"))
                 // A fleet job sets GIT_CONFIG_GLOBAL=/dev/null; git would skip `home`.
                 .env_remove("GIT_CONFIG_GLOBAL")
                 .env_remove("XDG_CONFIG_HOME")
@@ -443,7 +466,7 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
          - README.md\n\
          - src/main.rs"
     );
-    let capped = Report { paths: vec!["a".into()], failed: 9, ..report.clone() };
+    let capped = Report { paths: vec!["a".into()], failed: 9, ..report };
     let (title, body) = away_notice(at, &capped);
     assert_eq!(title, "The Mac is away: 9 reads in a projected folder failed");
     assert!(body.ends_with("Reads that failed (9):\n- a\n- and 8 more"), "{body}");
@@ -455,7 +478,8 @@ fn the_away_notice_names_the_folder_the_mac_and_the_failed_reads() {
 
 #[test]
 fn brought_back_and_release_are_projection_frames() {
-    for op in [BROUGHT_BACK, RELEASE, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM] {
+    for op in [BROUGHT_BACK, RELEASE, DETACH, LAYER, FILES, DROP, PIN, UNPIN, PINS, WARM, UNSYNCED]
+    {
         let line = json!({"id": 1, "cmd": op, "name": "a"}).to_string();
         assert_eq!(frame_command(&line), Some(op));
     }
@@ -485,7 +509,426 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
         why: why.map(str::to_owned),
         path: None,
         paths: Vec::new(),
+        chat: None,
+        prune: false,
     }
+}
+
+/// A serve replacing a mount while detach drains an admitted write must remain attached.
+#[cfg(target_os = "linux")]
+#[test]
+fn detach_draining_a_write_does_not_seal_a_replacement() {
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+    use cmux_projection::{Fetch, FetchError};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    struct HeldFetch {
+        entered: mpsc::Sender<()>,
+        resume: Mutex<mpsc::Receiver<()>>,
+    }
+    impl Fetch for HeldFetch {
+        fn read(&self, _: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
+            self.entered.send(()).map_err(|_| FetchError::Failed)?;
+            self.resume
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(10))
+                .map_err(|_| FetchError::Failed)?;
+            Ok(b"old".iter().copied().skip(offset as usize).take(len as usize).collect())
+        }
+        fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+            entries.iter().map(|&entry| self.read(entry, 0, 3)).collect()
+        }
+    }
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let name = "detach-replacement-test";
+    let (state, at) = projected_state(home.path(), name);
+    let manifest = Arc::new(
+        Manifest::build(
+            1,
+            vec![Item {
+                path: "file".into(),
+                kind: Kind::File,
+                mode: 0o644,
+                size: 3,
+                mtime_ns: 1,
+                link: None,
+            }],
+        )
+        .unwrap(),
+    );
+    let make = |dir: &Path, fetch: Arc<dyn Fetch>| {
+        Arc::new(Projected {
+            link: Arc::new(cmux_projection::link::Link::default()),
+            digest: AtomicU64::new(0),
+            at: at.clone(),
+            mounted: Mutex::new(None),
+            overlay: Arc::new(
+                cmux_projection::overlay::Overlay::open(manifest.clone(), dir, fetch, (0, 0))
+                    .unwrap(),
+            ),
+            ext: Mutex::new(None),
+            barrier: Mutex::new(None),
+            away: cmux_projection::away::Away::new(|_| {}),
+        })
+    };
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    let old =
+        make(&state, Arc::new(HeldFetch { entered: entered_tx, resume: Mutex::new(resume_rx) }));
+    let replacement_state = home.path().join("replacement");
+    std::fs::create_dir_all(replacement_state.join("upper")).unwrap();
+    std::fs::write(replacement_state.join("upper/file"), b"new").unwrap();
+    let replacement = make(&replacement_state, Arc::new(cmux_projection::link::Link::default()));
+    projections().lock().unwrap().insert(name.into(), old.clone());
+    let writing = old.clone();
+    let write = std::thread::spawn(move || {
+        writing.overlay.write(writing.overlay.lookup(1, "file").unwrap().ino, 0, b"kept")
+    });
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let detaching_state = state.clone();
+    let detaching =
+        std::thread::spawn(move || detach(&control_line(name, None, None), &detaching_state));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !old.overlay.is_sealed() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(old.overlay.is_sealed(), "detach must reach its drain before replacement");
+    projections().lock().unwrap().insert(name.into(), replacement.clone());
+    resume_tx.send(()).unwrap();
+    assert_eq!(write.join().unwrap(), Ok(4));
+    assert_eq!(detaching.join().unwrap().unwrap_err().0, "projection.busy");
+    let current = projections().lock().unwrap().remove(name).unwrap();
+    assert!(Arc::ptr_eq(&current, &replacement));
+    assert!(!replacement.overlay.is_sealed());
+    assert!(cmux_projection::state::read(&state).unwrap().detached.is_none());
+    assert_eq!(std::fs::read(state.join("upper/file")).unwrap(), b"kept");
+    let ino = replacement.overlay.lookup(1, "file").unwrap().ino;
+    assert_eq!(replacement.overlay.write(ino, 0, b"live"), Ok(4));
+    assert_eq!(replacement.overlay.read(ino, 0, 4).unwrap(), b"live");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn detach_times_out_without_unmounting_or_losing_an_admitted_copy_up() {
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+    use cmux_projection::{Fetch, FetchError};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    struct HeldFetch {
+        entered: mpsc::Sender<()>,
+        resume: Mutex<mpsc::Receiver<()>>,
+    }
+    impl Fetch for HeldFetch {
+        fn read(&self, _: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
+            self.entered.send(()).map_err(|_| FetchError::Failed)?;
+            self.resume
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(10))
+                .map_err(|_| FetchError::Failed)?;
+            Ok(b"old".iter().copied().skip(offset as usize).take(len as usize).collect())
+        }
+        fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+            entries.iter().map(|&entry| self.read(entry, 0, 3)).collect()
+        }
+    }
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let name = "detach-timeout-test";
+    let (state, at) = projected_state(home.path(), name);
+    std::fs::create_dir_all(&at).unwrap();
+    let before = cmux_projection::state::read(&state).unwrap();
+    let manifest = Arc::new(
+        Manifest::build(
+            1,
+            vec![Item {
+                path: "file".into(),
+                kind: Kind::File,
+                mode: 0o644,
+                size: 3,
+                mtime_ns: 1,
+                link: None,
+            }],
+        )
+        .unwrap(),
+    );
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    let projected = Arc::new(Projected {
+        link: Arc::new(cmux_projection::link::Link::default()),
+        digest: AtomicU64::new(0),
+        at: at.clone(),
+        mounted: Mutex::new(None),
+        overlay: Arc::new(
+            cmux_projection::overlay::Overlay::open(
+                manifest,
+                &state,
+                Arc::new(HeldFetch { entered: entered_tx, resume: Mutex::new(resume_rx) }),
+                (0, 0),
+            )
+            .unwrap(),
+        ),
+        ext: Mutex::new(None),
+        barrier: Mutex::new(None),
+        away: cmux_projection::away::Away::new(|_| {}),
+    });
+    projections().lock().unwrap().insert(name.into(), projected.clone());
+    let ino = projected.overlay.lookup(1, "file").unwrap().ino;
+    let writing = projected.clone();
+    let writer = std::thread::spawn(move || writing.overlay.write(ino, 0, b"kept"));
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let detaching_state = state.clone();
+    let (finished, finished_rx) = mpsc::channel();
+    let detacher = std::thread::spawn(move || {
+        finished
+            .send(detach_with_timeout(
+                &control_line(name, None, None),
+                &detaching_state,
+                Duration::from_millis(25),
+            ))
+            .unwrap();
+    });
+    let refusal = finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap_err();
+    detacher.join().unwrap();
+    assert_eq!(refusal.0, "projection.busy");
+    assert!(refusal.1.contains("retry detach"));
+    assert!(Arc::ptr_eq(&projections().lock().unwrap()[name], &projected));
+    assert_eq!(cmux_projection::state::read(&state).unwrap(), before);
+    assert!(at.is_dir());
+    assert!(projected.overlay.is_sealed());
+    assert_eq!(projected.overlay.write(ino, 0, b"late"), Err(libc::EROFS));
+
+    // Even a new serve must not reopen the shared upper layer while the old copy-up drains.
+    // This check runs before FUSE setup, so a refusal cannot accidentally replace the mount.
+    let line: ServeLine = serde_json::from_value(json!({
+        "cmd": SERVE, "name": name, "at": at, "manifest_bytes": 1,
+    }))
+    .unwrap();
+    let refused = mount(&line, Manifest::build(1, vec![]).unwrap(), &state, &at, 1)
+        .err()
+        .expect("a draining overlay must stay mounted until detach completes");
+    assert_eq!(refused.0, "projection.busy");
+    assert!(Arc::ptr_eq(&projections().lock().unwrap()[name], &projected));
+    assert_eq!(cmux_projection::state::read(&state).unwrap(), before);
+
+    resume_tx.send(()).unwrap();
+    assert_eq!(writer.join().unwrap(), Ok(4));
+    assert_eq!(std::fs::read(state.join("upper/file")).unwrap(), b"kept");
+    let result =
+        detach_with_timeout(&control_line(name, None, None), &state, Duration::ZERO).unwrap();
+    assert_eq!(result["detached"], true);
+    assert!(!projections().lock().unwrap().contains_key(name));
+    assert!(cmux_projection::state::read(&state).unwrap().detached.is_some());
+    assert_eq!(std::fs::read(state.join("upper/file")).unwrap(), b"kept");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn an_extend_finishing_after_detach_does_not_refresh_the_removed_or_replacement_mount() {
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+    use std::time::{Duration, Instant};
+
+    let item = |path: &str| Item {
+        path: path.into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 4,
+        mtime_ns: 1,
+        link: None,
+    };
+    for replace in [false, true] {
+        let home = cmux_unix_socket::short_test_dir("extlate");
+        let name = home.path().file_name().unwrap().to_str().unwrap().to_owned();
+        let at = home.path().join("mount");
+        std::fs::create_dir(&at).unwrap();
+        // attach resolves its real state path; use a unique name and remove only our folder.
+        let state = state_of(&name).unwrap();
+        std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+        std::fs::create_dir(&state).unwrap();
+        std::fs::create_dir(state.join("upper")).unwrap();
+        std::fs::write(state.join("upper/file"), b"kept").unwrap();
+        cmux_projection::state::update(&state, &at, |record| record.attached_ms = 1).unwrap();
+        let head = Arc::new(Manifest::build(1, vec![item("file")]).unwrap());
+        let full = Manifest::build(1, vec![item("file"), item("tail")]).unwrap().encode().unwrap();
+        let digest = fnv(&full);
+        let make = |dir: &Path| {
+            Arc::new(Projected {
+                link: Arc::new(cmux_projection::link::Link::default()),
+                digest: AtomicU64::new(0),
+                at: at.clone(),
+                mounted: Mutex::new(None),
+                overlay: Arc::new(
+                    cmux_projection::overlay::Overlay::open(
+                        head.clone(),
+                        dir,
+                        Arc::new(cmux_projection::link::Link::default()),
+                        (0, 0),
+                    )
+                    .unwrap(),
+                ),
+                ext: Mutex::new(None),
+                barrier: Mutex::new(None),
+                away: cmux_projection::away::Away::new(|_| {}),
+            })
+        };
+        let old = make(&state);
+        projections().lock().unwrap().insert(name.clone(), old.clone());
+        // extend stores the digest after changing the lower manifest, then takes this mutex.
+        // Holding it forces the race before attach can recheck the mount table.
+        let held = old.ext.lock().unwrap();
+        let first = json!({
+            "id": 1, "cmd": SERVE, "name": name, "at": at,
+            "manifest_bytes": full.len(), "extend": true,
+        })
+        .to_string();
+        let roots = vec![home.path().to_path_buf()];
+        let extending = std::thread::spawn(move || attach(&first, &mut full.as_slice(), &roots));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while old.digest.load(Ordering::Relaxed) != digest && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(old.digest.load(Ordering::Relaxed), digest, "extend reached its handoff");
+        assert!(old.overlay.lookup(1, "tail").is_ok(), "the old manifest was extended");
+        detach(&control_line(&name, None, None), &state).unwrap();
+        assert!(old.overlay.is_sealed());
+        assert!(cmux_projection::state::read(&state).unwrap().detached.is_some());
+        let replacement = replace.then(|| {
+            std::fs::create_dir(&at).unwrap();
+            let dir = home.path().join("replacement");
+            std::fs::create_dir_all(dir.join("upper")).unwrap();
+            std::fs::write(dir.join("upper/file"), b"live").unwrap();
+            let replacement = make(&dir);
+            projections().lock().unwrap().insert(name.clone(), replacement.clone());
+            cmux_projection::state::update(&state, &at, |record| {
+                record.detached = None;
+                record.attached_ms = 2;
+            })
+            .unwrap();
+            replacement
+        });
+        let record = cmux_projection::state::read(&state).unwrap();
+        drop(held);
+        let refused = extending.join().unwrap().err().expect("late extend must refuse");
+        assert_eq!(refused.0, "projection.unknown");
+        assert_eq!(cmux_projection::state::read(&state).unwrap(), record);
+        assert_eq!(std::fs::read(state.join("upper/file")).unwrap(), b"kept");
+        let current = projections().lock().unwrap().remove(&name);
+        if let Some(replacement) = replacement {
+            assert!(Arc::ptr_eq(&current.unwrap(), &replacement));
+            assert!(!replacement.overlay.is_sealed());
+            assert!(replacement.overlay.lookup(1, "tail").is_err());
+            let ino = replacement.overlay.lookup(1, "file").unwrap().ino;
+            assert_eq!(replacement.overlay.write(ino, 0, b"next"), Ok(4));
+            assert_eq!(replacement.overlay.read(ino, 0, 4).unwrap(), b"next");
+        } else {
+            assert!(current.is_none());
+            assert!(!at.exists());
+        }
+        std::fs::remove_dir_all(&state).unwrap();
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_detached_projection_rejects_redial() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let name = "p-late-redial";
+    let (state, _) = projected_state(home.path(), name);
+    detach(&control_line(name, None, None), &state).unwrap();
+    // Attach checks this after reading either a stored or a full manifest, before mounting.
+    let refused = allow_redial(&state, name).err().unwrap();
+    assert_eq!(refused.0, "projection.detached");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_detach_while_preparing_a_manifest_prevents_the_redial_from_mounting() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let name = "p-detached-before-mount";
+    let (state, at) = projected_state(home.path(), name);
+    // Attach passed its first check before it fetched or decoded the manifest.
+    allow_redial(&state, name).unwrap();
+    detach(&control_line(name, None, None), &state).unwrap();
+    // This fixture has no FUSE mount; remove its empty mount point ourselves.
+    std::fs::remove_dir(&at).unwrap();
+    for (redial, manifest_bytes) in [(true, 1), (false, 0)] {
+        let line: ServeLine = serde_json::from_value(json!({
+            "cmd": SERVE, "name": name, "at": at,
+            "redial": redial, "manifest_bytes": manifest_bytes
+        }))
+        .unwrap();
+        let manifest = cmux_projection::manifest::Manifest::build(1, vec![]).unwrap();
+        let refused = mount(&line, manifest, &state, &at, 0).err().unwrap();
+        assert_eq!(refused.0, "projection.detached");
+        assert!(!at.exists(), "a rejected redial recreated the mount point");
+        assert!(cmux_projection::state::read(&state).unwrap().detached.is_some());
+    }
+}
+
+/// Leo, 2026-11-25: "we'll also presumably want to deal with various cases of like them maybe
+/// adding/removing folders and files per chat?" A folder removed from its chat keeps its edits
+/// for Bring Back, records which chat removed it, and is attached again when added back.
+#[test]
+fn a_detached_projection_keeps_its_edits_and_serving_it_again_clears_the_detach() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, at) = projected_state(home.path(), "p-removed");
+    let before = cmux_projection::state::mark(&state).unwrap();
+    let line = WayBackLine { chat: Some("chat-1".into()), ..control_line("p-removed", None, None) };
+    let answer = detach(&line, &state).unwrap();
+    assert_eq!(answer["detached"], true, "{answer}");
+    assert_eq!(answer["was_mounted"], false, "{answer}");
+    assert_eq!(answer["mark"], before.as_str(), "detaching changed the edits: {answer}");
+    assert_eq!(
+        std::fs::read(state.join("upper/src/a.rs")).unwrap(),
+        b"fn a() { /* edited */ }",
+        "a removed folder's edit went"
+    );
+    let record = cmux_projection::state::read(&state).unwrap();
+    let detached = record.detached.expect("not recorded detached");
+    assert_eq!(detached.chat.as_deref(), Some("chat-1"));
+    assert!(detached.ms > 0);
+    // Detaching again is fine (the Mac retried); Bring Back still reads the layer by name.
+    assert_eq!(detach(&line, &state).unwrap()["detached"], true);
+    assert_eq!(allow_redial(&state, "p-removed").unwrap_err().0, "projection.detached");
+    attached_in(&state, &at);
+    assert!(allow_redial(&state, "p-removed").is_ok());
+    assert!(cmux_projection::state::read(&state).unwrap().detached.is_none());
+
+    let bad = WayBackLine { chat: Some("a\nb".into()), ..control_line("p-removed", None, None) };
+    assert_eq!(detach(&bad, &state).unwrap_err().0, "projection.params_invalid");
+    let gone = control_line("p-never", None, None);
+    let missing = home.path().join("projections/p-never");
+    assert_eq!(detach(&gone, &missing).unwrap_err().0, "projection.unknown");
+}
+
+#[test]
+fn the_detach_notice_names_the_folder_and_says_its_edits_are_kept() {
+    let (title, body) = detach_notice(Path::new("/home/u/work/extra/repo"));
+    assert!(title.contains("/home/u/work/extra/repo") && title.contains("removed"), "{title}");
+    assert!(
+        body.contains("EROFS") && body.contains("kept") && body.contains("bring back"),
+        "{body}"
+    );
+}
+
+/// `projection.unsynced`: what Bring Back would carry and what stays on the machine, counted.
+#[test]
+fn unsynced_counts_the_changes_and_what_stays_on_the_machine() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, _) = projected_state(home.path(), "p-count");
+    std::fs::create_dir_all(state.join("upper/node_modules/x")).unwrap();
+    std::fs::write(state.join("upper/node_modules/x/i.js"), b"1;").unwrap();
+    std::fs::write(state.join("upper/node_modules/x/package.json"), b"{}").unwrap();
+    assert_eq!(
+        unsynced(&state, true).unwrap(),
+        json!({"files": 1, "bytes": 23, "deleted": 1,
+               "kept_on_machine": {"folders": 1, "files": 2, "bytes": 4,
+                                   "paths": ["node_modules"]}})
+    );
+    // Unpruned (the caller's manifest holds `node_modules`): its edits count.
+    assert_eq!(unsynced(&state, false).unwrap(), json!({"files": 3, "bytes": 27, "deleted": 1}));
 }
 
 /// RFD 0007: Bring Back's upper layer is "brought back at the mark it read
@@ -525,6 +968,18 @@ fn release_frees_the_state_and_its_empty_mount_point() {
     assert_eq!(free(RELEASE, &line, &state).unwrap()["freed_bytes"], 0);
     let line = control_line("p-gone", None, Some("lost"));
     assert_eq!(free(RELEASE, &line, &state).unwrap_err().0, "projection.params_invalid");
+}
+
+#[test]
+fn releasing_detached_state_leaves_its_former_mount_path_alone() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let (state, at) = projected_state(home.path(), "p-detached-release");
+    let line = control_line("p-detached-release", None, Some("deleted"));
+    detach(&line, &state).unwrap();
+    std::fs::create_dir_all(&at).unwrap();
+    free(RELEASE, &line, &state).unwrap();
+    assert!(!state.exists());
+    assert!(at.is_dir());
 }
 
 fn pin_line(name: &str, path: Option<&str>) -> WayBackLine {
@@ -699,4 +1154,50 @@ fn a_head_dial_holds_the_barrier_at_head_ready_until_the_extend() {
     let state =
         crate::platform::workspace_state_dir().unwrap().join("projections").join("test-extend");
     let _ = std::fs::remove_dir_all(&state);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_swap_link_out_of_the_served_home_keeps_the_projected_git() {
+    let home = Path::new("/h/me");
+    let at = Path::new("/h/me/work/chats/c/app");
+    // The default state folder is under HOME: fs-v1 follows the link.
+    assert!(swap_link_served(
+        at,
+        Path::new("/h/me/.local/state/cmux-tui/projections/c"),
+        Some(home)
+    ));
+    // A state folder outside HOME: fs-v1 would refuse `.git/cmux-sync.json`, so no swap.
+    assert!(!swap_link_served(at, Path::new("/var/state/projections/c"), Some(home)));
+    // A folder fs-v1 does not serve, or no HOME: nothing to refuse.
+    assert!(swap_link_served(Path::new("/srv/app"), Path::new("/var/state/p"), Some(home)));
+    assert!(swap_link_served(at, Path::new("/var/state/p"), None));
+}
+
+#[test]
+fn the_bulk_copy_runs_unless_turned_off_and_its_log_line_says_why_it_ended() {
+    use std::ffi::OsStr;
+    assert!(super::bulk_copy_enabled(None));
+    assert!(super::bulk_copy_enabled(Some(OsStr::new("1"))));
+    for off in ["0", "false", "OFF"] {
+        assert!(!super::bulk_copy_enabled(Some(OsStr::new(off))), "{off}");
+    }
+    let took = std::time::Duration::from_millis(1200);
+    let mut report = cmux_projection::overlay::bulk::BulkReport {
+        files: 3,
+        bytes: 4096,
+        requests: 2,
+        complete: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        super::bulk_copy_line(&report, took),
+        "complete; 3 files, 4096 bytes in 2 requests, 1200 ms"
+    );
+    report.complete = false;
+    report.full = true;
+    assert!(super::bulk_copy_line(&report, took).starts_with("stopped: the rest does not fit"));
+    report.full = false;
+    report.away = true;
+    assert!(super::bulk_copy_line(&report, took).starts_with("stopped: the Mac went away"));
 }

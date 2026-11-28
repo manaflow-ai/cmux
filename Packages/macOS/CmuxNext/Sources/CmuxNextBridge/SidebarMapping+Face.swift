@@ -169,7 +169,8 @@ extension SidebarMapping {
         // naming the machine (Leo 2026-10-30: "JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE"). A caller whose
         // `pageFace` gives no title (a pinned tile) has its shell's folder read as the label.
         let label = options.foldersLabel ? face?.cwd.map { ($0 as NSString).lastPathComponent } : page?.title
-        let title = Self.homeShellName(options.homeShellTitle, workspace: workspace, label: label, face: face)
+        let title = Self.homeShellName(options.homeShellTitle, workspace: workspace, label: label, face: face,
+                                       home: options.machine == .local ? home : nil)
             ?? Self.sidebarTitle(workspace, page: page)
         let agentTab = at(facts.agent)
         let rowAgent = Self.agentMark(agentTab, harnessIcons: harnessIcons)
@@ -238,6 +239,8 @@ extension SidebarMapping {
             folder: facts.bucket
         )
         row.focusedTab = focused.map { TabID($0.id) }
+        // The row's agent chat's acpmux session, whose dot glyph `appearance.agentSignature` draws.
+        row.agentSessionID = agentTab?.agentSession?.session.flatMap { $0.isEmpty ? nil : $0 }
         // Who the row's agent is (acpmux `displayName`, `formerNames`): its hover card's agent line.
         if let ref = agentTab?.agentSession {
             row.agentDisplayName = AgentTurnStateStore.shared.displayName(for: ref)
@@ -265,7 +268,6 @@ extension SidebarMapping {
         row.reported = Self.reported(workspace.status, asset: options.iconAsset)
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
-        row.createdBy = Self.creator(workspace.createdBy)
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)

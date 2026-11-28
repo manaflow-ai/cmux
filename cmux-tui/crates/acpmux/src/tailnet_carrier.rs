@@ -1,9 +1,10 @@
 //! The tailnet path of acpmux peer links (`peer_tailnet.rs`), for a person who runs Tailscale
-//! and turns it on. RFD 0164 "Tailnet carrier", slice T6. Opt-in, default off.
+//! has it. RFD 0164 "Tailnet carrier", slice T6. Opt-in, default off.
 //!
-//! - **Setting.** `CMUX_TAILNET_CARRIER` = `off` (default; also unset or unknown) |
-//!   `direct-only` | `on`: the daemon-side form of the setting `transport.tailnetCarrier`.
-//!   `off` makes no tailscale call at all, in either direction.
+//! - **Setting.** `transport.tailnetCarrier` = `off` (default) | `direct-only` | `on`;
+//!   `CMUX_TAILNET_CARRIER` overrides it (tests, development). An unknown value is `off`.
+//!   `off` makes no tailscale call at all, in either direction. Without Tailscale, `direct-only`
+//!   costs one failed LocalAPI read: no candidate, no listener on a tailnet address, no error.
 //! - **Learning the address.** Locally and read-only: the peer record's host (the ssh
 //!   destination's host or the URL's host) is matched against this machine's tailscaled status
 //!   (an address, the MagicDNS name, its short name or the OS host name; one node only, online,
@@ -43,10 +44,14 @@ use tokio::sync::Notify;
 
 /// The setting, as the daemon reads it.
 pub const ENV: &str = "CMUX_TAILNET_CARRIER";
+/// The settings key the app writes.
+pub const SETTING: &str = "transport.tailnetCarrier";
 /// A status younger than this is read as it is.
 pub const FRESH: Duration = Duration::from_secs(5);
 /// A failed read (no tailscale, not running) is not tried again for this long.
 pub const FAILED_FRESH: Duration = Duration::from_secs(30);
+/// The longest wait between two tries to listen on the tailnet address.
+pub const MAX_BIND_WAIT: Duration = Duration::from_secs(600);
 /// How long a whois verdict of an admitted source is kept; a refused one is kept [`REFUSED_FOR`].
 const ADMITTED_FOR: Duration = Duration::from_secs(60);
 const REFUSED_FOR: Duration = Duration::from_secs(10);
@@ -57,10 +62,12 @@ const GATE_WAIT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
-    /// No tailscale call, no tailnet path, no tailnet listener.
+    /// No tailscale call, no tailnet path, no tailnet listener. The default: turning the
+    /// carrier on by default waits for Leo's word (rc-polish: no default flips).
     #[default]
     Off,
-    /// Only a path tailscale reports as direct.
+    /// Only a path tailscale reports as direct: it only adds a candidate that must win the
+    /// race on round trip, and nothing when tailscaled is absent.
     DirectOnly,
     /// Every tailnet path: a non-direct one is relayed-class.
     On,
@@ -76,9 +83,36 @@ impl Mode {
         }
     }
 
-    /// The setting from the environment; off when unset or not understood.
+    /// The setting: `CMUX_TAILNET_CARRIER` when set, else `transport.tailnetCarrier` of the
+    /// settings file, else the default. A unit test reads only the environment (hermetic: off
+    /// unless a test sets it).
     pub fn from_env() -> Self {
-        std::env::var(ENV).ok().and_then(|text| Self::parse(&text)).unwrap_or_default()
+        let env = std::env::var(ENV).ok();
+        if cfg!(test) {
+            return env.as_deref().map_or(Self::Off, Self::resolve_text);
+        }
+        let setting = || {
+            let doc = crate::user_settings::document(&crate::user_settings::text()?)?;
+            crate::user_settings::value(&doc, SETTING)
+        };
+        Self::resolve(env.as_deref(), setting)
+    }
+
+    /// The mode of an environment value, else of the settings value `setting` reads, else
+    /// the default. A value present but not understood is off.
+    pub fn resolve(env: Option<&str>, setting: impl FnOnce() -> Option<serde_json::Value>) -> Self {
+        match env {
+            Some(text) => Self::resolve_text(text),
+            None => match setting() {
+                None | Some(serde_json::Value::Null) => Self::default(),
+                Some(serde_json::Value::String(text)) => Self::resolve_text(&text),
+                Some(_) => Self::Off,
+            },
+        }
+    }
+
+    fn resolve_text(text: &str) -> Self {
+        Self::parse(text).unwrap_or(Self::Off)
     }
 
     /// Whether a path tailscale reports as `path` is offered as a candidate.
@@ -191,6 +225,7 @@ impl Snapshots {
 
     /// The installed `tailscale` CLI's status: the process-wide one.
     pub fn global() -> Arc<Self> {
+        // test-hook-allow: not a test hook; the installed CLI's loader, set once and never by a test
         static GLOBAL: OnceLock<Arc<Snapshots>> = OnceLock::new();
         GLOBAL.get_or_init(|| Self::new(Arc::new(load_cli))).clone()
     }
@@ -291,6 +326,7 @@ impl PathSource {
 
     /// The system tailscaled: `TailnetLocal::global()`, else the installed CLI.
     pub fn global() -> Arc<Self> {
+        // test-hook-allow: not a test hook; the system tailscaled's readers, set once and never by a test
         static GLOBAL: OnceLock<Arc<PathSource>> = OnceLock::new();
         GLOBAL.get_or_init(|| Self::new(Arc::new(read_local), Snapshots::global())).clone()
     }
@@ -461,6 +497,7 @@ pub async fn serve_peers(
     if mode == Mode::Off {
         return;
     }
+    let mut wait = FAILED_FRESH;
     loop {
         let bound = bind_tailnet(&gate.snaps, port).await;
         match bound {
@@ -485,10 +522,18 @@ pub async fn serve_peers(
             }
             Err(error) => {
                 tracing::debug!("tailnet listener not up: {error:#}");
-                tokio::time::sleep(FAILED_FRESH).await;
+                tokio::time::sleep(wait).await;
+                wait = next_bind_wait(wait);
             }
         }
     }
+}
+
+/// The listener's next retry after a failed bind: doubling from [`FAILED_FRESH`] to
+/// [`MAX_BIND_WAIT`], so a machine without Tailscale (carrier turned on) asks a few times an
+/// hour, not twice a minute forever.
+pub fn next_bind_wait(wait: Duration) -> Duration {
+    (wait * 2).min(MAX_BIND_WAIT)
 }
 
 async fn bind_tailnet(

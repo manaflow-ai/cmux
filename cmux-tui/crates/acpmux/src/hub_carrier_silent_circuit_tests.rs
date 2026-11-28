@@ -111,3 +111,29 @@ async fn a_redial_after_a_silent_link_drop_does_not_wait_on_the_dead_kept_circui
     assert_eq!(carrier.close_kept_silent_for(daemon, Duration::from_secs(2)).await, 0);
     assert!(!quiet.is_closed());
 }
+
+/// A link silent past its 6 s budget dials its replacement while it still reads on the kept
+/// circuit, which heard nothing either: the stalled transport. The replacement asks for a
+/// circuit of its own at once (not an OPEN queued behind the old stream's bytes, answered
+/// after `ANSWER_SUSPECT` at best), and the kept circuit stays open for the old link to read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replacement_for_a_silent_link_does_not_ride_its_silent_kept_circuit() {
+    let tickets = Arc::new(NoConnect { asked: AtomicU64::new(0) });
+    let carrier = HubCarrier::new(tickets.clone(), [7u8; 32], Timings::default());
+    carrier.acpmux_streams.store(true, Ordering::SeqCst);
+    let daemon = "machine-b";
+    let stalled =
+        kept(&carrier, daemon, CircuitLane::of(CircuitService::Acpmux), Duration::from_secs(7))
+            .await;
+
+    let started = Instant::now();
+    let replacement = carrier.dial_past_silent(daemon, Duration::from_secs(6)).await;
+    let took = started.elapsed();
+    assert!(
+        took < mux::ANSWER_SUSPECT,
+        "the replacement waited {took:?} on the kept circuit its link proved stalled"
+    );
+    assert!(replacement.is_err(), "the replacement asked for a circuit of its own");
+    assert_eq!(tickets.asked.load(Ordering::SeqCst), 1, "one fresh circuit asked for");
+    assert!(!stalled.is_closed(), "the old link still reads on the kept circuit");
+}

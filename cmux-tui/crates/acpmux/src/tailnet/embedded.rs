@@ -368,8 +368,9 @@ impl Controller {
             return;
         }
         inner.snapshot.state = "error";
-        inner.snapshot.error =
-            Some("The tailnet listener stopped. Start it again to retry.".into());
+        inner.snapshot.error = Some(
+            "The tailnet listener stopped. Turning the tailnet off and on starts it again.".into(),
+        );
         self.publish_locked(&inner.snapshot);
     }
 

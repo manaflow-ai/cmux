@@ -51,6 +51,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .cloudSignIn: "cloudSignIn"
         case .cloudSetUp: "cloudSetUp"
         case .cloudSetupState: "cloudSetupState"
+        case .cloudConnect: "cloudConnect"
+        case .cloudPickerSetupState: "cloudSetupState"
         case .cloudSignInCancel: "cloudSignInCancel"
         case .cloudPlanSubscribe: "cloudPlanSubscribe"
         case .cloudReservation: "cloudReservation"
@@ -95,6 +97,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .cloudEnvironment: "cloudEnvironment"
         case .tryAnotherApproach: "tryAnotherApproach"
         case .cloudTurnRewind(let request): request.method
+        case .cloudFolderAdd: AgentPaneModel.cloudFolderAddMethod
         case .appAction: "appAction"
         case .paneAction, .moveToMachine, .diffTurn, .diffPatch: "paneAction"
         case .preview: "preview"
@@ -123,10 +126,12 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .processTerminal: "processTerminal"
         case .newChatHere: "newChatHere"
         case .checkpointAvailability: "checkpointAvailability"
+        case .composerFilled: "composerFilled"
         case .commandAvailability: "commandAvailability"
         case .clientReady(let ready): ready ? "clientReady" : "clientNotReady"
         case .launchSettle: "launchSettle"
         case .inputEchoed: "inputEchoed"
+        case .renderFailed: "renderFailed"
         case .painted(_, _, true, _): "painted(copy)"
         case .painted(let fromKeptTail, let settled, _, _):
             settled ? (fromKeptTail ? "painted(settled,keptTail)" : "painted(settled)") : fromKeptTail ? "painted(keptTail)" : "painted"

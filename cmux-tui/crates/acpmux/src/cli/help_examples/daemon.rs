@@ -59,6 +59,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "daemon transcript-offload",
+        &[
+            ("What a pass would copy and remove", "acpmux daemon transcript-offload --dry-run"),
+            (
+                "Offload transcripts unchanged for 30 days",
+                "acpmux daemon transcript-offload --older-than-days 30",
+            ),
+            ("Bring every transcript back", "acpmux daemon transcript-offload --restore-all"),
+        ],
+    ),
+    (
         "daemon restart",
         &[("Restart the daemon; hosted sessions resume after", "acpmux daemon restart")],
     ),
@@ -131,6 +142,44 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
         ],
     ),
+    (
+        "daemon history-delete",
+        &[
+            (
+                "Preview the chats a delete pass would remove",
+                "acpmux daemon history-delete --dry-run",
+            ),
+            (
+                "Delete chats unchanged over 180 days, exporting each first",
+                "acpmux daemon history-delete --older-than-days 180 --export ~/chat-export",
+            ),
+            (
+                "List Recently deleted: chats that can still be restored",
+                "acpmux daemon history-delete --deleted",
+            ),
+            ("Restore a deleted chat", "acpmux daemon history-delete --restore review-27310"),
+        ],
+    ),
+    (
+        "daemon history-offload",
+        &[(
+            "List old archived chats cloud history would take",
+            "acpmux daemon history-offload --dry-run",
+        )],
+    ),
+    (
+        "daemon transcript-offload",
+        &[
+            (
+                "List the transcripts a pass would copy to cloud history",
+                "acpmux daemon transcript-offload --dry-run",
+            ),
+            (
+                "Bring back every transcript a pass removed",
+                "acpmux daemon transcript-offload --restore-all",
+            ),
+        ],
+    ),
     ("daemon schema", &[("Print the RPC schema as JSON", "acpmux daemon schema")]),
     (
         "daemon models",
@@ -138,5 +187,19 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("List the model ids each harness offers", "acpmux daemon models"),
             ("Probe every harness for its models again", "acpmux daemon models --refresh"),
         ],
+    ),
+    (
+        "daemon felt",
+        &[
+            ("Show felt-latency p50, p90 and p99", "acpmux daemon felt"),
+            ("The same as JSON", "acpmux --json daemon felt"),
+        ],
+    ),
+    (
+        "daemon placement",
+        &[(
+            "Tell the tailnet front the workspace moved",
+            r#"acpmux daemon placement '{"kind":"moved","workspace":"default","placement":{"ssh":"10.0.0.5:22"}}'"#,
+        )],
     ),
 ];

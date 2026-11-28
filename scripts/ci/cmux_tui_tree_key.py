@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 
@@ -37,49 +38,89 @@ def git(*args: str) -> str:
     ).strip()
 
 
+def promisor_remote() -> str:
+    """The remote a partial clone fetches missing objects from (remote.NAME.promisor), else origin."""
+    try:
+        found = subprocess.check_output(["git", "-C", str(ROOT), "config", "--get-regexp", r"^remote\..*\.promisor$"],
+                                        text=True, stderr=subprocess.DEVNULL, env=GIT_ENV,
+                                        timeout=GIT_TIMEOUT_SECONDS)
+    except subprocess.SubprocessError:
+        return "origin"
+    for line in found.splitlines():
+        name, _, value = line.partition(" ")
+        if value.strip().lower() == "true":
+            return name[len("remote."):-len(".promisor")]
+    return "origin"
+
+
 def inputs_text(revision: str) -> str:
     """The inputs list a revision is keyed by: the revision's own, as CI keys it (cmux-tui-artifacts.yml runs
     this script in a checkout of the commit it publishes). A checkout's newer list gave every older commit
     another key, one nothing was published under: #43477 added an input, and hot-apply then found no
     build for any commit before it. A revision without the file, or an INPUTS a caller set (a test's
-    fixture), reads INPUTS."""
+    fixture), reads INPUTS.
+
+    In a blob-less clone the revision's list is often not local (lazy fetch is off here). Reading the checkout's
+    list then keyed an older revision by inputs it never had: after #56351 named the
+    Localizable.xcstrings.d tree, every commit before it failed with "has no tree input ...xcstrings.d" (15
+    hot-verify looks in 24 h, 2026-11-25, holding display Macs for 1,661 s). So when the revision's tree names
+    the list, its one blob is fetched (bounded), and a list that still cannot be read is an error, never
+    another revision's list."""
     if INPUTS == ROOT / INPUTS_PATH:
         try:
             return subprocess.check_output(["git", "-C", str(ROOT), "show", f"{revision}:{INPUTS_PATH}"], text=True,
                                            stderr=subprocess.DEVNULL, env=GIT_ENV, timeout=GIT_TIMEOUT_SECONDS)
         except subprocess.CalledProcessError:
             pass
+        try:
+            listed = subprocess.check_output(["git", "-C", str(ROOT), "ls-tree", revision, "--", INPUTS_PATH],
+                                             text=True, stderr=subprocess.DEVNULL, env=GIT_ENV,
+                                             timeout=GIT_TIMEOUT_SECONDS).split()
+        except subprocess.SubprocessError:
+            listed = []  # the tree itself is not readable: as before, the checkout's list
+        if listed[1:2] == ["blob"]:
+            # One blob from the promisor remote, fetched by its id (a blob has no history to pull, unlike a lazy
+            # fetch, which runs the noop negotiator): the list this revision is keyed by.
+            try:
+                subprocess.run(["git", "-C", str(ROOT), "fetch", "-q", "--no-tags", "--no-write-fetch-head",
+                                "--recurse-submodules=no", "--filter=blob:none", promisor_remote(), listed[2]],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=GIT_ENV,
+                               timeout=GIT_TIMEOUT_SECONDS, check=True)
+                return subprocess.check_output(["git", "-C", str(ROOT), "cat-file", "blob", listed[2]], text=True,
+                                               stderr=subprocess.DEVNULL, env=GIT_ENV,
+                                               timeout=GIT_TIMEOUT_SECONDS)
+            except subprocess.SubprocessError:
+                raise RuntimeError(f"{revision}'s own {INPUTS_PATH} ({listed[2][:12]}) is not local and could "
+                                   "not be fetched") from None
     return INPUTS.read_text(encoding="utf-8")
 
 
-def tree_objects(revision: str) -> dict[str, tuple[str, str, str]] | None:
-    """Resolve all regular input paths with one tree walk.
+def tree_objects(revision: str, paths: list[str]) -> dict[str, tuple[str, str, str]] | None:
+    """Resolve the input paths with two listings limited to them.
 
     The key input list is read for every tree-key lookup, and callers invoke
     this script repeatedly while routing a build. Resolving each path with a
     separate ``git rev-parse`` made that cost grow linearly with the list. A
-    recursive tree listing gives the same object ids in one process. The
-    root listing retains top-level gitlinks, which ``ls-tree -r`` omits.
-    ``None`` keeps the per-path fallback for partial checkouts whose tree
+    listing restricted to the input paths gives the same object ids in one
+    process; ``-d`` names a directory input itself where the plain listing
+    shows its children. A whole-tree ``ls-tree -r`` (82k entries, twice) was
+    0.21 s of each 0.27 s key, and the nightly's fallback search keys up to 300
+    commits three ways on the path to the signer (run 45941175424: 217 s). A
+    path neither listing names (a directory input beside one of its own
+    children in the list) takes the per-path ``rev-parse`` in tree_key.
+    ``None`` keeps that per-path fallback for partial checkouts whose tree
     cannot be listed in one pass.
     """
+    wanted = set(paths)
+    env = {**GIT_ENV, "GIT_LITERAL_PATHSPECS": "1"}
     try:
         listings = [
             subprocess.check_output(
-                ["git", "-C", str(ROOT), "ls-tree", "-z", "--full-tree", revision],
-                env=GIT_ENV,
+                ["git", "-C", str(ROOT), "ls-tree", "-z", *flags, "--full-tree", revision, "--", *sorted(wanted)],
+                env=env,
                 timeout=GIT_TIMEOUT_SECONDS,
-            ),
-            subprocess.check_output(
-                ["git", "-C", str(ROOT), "ls-tree", "-z", "-r", "--full-tree", revision],
-                env=GIT_ENV,
-                timeout=GIT_TIMEOUT_SECONDS,
-            ),
-            subprocess.check_output(
-                ["git", "-C", str(ROOT), "ls-tree", "-z", "-d", "-r", "--full-tree", revision],
-                env=GIT_ENV,
-                timeout=GIT_TIMEOUT_SECONDS,
-            ),
+            )
+            for flags in ((), ("-d",))
         ]
     except subprocess.SubprocessError:
         return None
@@ -89,9 +130,12 @@ def tree_objects(revision: str) -> dict[str, tuple[str, str, str]] | None:
         for record in listing.split(b"\0"):
             if not record:
                 continue
-            header, path = record.split(b"\t", 1)
+            header, raw_path = record.split(b"\t", 1)
+            path = raw_path.decode("utf-8")
+            if path not in wanted:
+                continue
             mode, object_type, object_id = header.decode("ascii").split()
-            resolved[path.decode("utf-8")] = (mode, object_type, object_id)
+            resolved[path] = (mode, object_type, object_id)
     return resolved
 
 
@@ -103,12 +147,10 @@ def tree_key(revision: str, version: str = "v2") -> str:
     except subprocess.CalledProcessError:
         raise RuntimeError(f"{revision} is not a commit in this checkout; fetch it first") from None
     entries: dict[tuple[str, ...], tuple[str, str, str]] = {}
-    resolved_objects = tree_objects(revision)
-    for raw in inputs_text(revision).splitlines():
-        raw = raw.strip()
-        if not raw or raw.startswith("#"):
-            continue
-        kind, path = raw.split(maxsplit=1)
+    inputs = [tuple(line.split(maxsplit=1)) for line in (raw.strip() for raw in inputs_text(revision).splitlines())
+              if line and not line.startswith("#")]
+    resolved_objects = tree_objects(revision, [path for _, path in inputs])
+    for kind, path in inputs:
         if version != "v1" and (kind, path) in V1_ONLY_INPUTS:
             continue
         parts = tuple(path.split("/"))
@@ -153,9 +195,16 @@ def tree_key(revision: str, version: str = "v2") -> str:
         ["git", "-C", str(ROOT), "mktree", "--batch", "--missing"],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=GIT_ENV,
     )
+    # Its reads block on git's answer, so one deadline bounds the whole batch: a git that never
+    # answers (a fake reading stdin to its end hung tests 60 s each) is killed, readline then
+    # returns nothing and the key fails fast instead of waiting.
+    watchdog = threading.Timer(GIT_TIMEOUT_SECONDS, mktree.kill)
+    watchdog.daemon = True
+    watchdog.start()
     try:
         return _make_tree((), entries, mktree)
     finally:
+        watchdog.cancel()
         if mktree.stdin is not None:
             mktree.stdin.close()
         try:
@@ -205,6 +254,12 @@ def _make_tree(
 
 def main() -> int:
     args = sys.argv[1:]
+    # `key` is the verb its callers name (cmux-machine-channel.yml, cmux_machine_channel_pr_head.py,
+    # cmux-machine-channel-point.sh). Before this it was a usage error (exit 2): every caller read an empty
+    # key, so PR_HEAD_FAST_LANE built both thin musl targets on every land-tier pull request head (about
+    # 90k runner-min/day from 2026-11-26 01Z) and the merge never found the head build it had paid for.
+    if args[:1] == ["key"]:
+        args = args[1:]
     version = "v2"
     if args[:1] == ["--version"]:
         if len(args) < 2 or args[1] not in KEY_VERSIONS:
@@ -212,7 +267,7 @@ def main() -> int:
             return 2
         version, args = args[1], args[2:]
     if len(args) > 1:
-        print(f"error: usage: {Path(sys.argv[0]).name} [--version v1|v2|v2-legacy] [REV]; see {REPAIR}", file=sys.stderr)
+        print(f"error: usage: {Path(sys.argv[0]).name} [key] [--version v1|v2|v2-legacy] [REV]; see {REPAIR}", file=sys.stderr)
         return 2
     revision = args[0] if args else "HEAD"
     try:

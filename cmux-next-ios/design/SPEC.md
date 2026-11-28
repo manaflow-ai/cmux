@@ -925,7 +925,7 @@ in the available area (above the composer when one exists): symbol 28 pt `label`
 | Screen | Symbol | Title | Message | Primary | Secondary |
 | --- | --- | --- | --- | --- | --- |
 | Workspaces, no Macs | `desktopcomputer` | Connect your Mac | Open cmux on your Mac and choose Pair iPhone to get a code. | Scan QR code | Enter code manually |
-| Workspaces, Macs offline | `moon.zzz` | Your Macs are asleep | Wake a Mac or open cmux on it to see its workspaces. | (none) | Show offline Macs |
+| Workspaces, Macs offline | `moon.zzz` | Your Macs are offline | Open cmux on a Mac and make sure it's awake and online to see its workspaces. | (none) | Show offline Macs |
 | Mac with no workspaces | `square.stack.3d.up` | No workspaces | Create one on your Mac or start one here. | New workspace | |
 | Feed empty | `bubble.left.and.text.bubble.right` | Nothing yet | Agent updates, questions and finished tasks show up here. | (none) | |
 | Feed filter empty | `line.3.horizontal.decrease` | No matching events | Try another filter. | Show all | |
@@ -1176,7 +1176,7 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
   online" words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
   stuff"). Never that a refresh runs. Trailing glass capsule: the Mac filter (only with 2+
   Macs) and New Workspace.
-- Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Macs, then
+- Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Computers, then
   each Mac (online first) titled with its name and a green (online) or red (offline) dot; its
   presence words are the VoiceOver value only. Not an inline `Picker`: it drops the dots. Filtered fills the symbol
   (`line.3.horizontal.decrease.circle.fill`). Remembered per team
@@ -1185,7 +1185,7 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 - New Workspace (`square.and.pencil`): a tap creates one at once on the filtered Mac, else the
   preferred Mac, and pushes it; the row is optimistic (mini spinner) at the top of Recent
   until the Mac confirms. A hold opens the starts the backend supports (agent or browser
-  first tab, recent directories, a Mac picker under All Macs only). Disabled while the
+  first tab, recent directories, a Mac picker under All Computers only). Disabled while the
   filtered Mac is offline. No Mac: "Connect your Mac" steps.
 - Search: `.searchable` in the navigation bar drawer, tucked under the bar at launch,
   revealed by a pull-down. Matches name, branch, directory, Mac name and agent tabs' titles
@@ -1254,7 +1254,7 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
   it, "Can't connect to <Mac>" + Retry. Team failed → "Couldn't load workspaces" + Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered
   offline Mac → "<Mac> is offline"; live, filtered to an online Mac the phone is not linked to
   → "<Mac> isn't connected" + Connect; under All, such a Mac is a "<Mac> · Not connected"
-  line that links it on a tap. Every Mac asleep → "Your Macs are asleep" header above the
+  line that links it on a tap. Every Mac offline → "Your Macs are offline" header above the
   unfolded offline lines. No results → `ContentUnavailableView.search`.
 - Accessibility: one element per row ("cmux, Claude is waiting, Refactor transport layer,
   1 minute ago"), hint "<Mac> is offline" for offline rows, custom actions Rename and Close.

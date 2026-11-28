@@ -156,8 +156,8 @@ impl Registry {
         self.windows.iter().find(|w| w.id == id)
     }
 
-    fn index(&self, id: &str) -> Option<usize> {
-        self.windows.iter().position(|w| w.id == id)
+    fn window_mut(&mut self, id: &str) -> Option<&mut Window> {
+        self.windows.iter_mut().find(|w| w.id == id)
     }
 
     pub fn owner(&self, workspace: &str) -> Option<&str> {
@@ -211,8 +211,8 @@ impl Registry {
     /// empty.
     pub fn most_recent(&self, ids: &[String]) -> Option<String> {
         let place = |id: &String| self.recency.iter().position(|r| r == id).unwrap_or(usize::MAX);
-        let mut best = ids.first()?;
-        for id in &ids[1..] {
+        let (mut best, rest) = ids.split_first()?;
+        for id in rest {
             if place(id) < place(best) {
                 best = id;
             }
@@ -331,12 +331,10 @@ impl Registry {
     /// With `keeps_group` false a non-last window's workspaces move to the most recent other open
     /// window. An incognito window closes for good, and its workspaces are `discarded`.
     pub fn close(&mut self, id: &str, keeps_group: bool) -> Changes {
-        let Some(index) = self.index(id) else { return Changes::default() };
+        let Some(closing) = self.window(id) else { return Changes::default() };
         if self.is_incognito(id) {
-            let changes = Changes {
-                discarded: self.windows[index].workspace_ids.clone(),
-                ..Changes::default()
-            };
+            let changes =
+                Changes { discarded: closing.workspace_ids.clone(), ..Changes::default() };
             self.discarding.extend(changes.discarded.iter().cloned());
             self.remove(id);
             return changes;
@@ -345,13 +343,13 @@ impl Registry {
             return self.merge(id, &heir);
         }
         let mut changes = self.hand_over_shared(id);
-        let Some(closing) = self.index(id) else { return changes };
-        if self.windows[closing].workspace_ids.is_empty() {
+        let Some(closing) = self.window_mut(id) else { return changes };
+        if closing.workspace_ids.is_empty() {
             self.remove(id);
             changes.emptied.push(id.to_string());
             return changes;
         }
-        self.windows[closing].is_open = false;
+        closing.is_open = false;
         self.activate(id);
         changes
     }
@@ -381,17 +379,16 @@ impl Registry {
         for workspace in owned {
             let Some(heir) = self
                 .windows
-                .iter()
-                .position(|w| w.id != id && w.is_open && w.guests.contains(&workspace))
+                .iter_mut()
+                .find(|w| w.id != id && w.is_open && w.guests.contains(&workspace))
             else {
                 continue;
             };
-            self.windows[heir].guests.remove(&workspace);
-            changes.moved.entry(self.windows[heir].id.clone()).or_default().push(workspace.clone());
+            heir.guests.remove(&workspace);
+            changes.moved.entry(heir.id.clone()).or_default().push(workspace.clone());
             handed.insert(workspace);
         }
-        if let Some(index) = self.index(id) {
-            let window = &mut self.windows[index];
+        if let Some(window) = self.window_mut(id) {
             let guests = std::mem::take(&mut window.guests);
             window.workspace_ids.retain(|w| !handed.contains(w) && !guests.contains(w));
         }
@@ -432,8 +429,8 @@ impl Registry {
     /// owns, that no other window owns, or of a closed or unknown window are skipped. A window
     /// that owns nothing keeps the guests it has when the new set is empty.
     pub fn set_guests(&mut self, guests: &[String], id: &str) {
-        let Some(index) = self.index(id) else { return };
-        if !self.windows[index].is_open {
+        let Some(current) = self.window(id) else { return };
+        if !current.is_open {
             return;
         }
         let wanted: BTreeSet<String> = {
@@ -444,10 +441,11 @@ impl Registry {
                 .cloned()
                 .collect()
         };
-        if wanted == self.windows[index].guests {
+        let Some(current) = self.window(id) else { return };
+        if wanted == current.guests {
             return;
         }
-        let mut window = self.windows[index].clone();
+        let mut window = current.clone();
         window.workspace_ids.retain(|w| !window.guests.contains(w) || wanted.contains(w));
         let mut listed: HashSet<String> = window.workspace_ids.iter().cloned().collect();
         for workspace in guests {
@@ -459,7 +457,9 @@ impl Registry {
             return;
         }
         window.guests = wanted;
-        self.windows[index] = window;
+        if let Some(slot) = self.window_mut(id) {
+            *slot = window;
+        }
     }
 
     /// Moves every workspace `id` owns into `heir` and removes `id`.
@@ -469,9 +469,9 @@ impl Registry {
         self.detach(&orphans, Some(heir));
         self.remove(id);
         if !orphans.is_empty()
-            && let Some(heir_index) = self.index(heir)
+            && let Some(heir_window) = self.window_mut(heir)
         {
-            self.windows[heir_index].workspace_ids.extend(orphans.iter().cloned());
+            heir_window.workspace_ids.extend(orphans.iter().cloned());
             changes.moved.insert(heir.to_string(), orphans);
         }
         changes
@@ -484,26 +484,25 @@ impl Registry {
             .iter()
             .find(|id| self.window(id).is_some_and(|w| !w.is_open) && !self.is_incognito(id))?
             .clone();
-        let index = self.index(&id)?;
-        self.windows[index].is_open = true;
+        self.window_mut(&id)?.is_open = true;
         self.activate(&id);
         Some(id)
     }
 
     /// Marks restored window `id` open or closed.
     pub fn set_restored(&mut self, id: &str, open: bool) {
-        if let Some(index) = self.index(id) {
-            self.windows[index].is_open = open;
+        if let Some(window) = self.window_mut(id) {
+            window.is_open = open;
         }
     }
 
     /// Opens closed window `id` again; false when it is not a closed window.
     pub fn reopen_id(&mut self, id: &str) -> bool {
-        let Some(index) = self.index(id) else { return false };
-        if self.windows[index].is_open {
+        let Some(window) = self.window_mut(id) else { return false };
+        if window.is_open {
             return false;
         }
-        self.windows[index].is_open = true;
+        window.is_open = true;
         self.activate(id);
         true
     }
@@ -525,10 +524,10 @@ impl Registry {
     }
 
     pub fn set_geometry(&mut self, id: &str, frame: Option<Frame>, display: Option<String>) {
-        let Some(index) = self.index(id) else { return };
-        self.windows[index].frame = frame;
+        let Some(window) = self.window_mut(id) else { return };
+        window.frame = frame;
         if let Some(display) = display {
-            self.windows[index].display = Some(display);
+            window.display = Some(display);
         }
     }
 
@@ -550,8 +549,8 @@ impl Registry {
         }
         let mut changes = Changes::default();
         let taken = self.detach(workspace_ids, Some(id));
-        let Some(index) = self.index(id) else { return changes };
-        let ids = &mut self.windows[index].workspace_ids;
+        let Some(window) = self.window_mut(id) else { return changes };
+        let ids = &mut window.workspace_ids;
         let slot = anchor.and_then(|a| ids.iter().position(|w| w == a)).unwrap_or(ids.len());
         ids.splice(slot..slot, taken.iter().cloned());
         changes.moved.insert(id.to_string(), taken);
@@ -619,11 +618,9 @@ impl Registry {
             moved.entry(heir).or_default().push(orphan.clone());
         }
         for heir in &heirs {
-            let (Some(index), Some(orphans)) = (self.index(heir), moved.get(heir)) else {
-                continue;
-            };
-            self.windows[index].workspace_ids =
-                merged(&self.windows[index].workspace_ids, orphans, &rank);
+            let Some(orphans) = moved.get(heir) else { continue };
+            let Some(window) = self.window_mut(heir) else { continue };
+            window.workspace_ids = merged(&window.workspace_ids, orphans, &rank);
         }
         changes.moved = moved.into_iter().collect();
         changes.emptied = self.close_emptied();

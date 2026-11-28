@@ -295,6 +295,9 @@ cmd_bins() {
       # of cmd_bins up to the line above for its cmux-tui-only fast path.
       cargo build -p cmux-tui --bin cmux-tui-host --release --locked --target "$t"
       cargo build -p cmux-holder --bin cmux-holder --release --locked --target "$t"
+      if [[ -f crates/cmux-launch-preread/Cargo.toml ]]; then
+        cargo build -p cmux-launch-preread --bin cmux-launch-preread --release --locked --target "$t"
+      fi
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
       cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target "$t" \
@@ -308,6 +311,10 @@ cmd_bins() {
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
     cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
     cp "$r/cmux-holder" "$out/cmux-tui-holder-$t"
+    rm -f "$out/cmux-tui-launch-preread-$t"
+    if [[ -f "$repo_root/cmux-tui/crates/cmux-launch-preread/Cargo.toml" ]]; then
+      cp "$r/cmux-launch-preread" "$out/cmux-tui-launch-preread-$t"
+    fi
     cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
     cp "$r/cmux-relay" "$out/cmux-relay-$t"
     cp "$r/chatmux-relay" "$out/chatmux-relay-$t"
@@ -334,7 +341,12 @@ cmd_all() {
     # --timings: cargo-groups.sh prints each long group's slowest and last units (compile vs
     # the fat-LTO link of the "bin" unit). It changes no output.
     local build="cargo build --release --locked --timings --target $t"
+    local preread_group=()
+    if [[ -f "$tui/crates/cmux-launch-preread/Cargo.toml" ]]; then
+      preread_group=("cmux-launch-preread" "cd $(q "$tui") && $build -p cmux-launch-preread --bin cmux-launch-preread")
+    fi
     "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
+      ${preread_group[@]+"${preread_group[@]}"} \
       "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
       "cmux-holder" "cd $(q "$tui") && $stamps $build -p cmux-holder --bin cmux-holder" \
       "cmux-app-host" "cd $(q "$tui") && $stamps $build -p cmux-app-host --bin cmux-app-host" \
@@ -360,6 +372,10 @@ cmd_all() {
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
     cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
     cp "$r/cmux-holder" "$out/cmux-tui-holder-$t"
+    rm -f "$out/cmux-tui-launch-preread-$t"
+    if [[ -f "$repo_root/cmux-tui/crates/cmux-launch-preread/Cargo.toml" ]]; then
+      cp "$r/cmux-launch-preread" "$out/cmux-tui-launch-preread-$t"
+    fi
     cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
     cp "$r/cmux-relay" "$out/cmux-relay-$t"
     cp "$r/chatmux-relay" "$out/chatmux-relay-$t"
@@ -501,7 +517,14 @@ cmd_parity_ffi() {
   LLVM_NM="$(cd "$repo_root/cmux-tui" && rustc --print sysroot)/lib/rustlib/$(cd "$repo_root/cmux-tui" && rustc -vV | awk '/^host:/{print $2}')/bin/llvm-nm"
   export LLVM_NM
   for t in "${TARGETS[@]}"; do
-    "$LLVM_BIN/llvm-lipo" -thin "$(arch_of "$t")" "$mac" -output "$out/mac-$t.a"
+    # The Mac build is arm64 alone unless a stable release asked for universal: a thin archive is its one slice.
+    # Test the fat magic, not `llvm-lipo -archs`: on a thin static archive LLVM 18/19 llvm-lipo
+    # crashes in Slice::create (empty output), and the -thin that followed failed every push run.
+    if [[ "$(od -An -N4 -tx1 "$mac" | tr -d ' \n')" == cafebab[ef] ]]; then
+      "$LLVM_BIN/llvm-lipo" -thin "$(arch_of "$t")" "$mac" -output "$out/mac-$t.a"
+    else
+      cp "$mac" "$out/mac-$t.a"
+    fi
     python3 "$repo_root/scripts/ci/macho_parity.py" "app-ffi-$t" "$out/mac-$t.a" "$out/slices/$t.a" \
       > "$reports/app-ffi-$t.json" || status=1
     report_line "$reports/app-ffi-$t.json"

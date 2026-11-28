@@ -19,7 +19,7 @@ enum AdmissionRoute<'a> {
     Circuit { circuit: &'a str },
 }
 
-pub(crate) async fn route(mut request: Request, env: Env) -> Result<Response> {
+pub(crate) async fn route(request: Request, env: Env) -> Result<Response> {
     let path = request.path();
     if path == "/healthz" {
         return Response::ok("ok");
@@ -57,7 +57,10 @@ pub(crate) async fn route(mut request: Request, env: Env) -> Result<Response> {
         AdmissionRoute::DaemonControl { slot } | AdmissionRoute::ClientControl { slot } => {
             // The caller's place (the viewer's on a connect, the daemon's on a control socket) goes to the
             // slot beside the request, never from the caller: what it sent is dropped.
+            // The runtime's request is immutable (`headers_mut` on it is an error, a 500 on every Register and
+            // Connect: cmux#54175 on staging 11-25 22:06Z); the slot gets a mutable copy.
             let caller = hint_of(&request);
+            let mut request = request.clone_mut()?;
             let headers = request.headers_mut()?;
             headers.delete(REGION_HEADER)?;
             if let Some(region) = caller {
@@ -155,67 +158,5 @@ fn claims_authorize_route(claims: &RelayTicketClaims, route: AdmissionRoute<'_>)
 }
 
 #[cfg(test)]
-mod tests {
-    use cmux_remote_protocol::{CircuitId, LaneToken};
-
-    use super::*;
-
-    fn claims(permission: RelayPermission, role: RelayRole) -> RelayTicketClaims {
-        RelayTicketClaims {
-            version: RelayTicketClaims::VERSION,
-            issuer: "issuer".into(),
-            permission,
-            role,
-            slot: "slot-a".into(),
-            circuit: None,
-            lane: None,
-            generation: None,
-            issued_at_unix: 50,
-            expires_at_unix: 100,
-            grant: None,
-            region: None,
-        }
-    }
-
-    #[test]
-    fn version_reports_only_a_full_commit_sha() {
-        let sha = "0123456789abcdef0123456789abcdef01234567";
-        assert_eq!(version_body(Some(sha))["source_revision"], sha);
-        assert_eq!(version_body(None)["source_revision"], "unknown");
-        assert_eq!(version_body(Some("main"))["source_revision"], "unknown");
-        assert_eq!(version_body(Some(&sha.to_uppercase()))["source_revision"], "unknown");
-    }
-
-    #[test]
-    fn provider_tickets_cannot_materialize_other_slot_objects() {
-        let register = claims(RelayPermission::Register, RelayRole::Daemon);
-        assert!(claims_authorize_route(
-            &register,
-            AdmissionRoute::DaemonControl { slot: "slot-a" },
-        ));
-        assert!(!claims_authorize_route(
-            &register,
-            AdmissionRoute::DaemonControl { slot: "slot-b" },
-        ));
-        assert!(!claims_authorize_route(
-            &register,
-            AdmissionRoute::ClientControl { slot: "slot-a" },
-        ));
-    }
-
-    #[test]
-    fn join_ticket_only_materializes_its_bound_circuit_object() {
-        let mut join = claims(RelayPermission::Join, RelayRole::Client);
-        join.circuit = Some(CircuitId("ab".repeat(32)));
-        join.lane = Some(LaneToken("lane".into()));
-        join.generation = Some(3);
-        assert!(claims_authorize_route(
-            &join,
-            AdmissionRoute::Circuit { circuit: &"ab".repeat(32) },
-        ));
-        assert!(!claims_authorize_route(
-            &join,
-            AdmissionRoute::Circuit { circuit: &"cd".repeat(32) },
-        ));
-    }
-}
+#[path = "routing_tests.rs"]
+mod tests;

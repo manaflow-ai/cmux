@@ -220,6 +220,105 @@ def spec_problems(spec: Any) -> list[str]:
     if fixture is not None and not (app == "mac" and isinstance(fixture, dict) and set(fixture) <= {"harnesses", "health"}
                                     and isinstance(fixture.get("harnesses", {}), dict)):
         out.append('harnessFixture: a Mac tour\'s acpmux harness fixture, {"harnesses": {...}}')
+    if app == "mac" and isinstance(steps, list):
+        out += settings_problems([s for s in steps if isinstance(s, dict)])
+    return out
+
+
+# The Settings rows (settings-schema.json, generated): a clip opens a row that is there and never has the tour
+# set a row agents may not change (`agent_settable` false, a `userOnly` policy) — the app refuses the tour's
+# `cmux settings set` as it refuses any agent's, so the clip's step fails on every run.
+SETTINGS_SCHEMA = ROOT / "schemas/settings/settings-schema.json"
+# Actions that open an internal page tab: over the control socket (`rpc` action.run) the tab opens behind the
+# window unless the run asks for `"focus": true` (ActionInvocation.allowsViewChange), so the clip shows none of it.
+PAGE_ACTIONS = {"openSettings", "openDebugSettings"}
+
+
+def settings_rows(schema: Path | None = None) -> dict[str, dict]:
+    path = SETTINGS_SCHEMA if schema is None else schema  # read at call time, so a test can point it elsewhere
+    try:
+        rows = json.loads(path.read_text()).get("rows", [])
+    except (OSError, ValueError):
+        return {}
+    return {row["key"]: row for row in rows if isinstance(row, dict) and isinstance(row.get("key"), str)}
+
+
+# What the app's openSettings gate accepts (SettingsAnchor(key:), SettingsPageAnchor): a row shown on the page,
+# one of the native cards, a section header, an action button or a page-only place. The React page links more
+# cards (settingsLinks.ts), but the gate refuses a name it does not know before the page sees it: run 45837430593
+# refused card.looksGallery ("no setting card.looksGallery in Settings") and the page_hidden
+# updates.installWhenIdleMinutes, both passing the check of the time.
+SETTINGS_ANCHOR_SWIFT = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/SettingsAnchor.swift"
+
+
+def _swift_enum_cases(text: str, name: str) -> list[tuple[str, str]]:
+    """(case, raw value) of `enum NAME`'s `case` lines; a case with no `= "..."` is its own raw value."""
+    match = re.search(r"enum " + name + r"\b[^{]*\{(.*?)\n\}", text, re.S)
+    out = []
+    for line in (match.group(1).splitlines() if match else []):
+        if not line.startswith("    case ") or ":" in line or "(" in line.split("=")[0]:
+            continue  # a switch's `case .x:` sits deeper; an associated value is not a raw name
+        line = line.strip()
+        for part in line[len("case "):].split(","):
+            label, _, raw = part.partition("=")
+            raw = raw.strip().strip('"') if raw.strip() else label.strip()
+            if label.strip():
+                out.append((label.strip(), raw))
+    return out
+
+
+def settings_cards(schema: Path | None = None, anchors: Path | None = None) -> set[str]:
+    """The names openSettings opens besides rows: `card.<id>` or `<id>` for the native cards (SettingsCardID),
+    `section.<id>` headers, `action.<section>.<id>` buttons and the page-only places (SettingsPageAnchor)."""
+    try:
+        text = (SETTINGS_ANCHOR_SWIFT if anchors is None else anchors).read_text()
+    except OSError:
+        text = ""
+    out = set()
+    for _, card in _swift_enum_cases(text, "SettingsCardID"):
+        out |= {card, f"card.{card}"}
+    out |= {raw for _, raw in _swift_enum_cases(text, "SettingsPageAnchor")}
+    try:
+        data = json.loads((SETTINGS_SCHEMA if schema is None else schema).read_text())
+    except (OSError, ValueError):
+        return out
+    out |= {f"section.{s['id']}" for s in data.get("sections") or [] if isinstance(s, dict) and isinstance(s.get("id"), str)}
+    for category in (data.get("page") or {}).get("categories") or []:
+        if isinstance(category, dict) and isinstance(category.get("id"), str):
+            for action in category.get("actions") or []:
+                out |= {action, f"action.{category['id']}.{action}"}
+    return out
+
+
+def settings_target_exists(key: str, rows: dict, places: set[str]) -> bool:
+    """The app opens `key`: a row it shows (not page_hidden, read by cmux-next) or a place it knows."""
+    row = rows.get(key)
+    if row is not None and not row.get("page_hidden") and "cmux-next" in (row.get("consumers") or ["cmux-next"]):
+        return True
+    return key in places
+
+
+def settings_problems(steps: list[dict], schema: Path | None = None, anchors: Path | None = None) -> list[str]:
+    rows, cards, out = settings_rows(schema), settings_cards(schema, anchors), []
+    for step in steps:
+        title, rpc, command = step.get("title"), step.get("rpc"), step.get("cmux")
+        if isinstance(rpc, dict) and rpc.get("method") == "action.run" and isinstance(rpc.get("params"), dict):
+            params = rpc["params"]
+            if params.get("action") in PAGE_ACTIONS and params.get("focus") is not True:
+                out.append(f'step {title!r}: {params["action"]} over the socket opens its tab behind the window; '
+                           'give the rpc params "focus": true')
+            arguments = params.get("arguments") or params.get("args") or {}
+            key = arguments.get("setting") if isinstance(arguments, dict) else None
+            if params.get("action") == "openSettings" and rows and isinstance(key, str) and not settings_target_exists(key, rows, cards) \
+                    and not step.get("optional"):
+                out.append(f"step {title!r}: Settings has no row or card {key} the app opens (a page_hidden row and a card "
+                           "SettingsCardID lacks are refused); open a shown row or section.<id>")
+        if isinstance(command, list) and len(command) >= 3 and command[:1] == ["settings"] \
+                and command[1] in ("set", "reset") and isinstance(command[2], str):
+            row = rows.get(command[2])
+            if row is not None and row.get("agent_settable") is False:
+                out.append(f"step {title!r}: agents may not change {command[2]} ({row.get('agent_refusal') or 'userOnly'}); "
+                           "show its row, the tour cannot flip it")
     return out
 
 
@@ -265,6 +364,14 @@ def capture_state(spec: dict) -> dict:
     for key in ("settings", "launch_args"):
         if key in spec:
             state[key] = spec[key]
+    # A spec's harnessFixture (tour.py's, for the nightly tour) names acpmux's test agent; `cmux-ci capture`
+    # writes that agent itself from its `fakeHarness` field. Without it, `record` of a chat spec opened no chat
+    # ("the chat did not connect to acpmux within 20 s").
+    harnesses = (spec.get("harnessFixture") or {}).get("harnesses") or {}
+    fake = [name for name, h in harnesses.items()
+            if any(str(arg).endswith("fake_agent.py") for arg in (h or {}).get("argv", []))]
+    if fake:
+        state["fakeHarness"] = {"id": fake[0]}
     return state
 
 
@@ -324,9 +431,24 @@ def difference(a: bytes, b: bytes) -> float:
     return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
 
 
-def timeline(spec: dict, frames: list[Path], crop: str) -> list[tuple[Path, float]]:
+def warn_duration(clip_id: str, spec: dict) -> None:
+    """The cut includes the steps between the first and last clip marks, even unmarked ones.
+    Only count explicit waits. Command time, sampled frames and end holds are known at render time."""
+    marked = [i for i, step in enumerate(spec["steps"]) if step.get("clip") is True]
+    waits = [step.get("wait") for step in spec["steps"][marked[0]:marked[-1] + 1]]
+    seconds = sum(wait for wait in waits if type(wait) in (int, float))
+    if seconds >= MAX_SECONDS:
+        print(f"::warning title=What's New clip::{clip_id}: declared waits in the cut span {seconds:g} s "
+              f"(clip limit {MAX_SECONDS:g} s); check the rendered duration")
+
+
+def timeline(spec: dict, frames: list[Path], crop: str, still: bool = False) -> list[tuple[Path, float]]:
     """(frame, seconds) at the capture's own pace: runs of alike frames merged, the first frame held
-    `lead` and the last `hold`, the whole between MIN_SECONDS and MAX_SECONDS."""
+    `lead` and the last `hold`, the whole between MIN_SECONDS and MAX_SECONDS.
+
+    STILL (a before) lets a clip that never changes through as one frame held MIN_SECONDS: an old app
+    without the setting a step sets shows the same window throughout, and that window is the before
+    (space-button-spacing, 2026-11-27). An after that never changes is still refused."""
     interval = float(spec.get("frameInterval", 1.0))
     runs: list[list[Any]] = []
     previous = None
@@ -347,6 +469,8 @@ def timeline(spec: dict, frames: list[Path], crop: str) -> list[tuple[Path, floa
             settled.append(run_)
     runs = settled
     if len(runs) < 2:
+        if still and runs:
+            return [(runs[0][0], MIN_SECONDS)]
         raise ClipError("every frame of the clip is alike: it shows no change (an idle window); script the feature")
     runs[0][1] = max(runs[0][1], float(spec.get("lead", LEAD)))
     runs[-1][1] = max(runs[-1][1], float(spec.get("hold", HOLD)))
@@ -358,12 +482,12 @@ def timeline(spec: dict, frames: list[Path], crop: str) -> list[tuple[Path, floa
     return [(frame, round(seconds, 3)) for frame, seconds in runs]
 
 
-def encode(spec: dict, frames: list[Path], out: Path, keep: Path | None = None) -> dict:
+def encode(spec: dict, frames: list[Path], out: Path, keep: Path | None = None, still: bool = False) -> dict:
     """Writes the clip to OUT; with KEEP, also the cropped PNG frames it is made of, in order (KEEP/NNNN.png):
     the pictures the privacy check reads, since its Linux OCR cannot decode an animated WebP."""
     size = size_of(frames[0])
     crop = crop_filter(spec["crop"], size)
-    plan = timeline(spec, frames, crop)
+    plan = timeline(spec, frames, crop, still)
     for width in (MAX_WIDTH, 720, 560):
         with tempfile.TemporaryDirectory(prefix="whats-new-clip-") as tmp:
             argv = ["img2webp", "-loop", "0", "-min_size", "-mixed"]
@@ -717,6 +841,7 @@ def plan(base: str, head: str, tours: Path, limit: int = PLAN_LIMIT, exists=publ
                 (tours / f"{clip_id}.json").unlink(missing_ok=True)
                 print(f"::warning title=What's New clip::{clip_id}: not a tour: {error}")
                 continue
+        warn_duration(clip_id, spec)
         row = {"id": clip_id, "category": category, "roles": roles}
         if iphone:
             row["app"] = "iphone"
@@ -914,16 +1039,37 @@ def tour_frames(spec: dict, manifest: dict, tour_dir: Path, scratch: Path) -> li
             if previous is None or frame.get("time", 0) - previous >= interval:
                 picked.append(tour_dir / frame["file"])
                 previous = frame.get("time", 0)
+        ended = manifest.get("frames_ended") or {}
+        if inside and first <= ended.get("step", 0) <= last:
+            # The window went away in a clip step (a before whose ⌘Q quits at once): the clip ends on its
+            # last frame, then on an empty frame for the window that is gone, never on what was behind it.
+            last_frame = tour_dir / frames[inside[-1]]["file"]
+            if picked[-1] != last_frame:
+                picked.append(last_frame)
+            picked.append(closed_frame(picked[0], scratch))
     if len(picked) < 2:
         raise ClipError(f"the clip steps span {len(picked)} frame(s); give them a longer wait")
     return picked
 
 
-def render_tour(clip_id: str, tour_dir: Path, out: Path, keep: Path | None = None) -> dict:
+# The frame a clip shows once the app's window is gone: a flat gray, like the space a closed window leaves.
+CLOSED_COLOR = "0x3a3a3c"
+
+
+def closed_frame(like: Path, scratch: Path) -> Path:
+    """An empty frame the size of LIKE, in SCRATCH."""
+    width, height = size_of(like)
+    out = scratch / "closed.png"
+    run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c={CLOSED_COLOR}:s={width}x{height}",
+         "-frames:v", "1", str(out)])
+    return out
+
+
+def render_tour(clip_id: str, tour_dir: Path, out: Path, keep: Path | None = None, role: str = "after") -> dict:
     spec = load_spec(clip_id)
     manifest = json.loads((tour_dir / "manifest.json").read_text())
     with tempfile.TemporaryDirectory(prefix="whats-new-clip-") as tmp:
-        report = encode(spec, tour_frames(spec, manifest, tour_dir, Path(tmp)), out, keep)
+        report = encode(spec, tour_frames(spec, manifest, tour_dir, Path(tmp)), out, keep, still=role == "before")
     print(json.dumps({"id": clip_id, "out": str(out), **report}))
     return report
 
@@ -939,31 +1085,51 @@ def publish_auto(rows: list[dict], results: Path, scratch: Path, tip: str = "", 
     A clip left out gets a failure marker at failed_path ({"tip": TIP, "spec": its spec's SHA-256}), which
     the next plan reads to put that row after the ones not tried yet. A marker that cannot be written is a
     warning: the row then plans as before."""
+    outcomes = [{"id": row["id"], "role": role, "status": "unpublished",
+                 "reason": "publisher stopped before confirming this clip"}
+                for row in rows for role in row["roles"]]
+    try:
+        return _publish_clips(outcomes, results, scratch, tip, specs)
+    finally:
+        counts = {status: sum(clip["status"] == status for clip in outcomes)
+                  for status in ("published", "rejected", "no_tour", "unpublished")}
+        receipt = {"kind": "whats-new-clip-delivery", "tip": tip, "counts": {"planned": len(outcomes), **counts},
+                   "clips": outcomes}
+        # Both publish jobs tee stdout into their step summary. Keep the JSON on one log line for readback.
+        print(f"\nWhat's New clips: {counts['published']}/{len(outcomes)} planned roles published, "
+              f"{counts['rejected']} rejected, {counts['no_tour']} without a tour, "
+              f"{counts['unpublished']} unconfirmed.")
+        print("\n```json", json.dumps(receipt), "```", sep="\n")
+
+
+def _publish_clips(outcomes: list[dict], results: Path, scratch: Path, tip: str, specs: Path | None) -> list[str]:
     files, problems, failed = [], [], []
     # tour.py names a tour's folder by the slug of its file's name (40 characters at most).
     folder = tour_module().slug
-    for row in rows:
-        for role in row["roles"]:
-            local = scratch / f"{row['id']}-{role}.webp"
-            pictures = scratch / f"{row['id']}-{role}-frames"
-            tour_dir = results / role / folder(row["id"])
-            if not tour_dir.is_dir():
-                # The tour never ran: its app did not build ("no app at SHA; its befores wait") or the step
-                # ran out of time. Nothing says the spec fails, so no marker: markers put the befores of a
-                # commit that does not compile behind every other row, past PLAN_LIMIT (2026-11-16).
-                problems.append(f"{row['id']} {role}: its tour did not run (no app); it waits for the next tour")
-                continue
-            try:
-                render_tour(row["id"], tour_dir, local, pictures)
-                frames = sorted(pictures.glob("*.png"))
-                if not frames:
-                    raise ClipError("the encoder kept no frames to check")
-            except (ClipError, OSError, ValueError) as error:
-                problems.append(f"{row['id']} {role}: {error}")
-                if ID.fullmatch(row["id"]) and role in AUTO_ROLES:
-                    failed.append((row["id"], role))
-                continue
-            files.append((f"whats-new/{row['id']}/clip-auto-{role}.webp", local, row["id"], role, frames))
+    for clip in outcomes:
+        clip_id, role = clip["id"], clip["role"]
+        local = scratch / f"{clip_id}-{role}.webp"
+        pictures = scratch / f"{clip_id}-{role}-frames"
+        tour_dir = results / role / folder(clip_id)
+        if not tour_dir.is_dir():
+            # The tour never ran: its app did not build ("no app at SHA; its befores wait") or the step
+            # ran out of time. Nothing says the spec fails, so no marker: markers put the befores of a
+            # commit that does not compile behind every other row, past PLAN_LIMIT (2026-11-16).
+            clip.update(status="no_tour", reason="its tour did not run; it waits for the next tour")
+            problems.append(f"{clip_id} {role}: {clip['reason']}")
+            continue
+        try:
+            render_tour(clip_id, tour_dir, local, pictures, role=role)
+            frames = sorted(pictures.glob("*.png"))
+            if not frames:
+                raise ClipError("the encoder kept no frames to check")
+        except (ClipError, OSError, ValueError) as error:
+            clip.update(status="rejected", reason=str(error))
+            problems.append(f"{clip_id} {role}: {error}")
+            if ID.fullmatch(clip_id) and role in AUTO_ROLES:
+                failed.append((clip_id, role))
+            continue
+        files.append((f"whats-new/{clip_id}/clip-auto-{role}.webp", local, clip, frames))
     if files:
         pr_media = pr_media_module()
         if pr_media.privacy_module().ocr_binary() is None:
@@ -971,11 +1137,16 @@ def publish_auto(rows: list[dict], results: Path, scratch: Path, tip: str = "", 
         # One check for all of them: a refusal names paths and kinds only, and uploads nothing. Each frame is
         # named under its clip's path, so a refusal says which clip and frame.
         pr_media.check_privacy([(f"{path}.frames/{frame.name}", frame)
-                                for path, _, _, _, frames in files for frame in frames], REPO)
-        for path, local, clip_id, role, _ in files:
+                                for path, _, _, frames in files for frame in frames], REPO)
+        for path, local, clip, _ in files:
+            clip_id, role = clip["id"], clip["role"]
+            data = local.read_bytes()
             pr_media.put_file(REPO, BRANCH, path, local, f"What's New clip: {clip_id} ({role}, nightly tour)",
                               checked=True)
-            print(auto_url(clip_id, role))
+            clip.pop("reason")
+            clip.update(status="published", url=auto_url(clip_id, role), sha256=hashlib.sha256(data).hexdigest(),
+                        bytes=len(data))
+            print(clip["url"])
     if failed:
         markers = {}
         for clip_id, role in failed:
@@ -996,7 +1167,11 @@ def check(specs: Path = SPECS, highlights: Path = HIGHLIGHTS) -> list[str]:
         if not (highlights / f"{path.stem}.md").is_file():
             problems.append(f"{path.name}: no highlight {path.stem}.md")
         try:
-            problems += [f"{path.name}: {p}" for p in spec_problems(json.loads(path.read_text()))]
+            spec = json.loads(path.read_text())
+            errors = spec_problems(spec)
+            problems += [f"{path.name}: {p}" for p in errors]
+            if not errors:
+                warn_duration(path.stem, spec)
         except json.JSONDecodeError as error:
             problems.append(f"{path.name}: {error}")
     for path in sorted(highlights.glob("*.md")):
