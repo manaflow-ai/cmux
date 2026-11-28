@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { DERIVE_MAX_RETRIED_ROWS, deriveRowFailureAction, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { DERIVE_MAX_RETRIED_ROWS, deriveRowFailureAction, isFreestyleGuestUnresponsive, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, startAnsweringVm, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -145,10 +145,59 @@ describe("rebake inputs", () => {
       ...REBAKE_INPUTS.exclude.map((glob) => `!${glob}`),
       "web/scripts/devbox-rebake.ts",
       ".github/workflows/cloud-devbox-image-rebake.yml",
+      "web/scripts/promote-devbox-image.ts",
+      "web/scripts/verify-devbox-image.ts",
+      "web/scripts/devbox-agent-launch.ts",
+      "web/scripts/devbox-agent-launch.py",
+      "web/scripts/check-devbox-image-reachable.ts",
     ]);
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
     // The account and the devbox-rebake/* PRs are shared: one canonical branch bakes.
     expect(workflow.jobs.rebake.if).toContain("github.ref == 'refs/heads/feat-cmux-next'");
+  });
+});
+
+describe("startAnsweringVm", () => {
+  // Rebake run 46136757635: the second verify machine started, then its first exec hung and the
+  // SDK's background poll threw a TimeoutError, failing a bake whose first machine had passed.
+  const timedOut = new DOMException("The operation timed out.", "TimeoutError");
+  const nonResponsive = Object.assign(new Error("vm stopped responding: timed out reading from guest agent"), { status: 409, code: "VM_NON_RESPONSIVE" });
+
+  test("a guest that stops answering is deleted and a fresh machine started", async () => {
+    let started = 0;
+    const deleted: string[] = [];
+    const { vm, ready } = await startAnsweringVm(
+      "t",
+      async () => `vm-${(started += 1)}`,
+      async (v) => {
+        if (v === "vm-1") throw timedOut;
+        if (v === "vm-2") throw nonResponsive;
+        return 703;
+      },
+      async (v) => { deleted.push(v); },
+    );
+    expect(vm).toBe("vm-3");
+    expect(ready).toBe(703);
+    expect(deleted).toEqual(["vm-1", "vm-2"]);
+  });
+
+  test("an image fault rethrows at once, and unanswering guests stop at the attempt bound", async () => {
+    const imageFault = new Error("freestyle: baked cmux-tui daemon did not come up by itself");
+    let started = 0;
+    const deleted: string[] = [];
+    await expect(startAnsweringVm("t", async () => `vm-${(started += 1)}`, async () => { throw imageFault; }, async (v) => { deleted.push(v); })).rejects.toBe(imageFault);
+    expect(deleted).toEqual(["vm-1"]);
+    started = 0;
+    deleted.length = 0;
+    await expect(startAnsweringVm("t", async () => `vm-${(started += 1)}`, async () => { throw timedOut; }, async (v) => { deleted.push(v); }, 2)).rejects.toBe(timedOut);
+    expect(deleted).toEqual(["vm-1", "vm-2"]);
+  });
+
+  test("only a timeout or VM_NON_RESPONSIVE counts as an unanswering guest", () => {
+    expect(isFreestyleGuestUnresponsive(timedOut)).toBe(true);
+    expect(isFreestyleGuestUnresponsive(nonResponsive)).toBe(true);
+    expect(isFreestyleGuestUnresponsive(Object.assign(new Error("name taken"), { status: 409, code: "CONFLICT" }))).toBe(false);
+    expect(isFreestyleGuestUnresponsive(new Error("exit 1"))).toBe(false);
   });
 });
 
