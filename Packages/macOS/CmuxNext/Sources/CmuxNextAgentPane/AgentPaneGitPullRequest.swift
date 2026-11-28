@@ -196,9 +196,10 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         text.hasPrefix("https://") && !text.contains(where: \.isWhitespace)
     }
 
-    /// `gh` in the App's PATH or the user's usual install folders.
-    static func gitHubCLI(_ app: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        AgentPaneGitProcess.toolFolders(app).map { $0 + "/gh" }.first { FileManager.default.isExecutableFile(atPath: $0) }
+    /// `gh` in the login shell's PATH, the App's PATH or the user's usual install folders.
+    static func gitHubCLI(_ app: [String: String] = ProcessInfo.processInfo.environment,
+                          loginPath: String? = AgentPaneGitProcess.rememberedLoginPath()) -> String? {
+        AgentPaneGitProcess.toolFolders(app, loginPath: loginPath).map { $0 + "/gh" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }
 

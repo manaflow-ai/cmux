@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
 
@@ -99,13 +100,22 @@ nonisolated enum AgentPaneGitProcess {
         return environment
     }
 
-    /// The App's own PATH, then the folders an app launched from Finder lacks.
-    static func toolFolders(_ app: [String: String]) -> [String] {
+    /// The user's login-shell PATH first (so a wrapper such as a `gh` shim ahead of
+    /// `/opt/homebrew/bin` wins, as it does in their terminal), then the App's own PATH, then the
+    /// folders an app launched from Finder lacks.
+    static func toolFolders(_ app: [String: String], loginPath: String? = rememberedLoginPath()) -> [String] {
         let home = app["HOME"] ?? NSHomeDirectory()
-        let folders = (app["PATH"] ?? "").split(separator: ":").map(String.init)
+        let folders = (loginPath ?? "").split(separator: ":").map(String.init)
+            + (app["PATH"] ?? "").split(separator: ":").map(String.init)
             + AcpmuxEnvironment.installDirectories.map { $0.hasPrefix("~/") ? home + "/" + $0.dropFirst(2) : $0 }
         var seen: Set<String> = []
         return folders.filter { $0.hasPrefix("/") && seen.insert($0).inserted }
+    }
+
+    /// The login PATH the app captured (``LoginEnvironment/rememberedPath()``): one small file read,
+    /// next to the gh process it picks, so a fresh capture counts at once.
+    static func rememberedLoginPath() -> String? {
+        LoginEnvironment.shared.rememberedPath()
     }
 
     /// git did not finish before the deadline.
