@@ -1026,6 +1026,10 @@ class RePinPublication(unittest.TestCase):
                                                                    "failure"])},
             "the merge train's seat status": {"checks": ("success",),
                                               "status": [["merge-train", "error"], ["ci", "success"]]},
+            # 2026-11-28: cmux#64303 was moved off 512ee340 and 68a65d55 for one red each (a cancelled migration
+            # plan, a build fleet fetch fault) while its Mac and fleet compiles still ran; every pinned land stopped.
+            "a failed check while others still run": {"checks": ("success", "failure", None)},
+            "a failed commit status while a check still runs": {"checks": ("success", None), "status": "failure"},
         }
         for name, options in cases.items():
             with self.subTest(name):
@@ -1039,6 +1043,10 @@ class RePinPublication(unittest.TestCase):
         cases = {
             "past the hold": {"head_age_min": 95},
             "a failed check run": {"head_age_min": 20, "checks": ("success", "failure")},
+            "a failed check run, and only an advisory one still running": {
+                "head_age_min": 20, "checks": ("failure", ["nightly app compile arm64 fleet job (advisory)", None])},
+            "a failed check with checks still running, past the hold": {"head_age_min": 95,
+                                                                       "checks": ("failure", None)},
             "a timed-out check run": {"head_age_min": 20, "checks": ("timed_out",)},
             "a check run that never started": {"head_age_min": 20, "checks": ("startup_failure",)},
             "a stale check run": {"head_age_min": 20, "checks": ("stale",)},
