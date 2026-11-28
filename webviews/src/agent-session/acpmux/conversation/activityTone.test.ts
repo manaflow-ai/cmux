@@ -6,7 +6,7 @@ const css = readFileSync(join(import.meta.dir, "conversation.css"), "utf8");
 const gallery = readFileSync(join(import.meta.dir, "transcript.gallery.ts"), "utf8");
 
 test("background activity has one secondary tone; a row's words light on hover or keyboard focus, never its glyph; a received message never", () => {
-  expect(css).toContain("--cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);");
+  expect(css).toContain("--cv-activity-text: color-mix(in srgb, var(--cv-fg) var(--instrument-ink-tool-row, 58%), transparent);");
   // Codex parity (Lucas, 2026-11-06): only the words light, under the pointer or keyboard focus; a
   // click or an opened row leaves no white behind. A sent message's row keeps one steady tone. An
   // activity row's words light by the same rule, all the way through (Leo, 2026-11-09: "this
