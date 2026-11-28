@@ -183,8 +183,8 @@ rm -f "$app/Contents/Resources/AppIcon-Stable.icns"
 run --stamp "$app"
 expect_no_icon "--stamp, the app's icns gone"
 
-# 11. Computer Use's own icon wins over the app's: the drag row and System Settings show the cursor icon "cmux
-# Computer Use.app" ships, in the Xcode phase, --app and --stamp; a missing one falls back to the app's.
+# 11. Computer Use's tile (ComputerUseIcon.icns, Lucas's midnight cursor) wins over the app's icon: the drag row and
+# System Settings show the same tile, in the Xcode phase, --app and --stamp; a missing one falls back to the app's.
 printf 'cu-icon' > "$TMP/ComputerUseIcon.icns"
 printf 'stable-icon' > "$app/Contents/Resources/AppIcon-Stable.icns"
 rm -f "$build/tmp/bundle-screen-sharing-helper.stamp"

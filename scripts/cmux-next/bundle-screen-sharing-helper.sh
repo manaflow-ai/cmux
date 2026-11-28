@@ -7,9 +7,9 @@
 #     Contents/MacOS/cmux-screen-sharing
 #     Contents/Info.plist   <app bundle id>.screen-sharing (every DEV build: com.cmuxterm.app.debug.screen-sharing),
 #                           LSUIElement, named "<app name> Helper"
-#     Contents/Resources/AppIcon.icns   Computer Use's icon (the cursor "cmux Computer Use.app" ships), else the
-#                           app's own (its CFBundleIconFile), so onboarding's drag row and System Settings show
-#                           Computer Use, not the generic blank app
+#     Contents/Resources/AppIcon.icns   Computer Use's tile (Lucas's midnight cursor, ComputerUseIcon.icns from
+#                           generate-computer-use-icon.sh), else the app's own (its CFBundleIconFile), so onboarding's
+#                           drag row and System Settings show the same tile, not the generic blank app
 #
 # The name is what macOS permission alerts show ("cmux NIGHTLY Helper"). The bundle id keeps
 # ".screen-sharing" (Screen Recording and Accessibility grants are keyed to it), and the executable
@@ -65,8 +65,8 @@ plist_get() {
 # Privacy & Security lists (Austin: "We need to show the icon instead of the blank white icon").
 HELPER_ICON=AppIcon
 
-# Computer Use's own icon, the one the onboarding page and the agent permission card draw for a helper that names
-# none (CmuxNextDesign's ComputerUseAppIcon). CMUX_NEXT_COMPUTER_USE_ICON: another file (tests; empty: none).
+# Computer Use's tile as an icns, the one the setup's drag row and the agent permission card draw (CmuxNextDesign's
+# ComputerUseAppIcon; generate-computer-use-icon.sh writes it from webviews' computerUseTile.png). CMUX_NEXT_COMPUTER_USE_ICON: another file (tests; empty: none).
 COMPUTER_USE_ICON="${CMUX_NEXT_COMPUTER_USE_ICON-$repo_root/Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/ComputerUseIcon.icns}"
 
 # Copies the helper's icon in: <app> <helper bundle> [icon name...]. Computer Use's icon when it is there; else
