@@ -352,6 +352,14 @@ PARTS = [
     {"name": "hot-swap", "args": [*MEASURE, "--config=bench", "--suite=graceful-swap"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "graceful-swap",
      "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700},
+    # Goal infinite-tabs-flat: the app with 500 browser tabs, 200 workspaces and 100 chats, all but the front workspace
+    # hibernated, over the same app empty (scripts/measure/infinite-tabs-cron.py over bench_infinite_tabs.py;
+    # infinite_tabs.mac.*, report-only). NOW's infinite_tabs_memory_vs_empty_mac came only from a person's
+    # infinite-tabs.sh step, so it read "hand step, unconfirmed (one run)" and went STALE after 24 h (2026-11-28).
+    # goal_rows: a run that stored no memory_vs_empty row (built under 90 % of what was asked) leaves the part due.
+    {"name": "infinite-tabs", "args": [*MEASURE, "--config=bench", "--suite=infinite-tabs"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "infinite-tabs",
+     "goal": "infinite-tabs-flat", "goal_rows": r"infinite_tabs\.mac\.memory_vs_empty@", "run_seconds": 3600},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -489,7 +497,7 @@ ROW_PARTS = [
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power_user\.native\.", "power-user-native"), (r"^power\.", "power"),
-    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"),
+    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"), (r"^infinite_tabs\.mac\.", "infinite-tabs"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -528,7 +536,7 @@ ROW_PARTS = [
 # part's Ghostty idle mW and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has
 # Ghostty's mW as budget). The chat search's fill and the CLI's scan (chat-search) are context for its judged
 # keystroke row: shown, not judged.
-REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
+REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|infinite_tabs\.mac\.|memory\.app_agents\.breakdown\.|cloud\.claim_to_ready"
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work|to_frame_frames)$"
                                 r"|acp\.[^.]+\.frame_interval$|acp\.[^.]+-(capped|full|nolimit)\."
                                 r"|launch\.wake_proxy\.awake_echo_ms$"
@@ -2909,7 +2917,7 @@ def supported_parts_at(sha):
                                    capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize",
-                      "chat-snappy", "graceful-swap"):
+                      "chat-snappy", "graceful-swap", "infinite-tabs"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
@@ -4135,14 +4143,44 @@ def linux_matrix(parts):
                       separators=(",", ":"))
 
 
+# Parts that spend the repository's GITHUB_TOKEN budget themselves: a drained budget cannot run them.
+STAND_IN_SKIPPED = {"cloud-claim"}
+
+
+def stand_in_parts(tip):
+    """The Linux parts a tick runs when the state could not be read: every Linux part the tip's tree can measure, in
+    PARTS order, bar those that call GitHub with the token (STAND_IN_SKIPPED)."""
+    supported = set(supported_parts_at(tip))
+    return [p["name"] for p in PARTS
+            if p.get("where") == "linux" and p["name"] in supported and p["name"] not in STAND_IN_SKIPPED]
+
+
+def stand_in_outputs(tip, error):
+    """The plan's outputs when GitHub's rate limit hid the state (2026-11-27: five ticks in a row planned nothing, and the
+    perf board did not measure for hours, because the shared GITHUB_TOKEN budget was drained by other workflows). The
+    tip's Linux parts run with no state (git is local, the parts call no GitHub API), their numbers land in each
+    part's job summary and artifact, and nothing is saved: the report sees the RATE_LIMITED mark and leaves the last
+    trusted state alone. The Mac parts need the state (the measurement in flight, the host that built the app) and wait."""
+    parts = stand_in_parts(tip)
+    return {"action": "part" if parts else "none", "sha": tip if parts else "", "part": "",
+            "linux_matrix": linux_matrix(parts), "linux_request": "", "mac_parts": "", "worker": "",
+            "frame_pacing": "false", "rate_limited": "true",
+            "reason": (f"GitHub rate limit ({error}); the state was not read, so the tip's {len(parts)} Linux parts "
+                       "run as a stand-in and nothing is saved")}
+
+
 def cmd_plan(o):
     try:
         plan(o)
     except RateLimited as error:
         # Nothing written: the state file stays the one fetched, so the report saves nothing and the next tick
-        # starts from the same state.
-        out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "worker": "", "frame_pacing": "false",
-               "rate_limited": "true", "reason": f"GitHub rate limit ({error}); the next tick tries again"}
+        # starts from the same state. The Linux parts of the tip still run (stand_in_outputs): a budget drained by
+        # other workflows must not stop the cron from measuring.
+        try:
+            out = stand_in_outputs(git("rev-parse", "--verify", "--end-of-options", f"{o.tip}^{{commit}}"), error)
+        except (subprocess.SubprocessError, OSError) as failure:
+            out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "worker": "", "frame_pacing": "false",
+                   "rate_limited": "true", "reason": f"GitHub rate limit ({error}); no tip to measure ({failure!r})"}
         print(f"perf-cron plan: {json.dumps(out)}")
         write_outputs(o.output, out)
     print_calls("plan")
@@ -4765,6 +4803,11 @@ def cmd_run_linux_part(o):
                 print(f"perf-cron web-ui: {line}")
             for line in webui_ladder_lines(stdout):
                 print(f"perf-cron web-ui: {line}")
+            # infinite-items' per-role wakeups/PSS and its fastest-growing files: the rows keep only totals, so the
+            # job log carries which thread woke and which file grew (goal infinite-items-flat) without a rerun.
+            for line in stdout.splitlines():
+                if line.startswith(("INFINITE-ROLE ", "INFINITE-DISKGROW ", "INFINITE-COMMITS ")):
+                    print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
                 # The suite's report becomes the part's, keeping what ran before it: the web-ui-god part's paired
                 # rounds run first (cmux#57939), and a bare `report = value` dropped them, so the board kept the
