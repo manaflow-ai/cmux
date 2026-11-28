@@ -67,6 +67,8 @@ pub mod history_search;
 /// `language_packs.ensure`: the app's languages, downloaded on first use.
 pub(crate) mod language_packs;
 #[cfg(unix)]
+pub mod live_sync;
+#[cfg(unix)]
 pub mod projection;
 #[cfg(unix)]
 pub mod projection_ns;

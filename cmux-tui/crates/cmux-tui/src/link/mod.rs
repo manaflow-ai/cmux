@@ -57,6 +57,11 @@ pub(crate) fn socket_timed_out(error: &std::io::Error) -> bool {
     matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
 }
 
+/// Stops the live two-way sync of chat `chat` (`cmux link live`, sync_cli/live.rs). Whether one ran.
+pub(crate) fn live_stop_chat(chat: &str) -> anyhow::Result<bool> {
+    sync_cli::live::stop_chat(chat)
+}
+
 mod spans;
 mod start_chat_cli;
 mod state;
@@ -166,6 +171,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // `project`: a big folder projected onto a Cloud machine (sync_cli/project.rs).
     if args.first().map(String::as_str) == Some("project") {
         return sync_cli::project::run(args.get(1..).unwrap_or_default());
+    }
+    // `live`: an AutoCloud chat's folder synced both ways, live (sync_cli/live.rs).
+    if args.first().map(String::as_str) == Some("live") {
+        return sync_cli::live::run(args.get(1..).unwrap_or_default());
     }
     // `offload`: one local command run on a machine over this folder's view, its writes
     // published back (sync_cli/offload.rs, RFD 0007 step 7).

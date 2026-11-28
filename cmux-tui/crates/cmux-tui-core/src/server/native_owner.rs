@@ -218,6 +218,8 @@ const CAPABILITIES: &[&str] = &[
     // A projected folder on the owner's own machine: its stream dial passes
     // `fs_wire::remote_dial_admits` for the owner's Native dial only.
     crate::projection::PROJECTION_CAPABILITY,
+    // An AutoCloud chat's live folder sync (`sync.live`): a data frame, owner's dial only.
+    crate::live_sync::CAPABILITY,
     crate::shell_runs::CAPABILITY,
 ];
 
