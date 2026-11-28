@@ -9,7 +9,7 @@ extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String, machine: String? = nil) {
         let scoped = tabKey(provisional, machine: machine)
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional }, machine: scoped.machine.isEmpty ? nil : scoped.machine,
-                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional, machine: scoped.machine) ?? provisional, $0, $1) }, hidden: { [weak self] in guard let self else { return [] }; return CloudMove.hiddenMenuItems(self.record(for: self.resolvedKey(scoped))?.record) }, local: { [weak self] in self?.gitLinkScoped?(self?.resolvedKey(scoped) ?? scoped)?.isLocal == true }, openTool: { [weak self] kind, cwd in guard let self else { return false }; return self.openToolScoped?(self.resolvedKey(scoped), kind, cwd) ?? false })
+                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolvedKey(scoped) ?? scoped, $0, $1) }, hidden: { [weak self] in guard let self else { return [] }; return CloudMove.hiddenMenuItems(self.record(for: self.resolvedKey(scoped))?.record) }, local: { [weak self] in self?.gitLinkScoped?(self?.resolvedKey(scoped) ?? scoped)?.isLocal == true }, openTool: { [weak self] kind, cwd in guard let self else { return false }; return self.openToolScoped?(self.resolvedKey(scoped), kind, cwd) ?? false }, cloudTerminal: { [weak self] cwd in guard let self else { return false }; return self.openCloudTerminalScoped?(self.resolvedKey(scoped), cwd) ?? false })
         let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
@@ -26,13 +26,14 @@ extension AgentTabStore {
         // and its new watch must push without waiting for another read.
         watch.read()
         // The page names the chat's folder once its session summary came; until then (and for a
-        // split beside another split) the chat's exact folder from here (terminalFolder).
+        // split beside another split) the chat's exact folder from here (terminalFolder), on the chat's own machine
+        // for a Cloud or SSH chat, so its Terminal and Split Down start there in its folder (cmux#55413).
         model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
             let chat = self?.resolve(provisional, machine: scoped.machine) ?? provisional
-            toggles.open(id, cwd: cwd ?? self?.terminalFolder(of: chat, machine: scoped.machine), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
+            toggles.open(id, cwd: cwd ?? self?.terminalFolder(of: chat, machine: scoped.machine, on: self?.daemon(for: scoped)), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
         }, toggle: { [weak self] id, cwd in
             let chat = self?.resolve(provisional, machine: scoped.machine) ?? provisional
-            toggles.toggle(id, cwd: cwd ?? self?.terminalFolder(of: chat, machine: scoped.machine), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
+            toggles.toggle(id, cwd: cwd ?? self?.terminalFolder(of: chat, machine: scoped.machine, on: self?.daemon(for: scoped)), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
         }, tabState: {
             // The page reads the state when a chat opens; its changes are pushed.
             watch.read()

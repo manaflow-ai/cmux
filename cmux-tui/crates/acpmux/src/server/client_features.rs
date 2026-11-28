@@ -39,6 +39,15 @@ impl ClientFeatures {
         }
     }
 
+    /// New notifications require explicit negotiation, including on legacy connections.
+    pub(crate) fn lists(&self, id: &str) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|listed| listed.contains(id))
+    }
+
     /// Whether this client sent a `features` list at all.
     #[cfg(test)]
     pub(crate) fn listed(&self) -> bool {

@@ -1,5 +1,4 @@
 import CmuxNextCompat
-import CryptoKit
 public import Foundation
 
 /// The web updates kept on disk (plans/cmux-next/web-ota.md), under the app's Application Support
@@ -118,15 +117,22 @@ nonisolated public struct WebUpdateStore: Sendable {
         return destination
     }
 
+    /// Removes every `staging-*` folder: an unpack's or a `cas/1` fetch's, with its chunk store.
+    /// Only when no install is in flight (``prune(keeping:)``, the launch check).
+    public func removeLeftoverStaging() {
+        let manager = FileManager.default
+        for name in (try? manager.contentsOfDirectory(atPath: base.path)) ?? [] where name.hasPrefix("staging-") {
+            try? manager.removeItem(at: base.appending(path: name))
+        }
+    }
+
     /// Removes every kept tree and leftover staging folder but `keys`.
     public func prune(keeping keys: Set<String>) {
         let manager = FileManager.default
         for name in (try? manager.contentsOfDirectory(atPath: trees.path)) ?? [] where !keys.contains(name) {
             try? manager.removeItem(at: trees.appending(path: name))
         }
-        for name in (try? manager.contentsOfDirectory(atPath: base.path)) ?? [] where name.hasPrefix("staging-") {
-            try? manager.removeItem(at: base.appending(path: name))
-        }
+        removeLeftoverStaging()
         // An older build's `trees/` that moveLegacyTrees could not move (trees.noindex/ was already
         // there): nothing serves from it, since tree(for:) reads only trees.noindex/.
         if manager.fileExists(atPath: trees.path), manager.fileExists(atPath: legacyTrees.path) {
@@ -134,17 +140,12 @@ nonisolated public struct WebUpdateStore: Sendable {
         }
     }
 
+    /// The archive's size and SHA-256 (Rust's `web_updates.archive_digest`), refused past
+    /// ``WebUpdatePointer/maximumSize``.
     static func sizeAndDigest(of file: URL) throws(WebUpdateRefusal) -> (Int, String) {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { throw .integrity("unreadable archive") }
-        defer { try? handle.close() }
-        var hash = SHA256()
-        var size = 0
-        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            size += chunk.count
-            guard size <= WebUpdatePointer.maximumSize else { throw .integrity("archive too large") }
-            hash.update(data: chunk)
-        }
-        return (size, WebUpdateTree.hex(hash.finalize()))
+        let reply = UpdaterRust.call("web_updates.archive_digest", ["file": file.path]) as? [String: Any]
+        if let size = reply?["size"] as? Int, let digest = reply?["sha256"] as? String { return (size, digest) }
+        throw WebUpdateRefusal(rust: reply?["refusal"])
     }
 
     /// `tar -xzf` into `folder`. The archive's digest was checked against the signed pointer first.

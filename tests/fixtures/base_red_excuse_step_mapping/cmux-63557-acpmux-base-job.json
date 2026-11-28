@@ -1,0 +1,234 @@
+{
+ "id": 140836780847,
+ "run_id": 46098918707,
+ "name": "acpmux tests (lib, hub_integration)",
+ "head_sha": "a629f4b2c0172d568aeae0151a0f1d82ef552fb0",
+ "status": "completed",
+ "conclusion": "failure",
+ "steps": [
+  {
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 1,
+   "started_at": "2026-11-28T02:37:07Z",
+   "completed_at": "2026-11-28T02:37:07Z"
+  },
+  {
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 2,
+   "started_at": "2026-11-28T02:37:08Z",
+   "completed_at": "2026-11-28T02:37:09Z"
+  },
+  {
+   "name": "Run actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 3,
+   "started_at": "2026-11-28T02:37:09Z",
+   "completed_at": "2026-11-28T02:37:21Z"
+  },
+  {
+   "name": "Start the time budget",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 4,
+   "started_at": "2026-11-28T02:37:21Z",
+   "completed_at": "2026-11-28T02:37:21Z"
+  },
+  {
+   "name": "Reuse a green result for the same input tree",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 5,
+   "started_at": "2026-11-28T02:37:21Z",
+   "completed_at": "2026-11-28T02:37:23Z"
+  },
+  {
+   "name": "Test the per-test verdict",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 6,
+   "started_at": "2026-11-28T02:37:23Z",
+   "completed_at": "2026-11-28T02:37:51Z"
+  },
+  {
+   "name": "Fetch the merge parent",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 7,
+   "started_at": "2026-11-28T02:37:51Z",
+   "completed_at": "2026-11-28T02:37:51Z"
+  },
+  {
+   "name": "Restore the base's last test log",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 8,
+   "started_at": "2026-11-28T02:37:51Z",
+   "completed_at": "2026-11-28T02:37:52Z"
+  },
+  {
+   "name": "Install bubblewrap",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 9,
+   "started_at": "2026-11-28T02:37:52Z",
+   "completed_at": "2026-11-28T02:37:52Z"
+  },
+  {
+   "name": "Set up pinned Rust",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 10,
+   "started_at": "2026-11-28T02:37:52Z",
+   "completed_at": "2026-11-28T02:37:53Z"
+  },
+  {
+   "name": "Test the library test runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 11,
+   "started_at": "2026-11-28T02:37:53Z",
+   "completed_at": "2026-11-28T02:38:09Z"
+  },
+  {
+   "name": "Cache cargo build",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 12,
+   "started_at": "2026-11-28T02:38:09Z",
+   "completed_at": "2026-11-28T02:38:09Z"
+  },
+  {
+   "name": "Key the cargo build in R2",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 13,
+   "started_at": "2026-11-28T02:38:09Z",
+   "completed_at": "2026-11-28T02:38:09Z"
+  },
+  {
+   "name": "Restore the cargo build from R2",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 14,
+   "started_at": "2026-11-28T02:38:09Z",
+   "completed_at": "2026-11-28T02:38:13Z"
+  },
+  {
+   "name": "Restore the cargo registry from R2",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 15,
+   "started_at": "2026-11-28T02:38:13Z",
+   "completed_at": "2026-11-28T02:38:18Z"
+  },
+  {
+   "name": "v2 bench home emits all gate rows",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 16,
+   "started_at": "2026-11-28T02:38:18Z",
+   "completed_at": "2026-11-28T02:43:31Z"
+  },
+  {
+   "name": "cargo test -p acpmux --lib --test hub_integration",
+   "status": "completed",
+   "conclusion": "failure",
+   "number": 17,
+   "started_at": "2026-11-28T02:43:31Z",
+   "completed_at": "2026-11-28T03:08:31Z"
+  },
+  {
+   "name": "Strip the workspace's own output before the R2 save",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 18,
+   "started_at": "2026-11-28T03:08:31Z",
+   "completed_at": "2026-11-28T03:08:31Z"
+  },
+  {
+   "name": "Save the cargo build to R2",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 19,
+   "started_at": "2026-11-28T03:08:31Z",
+   "completed_at": "2026-11-28T03:08:31Z"
+  },
+  {
+   "name": "Save the cargo registry to R2",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 20,
+   "started_at": "2026-11-28T03:08:31Z",
+   "completed_at": "2026-11-28T03:08:31Z"
+  },
+  {
+   "name": "Save this push's test log for pull requests",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 21,
+   "started_at": "2026-11-28T03:08:31Z",
+   "completed_at": "2026-11-28T03:08:31Z"
+  },
+  {
+   "name": "Save the base's last test log",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 22,
+   "started_at": "2026-11-28T03:08:31Z",
+   "completed_at": "2026-11-28T03:08:31Z"
+  },
+  {
+   "name": "Record this green result for its input tree",
+   "status": "completed",
+   "conclusion": "skipped",
+   "number": 23,
+   "started_at": "2026-11-28T03:08:31Z",
+   "completed_at": "2026-11-28T03:08:31Z"
+  },
+  {
+   "name": "Post Cache cargo build",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 43,
+   "started_at": "2026-11-28T03:08:31Z",
+   "completed_at": "2026-11-28T03:08:31Z"
+  },
+  {
+   "name": "Post Reuse a green result for the same input tree",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 44,
+   "started_at": "2026-11-28T03:08:31Z",
+   "completed_at": "2026-11-28T03:08:31Z"
+  },
+  {
+   "name": "Post Run actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 45,
+   "started_at": "2026-11-28T03:08:31Z",
+   "completed_at": "2026-11-28T03:08:32Z"
+  },
+  {
+   "name": "Complete runner",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 46,
+   "started_at": "2026-11-28T03:08:32Z",
+   "completed_at": "2026-11-28T03:08:39Z"
+  },
+  {
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "number": 47,
+   "started_at": "2026-11-28T03:08:39Z",
+   "completed_at": "2026-11-28T03:08:39Z"
+  }
+ ]
+}
