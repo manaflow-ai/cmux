@@ -750,6 +750,14 @@ async fn rename_reaches_a_session_only_the_hub_reaches_and_no_verb_answers_no_se
         read(&read_only, "machine-b", &session, method::MUX_RETRY, &json!({})).await.unwrap_err();
     assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
 
+    // A cancel goes through too: B runs it on its own session and answers, never that the hub
+    // does not carry session/cancel. A sender B trusts only to read cancels nothing.
+    call(&a, method::SESSION_CANCEL, json!({"sessionId": "machine-b/renamed-e2e"})).await;
+    let refused = read(&read_only, "machine-b", &session, method::SESSION_CANCEL, &json!({}))
+        .await
+        .unwrap_err();
+    assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
+
     // Every other session verb the hub does not carry says so, by name or by id.
     for (m, key) in [
         (method::MUX_PAUSE, "machine-b/renamed-e2e"),

@@ -182,7 +182,19 @@ pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         },
         _ => None,
     };
-    match daemon.request(m, params).await {
+    // timeout: every bg tool answers from the daemon's own state at once; one that does not in
+    // BG_CALL_BOUND is stuck (2026-11-25: a bg_output held a lane's turn for 4 h), so it fails and
+    // the turn goes on.
+    let reply = match tokio::time::timeout(BG_CALL_BOUND, daemon.request(m, params)).await {
+        Ok(reply) => reply,
+        Err(_) => {
+            return error_result(format!(
+                "{name} did not answer within {} s; try again, or read the task with bg_list",
+                BG_CALL_BOUND.as_secs()
+            ));
+        }
+    };
+    match reply {
         Ok(r) => {
             let (line, status) = outcome(name, &r);
             if let Some(page) = page {
@@ -231,6 +243,9 @@ fn bg_task_given_to_run_wait(name: &str, params: &Value) -> Option<String> {
         v.starts_with("bg-").then(|| v.to_owned())
     })
 }
+
+/// The most one bg tool call (`bg_start`, `bg_list`, `bg_output`, `bg_stop`) waits for the daemon.
+const BG_CALL_BOUND: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The most a `run_wait` on a background task blocks (`timeoutSeconds`); a longer bound is
 /// clamped to it, and the result says so.

@@ -72,8 +72,17 @@ const NOT_CARRIED: &[&str] = &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, m
 /// a session as once when run twice too. 2026-11-26: a fleet pause's wake of a held lane only the
 /// hub reaches from the waking machine answered "the mesh hub does not carry
 /// _acpmux/session_hold" at `acpmux session release`, every pass, while its `send` went through.
-const WRITE_METHODS: &[&str] =
-    &[method::MUX_RENAME, method::MUX_RETRY, method::MUX_SESSION_HOLD, method::MUX_TAG];
+/// A cancel of the running turn (`session/cancel`) too: cancelling twice leaves the session as
+/// once, and a lane hung in a tool call for hours could not be stopped from another host (2026-11-25:
+/// `acpmux cancel gcp-agent-lane-10/NAME` answered "the mesh hub does not carry session/cancel").
+/// The sender needs the same lifecycle trust as a rename or retry.
+const WRITE_METHODS: &[&str] = &[
+    method::MUX_RENAME,
+    method::MUX_RETRY,
+    method::MUX_SESSION_HOLD,
+    method::MUX_TAG,
+    method::SESSION_CANCEL,
+];
 
 /// Whether `m` reads a page of events, so its params cross and its budget halves.
 fn pages(m: &str) -> bool {
