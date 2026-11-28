@@ -1,4 +1,5 @@
-import { ProviderNetworkFullError, providerConflictKind } from "./drivers/types";
+import { ProviderNetworkFullError } from "./drivers/types";
+import { FleetCapacityAdmissionError, isProviderStartCapacityRefusal } from "./fleetAdmission";
 
 /**
  * Explicit wait state for a Cloud VM create that found no room.
@@ -31,7 +32,15 @@ export const VM_CREATE_WAIT_RETRY_AFTER_SECONDS = 15;
 /** Terminal failure code for a wait that ran past its deadline. */
 export const VM_CREATE_WAIT_EXPIRED_FAILURE_CODE = "vm_create_wait_expired";
 
-export type VmCreateWaitState = "waiting_for_address" | "waiting_for_capacity";
+/**
+ * Why a create waits, one state per cause (Leo, hq#15832 item 2: "Queue with
+ * an explicit wait state instead of failing after provider start/address
+ * exhaustion."): no free address in the network, the fleet's machine cap
+ * reached (CMUX_VM_FLEET_MAX_ACTIVE_VMS), or the provider out of start room.
+ */
+export type VmCreateWaitState = "waiting_for_address" | "waiting_for_fleet" | "waiting_for_capacity";
+
+const WAIT_STATES: ReadonlySet<unknown> = new Set<VmCreateWaitState>(["waiting_for_address", "waiting_for_fleet", "waiting_for_capacity"]);
 
 export type VmCreateWait = {
   readonly state: VmCreateWaitState;
@@ -46,9 +55,9 @@ export function createWaitFromMetadata(metadata: Record<string, unknown> | null 
   const raw = metadata?.[CREATE_WAIT_METADATA_KEY];
   if (!raw || typeof raw !== "object") return null;
   const record = raw as { state?: unknown; since?: unknown; deadline?: unknown };
-  if (record.state !== "waiting_for_address" && record.state !== "waiting_for_capacity") return null;
+  if (!WAIT_STATES.has(record.state)) return null;
   if (typeof record.since !== "number" || typeof record.deadline !== "number") return null;
-  return { state: record.state, since: record.since, deadline: record.deadline };
+  return { state: record.state as VmCreateWaitState, since: record.since, deadline: record.deadline };
 }
 
 /** Which wait a create refusal means, or null when the refusal is not a lack of room. */
@@ -56,10 +65,13 @@ export function createWaitStateForCause(cause: unknown): VmCreateWaitState | nul
   let current = cause;
   for (let depth = 0; depth < 8 && current; depth += 1) {
     if (current instanceof ProviderNetworkFullError) return "waiting_for_address";
+    if (current instanceof FleetCapacityAdmissionError && current.reason === "fleet_full") return "waiting_for_fleet";
     if (typeof current !== "object") break;
     current = (current as { cause?: unknown }).cause;
   }
-  return providerConflictKind(cause) === "capacity" ? "waiting_for_capacity" : null;
+  // The 409 placement refusal, the 429 start-capacity throttle, and the fleet
+  // admission's provider cooldown (fleetAdmission.ts) wait for capacity.
+  return isProviderStartCapacityRefusal(cause) ? "waiting_for_capacity" : null;
 }
 
 /**

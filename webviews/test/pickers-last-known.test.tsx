@@ -5,8 +5,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { LastKnown } from "../src/lastKnown";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { LastKnown } = await importWithDom(() => import("../src/lastKnown"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

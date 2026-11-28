@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d2e58e7363ddeea75dced973d72229d390076f4ddefc62d7d2c13dba33084783";
+pub const ir_sha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -487,6 +487,85 @@ pub const CloudConversationPresenceParticipant = struct {
 
 pub const ColorHex = []const u8;
 
+pub const ColumnDock = struct {
+    /// `pinned-dock-v1`: a pinned column takes more tabs; omitted when false.
+    allow_tabs: ?bool = null,
+    /// left or right (`dock-columns-v1`), top or bottom (also `edge-docks-v1`).
+    edge: ColumnDockEdge,
+    /// `docked` takes its width out of the scrolling area; `overlay` floats above the scrolling columns.
+    mode: ColumnDockMode,
+    /// `permanent-dock-v1`: the column stays docked on `edge` for every client; omitted when false.
+    permanent: ?bool = null,
+    /// `pinned-dock-v1`: a pinned column (the Home dock); omitted when false.
+    pinned: ?bool = null,
+    /// `dock-column-role-v1`: what the column is for; omitted when unset.
+    role: ?ColumnDockRole = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "allow_tabs",
+        "permanent",
+        "pinned",
+        "role",
+    };
+};
+
+pub const ColumnDockEdge = enum {
+    left,
+    right,
+    top,
+    bottom,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "left")) return .left;
+        if (std.mem.eql(u8, value, "right")) return .right;
+        if (std.mem.eql(u8, value, "top")) return .top;
+        if (std.mem.eql(u8, value, "bottom")) return .bottom;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .left => "left",
+            .right => "right",
+            .top => "top",
+            .bottom => "bottom",
+        };
+    }
+};
+
+pub const ColumnDockMode = enum {
+    docked,
+    overlay,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "docked")) return .docked;
+        if (std.mem.eql(u8, value, "overlay")) return .overlay;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .docked => "docked",
+            .overlay => "overlay",
+        };
+    }
+};
+
+pub const ColumnDockRole = enum {
+    agent_chat,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "agent_chat")) return .agent_chat;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .agent_chat => "agent_chat",
+        };
+    }
+};
+
 pub const ColumnMoveDirection = enum {
     left,
     right,
@@ -921,6 +1000,19 @@ pub const ExportedPane = struct {
     surfaces: []const Id,
 };
 
+pub const FloatingPane = struct {
+    /// The height, 0 to 1.
+    h: f64,
+    /// floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area.
+    pane: Id,
+    /// The width, 0 to 1.
+    w: f64,
+    /// The left edge, 0 to 1.
+    x: f64,
+    /// The top edge, 0 to 1.
+    y: f64,
+};
+
 pub const FocusDirectionResult = struct {
     pane: Id,
 };
@@ -1353,7 +1445,7 @@ pub const Layout = union(enum) {
 
 pub const LayoutColumnNode = struct {
     /// dock-columns-v1: the viewport edge the column is pinned to.
-    dock: ?JsonValue = null,
+    dock: ?ColumnDock = null,
     id: Id,
     layout: Layout,
     /// rows-v1: only for a column with two or more rows.
@@ -2097,7 +2189,7 @@ pub const Screen = struct {
     /// The screen's layout columns.
     columns: ?[]const LayoutColumnNode = null,
     /// floating-panes-v1: panes above the tiled layout, back to front.
-    floating: ?JsonValue = null,
+    floating: ?[]const FloatingPane = null,
     /// The screen group the screen is in.
     group: wire.Field([]const u8) = .absent,
     /// split-divider-visibility-v1: splits whose divider is hidden.
@@ -9037,6 +9129,29 @@ pub fn reattachView(client: anytype, request: ReattachViewRequest) !wire.Decoded
     );
 }
 
+pub const RecordNotificationDeliveryRequest = struct {
+    /// shown or suppressed.
+    desktop: []const u8,
+    notification: u64,
+    /// Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest.
+    reason: wire.Field([]const u8) = .absent,
+};
+
+pub const RecordNotificationDeliveryResult = JsonValue;
+
+pub fn recordNotificationDelivery(client: anytype, request: RecordNotificationDeliveryRequest) !wire.Decoded(RecordNotificationDeliveryResult) {
+    return client.callTyped(
+        RecordNotificationDeliveryResult,
+        .{
+            .name = "record-notification-delivery",
+            .authority = "control",
+            .since = 12,
+            .capability = "notification-ack-v1",
+        },
+        request,
+    );
+}
+
 pub const RegisterBrowserProviderRequest = struct {
     authentication: BrowserProviderAuthentication,
     bearer_token: wire.Field([]const u8) = .absent,
@@ -13371,7 +13486,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 315;
+pub const command_count: usize = 316;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13579,6 +13694,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reattach-view", .authority = "control", .since = 12, .capability = "sizing-view-detach-v1", .stream = null },
+    .{ .name = "record-notification-delivery", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },

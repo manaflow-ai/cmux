@@ -51,6 +51,8 @@ pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
 /// Where a trajectory restore stages its bundles (the work user's, 0700).
 pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
 const MAX_LINE: usize = 64 * 1024;
+/// The ceiling of the activity stream's reconnect backoff (`Worker::activity_reset`).
+const ACTIVITY_RETRY_MAX_MS: u64 = 5_000;
 
 fn log(line: &str) {
     eprintln!("cmux-host: cloud: {line}");
@@ -536,6 +538,13 @@ fn bind_retry_wait(backoff: &mut Backoff, network_changed: bool) -> u64 {
     if network_changed { 0 } else { backoff.next(0, random_unit()) }
 }
 
+/// When an unbound worker's bind retries after a resume at `now` (monotonic ms): at once when a
+/// retry was waiting (`retry_at` later than now), else as it was (None: nothing to move).
+/// A bound worker has no bind to retry; its session's own resume runs instead.
+fn bind_retry_after_resume(bound: bool, retry_at: Option<u64>, now: u64) -> Option<u64> {
+    (!bound && retry_at.is_some_and(|at| at > now)).then_some(now)
+}
+
 struct Client {
     stream: UnixStream,
     buf: Vec<u8>,
@@ -590,6 +599,8 @@ struct Worker {
     /// (`additions.rs`), and the thread that lists and sends their additions at that edge.
     additions_gate: super::additions::Gate,
     additions: Option<super::additions_thread::Additions>,
+    /// The cmux vault's pull: what devices sealed to this machine, into machine-secrets.env (`vault_thread.rs`).
+    vault: Option<super::vault_thread::VaultPull>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     /// A carrier bind waiting for the session host's Noise key (its
@@ -669,7 +680,7 @@ impl Worker {
                 buf: Vec::new(),
                 connected: false,
                 retry_at: None,
-                backoff: Backoff::new(1_000, 60_000),
+                backoff: Backoff::new(500, ACTIVITY_RETRY_MAX_MS),
                 unsupported: false,
             },
             live: None,
@@ -681,6 +692,7 @@ impl Worker {
             gateway_token: None,
             additions_gate: super::additions::Gate::default(),
             additions: None,
+            vault: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             noise_key_wait: None,
@@ -810,10 +822,16 @@ impl Worker {
                     return Ok(true);
                 }
                 "resume" => {
+                    // What may have woken the guest, before the pooled connection below is dropped: a peer's
+                    // close of it reads CLOSE_WAIT only until then (wake_sockets.rs).
+                    let sockets = super::wake_sockets::read_wake_sockets();
                     // Connections from before a pause are stale: the resume report below gets a fresh HTTPS
                     // connection instead of hanging.
                     if let Some(live) = &self.live {
                         live.client.reset_transport();
+                    }
+                    if let Some(vault) = &self.vault {
+                        vault.wake();
                     }
                     if let Some(bridge) = &mut self.bootstrap {
                         bridge.resume();
@@ -823,8 +841,18 @@ impl Worker {
                     }
                     let now = self.now();
                     if let Some(live) = self.live.as_mut() {
-                        let reqs = live.session.resume(now, wall_ms());
+                        let reqs = live.session.resume_with_sockets(now, wall_ms(), Some(sockets));
                         self.drive(reqs);
+                    }
+                    // A bind waiting out its backoff from before the stop retries now: the
+                    // stop froze the monotonic clock its retry runs on, and what failed it
+                    // (the network, a clock set to the snapshot's time) changed with the resume.
+                    if let Some(at) =
+                        bind_retry_after_resume(self.live.is_some(), self.bind_retry_at, now)
+                    {
+                        self.bind_backoff.reset();
+                        // This pass's `fire_deadlines` binds.
+                        self.bind_retry_at = Some(at);
                     }
                 }
                 _ => {}
@@ -1171,6 +1199,23 @@ impl Worker {
             }
             Err(e) => log(&format!("additions: {e}")),
         }
+        // The vault's first pull runs as its thread starts: at bind, and at an agent start on a bound machine.
+        self.vault = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                self.vault = super::vault_thread::VaultPull::spawn(
+                    client,
+                    self.paths.clone(),
+                    FileStore::new(self.paths.clone()),
+                    wall_ms,
+                    random_unit,
+                    log,
+                )
+                .map_err(|e| log(&format!("vault: {e}")))
+                .ok();
+            }
+            Err(e) => log(&format!("vault: {e}")),
+        }
         // The first report carries the updater's block: after an update's restart, its swap.
         // After a flip's or a rollback's restart, degraded until the restarted session host
         // answers `identify` (`connect_activity`, `Session::daemon_identified`).
@@ -1202,7 +1247,10 @@ impl Worker {
             buf: Vec::new(),
             connected: false,
             retry_at: None,
-            backoff: Backoff::new(1_000, 60_000),
+            // Until the stream is live the Cloud reads the machine as `blind_report` and never pauses
+            // it, and a start's session host comes up seconds after the agent: a 60 s ceiling left a
+            // stream up to a minute late. A connect to an absent socket costs nothing, so 5 s at most.
+            backoff: Backoff::new(500, ACTIVITY_RETRY_MAX_MS),
             unsupported: false,
         }
     }
