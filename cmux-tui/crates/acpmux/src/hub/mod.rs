@@ -294,6 +294,7 @@ mod permissions;
 pub mod person;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
+pub(crate) mod subagent_starts;
 mod wait_edges;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
@@ -1729,6 +1730,9 @@ pub struct Hub {
     /// The last few `_acpmux/events` replies, kept while their chat's log is unchanged
     /// (`page_replies.rs`).
     pub(crate) page_replies: page_replies::PageReplies,
+    /// Where each subagent's records start in its chat's log, once a read proved it
+    /// (`subagent_starts.rs`): its later pages read from there.
+    pub(crate) subagent_starts: subagent_starts::SubagentStarts,
 }
 
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
@@ -2078,6 +2082,7 @@ impl Hub {
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
+            subagent_starts: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             transfer_dial: StdMutex::new(None),

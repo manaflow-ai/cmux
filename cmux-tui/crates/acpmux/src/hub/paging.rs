@@ -685,6 +685,17 @@ impl Hub {
         filter: &EventFilter,
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
+        // A subagent's page starts where its records start, once a read proved where
+        // (`subagent_starts.rs`): a subagent that began late in a long chat no longer reads
+        // the chat before it.
+        let start = self.subagent_start(id, filter);
+        let after = match start.as_ref().and_then(|s| s.seq) {
+            Some(first) => after.max(first.saturating_sub(1)),
+            None => after,
+        };
+        // Whether this read covers the log from its start: its first match is the subagent's.
+        let proves = start.as_ref().is_some_and(|s| s.seq.is_none()) && after == 0;
+        let mut first_match: Option<u64> = None;
         let bounded = max_bytes.is_some();
         let over = filter.stub_over(bounded);
         // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
@@ -713,6 +724,7 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
+                first_match.get_or_insert(rec.seq);
                 let mut rec = rec;
                 self.display_logged(session.as_deref(), &mut rec);
                 let (rec, rec_bytes) = filter.shape(rec, None, over);
@@ -724,6 +736,9 @@ impl Hub {
                 page.events.push(rec);
                 true
             })?;
+            if proves && let (Some(start), Some(first)) = (start, first_match) {
+                self.subagent_starts.put(id, &start.subagent, &start.kinds, start.stamp, first);
+            }
             return Ok(page);
         }
         // Newest first; a slot a later (older) record made moot is empty.
@@ -762,6 +777,9 @@ impl Hub {
         };
         back(&skip, &mut |rec| {
             let matches = filter.matches(&rec);
+            if matches {
+                first_match = Some(rec.seq);
+            }
             let mut rec = rec;
             if matches {
                 self.display_logged(session.as_deref(), &mut rec);
@@ -801,8 +819,34 @@ impl Hub {
             true
         })?;
         page.events = found.into_iter().rev().flatten().map(|(rec, _)| rec).collect();
+        // Read back to the log's start with nothing left: the oldest match is the subagent's first.
+        if proves
+            && !page.has_more
+            && let (Some(start), Some(first)) = (start, first_match)
+        {
+            self.subagent_starts.put(id, &start.subagent, &start.kinds, start.stamp, first);
+        }
         Ok(page)
     }
+
+    /// For a page of one subagent's records: the key its start is kept under,
+    /// the log's stamp, and the kept start under that stamp, if any.
+    fn subagent_start(&self, id: &str, filter: &EventFilter) -> Option<SubagentStart> {
+        let subagent = filter.subagent.clone()?;
+        let stamp = self.store.log_stamp(id).ok()?;
+        let kinds = serde_json::to_string(&filter.kinds).ok()?;
+        let seq = self.subagent_starts.get(id, &subagent, &kinds, stamp);
+        Some(SubagentStart { subagent, kinds, stamp, seq })
+    }
+}
+
+/// A subagent page's start, as `Hub::subagent_start` reads it.
+struct SubagentStart {
+    subagent: String,
+    kinds: String,
+    stamp: u64,
+    /// The kept first seq; None when no read proved it yet under this stamp.
+    seq: Option<u64>,
 }
 
 /// How much of a prompt's text an entry of the prompt index keeps: the rail's hover card title
