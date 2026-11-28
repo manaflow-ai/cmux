@@ -1,7 +1,7 @@
 // RFD 0078 "the start": the app's `place.start` (Rust's hybrid `Effect::Show`) reaches the three-state
 // control, and the line after its name says nothing the start's own name already says.
 import { expect, test } from "bun:test";
-import { placementLine } from "../src/agent-session/acpmux/hybrid/HybridMounts";
+import { placementLine } from "../src/agent-session/acpmux/hybrid/placementLine";
 import { HYBRID_START_STATES, hybridStartOf, startRunsHere } from "../src/agent-session/acpmux/hybrid/hybridModel";
 import { placeOf } from "../src/agent-session/acpmux/place/placeModel";
 

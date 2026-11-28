@@ -12,7 +12,7 @@ import { DialogTitle } from "../../../ui/Dialog";
 import { Sheet } from "../../../ui/Sheet";
 import { Icon } from "../icons/Icon";
 import { useNt } from "./strings";
-import { useSizeName } from "./WidgetEditing";
+import { useSizeName } from "./useSizeName";
 
 /// The gallery's arrangement: every size of each widget in a row (rows, macOS's gallery), one size
 /// at a time with size chips (sizes, iOS's), or every preview in one tile grid (grid, the Lock
