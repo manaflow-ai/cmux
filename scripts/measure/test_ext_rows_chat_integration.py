@@ -66,6 +66,11 @@ class ChatFixtureEvidenceTests(unittest.TestCase):
                         returncode=0, stdout='{"sessionId":"fixture-session"}', stderr="")) as run:
                 ctx.rpc.side_effect = [{"ok": True}, {"created": ["ws_fixture"]}, {}, {"ok": True}]
                 self.assertTrue(fixture._start_transcript(ctx)["ok"])
+                opened = ctx.rpc.call_args_list[1].args[1]
+                self.assertEqual(opened["args"], {"session": "fixture-session"})
+                self.assertNotIn("session", opened)
+                shown = ctx.rpc.call_args_list[2].args[1]
+                self.assertEqual(shown["args"], {"workspace": "ws_fixture"})
                 argv = run.call_args.args[0]
                 self.assertEqual(argv[:2], [str(cli), "new"])
                 self.assertEqual(argv[argv.index("--machine") + 1], "local")
@@ -73,6 +78,38 @@ class ChatFixtureEvidenceTests(unittest.TestCase):
                 run.return_value.returncode = 1
                 self.assertFalse(fixture._start_transcript(ctx)["ok"])
                 completed.assert_called_once()
+
+    def test_config_check_never_writes_user_only_setting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cmux-next.json"
+            self.assertFalse(fixture.prepare_test_copy_config(path)["ok"])
+            self.assertFalse(path.exists())
+            for value in (False, True):
+                original = json.dumps({"experiments": {"chatWidgets": value}, "other": 42})
+                path.write_text(original)
+                self.assertEqual(fixture.prepare_test_copy_config(path)["ok"], value)
+                self.assertEqual(path.read_text(), original)
+
+    def test_unavailable_experiment_stops_without_mutation_or_fixture(self):
+        for reply in ({"value": False}, {"error": {"code": "setting_user_only"}},
+                      {"value": "true"}, {"value": True, "error": "denied"}):
+            with self.subTest(reply=reply):
+                ctx = SimpleNamespace(token="test12345", rpc=Mock(return_value=reply), ext=Mock())
+                base = SimpleNamespace(install_customize=Mock(), capture_marker=Mock())
+                with patch.object(fixture, "_start_transcript") as start:
+                    result = fixture.row_chat_widget_drawn(ctx, base)
+                self.assertFalse(result["checks"]["experiment_enabled_in_copy"])
+                ctx.rpc.assert_called_once_with("settings.get", {"path": "experiments.chatWidgets"}, timeout=30)
+                ctx.ext.assert_not_called()
+                start.assert_not_called()
+                base.install_customize.assert_not_called()
+                base.capture_marker.assert_not_called()
+
+    def test_effective_true_setting_is_read_without_mutation(self):
+        ctx = SimpleNamespace(rpc=Mock(return_value={"value": True}), ext=Mock())
+        self.assertTrue(fixture._read_running_copy(ctx)["ok"])
+        ctx.rpc.assert_called_once_with("settings.get", {"path": "experiments.chatWidgets"}, timeout=30)
+        ctx.ext.assert_not_called()
 
     def event(self, kind, status, title="mcp__rowsprobe__get_thing", tool="widget-proof-tool"):
         return json.dumps({"dir": "in", "msg": {"method": "session/update", "params": {
@@ -97,7 +134,7 @@ class ChatFixtureEvidenceTests(unittest.TestCase):
         base = SimpleNamespace(install_customize=Mock(return_value={"installed": True}),
                                capture_marker=Mock(return_value={"drawn": False, "error": "computer_use_off"}))
         ctx = SimpleNamespace(token="test12345")
-        with patch.object(fixture, "_enable_running_copy", return_value={"ok": True}), \
+        with patch.object(fixture, "_read_running_copy", return_value={"ok": True}), \
                 patch.object(fixture, "_start_transcript", return_value={"ok": True}), \
                 patch.object(fixture, "_chat_views", return_value=[{"status": "ready"}]):
             result = fixture.row_chat_widget_drawn(ctx, base)

@@ -249,11 +249,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -277,6 +277,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # web/'s install was 3.4 of the run's 14 min with a cold package cache (run 41857345925). The cache holds
       # package tarballs only, no secret; this job runs on feat-cmux-next only, so only that branch writes it.
       - name: Cache Bun package cache
@@ -289,7 +303,7 @@ jobs:
             bun-vm-image-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off base branches)
-        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (!(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref))) && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -761,11 +775,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -841,11 +855,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0

@@ -88,6 +88,13 @@ name = "HangReport#schemaVersion"
 policy = "unreviewed"
 
 [[format]]
+file = "Packages/macOS/CmuxNext/Sources/CmuxNextHibernation/DormantRecord.swift"
+const = "recordVersion"
+name = "DormantRecord#recordVersion"
+policy = "rebuild"
+why = "kept for one launch only, beside its frame in a temporary directory the next launch removes; a relaunch rebuilds the chat or page from its owner (acpmux, the page's history), losing a last frame, no work"
+
+[[format]]
 file = "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HiddenHistory.swift"
 const = "schemaVersion"
 name = "HiddenHistory#schemaVersion"
@@ -176,10 +183,16 @@ key = "cmux.acpmux.modelCatalog"
 key = "cmux.acpmux.modelChipIcon"
 
 [[storage_key]]
+key = "cmux.acpmux.localPickerHeight"
+
+[[storage_key]]
 key = "cmux.acpmux.modelPickerOrder"
 
 [[storage_key]]
 key = "cmux.acpmux.newTab.chats"
+
+[[storage_key]]
+key = "cmux.acpmux.newTab.projects.v1"
 
 [[storage_key]]
 key = "cmux.acpmux.newTab.cloudPick.v1"
@@ -192,6 +205,9 @@ key = "cmux.acpmux.newTab.sessions.v1"
 
 [[storage_key]]
 key = "cmux.acpmux.newTab.startedProject.v1"
+
+[[storage_key]]
+key = "cmux.acpmux.newTab.startedProject.at.v1"
 
 [[storage_key]]
 key = "cmux.acpmux.presentation"
@@ -346,6 +362,9 @@ key = "cmux.diffViewer.layout"
 
 [[storage_key]]
 key = "cmux.diffViewer.options"
+
+[[storage_key]]
+key = "cmux.draft-attachments.authority."
 
 [[storage_key]]
 key = "cmux.editor.keySequence"
