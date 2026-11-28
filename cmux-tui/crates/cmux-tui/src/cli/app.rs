@@ -35,6 +35,7 @@ pub(super) use run::{
 mod agent_open;
 mod batch;
 mod call;
+mod chat_memory;
 mod chat_perf;
 mod classic;
 mod events;
@@ -221,6 +222,15 @@ pub(super) enum AppCommand {
     /// `app mac-screen-replay`: `mac_screen.replay`, then `mac_screen.state` until the replay's
     /// pane has presented its frames (app/mac_screen_replay.rs).
     MacScreenReplay(mac_screen_replay::Replay),
+    /// `app chat memory`: `agent.chat.memory` pids, read here (app/chat_memory.rs).
+    ChatMemory {
+        empty: Value,
+    },
+    /// `app chat perf --page-source`: `agent.chat.perf {"page_source": true}`, how the chat pages
+    /// made since launch got their page; no tab, no capture (app/chat_perf.rs).
+    ChatPageSource {
+        params: Value,
+    },
     /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
@@ -384,6 +394,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         // A recorded screen share played through a Screen Sharing tab with no host peer
         // (`mac_screen.replay`, every build), then its Decode and Present once presented.
         ("app", Some("mac-screen-replay")) => mac_screen_replay::parse(rest)?,
+        ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "memory") => {
+            chat_memory::parse(rest)?
+        }
         // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
         // viewer, whether it is connected and who has control; never a credential
         // or a pixel of the screen.
@@ -1135,6 +1148,12 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
         AppCommand::MacScreenReplay(replay) => {
             return Ran::Done(mac_screen_replay::run(global, stream, replay));
+        }
+        AppCommand::ChatMemory { empty } => {
+            return Ran::Done(chat_memory::run(global, stream, &empty));
+        }
+        AppCommand::ChatPageSource { params } => {
+            return Ran::Done(chat_perf::run_page_source(global, stream, params));
         }
         AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),

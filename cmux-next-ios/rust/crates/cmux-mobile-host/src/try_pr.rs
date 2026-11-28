@@ -49,6 +49,9 @@ pub const LIST_TIMEOUT: Duration = Duration::from_secs(120);
 pub const INSTALL_TIMEOUT: Duration = Duration::from_secs(4 * 3600);
 /// The largest `try.sh list` reply relayed.
 pub const MAX_LIST_BYTES: usize = 1024 * 1024;
+/// After try.sh exits, how long its stdout may stay open: a child it left running (in the
+/// background) can hold the pipe, and the install must not wait on it (#51721 F2).
+pub const DRAIN_AFTER_EXIT: Duration = Duration::from_secs(2);
 /// Lines of the last install kept for `status`.
 pub const KEEP_LINES: usize = 60;
 /// A longer output line is cut to this many characters.
@@ -179,11 +182,17 @@ pub struct Run {
 /// The installs this host runs, one at a time.
 pub struct Installs {
     current: Mutex<Option<watch::Sender<Run>>>,
+    timeout: Duration,
 }
 
 impl Installs {
     pub const fn new() -> Self {
-        Self { current: Mutex::new(None) }
+        Self::with_timeout(INSTALL_TIMEOUT)
+    }
+
+    /// Installs stopped past `timeout` (exit -2); [`INSTALL_TIMEOUT`] outside tests.
+    pub const fn with_timeout(timeout: Duration) -> Self {
+        Self { current: Mutex::new(None), timeout }
     }
 
     /// The last install, running or done.
@@ -210,22 +219,44 @@ impl Installs {
         let stdout = child.stdout.take().expect("piped");
         let (tx, rx) = watch::channel(Run { pr, started_ms: crate::activity::now_ms(), ..Run::default() });
         *current = Some(tx.clone());
+        let timeout = self.timeout;
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
-            let run = async {
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let line = clean_line(&line);
-                    tx.send_modify(|run| {
-                        run.lines.push_back(line);
-                        while run.lines.len() > KEEP_LINES {
-                            run.lines.pop_front();
-                        }
-                        run.printed += 1;
-                    });
-                }
-                child.wait().await
+            let push = |line: String| {
+                let line = clean_line(&line);
+                tx.send_modify(|run| {
+                    run.lines.push_back(line);
+                    while run.lines.len() > KEEP_LINES {
+                        run.lines.pop_front();
+                    }
+                    run.printed += 1;
+                });
             };
-            let exit = match tokio::time::timeout(INSTALL_TIMEOUT, run).await {
+            let run = async {
+                // Read until stdout closes or the script exits, whichever is first: a child
+                // the script left running may hold stdout open long after (F2).
+                let mut open = true;
+                let status = loop {
+                    tokio::select! {
+                        line = lines.next_line(), if open => match line {
+                            Ok(Some(line)) => push(line),
+                            _ => open = false,
+                        },
+                        status = child.wait() => break status,
+                    }
+                };
+                if open {
+                    // What it printed just before exiting, for a bounded moment.
+                    let _ = tokio::time::timeout(DRAIN_AFTER_EXIT, async {
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            push(line);
+                        }
+                    })
+                    .await;
+                }
+                status
+            };
+            let exit = match tokio::time::timeout(timeout, run).await {
                 Ok(Ok(status)) => status.code().unwrap_or(-1),
                 Ok(Err(error)) => {
                     tracing::warn!(pr, %error, "try.sh install");
@@ -308,22 +339,29 @@ pub async fn serve(sender: &ChannelSender, args: &Value) -> Result<(), Refusal> 
     match op {
         Op::List => send(sender, &runner.list().await?).await,
         Op::Status => send(sender, &serde_json::json!({ "run": INSTALLS.last() })).await,
-        Op::Install(pr) => stream(sender, INSTALLS.start(runner, pr)?).await,
+        Op::Install(pr) => {
+            stream(INSTALLS.start(runner, pr)?, |frame| async move { send(sender, &frame).await }).await
+        }
     }
 }
 
-/// Every line of the install from its start (those still kept), then its end.
-async fn stream(sender: &ChannelSender, mut run: watch::Receiver<Run>) -> Result<(), Refusal> {
+/// Every line of the install from its start (those still kept), then its end, each frame to
+/// `sink` (the phone's channel).
+async fn stream<F, Fut>(mut run: watch::Receiver<Run>, mut sink: F) -> Result<(), Refusal>
+where
+    F: FnMut(Value) -> Fut,
+    Fut: std::future::Future<Output = Result<(), Refusal>>,
+{
     let mut sent = 0u64;
     loop {
         let state = run.borrow_and_update().clone();
         let unsent = state.printed.saturating_sub(sent).min(state.lines.len() as u64) as usize;
         for line in state.lines.iter().skip(state.lines.len() - unsent) {
-            send(sender, &serde_json::json!({ "line": line })).await?;
+            sink(serde_json::json!({ "line": line })).await?;
         }
         sent = state.printed;
         if let Some(exit) = state.exit {
-            return send(sender, &serde_json::json!({ "done": true, "pr": state.pr, "exit": exit })).await;
+            return sink(serde_json::json!({ "done": true, "pr": state.pr, "exit": exit })).await;
         }
         if run.changed().await.is_err() {
             return Err(Refusal::new("unavailable", "the install stopped"));
@@ -417,5 +455,75 @@ exit 1"#,
         // Done, so the next PR may start.
         let mut next = installs.start(&runner, 8).unwrap();
         assert_eq!(next.borrow_and_update().pr, 8);
+    }
+
+    async fn frames(run: watch::Receiver<Run>) -> Vec<Value> {
+        let out = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let sink = out.clone();
+        stream(run, move |frame| {
+            sink.lock().unwrap().push(frame);
+            std::future::ready(Ok(()))
+        })
+        .await
+        .unwrap();
+        std::mem::take(&mut *out.lock().unwrap())
+    }
+
+    // #51721 F1: a phone that joins mid-run (the relaunched app) gets the lines printed
+    // before it joined, then the rest, then the end.
+    #[tokio::test]
+    async fn a_subscriber_joining_mid_run_gets_every_line_and_the_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let gate = dir.path().join("go");
+        let runner = script(
+            dir.path(),
+            &format!(
+                "echo one; echo two; while [ ! -e '{}' ]; do sleep 0.05; done; echo three; exit 0",
+                gate.display()
+            ),
+        );
+        let installs = Installs::new();
+        let mut first = installs.start(&runner, 5).unwrap();
+        first.wait_for(|run| run.lines.back().is_some_and(|line| line == "two")).await.unwrap();
+        let late = installs.start(&runner, 5).unwrap();
+        let late = tokio::spawn(frames(late));
+        std::fs::write(&gate, "").unwrap();
+        let late = late.await.unwrap();
+        let lines: Vec<&str> = late.iter().filter_map(|frame| frame["line"].as_str()).collect();
+        assert!(lines.ends_with(&["one", "two", "three"]), "{late:?}");
+        assert_eq!(late.last().unwrap(), &serde_json::json!({"done": true, "pr": 5, "exit": 0}));
+    }
+
+    // #51721 F1: an install past its bound is stopped and reads exit -2, and the next PR may
+    // start.
+    #[tokio::test]
+    async fn an_install_past_its_bound_ends_with_exit_minus_two() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = script(dir.path(), "echo waiting; sleep 30");
+        let installs = Installs::with_timeout(Duration::from_millis(500));
+        let run = installs.start(&runner, 9).unwrap();
+        let end = tokio::time::timeout(Duration::from_secs(10), frames(run)).await.unwrap();
+        assert_eq!(end.last().unwrap(), &serde_json::json!({"done": true, "pr": 9, "exit": -2}));
+        assert_eq!(installs.last().unwrap().exit, Some(-2));
+        assert!(installs.start(&runner, 10).is_ok());
+    }
+
+    // #51721 F2: a script that exits while a child it started still holds stdout ends at its
+    // own exit (plus the short drain), not at the child's or the 4 h bound.
+    #[tokio::test]
+    async fn a_child_holding_stdout_does_not_keep_the_install_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = script(dir.path(), "echo started; sleep 8 & echo done; exit 4");
+        let installs = Installs::new();
+        let mut run = installs.start(&runner, 11).unwrap();
+        let started = std::time::Instant::now();
+        let done = tokio::time::timeout(Duration::from_secs(10), run.wait_for(|run| run.exit.is_some()))
+            .await
+            .unwrap()
+            .unwrap()
+            .clone();
+        assert_eq!(done.exit, Some(4));
+        assert!(started.elapsed() < Duration::from_secs(6), "{:?}", started.elapsed());
+        assert!(Vec::from(done.lines).ends_with(&["started".to_owned(), "done".to_owned()]));
     }
 }

@@ -224,3 +224,77 @@ fn log_lines_dates_and_reads() {
         .clone();
     assert_eq!(chief["id"], "a");
 }
+
+/// `ChiefMigration.memoryLines`' old splice: one `migration_memory` per
+/// distinct offset, then each unlogged line (the last ones) taken from the
+/// call at its own offset. The dated op must give the same lines.
+fn spliced_memory(sources: &Value, offsets: &[i64], fallback: i64) -> Value {
+    let first = offsets.first().copied().unwrap_or(fallback);
+    let at = |offset: i64| {
+        op("migration_memory", json!({ "sources": sources, "utcOffsetSeconds": offset }))
+    };
+    let mut lines = at(first);
+    let count = lines["appends"].as_array().unwrap().len();
+    let Some(base) = count.checked_sub(offsets.len()) else { return lines };
+    for (index, offset) in offsets.iter().enumerate() {
+        lines["appends"][base + index] = at(*offset)["appends"][base + index].clone();
+    }
+    lines
+}
+
+#[test]
+fn memory_dates_each_late_message_at_its_own_offset() {
+    let base = json!({
+        "name": "a", "conversationID": "ca", "hostConversation": "ca", "loggedSeq": 1,
+        "log": [{"i": 0, "kind": "user", "text": "h1", "date": "2026-11-01T00:00:10.000Z"}],
+        "messages": [message("h1", 1, "user_me", "k1", "2026-11-01T00:00:10Z")]
+    });
+    let other = json!({
+        "name": "b", "conversationID": "cb",
+        "messages": [
+            message("h2", 1, "user_me", "k2", "2026-03-29T00:30:00Z"),
+            message("h3", 2, "user_me", "k3", "2026-03-29T01:30:00Z"),
+        ]
+    });
+    let mut both = base.clone();
+    both["name"] = json!("c");
+    // Swift sends one offset per unlogged message (it maps `plan.unlogged`).
+    for sources in [json!([base, other]), json!([base, both, other]), json!([other])] {
+        for offsets in [vec![3600, 7200], vec![7200, 3600], vec![0, 0]] {
+            let dated = op(
+                "migration_memory",
+                json!({ "sources": sources, "utcOffsetSeconds": 3600, "unloggedOffsets": offsets }),
+            );
+            assert_eq!(dated, spliced_memory(&sources, &offsets, 3600), "{sources} {offsets:?}");
+        }
+    }
+    let dated = op(
+        "migration_memory",
+        json!({ "sources": [base, other], "utcOffsetSeconds": 3600, "unloggedOffsets": [3600, 7200] }),
+    );
+    let lines: Vec<&str> =
+        dated["appends"].as_array().unwrap().iter().map(|a| a["line"].as_str().unwrap()).collect();
+    assert!(lines[0].contains("2026-03-29T01:30:00.000+01:00"), "{}", lines[0]);
+    assert!(lines[1].contains("2026-03-29T03:30:00.000+02:00"), "{}", lines[1]);
+}
+
+#[test]
+fn the_brains_value_is_sorted_json_without_empty_facts() {
+    let value =
+        |request: Value| op("owner_brains_value", request)["value"].as_str().unwrap().to_owned();
+    assert_eq!(
+        value(json!({
+            "executable": "/b/cmux-brain", "home": "/h/.mux", "userName": "Ann", "chiefTitle": "Chief",
+            "binDir": "/R/bin", "path": "/usr/bin:/bin", "acpmuxBin": "/R/acpmux",
+            "bundledCli": "/R/bin/cmux", "harness": "claude"
+        })),
+        r#"{"app":{"acpmux_bin":"/R/acpmux","bin_dir":"/R/bin","bundled_cli":"/R/bin/cmux","chief_title":"Chief","harness":"claude","path":"/usr/bin:/bin","user_name":"Ann"},"executable":"/b/cmux-brain","home":"/h/.mux"}"#
+    );
+    assert_eq!(
+        value(json!({
+            "executable": "/b", "home": "/h", "userName": "", "chiefTitle": "Chief",
+            "path": "", "harness": "", "bundledCli": "/R/bin/cmux"
+        })),
+        r#"{"app":{"chief_title":"Chief","user_name":""},"executable":"/b","home":"/h"}"#
+    );
+}

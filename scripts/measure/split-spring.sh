@@ -61,6 +61,17 @@ for arg in "$@"; do
     *) args+=("$arg") ;;
   esac
 done
+# CMUX_MEASURE_PHASE (set by the fleet controller for a build_first measurement, measure-queue-wait 2026-11-28):
+# `build` runs at light class, with no Mac held: build (or find) the app, keep and pin it in the app cache, exit 80
+# ("built, ready to measure"); the controller then queues the same job exclusive on this Mac. `measure` is that
+# second run: it takes the app from the cache. Unset: one run that builds and measures, as before.
+measure_phase="${CMUX_MEASURE_PHASE:-}"
+case "$measure_phase" in
+  build) build_only=1 app_cache=1 ;;
+  measure) app_cache=1 ;;
+  "") ;;
+  *) echo "split-spring: unknown CMUX_MEASURE_PHASE=$measure_phase (build or measure)" >&2; exit 2 ;;
+esac
 tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
@@ -223,6 +234,7 @@ macos="$(sw_vers -productVersion 2>/dev/null | tr -cd '0-9.' | head -c 16 || tru
 if [[ "$build_only" == 1 ]]; then
   printf '{"build": {"sha": "%s", "seconds": %d, "cached": %s}, "macos": "%s"}\n' "$sha" "$build_seconds" "$cached" "$macos" > "$out/report.json"
   cat "$out/report.json"
+  [[ "$measure_phase" == build ]] && exit 80
   exit 0
 fi
 
