@@ -172,7 +172,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // Earlier runs cut off before their delete: their exact name, over an hour old.
     const listed = await listAllMachines((p) => api.read("cloud.machine.list", p));
     report.accountMachines = listed.filter((m) => m.status !== "deleted" && m.status !== "deleting").length;
-    say(`the account has ${report.accountMachines} live machine(s)`);
+    // Run 46147092409: 40 live machines, both creates create_overdue, deletes owner.unreachable (the owner's
+    // Durable Object reset at its CPU limit). Name who holds them: name without its run tag, and status.
+    const census = new Map<string, number>();
+    for (const m of listed) {
+      if (m.status === "deleted" || m.status === "deleting") continue;
+      const k = `${String(m?.name ?? "?").replace(/[-\s][a-z]*\d.*$/, "")}/${m.status}`;
+      census.set(k, (census.get(k) ?? 0) + 1);
+    }
+    report.accountCensus = Object.fromEntries([...census].sort((a, b) => b[1] - a[1]));
+    say(`the account has ${report.accountMachines} live machine(s): ${[...census].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(", ")}`);
     for (const m of listed) {
       const t = new RegExp(`^${NAME_PREFIX}([0-9a-z]+)-[0-9a-z]+$`).exec(String(m?.name ?? ""));
       const at = t ? parseInt(t[1], 36) : NaN;
@@ -211,7 +220,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const why = String(m?.error?.code ?? m?.error ?? m?.failure ?? m?.reason ?? "no reason given").slice(0, 200);
           // Run 46137255214: staging failed a fresh machine after 323 s (Freestyle VM start capacity). A failed
           // machine is the provider's, not the vault's: delete it and try one more before naming staging.
-          if (replaced) throw new Error(`machine failed (${why}); its replacement ${replaced.trim()} failed too`);
+          if (replaced) throw new Error(`replacement ${machine} failed (${why})${replaced}`);
           const old = machine!;
           await remove(old);
           machine = report.machine = await createMachine("r");
@@ -247,8 +256,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     };
     // A machine with no exec in flight pauses on its own (run 45679791255: 503 vm_unavailable at fs/write piece 10,
     // 286 s into the copy). One long exec keeps it running for the rest of the run; the delete ends it.
-    void exec("sleep 1500", 1_500_000).catch(() => {});
+    const keepalive = () => void exec("sleep 1500", 1_500_000).catch(() => {});
+    keepalive();
     await sleep(3000);
+    const revive = async (at: string) => {
+      await fresh();
+      const m0 = await api.read("cloud.machine.get", { machine }).catch(() => null);
+      const s0 = String(m0?.status ?? "unknown");
+      if (s0 === "running") return;
+      if (s0 === "failed" || s0 === "deleted" || s0 === "deleting") throw new Error(`machine ${machine} is ${s0} at ${at}`);
+      if (s0 === "paused" || s0 === "stopped") await api.op("cloud.machine.start", { machine }, `${tag}-start-${Date.now()}`).catch((e: Error) => say(`start at ${at}: ${e?.message ?? e}`));
+      const t0 = Date.now();
+      for (;;) {
+        await sleep(3000);
+        await fresh();
+        const m = await api.read("cloud.machine.get", { machine }).catch(() => null);
+        if (m?.status === "running" && m?.host) break;
+        if (m?.status === "paused" || m?.status === "stopped") await api.op("cloud.machine.start", { machine }, `${tag}-start-${Date.now()}`).catch(() => {});
+        if (Date.now() - t0 > 300_000) throw new Error(`machine ${machine} still ${m?.status} 300 s after it left running at ${at}`);
+      }
+      say(`machine was ${s0} at ${at}; running again after ${Math.round((Date.now() - t0) / 1000)} s`);
+      keepalive();
+      await sleep(3000);
+    };
     await J.step("run cmux-host from the PR's cmux on the machine", async () => {
       const data = gzipSync(readFileSync(cmux), { level: 9 });
       const n = Math.ceil(data.length / PIECE);
@@ -264,9 +294,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             .catch((e: Error) => ({ status: 0, body: { error: { code: `${e?.name ?? "Error"}: ${e?.message ?? e}` } } }) as { status: number; body: any });
           say(`fs/write piece ${i + 1}/${n}: HTTP ${w.status} in ${Math.round((Date.now() - p0) / 1000)} s (try ${tries})`);
           if (w.status >= 200 && w.status < 300 && w.body?.ok !== false) break;
-          if (tries >= 4 || (w.status !== 0 && w.status < 500 && w.status !== 409)) throw new Error(`fs/write piece ${i}/${n}: HTTP ${w.status} ${String(w.body?.error?.code ?? "")} (try ${tries})`);
+          // Run 46151913661: staging answered 502/503 vm_unavailable on 4 tries of piece 17 while the pieces before
+          // it took 1-3; 8 tries with up to 30 s between them ride out a minutes-long storm.
+          if (tries >= 8 || (w.status !== 0 && w.status < 500 && w.status !== 409)) throw new Error(`fs/write piece ${i + 1}/${n}: HTTP ${w.status} ${String(w.body?.error?.code ?? "")} (try ${tries})`);
           retried++;
-          await sleep(5000 * tries);
+          await sleep(Math.min(5000 * tries, 30_000));
+          // Run 46157288658: after a 120 s write timeout on piece 13 the machine left running (409 machine.not_running
+          // on the next three tries, then 503s) and the keepalive exec died with it. Pieces already written stay on its
+          // disk: start it again, wait for running, re-arm the keepalive, then send the piece again.
+          await revive(`piece ${i + 1}/${n}`);
         }
       }
       say(`copied ${n} piece(s), ${retried} retried; swapping cmux-host`);
