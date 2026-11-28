@@ -23,7 +23,7 @@ for 99% fewer minutes of ci time, period."): a pull request from this repository
 `labeled` event that adds `ready-to-land` or `full-ci`; every other head that would be full (later pushes while
 `full-ci` stays on, stacked pull requests on other bases, ask-rule heads) gets the cheap tier. Off, nothing changes.
 
-Post-merge tier rule (off unless the repository variable CI_POST_MERGE_TIER_PR is 1; cmuxterm-hq
+Post-merge tier rule (on unless the repository variable CI_POST_MERGE_TIER_PR is 0; cmuxterm-hq
 docs/rfd/0200-ci-four-tiers.md, tier 3; Leo, 2026-11-28: "de facto, im asking for 99% fewer minutes of ci time,
 period."): a feat-cmux-next pull request head gets the tier `none` in a workflow that RFD 0013's merge tiers put after
 the merge (`merge_tier.post_merge` in .github/post-merge-checks.json, with `merge_tier.switch` on) and that a suite of
