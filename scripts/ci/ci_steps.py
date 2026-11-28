@@ -19,6 +19,12 @@ step never turns its job red. A step with `alone = true` runs by itself, after t
 and is skipped (a notice, not a failure) once a step with `blocks = true` has failed: the job is red
 already, and the re-run that fixes it runs the step anyway. `--alone-on-red` (or CI_RUN_ALONE_ON_RED=1) runs it all the same: the
 post-merge batch has no re-run, so a base that stays red would otherwise never run its alone steps.
+On a red job those alone steps get a time budget: `--alone-deadline EPOCH` (or CI_ALONE_DEADLINE) is when the last
+of them must have ended. One starts only with ALONE_MIN_LEFT seconds left, its timeout cut to what is left, and one
+cut short is skipped with a warning, not called red: the job is red already. `--alone-turn N` (or CI_ALONE_TURN, the
+run number) rotates which one starts first, so a base that stays red runs each of them in turn, not the first few
+every time (28 alone steps of 15 to 65 minutes fill no 85-minute job: base linux ran into its timeout on every run
+after cmux#64297, 10:07Z and 11:32Z on 11-28, so neither showed a verdict).
 `--label NAME` says the event is a label change of NAME;
 then only the steps that list NAME in `labels` run. `--only NAMES` (comma or space separated)
 runs only those of the routed steps; empty means every routed step. A name the table does
@@ -98,7 +104,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -107,6 +113,8 @@ MAX_JOBS = 8
 SETUP_TIMEOUT = 600
 # Each `[tools]` command, all started together after the setup: a download and a checksum, not a build.
 TOOL_TIMEOUT = 180
+# An alone step on a red job starts only with this much of the job's budget left (`--alone-deadline`).
+ALONE_MIN_LEFT = 600
 # The pipeline's own definition: a change to any of them routes every step, so the change runs what it moved.
 CONTROLLER = "http://100.89.225.106:18765"
 PUBLIC_CONTROLLER = "https://gh-events.cmux.com"  # the controller's public listener (hq build-fleet/cmd/controller)
@@ -608,7 +616,8 @@ def step_env(base: Mapping[str, str], tools: str) -> dict[str, str]:
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
             root: Path = ROOT, pr_scope: bool = False, tier: str = "full", tools_only: bool = False,
-            alone_on_red: bool = False, strict: bool = False) -> int:
+            alone_on_red: bool = False, strict: bool = False, alone_deadline: float | None = None,
+            alone_turn: int = 0) -> int:
     names = route(table, paths, label, pr_scope=pr_scope, tier=tier).get(job, [])
     if pr_scope:
         deferred = [n for n in route(table, paths, label, tier=tier).get(job, []) if n not in names]
@@ -688,15 +697,40 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
             # Once a blocking step failed the job is red, and the re-run runs every step again: an alone step
             # (the long ones: 15 to 65 minutes) would only spend the machine, so it is skipped. `alone_on_red`
             # (the post-merge batch, which nothing re-runs) runs it anyway: it is that commit's only run of it.
-            for s in steps:
-                if not s.alone:
-                    continue
+            alone = [s for s in steps if s.alone]
+            red = next((r.step.name for r in results if not r.ok and r.step.blocks), None)
+            if red is not None and alone_on_red and alone_deadline is not None and alone:
+                # Red already: a turn of the order, so each alone step gets its run on a base that stays red.
+                turn = alone_turn % len(alone)
+                alone = alone[turn:] + alone[:turn]
+            for s in alone:
                 failed = next((r.step.name for r in results if not r.ok and r.step.blocks), None)
-                if failed is None or alone_on_red:
+                if failed is None:
                     results.append(run_and_print(s))
                     continue
-                print(f"::notice title=Step table::step {s.name} skipped: blocking step {failed} failed", file=out)
-                results.append(Result(s, 0, 0.0, "", skipped=True))
+                if not alone_on_red:
+                    print(f"::notice title=Step table::step {s.name} skipped: blocking step {failed} failed",
+                          file=out)
+                    results.append(Result(s, 0, 0.0, "", skipped=True))
+                    continue
+                if alone_deadline is None:
+                    results.append(run_and_print(s))
+                    continue
+                left = int(alone_deadline - time.time())
+                if left < ALONE_MIN_LEFT:
+                    print(f"::notice title=Step table::step {s.name} skipped: {max(left, 0)} s of the job's budget "
+                          f"left (blocking step {failed} failed; a later run takes its turn)", file=out)
+                    results.append(Result(s, 0, 0.0, "", skipped=True))
+                    continue
+                cut = left < s.timeout
+                result = run_and_print(replace(s, timeout=left) if cut else s)
+                result.step = s
+                if cut and result.code is None:
+                    print(f"::warning title=Step table::step {s.name} was cut at the job's budget after {left} s "
+                          f"(its timeout is {s.timeout} s; blocking step {failed} failed): no verdict, a later run "
+                          f"takes its turn", file=out)
+                    result = Result(s, 0, result.seconds, result.output, skipped=True)
+                results.append(result)
     if store is not None:
         for r in results:
             key = keys.get(r.step.name)
@@ -783,6 +817,11 @@ def main(argv: list[str] | None = None) -> int:
     x.add_argument("--alone-on-red", action="store_true", default=os.environ.get("CI_RUN_ALONE_ON_RED") == "1",
                    help="run the `alone` steps even after a blocking step failed (the post-merge batch: no re-run); "
                         "CI_RUN_ALONE_ON_RED=1 says the same")
+    x.add_argument("--alone-deadline", type=float, default=float(os.environ.get("CI_ALONE_DEADLINE") or 0) or None,
+                   help="with --alone-on-red on a red job: the Unix time the alone steps must have ended by "
+                        "(CI_ALONE_DEADLINE)")
+    x.add_argument("--alone-turn", type=int, default=int(os.environ.get("CI_ALONE_TURN") or 0),
+                   help="with --alone-deadline: which alone step starts first, rotating (CI_ALONE_TURN)")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
     paths = read_paths(getattr(args, "paths_file", None))
@@ -797,7 +836,8 @@ def main(argv: list[str] | None = None) -> int:
     store = None if args.label or args.tools_only else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
                    only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope, tier=args.tier,
-                   tools_only=args.tools_only, alone_on_red=args.alone_on_red)
+                   tools_only=args.tools_only, alone_on_red=args.alone_on_red,
+                   alone_deadline=args.alone_deadline, alone_turn=args.alone_turn)
 
 
 if __name__ == "__main__":

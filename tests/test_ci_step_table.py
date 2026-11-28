@@ -1251,6 +1251,57 @@ class SetupTest(unittest.TestCase):
             ci_steps.main(["run", "--job", "linux"])
         self.assertTrue(run.call_args.kwargs["alone_on_red"])
 
+    def test_alone_on_red_skips_an_alone_step_past_the_jobs_budget(self) -> None:
+        # Base linux, 11-28: on a red base every routed alone step ran, one after another (28 of 15 to 65
+        # minutes), and the job was cancelled at its 85-minute timeout on every run after cmux#64297: no verdict.
+        with tempfile.TemporaryDirectory() as tmp:
+            body = (f'[step.big]\njob = "linux"\nalone = true\nrun = "touch {tmp}/big"\n'
+                    '[step.red]\njob = "linux"\nrun = "exit 3"\n')
+            buffer = io.StringIO()
+            code = ci_steps.run_job(table(body), "linux", None, out=buffer, alone_on_red=True,
+                                    alone_deadline=time.time() + 30)
+            out = buffer.getvalue()
+            self.assertEqual(code, 1, out)
+            self.assertFalse(Path(tmp, "big").exists(), out)
+        self.assertIn("step big skipped:", out)
+        self.assertIn("of the job's budget left (blocking step red failed", out)
+
+    def test_alone_on_red_cuts_an_alone_step_at_the_jobs_budget(self) -> None:
+        body = ('[step.big]\njob = "linux"\nalone = true\ntimeout = 600\nrun = "sleep 60"\n'
+                '[step.red]\njob = "linux"\nrun = "exit 3"\n')
+        buffer = io.StringIO()
+        start = time.monotonic()
+        with mock.patch.object(ci_steps, "ALONE_MIN_LEFT", 0):
+            code = ci_steps.run_job(table(body), "linux", None, out=buffer, alone_on_red=True,
+                                    alone_deadline=time.time() + 2)
+        out = buffer.getvalue()
+        self.assertLess(time.monotonic() - start, 30, out)
+        self.assertEqual(code, 1, out)
+        self.assertIn("step big was cut at the job's budget", out)
+        self.assertNotIn("step big ran past", out)
+
+    def test_alone_on_red_rotates_the_alone_steps_by_turn(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            body = (f'[step.first]\njob = "linux"\nalone = true\nrun = "echo first >> {tmp}/order"\n'
+                    f'[step.second]\njob = "linux"\nalone = true\nrun = "echo second >> {tmp}/order"\n'
+                    '[step.red]\njob = "linux"\nrun = "exit 3"\n')
+            buffer = io.StringIO()
+            ci_steps.run_job(table(body), "linux", None, out=buffer, alone_on_red=True,
+                             alone_deadline=time.time() + 3600, alone_turn=3)
+            self.assertEqual(Path(tmp, "order").read_text().split(), ["second", "first"], buffer.getvalue())
+
+    def test_the_base_workflow_gives_its_alone_steps_a_budget_inside_the_job_timeout(self) -> None:
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-linux.yml").read_text())
+        job = wf["jobs"]["linux"]
+        run = next(s for s in job["steps"] if str(s.get("name", "")).startswith("Run the routed"))
+        self.assertEqual(run["env"]["CI_RUN_ALONE_ON_RED"], "1")
+        self.assertEqual(run["env"]["CI_ALONE_TURN"], "${{ github.run_number }}")
+        budgets = [int(m) for m in re.findall(r"CI_ALONE_DEADLINE=\$\(\( *start \+ (\d+) \* 60 *\)\)", run["run"])]
+        self.assertEqual(len(budgets), 2, run["run"])
+        self.assertLess(budgets[0], budgets[1])
+        # The post steps (Name the merges: 3 minutes) and the record job need the rest.
+        self.assertLessEqual(budgets[1] + 5, job["timeout-minutes"])
+
     def test_a_failed_alone_step_skips_the_alone_steps_after_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             body = ('[step.first]\njob = "linux"\nalone = true\nrun = "exit 2"\n'
