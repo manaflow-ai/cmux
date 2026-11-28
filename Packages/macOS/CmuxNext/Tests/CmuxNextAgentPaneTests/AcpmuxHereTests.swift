@@ -55,4 +55,29 @@ struct AcpmuxHereTests {
         let result = try decode(#"{"here":[],"sync":[{"peer":"phone","connected":false,"acknowledged":false,"unacknowledgedEdits":18446744073709551615}]}"#)
         #expect(result.sync?.first?.unacknowledgedEdits == UInt64.max)
     }
+
+    @Test func newerDaemonValuesKeepSnapshotReadable() throws {
+        let result = try decode(#"{"here":[{"id":"owner","name":"Owner","kind":"future-kind","status":"future-status","working":true,"devices":[{"device":"headset","deviceKind":"future-device","status":"future-device-status","working":false,"ageMs":42}]}],"sync":[{"peer":"phone","connected":false,"acknowledged":true,"unacknowledgedEdits":0}]}"#)
+        let member = try #require(result.here.first)
+        #expect(member.id == "owner" && member.name == "Owner" && member.working)
+        #expect(member.kind.rawValue == "unknown" && member.status.rawValue == "unknown")
+        let device = try #require(member.devices.first)
+        #expect(device.device == "headset" && device.ageMs == 42 && !device.working)
+        #expect(device.deviceKind.rawValue == "unknown" && device.status.rawValue == "unknown")
+        let peer = try #require(result.sync?.first)
+        #expect(!peer.connected && peer.acknowledged && peer.unacknowledgedEdits == 0)
+    }
+
+    @Test(arguments: ["null", "true", "7", "{}", "[]"])
+    func malformedEnumValuesStillThrow(value: String) {
+        let replies = [
+            "{\"here\":[{\"id\":\"owner\",\"name\":\"Owner\",\"kind\":\(value),\"status\":\"active\",\"working\":false,\"devices\":[]}]}",
+            "{\"here\":[{\"id\":\"owner\",\"name\":\"Owner\",\"kind\":\"person\",\"status\":\(value),\"working\":false,\"devices\":[]}]}",
+            "{\"here\":[{\"id\":\"owner\",\"name\":\"Owner\",\"kind\":\"person\",\"status\":\"active\",\"working\":false,\"devices\":[{\"device\":\"phone\",\"deviceKind\":\(value),\"status\":\"idle\",\"working\":false,\"ageMs\":0}]}]}",
+            "{\"here\":[{\"id\":\"owner\",\"name\":\"Owner\",\"kind\":\"person\",\"status\":\"active\",\"working\":false,\"devices\":[{\"device\":\"phone\",\"deviceKind\":\"phone\",\"status\":\(value),\"working\":false,\"ageMs\":0}]}]}",
+        ]
+        for reply in replies {
+            #expect(throws: (any Error).self) { try decode(reply) }
+        }
+    }
 }

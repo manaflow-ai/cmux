@@ -20,6 +20,11 @@ public final class MockAgentSession: AgentSessionSource {
     private var turnCount = 0
     private var permissionWaiter: CheckedContinuation<String?, Never>?
     private var questionWaiter: CheckedContinuation<AgentQuestionAnswer?, Never>?
+    /// A decision or answer that came before its turn began waiting: the waiting turn's card is
+    /// out (its events are sent at once, `eventsWithHead()`) before the turn's task reaches its
+    /// wait, so a quick reply is held for it, not lost (the turn would wait for good).
+    private var heldPermission: String??
+    private var heldAnswer: AgentQuestionAnswer??
     private var pendingPermissionID: String?
     private var pendingQuestionID: String?
     private var richTurnUsed = false
@@ -123,7 +128,11 @@ public final class MockAgentSession: AgentSessionSource {
             running?.cancel()
             // A turn waiting on the person ends too (an agent cancels its
             // outstanding request when the prompt is cancelled).
-            if let id = pendingPermissionID { emit(.permissionDecision(permissionId: id, optionId: nil)) }
+            if let id = pendingPermissionID {
+                emit(.permissionDecision(permissionId: id, optionId: nil))
+                resolvePermission(nil)
+            }
+            if pendingQuestionID != nil { resolveQuestion(nil) }
             pendingPermissionID = nil
             pendingQuestionID = nil
             permissionWaiter?.resume(returning: nil)
@@ -148,8 +157,7 @@ public final class MockAgentSession: AgentSessionSource {
             guard id == pendingQuestionID else { return }
             emit(.questionAnswered(questionId: id, answer: answer))
             pendingQuestionID = nil
-            questionWaiter?.resume(returning: answer)
-            questionWaiter = nil
+            resolveQuestion(answer)
         case .setModel(let id):
             currentModel = id
             emit(.modelsAvailable(Self.models, current: id))
@@ -195,8 +203,45 @@ public final class MockAgentSession: AgentSessionSource {
     private func decide(permission id: String, optionID: String?) {
         emit(.permissionDecision(permissionId: id, optionId: optionID))
         pendingPermissionID = nil
-        permissionWaiter?.resume(returning: optionID)
-        permissionWaiter = nil
+        resolvePermission(optionID)
+    }
+
+    /// The waiting turn's permission decided: to its wait, or held until it waits.
+    private func resolvePermission(_ optionID: String?) {
+        if let waiter = permissionWaiter {
+            permissionWaiter = nil
+            waiter.resume(returning: optionID)
+        } else {
+            heldPermission = .some(optionID)
+        }
+    }
+
+    /// The waiting turn's question answered: to its wait, or held until it waits.
+    private func resolveQuestion(_ answer: AgentQuestionAnswer?) {
+        if let waiter = questionWaiter {
+            questionWaiter = nil
+            waiter.resume(returning: answer)
+        } else {
+            heldAnswer = .some(answer)
+        }
+    }
+
+    /// The turn's wait for the person's permission decision (one made already is taken at once).
+    private func awaitPermission() async -> String? {
+        if let held = heldPermission {
+            heldPermission = nil
+            return held
+        }
+        return await withCheckedContinuation { permissionWaiter = $0 }
+    }
+
+    /// The turn's wait for the person's answer (one given already is taken at once).
+    private func awaitAnswer() async -> AgentQuestionAnswer? {
+        if let held = heldAnswer {
+            heldAnswer = nil
+            return held
+        }
+        return await withCheckedContinuation { questionWaiter = $0 }
     }
 
     /// `HostLoadSim`'s observers (DEBUG host load).
@@ -371,6 +416,8 @@ public final class MockAgentSession: AgentSessionSource {
                 self.permissionWaiter = nil
                 self.questionWaiter?.resume(returning: nil)
                 self.questionWaiter = nil
+                self.heldPermission = nil
+                self.heldAnswer = nil
                 self.emit(.turnResult(turnId: turnID, status: .cancelled, errorText: nil, at: Date()))
             }
             self.running = nil
@@ -410,12 +457,12 @@ public final class MockAgentSession: AgentSessionSource {
             guard let self else { return }
             do {
                 if asksQuestion {
-                    let answer = await withCheckedContinuation { self.questionWaiter = $0 }
+                    let answer = await self.awaitAnswer()
                     try Task.checkCancellation()
                     let cellular = answer.flatMap { $0.selections["default"]?.optionIDs.first } ?? "webrtc"
                     try await self.stream(MockScript.finalAnswer(cellular: cellular), messageID: "m-waiting-final")
                 } else {
-                    let choice = await withCheckedContinuation { self.permissionWaiter = $0 }
+                    let choice = await self.awaitPermission()
                     try Task.checkCancellation()
                     let allowed = choice != nil && choice != "deny"
                     self.emit(.update(.toolCallUpdate(ACPToolCallUpdate(
@@ -538,7 +585,7 @@ public final class MockAgentSession: AgentSessionSource {
             ACPPermissionOption(id: "always", name: "Always allow cargo test in this workspace", kind: .allowAlways),
             ACPPermissionOption(id: "deny", name: "Deny", kind: .rejectOnce),
         ], cwd: "~/Development/cmux")))
-        let choice = await withCheckedContinuation { self.permissionWaiter = $0 }
+        let choice = await self.awaitPermission()
         try Task.checkCancellation()
         let allowed = choice != nil && choice != "deny"
         if let choice, choice != "deny" {
@@ -554,7 +601,7 @@ public final class MockAgentSession: AgentSessionSource {
         let question = S.question(session: summary.id)
         pendingQuestionID = question.id
         emit(.question(question))
-        let answer = await withCheckedContinuation { self.questionWaiter = $0 }
+        let answer = await self.awaitAnswer()
         try Task.checkCancellation()
         let cellular = answer.flatMap { $0.selections["default"]?.optionIDs.first } ?? "webrtc"
         try await tool(

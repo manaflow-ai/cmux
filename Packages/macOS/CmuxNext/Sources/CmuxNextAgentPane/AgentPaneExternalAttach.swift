@@ -40,6 +40,18 @@ public final class AgentPaneExternalAttach {
 
     public init() { now = { .now } }
 
+    /// The files of routes the App parked before they reached this route, and why the oldest waits
+    /// (no window, no pane, Home shown): `chat.composer.get`'s `waiting.parked` and `parked_why`.
+    private var parkedFiles = 0, parkedWhy: String?
+
+    /// The App parked a route of `files` files, logged with `why`; nil: it ran its parked routes.
+    public func parked(files: Int?, why: String = "") {
+        guard let files else { return (parkedFiles, parkedWhy) = (0, nil) }
+        parkedFiles += files
+        if parkedWhy == nil { parkedWhy = why }
+        Self.logger.info("external open parked (\(why, privacy: .public)); \(self.parkedFiles, privacy: .public) file(s) wait")
+    }
+
     /// A test's clock, for files that waited past ``openingLimit``.
     init(now: @escaping () -> ContinuousClock.Instant) { self.now = now }
 
@@ -115,12 +127,38 @@ public final class AgentPaneExternalAttach {
     /// `session` null for a chat not started yet, and all empty without a chat. The chat that last
     /// took files also answers `attached_at_ms`: the Unix ms its composer took them.
     public func composerState(focused: AgentPaneView?) async -> JSONValue {
+        let state: JSONValue
         if let last {
             let attachedAt = lastAttachedAt
-            return Self.stamped(await last.composerReadback(), attachedAt: attachedAt)
+            state = Self.stamped(await last.composerReadback(), attachedAt: attachedAt)
+        } else if let focused {
+            state = await focused.composerReadback()
+        } else {
+            state = Self.noComposer
         }
-        guard let focused else { return Self.noComposer }
-        return await focused.composerReadback()
+        return Self.with(state, waiting: waiting)
+    }
+
+    /// Where files that have not reached a composer wait, so a late file names its place: `parked`
+    /// (and `parked_why`) in the App before this route, `opening` for a new chat whose tab the store
+    /// has not answered (`opening_ms`, how long), `stranded` for the next files to carry.
+    var waiting: JSONValue {
+        let age = opening.map { waiting -> Double in
+            let elapsed = (now() - waiting.since).components
+            return Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds / 1_000_000_000_000_000)
+        }
+        return .object([
+            "parked": .number(Double(parkedFiles)), "parked_why": parkedWhy.map { .string($0) } ?? .null,
+            "opening": .number(Double(opening?.urls.count ?? 0)), "opening_ms": age.map { .number($0) } ?? .null,
+            "stranded": .number(Double(stranded?.urls.count ?? 0)),
+        ])
+    }
+
+    /// `state` with `waiting` added, unchanged when it is not an object.
+    nonisolated static func with(_ state: JSONValue, waiting: JSONValue) -> JSONValue {
+        guard case .object(var fields) = state else { return state }
+        fields["waiting"] = waiting
+        return .object(fields)
     }
 
     /// `state` with `attached_at_ms` (Unix ms of `attachedAt`) added, unchanged without a stamp or an object.

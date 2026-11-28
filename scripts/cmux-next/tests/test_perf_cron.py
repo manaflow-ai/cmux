@@ -1126,6 +1126,25 @@ class WebUiTests(unittest.TestCase):
         split = open(os.path.join(HERE, "..", "split-spring-terminal.py")).read()
         self.assertIn('"--suite=graceful-swap"', split, "the suite the part names is dispatched")
 
+    def test_every_goal_bench_row_has_a_recurring_part(self):
+        """Goal goals-born-owned-and-read: each Mac bench row a goal reads is made by a perf-cron part (or the
+        launch-tti / dev-loop schedules), never only by a hand step. The perf-cron rows must map to a Mac part."""
+        rows = {
+            "hot_swap.mac.unfocused_pane.p95_ms": "hot-swap",
+            "infinite_tabs.mac.memory_vs_empty": "infinite-tabs",
+            "chat_snappy.mac.send_paint.p95_ms": "chat-snappy",
+            "terminal.throughput.ratio_vs_ghostty": "throughput",
+        }
+        for row, part in rows.items():
+            self.assertEqual(cron.part_for_row(row + "@cmux20-bench"), part, row)
+            self.assertIn(part, FLEET, part)
+        p = cron.PART_BY_NAME["infinite-tabs"]
+        self.assertEqual(p["goal"], "infinite-tabs-flat")
+        self.assertIn("--suite=infinite-tabs", p["args"])
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.search("infinite_tabs.mac.memory_vs_empty"))
+        split = open(os.path.join(HERE, "..", "split-spring-terminal.py")).read()
+        self.assertIn('"--suite=infinite-tabs"', split)
+
     def test_the_cef_resize_part_owns_its_rows_and_judges_late_frames(self):
         """Live resize beside a Chromium page (cef-layer-hosting-DESIGN.md "Live resize"): every frame on time (0
         missed) and the frame's commit under half a display frame, from pane-perf-terminal.py --browser's summary."""
@@ -3314,13 +3333,31 @@ class RateLimitTests(unittest.TestCase):
                                              perf_result="", output=out))
             with open(out) as f:
                 plan = dict(line.split("=", 1) for line in f.read().splitlines())
-            self.assertEqual((plan["action"], plan["rate_limited"]), ("none", "true"))
+            self.assertEqual(plan["rate_limited"], "true")
+            self.assertEqual(plan["part"], "", "no Mac part without the state")
+            self.assertEqual(plan["action"] == "part", json.loads(plan["linux_matrix"]) != [],
+                             "a rate-limited tick runs the tip's Linux parts as a stand-in, or nothing when it has none")
             rep = os.path.join(d, "report.out")
             cron.cmd_report(argparse.Namespace(repo="o/r", dir=d, result=[], run_url="u", finish=False, issues=True, output=rep))
             with open(rep) as f:
                 report = dict(line.split("=", 1) for line in f.read().splitlines())
             self.assertEqual(report["changed"], "false", "nothing is saved over the last trusted state")
             self.assertFalse(os.path.exists(os.path.join(d, "state.json")))
+
+    def test_a_drained_budget_plans_the_tips_linux_parts_not_nothing(self):
+        # Before: action none under a 403 (five ticks, 2026-11-27, no part measured). After: every Linux part the tip
+        # can measure, no Mac part, no token-spending part, and a reason that says the state was not read.
+        with mock.patch.object(cron, "supported_parts_at", lambda sha: [p["name"] for p in cron.PARTS]):
+            out = cron.stand_in_outputs("a" * 40, cron.RateLimited("GET /x: HTTP 403"))
+        names = [m["part"] for m in json.loads(out["linux_matrix"])]
+        self.assertEqual((out["action"], out["sha"], out["part"]), ("part", "a" * 40, ""))
+        self.assertIn("web-ui", names)
+        self.assertIn("web-ui-god", names)
+        self.assertNotIn("cloud-claim", names)
+        self.assertTrue(all(cron.is_linux_part(n) for n in names))
+        self.assertIn("nothing is saved", out["reason"])
+        with mock.patch.object(cron, "supported_parts_at", lambda sha: []):
+            self.assertEqual(cron.stand_in_outputs("a" * 40, cron.RateLimited("x"))["action"], "none")
 
     def test_a_result_run_waits_out_the_rate_limit_and_reads_the_state(self):
         # A result run carries the controller's result of a part that ran: doing nothing drops it.
@@ -3350,6 +3387,9 @@ class RateLimitTests(unittest.TestCase):
     def test_a_refusal_says_how_long_until_github_takes_calls_again(self):
         import email.message
         for name, value, want in (("retry-after", "90", 90), ("x-ratelimit-reset", str(int(cron.time.time()) + 600), 600)):
+            # A token refused once is not tried again in this process (#62127): each case starts with none spent.
+            cron.SPENT_TOKENS.clear()
+            self.addCleanup(cron.SPENT_TOKENS.clear)
             headers = email.message.Message()
             headers["x-ratelimit-remaining"] = "0"
             headers[name] = value
@@ -5132,6 +5172,7 @@ class StalePartFirstTests(unittest.TestCase):
         # Each stored part carried its goal's rows (goal_rows_missing), so only the stored date makes one due.
         state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"]),
                               "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"]),
+                              "infinite_tabs.mac.memory_vs_empty@h": dict(state["part_stored"]["infinite-tabs"]),
                               "chat_snappy.none.send_paint@h": dict(state["part_stored"]["chat-snappy"])}
         return state, now
 
