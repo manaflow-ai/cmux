@@ -264,14 +264,6 @@ export function turnRowsShownFrom(deps: TurnRowsShownDeps) {
         : shownSessionId === undefined
           ? undefined
           : pastTurns?.current.get(shownSessionId);
-    // The render that first shows another chat runs with the folds of the chat it left: AcpmuxPane
-    // puts the shown chat's own folds in `expanded` later in that render, so React renders it again
-    // and throws this pass away. Shaped here, under folds the kept turns were not shaped with, every
-    // turn was shaped again, and that pass's turns, kept as the last ones, made the pass React keeps
-    // shape every turn once more (settled-page bench, chat_switch: two whole shapes a switch). The
-    // turns kept for the chat stand in for this pass, and nothing is kept from it.
-    if (last && foldsSeen.current.session !== shownSessionId && foldsSeen.current.folds === folds)
-      return withoutAskedCalls(withShellRows(last.subagents.rows, chatShellRuns), panelAsks);
     if (heldCalls.current.session !== shownSessionId) heldCalls.current = { session: shownSessionId, keys: new Set() };
     // Null while the view follows the latest row: what was held out goes back in there. The view
     // following again with calls held (`callRelease`) shapes the rows again for that.
