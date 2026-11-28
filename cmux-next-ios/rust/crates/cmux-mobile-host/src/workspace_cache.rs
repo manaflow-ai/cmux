@@ -1,10 +1,12 @@
 //! Mac-owned snapshots shared by the splices of one daemon socket. All daemon I/O and delta application run on
 //! a separate connection; forwarding only clones an already published snapshot.
 //! Losing the subscription invalidates every snapshot before reconnecting.
+//! The workspace tree (1.3 MB at 5,000 workspaces) is fetched only when a reader asks for it with `wait_for`:
+//! a restart or `tree-changed` marks it stale, and the next asker fetches it once for every concurrent asker.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
@@ -36,6 +38,11 @@ struct Published {
     changed: tokio::sync::watch::Sender<()>,
     restart: tokio::sync::watch::Sender<()>,
     generation: AtomicU64,
+    /// A reader waits for the tree. Set by `wait_for`, cleared once a tree is held; the worker fetches the tree
+    /// only while it is set, so a daemon restart or `tree-changed` does not pull the whole tree nobody reads.
+    tree_wanted: AtomicBool,
+    /// Wakes the worker's read when `tree_wanted` is set, so an idle subscription fetches at once.
+    demand: tokio::sync::watch::Sender<()>,
 }
 
 impl Published {
@@ -45,7 +52,14 @@ impl Published {
             changed: tokio::sync::watch::channel(()).0,
             restart: tokio::sync::watch::channel(()).0,
             generation: AtomicU64::new(0),
+            tree_wanted: AtomicBool::new(false),
+            demand: tokio::sync::watch::channel(()).0,
         }
+    }
+
+    fn want_tree(&self) {
+        self.tree_wanted.store(true, Ordering::SeqCst);
+        self.demand.send_replace(());
     }
 }
 
@@ -127,9 +141,17 @@ impl WorkspaceCache {
         let mut changed = self.inner.published.changed.subscribe();
         let wait = async {
             loop {
-                let ready = self.inner.published.views.lock().is_ok_and(|views| {
-                    required.iter().zip(views.iter()).all(|(required, view)| !required || view.is_some())
-                });
+                let (ready, tree_missing) =
+                    self.inner.published.views.lock().map_or((false, false), |views| {
+                        let ready = required
+                            .iter()
+                            .zip(views.iter())
+                            .all(|(required, view)| !required || view.is_some());
+                        (ready, views[TREE].is_none())
+                    });
+                if tree && tree_missing {
+                    self.inner.published.want_tree();
+                }
                 if ready || changed.changed().await.is_err() {
                     return;
                 }
@@ -313,9 +335,18 @@ async fn session_with_probe(
     let startup_deadline = Instant::now() + QUERY_WAIT;
     let mut next_probe = startup_deadline + probe_interval;
     let mut probe_deadline = None;
+    let mut demand = published.demand.subscribe();
+    // Kept across reads: a read cut short by a demand wake or the idle probe tick resumes the same line.
+    let mut line = Vec::new();
     loop {
         if subscribed {
+            demand.borrow_and_update();
+            let want_tree = published.tree_wanted.load(Ordering::SeqCst);
             for kind in 0..3 {
+                // A stale tree stays unfetched until a reader asks (see `tree_wanted`).
+                if kind == TREE && !want_tree {
+                    continue;
+                }
                 if state.pending[kind].is_none() && state.dirty[kind] {
                     state.dirty[kind] = false;
                     state.pending[kind] = Some(Instant::now() + QUERY_WAIT);
@@ -342,37 +373,39 @@ async fn session_with_probe(
         } else {
             Some(startup_deadline)
         };
-        let mut line = Vec::new();
         // Bound a corrupt local peer without retaining unbounded partial input.
-        let mut bounded = (&mut reader).take(MAX_SNAPSHOT_BYTES + 1);
-        let count = match deadline {
-            Some(deadline) => {
-                match tokio::time::timeout_at(deadline, bounded.read_until(b'\n', &mut line)).await {
-                    Ok(result) => result.map_err(|_| ())?,
-                    Err(_)
-                        if subscribed
-                            && state.pending.iter().all(Option::is_none)
-                            && probe_deadline.is_none() =>
-                    {
-                        // No snapshot is outstanding: the idle deadline is the
-                        // probe tick. Send the cheap probe before declaring this
-                        // subscription stale, then bound the response wait.
-                        write
-                            .write_all(b"{\"cmd\":\"identify\",\"id\":\"cache-probe\"}\n")
-                            .await
-                            .map_err(|_| ())?;
-                        probe_deadline = Some(Instant::now() + probe_timeout);
-                        continue;
-                    }
-                    Err(_) => return Err(()),
+        let mut bounded = (&mut reader).take((MAX_SNAPSHOT_BYTES + 1).saturating_sub(line.len() as u64));
+        let read = async {
+            match deadline {
+                Some(deadline) => {
+                    tokio::time::timeout_at(deadline, bounded.read_until(b'\n', &mut line)).await.ok()
                 }
+                None => Some(bounded.read_until(b'\n', &mut line).await),
             }
-            None => bounded.read_until(b'\n', &mut line).await.map_err(|_| ())?,
         };
-        if count == 0 || count as u64 > MAX_SNAPSHOT_BYTES || line.last() != Some(&b'\n') {
+        let read = tokio::select! {
+            biased;
+            // A reader asked for the tree: issue its snapshot now, not at the next line or probe tick.
+            _ = demand.changed(), if subscribed => continue,
+            read = read => read,
+        };
+        let count = match read {
+            Some(result) => result.map_err(|_| ())?,
+            None if subscribed && state.pending.iter().all(Option::is_none) && probe_deadline.is_none() => {
+                // No snapshot is outstanding: the idle deadline is the
+                // probe tick. Send the cheap probe before declaring this
+                // subscription stale, then bound the response wait.
+                write.write_all(b"{\"cmd\":\"identify\",\"id\":\"cache-probe\"}\n").await.map_err(|_| ())?;
+                probe_deadline = Some(Instant::now() + probe_timeout);
+                continue;
+            }
+            None => return Err(()),
+        };
+        if count == 0 || line.len() as u64 > MAX_SNAPSHOT_BYTES || line.last() != Some(&b'\n') {
             return Err(());
         }
         let value: Value = serde_json::from_slice(&line).map_err(|_| ())?;
+        line.clear();
         if value.get("event").is_some() {
             state.event(&value)?;
         } else {
@@ -402,6 +435,9 @@ async fn session_with_probe(
                 Some("cache-hello") => {}
                 _ => return Err(()),
             }
+        }
+        if state.views[TREE].is_some() {
+            published.tree_wanted.store(false, Ordering::SeqCst);
         }
         publish(published, &state.views, generation);
     }
@@ -894,6 +930,8 @@ mod tests {
             let socket = directory.path().join("daemon.sock");
             let listener = tokio::net::UnixListener::bind(&socket).unwrap();
             let published = Arc::new(Published::new());
+            // These sessions model a reader that asked for the tree (see `tree_wanted`).
+            published.want_tree();
             let observed = Arc::clone(&published);
             let server = tokio::spawn(async move {
                 let (stream, _) = listener.accept().await.unwrap();
@@ -965,6 +1003,8 @@ mod tests {
         let socket = directory.path().join("daemon.sock");
         let listener = tokio::net::UnixListener::bind(&socket).unwrap();
         let published = Published::new();
+        // These sessions model a reader that asked for the tree (see `tree_wanted`).
+        published.want_tree();
         let server = tokio::spawn(async move {
             for fail in [true, false] {
                 let (stream, _) = listener.accept().await.unwrap();
@@ -1020,6 +1060,8 @@ mod tests {
         let socket = directory.path().join("daemon.sock");
         let listener = tokio::net::UnixListener::bind(&socket).unwrap();
         let published = Published::new();
+        // These sessions model a reader that asked for the tree (see `tree_wanted`).
+        published.want_tree();
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let (read, mut write) = stream.into_split();
@@ -1061,5 +1103,137 @@ mod tests {
             .event(&json!({"event":"workspace-closed", "workspace":1,"registry_id":"other", "generation":1}))
             .unwrap();
         assert!(state.views.iter().all(Option::is_none));
+    }
+
+    /// What the lazy-tree fake daemon was asked for, across every connection the cache made.
+    #[derive(Default)]
+    struct Asked {
+        connections: std::sync::atomic::AtomicUsize,
+        trees: std::sync::atomic::AtomicUsize,
+        personals: std::sync::atomic::AtomicUsize,
+        layouts: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Asked {
+        fn get(counter: &std::sync::atomic::AtomicUsize) -> usize {
+            counter.load(Ordering::SeqCst)
+        }
+    }
+
+    /// A daemon that answers every cache snapshot (the Nth tree carries workspace_revision N*100, after 50 ms so
+    /// askers pile up) and forwards each pushed event to the connection that is open.
+    fn lazy_tree_daemon()
+    -> (tempfile::TempDir, PathBuf, Arc<Asked>, tokio::sync::mpsc::UnboundedSender<Value>) {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("daemon.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let asked = Arc::new(Asked::default());
+        let counts = Arc::clone(&asked);
+        let (events, mut pushed) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                counts.connections.fetch_add(1, Ordering::SeqCst);
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                loop {
+                    let out = tokio::select! {
+                        line = lines.next_line() => {
+                            let Ok(Some(line)) = line else { break };
+                            let request: Value = serde_json::from_str(&line).unwrap();
+                            let mut response = json!({"id":request["id"],"ok":true});
+                            match request["id"].as_str().unwrap() {
+                                "cache-tree" => {
+                                    let n = counts.trees.fetch_add(1, Ordering::SeqCst) + 1;
+                                    tokio::time::sleep(Duration::from_millis(50)).await;
+                                    response["data"] = tree()["data"].clone();
+                                    response["data"]["workspace_revision"] = json!(n * 100);
+                                }
+                                "cache-personal" => {
+                                    counts.personals.fetch_add(1, Ordering::SeqCst);
+                                    response["data"] = json!({"groups":[],"workspaces":[]});
+                                }
+                                "cache-layout" => {
+                                    counts.layouts.fetch_add(1, Ordering::SeqCst);
+                                    response = json!({"id":"cache-layout","result":{"sections":[]}});
+                                }
+                                _ => {}
+                            }
+                            response
+                        }
+                        Some(event) = pushed.recv() => event,
+                    };
+                    if write.write_all(format!("{out}\n").as_bytes()).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        (directory, socket, asked, events)
+    }
+
+    async fn until(what: &str, mut done: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !done() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn no_reader_no_tree_fetch_after_start_tree_changed_or_restart() {
+        let (_dir, socket, asked, events) = lazy_tree_daemon();
+        let cache = WorkspaceCache::start(socket);
+        cache.wait_for(false, true, true).await;
+        assert!(cache.personal().is_some() && cache.layout().is_some());
+        // A tree-changed refreshes layout (it authorizes against the tree) but not the tree nobody asked for.
+        events.send(json!({"event":"tree-changed"})).unwrap();
+        until("layout refetch after tree-changed", || Asked::get(&asked.layouts) == 2).await;
+        // A restart (every mutation's invalidation) reconnects and refetches the small views only.
+        cache.invalidate();
+        until("restart", || Asked::get(&asked.personals) == 2 && Asked::get(&asked.layouts) == 3).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(Asked::get(&asked.connections), 2);
+        assert_eq!(Asked::get(&asked.trees), 0, "the tree was fetched with no reader");
+        assert!(cache.tree().is_none());
+        // The first reader fetches it.
+        cache.wait_for(true, false, false).await;
+        assert_eq!(cache.tree().unwrap()["data"]["workspace_revision"], 100);
+        assert_eq!(Asked::get(&asked.trees), 1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_readers_share_one_tree_fetch() {
+        let (_dir, socket, asked, _events) = lazy_tree_daemon();
+        let cache = WorkspaceCache::start(socket);
+        cache.wait_for(false, true, true).await;
+        let readers: Vec<_> = (0..16)
+            .map(|_| {
+                let cache = cache.clone();
+                tokio::spawn(async move {
+                    cache.wait_for(true, false, false).await;
+                    cache.tree().map(|tree| tree["data"]["workspace_revision"].clone())
+                })
+            })
+            .collect();
+        for reader in readers {
+            assert_eq!(reader.await.unwrap(), Some(json!(100)));
+        }
+        assert_eq!(Asked::get(&asked.trees), 1, "16 readers must share one fetch");
+    }
+
+    #[tokio::test]
+    async fn a_reader_after_tree_changed_gets_the_fresh_tree() {
+        let (_dir, socket, asked, events) = lazy_tree_daemon();
+        let cache = WorkspaceCache::start(socket);
+        cache.wait_for(true, false, false).await;
+        assert_eq!(cache.tree().unwrap()["data"]["workspace_revision"], 100);
+        events.send(json!({"event":"tree-changed"})).unwrap();
+        until("tree marked stale", || cache.tree().is_none()).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(Asked::get(&asked.trees), 1, "a stale tree waits for a reader");
+        cache.wait_for(true, false, false).await;
+        assert_eq!(cache.tree().unwrap()["data"]["workspace_revision"], 200);
+        assert_eq!(Asked::get(&asked.trees), 2);
     }
 }

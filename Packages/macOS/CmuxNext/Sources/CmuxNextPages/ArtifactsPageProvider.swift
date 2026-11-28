@@ -1,4 +1,3 @@
-import CmuxEgress
 import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
@@ -32,12 +31,15 @@ public nonisolated struct ArtifactsReply: Sendable {
     public let contentType: String?
     /// `X-Artifacts-Commit`: the commit a file read resolved to.
     public let commit: String?
+    /// The body's length when the host left a long body out (`body` empty); nil: `body.count`.
+    public let size: Int?
 
-    public init(status: Int, body: Data, contentType: String? = nil, commit: String? = nil) {
+    public init(status: Int, body: Data, contentType: String? = nil, commit: String? = nil, size: Int? = nil) {
         self.status = status
         self.body = body
         self.contentType = contentType
         self.commit = commit
+        self.size = size
     }
 }
 
@@ -67,12 +69,12 @@ public final class ArtifactsPageProvider: PageProvider {
         self.authChanges = authChanges
     }
 
-    /// The Artifacts tab's page: this provider on the app-selected platform API, each read made
-    /// with `token`'s access token (nil when signed out). The host supplies the base so release
-    /// builds use their production Cloud configuration and debug builds can use a preview.
-    public static func page(baseURL: URL?, authChanges: AuthChanges? = nil,
-                            token: @escaping @Sendable () async throws -> String?) -> PageWebView? {
-        let provider = ArtifactsPageProvider(fetch: platformFetch(base: baseURL, token: token), authChanges: authChanges)
+    /// The Artifacts tab's page: this provider with the host's `fetch`, which makes each read
+    /// through the daemon's `cloud.artifacts.read` (cmux-cloud-api `artifacts.rs`) on the
+    /// app-selected platform origin, so release builds read production Cloud.
+    public static func page(fetch: @escaping @Sendable (ArtifactsRead) async throws -> ArtifactsReply,
+                            authChanges: AuthChanges? = nil) -> PageWebView? {
+        let provider = ArtifactsPageProvider(fetch: fetch, authChanges: authChanges)
         return PageWebView(descriptor: .artifacts, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider),
                                                             PageRoute(prefix: "cmux.cloud.", provider: provider)])
     }
@@ -122,11 +124,11 @@ public final class ArtifactsPageProvider: PageProvider {
         }
         var file: [String: JSONValue] = [
             "path": .string(params["path"]?.stringValue ?? ""),
-            "size": .number(Double(reply.body.count)),
+            "size": .number(Double(reply.size ?? reply.body.count)),
             "contentType": .string(reply.contentType ?? "application/octet-stream"),
             "commit": .string(reply.commit ?? ""),
         ]
-        if reply.body.count > Self.previewLimit {
+        if (reply.size ?? reply.body.count) > Self.previewLimit {
             file["tooLarge"] = .bool(true)
         } else if let text = String(data: reply.body, encoding: .utf8) {
             file["content"] = .string(text)
@@ -135,72 +137,6 @@ public final class ArtifactsPageProvider: PageProvider {
             file["encoding"] = .string("base64")
         }
         return .object(file)
-    }
-
-    /// cmux-platform's development Worker, which serves `/v1/artifacts` first.
-    public static let developmentAPI = URL(string: "https://cmux-platform-development.debussy.workers.dev")
-
-    /// The API base: `CMUX_NEXT_ARTIFACTS_API_URL` when it names a platform deployment
-    /// (``isPlatformOrigin(_:)``), else ``developmentAPI``. The bearer goes to this host, so an
-    /// override elsewhere is ignored.
-    public static func apiBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
-        if let value = environment["CMUX_NEXT_ARTIFACTS_API_URL"], let url = URL(string: value), isPlatformOrigin(url) { return url }
-        return developmentAPI
-    }
-
-    /// A cmux-platform Worker over https (`*.debussy.workers.dev`), or `wrangler dev` on this Mac
-    /// (http on loopback). No user, password, query or fragment.
-    public static func isPlatformOrigin(_ url: URL) -> Bool {
-        guard let host = url.host?.lowercased(), url.user == nil, url.password == nil, url.query == nil, url.fragment == nil
-        else { return false }
-        switch url.scheme?.lowercased() {
-        case "https": return host.hasSuffix(".debussy.workers.dev") && url.port == nil
-        case "http": return host == "localhost" || host == "127.0.0.1" || host == "::1"
-        default: return false
-        }
-    }
-
-    /// The app's fetch: one GET of `read` under `base` with the bearer `token` gives, or a 401
-    /// answer when `token` gives nil (signed out).
-    public nonisolated static func platformFetch(base: URL?, token: @escaping @Sendable () async throws -> String?)
-        -> @Sendable (ArtifactsRead) async throws -> ArtifactsReply {
-        let session = noStoreSession()
-        return { read in
-            guard let base else { throw URLError(.badURL) }
-            guard let access = try await token() else { return ArtifactsReply(status: 401, body: Data()) }
-            guard let url = url(read, base: base) else { throw URLError(.badURL) }
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 60
-            request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-            let (body, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-            return ArtifactsReply(status: http.statusCode, body: body, contentType: http.value(forHTTPHeaderField: "Content-Type"),
-                                  commit: http.value(forHTTPHeaderField: "X-Artifacts-Commit"))
-        }
-    }
-
-    /// Artifact replies carry account data. Keep them out of shared URLSession caches and cookies,
-    /// and never follow a redirect that could move the bearer to another origin.
-    private nonisolated static func noStoreSession() -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieAcceptPolicy = .never
-        return CmuxEgress.session(site: "CmuxNextPages.ArtifactsPageProvider", configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
-    }
-
-    /// `read`'s URL under `base`, whose own path (a deployment under a prefix) is kept. Each query
-    /// value is encoded whole (`&`, `=`, `+`, `;` and `#` included), so a path can never add a param.
-    nonisolated static func url(_ read: ArtifactsRead, base: URL) -> URL? {
-        guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
-        components.path = (components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path) + read.path
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&=+;#")
-        components.percentEncodedQueryItems = read.query.isEmpty ? nil : read.query.map {
-            URLQueryItem(name: $0.name, value: $0.value?.addingPercentEncoding(withAllowedCharacters: allowed))
-        }
-        return components.url
     }
 
     /// The platform read for `op` and `params`, or ``PageError/invalidParams(_:)`` for a param
@@ -260,12 +196,5 @@ public final class ArtifactsPageProvider: PageProvider {
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .localizedModule)
-    }
-}
-
-private final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(nil)
     }
 }
