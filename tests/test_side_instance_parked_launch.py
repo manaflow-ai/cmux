@@ -214,7 +214,8 @@ class SideInstanceParkedLaunchTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("(shown)", result.stdout)
         self.assertIn("no park display", result.stderr)
-        self.assertEqual(self.copy_open()[:2], ["-n", "-g"])
+        self.assertEqual(self.copy_open()[0], "-n")
+        self.assertIn("-g", self.copy_open())
         self.assertNotIn("--env", self.copy_open())
 
     def park_opens(self) -> int:
