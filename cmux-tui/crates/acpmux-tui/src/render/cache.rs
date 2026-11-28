@@ -62,7 +62,10 @@ impl TranscriptCache {
             .iter()
             .position(|i| matches!(i, Item::User { queued: true, .. }))
             .unwrap_or(t.items.len());
-        let split = t.items[..first_queued]
+        let split = t
+            .items
+            .get(..first_queued)
+            .unwrap_or_default()
             .iter()
             // A turn's prompt, never a steer in it: `late_steers_last` reorders across a steer.
             .rposition(|i| matches!(i, Item::User { queued: false, steer: false, .. }))
@@ -158,12 +161,13 @@ pub(super) fn animated_line(t: &Transcript, row: &Row, c: &Chrome) -> Option<Lin
     {
         let label = format!("Working for {}", duration_label(now_ms().saturating_sub(start)));
         let mut line = row.line.clone();
-        let suffix = line.spans[0]
+        let first = line.spans.first_mut()?;
+        let suffix = first
             .content
             .split_once(" · ")
             .map(|(_, rest)| format!(" · {rest}"))
             .unwrap_or_default();
-        line.spans[0] = Span::styled(format!("{label}{suffix}"), c.muted());
+        *first = Span::styled(format!("{label}{suffix}"), c.muted());
         return Some(line);
     }
     if row.item == t.items.len().saturating_sub(1)
