@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
+pub const ir_sha256 = "449274df648ba597f6378f82c6111c46ae242a27fa209bf466a53881b2164ebb";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -12475,6 +12475,8 @@ pub const ScreenChangedEvent = struct {
     event: []const u8,
     index: wire.Field(u64) = .absent,
     screen: Id,
+    /// The numeric transaction of the request that changed the screen (set-column-dock, set-row-heights, float-pane), as a decimal string, when it sent one.
+    transaction: wire.Field([]const u8) = .absent,
     workspace: Id,
 };
 

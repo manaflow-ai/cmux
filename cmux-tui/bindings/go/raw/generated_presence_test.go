@@ -48371,6 +48371,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "index", true, "1")
 	})
+	t.Run("ScreenChangedEvent.Transaction", func(t *testing.T) {
+		var missing ScreenChangedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"screen\":1,\"workspace\":1}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Transaction.IsAbsent() {
+			t.Fatal("Transaction did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "transaction", false, "")
+		var nullValue ScreenChangedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"screen\":1,\"workspace\":1,\"transaction\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Transaction.IsNull() {
+			t.Fatal("Transaction did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "transaction", true, "null")
+		var presentValue ScreenChangedEvent
+		if err := json.Unmarshal([]byte("{\"entity\":{\"active\":true,\"active_pane\":1,\"id\":1,\"layout\":{\"pane\":1,\"type\":\"leaf\"},\"name\":null,\"panes\":[],\"zoomed_pane\":null},\"screen\":1,\"workspace\":1,\"transaction\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Transaction.Get(); !ok {
+			t.Fatal("Transaction did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "transaction", true, "\"value\"")
+	})
 	t.Run("ScreenDeviceChangedEvent.ScreenDeviceID", func(t *testing.T) {
 		var missing ScreenDeviceChangedEvent
 		if err := json.Unmarshal([]byte("{}"), &missing); err == nil {
@@ -70319,8 +70345,8 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1978
-	generatedOptionalNullableFieldCount    = 1367
+	generatedFieldShapeCount               = 1979
+	generatedOptionalNullableFieldCount    = 1368
 	generatedRequiredNullableFieldCount    = 178
 	generatedOptionalNonnullableFieldCount = 433
 	generatedRequiredFieldCount            = 1671

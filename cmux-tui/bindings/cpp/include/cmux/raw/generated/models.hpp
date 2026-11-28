@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6558219fc95c08d3a088c88dbc9c81015f042cad7dacb50a02c64d081d016c7b";
+inline constexpr std::string_view kProtocolIrSha256 = "449274df648ba597f6378f82c6111c46ae242a27fa209bf466a53881b2164ebb";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -5408,6 +5408,7 @@ struct ScreenChangedEvent {
     Screen entity{};
     Field<std::uint64_t> index{};
     Id screen{};
+    Field<std::string> transaction{};
     Id workspace{};
     friend bool operator==(const ScreenChangedEvent&, const ScreenChangedEvent&) = default;
 };

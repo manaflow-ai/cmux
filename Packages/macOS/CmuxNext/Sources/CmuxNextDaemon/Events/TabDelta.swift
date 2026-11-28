@@ -1,31 +1,5 @@
 import Foundation
 
-public struct TabDelta: Sendable, Hashable, Decodable {
-    public var workspace: WorkspaceHandle
-    public var screen: ScreenID
-    public var pane: PaneID
-    public var surface: SurfaceID
-    public var index: Int?
-    public var entity: TabSnapshot
-    public var clientTransactionID: ClientTransactionID?
-
-    public init(workspace: WorkspaceHandle, screen: ScreenID, pane: PaneID, surface: SurfaceID, index: Int?, entity: TabSnapshot,
-                clientTransactionID: ClientTransactionID? = nil) {
-        self.workspace = workspace
-        self.screen = screen
-        self.pane = pane
-        self.surface = surface
-        self.index = index
-        self.entity = entity
-        self.clientTransactionID = clientTransactionID
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case workspace, screen, pane, surface, index, entity
-        case clientTransactionID = "transaction"
-    }
-}
-
 public struct DaemonNotification: Sendable, Hashable, Decodable {
     public var notification: NotificationID
     public var title: String
@@ -73,21 +47,5 @@ public struct DaemonNotification: Sendable, Hashable, Decodable {
         source = try? c.decodeIfPresent(String.self, forKey: .source)
         desktop = (try? c.decodeIfPresent(Bool.self, forKey: .desktop)) ?? true
         reply = (try? c.decodeIfPresent(Bool.self, forKey: .reply)) ?? false
-    }
-}
-
-public struct ProjectionChange: Sendable, Hashable, Decodable {
-    public var frontend: String
-    public var scope: String
-    public var subjectKey: String
-    public var projectionRevision: UInt64
-    public var origin: String?
-    public var mutationID: String?
-
-    enum CodingKeys: String, CodingKey {
-        case frontend, scope, origin
-        case subjectKey = "subject_key"
-        case projectionRevision = "projection_revision"
-        case mutationID = "mutation_id"
     }
 }
