@@ -9,12 +9,16 @@ import Testing
         try DriverParams(method: "page.goto", json: .object(fields))
     }
 
-    private func message(_ body: () throws(DriverError) -> Void) -> String? {
-        do throws(DriverError) {
+    /// The DriverError text `body` throws (nil when it throws nothing). Untyped, so an unannotated closure that
+    /// throws DriverError compiles on every Xcode the CI runs (Xcode 26.6 infers `any Error` for it).
+    private func message(_ body: () throws -> Void) -> String? {
+        do {
             try body()
             return nil
-        } catch {
+        } catch let error as DriverError {
             return error.message
+        } catch {
+            return "not a DriverError: \(error)"
         }
     }
 
