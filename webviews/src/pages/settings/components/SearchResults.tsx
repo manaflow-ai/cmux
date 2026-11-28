@@ -10,7 +10,6 @@ import { t, text } from "../strings";
 import { CHIEF_PET_ROWS } from "../cardRows";
 import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
-import { Button } from "../../../ui/Button";
 
 /** Each category's page title (the sidebar section that holds it), for a result's crumb. */
 const pageTitles = new Map(
@@ -100,8 +99,7 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
           {pages.map((page) => {
             const section = sidebarSections.find((run) => run.categories.includes(page.id))?.title;
             return (
-              <Button
-                bare
+              <button
                 type="button"
                 className="ask-cmux search-page"
                 key={page.id}
@@ -113,12 +111,11 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
                   <span className="ask-cmux-title">{text(page.title)}</span>
                   {section ? <span className="ask-cmux-words">{text(section)}</span> : null}
                 </span>
-              </Button>
+              </button>
             );
           })}
           {modelMatches.cloud && (
-            <Button
-              bare
+            <button
               type="button"
               className="ask-cmux search-page"
               data-page-hit="cloudModels"
@@ -129,7 +126,7 @@ export const SearchResults = memo(function SearchResults({ query }: { query: str
                 <span className="ask-cmux-title">{t("settingsWindow.cloud.models.title")}</span>
                 <span className="ask-cmux-words">{text(categoryById("cloud").title)}</span>
               </span>
-            </Button>
+            </button>
           )}
         </div>
       )}

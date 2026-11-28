@@ -3,7 +3,6 @@ import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { Button } from "../../../ui/Button";
 import { useConnectionQuiet } from "../../../ui/lasting";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
-import { Tooltip } from "../../../ui/Tooltip";
 import { useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
@@ -439,16 +438,15 @@ export function ModelRow({
         )}
       </div>
       <div className="row-control">
-        <Tooltip label={iconLabel} disabled={!iconLabel}>
-          <span
-            className="models-status-slot"
-            data-warning={!loading && warning ? "" : undefined}
-            role={iconLabel ? "img" : undefined}
-            aria-label={iconLabel}
-          >
-            {loading ? <Spinner size={16} loading /> : warning ? <Icon name="warning" /> : null}
-          </span>
-        </Tooltip>
+        <span
+          className="models-status-slot"
+          data-warning={!loading && warning ? "" : undefined}
+          role={iconLabel ? "img" : undefined}
+          aria-label={iconLabel}
+          title={iconLabel}
+        >
+          {loading ? <Spinner size={16} loading /> : warning ? <Icon name="warning" /> : null}
+        </span>
         {children}
       </div>
     </div>

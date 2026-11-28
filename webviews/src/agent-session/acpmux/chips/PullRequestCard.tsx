@@ -21,7 +21,6 @@ import { githubItemRef } from "./pullRequestCardModel";
 import { repeatsTitle } from "./linkHoverCardModel";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useLoadFade } from "../../shared/loadFade";
-import { Button } from "../../../ui/Button";
 
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
@@ -409,8 +408,7 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
         </span>
         {failing > 0 ? (
           hasDrawer ? (
-            <Button
-              bare
+            <button
               type="button"
               className="acpmux-pr-card__checksToggle"
               data-kind={allOnBase ? "base" : "fail"}
@@ -428,7 +426,7 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
               <span className="acpmux-pr-card__checksChev" aria-hidden="true">
                 <Icon name="disclosure.expanded" size={12} />
               </span>
-            </Button>
+            </button>
           ) : (
             <span className="acpmux-pr-card__checksBadge" data-kind={allOnBase ? "base" : "fail"}>
               <span className="acpmux-pr-card__failed" aria-hidden="true">
@@ -443,8 +441,7 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
           )
         ) : pending > 0 ? (
           hasDrawer ? (
-            <Button
-              bare
+            <button
               type="button"
               className="acpmux-pr-card__checksToggle"
               data-kind="pending"
@@ -457,7 +454,7 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
               <span className="acpmux-pr-card__checksChev" aria-hidden="true">
                 <Icon name="disclosure.expanded" size={12} />
               </span>
-            </Button>
+            </button>
           ) : (
             <span className="acpmux-pr-card__pending" aria-hidden="true">
               <span className="acpmux-pr-card__count">{pending}</span> {t("prCard.checksRunning")}
