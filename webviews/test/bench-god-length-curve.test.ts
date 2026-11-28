@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { curveRatios, godRows } from "../bench/god-length-curve";
+import { curveRatios, godRows } from "../bench/god-length-curve.bench";
 
 describe("god-length-curve", () => {
   test("reads the god rows' p95 from a replay's output", () => {
@@ -33,5 +33,20 @@ describe("god-length-curve", () => {
     ]);
     expect(ratios).toEqual({ token_ms: 1.5 });
     expect(max).toBeCloseTo(1.5);
+  });
+});
+
+describe("transcript-replay TAIL=1", () => {
+  test("opens at the last checkpoint's turn: every burst kind after it, its prompt included", async () => {
+    const { tailStart } = await import("../bench/transcript-replay.bench");
+    const { godLog } = await import("../bench/godFixture");
+    const log = godLog("god", { turns: 40 });
+    const from = tailStart(log);
+    expect(from).toBeGreaterThan(0);
+    expect(log.events[from - 1]!.kind).toBe("turn_result");
+    const after = log.bursts.filter((burst) => burst.fromSeq >= log.events[from]!.seq);
+    expect(new Set(after.map((burst) => burst.kind))).toEqual(new Set(log.bursts.map((burst) => burst.kind)));
+    // Only the last checkpoint's: well under the whole log.
+    expect(log.events.length - from).toBeLessThan(log.events.length / 4);
   });
 });

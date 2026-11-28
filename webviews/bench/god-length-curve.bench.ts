@@ -14,8 +14,8 @@
 //                                       100x the history costs at most 1.2x per update and in heap.
 // Leo's direction (shadow-leo, 2026-11-28): "the check turns into a curve, heap and tokens at 1k, 10k, 100k turns,
 // and it has to stay flat".
-//   bun bench/god-length-curve.ts            (CLOCK=cpu and the bench's other env pass through)
-//   TURNS_LIST=1000,10000 bun bench/god-length-curve.ts
+//   bun bench/god-length-curve.bench.ts            (CLOCK=cpu and the bench's other env pass through)
+//   TURNS_LIST=1000,10000 bun bench/god-length-curve.bench.ts
 /// <reference types="bun" />
 import path from "node:path";
 import { PERF_ROW_MARK, perfRow } from "./perfRow";
@@ -71,7 +71,7 @@ if (import.meta.main) {
   for (const turns of turnsList) {
     const started = performance.now();
     const proc = Bun.spawn(["bun", bench, "--only", "long"], {
-      env: { ...process.env, FIXTURE: "god", GOD_TURNS: String(turns) },
+      env: { TAIL: "1", ...process.env, FIXTURE: "god", GOD_TURNS: String(turns) },
       stdout: "pipe",
       stderr: "inherit",
     });

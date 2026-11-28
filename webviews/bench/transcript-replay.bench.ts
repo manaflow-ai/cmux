@@ -121,6 +121,8 @@ if (GOD_TURNS !== undefined && (!Number.isInteger(GOD_TURNS) || GOD_TURNS < 10))
   console.error("transcript-replay: GOD_TURNS is a whole number of turns, 10 or more");
   process.exit(2);
 }
+/// `TAIL=1` opens the live page at the last checkpoint (`tailStart`) and plays only its records live.
+const TAIL = process.env.TAIL === "1";
 const godOf = () => godLog("god", GOD_TURNS === undefined ? {} : { turns: GOD_TURNS });
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
@@ -837,10 +839,35 @@ type LiveReplay = {
   finish(measureIdle: boolean): Promise<Live>;
   close(): Promise<void>;
 };
+/// TAIL=1: the index of the first record of the log's last checkpoint, the latest burst from which on every burst
+/// kind the log has plays (pure; exported for the test).
+export function tailStart(log: Pick<ReplayLog, "events" | "bursts">): number {
+  const kinds = new Set(log.bursts.map((burst) => burst.kind));
+  const seen = new Set<string>();
+  let from = log.bursts.length;
+  while (from > 0 && seen.size < kinds.size) seen.add(log.bursts[--from]!.kind);
+  const seq = log.bursts[from]?.fromSeq;
+  if (seq === undefined) return 0;
+  // From the record after the last one not in a burst before it: the checkpoint turn's prompt plays live too.
+  let at = log.events.findIndex((event) => event.seq === seq);
+  while (at > 0 && log.events[at - 1]!.kind !== "turn_result") at--;
+  return Math.max(0, at);
+}
+
 /// The live phase: an empty session, then every record as a live event at the page's top speed.
 async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<LiveReplay> {
-  const first = log.events[0]?.at ?? Date.now();
-  const { page, cdp, play } = await openPage(ctx, daemon, log, 0, "running", first);
+  // TAIL=1: open the chat at its last checkpoint, as a pane opens a long chat (the newest page, older pages on
+  // scroll), and play live only that checkpoint's records, instead of the whole transcript from an empty pane.
+  const tailFrom = TAIL ? tailStart(log) : 0;
+  const first = (tailFrom ? log.events[tailFrom - 1]?.at : log.events[0]?.at) ?? Date.now();
+  const { page, cdp, play } = await openPage(
+    ctx,
+    daemon,
+    log,
+    tailFrom ? log.events[tailFrom - 1]!.seq : 0,
+    "running",
+    first,
+  );
   const started = performance.now();
   try {
     await page.goto(ctx.url(log, daemon));
@@ -861,7 +888,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
   const inBurst = new Map<number, Burst>();
   for (const burst of log.bursts) inBurst.set(burst.fromSeq, burst);
   const burstWindows: [number, number][] = [];
-  let index = 0;
+  let index = tailFrom;
   return {
     async next() {
       while (index < log.events.length) {
