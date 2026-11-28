@@ -203,38 +203,37 @@ impl Rules {
 /// A Go RE2 pattern as the `regex` crate reads it: Go takes a `{` that
 /// starts no repetition (`{{ env }}`) as a literal, `regex` wants it escaped.
 fn translate(pattern: &str) -> String {
-    let bytes = pattern.as_bytes();
     let mut out = String::with_capacity(pattern.len() + 8);
-    let (mut i, mut class) = (0, false);
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        if c == '\\' && i + 1 < bytes.len() {
-            let len = 1 + pattern[i + 1..].chars().next().map_or(1, char::len_utf8);
-            out.push_str(&pattern[i..i + len]);
-            i += len;
+    let mut class = false;
+    let mut chars = pattern.char_indices();
+    while let Some((i, c)) = chars.next() {
+        if c == '\\' {
+            out.push(c);
+            if let Some((_, escaped)) = chars.next() {
+                out.push(escaped);
+            }
             continue;
         }
         match c {
             '[' if !class => class = true,
             ']' if class => class = false,
-            '{' if !class && !repetition(&pattern[i..]) => {
+            '{' if !class && !pattern.get(i..).is_some_and(repetition) => {
                 out.push_str("\\{");
-                i += 1;
                 continue;
             }
             _ => {}
         }
-        let len = pattern[i..].chars().next().map_or(1, char::len_utf8);
-        out.push_str(&pattern[i..i + len]);
-        i += len;
+        out.push(c);
     }
     out
 }
 
 /// `{n}`, `{n,}` or `{n,m}` at the start of `rest`.
 fn repetition(rest: &str) -> bool {
-    let Some(end) = rest.find('}') else { return false };
-    let mut parts = rest[1..end].splitn(2, ',');
+    let Some((inner, _)) = rest.strip_prefix('{').and_then(|r| r.split_once('}')) else {
+        return false;
+    };
+    let mut parts = inner.splitn(2, ',');
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     match (parts.next(), parts.next()) {
         (Some(n), None) => digits(n),
@@ -428,7 +427,7 @@ fn path_like(word: &str) -> bool {
 fn names_a_thing(word: &str) -> bool {
     let file = {
         let base = word.split(':').next().unwrap_or(word);
-        let rest = &word[base.len()..];
+        let rest = word.get(base.len()..).unwrap_or_default();
         base.contains('.')
             && base
                 .split('.')
@@ -765,13 +764,13 @@ pub fn mask(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut at = 0;
     for f in find(text) {
-        out.push_str(&text[at..f.range.start]);
+        out.push_str(text.get(at..f.range.start).unwrap_or_default());
         out.push('[');
         out.push_str(f.label);
         out.push(']');
         at = f.range.end;
     }
-    out.push_str(&text[at..]);
+    out.push_str(text.get(at..).unwrap_or_default());
     out
 }
 
