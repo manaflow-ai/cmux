@@ -305,6 +305,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
+      id-token: write # The tailnet join for the Claude login pool (.github/actions/claude-pool).
     steps:
       - name: Mint the cmux-bot token
         id: cmux-bot-token
@@ -327,6 +328,16 @@ jobs:
           ref: refs/heads/main
           fetch-depth: 60
           persist-credentials: false
+
+      # The pool's logins instead of the one shared token when the pool answers; '' keeps the token.
+      - name: Reach the Claude login pool
+        id: pool
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.github/actions/claude-pool
+        with:
+          oauth-client-id: ${{ vars.TS_CI_OIDC_CLIENT_ID }}
+          audience: ${{ vars.TS_CI_OIDC_AUDIENCE }}
 
       # The cmux-bot installation's hour before this job spends any of it (GET /rate_limit is free), as an
       # `app-spend-pool:` line HQ's spend publisher sums, and the floor (HQ's default floor, 2,500): below it
@@ -378,9 +389,11 @@ jobs:
         timeout-minutes: 15
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_POOL_URL: ${{ steps.pool.outputs.base-url }}
           REPORT: ${{ runner.temp }}/compile-report/compile-report.json
         run: |
           set -euo pipefail
+          if [ -n "$CLAUDE_POOL_URL" ]; then export ANTHROPIC_BASE_URL="$CLAUDE_POOL_URL" ANTHROPIC_AUTH_TOKEN=subrouter2; unset CLAUDE_CODE_OAUTH_TOKEN; fi
           # Every file under .git, by name and bytes (the check step below repeats it).
           git_dir_digest() {
             (cd .git && find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256) | shasum -a 256
