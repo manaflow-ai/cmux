@@ -621,10 +621,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         services.surfaceInvariant.noteChange()
     }
 
-    /// Focuses this pane's selected content through the window's focus
-    /// coordinator (the only writer of focus).
+    /// Focuses this pane's content (the focus coordinator writes focus) and scrolls its column the least into view: the strip follows only a focus change, so a page shown in the already focused pane stayed off screen (goal screen-share-interaction-paths).
     func focusContent(source: FocusEvent.Source = .intent) {
         workspace?.focus.send(.focusPane(paneKey, source: source))
+        workspace?.layoutModel.revealColumn(containing: layoutPaneID)
     }
 
     // MARK: Lookup
