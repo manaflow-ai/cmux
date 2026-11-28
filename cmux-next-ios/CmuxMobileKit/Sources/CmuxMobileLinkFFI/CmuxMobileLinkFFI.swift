@@ -10559,6 +10559,149 @@ public func FfiConverterTypeVaultKeyStore_lower(_ value: VaultKeyStore) -> UInt6
 
 
 
+
+
+/**
+ * One channel's decoder. It keeps the stream's context across messages, so a failure loses
+ * it: every later call fails too and the channel must reopen.
+ */
+public protocol ZstdStreamDecoderProtocol: AnyObject, Sendable {
+    
+    /**
+     * The text of one envelope: `body` is its zstd bytes (after the 9-byte header) and
+     * `text_len` the header's text length. Refused unless it decodes to exactly `text_len`
+     * bytes, at most 64 MiB (the joiner's `maxMessage`), within a 1 MiB window.
+     */
+    func decode(body: Data, textLen: UInt32) throws  -> Data
+    
+}
+/**
+ * One channel's decoder. It keeps the stream's context across messages, so a failure loses
+ * it: every later call fails too and the channel must reopen.
+ */
+open class ZstdStreamDecoder: ZstdStreamDecoderProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_zstdstreamdecoder(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_zstdstreamdecoder_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_zstdstreamdecoder(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The text of one envelope: `body` is its zstd bytes (after the 9-byte header) and
+     * `text_len` the header's text length. Refused unless it decodes to exactly `text_len`
+     * bytes, at most 64 MiB (the joiner's `maxMessage`), within a 1 MiB window.
+     */
+open func decode(body: Data, textLen: UInt32)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_method_zstdstreamdecoder_decode(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(body),
+        FfiConverterUInt32.lower(textLen),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeZstdStreamDecoder: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ZstdStreamDecoder
+
+    public static func lift(_ handle: UInt64) throws -> ZstdStreamDecoder {
+        return ZstdStreamDecoder(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ZstdStreamDecoder) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ZstdStreamDecoder {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ZstdStreamDecoder, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeZstdStreamDecoder_lift(_ handle: UInt64) throws -> ZstdStreamDecoder {
+    return try FfiConverterTypeZstdStreamDecoder.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeZstdStreamDecoder_lower(_ value: ZstdStreamDecoder) -> UInt64 {
+    return FfiConverterTypeZstdStreamDecoder.lower(value)
+}
+
+
+
+
 /**
  * What the Mac's sidebar knows beyond its tree. `rows` none: the Mac has no
  * personal order. `pins` none: the Mac has no sidebar layout (the legacy pin
@@ -29882,6 +30025,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_groupeditledger_sent() != 47637) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_zstdstreamdecoder_decode() != 4528) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_channelwritewatch_new() != 60331) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -29943,6 +30089,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_groupeditledger_new() != 12374) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_zstdstreamdecoder_new() != 58347) {
         return InitializationResult.apiChecksumMismatch
     }
 
