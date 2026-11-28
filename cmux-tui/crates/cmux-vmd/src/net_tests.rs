@@ -25,6 +25,28 @@ fn allow_rules_split_families_and_refuse_injection() {
 }
 
 #[test]
+fn internet_blocks_v6_ranges_that_reach_private_v4() {
+    let rules = egress_rules(&Egress::Internet).unwrap();
+    let v6 = rules.lines().find(|l| l.contains("ip6 daddr")).unwrap_or_default();
+    // Loopback and unspecified (in ::/96), mapped, NAT64, Teredo, 6to4, ULA, link-local, multicast.
+    for prefix in [
+        "::/96",
+        "::ffff:0:0/96",
+        "64:ff9b::/96",
+        "64:ff9b:1::/48",
+        "2001::/32",
+        "2002::/16",
+        "fc00::/7",
+        "fe80::/10",
+        "ff00::/8",
+    ] {
+        assert!(v6.contains(prefix), "{prefix} missing from {v6}");
+    }
+    assert!(v6.trim_end().ends_with("drop"), "{v6}");
+    assert!(rules.ends_with("accept"), "{rules}");
+}
+
+#[test]
 fn default_egress_is_none() {
     assert_eq!(Egress::default(), Egress::None);
     assert_eq!(egress_rules(&Egress::None).unwrap(), "drop");

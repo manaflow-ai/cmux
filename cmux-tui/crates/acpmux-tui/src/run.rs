@@ -274,8 +274,11 @@ pub(super) fn make_app(
         .chain(tui.palette_aliases.iter())
         .chain(std::iter::once(&tui.skill_prefix))
     {
+        let Some(first) = p.chars().next() else {
+            anyhow::bail!("TUI prefixes must each be one non-space character");
+        };
         anyhow::ensure!(
-            p.chars().count() == 1 && !p.chars().next().unwrap().is_whitespace(),
+            p.chars().count() == 1 && !first.is_whitespace(),
             "TUI prefixes must each be one non-space character"
         );
     }

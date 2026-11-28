@@ -218,7 +218,8 @@ fn floor_watch(dir: &Path) -> Watch {
 }
 
 /// What a git stopped mid-write leaves in the mirror (`objects/pack/tmp_*`, `.tmp-*` packs of a
-/// repack, `objects/incoming-*` quarantines): removed, so a stopped write keeps no space.
+/// repack, `objects/incoming-*` quarantines, a cut fetch's `.keep`: `stale_fetch_keeps`): removed,
+/// so a stopped write keeps no space.
 fn clear_partial_writes(dir: &Path) {
     clear_partial_writes_older(dir, Duration::ZERO);
 }
@@ -267,7 +268,91 @@ fn clear_partial_writes_older(dir: &Path, older_than: Duration) -> (u64, u64) {
             }
         }
     }
+    // A cut fetch's lock: no bytes of its own, but while it stays git keeps the pack it locks
+    // through every `repack -a -d`, so it counts as one entry and the pack's bytes.
+    for keep in stale_fetch_keeps(dir) {
+        let pack = keep.with_extension("pack");
+        let bytes = std::fs::metadata(&pack).map(|m| m.len()).unwrap_or(0);
+        if std::fs::remove_file(&keep).is_ok() {
+            removed.0 += 1;
+            removed.1 += bytes;
+        }
+    }
     removed
+}
+
+/// The `objects/pack/pack-*.keep` locks of fetches that ended without writing their refs.
+/// `git fetch` indexes the pack it downloaded under a `fetch-pack PID on HOST` lock and drops the
+/// lock once the refs are written; a fetch killed in between (the fill's 30-minute bound came
+/// during its connectivity walk) leaves the whole, indexed pack locked and no ref reaching it.
+/// fs-agent-lane-34, 2026-11-27: two such 16 GB packs of manaflow-ai/cmux, a mirror with no refs,
+/// 31 GiB of a 252 GB disk, and each fill downloaded the whole repository again. A lock is stale
+/// when its process is gone from this host or it names another host (a VM made from an image);
+/// any other `.keep` (an operator's, git's own) stays.
+fn stale_fetch_keeps(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir.join("objects").join("pack")) else { return vec![] };
+    let here = this_host();
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "keep"))
+        .filter(|p| {
+            std::fs::read_to_string(p).is_ok_and(|text| keep_is_stale(&text, here.as_deref()))
+        })
+        .collect()
+}
+
+/// Whether a `.keep`'s text is a fetch's lock whose fetch is gone (`stale_fetch_keeps`).
+fn keep_is_stale(text: &str, here: Option<&str>) -> bool {
+    let mut words = text.split_whitespace();
+    let (Some("fetch-pack"), Some(pid), Some("on"), Some(host), None) =
+        (words.next(), words.next(), words.next(), words.next(), words.next())
+    else {
+        return false;
+    };
+    let Ok(pid) = pid.parse::<u32>() else { return false };
+    match here {
+        Some(here) if here == host => !process_alive(pid),
+        Some(_) => true,
+        None => false,
+    }
+}
+
+fn this_host() -> Option<String> {
+    #[cfg(unix)]
+    {
+        let mut buf = [0u8; 256];
+        // SAFETY: the buffer outlives the call and its length is passed with it.
+        let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
+        if rc != 0 {
+            return None;
+        }
+        let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+        std::str::from_utf8(buf.get(..end)?).ok().map(str::to_owned)
+    }
+    #[cfg(not(unix))]
+    None
+}
+
+/// Whether `pid` names a process on this host; an id that cannot be asked about counts as alive.
+fn process_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(pid) = libc::pid_t::try_from(pid) else { return true };
+        if pid <= 0 {
+            return true;
+        }
+        // SAFETY: signal 0 only asks whether the process exists; nothing is sent.
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return true;
+        }
+        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 fn tree_bytes(path: &Path) -> u64 {
@@ -307,6 +392,20 @@ pub fn sweep_stale_partial_writes(root: &Path) -> (u64, u64) {
         }
     }
     total
+}
+
+/// What `git fetch` writes in the `.keep` beside a pack until its refs are written.
+const FETCH_KEEP: &[u8] = b"fetch-pack ";
+
+/// The `.keep` files a `git fetch` left on the packs in `dir` (`Mirrors::adopt_cut_fetch_packs`).
+fn cut_fetch_keeps(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir.join("objects/pack")) else { return Vec::new() };
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "keep"))
+        .filter(|p| std::fs::read(p).is_ok_and(|b| b.starts_with(FETCH_KEEP)))
+        .collect()
 }
 
 /// How a watched fetch ended.
@@ -732,6 +831,18 @@ impl Mirrors {
                     );
                 }
                 let fresh = !Self::filled(&dir);
+                if fresh {
+                    let named =
+                        Self::adopt_cut_fetch_packs(&dir, &upstream_url, authorization.as_deref())
+                            .await;
+                    if named > 0 {
+                        eprintln!(
+                            "git-cache: {} named {named} tips a cut fill's pack holds; the fill \
+                             fetches only the rest",
+                            dir.display()
+                        );
+                    }
+                }
                 // A first fill is the whole repository: it must end above the floor, not just
                 // start there. A filled mirror's fetch is an increment the floor watch bounds.
                 if fresh
@@ -750,6 +861,16 @@ impl Mirrors {
                         crate::room::why_not_for(&dir, need)
                     );
                     refused = true;
+                }
+                if fresh && !refused {
+                    let n =
+                        Self::adopt_held_tips(&dir, &upstream_url, authorization.as_deref()).await;
+                    if n > 0 {
+                        eprintln!(
+                            "git-cache: fill {} negotiates from {n} tips already held",
+                            dir.display()
+                        );
+                    }
                 }
                 let fetched = if !refused && Self::init(&dir).await {
                     Self::fetch_outcome(
@@ -797,10 +918,116 @@ impl Mirrors {
         });
     }
 
+    /// Names, under `KEPT_REFS`, the upstream tips the packs a cut `git fetch` finished hold, and
+    /// drops the `.keep` it left on them; returns how many tips. `git fetch` writes the whole pack
+    /// and its `fetch-pack` keep before it checks connectivity and writes the refs; a fill killed
+    /// between the two (`FILL_TIMEOUT`) left a complete pack no ref named, so the next fill had no
+    /// haves and downloaded the whole repository again, beside it. gcp-agent-lane-4, 2026-11-27:
+    /// manaflow-ai/cmux's first fill wrote its 17.4 GB pack at 21:37, timed out at 21:43 with 0
+    /// refs, and the 22:53 fill was writing the same 17 GB again (the lane at 92% used). Run only
+    /// under the mirror's lock, where no fetch of the cache runs, so every such keep is stale.
+    async fn adopt_cut_fetch_packs(
+        dir: &Path,
+        upstream_url: &str,
+        authorization: Option<&[u8]>,
+    ) -> usize {
+        let keeps = cut_fetch_keeps(dir);
+        if keeps.is_empty() {
+            return 0;
+        }
+        let mut cmd = git();
+        with_auth(&mut cmd, authorization);
+        cmd.arg("-C").arg(dir).args(["ls-remote", "--heads", "--tags", "--refs", upstream_url]);
+        let tips: std::collections::BTreeSet<String> = match run(cmd, None, SYNC_TIMEOUT).await {
+            Ok(ran) if ran.success => String::from_utf8_lossy(&ran.stdout)
+                .lines()
+                .filter_map(|l| l.split_whitespace().next())
+                .filter(|o| matches!(o.len(), 40 | 64) && o.bytes().all(|b| b.is_ascii_hexdigit()))
+                .map(str::to_owned)
+                .collect(),
+            _ => return 0,
+        };
+        let mut cmd = git();
+        cmd.arg("-C").arg(dir).args(["cat-file", "--batch-check=%(objectname) %(objecttype)"]);
+        let input = tips.iter().map(|t| format!("{t}\n")).collect::<String>();
+        let Ok(ran) = run(cmd, Some(input.into_bytes()), SHORT_TIMEOUT).await else { return 0 };
+        let held: Vec<String> = String::from_utf8_lossy(&ran.stdout)
+            .lines()
+            .filter_map(|l| l.split_once(' '))
+            .filter(|(o, kind)| *kind != "missing" && tips.contains(*o))
+            .map(|(o, _)| o.to_owned())
+            .collect();
+        if !held.is_empty() {
+            let mut cmd = git();
+            cmd.arg("-C").arg(dir).args(["update-ref", "--stdin"]);
+            let refs =
+                held.iter().map(|o| format!("update {KEPT_REFS}{o} {o}\n")).collect::<String>();
+            if !run(cmd, Some(refs.into_bytes()), SHORT_TIMEOUT).await.is_ok_and(|r| r.success) {
+                return 0;
+            }
+        }
+        // Without its keep, a pack no ref reaches is git's to drop and a named one is repacked.
+        for keep in keeps {
+            let _ = std::fs::remove_file(keep);
+        }
+        held.len()
+    }
+
     /// Whether a fill of `dir` runs now.
     pub fn filling(&self, dir: &Path) -> bool {
         let fills = self.fills.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         fills.get(dir).is_some_and(|f| f.running)
+    }
+
+    /// Names under `KEPT_REFS` every upstream tip an unfilled mirror's packs already hold, so the
+    /// fill negotiates from them and downloads only the rest. A fetch cut after its pack was
+    /// indexed leaves that pack and no ref (`stale_fetch_keeps`); `git fetch` negotiates only from
+    /// refs, so without this each fill downloaded the whole repository again beside it. The pack
+    /// a fetch sends a mirror with no refs holds everything its tips reach, so a held tip is whole.
+    /// The number of tips named.
+    async fn adopt_held_tips(dir: &Path, url: &str, authorization: Option<&[u8]>) -> usize {
+        let has_pack = std::fs::read_dir(dir.join("objects").join("pack")).is_ok_and(|rd| {
+            rd.flatten().any(|e| e.path().extension().is_some_and(|x| x == "pack"))
+        });
+        if !has_pack {
+            return 0;
+        }
+        let mut cmd = git();
+        with_auth(&mut cmd, authorization);
+        cmd.arg("-C").arg(dir).args(["ls-remote", "--quiet", url, "refs/heads/*", "refs/tags/*"]);
+        let Ok(ran) = run(cmd, None, SYNC_TIMEOUT).await else { return 0 };
+        if !ran.success {
+            return 0;
+        }
+        let tips: std::collections::BTreeSet<String> = String::from_utf8_lossy(&ran.stdout)
+            .lines()
+            .filter_map(|l| l.split('\t').next())
+            .filter(|id| id.len() >= 40 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+            .map(str::to_owned)
+            .collect();
+        if tips.is_empty() {
+            return 0;
+        }
+        let mut cmd = git();
+        cmd.arg("-C").arg(dir).args(["cat-file", "--batch-check=%(objectname) %(objecttype)"]);
+        let input = tips.iter().map(|t| format!("{t}\n")).collect::<String>().into_bytes();
+        let Ok(ran) = run(cmd, Some(input), SHORT_TIMEOUT).await else { return 0 };
+        let held: Vec<String> = String::from_utf8_lossy(&ran.stdout)
+            .lines()
+            .filter(|l| !l.ends_with(" missing"))
+            .filter_map(|l| l.split(' ').next())
+            .map(str::to_owned)
+            .collect();
+        if held.is_empty() {
+            return 0;
+        }
+        let refs = held.iter().map(|w| format!("update {KEPT_REFS}{w} {w}\n")).collect::<String>();
+        let mut cmd = git();
+        cmd.arg("-C").arg(dir).args(["update-ref", "--stdin"]);
+        match run(cmd, Some(refs.into_bytes()), SHORT_TIMEOUT).await {
+            Ok(ran) if ran.success => held.len(),
+            _ => 0,
+        }
     }
 
     async fn drop_kept_refs(dir: &Path) {

@@ -96,6 +96,31 @@ pub fn docker_prune(pressure: Pressure) -> Result<u64, String> {
     Ok(before.unwrap_or(0).saturating_sub(after.unwrap_or(0)))
 }
 
+/// Whether this Mac can have iOS simulators to prune: macOS with developer tools installed. On a
+/// Mac without them, `xcrun` is Apple's stub that opens "Install Command Line Developer Tools", so
+/// a clean Mac's first cmux launch showed that installer unasked: the daemon's startup pass ran
+/// `xcrun simctl delete unavailable` (first-run findings). Only the paths `xcrun` itself resolves
+/// a developer folder from are checked; nothing runs.
+pub fn simulators_present() -> bool {
+    cfg!(target_os = "macos")
+        && developer_tools_installed(std::env::var_os("DEVELOPER_DIR"), &|path| path.exists())
+}
+
+/// `xcrun`'s developer folder: `DEVELOPER_DIR`, else `xcode-select`'s link, else Xcode in
+/// Applications, else the Command Line Tools. `exists` reads the disk (a test's fake in tests).
+fn developer_tools_installed(
+    developer_dir: Option<std::ffi::OsString>,
+    exists: &dyn Fn(&std::path::Path) -> bool,
+) -> bool {
+    use std::path::Path;
+    if developer_dir.is_some_and(|dir| !dir.is_empty() && exists(Path::new(&dir))) {
+        return true;
+    }
+    ["/var/db/xcode_select_link", "/Applications/Xcode.app", "/Library/Developer/CommandLineTools"]
+        .iter()
+        .any(|path| exists(Path::new(path)))
+}
+
 /// macOS: simulators whose runtime is gone.
 #[cfg(target_os = "macos")]
 pub fn simulators_prune() -> Result<u64, String> {
