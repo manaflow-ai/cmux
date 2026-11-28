@@ -118,6 +118,7 @@ extension ScreenContentView {
         }
         perform(#selector(dropSnapshotOpenFailsafe), with: nil, afterDelay: SplitSnapshotOpen.failsafe)
         markSnapshotSplit(giver: giver)
+        // perf-gate-ok: hands the split's first frame over in the key's turn (rightSplitOpen timing ends at this commit)
         CATransaction.flush()
     }
 

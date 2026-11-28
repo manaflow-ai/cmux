@@ -183,6 +183,12 @@ public final class TerminalProjectingSession: TerminalSession {
         inner.reportPaint(samples)
     }
     public func discardHeldInput() { inner.discardHeldInput() }
+    public func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID {
+        inner.beginAttachmentSubmission(onExpire: onExpire)
+    }
+    @discardableResult public func endAttachmentSubmission(_ id: UUID) -> Bool {
+        inner.endAttachmentSubmission(id)
+    }
 
     public func noteReaderRowsFromEnd(_ rows: Int) {
         projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))
@@ -460,7 +466,16 @@ public final class TerminalProjectingSession: TerminalSession {
 
     /// The grid the screen's mirror takes: the phone's on the primary
     /// screen, the Mac's on the alternate screen.
+    ///
+    /// The primary screen's grid is held until the phone has measured its own
+    /// (`resize`): it never falls back to the Mac's. That fallback told the page
+    /// the Mac pane's grid (118x69 on Leo's Mac) whenever a replay or a screen
+    /// switch came in before the first measure, so the page laid the mirror out
+    /// at the Mac's width and panned sideways, then took the phone's grid a
+    /// moment later (Leo, 2026-11-23: "im sometimes seeing these 118x69 load
+    /// ins which are wide... then it properly goes").
     private func showGrid() {
+        if !shownAlternate, phoneGrid == nil { return }
         let grid = shownAlternate ? macGrid : (phoneGrid ?? macGrid)
         if let shown = shownGrid, shown.columns == grid.columns, shown.rows == grid.rows { return }
         shownGrid = grid

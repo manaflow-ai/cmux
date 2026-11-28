@@ -1,0 +1,197 @@
+name: transcript-replay perf report
+
+# Report only: a pull request that touches the transcript path gets the long chat's live replay, per record kind
+# (thought, token, tool_call, tool_output, ...: ms per record p50 and p95, renders per record, hidden-row pane renders
+# per record), merge base against head, measured on one runner in one job (webviews/bench/transcript-replay-ab.sh runs
+# both panes with the head's bench), written to the job summary by scripts/ci/transcript_replay_report.py. It never
+# fails the pull request: not on a regression, and not when the bench itself crashes (the summary says so). Perf never
+# blocks push, merge or nightly; a gate needs Leo's say-so.
+# Goal long-chat-frame-p95: a regression in one record kind (a thought or a tool call redrawing the whole pane) shows
+# on the pull request that makes it, not a week later in NOW's row. With stress-ng on the runner, each side also takes
+# one duress reading (scripts/measure/replay-under-load.sh --cores 2); without it the summary says so.
+# Every number carries the runner class it came from (cmuxterm-hq#18799): different classes are different series.
+
+on:
+  # Started only by pr-router.yml (scripts/ci/pr_router.json `affects`: the transcript path, the bench and its imports).
+  workflow_call:
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution, as chat-open-perf-report.yml has it.
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  BASE_TIP: ${{ github.event.pull_request.base.sha }}
+  ROUNDS: "1"
+
+jobs:
+  report:
+    name: transcript-replay per-kind (report only)
+    # A draft head waits for ready_for_review; vars.CMUX_TRANSCRIPT_REPLAY_PR_REPORT = 'off' turns it off.
+    if: ${{ format('{0}', vars.CMUX_TRANSCRIPT_REPLAY_PR_REPORT) != 'off' && !github.event.pull_request.draft }}
+    concurrency:
+      group: transcript-replay-perf-report-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    # The Linux pool ci-web.yml uses; base and head run in this one job, so on one runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 60
+    # A step that errors still leaves the job green; the summary step below says what broke.
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Fetch base
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$BASE_TIP" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          # Deepen both sides until they meet: the merge base is the base the head's own change sits on.
+          base=""
+          for depth in 50 200 1000 5000; do
+            git fetch --no-tags --depth="$depth" origin "$BASE_TIP" "$HEAD_SHA"
+            if base="$(git merge-base "$BASE_TIP" "$HEAD_SHA")"; then break; fi
+            base=""
+          done
+          test -n "$base"
+          echo "base tip ${BASE_TIP:0:12}, head ${HEAD_SHA:0:12}, merge base ${base:0:12}"
+          echo "BASE_SHA=$base" >> "$GITHUB_ENV"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
+      - name: Cache Bun package cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Bun package cache (restore only off base branches)
+        if: ${{ (!(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref))) && steps.bun-warm.outputs.warm != 'true' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install webviews dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Cache Playwright apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      - name: Playwright's bundled Chromium
+        id: browser
+        working-directory: webviews
+        run: |
+          # The bench runs on Playwright's own Chromium, as it does locally (CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM=1): one
+          # pinned build for both sides. A runner where that install fails measures on the installed Chrome instead.
+          if ./node_modules/.bin/playwright install --with-deps chromium; then
+            echo "CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM=1" >> "$GITHUB_ENV"
+            echo "browser=playwright-chromium-$(./node_modules/.bin/playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::no bundled Chromium; measuring on the installed Chrome"
+            "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+            echo "browser=system-chrome" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Runner class
+        id: class
+        env:
+          RUNNER_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+        run: |
+          # The series key, as the perf cron's rows carry it (`chat_open.compact.attach_to_latest@<runner class>`,
+          # cmuxterm-hq#18799): a trend is read only within one class, so a move to another machine starts a new series
+          # instead of reading as a regression. The class is the runs-on label, the arch and the cpu count.
+          echo "class=${RUNNER_LABEL}-${RUNNER_ARCH,,}-$(nproc)c" >> "$GITHUB_OUTPUT"
+          echo "cpu=$(awk -F: '/model name/ {gsub(/^ +/, "", $2); print $2; exit}' /proc/cpuinfo)" >> "$GITHUB_OUTPUT"
+
+      - name: transcript-replay A/B, base against head
+        id: bench
+        working-directory: webviews
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/transcript-replay"
+          if [ ! -f bench/transcript-replay-ab.sh ]; then
+            echo "status=missing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          OUT="$RUNNER_TEMP/transcript-replay/logs" DURESS=1 bash bench/transcript-replay-ab.sh "${BASE_SHA:-$BASE_TIP}" "$ROUNDS" 2>&1 \
+            | tee "$RUNNER_TEMP/transcript-replay/ab.txt"
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Job summary
+        if: ${{ !cancelled() }}
+        env:
+          BENCH_STATUS: ${{ steps.bench.outputs.status }}
+          RUNNER_CLASS: ${{ steps.class.outputs.class }}
+        run: |
+          set +e
+          dir="$RUNNER_TEMP/transcript-replay"
+          mkdir -p "$dir"
+          {
+            python3 scripts/ci/transcript_replay_report.py "$dir/logs" --base "${BASE_SHA:-$BASE_TIP}" --head "$HEAD_SHA" \
+              --class "${RUNNER_CLASS:-unknown}" --series "$dir/series.json"
+            case "$BENCH_STATUS" in
+              0) ;;
+              missing) echo; echo "**Bench not run:** this head has no \`webviews/bench/transcript-replay-ab.sh\`. The check passes anyway." ;;
+              *) echo; echo "**The bench crashed or did not finish (status ${BENCH_STATUS:-did not run}).** The check passes anyway; the log is in the step above and the \`transcript-replay-perf\` artifact." ;;
+            esac
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: Upload logs and series
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: transcript-replay-perf-${{ github.run_id }}-${{ steps.class.outputs.class || 'unknown' }}
+          path: ${{ runner.temp }}/transcript-replay
+          if-no-files-found: ignore
+          retention-days: 14
