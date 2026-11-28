@@ -28,6 +28,9 @@ concurrency:
 
 jobs:
   sweep:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: sweep stale cmux/ui-proof pending
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
     # The step holds the CI pool tokens (secrets), so the job leads with the one-job secret JIT label.

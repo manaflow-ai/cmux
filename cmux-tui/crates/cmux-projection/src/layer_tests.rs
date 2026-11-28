@@ -79,6 +79,14 @@ fn whiteouts_read_as_the_overlay_writes_them_nul_ended() {
 }
 
 #[test]
+fn a_tombstone_in_the_whiteouts_log_brings_its_path_back() {
+    let state = tempfile::tempdir().unwrap();
+    fs::write(state.path().join("whiteouts"), "src/m01.rs\0src/m02.rs\0/src/m01.rs\0").unwrap();
+    let layer = Layer::collect(state.path()).unwrap();
+    assert_eq!(layer.whiteouts, ["src/m02.rs"]);
+}
+
+#[test]
 fn dependency_and_build_folders_stay_on_the_machine_as_counts() {
     let state = tempfile::tempdir().unwrap();
     let upper = state.path().join("upper");

@@ -29,7 +29,7 @@ pub use reader::{
     FixedManagedReader, JsonFileManagedReader, ManagedReader, PlistFileManagedReader,
     default_reader, json_from_plist, read_keys,
 };
-pub use team::TeamPolicyLayer;
+pub use team::{TeamPolicyLayer, feature_value as team_feature_value};
 
 /// The managed preference domain every channel reads.
 pub const DOMAIN: &str = "com.manaflow.cmux";

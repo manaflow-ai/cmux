@@ -92,7 +92,9 @@ for _ in $(seq 1 700); do
   sleep 0.1
 done
 grep -q '^READY' "$out/rec.log" || { echo "CMR FAIL rig: recorder did not start: $(head -c 300 "$out/rec.log")"; exit 3; }
-"$side" launch "$name" --front -- --skip-onboarding >&2 || exit 3
+# The New Tab page, its composer and its Runs On control are a CEF page, which builds no accessibility tree unless
+# the app is launched with CMUX_NEXT_ACCESSIBILITY=1 (run 46142896615 read 0 nodes and called the control missing).
+CMUX_NEXT_ACCESSIBILITY=1 "$side" launch "$name" --front -- --skip-onboarding >&2 || exit 3
 python3 scripts/measure/cloud-mvp-nightly-readback.py run --app "$app" --pid-file "$CMUX_SIDE_ROOT/$name/pid" \
   --control-socket "$("$side" socket "$name")" --config "$config" --folder "$folder" --dmg "$dmg" \
   --out "$out" 2>&1 | tee "$out/run.log"

@@ -118,6 +118,11 @@ case "$file" in
     # A red file that still ran to its end: bun prints its closing tally after the failure.
     echo "(fail) old base assertion"; echo " 1 pass"; echo " 1 fail"; echo "Ran 2 tests across 1 file. [3.00ms]"
     exit 1 ;;
+  *engine-skip*)
+    # A browser file whose engine did not launch: every test skips and bun exits 0 (probeEngineOrSkip).
+    printf 'b: skipping, webkit did not launch here (Executable does not exist)\\n(skip) b\\n\\n 0 pass\\n 1 skip\\n 0 fail\\n'
+    exit 0 ;;
+  *ran-one*) printf '(pass) real\\n\\n 1 pass\\n 0 fail\\nRan 1 tests across 1 file.\\n'; exit 0 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
@@ -1105,6 +1110,30 @@ class PerFileRunner(unittest.TestCase):
                 result, _, _ = self.run_runner(["test/a.test.ts"], extra_env=env, uname="Linux")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
+
+    def test_a_browser_file_that_ran_no_test_is_named_and_fails_the_browser_lane(self):
+        """A browser file whose engine does not launch skips every test and exits 0, and the runner read it as
+        PASS and kept its log out of the summary: a fleet step with CMUX_BROWSER_TESTS=1 printed 30 PASS files
+        and "0 failed" while no browser test ran (2026-11-28; cmuxterm-hq docs/handbook/green-that-judged-nothing.md).
+        The runner names each file that ran no test with its skip line, and fails a run that asked for the
+        browser lane when an engine did not launch, unless CMUX_BROWSER_SKIP_UNLAUNCHABLE=1 keeps the skip."""
+        files = ["test/ran-one.test.ts", "test/engine-skip.test.ts"]
+        contents = {"test/engine-skip.test.ts": 'requireBrowserLane("b", () => {});\n'}
+        reason = "b: skipping, webkit did not launch here (Executable does not exist)"
+        # GITHUB_ACTIONS=true only keeps the runner from installing engines for CMUX_BROWSER_TESTS=1 here.
+        lane = {"CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true"}
+        for env, code in (({}, 0), (lane, 1), ({**lane, "CMUX_BROWSER_SKIP_UNLAUNCHABLE": "1"}, 0)):
+            with self.subTest(env=env):
+                result, _, calls = self.run_runner(files, contents=contents, extra_env=env, uname="Linux")
+                output = result.stdout + result.stderr
+                self.assertEqual(calls, sorted(f"./{name}" for name in files), output)
+                self.assertEqual(result.returncode, code, output)
+                self.assertIn(f"PASS test/engine-skip.test.ts (ran no test: {reason})", output)
+                self.assertIn("ran no test (every test skipped; a pass that judged nothing): 1 of 2 files", output)
+                self.assertIn(f"  RAN NONE test/engine-skip.test.ts: {reason}", output)
+                self.assertNotIn("RAN NONE test/ran-one", output)
+                failed = "browser lane asked for (CMUX_BROWSER_TESTS=1) but an engine did not launch"
+                self.assertEqual(failed in output, code == 1, output)
 
     def test_a_mac_never_installs_engines_and_runs_the_lane_without_its_browser_files(self):
         """No Playwright on Macs (Lawrence, 2026-11-02): a Mac outside GitHub Actions installs no engine,

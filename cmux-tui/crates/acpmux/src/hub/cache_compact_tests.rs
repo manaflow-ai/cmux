@@ -95,6 +95,23 @@ fn a_compaction_runs_only_where_its_expected_saving_beats_its_cost() {
 }
 
 #[test]
+fn a_wake_that_reads_the_cache_warm_saves_nothing() {
+    // gcp-agent-lane-2, 2026-11-28: the reaper's 2-minute compaction on a 1-hour cache lost $13 a
+    // day (130 of 157 woke inside the hour, reading the uncompacted context warm). The fire
+    // prices P(wake) x P(miss): an idle lane at 60K on a 1-hour cache no longer compacts, nor at
+    // 80K; at 100K it does. On a 5-minute cache the bar is about 80K.
+    let opus_5m = Prices::of(None, false);
+    let lane = |long| P_WAKE_OTHER * p_miss(long);
+    assert!(!pays(60_000, lane(true), OPUS_1H), "60K lane, 1-hour cache");
+    assert!(!pays(80_000, lane(true), OPUS_1H), "80K lane, 1-hour cache");
+    assert!(pays(100_000, lane(true), OPUS_1H), "100K lane, 1-hour cache");
+    assert!(!pays(60_000, lane(false), opus_5m), "60K lane, 5-minute cache");
+    assert!(pays(90_000, lane(false), opus_5m), "90K lane, 5-minute cache");
+    assert!(pays(70_000, P_WAKE_DELEGATING * p_miss(true), OPUS_1H), "70K delegating coordinator");
+    assert!(p_miss(true) < p_miss(false), "a longer cache catches more wakes warm");
+}
+
+#[test]
 fn p_wake_reads_what_acpmux_knows_of_the_chat() {
     assert_eq!(p_wake(true, false, false), 1.0, "a turn already coming is a wake");
     assert_eq!(p_wake(false, true, false), P_WAKE_DELEGATING, "its lanes or sub-sessions report");

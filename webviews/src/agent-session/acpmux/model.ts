@@ -280,6 +280,12 @@ export type AcpmuxBackgroundRun = {
   /// ended when they all ended alike: a run of only those reads "N subagents stopped".
   subagents?: number;
   subagentEnd?: "finished" | "stopped" | "disconnected" | "failed";
+  /// How many members are rows the harness wrote into the turn (backgroundRuns.ts `harnessWork`),
+  /// each folded as a tool call is: task notifications, messages from other agents (an inbox relay
+  /// counts its messages) and subagents' "Report from" lines.
+  notifications?: number;
+  messages?: number;
+  reports?: number;
   rows: string[];
 };
 
@@ -1728,6 +1734,10 @@ export type AcpmuxSnapshot = {
       effort?: string;
       modelSource?: StartSource;
       effortSource?: StartSource;
+      /** New Tab's own start model when it differs from `model`: the same chain without the saved
+       * default a pick in a chat rewrites (Leo 2026-11-27: "it should purely just be new tab").
+       * Empty when nothing below that pick names a model. */
+      newTab?: { model?: string; modelSource?: StartSource };
     };
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
