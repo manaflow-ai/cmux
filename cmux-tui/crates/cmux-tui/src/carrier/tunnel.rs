@@ -462,10 +462,27 @@ fn code(body: &Value) -> &str {
     body.get("code").and_then(Value::as_str).unwrap_or("")
 }
 
+/// The refusal's own words (`message`), one line of at most
+/// [`MESSAGE_CHARS`] characters: a 503 `mesh.node.unavailable` is several
+/// causes (a device delete still pending, the VM API not answering), and only
+/// the message tells them apart in link.log.
+fn message(body: &Value) -> Option<String> {
+    let text = body.get("message").and_then(Value::as_str)?;
+    let line: String =
+        text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(MESSAGE_CHARS).collect();
+    let line = line.trim();
+    (!line.is_empty()).then(|| line.to_owned())
+}
+
+const MESSAGE_CHARS: usize = 160;
+
 /// The attach answer's status read as a step outcome.
 fn attach_miss(status: u16, body: &Value) -> Miss {
     let code = code(body);
-    let detail = format!("attach answered {status} {code}");
+    let detail = match message(body) {
+        Some(said) => format!("attach answered {status} {code}: {said}"),
+        None => format!("attach answered {status} {code}"),
+    };
     match (status, code) {
         (404, "mesh.device.unavailable") => Miss::NoMesh(NO_MESH.into()),
         (409, "mesh.device.superseded") => Miss::Reattach(detail),
