@@ -15,6 +15,8 @@ import Testing
         var answer: String? = "run-1"
         var during: @MainActor () -> Void = {}
         var bound: [String: String] = [:]
+        /// Machines with a session in the App (in use, not spares).
+        var sessions: Set<String> = []
         var links: [String] = []
         var up = true
         var fenced = false
@@ -71,7 +73,7 @@ import Testing
                     if let dialGate { for await _ in dialGate { break } }
                     return isDialed
                 }, end: { _ = ends.yield(machine) })
-            }, team: { nil })
+            }, team: { nil }, inUse: { [unowned self] in self.sessions.contains($0) })
         }
 
         /// A serve that never starts: nothing here asks for its socket.
@@ -665,6 +667,51 @@ import Testing
         readiness.prime("vm_spare", dials: true)
         await readiness.settled("vm_spare")
         #expect(world.links == ["vm_spare", "vm_spare"])
+    }
+
+    /// 2026-11-28: the warm named the machine the desktop probe had just made and opened as "this person's spare", and its
+    /// prime made a second link beside the session's (a second supervisor the session's socket refused). A machine with a
+    /// session is in use: no prime keys, warms, links or dials it; once its session is gone it is a spare again.
+    @Test func aMachineWithASessionIsNeverMadeReadyAsASpare() async {
+        let world = World()
+        world.dialed = true
+        let readiness = CloudSpareReadiness(world.dependencies())
+        readiness.prime("vm_made", team: "team_a", dials: true)
+        await readiness.settled("vm_made")
+        #expect(readiness.link(for: "vm_made", team: "team_a") != nil, "the session takes the link made ahead")
+        world.sessions.insert("vm_made")
+        let (keys, dials) = (world.keys, world.dials)
+        // The warm's answer (dials) and the wire's readiness (links only) both name it.
+        readiness.prime("vm_made", team: "team_a", dials: true)
+        readiness.prime("vm_made")
+        await readiness.settled("vm_made")
+        #expect(world.links == ["vm_made"], "no second link beside the session's")
+        #expect(world.keys == keys && world.dials == dials)
+        #expect(!readiness.holdsLink("vm_made"))
+        world.sessions.remove("vm_made")
+        readiness.prime("vm_made", team: "team_a")
+        await readiness.settled("vm_made")
+        #expect(world.links == ["vm_made", "vm_made"])
+    }
+
+    /// A session added while a prime reads the team leaves it linking nothing, even before the session asks for its link.
+    @Test func aSessionAddedDuringThePrimesTeamReadLeavesItLinkingNothing() async {
+        let world = World()
+        var dependencies = world.dependencies()
+        let (teamGate, teamOpen) = AsyncStream.makeStream(of: Void.self)
+        let (reading, read) = AsyncStream.makeStream(of: String.self)
+        dependencies.team = {
+            read.yield("reading")
+            for await _ in teamGate { break }
+            return "team_a"
+        }
+        let readiness = CloudSpareReadiness(dependencies)
+        readiness.prime("vm_made")
+        #expect(await firstValue(reading) == "reading")
+        world.sessions.insert("vm_made")
+        teamOpen.yield()
+        await readiness.settled("vm_made")
+        #expect(world.links.isEmpty)
     }
 
     /// A dialing prime whose team could not be read keeps the link held for the spare's team.

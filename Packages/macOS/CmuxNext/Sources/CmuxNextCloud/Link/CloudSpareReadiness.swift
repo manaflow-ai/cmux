@@ -46,12 +46,20 @@ public final class CloudSpareReadiness {
         /// agent is ready. The chat that claims the machine takes that folder and that agent, so its start has no agent
         /// boot left (about 3.5 s, 2026-11-24). Nil here: nothing is warmed ahead.
         public var warm: (@MainActor (_ machine: String) async -> Bool)?
+        /// Whether `machine` already has a session in this app (the App's `MachineRegistry.session`): it is in use, so not a
+        /// spare to make ready. Its session took its link (or made its own) when it was added, so a second link is a
+        /// second `carrier serve` on the same machine, which the first one's socket refuses ("another cmux is serving this
+        /// machine's connection socket"), and a key or a home warm ahead acts on a machine someone works on. On
+        /// 2026-11-28 the warm named the machine the desktop probe had just made and opened ("is this person's spare")
+        /// 30 s after its create, and every probe run on two Macs carried that second supervisor's refusal.
+        public var inUse: @MainActor (_ machine: String) -> Bool
 
         public init(scope: @escaping @MainActor () -> Scope, key: @escaping @MainActor (String, Scope) async -> String?,
                     keyedInstance: @escaping @MainActor (String) -> String?, link: @escaping @MainActor (String, String?) -> SpareLink?,
                     team: @escaping @MainActor () async -> String?, route: (@MainActor (String) async -> String?)? = nil,
-                    warm: (@MainActor (String) async -> Bool)? = nil) {
+                    warm: (@MainActor (String) async -> Bool)? = nil, inUse: @escaping @MainActor (String) -> Bool = { _ in false }) {
             (self.scope, self.key, self.keyedInstance, self.link, self.team, self.route, self.warm) = (scope, key, keyedInstance, link, team, route, warm)
+            self.inUse = inUse
         }
     }
 
@@ -156,6 +164,11 @@ public final class CloudSpareReadiness {
         sweep()
         let resets = resets
         guard Self.signedIn(scope), !machine.isEmpty else { return }
+        // In use: its session holds the machine's one link; nothing here keys, warms or links it again.
+        guard !dependencies.inUse(machine) else {
+            Self.log.info("cloud spare \(machine, privacy: .public): has a session in this app, so it is not made ready as a spare")
+            return
+        }
         let running = primes[machine].flatMap { $0.resets == resets ? $0 : nil }
         if let running, running.dials || !dials { return }
         lastPrime += 1
@@ -318,7 +331,7 @@ public final class CloudSpareReadiness {
         // Forgotten since its prime (the scope may still be the same one: Cloud turned off): no link is made or held.
         // Or its session asked for the link while the team was read, and links its own: a second serve nobody takes
         // is not made.
-        guard resets == self.resets, !asked.contains(machine), dependencies.scope() == scope else { return }
+        guard resets == self.resets, !asked.contains(machine), !dependencies.inUse(machine), dependencies.scope() == scope else { return }
         // Held and fit: kept. A prime that dials replaces a link made for another team than the one it names; any
         // other prime, and one whose team could not be read, keeps what is held.
         let kept = links[machine].map { fits($0, scope: scope) && ($0.team == team || !dials || team == nil) } ?? false
