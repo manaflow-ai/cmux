@@ -87,6 +87,7 @@ public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples
             var logCallers: [String: Int] = [:]
             var waitCallers: [String: Int] = [:]
             var conformsCallers: [String: Int] = [:]
+            var conformsOwn: [String: Int] = [:]
             for sample in inWindow {
                 let names = sample.stack.map { symbol($0).name }
                 // Who logs, and who waits: the five frames out from the outermost os_log frame, and
@@ -103,6 +104,10 @@ public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples
                 if let lookup = names.prefix(8).firstIndex(where: { $0.contains("swift_conformsToProtocol") }) {
                     let past = names[lookup...].firstIndex { !$0.hasPrefix("libswiftCore.dylib ") } ?? names.count
                     conformsCallers[names[past...].prefix(5).joined(separator: " < "), default: 0] += 1
+                    // Which of this app's functions it runs under (SwiftUI scans a view type's fields
+                    // the first time it builds one): the innermost own frame.
+                    let ownFrame = sample.stack.lazy.map { symbol($0) }.first { $0.own && !$0.name.hasSuffix(" main") }?.name ?? "none"
+                    conformsOwn[ownFrame, default: 0] += 1
                 }
                 var seen = Set<String>()
                 var seenOwn = Set<String>()
@@ -119,7 +124,7 @@ public final class LaunchProfile: @unchecked Sendable { // crash-allow: `samples
             out.append(["name": window.name, "from": window.from.rounded(), "to": window.to.rounded(), "n": inWindow.count,
                         "self": top(innermost, 15), "app": top(own, 45), "incl": top(inclusive, 35),
                         "log": top(logCallers, 20), "wait": top(waitCallers, 20),
-                        "conforms": top(conformsCallers, 25)])
+                        "conforms": top(conformsCallers, 25), "conforms_own": top(conformsOwn, 30)])
         }
         let object: [String: Any] = ["interval_ms": Double(interval) / 1000, "samples": samples.count, "windows": out]
         guard let data = try? JSONSerialization.data(withJSONObject: object), let text = String(data: data, encoding: .utf8) else { return "{}" }
