@@ -177,12 +177,12 @@ struct LayoutShiftCounterTests {
         var held = LayoutShiftCounter()
         held.frame(["u": w(457, 64, 0), "a": w(633, 44, 0)])
         held.frame(["u": w(219, 64, -238), "f": w(395, 230, -238), "a": w(633, 44, -238)])
-        #expect(held.shifts == 0)
+        #expect(held.shiftFrames == 0)
 
         var pushed = LayoutShiftCounter()
         pushed.frame(["u": w(457, 64, 0), "a": w(633, 44, 0)])
         pushed.frame(["u": w(457, 64, 0), "f": w(529, 230, 0), "a": w(871, 44, 0)])
-        #expect(pushed.shifts == 1)
+        #expect(pushed.shiftFrames == 1)
         #expect(pushed.moves == ["2:a 633/44->871/44 dy 238.0 dh 0.0 list 0.0 under new f"])
     }
 
