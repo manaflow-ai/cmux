@@ -904,6 +904,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         hub.watches.open(&home().join("watches.json"));
     }
     hub.start_watches();
+    // A fleet hold that lifts thaws its chats (`hub/session_hold.rs`).
+    hub.start_fleet_thaw();
     // What the join in config.json starts (`server/machine_enroll.rs`): the team hub's relay
     // (`server/mesh_relay.rs`), kept on the hub so a sign-in enroll can start one live, and the
     // hub carrier on the same hub and credential (`hub_carrier.rs`), through which this machine
