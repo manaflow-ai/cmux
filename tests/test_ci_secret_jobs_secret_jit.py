@@ -51,7 +51,6 @@ LABEL_LITERAL = re.compile(r"'([a-z0-9][a-z0-9.-]*)'")
 
 AD_HOC_SIGN = ("runs rcodesign/codesign ad hoc and holds no secret; it stays on Leo's #49325 CI_OVERFLOW_LINUX "
                "route")
-LEO_OVERFLOW = "Leo's #49325: main jobs ask for cmux-linux behind the CI_OVERFLOW_LINUX switch"
 PR_GATE = ("gates every same-repo PR's CI; its only secrets are continue-on-error routing and read-token mints, so it "
            "stays on its warm selector rather than wait 1-2 min for a one-job JIT VM")
 # Jobs every same-repo PR waits on before its CI starts. They keep their warm selector (#58325 review, F1).
@@ -71,17 +70,10 @@ EXCEPTIONS = {
     ("ci-queue-janitor-watchdog.yml", "watch"): "queue janitor's own CI_QUEUE_JANITOR_ON_FLEET route",
     ("ci-cloud-overflow-probe.yml", "watch"): "the overflow watch flips routing when the fleet stalls, so it may not "
     "wait on a fleet VM; main pins its frozen label (tests/test_ci_cloud_overflow_switch.py WATCH_FROZEN)",
-    ("ci-main-full-suite.yml", "dispatch"): LEO_OVERFLOW,
     **{job: AD_HOC_SIGN for job in (("ci-guards.yml", "workflow-guard-tests"), ("cmux-next-dev-daily.yml", "rcodesign"),
                                     ("cmux-next-dev-daily.yml", "drop-signed-handoff"),
                                     ("rcodesign-parity-proof.yml", "rcodesign"),
                                     ("rcodesign-parity-proof.yml", "compare"))},
-    ("cmux-next-ios-kit.yml", "start"): LEO_OVERFLOW,
-    ("first-user-journey-ios.yml", "start"): LEO_OVERFLOW,
-    ("ios-reliability-matrix.yml", "start"): LEO_OVERFLOW,
-    ("nightly-next-health.yml", "start"): LEO_OVERFLOW,
-    ("real-login-canaries.yml", "dispatch"): LEO_OVERFLOW,
-    ("stable-next.yml", "tick"): LEO_OVERFLOW,
 }
 
 
