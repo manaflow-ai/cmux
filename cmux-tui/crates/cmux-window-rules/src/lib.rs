@@ -15,8 +15,9 @@
 //!   bursts and VoiceOver's status line).
 //! - [`tabs`]: what a new tab or pane opens and where (its kind, the browser
 //!   open plan, a split's plan), tab moves, numbers, duplicates, restarts and
-//!   icons; [`tabs::panes`] the pane and terminal tables; [`tabs::strip`]
-//!   the strip's close, move and next-tab commands.
+//!   icons; [`tabs::panes`] the pane and terminal tables; [`tabs::selection`]
+//!   the strip's multi-selection and its moves; [`tabs::strip`] the strip's
+//!   close, move and next-tab commands.
 //! - [`chat`]: where an agent chat, a tool opened from it and a column action
 //!   go (the chat dock, the strip, the column target), and the agent chat
 //!   handlers' rules ([`chat::agent`]).
@@ -47,6 +48,11 @@
 //!   reads (which panes ring, what a look or Dismiss Highlight reads, the
 //!   turn-end burst, where an arriving notification goes, a banner reply's
 //!   guard, a workspace mark's resend).
+//! - [`notification_notices`]: the notices beside a tab's notification: a
+//!   Cloud hand-off's and a sandboxed Run's banner (sound, delivery, words,
+//!   what a click opens), the Needs you banners, Mark Tab Unread's toggle,
+//!   the tab a pane shows, the entry blink, a finished `cmux status run` and
+//!   an OSC 7501 program alert.
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
@@ -68,6 +74,11 @@
 //! - [`onboarding_first_run`]: the first run's project scan ranking and
 //!   folder rules, the Set Up card's launch route and Chief form, the
 //!   Opacity slider's step and the classic migration's next step.
+//! - [`onboarding_steps`]: the onboarding window's Computer Use step (which
+//!   permission is next, what Allow does, when the step is done) and its
+//!   Agents step (which agents list, sign-in and install marks).
+//! - [`external_open`]: what cmux does with a URL or file macOS hands it
+//!   (browser tab, terminal, SSH, man page, chat picture, share link).
 //! - [`onboarding`]: the onboarding tool window's footer (the primary
 //!   button, Skip, Back) and Import from Browser's selection rules.
 
@@ -85,17 +96,21 @@ pub mod desktop_bursts;
 pub mod desktop_center;
 pub mod editors;
 pub mod empty_workspace;
+pub mod external_open;
 pub mod files;
+pub mod handlers_agentmisc;
 pub mod handlers_verbs;
 pub mod history;
 pub mod keybind_route;
 pub mod launch;
 pub mod launch_recovery;
+pub mod notification_notices;
 pub mod notification_policy;
 pub mod notification_rings;
 pub mod notifications;
 pub mod onboarding;
 pub mod onboarding_first_run;
+pub mod onboarding_steps;
 pub mod remote;
 pub mod restore;
 pub mod right_column;
@@ -105,4 +120,5 @@ pub mod subagent_panes;
 pub mod tabs;
 pub mod targets;
 pub mod update_idle;
+pub mod walk_split;
 pub mod workspaces;

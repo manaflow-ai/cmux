@@ -60,7 +60,8 @@
 //! Writes `duress-bench.json` (schema `acpmux.duress-bench.v1`) and `duress-bench.md` to
 //! `$FAST_CHECKS_OUT` (else a scratch folder it prints) and prints the table. No gate yet.
 //! Refuses to run unless `ACPMUX_DURESS=1`, and on any host whose name contains `cosmic-gray`.
-//! Linux only. Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
+//! Linux and macOS; on macOS the `disk`, `bigchat`, `all`, `host150` and `starved` legs refuse
+//! (they need tmpfs, prlimit or cgroups) and `os` in the report says which. Each leg prints `DURESS-SUMMARY <line>`, and the daemon's own log (kept in the
 //! scratch folder, off the home) is searched for ENOSPC, panics and socket loss
 //! (`daemonLogFindings`; the disk leg also reads `home/daemon.log` a CLI-started daemon wrote).
 //!
@@ -86,7 +87,7 @@
 //!
 //! (`ACPMUX_DURESS_LEGS=relay,bigchat` works too; libtest takes `legs=...` as a name filter that
 //! matches nothing, so `duress_bench` must be named with it.)
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -96,6 +97,10 @@ mod host150;
 // RFD 0050 rule 7's drill: 90% CPU and RAM, the broker answering in 100 s.
 #[path = "support/duress_rfd0050.rs"]
 mod rfd0050;
+// The host readers (load, processes, memory, CPU ticks) on Linux and macOS.
+#[path = "support/duress_host_os.rs"]
+mod host_os;
+use host_os::{harness_in, hostname, load1, proc_count, procs};
 // The prompts go to tests/fake_agent.py; the knobs and the output folder hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_DURESS",
@@ -228,7 +233,14 @@ impl Knobs {
             .or_else(|| std::env::var("ACPMUX_DURESS_LEGS").ok())
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.split(',').map(|l| l.trim().to_owned()).filter(|l| !l.is_empty()).collect())
-            .unwrap_or_else(|| ALL_LEGS.iter().map(|l| (*l).to_owned()).collect::<Vec<_>>());
+            .unwrap_or_else(|| {
+                // Off Linux the default skips the legs that need it (`host_os::LINUX_ONLY_LEGS`).
+                ALL_LEGS
+                    .iter()
+                    .filter(|l| host_os::refuses(l).is_none())
+                    .map(|l| (*l).to_owned())
+                    .collect::<Vec<_>>()
+            });
         let legs = host150::expand(legs);
         for leg in &legs {
             assert!(
@@ -236,6 +248,9 @@ impl Knobs {
                 "unknown leg {leg:?}; legs: {ALL_LEGS:?} and {:?}",
                 host150::EXTRA_LEGS
             );
+            if let Some(why) = host_os::refuses(leg) {
+                panic!("{why}");
+            }
         }
         let window = Duration::from_secs(env_or("ACPMUX_DURESS_SECS", 90u64).max(5));
         let cap = Duration::from_secs(env_or("ACPMUX_DURESS_CAP_SECS", 120u64))
@@ -312,45 +327,14 @@ impl Stress {
 // ---------------------------------------------------------------------------------------------
 // The host's own state.
 
-fn hostname() -> String {
-    std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
-}
-
 fn cores() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get())
-}
-
-fn load1() -> Option<f64> {
-    std::fs::read_to_string("/proc/loadavg").ok()?.split_whitespace().next()?.parse().ok()
 }
 
 fn psi_cpu_some_avg10() -> Option<f64> {
     let text = std::fs::read_to_string("/proc/pressure/cpu").ok()?;
     let some = text.lines().find(|l| l.starts_with("some"))?;
     some.split_whitespace().find_map(|f| f.strip_prefix("avg10=")).and_then(|v| v.parse().ok())
-}
-
-/// Every process's pid, and its `/proc/PID/stat` fields from the state on.
-fn procs() -> Vec<(i32, Vec<String>)> {
-    let Ok(dir) = std::fs::read_dir("/proc") else { return vec![] };
-    dir.flatten()
-        .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
-        .filter_map(|pid| {
-            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-            let rest = stat.rsplit_once(')')?.1;
-            Some((pid, rest.split_whitespace().map(str::to_owned).collect()))
-        })
-        .collect()
-}
-
-fn proc_count() -> usize {
-    std::fs::read_dir("/proc")
-        .map(|d| {
-            d.flatten()
-                .filter(|e| e.file_name().to_str().is_some_and(|n| n.parse::<u32>().is_ok()))
-                .count()
-        })
-        .unwrap_or(0)
 }
 
 /// Live (not zombie) processes in process group `pgid`. Fields from the state: 0 state, 2 pgrp.
@@ -486,7 +470,8 @@ fn cpu_script(count: usize) -> String {
 fn fork_script() -> String {
     format!(
         "i=0; while [ $i -lt {SLEEPERS} ]; do /bin/sleep 100000 & i=$((i+1)); done; \
-         for j in 1 2 3 4; do ( while :; do /bin/true; done ) & done; wait"
+         for j in 1 2 3 4; do ( while :; do {t}; done ) & done; wait",
+        t = host_os::TRUE_BIN
     )
 }
 
@@ -532,7 +517,11 @@ fn statvfs(path: &Path) -> Option<(u64, u64)> {
     // SAFETY: a zeroed statvfs is a valid out parameter; `c` is a valid C string.
     let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
     (unsafe { libc::statvfs(c.as_ptr(), &mut s) } == 0)
-        .then(|| (s.f_blocks * s.f_frsize, s.f_bavail * s.f_frsize))
+        // fsblkcnt_t is 32 bits on macOS, 64 on Linux; `u64::from` widens either.
+        .then(|| {
+            let frsize = u64::from(s.f_frsize);
+            (u64::from(s.f_blocks) * frsize, u64::from(s.f_bavail) * frsize)
+        })
 }
 
 /// Fills the filesystem at `filler`'s folder until under 1% of it is free: the bytes written.
@@ -557,6 +546,12 @@ fn fill(filler: &Path) -> Result<u64, String> {
     Ok(written)
 }
 
+#[cfg(not(target_os = "linux"))]
+fn set_fsize(_pid: u32, _limit: u64) -> Result<(), String> {
+    Err("prlimit is Linux only".into())
+}
+
+#[cfg(target_os = "linux")]
 fn set_fsize(pid: u32, limit: u64) -> Result<(), String> {
     let mut old: libc::rlimit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: reading this process's... the target's limits into `old`.
@@ -1385,16 +1380,6 @@ fn poll_liveness(cli: &Cli, tracked: &Tracked, until: Instant, out: &Mutex<Liven
     }
 }
 
-/// The pid of a stand-in harness working in `cwd`.
-fn harness_in(cwd: &Path) -> Option<i32> {
-    let want = std::fs::canonicalize(cwd).ok()?;
-    procs().into_iter().map(|(pid, _)| pid).find(|pid| {
-        let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-        String::from_utf8_lossy(&cmd).contains("fake_agent.py")
-            && std::fs::read_link(format!("/proc/{pid}/cwd")).is_ok_and(|c| c == want)
-    })
-}
-
 // ---------------------------------------------------------------------------------------------
 // One leg.
 
@@ -1459,7 +1444,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755))
             .unwrap();
         config["sendRelay"] =
-            json!({"argv": ["/bin/true"], "lsArgv": [script.display().to_string()]});
+            json!({"argv": [host_os::TRUE_BIN], "lsArgv": [script.display().to_string()]});
         stress_json_early.insert(
             "relayLs".into(),
             json!(if stress.rfd0050 {
@@ -1701,6 +1686,29 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         {
             std::thread::sleep(Duration::from_millis(500));
         }
+        // macOS pages a hog out to swap as it fills (swapped pages are not "used"), so one hog
+        // sized at the start held 80% (Mac round 4c, run 46096844314): top it up, re-sized
+        // each time, until 88% or the rounds run out.
+        let mut top_ups = 0u64;
+        while top_ups < rfd0050::TOP_UPS
+            && stress_json.contains_key("ramHogMiB")
+            && rfd0050::mem_used_pct().is_some_and(|p| p < 88.0)
+        {
+            let Some(bytes) = rfd0050::hog_bytes().filter(|b| *b >= 64 << 20) else { break };
+            match Stressor::spawn("rfd0050-ram-top-up", &rfd0050::hog_script(bytes), cap) {
+                Ok(s) => stressors.push(s),
+                Err(e) => {
+                    notes.push(format!("rfd0050 ram top-up: spawn failed: {e}"));
+                    break;
+                }
+            }
+            top_ups += 1;
+            let by = Instant::now() + Duration::from_secs(20);
+            while Instant::now() < by && rfd0050::mem_used_pct().is_some_and(|p| p < 88.0) {
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        }
+        stress_json.insert("ramHogTopUps".into(), json!(top_ups));
         stress_json.insert("memUsedPctAtClock".into(), json!(rfd0050::mem_used_pct()));
         rfd_cpu0 = rfd0050::cpu_jiffies();
     }
@@ -1942,7 +1950,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
             let entry = samples.entry(key).or_default();
             if via == "cli" {
                 let r = match op {
-                    "true" => run_plain("/bin/true", &[]),
+                    "true" => run_plain(host_os::TRUE_BIN, &[]),
                     "version" => cli.run(&["--version"]),
                     "ls" => cli.run(&["--json", "ls"]),
                     "status" => cli.run(&["--json", "daemon", "status"]),
@@ -2757,7 +2765,7 @@ fn markdown(report: &Value) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "manual: loads the host for minutes; ACPMUX_DURESS=1 on a fleet Linux host"]
+#[ignore = "manual: loads the host for minutes; ACPMUX_DURESS=1 on a fleet Linux host or Mac"]
 async fn duress_bench() {
     let host = hostname();
     if host.to_ascii_lowercase().contains("cosmic-gray") {
@@ -2788,6 +2796,7 @@ async fn duress_bench() {
     let report = json!({
         "schema": "acpmux.duress-bench.v1",
         "host": host,
+        "os": std::env::consts::OS,
         "cores": cores(),
         "commit": commit(),
         "knobs": {"legs": k.legs, "windowSecs": k.window.as_secs(), "capSecs": k.cap.as_secs(),
