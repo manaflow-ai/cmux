@@ -11,6 +11,9 @@
 
   "cmuxProfile": 1,
   "settings": {
+    // Settings (parity table, settings): the reference app draws Settings as a full page with its
+    // sections in a left nav, not as a tab in a pane; open it over the whole window.
+    "window.settingsPresentation": "page",
     // Colors and type (the codex-app recipe).
     "appearance.themeFile": "codex-app",
     "agentPane.display.presentation": "messages",
@@ -44,6 +47,8 @@
     "agentPane.composerLook": "studio",
     // The empty message box's text, as in a Codex thread.
     "agentPane.composerPlaceholder": "Ask for follow-up changes",
+    // No context ring at the row's end (parity table, composer): the reference app's composer draws none.
+    "agentPane.showContextUsage": false,
     // The model picker (parity table, model_effort_picker): the reference app's chip opens a short list of
     // models with a check on the current one; the compact menu is that, with Effort as a submenu.
     "agentPane.display.modelPickerStyle": "menu",

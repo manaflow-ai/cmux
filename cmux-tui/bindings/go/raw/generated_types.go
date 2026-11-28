@@ -2241,6 +2241,220 @@ func (value *CloudConversationPresenceParticipant) UnmarshalJSON(data []byte) er
 
 type ColorHex = string
 
+type ColumnDock struct {
+	// `pinned-dock-v1`: a pinned column takes more tabs; omitted when false.
+	AllowTabs *bool `json:"allow_tabs,omitempty"`
+	// left or right (`dock-columns-v1`), top or bottom (also `edge-docks-v1`).
+	Edge ColumnDockEdge `json:"edge"`
+	// `docked` takes its width out of the scrolling area; `overlay` floats above the scrolling columns.
+	Mode ColumnDockMode `json:"mode"`
+	// `permanent-dock-v1`: the column stays docked on `edge` for every client; omitted when false.
+	Permanent *bool `json:"permanent,omitempty"`
+	// `pinned-dock-v1`: a pinned column (the Home dock); omitted when false.
+	Pinned *bool `json:"pinned,omitempty"`
+	// `dock-column-role-v1`: what the column is for; omitted when unset.
+	Role       *ColumnDockRole            `json:"role,omitempty"`
+	Additional map[string]json.RawMessage `json:"-"`
+}
+
+func (value ColumnDock) MarshalJSON() ([]byte, error) {
+	type wire ColumnDock
+	encoded, err := json.Marshal(wire(value))
+	if err != nil {
+		return nil, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, err
+	}
+	for key, fieldValue := range value.Additional {
+		switch key {
+		case "allow_tabs", "edge", "mode", "permanent", "pinned", "role":
+			continue
+		}
+		object[key] = append(json.RawMessage(nil), fieldValue...)
+	}
+	return json.Marshal(object)
+}
+
+func (value *ColumnDock) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode ColumnDock: expected object")
+	}
+	var fields struct {
+		AllowTabs optionalNonNullJSON[bool]           `json:"allow_tabs"`
+		Edge      *ColumnDockEdge                     `json:"edge"`
+		Mode      *ColumnDockMode                     `json:"mode"`
+		Permanent optionalNonNullJSON[bool]           `json:"permanent"`
+		Pinned    optionalNonNullJSON[bool]           `json:"pinned"`
+		Role      optionalNonNullJSON[ColumnDockRole] `json:"role"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode ColumnDock: %w", err)
+	}
+	type wire ColumnDock
+	var decoded wire
+	if fields.AllowTabs.null {
+		return fmt.Errorf("decode ColumnDock: non-nullable field allow_tabs is null")
+	}
+	if fields.AllowTabs.set {
+		decoded.AllowTabs = &fields.AllowTabs.value
+	}
+	if fields.Edge == nil {
+		return fmt.Errorf("decode ColumnDock: required field edge is missing or null")
+	}
+	decoded.Edge = *fields.Edge
+	if fields.Mode == nil {
+		return fmt.Errorf("decode ColumnDock: required field mode is missing or null")
+	}
+	decoded.Mode = *fields.Mode
+	if fields.Permanent.null {
+		return fmt.Errorf("decode ColumnDock: non-nullable field permanent is null")
+	}
+	if fields.Permanent.set {
+		decoded.Permanent = &fields.Permanent.value
+	}
+	if fields.Pinned.null {
+		return fmt.Errorf("decode ColumnDock: non-nullable field pinned is null")
+	}
+	if fields.Pinned.set {
+		decoded.Pinned = &fields.Pinned.value
+	}
+	if fields.Role.null {
+		return fmt.Errorf("decode ColumnDock: non-nullable field role is null")
+	}
+	if fields.Role.set {
+		decoded.Role = &fields.Role.value
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		return fmt.Errorf("decode ColumnDock: %w", err)
+	}
+	for key, fieldValue := range object {
+		switch key {
+		case "allow_tabs", "edge", "mode", "permanent", "pinned", "role":
+			continue
+		}
+		if decoded.Additional == nil {
+			decoded.Additional = make(map[string]json.RawMessage)
+		}
+		decoded.Additional[key] = append(
+			json.RawMessage(nil), fieldValue...,
+		)
+	}
+	*value = ColumnDock(decoded)
+	return nil
+}
+
+type ColumnDockEdge string
+
+const (
+	ColumnDockEdgeLeft   ColumnDockEdge = "left"
+	ColumnDockEdgeRight  ColumnDockEdge = "right"
+	ColumnDockEdgeTop    ColumnDockEdge = "top"
+	ColumnDockEdgeBottom ColumnDockEdge = "bottom"
+)
+
+func (value ColumnDockEdge) valid() bool {
+	switch value {
+	case ColumnDockEdgeLeft, ColumnDockEdgeRight, ColumnDockEdgeTop, ColumnDockEdgeBottom:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value ColumnDockEdge) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "ColumnDockEdge", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *ColumnDockEdge) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := ColumnDockEdge(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "ColumnDockEdge", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
+type ColumnDockMode string
+
+const (
+	ColumnDockModeDocked  ColumnDockMode = "docked"
+	ColumnDockModeOverlay ColumnDockMode = "overlay"
+)
+
+func (value ColumnDockMode) valid() bool {
+	switch value {
+	case ColumnDockModeDocked, ColumnDockModeOverlay:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value ColumnDockMode) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "ColumnDockMode", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *ColumnDockMode) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := ColumnDockMode(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "ColumnDockMode", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
+type ColumnDockRole string
+
+const (
+	ColumnDockRoleAgentChat ColumnDockRole = "agent_chat"
+)
+
+func (value ColumnDockRole) valid() bool {
+	switch value {
+	case ColumnDockRoleAgentChat:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value ColumnDockRole) MarshalJSON() ([]byte, error) {
+	if !value.valid() {
+		return nil, fmt.Errorf("%s has invalid value %v", "ColumnDockRole", value)
+	}
+	return json.Marshal(string(value))
+}
+
+func (value *ColumnDockRole) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	candidate := ColumnDockRole(decoded)
+	if !candidate.valid() {
+		return fmt.Errorf("%s has invalid value %v", "ColumnDockRole", decoded)
+	}
+	*value = candidate
+	return nil
+}
+
 type ColumnMoveDirection string
 
 const (
@@ -4267,6 +4481,59 @@ func (value *ExportedPane) UnmarshalJSON(data []byte) error {
 	}
 	decoded.Surfaces = *fields.Surfaces
 	*value = ExportedPane(decoded)
+	return nil
+}
+
+type FloatingPane struct {
+	// The height, 0 to 1.
+	H float64 `json:"h"`
+	// floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area.
+	Pane ID `json:"pane"`
+	// The width, 0 to 1.
+	W float64 `json:"w"`
+	// The left edge, 0 to 1.
+	X float64 `json:"x"`
+	// The top edge, 0 to 1.
+	Y float64 `json:"y"`
+}
+
+func (value *FloatingPane) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FloatingPane: expected object")
+	}
+	var fields struct {
+		H    *float64 `json:"h"`
+		Pane *ID      `json:"pane"`
+		W    *float64 `json:"w"`
+		X    *float64 `json:"x"`
+		Y    *float64 `json:"y"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FloatingPane: %w", err)
+	}
+	type wire FloatingPane
+	var decoded wire
+	if fields.H == nil {
+		return fmt.Errorf("decode FloatingPane: required field h is missing or null")
+	}
+	decoded.H = *fields.H
+	if fields.Pane == nil {
+		return fmt.Errorf("decode FloatingPane: required field pane is missing or null")
+	}
+	decoded.Pane = *fields.Pane
+	if fields.W == nil {
+		return fmt.Errorf("decode FloatingPane: required field w is missing or null")
+	}
+	decoded.W = *fields.W
+	if fields.X == nil {
+		return fmt.Errorf("decode FloatingPane: required field x is missing or null")
+	}
+	decoded.X = *fields.X
+	if fields.Y == nil {
+		return fmt.Errorf("decode FloatingPane: required field y is missing or null")
+	}
+	decoded.Y = *fields.Y
+	*value = FloatingPane(decoded)
 	return nil
 }
 
@@ -6771,9 +7038,9 @@ func (value Layout) AsStack() (LayoutStack, bool) {
 
 type LayoutColumnNode struct {
 	// dock-columns-v1: the viewport edge the column is pinned to.
-	Dock   *JSONValue `json:"dock,omitempty"`
-	ID     ID         `json:"id"`
-	Layout Layout     `json:"layout"`
+	Dock   *ColumnDock `json:"dock,omitempty"`
+	ID     ID          `json:"id"`
+	Layout Layout      `json:"layout"`
 	// rows-v1: only for a column with two or more rows.
 	Rows  *[]LayoutRowNode `json:"rows,omitempty"`
 	Width float64          `json:"width"`
@@ -6784,7 +7051,7 @@ func (value *LayoutColumnNode) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode LayoutColumnNode: expected object")
 	}
 	var fields struct {
-		Dock   optionalNonNullJSON[JSONValue]       `json:"dock"`
+		Dock   optionalNonNullJSON[ColumnDock]      `json:"dock"`
 		ID     *ID                                  `json:"id"`
 		Layout *Layout                              `json:"layout"`
 		Rows   optionalNonNullJSON[[]LayoutRowNode] `json:"rows"`
@@ -10773,7 +11040,7 @@ type Screen struct {
 	// The screen's layout columns.
 	Columns *[]LayoutColumnNode `json:"columns,omitempty"`
 	// floating-panes-v1: panes above the tiled layout, back to front.
-	Floating *JSONValue `json:"floating,omitempty"`
+	Floating *[]FloatingPane `json:"floating,omitempty"`
 	// The screen group the screen is in.
 	Group Presence[string] `json:"-"`
 	// split-divider-visibility-v1: splits whose divider is hidden.
@@ -10894,7 +11161,7 @@ func (value *Screen) UnmarshalJSON(data []byte) error {
 		ActivePane        *ID                                       `json:"active_pane"`
 		Color             Presence[string]                          `json:"color"`
 		Columns           optionalNonNullJSON[[]LayoutColumnNode]   `json:"columns"`
-		Floating          optionalNonNullJSON[JSONValue]            `json:"floating"`
+		Floating          optionalNonNullJSON[[]FloatingPane]       `json:"floating"`
 		Group             Presence[string]                          `json:"group"`
 		HiddenDividers    optionalNonNullJSON[[]ID]                 `json:"hidden_dividers"`
 		Icon              Presence[string]                          `json:"icon"`
