@@ -70,6 +70,13 @@
   width: max-content;
   max-width: min(420px, calc(100vw - var(--ds-space-5)));
 }
+/* On the App's toast glass (experiments.toastGlass host arm, off by default) a toast takes the toast role's
+   one corner from the role file (surface-roles.json `webRadius`, --surface-toast-radius 12), the same 12 as the
+   native toast (CmuxToastLook), so the glass the App draws under it (hostGlass.ts reads this corner) and the
+   card agree. The page arm keeps --role-toast-radius (RFD 0207 "One toast corner"; the default needs Leo's word). */
+.ui-notice[data-placement="stack"][data-host-glass] {
+  border-radius: var(--surface-toast-radius); /* concentric-allow: the toast role's one corner, behind the toast-glass arm */
+}
 .ui-notice[data-placement="banner"] {
   border-radius: 0;
   padding-inline: var(--ds-space-4);

@@ -96,7 +96,7 @@
       "tone": "neutral",
       "style": "toast",
       "cornerDepth": 0,
-      "webRadius": 9,
+      "webRadius": 12,
       "veil": {"dark": 0.42, "light": 0.55},
       "veilTint": "theme",
       "rim": {"dark": [0.3, 0.06], "light": [0.85, 0.1]},
@@ -239,17 +239,7 @@
 ],
   "hairline": "var(--glass-edge)",
   "elevationFlat": "0 0 transparent",
-  "exceptions": [
-    {
-      "role": "toast",
-      "field": "webRadius",
-      "declared": 9,
-      "actual": "calc(var(--ds-radius-control) + var(--concentric-padding)) = 16 on a 34px surface",
-      "file": "webviews/src/ui/notice.css",
-      "contains": "border-radius: calc(var(--ds-radius-control) + var(--concentric-padding))",
-      "why": "The toast reads as a capsule although this role says a rounded rect, never a capsule. Not changed here (the toasts lane shows Leo both looks); this entry names the drift so check-surface-roles.py keeps it visible and fails when the file stops carrying it or a new one appears."
-    }
-  ],
+  "exceptions": [],
   "consumers": {
     "toast": ["webviews/src/ui/notice.css", "webviews/src/pages/shared/desktop.css"],
     "card": ["webviews/src/apps/scene/scene.css"]
