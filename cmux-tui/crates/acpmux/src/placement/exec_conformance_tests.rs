@@ -278,9 +278,11 @@ async fn a_broken_router_is_caught() {
 
 #[test]
 fn the_router_notes_are_not_output_and_name_where_it_ran() {
-    let routed = b"[run-vm] a Rust build: running on a fork of this machine\nbuilt\n\
-[run-vm] ran on a run VM: exit 0, 2 file(s) back, 3 s\n";
-    let (kept, verdict) = split_notes(routed);
+    let routed = format!(
+        "{}\nbuilt\n[run-vm] ran on a run VM: exit 0, 2 file(s) back, 3 s\n",
+        crate::placement::run_vm::start_notice("a Rust build", None)
+    );
+    let (kept, verdict) = split_notes(routed.as_bytes());
     assert_eq!(kept, b"built\n");
     assert_eq!(verdict, Some(("fork", None)));
     let here = b"[run-vm] ran here: fork: the pool has no room\nout\n";
