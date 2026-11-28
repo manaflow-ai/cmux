@@ -36,6 +36,8 @@ from pathlib import Path
 REPO = "manaflow-ai/cmux"
 PAGE = 20
 
+RATE_ONLY = "query { rateLimit { cost remaining resetAt } }"
+
 QUERY = """
 query($q: String!, $after: String, $page: Int!) {
   rateLimit { cost remaining resetAt }
@@ -116,8 +118,12 @@ def collect(args: argparse.Namespace) -> int:
     after = state[1] if len(state) > 1 else None
     until = date.fromisoformat(args.until) if args.until else date.today()
     pages = 0
+    quota = graphql(RATE_ONLY, {})["rateLimit"]  # one point, no search page: --floor holds from the first page
     with cache.open("a") as out:
         while pages < args.max_pages:
+            if quota["remaining"] - quota["cost"] < args.floor:
+                print(f"stopping: GraphQL quota near the floor ({quota['remaining']} left, resets {quota['resetAt']}); rerun to resume", file=sys.stderr)
+                return 0
             if start > until:
                 print("done: every window read", file=sys.stderr)
                 cursor_file.unlink(missing_ok=True)
@@ -125,7 +131,7 @@ def collect(args: argparse.Namespace) -> int:
             end = min(start + timedelta(days=args.window_days - 1), until)
             q = f"repo:{args.repo} is:pr is:merged merged:{start}..{end}"
             data = graphql(QUERY, {"q": q, "after": after, "page": args.page})
-            rate = data["rateLimit"]
+            rate = quota = data["rateLimit"]
             search = data["search"]
             for pr in search["nodes"]:
                 if not pr:
