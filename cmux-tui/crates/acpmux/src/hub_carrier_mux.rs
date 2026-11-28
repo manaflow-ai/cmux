@@ -790,6 +790,19 @@ pub(crate) struct Kept {
     pub(crate) reopen_wait: Duration,
     /// The slot is held (`hub_carrier_hold.rs`): every circuit opened on it is held.
     pub(crate) held: bool,
+    /// A kept circuit from before this daemon's restart that did not open again at start
+    /// (`hub_carrier_kept_saved.rs`), as the instant its last stream ended: the reopen pass
+    /// keeps trying it on `path`, backing off as for a circuit that ended under it, until it
+    /// would have idled out. Before, one failed try at start lost it for good, and the next call
+    /// to that machine paid a whole new circuit (2026-11-27: 17 of 84 after one restart).
+    pub(crate) saved_since: Option<Instant>,
+}
+
+impl Kept {
+    /// A saved circuit still to open: no circuit in the slot, and one waiting from before.
+    pub(crate) fn saved_waiting(&self) -> bool {
+        self.live.is_none() && self.saved_since.is_some() && self.path.is_some()
+    }
 }
 
 /// The longest wait between two tries to open a kept circuit again that ended under its dialer.
@@ -811,6 +824,19 @@ impl KeptCircuits {
             .entry((daemon.to_owned(), lane))
             .or_default()
             .clone()
+    }
+
+    /// Whether a kept circuit to `daemon` on `lane` is open now, so a stream on it costs the
+    /// relay no new circuit. A slot mid-open (locked) counts as not open; no slot is made.
+    pub(crate) fn has_live(&self, daemon: &str, lane: Lane) -> bool {
+        let slot = {
+            let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+            match by_machine.get(&(daemon.to_owned(), lane)) {
+                Some(slot) => slot.clone(),
+                None => return false,
+            }
+        };
+        slot.try_lock().is_ok_and(|kept| kept.live.as_ref().is_some_and(|mux| !mux.is_closed()))
     }
 
     /// Drop every kept circuit (a rekey: the far machines pinned the old key).
@@ -859,6 +885,7 @@ impl KeptCircuits {
             let waiting = |until: Option<Instant>| until.is_some_and(|at| now < at);
             kept.live.is_some()
                 || kept.held
+                || kept.saved_waiting()
                 || waiting(kept.no_mux_until)
                 || waiting(kept.no_acpmux_until)
                 || waiting(kept.reopen_at)
@@ -872,8 +899,9 @@ impl KeptCircuits {
         by_machine
             .iter()
             .filter(|(_, slot)| {
-                slot.try_lock()
-                    .is_ok_and(|kept| kept.live.as_ref().is_some_and(|mux| mux.wants_reopen()))
+                slot.try_lock().is_ok_and(|kept| {
+                    kept.live.as_ref().is_some_and(|mux| mux.wants_reopen()) || kept.saved_waiting()
+                })
             })
             .map(|((daemon, lane), slot)| (daemon.clone(), *lane, slot.clone()))
             .collect()
@@ -904,6 +932,11 @@ impl KeptCircuits {
             .iter()
             .filter_map(|((daemon, lane), slot)| {
                 let kept = slot.try_lock().ok()?;
+                // One from before still opening is written down again, so a second restart
+                // meanwhile does not lose it either.
+                if kept.saved_waiting() {
+                    return Some((daemon.clone(), *lane, kept.path?, kept.saved_since?.elapsed()));
+                }
                 let mux = kept.live.as_ref().filter(|mux| !mux.is_closed())?;
                 Some((daemon.clone(), *lane, kept.path?, mux.quiet_for()))
             })

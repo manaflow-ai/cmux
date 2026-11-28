@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.google.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux مفتاح API الخاص بك لدى Google AI Studio للوصول إلى نماذج Gemini. تُطبق حدود الفئة المجانية حتى تفعيل الفوترة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoj API ključ za Google AI Studio za pristup opciji modeli Gemini. Ograničenja besplatnog paketa važe dok ne uključiš naplatu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger din API-nøgle til Google AI Studio til at tilgå Gemini-modeller. Grænserne for det gratis niveau gælder, indtil fakturering er slået til."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet deinen API-Schlüssel für Google AI Studio für den Zugriff auf Modelle von Gemini. Bis zur Aktivierung der Abrechnung gelten die kostenlosen Nutzungslimits."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your Google AI Studio key to access Gemini models. Free tier limits apply until billing is on."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu clave de API de Google AI Studio para acceder a los modelos de Gemini. Los límites del plan gratuito se aplican hasta que actives la facturación."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre clé API Google AI Studio pour accéder à des modèles Gemini. Les limites de l’offre gratuite s’appliquent jusqu’à l’activation de la facturation."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà la tua chiave API di Google AI Studio per accedere a modelli Gemini. I limiti del piano gratuito valgono fino all’attivazione della fatturazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのGoogle AI StudioのAPIキーを使用してGeminiモデルにアクセスします。請求を有効にするまで無料枠の上限が適用されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ សោ API របស់អ្នកសម្រាប់ Google AI Studio ដើម្បីចូលប្រើ ម៉ូដែល Gemini។ ដែនកំណត់ឥតគិតថ្លៃអនុវត្តរហូតដល់អ្នកបើកការគិតថ្លៃ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 Google AI Studio API 키로 Gemini 모델에 액세스합니다. 결제를 활성화할 때까지 무료 등급 한도가 적용됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker API-nøkkelen din for Google AI Studio for å få tilgang til modeller fra Gemini. Grensene for gratisnivået gjelder til fakturering er aktivert."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojego klucza API usługi Google AI Studio, aby uzyskać dostęp do modeli Gemini. Limity bezpłatnego planu obowiązują do włączenia rozliczeń."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua chave de API de Google AI Studio para acessar os modelos de Gemini. Os limites do nível gratuito valem até a ativação da cobrança."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать ваш ключ API для Google AI Studio для доступа к следующему: модели Gemini. Лимиты бесплатного тарифа действуют до подключения оплаты."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้คีย์ API ของ Google AI Studioเพื่อเข้าถึงโมเดล Gemini ขีดจำกัดของระดับฟรีจะมีผลจนกว่าจะเปิดการเรียกเก็บเงิน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Gemini modellerine erişmek için Google AI Studio API anahtarınızı kullanacak. Faturalandırma açılana kadar ücretsiz katman sınırları geçerlidir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає ваш ключ API для Google AI Studio для доступу до такого: моделі Gemini. Ліміти безплатного рівня діють до ввімкнення оплати."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng khóa API Google AI Studio của bạn để truy cập mô hình Gemini. Giới hạn của gói miễn phí áp dụng cho đến khi bạn bật tính phí."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的Google AI Studio API 密钥访问Gemini模型。启用结算前适用免费层级的限额。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的Google AI Studio API 金鑰存取Gemini模型。啟用計費前適用免費層級的限制。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

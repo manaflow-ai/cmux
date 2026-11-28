@@ -24,6 +24,13 @@ holds the commit, and asks the contents API only for one it lacks.
 Writes hit, key, source_run and source_build_sha to GITHUB_OUTPUT. A miss is
 not an error: the workflow builds the helper on a Mac. Any failure to ask GitHub
 (a 403, a timeout, an unexpected answer) is a miss, with exit 0.
+
+Tokens: GH_TOKEN, then each of GH_TOKEN_SPARES (space-separated) in order. The nightly gives it its own goblin
+App token first (secrets.NIGHTLY_HELPER_LOOKUP_TOKEN, leo-workspace machines/gh-app-roles.json
+push.actions_secrets), then github.token, so the lookup does not spend the repository hour every other nightly job
+spends. A refused call (403, 429) waits until the limit's reset (Retry-After or X-RateLimit-Reset,
+download-run-artifact.py retry_wait), bounded by CMUX_ARTIFACT_RETRY_BUDGET_SECONDS (the workflow sets it); a lookup
+still refused at that bound moves to the next token, and after the last it is a miss.
 """
 from __future__ import annotations
 
@@ -257,6 +264,18 @@ def fetch(artifact: dict, token: str, out: Path, archs: set[str]) -> bool:
         return True
 
 
+def lookup_tokens(env) -> list[str]:
+    """GH_TOKEN, then GH_TOKEN_SPARES in order: each once, empty ones left out."""
+    tokens: list[str] = []
+    for token in [env.get("GH_TOKEN", ""), *env.get("GH_TOKEN_SPARES", "").split()]:
+        token = token.strip()
+        if token and token not in tokens:
+            tokens.append(token)
+    if not tokens:
+        raise SystemExit("no GH_TOKEN")
+    return tokens
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--build-sha", required=True)
@@ -264,17 +283,27 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     repo = os.environ["GITHUB_REPOSITORY"]
-    token = os.environ["GH_TOKEN"]
+    tokens = lookup_tokens(os.environ)
     if not SHA.fullmatch(args.build_sha):
         raise SystemExit("invalid build sha")
     archs = set(args.archs.split())
     if archs not in ({"arm64"}, {"arm64", "x86_64"}):
         raise SystemExit(f"unsupported architectures: {args.archs}")
-    try:
-        key, artifact, sha = find(repo, args.build_sha, token, lambda a: fetch(a, token, args.out, archs))
-    except (Exception, SystemExit) as error:  # noqa: BLE001  any failure to ask GitHub is a miss: build the helper
-        print(f"helper lookup failed ({type(error).__name__}: {error}); building")
-        key, artifact, sha = "", None, ""
+    key, artifact, sha = "", None, ""
+    for number, token in enumerate(tokens, 1):
+        # Each token gets its own wait bound: the shared deadline is of one token's refusals.
+        download.retry_deadline = None
+        try:
+            key, artifact, sha = find(repo, args.build_sha, token, lambda a, t=token: fetch(a, t, args.out, archs))
+            break
+        except (Exception, SystemExit) as error:  # noqa: BLE001  any failure to ask GitHub is a miss: build the helper
+            refused = isinstance(error, urllib.error.HTTPError) and error.code in (403, 429)
+            more = number < len(tokens)
+            print(f"helper lookup failed on token {number} of {len(tokens)} ({type(error).__name__}: {error})"
+                  + ("; trying the next token" if refused and more else "; building"))
+            key, artifact, sha = "", None, ""
+            if not (refused and more):
+                break
     outputs = {"hit": "false", "key": key, "source_run": "", "source_build_sha": ""}
     if artifact is not None:
         outputs.update(hit="true", source_run=str(artifact["workflow_run"]["id"]), source_build_sha=sha)

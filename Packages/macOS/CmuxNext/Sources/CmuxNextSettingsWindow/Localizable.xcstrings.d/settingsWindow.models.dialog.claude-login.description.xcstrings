@@ -1,0 +1,136 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.dialog.claude-login.description" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سيستخدم cmux اشتراكك في Claude للوصول إلى Claude Code. تسجيل الدخول باستخدام Claude في المتصفح للاتصال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux će koristiti tvoju pretplatu na Claude za pristup opciji Claude Code. Prijavi se putem Claude u pregledniku za povezivanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruger dit abonnement på Claude til at tilgå Claude Code. Log ind med Claude i din browser for at oprette forbindelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux verwendet dein Abo für Claude für den Zugriff auf Claude Code. Mit Claude anmelden, um dich im Browser zu verbinden."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux will use your Claude plan to run Claude Code. Sign in with Claude in your browser to connect."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux usará tu suscripción a Claude para acceder a Claude Code. Iniciar sesión con Claude en tu navegador para conectarte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux utilisera votre abonnement Claude pour accéder à Claude Code. Se connecter avec Claude dans votre navigateur pour vous connecter."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux userà il tuo abbonamento a Claude per accedere a Claude Code. Accedi con Claude nel browser per connetterti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmuxはお使いのClaudeのサブスクリプションを使用してClaude Codeにアクセスします。ブラウザでClaudeでサインインして接続してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នឹងប្រើ ការជាវ Claude របស់អ្នក ដើម្បីចូលប្រើ Claude Code។ ចូលដោយប្រើ Claude ក្នុងកម្មវិធីរុករកដើម្បីភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux에서 Claude 구독로 Claude Code에 액세스합니다. 브라우저에서 Claude로 로그인하여 연결하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bruker abonnementet ditt på Claude for å få tilgang til Claude Code. Logg på med Claude i nettleseren for å koble til."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux użyje Twojej subskrypcji Claude, aby uzyskać dostęp do Claude Code. Zaloguj się przez Claude w przeglądarce, aby się połączyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux usará sua assinatura de Claude para acessar Claude Code. Entrar com Claude no navegador para conectar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux будет использовать вашу подписку на Claude для доступа к следующему: Claude Code. Войти через Claude в браузере, чтобы подключиться."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux จะใช้การสมัครใช้บริการ Claude ของคุณเพื่อเข้าถึงClaude Code ลงชื่อเข้าใช้ด้วย Claudeในเบราว์เซอร์เพื่อเชื่อมต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux Claude Code kullanmak için Claude aboneliğinizi kullanacak. Bağlanmak için tarayıcınızda Claude ile oturum aç."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux використає вашу підписку на Claude для доступу до такого: Claude Code. Увійти через Claude у браузері, щоб підключитися."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sẽ dùng gói đăng ký Claude của bạn để truy cập Claude Code. Đăng nhập bằng Claude trong trình duyệt để kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 将使用你的Claude订阅访问Claude Code。在浏览器中使用Claude登录以连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 將使用你的Claude訂閱存取Claude Code。在瀏覽器中使用Claude登入以連接。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
