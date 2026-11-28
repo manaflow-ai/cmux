@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { DERIVE_MAX_RETRIED_ROWS, DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS, DEVBOX_BAKE_STEP_BUDGET_MS, devboxAgentPins, devboxBakeStepBudgetMs, devboxBubblewrapInstallCommand, deriveRowFailureAction, isFreestyleGuestUnresponsive, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, startAnsweringVm, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { DERIVE_MAX_RETRIED_ROWS, isFreestyleStartRetryable, DEVBOX_BAKE_DOWNLOAD_STEP_BUDGET_MS, DEVBOX_BAKE_STEP_BUDGET_MS, devboxAgentPins, devboxBakeStepBudgetMs, devboxBubblewrapInstallCommand, deriveRowFailureAction, isFreestyleGuestUnresponsive, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, startAnsweringVm, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -243,6 +243,20 @@ describe("retryFreestyleOverload", () => {
     calls = 0;
     await expect(retryFreestyleOverload("t", async () => { calls += 1; throw conflict; }, 1_000, 1)).rejects.toBe(conflict);
     expect(calls).toBe(1);
+  });
+
+  test("asks again after a 5xx start, and rethrows a 4xx", async () => {
+    // Rebake runs 46168557029 and 46169870249: vms.create answered 503 INTERNAL_ERROR.
+    const internal = Object.assign(new Error("Internal server error"), { status: 503, code: "INTERNAL_ERROR" });
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 2) throw internal;
+      return "vm-3";
+    }, 1_000, 1);
+    expect(vm).toBe("vm-3");
+    expect(calls).toBe(2);
+    expect(isFreestyleStartRetryable(Object.assign(new Error("bad request"), { status: 400 }))).toBe(false);
   });
 
   test("an ask that outlasts the budget in Freestyle's queue is still asked again", async () => {
