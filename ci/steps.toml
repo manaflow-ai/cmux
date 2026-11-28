@@ -3346,6 +3346,7 @@ inputs = [
   "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/*",
   "cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/tests/*",
   "cmux-tui/crates/cmux-tui-core/src/tool_packs/*",
+  "cmux-tui/crates/cmux-tui-core/src/tree_wire/*",
   "cmux-tui/crates/cmux-tui-core/src/workspace_registry/*",
   "cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store/*",
   "cmux-tui/crates/cmux-tui-core/src/workspace_registry/journal_extensions/*",
