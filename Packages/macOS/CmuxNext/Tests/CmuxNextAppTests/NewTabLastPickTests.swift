@@ -44,6 +44,37 @@ struct NewTabLastPickTests {
         ])
     }
 
+    /// Cloud keeps its own last pick, apart from this Mac's (Austin, 2026-11-27: "We should store a state for
+    /// the local models and a different state for the cloud+autocloud"): a pick sent with `place: "cloud"`
+    /// changes neither this Mac's last agent nor its picks, outlives a relaunch, and rides in `lastPicks.cloud`.
+    @Test func aCloudPickIsKeptApartFromThisMacsPick() async throws {
+        let suite = "NewTabLastPickTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let memory = NewTabChoiceMemory(defaults: defaults)
+        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        model.onRememberNewTab = { memory.remember($0) }
+        _ = await Self.remember(model, ["agent": "claude", "model": "claude-opus-5-5", "folder": "/work/a"])
+        _ = await Self.remember(model, ["agent": "codex", "model": "gpt-6-astra", "place": "cloud"])
+        // A Cloud pick naming no model keeps Cloud's model on that agent.
+        _ = await Self.remember(model, ["agent": "codex", "place": "cloud"])
+
+        let relaunched = NewTabChoiceMemory(defaults: defaults)
+        #expect(relaunched.agent == "claude")
+        #expect(relaunched.picks?.global == .init(harness: "claude", model: "claude-opus-5-5"))
+        #expect(relaunched.picks?.folders == [.init(folder: "/work/a", harness: "claude", model: "claude-opus-5-5")])
+        #expect(relaunched.picks?.cloud == .init(harness: "codex", model: "gpt-6-astra"))
+        let page = AgentPaneNewTab(kind: .agent, lastAgent: relaunched.agent, lastPicks: relaunched.picks)
+        let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any])
+        let picks = try #require(json["lastPicks"] as? [String: Any])
+        #expect(picks["cloud"] as? [String: String] == ["harness": "codex", "model": "gpt-6-astra"])
+
+        // A picks blob kept before Cloud had its own decodes with none.
+        let old = #"{"global":{"harness":"claude","model":"default"},"folders":[]}"#
+        let decoded = try JSONDecoder().decode(AgentPaneLastPicks.self, from: Data(old.utf8))
+        #expect(decoded.cloud == nil)
+    }
+
     /// Every harness pick is the next New Tab's: one on the agent's own default model and one that
     /// names no model replace an older harness and model picked before them (a subrouter Claude
     /// profile came back as plain Claude Code on Cmd-N).
