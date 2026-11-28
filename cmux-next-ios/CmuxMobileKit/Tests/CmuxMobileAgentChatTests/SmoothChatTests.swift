@@ -383,12 +383,16 @@ import UIKit
         list.boundsMayHaveChanged()
         list.collectionView.layoutIfNeeded()
 
-        let before = source.earlierHistoryRequests
-        // `session-start` is the first stable row in the transcript snapshot.
+        // `session-start` is the first stable row in the transcript snapshot. Four turns are
+        // shorter than the screen, so UIKit may already have shown it during the layout above
+        // (Xcode 27's collection view displays cells in `layoutIfNeeded`): either way reaching it
+        // reads exactly one older page, and showing it again asks for no second one.
+        list.collectionView(list.collectionView, willDisplay: UICollectionViewCell(),
+                            forItemAt: IndexPath(item: 0, section: 0))
         list.collectionView(list.collectionView, willDisplay: UICollectionViewCell(),
                             forItemAt: IndexPath(item: 0, section: 0))
 
-        #expect(source.earlierHistoryRequests == before + 1)
+        #expect(source.earlierHistoryRequests == 1)
         #expect(store.isLoadingEarlier)
     }
 
