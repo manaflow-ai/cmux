@@ -434,6 +434,41 @@ import Testing
         #expect(setup.classic == nil && setup.shows)
     }
 
+    /// Meet Chief holds the card back (Home draws it once Meet Chief ends): the ask outlasts ``cardWait`` while it
+    /// holds and lands on the card's row once drawn, so a person reading Meet Chief gets no second dialog; once nothing
+    /// holds and still no card is drawn, the dialog asks as before.
+    @Test func aCardHeldByMeetChiefStillAsksOnItsRow() async throws {
+        let setup = FirstRunSetup(defaults: try defaults(), cardWait: .milliseconds(50))
+        var held = true
+        setup.cardHeld = { held }
+        #expect(setup.route(isFirstRun: true, replacedKeys: Self.replaced) == .startCard)
+        let run = LaunchRun()
+        let launch = run.start(setup)
+        await until { run.gated }
+        run.ask()
+        await until { setup.classic != nil }
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(setup.classic != nil && run.dialogs == 0, "held past cardWait: still asking on the row")
+        held = false
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+        defer { provider.stop() }
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string("declineClassic")]], context: click(1))
+        #expect(await launch.value == .declined && run.dialogs == 0)
+
+        let released = FirstRunSetup(defaults: try defaults(), cardWait: .milliseconds(50))
+        var holds = true
+        released.cardHeld = { holds }
+        #expect(released.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let later = LaunchRun()
+        let second = later.start(released)
+        await until { later.gated }
+        later.ask()
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(later.dialogs == 0)
+        holds = false
+        #expect(await second.value == .declined && later.dialogs == 1, "nothing holds and no card: the dialog")
+    }
+
     /// Import says Imported only once the migration brought the workspaces: Importing while it runs (the card does
     /// not end), and Not imported when it failed, so a failed import never keeps a checkmark.
     @Test func theClassicRowSaysImportedOnlyWhenTheImportFinished() async throws {
