@@ -43,7 +43,7 @@ export function RailShowControl({
       >
         {t(SHORT_LABEL[show])}
       </MenuButton>
-      <MenuPopup label={t("minimap.showMenu")} side="bottom" align="start" escapes={false}>
+      <MenuPopup className="acpmux-quick-menu" label={t("minimap.showMenu")} side="bottom" align="start" escapes={false}>
         <MenuRadioGroup value={show} onValueChange={(next) => isRailShow(next) && setRailShow(next)}>
           {RAIL_SHOWS.map((each, at) => (
             <React.Fragment key={each}>

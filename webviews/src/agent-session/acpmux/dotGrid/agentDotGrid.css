@@ -83,13 +83,8 @@ span.acpmux-dot-grid__dot {
 .acpmux-dot-grid__dot:focus-visible {
   box-shadow: 0 0 0 var(--cmux-focus-ring-width) var(--ds-color-focus, var(--agent-text));
 }
-/* Running breathes on the house working loop (desktop.css WORKING-LOOK), so every running dot and
-   every working row breathe as one. */
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-dot-grid__dot[data-state="running"] {
-    animation: cmux-breathe var(--cmux-breath-period) var(--cmux-breath-ease) infinite;
-  }
-}
+/* Running is said by its colour, still: a status dot never breathes (Leo 2026-10-21, "we need to
+   guarantee the breathing dot doesnt come back"; no-breathing-dots.test.ts). */
 @media (prefers-reduced-motion: reduce) {
   .acpmux-dot-grid__dot {
     transition: none;

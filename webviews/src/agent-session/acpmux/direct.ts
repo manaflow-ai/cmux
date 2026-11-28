@@ -2670,6 +2670,7 @@ export class AcpmuxDirectClient {
     // cursor may repeat a boundary record while a page cache catches up, so merge by seq before
     // handing the replay reducer its source of truth.
     const events = new Map<number, EventRecord>();
+    // ends: `after` rises to each page's last seq; a page with no more returns, one that moved nothing throws.
     for (let after = 0; ;) {
       const page = await this.typed("_acpmux/events", {
         sessionId,

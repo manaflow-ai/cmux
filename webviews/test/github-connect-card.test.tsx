@@ -16,6 +16,7 @@ import {
   settingsAskCall,
 } from "../src/agent-session/acpmux/conversation/githubConnect";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { settleReact } from "./support/domTeardown";
 
 const CONNECT =
   "in cmux choose Connect GitHub (Settings > Accounts > GitHub, or the command palette), or run `cmux accounts github-connect` on your Mac";
@@ -295,7 +296,9 @@ const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   act(() => root.unmount());
   dom.window.close();
   for (const [key, had, value] of saved) {

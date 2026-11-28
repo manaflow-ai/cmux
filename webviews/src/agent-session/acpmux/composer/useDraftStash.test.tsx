@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import type { ComposerAttachment } from "../attachments";
 import { resetStashForTests, type StashTransport } from "./draftStash";
 import { useDraftStash } from "./useDraftStash";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -29,6 +30,8 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   dom?.window.close();

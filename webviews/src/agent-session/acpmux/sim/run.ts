@@ -314,6 +314,12 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turn += 1;
         turnEnded = false;
       }
+      // A turn the agent woke into (a turn_started with no prompt after the last turn ended) runs too:
+      // its typing row is the running turn's, not one drawn after an end (i-placeholder-after-end).
+      if (event?.kind === "turn_started" && turnEnded) {
+        turn += 1;
+        turnEnded = false;
+      }
       if (event?.kind === "turn_result" || (event && endsTurn(event))) turnEnded = true;
       // The agent sent the running turn something of its own (a thought, a call, a message): a turn
       // that ends showing none of it lost its work (d-action-only). One it sent nothing draws its

@@ -1,6 +1,6 @@
 // The older history's loading mark (cmux#48605), drawn only while it is in view. It sits just above the
 // first loaded row, in the room held for older history, which is above the view for as long as a reader
-// stays near the latest turns. A `cmux-spin` loop there kept running unseen, so a chat left alone woke
+// stays near the latest turns. A cmux-spin loop there kept running unseen, so a chat left alone woke
 // every frame (goal idle-wakeups: NOW `idle_chat_rest_wakeups_per_s`, 0 on 2026-11-21, 1 per 10 s after
 // #48720). The box stays, with its label, so the status is announced all along; only the spinner waits
 // for the reader. The shared spinner clock (ui/spinnerClock.ts) pins the phase, so it never jumps in.

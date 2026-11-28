@@ -8,6 +8,7 @@
 
 /// How long a pointer with no button down rests on the strip before the rail reveals. A sweep past
 /// the edge is on it for 30 to 100 ms; a deliberate approach (hover wave, scrub) rests longer.
+// hover-timing: the rail's reveal against a sweep past the edge, not a hover card's show delay (#55334).
 export const REVEAL_DWELL = 140;
 
 export interface RevealClock {

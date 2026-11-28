@@ -24,6 +24,7 @@ import { useNativePopup, type NativePopupDescription, type NativePopupEvent } fr
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
 import { KeyHint } from "./KeyHint";
+import { Spinner } from "../agent-session/acpmux/conversation/Spinner";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { usePointerMenuPosition } from "./pointerMenuPosition";
@@ -803,7 +804,7 @@ export function MenuItem({
       {/* The async row's trailing slot, reserved from the start so its spinner moves nothing. */}
       {waits ? (
         <span className="ui-menu-async" aria-hidden="true">
-          {pending ? <span className="ui-menu-spinner" /> : null}
+          {pending ? <Spinner className="ui-menu-spinner" size={12} loading /> : null}
         </span>
       ) : null}
     </BaseMenu.Item>

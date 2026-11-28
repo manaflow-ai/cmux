@@ -52,7 +52,7 @@
   transition: opacity var(--acpmux-motion-hover, 120ms) var(--acpmux-motion-ease, ease-out);
 }
 :root[data-chat-header="quiet"] .acpmux-header:hover .acpmux-header-tools,
-:root[data-chat-header="quiet"] .acpmux-header:focus-within .acpmux-header-tools,
+:root[data-chat-header="quiet"] .acpmux-header:has(:focus-visible) .acpmux-header-tools,
 :root[data-chat-header="quiet"] .acpmux-header:has([data-popup-open]) .acpmux-header-tools {
   opacity: 1;
 }

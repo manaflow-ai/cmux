@@ -13,6 +13,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { SEE_THROUGH_ATTRIBUTE, updateSeeThrough } from "../src/pages/shared/desktop";
 import { gridScale } from "../src/agent-session/acpmux/transcriptGrid";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><head></head><body></body></html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -34,7 +35,9 @@ beforeAll(() => {
   scope.document = dom.window.document;
   scope.getComputedStyle = computed;
 });
-afterAll(() => {
+afterAll(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   for (const [key, entry] of Object.entries(saved))
     if (entry.had) scope[key] = entry.value;
     else delete scope[key];

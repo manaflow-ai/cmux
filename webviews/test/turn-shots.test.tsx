@@ -18,6 +18,7 @@ import {
   type TurnShotPair,
   type TurnShotsReader,
 } from "../src/agent-session/acpmux/turnChanges/turnShots";
+import { settleReact } from "./support/domTeardown";
 
 // Stand-ins for the base64 PNG bytes acpmux sends (never decoded here).
 const RED = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
@@ -165,7 +166,9 @@ afterEach(() => {
   setCardOpen("edit", false);
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // React's queued work runs before the globals go (test/support/domTeardown.ts).
+  await settleReact();
   for (const [key, had, value] of [...saved, ...domConstructors]) {
     if (had) scope[key] = value;
     else delete scope[key];

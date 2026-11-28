@@ -900,7 +900,7 @@ export const SubagentTray = memo(function SubagentTray({
         <Tooltip label={t("tray.tuck")}>
           <Button bare type="button" className="acpmux-hat-hide-bar" aria-label={t("tray.tuck")} onClick={onTuck}>
             {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
-            <Icon name="action.hide" size={10} />
+            <Icon name="action.hide" size={10} className="acpmux-hat-hide-mark" />
           </Button>
         </Tooltip>
       )}

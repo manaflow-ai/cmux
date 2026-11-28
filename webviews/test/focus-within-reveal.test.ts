@@ -100,7 +100,7 @@ export function focusWithinReveals(css: string): string[] {
   const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const found: string[] = [];
   for (const [, prelude, body] of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    if (!/opacity\s*:\s*1(?![\d.])|visibility\s*:\s*visible/.test(body!)) continue;
+    if (!/opacity\s*:\s*1(?![\d.])|(?<![\w-])visibility\s*:\s*visible/.test(body!)) continue;
     for (const selector of selectors(prelude!)) if (selector.includes(":focus-within")) found.push(selector);
   }
   return found;
@@ -115,6 +115,8 @@ test("the scanner finds a reveal held by :focus-within and leaves the keyboard's
   // A focus rim or a partial fade is no reveal.
   expect(focusWithinReveals(".box:focus-within { border-color: red; opacity: 0.6; }")).toEqual([]);
   expect(focusWithinReveals("/* .a:focus-within { opacity: 1 } */")).toEqual([]);
+  // content-visibility is a paint skip, not a reveal (terminal-history/styles.css, #60949).
+  expect(focusWithinReveals(".turn:focus-within { content-visibility: visible; }")).toEqual([]);
 });
 
 test("no webview stylesheet keeps a hover-revealed control shown by :focus-within", () => {

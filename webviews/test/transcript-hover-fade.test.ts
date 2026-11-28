@@ -105,14 +105,15 @@ type Control = {
   leavesOnRowStep: boolean;
 };
 
-// User-message actions and the running subagent Stop are intentional immediate reveals. (The edited
-// files card's counts no longer swap to a hover-revealed "View changes": its header opens the diff
-// inline, Leo 2026-11-22.)
+// User-message actions and the running subagent Stop are intentional immediate reveals. The closed
+// edited-files card's "View changes" is a swap, not a reveal: it takes the counts' own grid cell
+// (EditedFilesCard.css), so a fade would draw both words over each other; it swaps at once (Lucas,
+// 2026-11-26, EditedFilesCard.tsx; EditedFilesCardFlat.test.tsx pins when it shows).
 // The Stop control is kept
 // transparent at rest so a tray does not repeat a lit Stop on every line; subagent-stop-hover.test.tsx
 // pins that contract. It is the settled exception in the chat-transcript action rules, not a blink
 // in the fade-enabled message and tool controls covered here.
-const IMMEDIATE_REVEALS = new Set(["cv-subagent__stop", "cv-user__actions"]);
+const IMMEDIATE_REVEALS = new Set(["cv-subagent__stop", "cv-user__actions", "acpmux-edited-hover-label"]);
 
 /// A list row's own hover parts: shown at once, gone on the quick step (conversation.css HOVER
 /// FOLLOWS THE POINTER), never on the message dwell.

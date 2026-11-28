@@ -717,18 +717,10 @@
 .ui-popup[data-menu-states] .ui-menu-shortcut + .ui-menu-async {
   margin-inline-start: var(--cmux-menu-icon-gap);
 }
+/* The async row's spinner is the shared one (conversation/Spinner.tsx, turned by spinner.css): one
+   spinner everywhere (one-spinner.test.ts). */
 .ui-popup[data-menu-states] .ui-menu-spinner {
-  box-sizing: border-box;
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid color-mix(in srgb, currentColor 22%, transparent);
-  border-block-start-color: currentColor;
-  border-radius: 50%;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .ui-popup[data-menu-states] .ui-menu-spinner {
-    animation: cmux-spin var(--cmux-spinner-period) linear infinite;
-  }
+  display: block;
 }
 /* The open trigger takes the panel's fill, so the button and its menu read as one (arm "on"). */
 .ui-button.ui-button[data-menu-join][data-popup-open] {

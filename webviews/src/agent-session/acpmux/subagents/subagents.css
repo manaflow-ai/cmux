@@ -1287,8 +1287,17 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__tail:hover .acpmux-running-tray__terminal,
 .acpmux-running-tray__tail:has([data-popup-open]) .acpmux-running-tray__terminal,
-.acpmux-running-tray__tail:is(:has([data-popup-open]), :focus-within) .acpmux-running-tray__terminal {
+.acpmux-running-tray__tail:has(:focus-visible) .acpmux-running-tray__terminal {
   opacity: 1;
+}
+/* It fades on the transcript's shared hover-reveal ramp (conversation.css --cv-actions-*), never blinks. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-running-tray__tail-foot .acpmux-running-tray__terminal {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+  }
+  .acpmux-running-tray__tail:hover .acpmux-running-tray__terminal {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
 }
 .acpmux-running-tray__tail-foot a:hover,
 .acpmux-running-tray__tail-foot a:focus-visible,

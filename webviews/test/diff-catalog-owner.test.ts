@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { PAGES } from "../scripts/pages/gen-strings.mjs";
@@ -17,7 +17,9 @@ test("the diff generator's catalog inputs pass the no-Swift-CLI ownership guard"
     for (const { file } of PAGES.diff.catalogs) {
       const target = join(fixture, file);
       mkdirSync(dirname(target), { recursive: true });
-      copyFileSync(join(repo, file), target);
+      // A catalog may be a directory of one file per key (`Localizable.xcstrings.d`, #56351).
+      if (statSync(join(repo, file)).isDirectory()) cpSync(join(repo, file), target, { recursive: true });
+      else copyFileSync(join(repo, file), target);
       expect(spawnSync("git", ["-C", fixture, "add", "--", file]).status).toBe(0);
     }
     const result = spawnSync("bash", [join(repo, "scripts/cmux-next/check-no-swift-cli.sh"), fixture], {
@@ -27,4 +29,5 @@ test("the diff generator's catalog inputs pass the no-Swift-CLI ownership guard"
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
-});
+  // Copying and adding a catalog of one file per key (4,000 files) runs past bun's 5 s default.
+}, 60_000);

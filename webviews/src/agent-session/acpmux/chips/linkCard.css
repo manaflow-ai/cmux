@@ -91,6 +91,8 @@ a.acpmux-pr-card__checkRow:hover{background:var(--ds-surface-hover)}
 .acpmux-pr-card__checkName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-card__checkArrow{flex:none;color:var(--agent-muted);opacity:0}
 a.acpmux-pr-card__checkRow:is(:hover,:focus-visible) .acpmux-pr-card__checkArrow{opacity:1}
+/* The card's hover-only controls fade on the transcript's shared hover-reveal ramp (conversation.css --cv-actions-*), never blink. */
+@media (prefers-reduced-motion:no-preference){.acpmux-pr-card__copyBtn,.acpmux-pr-card__checkArrow{transition:opacity var(--cv-actions-out) var(--cv-actions-out-ease)}.acpmux-pr-card__facts:hover .acpmux-pr-card__copyBtn,.acpmux-pr-card__branches:hover .acpmux-pr-card__copyBtn,a.acpmux-pr-card__checkRow:hover .acpmux-pr-card__checkArrow{transition:opacity var(--cv-actions-in) var(--cv-actions-in-ease)}}
 .acpmux-pr-card__checkMore{padding:0 calc(var(--ds-space-1) + var(--grid-half-step));color:var(--agent-muted);font-size:var(--text-caption)}
 .acpmux-pr-card__sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 /* Branch line: content-fit hover pill with a standalone copy button sitting outside it. */

@@ -390,12 +390,18 @@ test("Session Info opens with a first chat: its environment, its context on one 
   expect(project.tagName).toBe("LI");
   expect(rows.map((row) => row.textContent)).toContain("main");
 
-  // Context: one line, 48K of 200K on a meter at 24% (Lucas, 2026-11-05, Session Info lab), folded; a
-  // click unfolds its breakdown, never the composer's card (Lucas, 2026-11-06).
+  // Context: folded, its head the title alone; a click unfolds 48K of 200K on the bar at 24%, never
+  // the composer's card (Lucas, 2026-11-23: "move the tokens and percentage to the context bar";
+  // 2026-11-06: clicking on context "will just expand").
   const context = section(container, "context")!;
   expect(head(context).getAttribute("aria-expanded")).toBe("false");
-  expect(meta(context)).toBe("48K / 200K");
-  expect(context.querySelector<HTMLElement>(".acpmux-session-info-meter > span")?.style.width).toBe("24%");
+  expect(meta(context)).toBeUndefined();
+  await click(head(context));
+  expect(head(context).getAttribute("aria-expanded")).toBe("true");
+  expect(context.querySelector(".acpmux-session-info-context__tokens")?.textContent).toBe("48K / 200K");
+  expect(context.querySelector<HTMLElement>('.acpmux-session-info-context__bar > [data-part="used"]')?.style.width).toBe(
+    "24%",
+  );
 
   // Usage and Connectors with nothing to list: one plain line each, None.
   expect(meta(section(container, "usage"))).toBe(translate("sessionInfo.none"));
@@ -1261,11 +1267,13 @@ const subagent = (index: number, state: string): Subagent => ({
 
 /// The Subagents lines in order: each one's name and its state. The lean line (AgentLine `lean`) shows
 /// the state word only when it waits, failed or stopped; else the word is for screen readers.
+/// Each line's name and state word. A running started chat draws only its spinner and keeps the word
+/// for hover (#56223: "\"running\" doesn't need text"), so its word is the state's title.
 const lines = (element: Element) =>
-  [...element.querySelectorAll<HTMLButtonElement>("button.acpmux-agent-line__button")].map((line) => [
-    line.querySelector(".acpmux-summary-agent__name")?.textContent,
-    line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent,
-  ]);
+  [...element.querySelectorAll<HTMLButtonElement>("button.acpmux-agent-line__button")].map((line) => {
+    const state = line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr");
+    return [line.querySelector(".acpmux-summary-agent__name")?.textContent, state?.textContent || state?.getAttribute("title")];
+  });
 const endedRow = (element: Element) =>
   element.querySelector<HTMLButtonElement>("button.acpmux-session-info-subagents__ended");
 
@@ -1433,6 +1441,7 @@ test("with only started chats Subagents is still drawn, and the running line's c
   expect(panel(container)).not.toBeNull();
   const subagents = section(container, "subagents")!;
   expect(sessionInfoState().sections.subagents).toBe(true);
+  console.log("DBG", subagents.querySelector("button.acpmux-agent-line__button")?.outerHTML);
   expect(lines(subagents)).toEqual([["Migrate the settings store", "Running"]]);
   expect(endedRow(subagents)!.textContent).toBe("1 done");
   await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);

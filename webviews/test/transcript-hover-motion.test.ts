@@ -85,7 +85,8 @@ test("the background command hint has no delayed entrance animation", () => {
 // changes its opacity alone: no rule under the pointer moves it or gives it room it lacked at rest.
 test("pointing at the live line changes only the background command hint's opacity", () => {
   const hidden = rules.find(
-    ({ rule, media }) => !media.length && rule.selectorText === ":is(.cv-worked, .cv-activity) .cv-command__bg",
+    // The live line alone: the to-do list's activity line went with the list (#55935).
+    ({ rule, media }) => !media.length && rule.selectorText === ".cv-worked .cv-command__bg",
   );
   expect(hidden?.rule.style.position).toBe("");
   expect(hidden?.rule.style.flexShrink).toBe("0");

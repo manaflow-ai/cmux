@@ -67,7 +67,8 @@ const words = (html: string) =>
     .replace(/&#x27;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
-const drawn = (line: AcpmuxRow, now: number) =>
+/// `wait`: the line's own wait words too, as ThinkingRow passes them (liveWait.ts).
+const drawn = (line: AcpmuxRow, now: number, wait = false) =>
   words(
     renderToStaticMarkup(
       <Thinking
@@ -87,6 +88,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
         untimed={line.untimed}
         quietKey={line.quietKey}
         quietAt={line.quietAt}
+        liveWait={wait ? line.liveWait : undefined}
       />,
     ),
   );
@@ -256,11 +258,14 @@ test("once the reply has stopped, the line's clock and token count stop with it"
   expect(drawn(after, after.at + 20_000)).toMatch(/\d+s$/);
 });
 
-test("before the turn's first output it still reads Thinking with the turn's time", () => {
+test("before the turn's first output it reads Thinking with the turn's time, then names its wait", () => {
   const user = row("u", "user");
   const line = codex([user]).at(-1)!;
-  expect(line.turnTotal).toBeUndefined();
-  expect(drawn(line, user.at + 18_000)).toBe("Thinking 18s");
+  // It carries the silence clock from the prompt (#62398), so its time is the turn's, and past
+  // SILENT_MS with nothing heard it names its wait.
+  expect(line.turnTotal).toBe(true);
+  expect(drawn(line, user.at + 8_000)).toBe("Thinking 8s");
+  expect(drawn(line, user.at + 18_000, true)).toMatch(/^Waiting on the model's first reply 18s/);
 });
 
 test("the long-wait gallery entry's live line draws its subagents' mark and the turn's total", () => {

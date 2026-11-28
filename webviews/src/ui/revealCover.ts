@@ -70,6 +70,8 @@ const observe = (el: Element) => {
         });
   observer?.observe(el);
 };
+// A stand-in observer (a test's) may have no unobserve; a host that leaves then stays watched there.
+const unobserve = (el: Element) => observer?.unobserve?.(el);
 
 /// A callback ref for a row's trailing controls: it measures them for the row's text's cover. Once
 /// they leave (a row that turns out to be a teammate's draws none) the row's text covers nothing.
@@ -85,10 +87,10 @@ export function revealControls(el: HTMLElement | null): (() => void) | void {
     observe(target);
   }
   return () => {
-    observer?.unobserve(el);
+    unobserve(el);
     for (const target of watched) {
       controlsOf.delete(target);
-      observer?.unobserve(target);
+      unobserve(target);
     }
     if (!host) return;
     host.style.removeProperty(VAR);

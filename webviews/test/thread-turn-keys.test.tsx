@@ -4,6 +4,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -90,6 +91,9 @@ test("Previous Turn and Next Turn step the transcript through its prompts", asyn
         <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
+    // The rail's turns and ticks, which the keys step through, draw in the frame after the chat's
+    // first paint (#59677).
+    await railFrame();
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
     // The app's Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down) reach the page as bridge
@@ -175,6 +179,9 @@ test("Next Turn steps past a retried prompt beside acpmux's echo of it", async (
         />,
       ),
     );
+    // The rail's turns and ticks, which the keys step through, draw in the frame after the chat's
+    // first paint (#59677).
+    await railFrame();
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const scrolled = async () => void scroller.dispatchEvent(new dom.window.Event("scroll"));
     const prompts = dup.filter((entry) => entry.kind === "user");
