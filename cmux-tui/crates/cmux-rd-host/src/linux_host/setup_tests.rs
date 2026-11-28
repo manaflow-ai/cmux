@@ -222,10 +222,7 @@ fn the_host_reads_the_config_directory_enable_wrote_to() {
     );
     // systemd's quoting and specifiers: the value it reads back is the path.
     let odd = host_config_drop_in(Path::new(r#"/home/a b/100%"x\y"#)).unwrap();
-    assert!(
-        odd.ends_with("Environment=\"XDG_CONFIG_HOME=/home/a b/100%%\\\"x\\\\y\"\n"),
-        "{odd}"
-    );
+    assert!(odd.ends_with("Environment=\"XDG_CONFIG_HOME=/home/a b/100%%\\\"x\\\\y\"\n"), "{odd}");
     assert!(host_config_drop_in(Path::new("relative/.config")).is_err());
     assert!(host_config_drop_in(Path::new("/home/a\nb")).is_err());
 }
