@@ -4,19 +4,27 @@ import Foundation
 /// Right-sidebar panel snapshot stored with adjacent todo persistence helpers, extracted from `SessionPersistence.swift`, which sits at its file-length budget.
 struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode?
+    var sourcePanelID: UUID?
+    var rootDirectory: String?
 
-    init(mode: RightSidebarMode?) {
+    init(mode: RightSidebarMode?, sourcePanelID: UUID? = nil, rootDirectory: String? = nil) {
         self.mode = mode
+        self.sourcePanelID = sourcePanelID
+        self.rootDirectory = rootDirectory
     }
 
     private enum CodingKeys: String, CodingKey {
         case mode
+        case sourcePanelID
+        case rootDirectory
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let raw = try container.decodeIfPresent(String.self, forKey: .mode)
         self.mode = raw.flatMap { RightSidebarMode(rawValue: $0) }
+        self.sourcePanelID = try container.decodeIfPresent(UUID.self, forKey: .sourcePanelID)
+        self.rootDirectory = try container.decodeIfPresent(String.self, forKey: .rootDirectory)
     }
 }
 
