@@ -9507,6 +9507,39 @@
      "default": null,
      "since": 12,
      "capability": "dock-column-role-v1"
+    },
+    "permanent": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": false,
+     "since": 12,
+     "capability": "permanent-dock-v1"
+    },
+    "pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": false,
+     "since": 12,
+     "capability": "pinned-dock-v1"
+    },
+    "allow_tabs": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": false,
+     "since": 12,
+     "capability": "pinned-dock-v1"
     }
    },
    "additional_properties": false

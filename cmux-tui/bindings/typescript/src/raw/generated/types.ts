@@ -243,8 +243,11 @@ export type ColorHex = string;
 export type ColumnMoveDirection = "left" | "right";
 
 export type ColumnPin = {
+  "allow_tabs"?: boolean;
   "edge": string;
   "mode": string;
+  "permanent"?: boolean;
+  "pinned"?: boolean;
   "role"?: (string) | null;
 };
 

@@ -212,7 +212,7 @@ enum TabMoves {
         let width = width ?? half ?? beside ?? 0.3
         let completion = depart(tab, services: services)(false, completion)
         // A lone chat's dock shows in the input's turn (`tab-column-client-pane-v1`, ``DockColumnCommand``).
-        let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin, transaction: transaction)
+        let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin.map(MoveTabToColumnRequest.Dock.init), transaction: transaction)
         let send = DockColumnCommand(move, respawn: respawn).start(on: daemon)
         services.registry.track(Task {
             let ok = await send()

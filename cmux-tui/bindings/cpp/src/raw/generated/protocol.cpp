@@ -2044,12 +2044,27 @@ Result<ColumnMoveDirection> Codec<ColumnMoveDirection>::decode(const Json& value
 Result<Json> Codec<ColumnPin>::encode(const ColumnPin& value) {
     (void)value;
     Json::Object object;
+    if (value.allow_tabs) {
+        auto encoded = encode_value(*value.allow_tabs);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("allow_tabs", std::move(encoded).value());
+    }
     auto encoded_edge = encode_value(value.edge);
     if (!encoded_edge) return std::move(encoded_edge).error();
     object.emplace("edge", std::move(encoded_edge).value());
     auto encoded_mode = encode_value(value.mode);
     if (!encoded_mode) return std::move(encoded_mode).error();
     object.emplace("mode", std::move(encoded_mode).value());
+    if (value.permanent) {
+        auto encoded = encode_value(*value.permanent);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("permanent", std::move(encoded).value());
+    }
+    if (value.pinned) {
+        auto encoded = encode_value(*value.pinned);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pinned", std::move(encoded).value());
+    }
     if (!value.role.is_absent()) {
         auto encoded = encode_value(value.role);
         if (!encoded) return std::move(encoded).error();
@@ -2062,6 +2077,12 @@ Result<ColumnPin> Codec<ColumnPin>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ColumnPin result{};
+    const Json* field_allow_tabs = value.find("allow_tabs");
+    if (field_allow_tabs) {
+        auto decoded = decode_value<bool>(*field_allow_tabs);
+        if (!decoded) return std::move(decoded).error();
+        result.allow_tabs = std::move(decoded).value();
+    }
     const Json* field_edge = value.find("edge");
     if (!field_edge) {
         return make_error(ErrorCode::decode, "missing required field 'edge'");
@@ -2079,6 +2100,18 @@ Result<ColumnPin> Codec<ColumnPin>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_mode);
         if (!decoded) return std::move(decoded).error();
         result.mode = std::move(decoded).value();
+    }
+    const Json* field_permanent = value.find("permanent");
+    if (field_permanent) {
+        auto decoded = decode_value<bool>(*field_permanent);
+        if (!decoded) return std::move(decoded).error();
+        result.permanent = std::move(decoded).value();
+    }
+    const Json* field_pinned = value.find("pinned");
+    if (field_pinned) {
+        auto decoded = decode_value<bool>(*field_pinned);
+        if (!decoded) return std::move(decoded).error();
+        result.pinned = std::move(decoded).value();
     }
     const Json* field_role = value.find("role");
     if (field_role) {

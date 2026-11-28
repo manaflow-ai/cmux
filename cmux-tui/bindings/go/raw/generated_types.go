@@ -2269,9 +2269,12 @@ func (value *ColumnMoveDirection) UnmarshalJSON(data []byte) error {
 }
 
 type ColumnPin struct {
-	Edge string           `json:"edge"`
-	Mode string           `json:"mode"`
-	Role Presence[string] `json:"-"`
+	AllowTabs *bool            `json:"allow_tabs,omitempty"`
+	Edge      string           `json:"edge"`
+	Mode      string           `json:"mode"`
+	Permanent *bool            `json:"permanent,omitempty"`
+	Pinned    *bool            `json:"pinned,omitempty"`
+	Role      Presence[string] `json:"-"`
 }
 
 func (value ColumnPin) MarshalJSON() ([]byte, error) {
@@ -2304,15 +2307,24 @@ func (value *ColumnPin) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ColumnPin: expected object")
 	}
 	var fields struct {
-		Edge *string          `json:"edge"`
-		Mode *string          `json:"mode"`
-		Role Presence[string] `json:"role"`
+		AllowTabs optionalNonNullJSON[bool] `json:"allow_tabs"`
+		Edge      *string                   `json:"edge"`
+		Mode      *string                   `json:"mode"`
+		Permanent optionalNonNullJSON[bool] `json:"permanent"`
+		Pinned    optionalNonNullJSON[bool] `json:"pinned"`
+		Role      Presence[string]          `json:"role"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode ColumnPin: %w", err)
 	}
 	type wire ColumnPin
 	var decoded wire
+	if fields.AllowTabs.null {
+		return fmt.Errorf("decode ColumnPin: non-nullable field allow_tabs is null")
+	}
+	if fields.AllowTabs.set {
+		decoded.AllowTabs = &fields.AllowTabs.value
+	}
 	if fields.Edge == nil {
 		return fmt.Errorf("decode ColumnPin: required field edge is missing or null")
 	}
@@ -2321,6 +2333,18 @@ func (value *ColumnPin) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ColumnPin: required field mode is missing or null")
 	}
 	decoded.Mode = *fields.Mode
+	if fields.Permanent.null {
+		return fmt.Errorf("decode ColumnPin: non-nullable field permanent is null")
+	}
+	if fields.Permanent.set {
+		decoded.Permanent = &fields.Permanent.value
+	}
+	if fields.Pinned.null {
+		return fmt.Errorf("decode ColumnPin: non-nullable field pinned is null")
+	}
+	if fields.Pinned.set {
+		decoded.Pinned = &fields.Pinned.value
+	}
 	decoded.Role = fields.Role
 	*value = ColumnPin(decoded)
 	return nil
