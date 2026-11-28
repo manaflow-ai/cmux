@@ -1,6 +1,7 @@
 import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
+import CCmuxDaemonConnFFI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeups
@@ -137,7 +138,7 @@ public final class CloudMachineWire {
         let wake = RetryWake(owner: "cloud.machine.wire.reconnect")
         wakes[loop] = wake
         defer { wakes[loop] = nil; probes[loop] = nil }
-        await Self.reconnecting(wake: wake, backoff: Backoff(initial: .milliseconds(500), maximum: .seconds(30)),
+        await Self.reconnecting(wake: wake, initial: .milliseconds(500), maximum: .seconds(30),
                                 keepGoing: { [weak self] in generation == self?.generation }) { [weak self] onSubscribed in
             guard let self else { throw CancellationError() }
             try await self.session(generation, loop: loop, only: only, sink: sink, onSubscribed: onSubscribed)
@@ -145,27 +146,43 @@ public final class CloudMachineWire {
     }
 
     /// One socket's reconnect loop: `session` runs a connection to its end (it calls its argument once subscribed,
-    /// which starts the backoff over), then the loop waits the backoff's next step or, sooner, a network change on
-    /// `wake`, which also starts the backoff over. Ends when the task is cancelled, `session` throws
+    /// which starts the spacing over), then the loop waits the next step of Rust's retry pacer
+    /// (cmux-daemon-conn-core `retry`: `initial` doubling to `maximum`, jittered by `random`, never giving up) or,
+    /// sooner, a network change on `wake`, which the pacer also starts over. Swift keeps the socket, ticket and frame
+    /// lifecycle; Rust owns the reconnect policy. Ends when the task is cancelled, `session` throws
     /// `CancellationError` or `keepGoing` says no.
-    static func reconnecting(wake: RetryWake, backoff: Backoff, clock: any Clock<Duration> = ContinuousClock(),
+    static func reconnecting(wake: RetryWake, initial: Duration, maximum: Duration,
+                             random: () -> Double = { Double.random(in: 0..<1) },
+                             clock: any Clock<Duration> = ContinuousClock(),
                              keepGoing: () -> Bool,
                              session: (_ onSubscribed: () -> Void) async throws -> Void) async {
-        var backoff = backoff
-        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay or a network change.
+        var retry = cmux_retry_pacer_new(cmux_retry_policy_new(nanoseconds(initial), nanoseconds(maximum), 10, 0, true))
+        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Rust-paced delay or a network change.
         while !Task.isCancelled, keepGoing() {
             do {
-                try await session { backoff.reset() }
+                try await session { cmux_retry_pacer_reset(&retry) }
             } catch is CancellationError {
                 return
             } catch {}
             guard !Task.isCancelled, keepGoing() else { return }
-            switch await wake.awaitWake(delay: backoff.next(), clock: clock, socket: false) {
+            // Rust's spacing in nanoseconds; -1 (a spent budget, never under keeps-trying) waits for a network change only.
+            let spacing = cmux_retry_pacer_failed(&retry, random())
+            let cause = await wake.awaitWake(delay: spacing >= 0 ? .nanoseconds(spacing) : nil, clock: clock, socket: false)
+            switch cause {
             case .cancelled: return
-            case .event: backoff.reset()
-            case .socket, .timer: break
+            // A network change starts the spacing over (Rust's `woke` for an event under keeps-trying).
+            case .event: cmux_retry_pacer_woke(&retry, 0)
+            case .socket: cmux_retry_pacer_woke(&retry, 1)
+            case .timer: cmux_retry_pacer_woke(&retry, 2)
             }
         }
+    }
+
+    /// `duration` in whole nanoseconds for the Rust pacer (negative is zero).
+    nonisolated static func nanoseconds(_ duration: Duration) -> UInt64 {
+        let (seconds, attoseconds) = duration.components
+        guard seconds >= 0 else { return 0 }
+        return UInt64(seconds) * 1_000_000_000 + UInt64(max(0, attoseconds) / 1_000_000_000)
     }
 
     private func session(_ generation: Int, loop: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?,
