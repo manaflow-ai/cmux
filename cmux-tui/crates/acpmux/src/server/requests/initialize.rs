@@ -174,6 +174,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_WHO_ELSE,
     method::MUX_WORKFLOWS,
     method::MUX_WORKTREE_CLEAN,
+    method::MUX_WORKTREE_FREE_STALE,
     method::MUX_WORKTREE_REPORT,
     method::MUX_WORKTREE_RESTORE,
     method::SESSION_SIGNATURE,

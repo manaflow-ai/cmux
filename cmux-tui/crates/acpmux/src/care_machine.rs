@@ -111,6 +111,9 @@ pub fn config(
         pressure: ask.pressure,
         only: ask.only,
         measure: true,
+        stale_only: false,
+        measure_budget: None,
+        sessions_now: None,
     };
     Config {
         pass,

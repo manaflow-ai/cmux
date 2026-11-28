@@ -281,6 +281,16 @@ pub fn decide(
     trim(format!("idle {idle_hours} h"))
 }
 
+/// Whether a verdict's worktree is stale: its folder may go (`Reclaim` or
+/// `Archive`, so no open session or program is in it and it is past its
+/// quiet time), its work is finished (merged or squashed into a base), and
+/// it has no changed or untracked file. Ignored data (a `.env`) is archived
+/// on the way out. The Storage panel offers only these.
+pub fn stale(verdict: &Verdict, facts: Option<&crate::Facts>) -> bool {
+    matches!(verdict.action, Action::Reclaim | Action::Archive)
+        && facts.is_some_and(|f| f.finished.is_some() && f.changed == 0 && f.untracked.is_empty())
+}
+
 /// Why `owner` is alive: its recorded process runs, an open session goes
 /// by one of its ids, or a registered process runs its session. `None`
 /// when none of these says so.
@@ -324,7 +334,7 @@ fn only_here_reason(facts: &crate::Facts) -> String {
     parts.join(", ")
 }
 
-fn inside(folder: &Path, root: &Path) -> bool {
+pub(crate) fn inside(folder: &Path, root: &Path) -> bool {
     folder.starts_with(root)
         || std::fs::canonicalize(folder)
             .ok()

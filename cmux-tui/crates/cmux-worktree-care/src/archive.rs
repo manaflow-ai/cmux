@@ -80,7 +80,25 @@ pub fn reclaim(
     uses: &Uses,
     open: &Open,
 ) -> Result<Manifest, String> {
-    reclaim_guarded(repo, worktree, facts, action, reason, store, uses, open, &|_| Ok(()))
+    reclaim_unless(repo, worktree, facts, action, reason, store, uses, open, &|| None)
+}
+
+/// [`reclaim`], asking `in_use` last, right before the folder goes, whether
+/// something the scan could not see now works in it (a chat opened while it
+/// was archived); a reason keeps it.
+#[allow(clippy::too_many_arguments)]
+pub fn reclaim_unless(
+    repo: &Repo,
+    worktree: &Worktree,
+    facts: &Facts,
+    action: Action,
+    reason: &str,
+    store: &Store,
+    uses: &Uses,
+    open: &Open,
+    in_use: &dyn Fn() -> Option<String>,
+) -> Result<Manifest, String> {
+    reclaim_checked(repo, worktree, facts, action, reason, store, uses, open, in_use, &|_| Ok(()))
 }
 
 /// Reclaims a worktree only after a final preservation check following archival.
@@ -94,6 +112,24 @@ pub fn reclaim_guarded(
     store: &Store,
     uses: &Uses,
     open: &Open,
+    preserve: &Preservation<'_>,
+) -> Result<Manifest, String> {
+    reclaim_checked(repo, worktree, facts, action, reason, store, uses, open, &|| None, preserve)
+}
+
+/// [`reclaim_unless`] and [`reclaim_guarded`] at once: `in_use` is asked
+/// right before the folder goes, then `preserve`.
+#[allow(clippy::too_many_arguments)]
+pub fn reclaim_checked(
+    repo: &Repo,
+    worktree: &Worktree,
+    facts: &Facts,
+    action: Action,
+    reason: &str,
+    store: &Store,
+    uses: &Uses,
+    open: &Open,
+    in_use: &dyn Fn() -> Option<String>,
     preserve: &Preservation<'_>,
 ) -> Result<Manifest, String> {
     if let Some(why) = &facts.unarchivable {
@@ -179,6 +215,7 @@ pub fn reclaim_guarded(
         &id,
         uses,
         open,
+        in_use,
     ) {
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
@@ -224,6 +261,7 @@ fn unchanged(
     id: &str,
     uses: &Uses,
     open: &Open,
+    in_use: &dyn Fn() -> Option<String>,
 ) -> Result<(), String> {
     if fingerprint != self::fingerprint(repo, worktree)?.as_slice() {
         return Err("its status changed while it was archived".to_string());
@@ -246,6 +284,9 @@ fn unchanged(
     }
     if let Some(process) = procs::inside(&uses()?, &worktree.path) {
         return Err(format!("process {} started working in it", process.pid));
+    }
+    if let Some(why) = in_use() {
+        return Err(why);
     }
     // Last, right before the folder goes: what no registry records.
     match open(&worktree.path) {

@@ -362,7 +362,8 @@ fn run_inner(config: &Config, look: Option<&Look>) -> Result<Report, String> {
     // Candidates, in the order they go.
     let mut candidates = Vec::new();
     for (index, item) in scan.report.items.iter().enumerate() {
-        if item.verdict.action != Action::Keep {
+        // A stale-only pass (the Storage panel) frees the stale ones only.
+        if item.verdict.action != Action::Keep && (item.stale || !options.stale_only) {
             let last = item.facts.as_ref().map_or(0, |f| f.last_activity_ms);
             candidates.push(Candidate {
                 slot: Slot::Worktree(index),
@@ -389,7 +390,8 @@ fn run_inner(config: &Config, look: Option<&Look>) -> Result<Report, String> {
     let mut stopped = false;
     if config.apply {
         for candidate in &candidates {
-            if budget_run && projection.done() {
+            // A stale-only pass frees every stale worktree, past the budget's line.
+            if budget_run && !options.stale_only && projection.done() {
                 stopped = true;
                 break;
             }
@@ -621,6 +623,9 @@ mod tests {
                 pressure: None,
                 only: Vec::new(),
                 measure: true,
+                stale_only: false,
+                measure_budget: None,
+                sessions_now: None,
                 guarded: Arc::new(|_: &Path| false),
             },
             home: home.to_path_buf(),
