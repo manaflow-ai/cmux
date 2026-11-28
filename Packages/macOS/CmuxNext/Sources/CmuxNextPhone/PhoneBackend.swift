@@ -10,8 +10,6 @@ public protocol PhoneBackend: Sendable {
     func shutdown(_ id: PhoneDeviceID) async throws
     /// Writes a PNG of the screen to `file`.
     func screenshot(_ id: PhoneDeviceID, to file: URL) async throws
-    /// The file extension the backend's screen recordings use ("mov", "mp4").
-    func videoExtension(for id: PhoneDeviceID) -> String
     /// Starts recording the screen into `file`; interrupt the handle to stop.
     func startVideo(_ id: PhoneDeviceID, to file: URL) async throws -> any PhoneRunningCommand
     /// Starts streaming the device log as NDJSON into `file`; nil when the

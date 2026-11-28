@@ -14,12 +14,6 @@ import Testing
         #expect(!phones.contains { $0.name.contains("Watch") })
     }
 
-    @Test func simulatorModelComesFromTheDeviceTypeNotTheName() {
-        #expect(SimctlDeviceList.model(typeID: "com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro-Max", fallback: "x") == "iPhone 18 Pro Max")
-        #expect(SimctlDeviceList.model(typeID: "com.apple.CoreSimulator.SimDeviceType.Apple-TV-4K", fallback: "my tv") == "my tv")
-        #expect(SimctlDeviceList.model(typeID: nil, fallback: "renamed") == "renamed")
-    }
-
     @Test func realDevicesArePhysicalIOSOnlyWithTransport() throws {
         let phones = try DevicectlDeviceList().parse(fixture("devicectl-list"))
         #expect(phones.map(\.name) == ["Test’s iPhone", "Lab iPhone"])

@@ -2,69 +2,39 @@ public import Foundation
 
 /// A finished recording packaged as product feedback: one Markdown message
 /// plus the files to attach (video, poster). The App posts it into the Home
-/// chat in one click ("Send to Chief").
+/// chat in one click ("Send to Chief"). `cmux-phone-core`'s `feedback_clip` writes both; Swift passes its localized strings.
 public struct PhoneFeedbackClip: Sendable, Hashable {
     public let recording: PhoneRecording
     public let markdown: String
     /// Video first, then the poster frame when there is one.
     public let attachments: [URL]
 
-    public init(_ recording: PhoneRecording, logTail: PhoneLogTail? = nil) {
+    /// `log`: the recording's `device-log.ndjson`, whose newest error lines the message quotes.
+    public init(_ recording: PhoneRecording, log: Data? = nil) {
         self.recording = recording
-        attachments = [recording.videoURL] + (recording.posterURL.map { [$0] } ?? [])
-        markdown = Self.summary(recording, logTail: logTail)
+        var fields: [String: Any] = ["recording": PhoneRules.field(PhoneRecordingWire(recording)),
+                                     "folder_url": recording.folder.absoluteString, "strings": Self.strings]
+        if let log { fields["log_ndjson"] = PhoneRules.text(log) }
+        let clip = try? PhoneRules.reply(Clip.self, "feedback_clip", fields, what: "the feedback clip")
+        markdown = clip?.markdown ?? ""
+        attachments = (clip?.attachments ?? [recording.video]).map { recording.folder.appendingPathComponent($0) }
     }
 
-    /// Builds the clip and reads the log tail from the recording's folder.
+    /// Builds the clip and reads the log from the recording's folder.
     public static func load(_ recording: PhoneRecording) -> PhoneFeedbackClip {
-        let tail = recording.logURL.flatMap { try? Data(contentsOf: $0) }.map { PhoneLogTail(ndjson: $0) }
-        return PhoneFeedbackClip(recording, logTail: tail)
+        PhoneFeedbackClip(recording, log: recording.logURL.flatMap { try? Data(contentsOf: $0) })
     }
 
-    static func summary(_ recording: PhoneRecording, logTail: PhoneLogTail?) -> String {
-        let device = recording.device
-        let taps = recording.events.filter { $0.kind == "tap" }.count
-        var lines: [String] = []
-        let title = String(localized: "phone.feedback.title", defaultValue: "Phone feedback", bundle: .localizedModule)
-        lines.append("**\(title)**: \(device.name) (\(device.model), \(device.osVersion)) · \(clock(recording.duration)) · "
-            + String(format: String(localized: "phone.feedback.inputs", defaultValue: "%lld inputs, %lld taps", bundle: .localizedModule),
-                     Int64(recording.events.count), Int64(taps)))
-        let notes = recording.notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !notes.isEmpty {
-            lines.append("")
-            lines.append(notes)
-        }
-        if !recording.events.isEmpty {
-            lines.append("")
-            lines.append(String(localized: "phone.feedback.steps", defaultValue: "Steps:", bundle: .localizedModule))
-            for event in recording.events.prefix(30) { lines.append("- \(clock(event.at)) \(describe(event))") }
-            if recording.events.count > 30 { lines.append("- …") }
-        }
-        if let logTail, !logTail.lines.isEmpty {
-            lines.append("")
-            lines.append(String(localized: "phone.feedback.logErrors", defaultValue: "Log errors:", bundle: .localizedModule))
-            lines.append("```")
-            for line in logTail.lines { lines.append("[\(line.level)] \(line.process): \(line.message)") }
-            lines.append("```")
-        }
-        lines.append("")
-        lines.append(String(localized: "phone.feedback.folder", defaultValue: "Recording folder:", bundle: .localizedModule)
-            + " [\(recording.id)](\(recording.folder.absoluteString))")
-        return lines.joined(separator: "\n")
+    private static var strings: [String: String] {
+        ["title": String(localized: "phone.feedback.title", defaultValue: "Phone feedback", bundle: .localizedModule),
+         "inputs": String(localized: "phone.feedback.inputs", defaultValue: "%lld inputs, %lld taps", bundle: .localizedModule),
+         "steps": String(localized: "phone.feedback.steps", defaultValue: "Steps:", bundle: .localizedModule),
+         "log_errors": String(localized: "phone.feedback.logErrors", defaultValue: "Log errors:", bundle: .localizedModule),
+         "folder": String(localized: "phone.feedback.folder", defaultValue: "Recording folder:", bundle: .localizedModule)]
     }
 
-    /// `0:07.4`
-    static func clock(_ seconds: Double) -> String {
-        let tenths = Int((seconds * 10).rounded())
-        return String(format: "%d:%02d.%d", tenths / 600, (tenths / 10) % 60, tenths % 10)
-    }
-
-    private static func describe(_ event: PhoneRecordingEvent) -> String {
-        func point(_ p: PhonePoint?) -> String { p.map { "(\(Int($0.x)), \(Int($0.y)))" } ?? "" }
-        switch event.kind {
-        case "tap": return "tap \(point(event.point))"
-        case "swipe": return "swipe \(point(event.point)) → \(point(event.to))"
-        default: return [event.kind, event.detail.map { "`\($0)`" }].compactMap { $0 }.joined(separator: " ")
-        }
+    private struct Clip: Decodable {
+        let markdown: String
+        let attachments: [String]
     }
 }
