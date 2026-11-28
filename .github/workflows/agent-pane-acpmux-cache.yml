@@ -7,9 +7,10 @@ name: agent pane acpmux cargo cache
 # save the key only runs in the post-merge batch, saves only when its browser tests pass, and no entry existed.
 #
 # This job only builds, so a red test never costs the cache. rust-cache keeps the dependencies (it drops the
-# workspace's own crates before saving) and keys them by Cargo.lock, the manifests and rust-toolchain.toml, so a
-# push that changes none of those finds its exact key and skips the build. A pull request whose key differs
-# restores the newest entry by prefix and rebuilds only what changed.
+# workspace's own crates before saving). With add-rust-environment-hash-key: false its own key never moves, so the
+# shared-key hashes rust-toolchain.toml, Cargo.lock and .cargo/config.toml (tests/test_ci_no_run_scoped_cache_keys.py
+# RustCacheKeyFollowsLockfile): a push that changes none of those finds its exact key and skips the build, and a
+# pull request with the base's lockfile restores that exact entry.
 #
 # A schedule runs only main's copy of a workflow (.github/AGENTS.md, item 6): the push trigger covers each change
 # to the key's inputs, and workflow_dispatch refills an evicted entry.
@@ -59,7 +60,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
-          shared-key: agent-pane-real-acpmux
+          shared-key: agent-pane-real-acpmux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
 

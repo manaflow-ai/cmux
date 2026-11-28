@@ -73,6 +73,7 @@ jobs:
           fetch-depth: 2
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.gitmodules
             /scripts/cmux-next/
             /tests/fixtures/model-stub/
             /Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/

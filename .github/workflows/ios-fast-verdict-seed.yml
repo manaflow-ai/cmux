@@ -42,7 +42,9 @@ jobs:
         with:
           persist-credentials: false
           filter: blob:none
-          sparse-checkout: scripts/ci/ios_fast_dd_key.py
+          sparse-checkout: |
+            /.gitmodules
+            scripts/ci/ios_fast_dd_key.py
           sparse-checkout-cone-mode: false
 
       # The newest seed of any Xcode or path, from its public pointer; no credential.

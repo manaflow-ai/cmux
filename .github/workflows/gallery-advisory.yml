@@ -512,6 +512,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /.gitmodules
             /scripts/ci/
             /cmux-tui/
             /.github/actions/
