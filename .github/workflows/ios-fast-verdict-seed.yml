@@ -110,6 +110,7 @@ jobs:
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_NAMESPACE: any
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
