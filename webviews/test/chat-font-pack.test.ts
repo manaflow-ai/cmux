@@ -106,6 +106,13 @@ describe("with no pack keys", () => {
       "--cv-user-align": null,
       "--cv-card-radius": null,
       "--cv-code-radius": null,
+      // A tool row's type tokens (transcriptLook.ts, #46778): unset, a tool row draws in the chat's own type.
+      "--cv-tool-font": null,
+      "--cv-tool-command-font": null,
+      "--cv-tool-output-font": null,
+      "--cv-tool-text-scale": null,
+      "--cv-tool-output-scale": null,
+      "--cv-tool-weight": null,
     });
     expect(chatDisplayVariables(DEFAULT_CHAT_DISPLAY)).toEqual(variables);
   });

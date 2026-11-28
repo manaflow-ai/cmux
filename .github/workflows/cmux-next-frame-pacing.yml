@@ -91,10 +91,13 @@ jobs:
             cmux-tui
             # cargo loads every cmux-tui member; one links this by path (tests/test_ci_sparse_cargo_path_deps.py).
             workers/cmux-vm/cli
+            # cmux-tui's bin crate links the Cloud app server (cmux-cloud) by path too.
+            first-party-apps/cloud/server
             scripts
             Cargo.toml
             rust-toolchain.toml
             .cargo
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Set up pinned Rust

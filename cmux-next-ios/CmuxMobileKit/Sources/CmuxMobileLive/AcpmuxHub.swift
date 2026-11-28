@@ -2,6 +2,9 @@ import CmuxAgentQuestion
 import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileArtifacts
+#if os(iOS)
+import CmuxMobileDesign
+#endif
 #if canImport(CmuxMobileLinkFFI)
 import CmuxMobileLinkFFI
 #endif
@@ -952,6 +955,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         for record in entry.records { apply(record: record) }
         applyingKept = false
         endHistory()
+        #if os(iOS)
+        // R1: the chat's first content from this phone's kept transcript.
+        LaunchMarks.shared.firstContent("chat", cached: true)
+        #endif
     }
 
     /// The kept copy is too old to catch up from, or a reattach's hole is too wide to read
@@ -1077,7 +1084,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             #if canImport(CmuxMobileLinkFFI)
             // Text, and photos the Mac takes by reference, go to the outbox at the tap: nothing
             // waits behind a photo's bytes (``sendAtTap``).
-            if sendsAtTap(attachments, hub: hub) {
+            // ...unless an earlier send is still preparing on the ordered path (a file, a video):
+            // a message never goes ahead of one sent before it, so it waits its turn there too.
+            if chainedSendsPreparing == 0, sendsAtTap(attachments, hub: hub) {
                 sendAtTap(text: text, attachments: attachments, steer: steer, promptID: promptID, resend: resend, hub: hub)
                 return
             }
@@ -1092,7 +1101,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // composer after Send does not cancel them.
             let directory = baseDirectory
             let prestaged = prestager.claim(attachments, directory: directory)
+            chainedSendsPreparing += 1
             let task = Task { [weak self] in
+                // Until the outbox has this one (or it is given back), a later text waits behind it.
+                defer { self?.chainedSendsPreparing -= 1 }
                 if let previous {
                     do {
                         // Stop works while this waits its turn behind an earlier send (that one's
@@ -1293,6 +1305,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// The last message's upload, which the next one waits for (``send(_:)``).
     private var promptChain: Task<Void, Never>?
+    /// Sends on the ordered path (``promptChain``) the outbox does not have yet. While any is,
+    /// a text or photo goes on that path too instead of at the tap, so it cannot overtake it.
+    private var chainedSendsPreparing = 0
     /// Each prompt the outbox holds, by its `promptId`: what to write when it goes.
     private var promptPayloads: [String: HeldPrompt] = [:]
     /// Each message's send until it is written or held, by prompt id: Stop cancels its upload.
@@ -2923,6 +2938,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let pending = held
         held = []
         for record in pending { apply(record: record) }
+        #if os(iOS)
+        // R2: the chat caught up with the Mac's records.
+        LaunchMarks.shared.firstContent("chat", cached: false)
+        #endif
         startGapFill()
         emit(.historyLoading(false))
         saveKept()

@@ -523,6 +523,12 @@ is forwarded, and the service never answers it.
   keys whose echo took over 150 ms; `spikes`: the six slowest, each
   `[upS at the key, ack ms or -1 when the reply had not come, echo ms]`, so a
   periodic stall shows its period.
+- `outboxUs` (added 2026-11-27; absent when the phone wrote nothing): its
+  link's outbox wait since the last stat, in µs (n, p50, p95, p99, max): a
+  frame's time from entering the outbox to the flush that handed it to the
+  transport (`cmux-mobile-link/src/outbox_wait.rs`). `echo` slow with
+  `outboxUs` slow is the phone's own writer, not the network or the Mac.
+  Clamped to 600000000.
 - Bounded: every stat is under 768 bytes; ms values are clamped to 600000.
   It names no user, device, session or address.
 - `portmap` (optional, added 2026-11-24): `{"by":"pcp"|"nat-pmp"|"upnp"|"unknown","used":bool}`,
@@ -538,7 +544,7 @@ error fails every dial in flight) a frame over 2048 bytes, a malformed one, or
 one within 5 s of the socket's last (an `end` stat excepted). It writes one
 Workers Logs line, `{"event":"link_stat",...}`: the frame's fields checked
 against fixed words or clamped (`rtt` flattened to `rttN`, `rttP50`, `rttP95`,
-`rttMax`; `echo` and `ack` the same with `P99`; `spikes` at most six clamped
+`rttMax`; `echo`, `ack` and `outboxUs` the same with `P99`; `spikes` at most six clamped
 triples), plus `kind`, `ingressColo`, `country` and `continent` (where the
 socket's upgrade entered Cloudflare, `req.cf`) and `hubColo` (where the user's
 hub runs). No user or device id is logged. `scripts/cmux-next/link-stats.py`
@@ -1810,6 +1816,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
 | `bundle-v1` | hostd `version` | (2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest. |
 | `zstd-stream-v1` | hostd `version` | (2026-11-24) An `acpmux` channel opened with `args.compressions` listing `zstd-stream-v1` carries every message through one zstd stream kept for the channel's life (`0x01` envelopes, PROTOCOL.md "acpmux compression"). |
+| `api-describe-v1` | hostd `version` | (2026-11-27) The host serves `api`: every method a phone may call on this Mac with its JSON Schemas (`list`, `describe`, `llms`), so a phone checks what this Mac answers instead of its version (cmux-mobile-api). |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
@@ -2294,6 +2301,48 @@ Compatibility: a daemon without the capability gets no
 history); a Mac app whose lane refuses the field gets the same attach without
 it; a phone that does not declare the capability keeps getting whole
 `resized` replays.
+
+## Hidden terminals stream nothing (phone; added 2026-11-14)
+
+Leo, 2026-11-14: "surely we don't need to stream the f***ing thing". A
+terminal page nobody looks at receives no output. The phone keeps up to 4
+warm pages (their Ghostty grids and last frames) as a cache, not as live
+streams. No wire change: the phone closes and reopens its own attach channel.
+
+- **When (phone, `terminal_stream_plan` in cmux-mobile-link-ffi,
+  `TerminalStreamGate`).** A page on screen and taking input in the
+  foreground app streams. Off screen (another tab, the tab grid, the
+  workspace list, mid-swipe) it streams for 3 s, then stops: a tab flip, a
+  peek at the grid or a swipe across tabs comes back inside it and finds the
+  page live. On screen when the app goes to the background it streams for
+  45 s (an app switch or a lock inside it changes nothing). The size claim
+  does not wait: it is released when the app leaves, so the Mac pane goes
+  back to its own size while the stream stays. Off screen and in the background: the 3 s from when it
+  left the screen.
+- **Stop (phone, `DaemonTerminalSession.setStreaming(false)`).** As a
+  session stop does: a claimed size is released (`release-surface-size`, at
+  most 2 s) before the attach channel closes, so the daemon never reads it as
+  a dropped link. The page keeps its grid and last frame and says nothing
+  (no "Reattaching…"); its grid card reads the Mac's screen (`read-screen`)
+  while the grid shows, as for a tab not started. A link that comes back
+  while stopped does not reattach it. Output with nobody watching costs the
+  phone 0 bytes. The terminal's Feed events and notifications ride other
+  channels and are unaffected.
+- **Shown again (phone, `setStreaming(true)`).** One attach, as a reattach
+  after a dropped link: sized when the page claims, the latest screen first
+  with the history the reader already had (`replay_history_rows`), the
+  mirror reset and replayed under the page's frozen last frame, and the
+  reader's place put back (`TerminalScrollRestore`). The daemon has no
+  "nothing changed since" answer for a bytes attach, so a quiet terminal is
+  replayed too (one screen); a release and a reclaim change the grid
+  generation anyway whenever the Mac shows the terminal at another size.
+
+| Path | Output stream |
+| --- | --- |
+| Tab flip, grid peek, swipe across tabs (< 3 s) | stays open: no attach, no replay |
+| Another tab, the grid or the workspace list for 3 s or more | closed; one attach and one replay when shown |
+| App in the background, the page on screen | open 45 s, then closed |
+| Tab cooled out of the warm set of 4 | session stopped (as before) |
 
 ## Push notifications (API 0.13.0)
 

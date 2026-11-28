@@ -1316,6 +1316,22 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
         print(file)
 PYTHON
 )"
+  # A YAML comment is not a runner label: drop a trailing `# ...` (a `#` after whitespace, outside
+  # quotes) before matching, so `# frozen-label: ... (cmux#54437)` or `# ephemeral-required: ...
+  # CMUX_...` on a runs-on line cannot read as the `cmux` or `macOS` label (it did at the tip, 11-28).
+  # Only the comment goes: every label before it is still matched.
+  strip_yaml_comment() {
+    printf '%s\n' "$1" | awk '{
+      q = ""; out = $0
+      for (i = 1; i <= length($0); i++) {
+        c = substr($0, i, 1)
+        if (q != "") { if (c == q) q = ""; continue }
+        if (c == "\x27" || c == "\"") { q = c; continue }
+        if (c == "#" && (i == 1 || substr($0, i - 1, 1) ~ /[ \t]/)) { out = substr($0, 1, i - 1); break }
+      }
+      print out
+    }'
+  }
   # The owned pool selections a runs-on line may keep, removed from its content.
   # $1: the line's content; $2: 1 when a pull request can trigger the workflow.
   strip_owned_pool_selection() {
@@ -1455,6 +1471,24 @@ PYTHON
     echo "FAIL: fleet-runner guard self-test let bare self-hosted through"
     exit 1
   fi
+  # Comments are not labels; labels before a comment still are, and a quoted `#` is not a comment.
+  for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)" \
+               "runs-on: \${{ vars.X || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: mints from CMUX_PR_AUTOFIX_APP_KEY" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }} # ephemeral-required: adds a macOS user as root"; do
+    content_without_allowed="$(strip_yaml_comment "$probe" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
+    if printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)" || printf '%s\n' "$content_without_allowed" | grep -Eq "($selfhosted)"; then
+      echo "FAIL: fleet-runner guard self-test read a trailing YAML comment as a runner label: $probe"
+      exit 1
+    fi
+  done
+  for probe in "runs-on: cmux-macos-26 # a comment" "runs-on: \${{ vars.X || 'tart-canary' }} # note" \
+               "runs-on: [self-hosted, macOS] # note" "runs-on: 'a #b cmux'" "- mac-mini # spare"; do
+    content_without_allowed="$(strip_yaml_comment "$probe" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
+    if ! { printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)" || printf '%s\n' "$content_without_allowed" | grep -Eq "($selfhosted)"; }; then
+      echo "FAIL: fleet-runner guard self-test dropped a label along with a comment: $probe"
+      exit 1
+    fi
+  done
 
   # Nightlies never run on Blacksmith (Lawrence, 2026-10-30), so the owned nightly-only pool is a nightly job's
   # last fallback: nightly.yml may end a runner value on exactly this tail (the builder tail
@@ -1511,7 +1545,7 @@ PYTHON
   # before matching the value so the checkout path (which contains "cmux") can
   # never match the bare `cmux` label.
   while IFS= read -r line; do
-    content="${line#*:*:}"
+    content="$(strip_yaml_comment "${line#*:*:}")"
     if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
     fi
