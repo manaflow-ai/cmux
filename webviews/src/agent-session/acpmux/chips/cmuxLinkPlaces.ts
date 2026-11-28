@@ -1,12 +1,3 @@
-// The workspaces, panes and tabs a cmux link can name, by their resource ids, as the host pushes
-// them (`linkPlaces`: each window's workspaces with their titles and the machine they are on). A
-// module store like needsYou/attentionTabs.ts, so a push that arrives before the transcript mounts
-// is kept, and one map built per push: a chip reads its place in O(1) however many workspaces
-// there are (rulebook: interaction cost stays constant as workspaces grow). A rename is a new push,
-// so a chip's title follows it; an id no push names (closed, deleted, another person's) has no place,
-// and its link stays the plain link.
-import { useSyncExternalStore } from "react";
-
 export type CmuxLinkPlace = {
   /// `ws_…`, `pane_…` or `tab_…`.
   id: string;
@@ -17,12 +8,6 @@ export type CmuxLinkPlace = {
   /// A tab's or pane's workspace, by its title.
   workspace?: string;
 };
-
-/// The host event that replaces the list (pageHost.ts).
-export const LINK_PLACES_EVENT = "linkPlaces";
-/// The host event with the places renamed since its last push (an agent's title spinner renames its
-/// tab several times a second): only those, never the whole list again (AgentPaneLinkPlaces.swift).
-export const LINK_PLACES_CHANGED_EVENT = "linkPlacesChanged";
 /// Longest title a pushed field keeps.
 const MAX_TEXT = 256;
 /// The most places one push keeps: past it the rest stay plain links.
@@ -95,10 +80,4 @@ export function linkPlacesVersion(): number {
 export function subscribeLinkPlaces(listener: () => void): () => void {
   listeners.add(listener);
   return () => void listeners.delete(listener);
-}
-
-/// The place `id` names, live: a rename or a close redraws only the chips that name it.
-export function useLinkPlace(id: string | undefined): CmuxLinkPlace | undefined {
-  const read = () => (id ? places.get(id) : undefined);
-  return useSyncExternalStore(subscribeLinkPlaces, read, read);
 }

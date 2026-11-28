@@ -697,7 +697,7 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     #[cfg(unix)]
     let (endpoint, log) = {
         let mut runtime = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
-        if !crate::server::unix_socket_path_fits(&runtime.join("cu.sock")) {
+        if !crate::socket_path::unix_socket_path_fits(&runtime.join("cu.sock")) {
             runtime = crate::platform::fallback_runtime_dir().join(&leaf);
         }
         (

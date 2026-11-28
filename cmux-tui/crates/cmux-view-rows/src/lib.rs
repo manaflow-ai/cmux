@@ -39,6 +39,10 @@
 
 use std::collections::HashMap;
 use std::fmt;
+
+/// Test support: per-frame work counters and the flat-in-N contract of a list view.
+#[cfg(any(test, feature = "frame-work"))]
+pub mod frame_work;
 use std::hash::Hash;
 
 /// A list of keyed rows in view order, each key once.
