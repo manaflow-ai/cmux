@@ -1,0 +1,137 @@
+name: macOS cross link
+
+# The PR-time macOS cross link (cmuxterm-hq#17415). The macOS daemon family ships
+# from a Linux link with no Apple SDK (scripts/ci/macos-cross.sh): every Apple
+# framework symbol it imports must be in a stub under scripts/ci/macos-stubs. A
+# change that imports a new one linked fine on a Mac and failed only at publish
+# (cmux#49299: CoreGraphics, ApplicationServices, AppKit, Foundation and libobjc).
+# This job runs the same link for aarch64-apple-darwin, in the dev profile
+# (macos-cross.sh link-check), when a pull request changes Rust, Cargo or the
+# cross recipe. It runs beside the other checks, nothing needs it, and it is not
+# required: it stays advisory until its warm run is under 5 minutes.
+# feat-cmux-next pushes on the same paths save the warm cargo cache PRs restore.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/.cargo/**"
+      - "cmux-tui/rust-toolchain.toml"
+      - "ghostty-next"
+      - "scripts/ci/macos-stubs/**"
+      - "scripts/ci/macos-cross.sh"
+      - "scripts/ci/macos_stubs.py"
+      - "scripts/ci/acpmux-build-features.sh"
+      - ".github/workflows/macos-cross-link.yml"
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/.cargo/**"
+      - "cmux-tui/rust-toolchain.toml"
+      - "ghostty-next"
+      - "scripts/ci/macos-stubs/**"
+      - "scripts/ci/macos-cross.sh"
+      - "scripts/ci/macos_stubs.py"
+      - "scripts/ci/acpmux-build-features.sh"
+      - ".github/workflows/macos-cross-link.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: macos-cross-link-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  link:
+    name: macOS cross link (aarch64, Linux, no Apple SDK)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 45
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      # The SDK version label the package build's cross legs record (cmux-tui-build-package.yml).
+      XC_SDK_VERSION: "26.5"
+      XC_TARGETS: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Install LLVM 19 (clang, ld64.lld, llvm tools)
+        run: bash scripts/ci/apt-ensure.sh clang-19 lld-19 llvm-19
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
+
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install the macOS Rust target
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin
+
+      - name: Key the cross toolchain
+        id: darwin-cross
+        run: |
+          set -euo pipefail
+          key="$({ clang-19 --version | head -1; ld.lld-19 --version; zig version; echo "sdk $XC_SDK_VERSION"; } | sha256sum | cut -c1-16)"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/runner-cargo-home
+
+      # Warm start: the dependencies' dev-profile objects for this target, saved by
+      # feat-cmux-next pushes only. The key holds the cross toolchain and macos-cross.sh
+      # (its compiler wrappers), so a toolchain change starts cold instead of reusing the
+      # old one's objects. The stubs only feed the link, which every run redoes, so a stub
+      # change keeps the warm objects.
+      - name: Restore the macOS cross-link cargo cache
+        continue-on-error: true
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: macos-cross-link-aarch64-apple-darwin
+          key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh') }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: Link the macOS daemon family on Linux (framework stubs)
+        id: link
+        env:
+          XC_CARGO_TARGET_DIR: ${{ github.workspace }}/cmux-tui/target
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
+          ./scripts/ci/macos-cross.sh link-check
+          echo "### macOS cross link: $(( $(date +%s) - start )) s (toolchain and link)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Name the fix for a missing stub
+        if: failure() && steps.link.outcome == 'failure'
+        run: |
+          echo "::error title=macOS cross link failed::An 'undefined symbol' or 'framework not found' above is an Apple import with no stub in scripts/ci/macos-stubs. Add it to that framework's .tbd (or a new .tbd beside them), or regenerate the stubs from Mac-built binaries as scripts/ci/macos_stubs.py's docstring says. Run it locally: scripts/ci/macos-cross.sh toolchain 26.5 && XC_TARGETS=aarch64-apple-darwin scripts/ci/macos-cross.sh link-check"
