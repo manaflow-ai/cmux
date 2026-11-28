@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "lamina-slate-light",
-  "description": "Lamina Slate light: a layered, translucent desktop look (neutral, flatter and denser): 4 and 8 point corners, one-point strokes, an accent mark on the selected row, a squarer toast.",
+  "description": "Lamina Slate, neutral and dense, light.",
   "settings": {
     "appearance.themeFile": "lamina-slate-light",
     "layout.paneSeparation": "borders",

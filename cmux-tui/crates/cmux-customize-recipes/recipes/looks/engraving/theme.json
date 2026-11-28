@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Engraving",
-  "description": "A Dore engraving behind dark glass, pure grays, separate panes and serif pages.",
+  "description": "A Dore engraving behind dark glass.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

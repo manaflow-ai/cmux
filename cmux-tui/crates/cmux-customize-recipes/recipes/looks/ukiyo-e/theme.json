@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Ukiyo-e: the Great Wave",
-  "description": "Hokusai's Great Wave behind frosted washi paper, Prussian-blue ink, a two-tone window and serif pages.",
+  "description": "Hokusai's Great Wave behind washi paper.",
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
   "colors": {

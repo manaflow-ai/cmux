@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Starry night",
-  "description": "Van Gogh's Starry Night behind dark glass, night blue and a star-yellow accent, floating panes.",
+  "description": "Van Gogh's Starry Night behind dark glass.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

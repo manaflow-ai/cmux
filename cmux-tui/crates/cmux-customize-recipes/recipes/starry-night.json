@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "starry-night",
-  "description": "Van Gogh's Starry Night behind dark glass, night blue and a star-yellow accent, floating panes.",
+  "description": "Van Gogh's Starry Night behind dark glass.",
   "settings": {
     "appearance.themeFile": "starry-night"
   }

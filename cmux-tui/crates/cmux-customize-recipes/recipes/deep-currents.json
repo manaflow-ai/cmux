@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "deep-currents",
-  "description": "The living Currents wallpaper behind glass, ocean blue and a bright blue accent, floating panes.",
+  "description": "Currents wallpaper behind ocean-blue glass.",
   "settings": {
     "appearance.themeFile": "deep-currents"
   }

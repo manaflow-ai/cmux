@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "lamina-mist-light",
-  "description": "Lamina Mist light: a layered, translucent desktop look (cool and more translucent): 4 and 8 point corners, one-point strokes, an accent mark on the selected row, a squarer toast.",
+  "description": "Lamina Mist, cool and translucent, light.",
   "settings": {
     "appearance.themeFile": "lamina-mist-light",
     "layout.paneSeparation": "cards",

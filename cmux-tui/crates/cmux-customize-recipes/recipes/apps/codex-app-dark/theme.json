@@ -3,7 +3,7 @@
 // match the app's look by eye from its public screenshots, not measured.
 {
   "name": "Codex app, dark",
-  "description": "A near-black #151515 page, a #1c1c1c sidebar, white ink and grays, no color accent.",
+  "description": "Near-black with white ink and grays.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

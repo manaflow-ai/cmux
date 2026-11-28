@@ -2,7 +2,7 @@
 // one-point strokes, no reveal effects, an accent mark on the selected row. Every key is a look key.
 {
   "name": "Lamina Mist",
-  "description": "A layered, translucent desktop look: cool and more translucent, dark.",
+  "description": "Cool and translucent, dark.",
 
   // Palette: layer color, ink, selection, accent.
   "appearance.theme": "Builtin Dark",

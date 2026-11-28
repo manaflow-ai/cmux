@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "lamina-tide-light",
-  "description": "Lamina Tide light: a layered, translucent desktop look (accent-forward teal): 4 and 8 point corners, one-point strokes, an accent mark on the selected row, a squarer toast.",
+  "description": "Lamina Tide, teal accent, light.",
   "settings": {
     "appearance.themeFile": "lamina-tide-light",
     "layout.paneSeparation": "cards",

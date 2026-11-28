@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Sumi ink",
-  "description": "Black ink on rice paper and one seal-red mark: no picture, a hairline sidebar, serif pages.",
+  "description": "Black ink on rice paper.",
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
   "colors": {

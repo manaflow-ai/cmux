@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Hiroshige at dusk",
-  "description": "Hiroshige's coast at Hota behind dark glass, warm paper ink and a vermilion accent, floating panes.",
+  "description": "Hiroshige's coast at dusk, vermilion accent.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

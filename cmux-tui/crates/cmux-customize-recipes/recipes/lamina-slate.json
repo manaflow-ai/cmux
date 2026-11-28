@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "lamina-slate",
-  "description": "Lamina Slate dark: a layered, translucent desktop look (neutral, flatter and denser): 4 and 8 point corners, one-point strokes, an accent mark on the selected row, a squarer toast.",
+  "description": "Lamina Slate, neutral and dense, dark.",
   "settings": {
     "appearance.themeFile": "lamina-slate",
     "layout.paneSeparation": "borders",

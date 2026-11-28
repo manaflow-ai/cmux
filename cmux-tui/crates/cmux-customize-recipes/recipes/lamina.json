@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "lamina",
-  "description": "Lamina dark: a layered, translucent desktop look (compact and balanced): 4 and 8 point corners, one-point strokes, an accent mark on the selected row, a squarer toast.",
+  "description": "Lamina, layered and translucent, in dark.",
   "settings": {
     "appearance.themeFile": "lamina",
     "layout.paneSeparation": "cards",

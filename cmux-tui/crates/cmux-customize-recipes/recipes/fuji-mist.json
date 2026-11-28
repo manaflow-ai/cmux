@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "fuji-mist",
-  "description": "Hokusai's Umezawa Manor and Mount Fuji behind pale frosted glass, sea-green ink, a two-tone window.",
+  "description": "Hokusai's Mount Fuji behind pale glass.",
   "settings": {
     "appearance.themeFile": "fuji-mist",
     "markdown.font.preset": "serif"

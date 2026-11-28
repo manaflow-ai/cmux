@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "web-coding-app",
-  "description": "Looks and works like a light web coding agent: workspaces as one-line tabs, a quiet sidebar, a white page on a light-gray frame, a centered chat column, your prompts in light-gray bubbles, a hairline rounded composer, Command-N for a new chat and Shift-Command-[ and ] to walk the tabs.",
+  "description": "Works like a light web coding agent.",
   "settings": {
     "appearance.themeFile": "web-coding-app",
     "sidebar.workspacesAsTabs": true,

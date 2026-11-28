@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "glass",
-  "description": "See-through glass behind the window, with a lighter sidebar.",
+  "description": "See-through glass with a lighter sidebar.",
   "settings": {
     "appearance.backgroundBlur": "glass",
     "appearance.backgroundOpacity": 0.8,

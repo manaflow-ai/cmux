@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Aurora",
-  "description": "The living Aurora wallpaper behind clear glass, polar night blue and a green-teal accent, floating panes.",
+  "description": "Aurora wallpaper behind clear polar-night glass.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

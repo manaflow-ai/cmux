@@ -1,7 +1,7 @@
 // The Codex app: a gray sidebar beside a white page, near-black text, gray accents, no borders.
 {
   "name": "Codex app",
-  "description": "A gray sidebar beside a white page, near-black text, no borders.",
+  "description": "A gray sidebar beside a white page.",
 
   "appearance.theme": "Builtin Light",
   "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#e3e3e3", "accent": "#5d5d5d" },

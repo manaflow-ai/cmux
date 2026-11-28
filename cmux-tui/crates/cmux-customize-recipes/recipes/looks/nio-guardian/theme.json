@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Nio guardian",
-  "description": "Kano Hogai's Nio guardian behind dark glass, umber panes and a gold-leaf accent on cards.",
+  "description": "Hogai's Nio guardian in umber and gold.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

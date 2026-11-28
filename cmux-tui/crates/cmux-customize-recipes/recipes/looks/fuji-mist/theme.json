@@ -3,7 +3,7 @@
 // no hue shouts. An opt-in look: nothing here changes until you pick it.
 {
   "name": "Fuji in mist",
-  "description": "Hokusai's Umezawa Manor and Mount Fuji behind pale frosted glass, sea-green ink, a two-tone window.",
+  "description": "Hokusai's Mount Fuji behind pale glass.",
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
   "colors": {

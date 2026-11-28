@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "water-lilies",
-  "description": "Monet's water lilies behind frosted glass, pond greens and blues, a two-tone window.",
+  "description": "Monet's water lilies behind frosted glass.",
   "settings": {
     "appearance.themeFile": "water-lilies"
   }
