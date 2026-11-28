@@ -15,9 +15,7 @@ impl Hub {
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
-        self.sessions
-            .lock_or_recover()
-            .insert(id, session.clone());
+        self.sessions.lock_or_recover().insert(id, session.clone());
         self.update_live_session_index(&session);
         self.session_came(&session);
         session
