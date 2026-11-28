@@ -82,7 +82,24 @@ kit() {
   if [[ -n "$tests" ]]; then
     only=()
     for target in $tests; do only+=("-only-testing:$target"); done
-    (cd cmux-next-ios/CmuxMobileKit && xcodebuild test "${common[@]}" "${only[@]}" -resultBundlePath "$bundle") || status=1
+    # Bounded, as ios-kit-sim-mac-test.sh is: a test past its allowance fails by name, and a run past the bound gets
+    # SIGINT, so xcodebuild closes the result bundle and the report below names what never finished. Unbounded, cmux#43260's
+    # dispatch runs 46165955338 and 46171907868 printed nothing after the app build and the job hit its 40 min timeout.
+    local bound="${IOS_FAST_KIT_BOUND_S:-1680}" xcb watchdog
+    (cd cmux-next-ios/CmuxMobileKit && exec xcodebuild test "${common[@]}" "${only[@]}" \
+      -test-timeouts-enabled YES -default-test-execution-time-allowance 120 -maximum-test-execution-time-allowance 300 \
+      -resultBundlePath "$bundle") &
+    xcb=$!
+    ( sleep "$bound"
+      if kill -0 "$xcb" 2>/dev/null; then
+        echo "::error::kit tests still running after ${bound}s: interrupted; the report below names the tests that never finished"
+        kill -INT "$xcb" 2>/dev/null || true
+        sleep 60
+        kill -KILL "$xcb" 2>/dev/null || true
+      fi ) &
+    watchdog=$!
+    wait "$xcb" || status=1
+    kill "$watchdog" 2>/dev/null || true
     # -quiet drops Swift Testing's output: the counts and every failure from the result bundle.
     xcrun xcresulttool get test-results tests --path "$bundle" --compact 2>/dev/null | python3 -I -c '
 import json, sys
@@ -92,6 +109,8 @@ def walk(node, path):
         counts[node.get("result")] = counts.get(node.get("result"), 0) + 1
         if node.get("result") == "Failed":
             print("FAILED:", " / ".join(path))
+        elif node.get("result") not in ("Passed", "Skipped", "Expected Failure"):
+            print("NOT FINISHED (" + str(node.get("result")) + "):", " / ".join(path))
     for child in node.get("children", []):
         if child.get("nodeType") == "Failure Message":
             print("   ", child.get("name"))
