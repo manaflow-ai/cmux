@@ -269,7 +269,7 @@ timeout = 120
 title = "Reusable workflow permissions"
 about = "every local `uses: ./.github/workflows/*.yml` call stays within its caller's permissions, so no workflow fails at startup"
 inputs = [
-  ".github/workflows/**",
+  ".github/workflows/*",
   "scripts/ci/check_reusable_workflow_permissions.py",
   "tests/test_ci_reusable_workflow_permissions.py",
 ]
@@ -427,7 +427,7 @@ timeout = 300
 title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, proof record and UI proof, routed jobs, pair scope)"
 about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict, the proof record and UI proof verdict, routed job dependencies and pair-run attachment selection"
 inputs = [
-  ".github/workflows/**",
+  ".github/workflows/*",
   "scripts/ci/ci_timing_readout.py",
   "scripts/ci/check_repo_variables.py",
   "scripts/ci/ios_fast_verdict.*",
@@ -474,7 +474,7 @@ timeout = 300
 title = "Workflow twins match main's runner and token floor"
 about = "every workflow both main and feat-cmux-next carry (same job ids and triggers) lands each job on the same runner labels and makes the same job_token_floor.py calls in both copies; the jobs that already differed are scripts/ci/workflow_twins_known_drift.tsv, and a new one fails"
 inputs = [
-  ".github/workflows/**",
+  ".github/workflows/*",
   "scripts/ci/workflow_twins_known_drift.tsv",
   "scripts/ci/workflow_twins.py",
   "scripts/ci/owned_pool_sources.py",
@@ -506,7 +506,7 @@ timeout = 120
 title = "Workflow runner guards (owned-pool rescue, main twins, runner set)"
 about = "every owned-pool workflow is one the persistent-pool rescue watches or names why not, each main twin keeps its twin's runs-on and token floor, and stalled CI paths take the runner set"
 inputs = [
-  ".github/workflows/**",
+  ".github/workflows/*",
   "scripts/ci/owned_pool_rescue.py",
   "scripts/ci/owned_pool_sources.py",
   "scripts/ci/check_runs_on_pools.py",
@@ -521,6 +521,29 @@ python3 tests/test_ci_owned_pool_sources.py || status=1
 python3 tests/test_ci_runner_set.py || status=1
 exit "$status"
 '''
+
+# ci-guards.yml's steps that a pull request's paths reach, by the files each step names (guard_step_inputs.py
+# "reached by ..."; about 100 of 630 for a workflow change), judged against the base: a red the base shares is
+# not the change's. cmux-next-guards.yml's guard jobs skip a pull request into feat-cmux-next (land tier, cheap
+# draft tier, CI_GUARD_GROUP_ON_FULL_CI), so #63625, #63940, #64168 and #64245 each merged green with every guard
+# job skipped and the push after them went red (58 + 9 + 2 steps on run 46134168061, 11-28). Leo: "fix all the
+# problems". Inputs are one-directory globs so --pr-scope keeps them (`.github/workflows/**` is left to the batch).
+[step.guard-steps-reached]
+job = "linux"
+# land_gate: the land tier starts pr-pipeline on a landing head only for nightly and land_gate steps.
+land_gate = true
+timeout = 900
+title = "ci-guards.yml steps the change reaches, judged against the base"
+about = "runs the guard steps whose named inputs the change touches (scripts/ci/guards_reached.sh), re-runs each red on the base, and fails only on a red the base passes"
+inputs = [
+  ".github/*",
+  ".github/workflows/*",
+  ".github/actions/*/*",
+  "scripts/ci/*",
+  "scripts/*",
+  "tests/*",
+]
+run = "scripts/ci/guards_reached.sh"
 
 [step.skill-contracts]
 job = "linux"
@@ -3019,6 +3042,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/server/chats/*",
   "cmux-tui/crates/acpmux/src/server/outbound_queue_tests/*",
   "cmux-tui/crates/acpmux/src/server/peer_forward/*",
+  "cmux-tui/crates/acpmux/src/server/pull_request_actions/*",
   "cmux-tui/crates/acpmux/src/server/races/*",
   "cmux-tui/crates/acpmux/src/server/races/peer/*",
   "cmux-tui/crates/acpmux/src/server/remote_guard/*",
