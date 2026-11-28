@@ -38,7 +38,8 @@ pub const SWITCH_ENV: &str = "ACPMUX_SESSION_MANIFEST";
 #[serde(rename_all = "camelCase")]
 pub struct SessionManifest {
     /// The folder the record holds for. A move rebinds it to the chat's folder on the target
-    /// (`transfer_in.rs`, [`rebind`]); a fork into another folder does not keep it.
+    /// when its folder plan says that folder is the chat's own (`transfer_in.rs`, [`rebind`],
+    /// `cli/session_move_plan.rs` `same_folder`); a fork into another folder does not keep it.
     pub folder: PathBuf,
     /// Its cmux server lists every tool, not code mode.
     pub all_tools: bool,
@@ -377,7 +378,8 @@ pub fn for_fork(parent: Option<&SessionManifest>, cwd: &Path) -> Option<SessionM
 }
 
 /// A moved chat's `session.json` (as JSON) with its manifest bound to `cwd`, its folder on this
-/// machine: the same branch checked out, so the same namespace (Plan 9's `bind`).
+/// machine, for a move whose folder plan made it the chat's own: the same branch checked out with
+/// nothing left behind, or its files carried, so the same namespace (Plan 9's `bind`).
 pub fn rebind(meta: &mut Value, cwd: &str) {
     if let Some(m) = meta.get_mut("manifest").and_then(Value::as_object_mut) {
         m.insert("folder".into(), Value::String(cwd.to_owned()));
