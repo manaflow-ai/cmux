@@ -36,7 +36,11 @@ fn safe_component(s: &str) -> String {
         && s.len() <= 100
         && !s.starts_with('.')
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b));
-    if ok { s.to_owned() } else { crate::auth::caller_key(Some(s.as_bytes()))[..32].to_owned() }
+    if ok {
+        s.to_owned()
+    } else {
+        crate::auth::caller_key(Some(s.as_bytes())).chars().take(32).collect()
+    }
 }
 
 /// A git that reads no user or system config and never prompts. Its `Child` ends with its
