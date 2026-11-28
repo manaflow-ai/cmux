@@ -2,6 +2,8 @@
 // wire log, wire.ts) and the selected session's ACP event journal as acpmux
 // recorded it, with the connection and session state above them. It opens
 // over the transcript like the diff panel and reads nothing while closed.
+// Timing lays each turn's message to agent, queue and first output on one session axis
+// (InspectorTiming.tsx), read from acpmux's history when the tab opens.
 // A message that carries a Point at Element pick names the element on its row,
 // and Pointed shows only those rows (inspectorModel.ts pointedElements).
 import { useEffect, useRef, useState } from "react";
@@ -10,11 +12,12 @@ import { useT } from "./i18n";
 import type { AcpmuxSnapshot } from "./model";
 import { acpWire, type AcpWireLog, type WireEntry } from "./wire";
 import { PerfPanel } from "./PerfPanel";
+import { InspectorTiming, type ReadInspectorHistory } from "./InspectorTiming";
 import type { PerfSend } from "./perfReporter";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import "./Inspector.css";
 import { exportFileName, clockTime, wireRow, sessionRow, visibleRows } from "./inspectorModel";
-export type InspectorView = "wire" | "session" | "perf";
+export type InspectorView = "wire" | "session" | "timing" | "perf";
 
 /** What the host did with an export: saved it, the user cancelled its save panel, or it cannot save (the log is copied instead). */
 export type ExportOutcome = "saved" | "cancelled" | "unavailable";
@@ -67,6 +70,7 @@ export function Inspector({
   onExport,
   wire = acpWire,
   perf,
+  readHistory,
 }: {
   snapshot: AcpmuxSnapshot;
   /** The selected session's ACP events as the client holds them. */
@@ -77,6 +81,8 @@ export function Inspector({
   wire?: AcpWireLog;
   /** `_acpmux/perf` through the page's client: the Perf tab (the live perf commentator); none, no tab. */
   perf?: PerfSend;
+  /** `_acpmux/history` through the page's client: the Timing tab; none, no tab. */
+  readHistory?: ReadInspectorHistory;
 }) {
   const t = useT();
   const [view, setView] = useState<InspectorView>("wire");
@@ -137,7 +143,7 @@ export function Inspector({
         </button>
         <strong>{t("inspector.title")}</strong>
         <div className="acpmux-diff-tools acpmux-inspector-views ui-slide-host" aria-label={t("inspector.view")}>
-          {/* The pressed plate travels between Wire and Session (ui/motion, transform only). */}
+          {/* The pressed plate travels between the views (ui/motion, transform only). */}
           <SlidingIndicator selected={view} look="plate" />
           <button
             type="button"
@@ -155,6 +161,16 @@ export function Inspector({
           >
             {t("inspector.session")}
           </button>
+          {readHistory && (
+            <button
+              type="button"
+              className="acpmux-diff-tool ui-slide-item"
+              aria-pressed={view === "timing"}
+              onClick={() => setView("timing")}
+            >
+              {t("inspector.timing")}
+            </button>
+          )}
           {perf && (
             <button
               type="button"
@@ -214,7 +230,14 @@ export function Inspector({
         )}
       </dl>
       {view === "perf" && perf && <PerfPanel send={perf} />}
-      {view !== "perf" && (
+      {view === "timing" &&
+        readHistory &&
+        (snapshot.sessionId ? (
+          <InspectorTiming sessionId={snapshot.sessionId} read={readHistory} />
+        ) : (
+          <p className="acpmux-timing-note">{t("inspector.none")}</p>
+        ))}
+      {(view === "wire" || view === "session") && (
         <>
           <div className="acpmux-inspector-tools">
             <input
