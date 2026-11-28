@@ -346,6 +346,8 @@ jobs:
 
       # Every connectivity host NEXT's code names (ICE servers, relays, signaling, backend, update hosts) is in
       # config/network/allowlist.json, the list firewall admins allow; docs/network-requirements.md is rendered from it.
+      # On a pull request the coverage check reads only the changed files (tests/guard_delta.py); a branch's own run
+      # reads them all.
       - name: Validate NEXT's connectivity hosts are in the network allowlist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_network_allowlist.py
@@ -974,6 +976,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
 
+      # A hint, never a gate: annotate pattern downloads a lone match flattens into path: itself
+      # (cmuxterm-hq docs/handbook/lone-artifact-flattens-its-download.md).
+      - name: Hint at pattern downloads a lone artifact flattens
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_pattern_download_layout_hint.py
+          python3 scripts/ci/pattern_download_layout_hint.py || true
+
       - name: Check that path-filtered workflows start for their tests' inputs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_paths_cover_inputs.py
@@ -1512,6 +1522,10 @@ jobs:
       - name: Validate registered ci fixit handoff
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fixit_handoff.py
+
+      - name: Validate registered ci fixit lint
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fixit_lint.py
 
       - name: Validate registered ci fleet fast tier result
         if: ${{ !cancelled() && matrix.group == 'ci' }}
