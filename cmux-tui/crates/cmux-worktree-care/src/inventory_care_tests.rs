@@ -87,3 +87,60 @@ fn a_dropped_merge_tree_claim_is_free_while_a_forked_child_keeps_its_descriptor(
     drop(next);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+fn git_in(root: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+        .args(args)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// A fetch into the shared common folder (any lane's, all day on a lane
+/// host) must not void every worktree's memoized facts, yet what it moved
+/// (commits only here) is read afresh.
+#[test]
+fn a_fetch_keeps_memoized_facts_and_rereads_what_it_moved() {
+    crate::walk_memo::reset_for_test();
+    let root = crate::store::care_tests::scratch("memo-fetch");
+    let origin = root.join("origin.git");
+    let main = root.join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    git_in(&root, &["init", "-q", "--bare", "-b", "main", origin.to_str().unwrap()]);
+    git_in(&main, &["init", "-q", "-b", "main"]);
+    std::fs::write(main.join("data"), "one").unwrap();
+    git_in(&main, &["add", "data"]);
+    git_in(&main, &["commit", "-qm", "initial"]);
+    git_in(&main, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    git_in(&main, &["push", "-q", "origin", "main"]);
+    git_in(&main, &["fetch", "-q", "origin"]);
+    let path = root.join("wt");
+    git_in(&main, &["worktree", "add", "-q", "-b", "local", path.to_str().unwrap()]);
+    std::fs::write(path.join("data"), "two").unwrap();
+    git_in(&path, &["commit", "-qam", "local work"]);
+
+    let store = root.join("store");
+    std::fs::create_dir_all(&store).unwrap();
+    let scan_once = || {
+        crate::walk_memo::open(&store);
+        let _ = crate::walk_memo::take_cost();
+        let repo = scan(&main.join(".git"), &[]).unwrap();
+        let cost = crate::walk_memo::take_cost();
+        crate::walk_memo::close(now_ms()).unwrap();
+        let wt = repo.worktrees.into_iter().find(|wt| same_path(&wt.path, &path)).unwrap();
+        (wt.facts.unwrap(), cost)
+    };
+    let (first, cost) = scan_once();
+    assert_eq!((first.unpushed, cost.facts_read, cost.facts_reused), (1, 1, 0));
+
+    // Another lane pushes and fetches: FETCH_HEAD and the remote refs move.
+    git_in(&path, &["push", "-q", "origin", "local"]);
+    git_in(&main, &["fetch", "-q", "origin"]);
+    let (second, cost) = scan_once();
+    assert_eq!((cost.facts_read, cost.facts_reused), (0, 1), "a fetch voided the memo");
+    assert_eq!(second.unpushed, 0, "what the fetch moved was not read again");
+    crate::walk_memo::reset_for_test();
+}
