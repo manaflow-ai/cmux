@@ -52,6 +52,7 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod terminal_sizing_view;
 mod vault;
 mod vnc;
 mod window_layout;
