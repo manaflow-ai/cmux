@@ -6,7 +6,12 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import React, { act, useRef } from "react";
 import type { Root } from "react-dom/client";
-import {
+import type { DictationAudio, DictationField } from "../src/agent-session/acpmux/dictation";
+import type { DictationRecording } from "../src/agent-session/acpmux/dictationText";
+import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const {
   MAX_AUDIO_BYTES,
   audioAttachment,
   promptBlocks,
@@ -14,10 +19,7 @@ import {
   recordingLeftOutNotice,
   remoteRecordingAttachment,
   takesAudio,
-} from "../src/agent-session/acpmux/attachments";
-import type { DictationAudio, DictationField } from "../src/agent-session/acpmux/dictation";
-import type { DictationRecording } from "../src/agent-session/acpmux/dictationText";
-import { teardownDom } from "./support/domTeardown";
+} = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node"] as const;

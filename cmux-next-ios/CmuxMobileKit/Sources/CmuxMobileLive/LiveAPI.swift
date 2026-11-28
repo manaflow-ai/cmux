@@ -19,7 +19,6 @@ public struct LiveAPI: Sendable {
 
     public init(baseURL: URL, session: URLSession? = nil, buildSpace: CMUXBuildSpaceState = .nightly,
                 accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
-        self.baseURL = baseURL
         self.init(baseURL: baseURL, sessions: session.map { first in
             APISessions(first, make: { CmuxEgress.session(site: "CmuxMobileLive.LiveAPI", configuration: first.configuration) })
         } ?? .shared, buildSpace: buildSpace, accessToken: accessToken)
