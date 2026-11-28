@@ -356,6 +356,8 @@ on:
       - scripts/launch-tagged-automation.sh
       - scripts/lib/reload-shim.test.mjs
       - scripts/lib/stop-app-instances.sh
+      - scripts/lib/bun-options.sh
+      - scripts/blacksmith-testbox-source-mtimes.py
       - scripts/merge-pbxproj.py
       - scripts/merge-xcstrings.py
       - scripts/web-lint.sh
@@ -730,6 +732,8 @@ on:
       - scripts/launch-tagged-automation.sh
       - scripts/lib/reload-shim.test.mjs
       - scripts/lib/stop-app-instances.sh
+      - scripts/lib/bun-options.sh
+      - scripts/blacksmith-testbox-source-mtimes.py
       - scripts/merge-pbxproj.py
       - scripts/merge-xcstrings.py
       - scripts/web-lint.sh
@@ -3644,6 +3648,8 @@ jobs:
           bash scripts/ci/tests/cargo-groups-memory.test.sh
           # The same cap for a single cargo build (repro-capsule journey job 140983092431).
           bash scripts/ci/tests/cargo-mem-jobs.test.sh
+          # acpmux and cmux-tui-core compiling at once went past cloud-journey-pr's 14 GiB runner (run 46147374990).
+          bash scripts/ci/tests/rustc-heavy-lock.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)

@@ -17,7 +17,7 @@ bench() {
   for ((i = 0; i < burn; i++)); do (while :; do :; done) & pids+=($!); done
   ACPMUX_HOME=$home cargo test --release -p acpmux --lib bg_folder_bench -- --ignored --nocapture 2>&1 \
     | grep BG_FOLDER_BENCH | sed "s/^/$tag BURN=$burn /"
-  for i in "${pids[@]}"; do kill "$i"; done
+  for i in ${pids[@]+"${pids[@]}"}; do kill "$i"; done
   rm -rf "$home"
 }
 bench AFTER

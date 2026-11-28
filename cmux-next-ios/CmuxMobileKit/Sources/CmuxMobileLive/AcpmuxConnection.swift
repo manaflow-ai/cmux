@@ -29,6 +29,9 @@ public actor AcpmuxConnection {
         /// ABI check (hq RFD 0224).
         public var errorKind: String? = nil
         public var update: String? = nil
+        /// `error.data.details`: a refusal's own facts (a Cloud start's `seed.needs_github`:
+        /// `repo`, `githubLogin`, `githubUser`).
+        public var details: JSONValue? = nil
     }
 
     public struct Notification: Sendable {
@@ -416,7 +419,8 @@ public actor AcpmuxConnection {
                     origin: error["data"]?["origin"]?.stringValue,
                     dataCode: error["data"]?["code"]?.stringValue,
                     errorKind: error["data"]?["errorKind"]?.stringValue,
-                    update: error["data"]?["details"]?["update"]?.stringValue
+                    update: error["data"]?["details"]?["update"]?.stringValue,
+                    details: error["data"]?["details"]
                 ))
             } else {
                 outcome = .success(value["result"] ?? .null)
