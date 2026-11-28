@@ -12,6 +12,7 @@ import { estimatedSpendUsd, estimatedUsdPerHour, sizeOfCreate, spendWindows, typ
 import { actorRef, type Principal } from "../domain/principal.ts";
 import { badRequest, Forbidden, QuotaExceeded, unavailable } from "../errors.ts";
 import type { TenantId } from "../lib/ids.ts";
+import { CREATE_SEND_GRACE_MS } from "../limits/ledger.ts";
 import { TenantLimits } from "../limits/service.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { visitOwnedVms, type OwnedVmPage } from "../proofs/tenant-owns-resource.ts";
@@ -105,8 +106,12 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
       .pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
     const agent = agentSlotOwner(caller.value);
     const slotId = crypto.randomUUID();
+    // A run-capped key's VMs are paused and deleted upstream within the cap, so a slot held for a create that may
+    // exist lapses after it (plus the send grace), not after the 25 h a long-lived key's create may live.
+    const runCap = caller.value.maxRunSeconds;
+    const heldBoundMs = runCap === undefined ? undefined : runCap * 1000 + CREATE_SEND_GRACE_MS;
     const admitted = yield* (yield* TenantLimits)
-      .admitAgentSlot(caller.value.tenantId, agent, budget.maxVms, owned.results, slotId)
+      .admitAgentSlot(caller.value.tenantId, agent, budget.maxVms, owned.results, slotId, heldBoundMs)
       .pipe(Effect.mapError(unavailable));
     // Lost a race to a concurrent create: its slot fills the cap.
     if (!admitted) return yield* Effect.fail(overVmCap(budget, budget.maxVms));

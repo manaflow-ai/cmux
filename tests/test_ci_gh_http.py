@@ -110,6 +110,16 @@ class Request(unittest.TestCase):
         self.assertGreater(len(calls), gh_http.TRIES)
         self.assertTrue(all(w == 101.0 for w in slept), slept)
 
+    def test_rate_budget_zero_gives_up_on_a_long_named_limit_at_once(self):
+        # A caller with another token (proof_record.with_tokens) asks for no long rate wait: before, the 5-min
+        # `ios fast verdict status` job slept 900 s here and was cancelled at its timeout.
+        limited = answer(403, b'{"message":"API rate limit exceeded for installation"}',
+                         x_ratelimit_remaining="0", x_ratelimit_reset="1900")
+        (status, _, _), calls, slept = self.run_with([limited] * 3, rate_budget_s=0)
+        self.assertEqual(status, 403)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(slept, [])
+
     def test_a_rate_limit_past_the_budget_gives_up_naming_when_it_ends(self):
         limited = answer(403, b'{"message":"API rate limit exceeded for installation"}',
                          x_ratelimit_remaining="0", x_ratelimit_reset="1900")
