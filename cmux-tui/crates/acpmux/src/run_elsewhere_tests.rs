@@ -519,3 +519,15 @@ fn a_big_fetch_is_named_so_the_chip_can_offer_it_at_once() {
         assert_eq!(fetch_kind(command), None, "{command}");
     }
 }
+
+#[test]
+fn offer_now_wants_a_fetch_that_may_leave() {
+    for command in
+        ["npm install", "pnpm i && pnpm build", "cargo fetch", "docker pull ubuntu:24.04"]
+    {
+        assert!(offer_now(command), "{command}");
+    }
+    for command in ["npm test", "cargo fmt", "sleep 60", "npm install ~/private"] {
+        assert!(!offer_now(command), "{command}");
+    }
+}
