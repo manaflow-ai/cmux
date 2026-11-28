@@ -487,15 +487,3 @@ export function ChromeHeaderMenus({
     </div>
   );
 }
-
-// Owner registers these alongside A-D, in both density/theme modes and beside the browser pane.
-export const chromeHeaderMenuScenes = [
-  { id: "one-zen", props: { tabs: 1, visibility: "zen" } },
-  { id: "one-zen-hover", props: { tabs: 1, visibility: "zen", revealed: true } },
-  { id: "one-visible", props: { tabs: 1, visibility: "always" } },
-  { id: "three-zen", props: { tabs: 3, visibility: "zen" } },
-  { id: "one-always-strip", props: { tabs: 1, visibility: "zen", tabMode: "always" } },
-  { id: "one-title-menu", props: { tabs: 1, visibility: "zen", openMenu: "title" } },
-  { id: "three-pane-menu", props: { tabs: 3, visibility: "zen", openMenu: "pane" } },
-  { id: "three-developer-menu", props: { tabs: 3, visibility: "zen", openMenu: "developer" } },
-] as const;

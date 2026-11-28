@@ -87,6 +87,12 @@ HOSTED_TAIL_JOBS = {
     # pull-requests: write token, so the one-job JIT VM rather than the shared persistent cmux-linux pool.
     "published-in": "up to 300 min of paced PR comments through the API (7.5 s a write); compiles nothing",
 }
+# #62726: a manual nightly-next dispatch (inputs.nightly_next_restore_notes) that restores archived notes and verifies
+# the public signed pair behind the publish lease. It never runs in a push run, so it is not a tail job; no compile and
+# no signing key, so the literal one-job JIT VM. job -> why.
+HOSTED_RESTORE_JOBS = {
+    "restore-historical-notes": "a manual note restore under the publish lease; compiles and signs nothing",
+}
 # The post-feed dispatch jobs (#56483): a refused dispatch moves to cmux-bot's and the CI pools' installation hours at
 # once instead of sleeping out github.token's (run 45562645699 slept 18.4 and 12.9 min), so each mints those App
 # tokens. #56483 moved them off the mini to keep the keys off it; they take the one-job JIT VM, not the PR-shared
@@ -121,6 +127,8 @@ CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-t
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
                    "check-nightly-app-store-shelf", "published-build",
                    "check-nightly-webviews", "early-nightly-webviews")
+# A read-only lookup token a control may hold (#60803: quota-goblin's one-repo read token), job -> secrets.
+CMUX_LINUX_READ_SECRETS = {"resolve-nightly-ghostty-cli-helper": {"NIGHTLY_HELPER_LOOKUP_TOKEN"}}
 # report-nightly-shelf-red holds issues: write, so it takes the nightly-only route every nightly report job does.
 # RFD 0021 route by need: of those, the essential ones take the nightly's reserved label on the first run, before a rerun or loop retry.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
@@ -203,7 +211,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
         rng = random.Random(41751864551)
         failures = {}
         for name, job in JOBS.items():
-            if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
+            if (name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS
+                    or name in HOSTED_RESTORE_JOBS or job.get("uses")):
                 continue
             if name in HOSTED_DISPATCH_JOBS:
                 if (workflow_jobs.runs_on_cells(job) != [HOSTED_DISPATCH_RUNS_ON]
@@ -212,7 +221,9 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 continue
             if name in CMUX_LINUX_JOBS:
                 expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON
-                if workflow_jobs.runs_on_cells(job) != [expected] or workflow_jobs.secret_names(job):
+                # #60803: the ghostty helper lookup reads on its own one-repo read token before github.token.
+                allowed = CMUX_LINUX_READ_SECRETS.get(name, set())
+                if workflow_jobs.runs_on_cells(job) != [expected] or not workflow_jobs.secret_names(job) <= allowed:
                     failures[name] = "a cmux-linux control takes only cmux-linux and holds no secret"
                 continue
             # Each matrix cell (`${{ matrix.pool }}` read as its values) is a route of its own.
@@ -232,7 +243,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 for _ in range(400):
                     context = sample(source, rng)
                     value = evaluate(expression, context)
-                    if not value or OFF_THE_MINIS.search(str(value)) or not re.search(r"glaeda", str(value)):
+                    if not value or OFF_THE_MINIS.search(str(value)) or not re.search(r"glaeda|^mac-", str(value)):  # RFD 0185: our minis also carry the unified mac-* labels (#61222)
                         failures[name] = (value, {k: v for k, v in context.items() if v})
                         break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
@@ -263,7 +274,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
         off = {name for name in JOBS if not JOBS[name].get("uses")
                and ((routes := manaflow_routes(name)) is None or any(OFF_THE_MINIS.search(route) for route in routes))}
         self.assertEqual(off, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_PREFLIGHT_JOBS)
-                         | set(HOSTED_DISPATCH_JOBS),
+                         | set(HOSTED_DISPATCH_JOBS) | set(HOSTED_RESTORE_JOBS),
                          "a nightly job may not leave our minis")
         for name in sorted(off):
             with self.subTest(job=name, ephemeral="jit-only"):
@@ -272,7 +283,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertIsNotNone(routes)
                 for route in routes:
                     self.assertNotRegex(route, NOT_OURS)
-                    self.assertIn(f"'{JIT_LABEL}'", route)
+                    if name in HOSTED_RESTORE_JOBS:
+                        self.assertEqual(route, JIT_LABEL)  # a bare literal: manaflow-only by its dispatch input
+                    else:
+                        self.assertIn(f"'{JIT_LABEL}'", route)
         for name in HOSTED_PREFLIGHT_JOBS:
             with self.subTest(job=name):
                 self.assertEqual(workflow_jobs.secret_names(JOBS[name]), set(), "the preflight holds no secret")
@@ -368,7 +382,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                              "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                              "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                              "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                             "'glaeda-nightly-std-xcode-26.6' }}")
+                             "'mac-nightly' }}")
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)

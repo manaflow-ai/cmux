@@ -22,7 +22,6 @@
   },
   "every_pr": {
     ".github/workflows/backend-migrations.yml": "produces `backend migrations applied`, required on main: a required context must report on every pull request (tests/test_ci_required_checks_have_no_path_filters.py; #17415 scoped it and every other PR went unmergeable)",
-    ".github/workflows/ci-pr-closed-cancel.yml": "closed only: one run per pull request, not per head, cancelling the closed PR's queued CI",
     ".github/workflows/ci-pr-superseded-cancel.yml": "synchronize only: it cancels the pull request's runs on its older heads, whatever the push changed; its job skips (no runner) on a fork or a no-janitor pull request",
     ".github/workflows/cloud-resume-matrix.yml": "runs only on a `resume-matrix:` body marker or label, which paths cannot express; its plan job skips (no runner) on every other event",
     ".github/workflows/cloud-wake-echo.yml": "runs only on a `wake-echo: run` body marker, which paths cannot express; its job skips (no runner) on every other event",

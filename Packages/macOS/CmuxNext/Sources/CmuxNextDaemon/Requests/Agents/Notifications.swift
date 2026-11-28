@@ -31,7 +31,7 @@ extension AckTabNotificationsRequest {
 }
 
 /// The retained ledger (at most 256), newest first (`notification-ack-v1`).
-public struct ListNotificationsRequest: DaemonRequest {
+extension ListNotificationsRequest {
     public struct Entry: Decodable, Sendable, Hashable, Identifiable {
         public var id: String
         public var title: String
@@ -56,8 +56,4 @@ public struct ListNotificationsRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var notifications: [Entry]
     }
-    public static let command = "list-notifications"
-    public static let requiredCapability: String? = DaemonCapability.notificationAck.rawValue
-    public var limit: Int?
-    public init(limit: Int? = nil) { self.limit = limit }
 }
