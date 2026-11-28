@@ -242,6 +242,9 @@ fn runtime_with(daemon: bool, workers: Option<usize>) -> std::io::Result<tokio::
     if daemon {
         crate::daemon_priority::raise();
         builder.on_thread_start(crate::daemon_priority::thread_start);
+        // Only a worker parks: a stall capture tells the workers from the blocking pool's threads,
+        // which carry the same name (`daemon/runtime_stall.rs`).
+        builder.on_thread_park(crate::daemon::runtime_stall::mark_worker);
     }
     if let Some(workers) = workers {
         builder.worker_threads(workers);
