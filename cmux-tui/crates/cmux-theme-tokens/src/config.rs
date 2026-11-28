@@ -301,11 +301,15 @@ pub const THEME_OVERRIDE_MAX_CHARS: usize = 200;
 /// `"`).
 pub fn theme_override_value(value: &str) -> Option<&str> {
     let value = value.trim_matches(is_horizontal_space);
-    let safe = |c: char| !is_control_or_format(c) && !matches!(c, '#' | '=' | '"');
     (!value.is_empty()
         && value.chars().count() <= THEME_OVERRIDE_MAX_CHARS
-        && value.chars().all(safe))
+        && value.chars().all(theme_override_char_is_safe))
     .then_some(value)
+}
+
+/// Whether a character may appear inside a Ghostty theme override value.
+pub fn theme_override_char_is_safe(c: char) -> bool {
+    !is_control_or_format(c) && !matches!(c, '#' | '=' | '"')
 }
 
 /// Foundation's `CharacterSet.whitespaces`: tab and the space separators

@@ -63,15 +63,16 @@ pub use app_theme::{
 pub use colors::parse_color;
 pub use config::{
     Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_ACCENT_KEY,
-    THEME_OVERRIDE_MAX_CHARS, load, theme_file_accent, theme_for, theme_override_value,
+    THEME_OVERRIDE_MAX_CHARS, load, theme_file_accent, theme_for, theme_override_char_is_safe,
+    theme_override_value,
 };
 pub use image_palette::{
     ImageError, ImagePalette, MAX_SAMPLES, Pixels, SWATCHES, decode_ppm, palette_from_image,
 };
 pub use rgb::Rgb;
 pub use scheme::{
-    InstallError, MAX_SCHEME_BYTES, Scheme, SchemeError, SchemeFormat, find_theme_file,
-    install_scheme, is_valid_theme_name,
+    BASE16_ANSI, InstallError, MAX_SCHEME_BYTES, Scheme, SchemeError, SchemeFormat,
+    find_theme_file, install_scheme, is_valid_theme_name,
 };
 /// The spec's `design-tokens.json`, as compiled in: `theme.formulas` names every chrome
 /// token and how it derives (`cmux customize schema` lists them).
