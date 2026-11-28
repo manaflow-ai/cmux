@@ -17,6 +17,7 @@
 set -uo pipefail
 
 tmp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+GITHUB_WORKSPACE_ROOT="$(git rev-parse --show-toplevel)"
 summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
 plan="${PLAN:?PLAN is the plan JSON of scripts/ci/ios_fast_verdict.py}"
 field() { python3 -I -c 'import json, sys; v = json.loads(sys.argv[1]).get(sys.argv[2]); print(" ".join(v) if isinstance(v, list) else ("1" if v else ""))' "$plan" "$1"; }
@@ -40,7 +41,14 @@ else
   rm -f "$stamp"
   (cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal) || exit 1
   bash scripts/ci/ios_link_ffi.sh 8 || exit 1
-  [[ -n "$key" && -f "$xcf/Info.plist" ]] && printf '%s %s\n' "$key" "$(mtime "$xcf/Info.plist")" > "$stamp"
+  # A Mac build rewrites the bindings, and they still typecheck when stale, so check them against the checked-in
+  # copy here as ci/steps.toml's ios-kit steps do. Without this, a PR whose full ios job is skipped passes with stale
+  # bindings and turns base red (cmux#62170: pane_filter_default checksum 6491 vs 37152, fixed by #64446).
+  if ! git diff --exit-code -- cmux-next-ios/; then
+    echo "::error title=iOS fast verdict::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
+    exit 1
+  fi
+  [[ -n "$key"&& -f "$xcf/Info.plist" ]] && printf '%s %s\n' "$key" "$(mtime "$xcf/Info.plist")" > "$stamp"
   ffi_how="fetched or built"
 fi
 phase "FFI ($ffi_how)" $((SECONDS - t))
@@ -65,9 +73,9 @@ packages=()
 packages+=(-onlyUsePackageVersionsFromResolvedFile)
 
 # --- the kit: the changed targets' tests, or its test bundle built ------------------------------------------------
-if [[ -n "$tests" || -n "$build" ]]; then
-  t=$SECONDS
-  udid="$(python3 -I scripts/ci/ios_sim_udid.py)" || exit 1
+kit() {
+  local t=$SECONDS status=0 udid bundle
+  udid="$(python3 -I scripts/ci/ios_sim_udid.py)" || return 1
   bundle="$tmp/ios-fast.xcresult"
   rm -rf "$bundle"
   common=(-scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" -enableCodeCoverage NO
@@ -75,7 +83,12 @@ if [[ -n "$tests" || -n "$build" ]]; then
   if [[ -n "$tests" ]]; then
     only=()
     for target in $tests; do only+=("-only-testing:$target"); done
-    (cd cmux-next-ios/CmuxMobileKit && xcodebuild test "${common[@]}" "${only[@]}" -resultBundlePath "$bundle") || status=1
+    # A bound on the whole test run: a hung test (no Swift Testing time limit) used to hold the verdict to the
+    # job's 40 min ceiling (run 46154061623: 1962 s of tests, healthy runs take 200 to 530 s). Past the bound the
+    # watchdog samples the test processes, kills the run and names it timed out, so a red head reads red in 15 min.
+    (cd cmux-next-ios/CmuxMobileKit && python3 -I "$GITHUB_WORKSPACE_ROOT/scripts/ci/hung_test_watchdog.py" \
+      --timeout-seconds "${IOS_FAST_TEST_TIMEOUT_SECONDS:-900}" --label "iOS fast verdict kit tests ($tests)" -- \
+      xcodebuild test "${common[@]}" "${only[@]}" -resultBundlePath "$bundle") || status=1
     # -quiet drops Swift Testing's output: the counts and every failure from the result bundle.
     xcrun xcresulttool get test-results tests --path "$bundle" --compact 2>/dev/null | python3 -I -c '
 import json, sys
@@ -99,11 +112,12 @@ print("iOS simulator test cases:", ", ".join(f"{k} {v}" for k, v in sorted(count
     (cd cmux-next-ios/CmuxMobileKit && xcodebuild build-for-testing "${common[@]}") || status=1
     phase "kit build for testing" $((SECONDS - t))
   fi
-fi
+  return "$status"
+}
 
 # --- the app: xcodegen, then the simulator build (cmux-next-ios-sim.sh's build command, no install or launch) -------
-if [[ -n "$app" ]]; then
-  t=$SECONDS
+app_build() {
+  local t=$SECONDS status=0 part got
   xcodegen_version=2.46.0
   xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
   tools="${RUNNER_TOOL_CACHE:-$tmp}/xcodegen-$xcodegen_version"
@@ -112,18 +126,34 @@ if [[ -n "$app" ]]; then
     part="$(mktemp -d "$tmp/xcodegen.XXXXXX")"
     curl -fsSL --retry 3 --retry-delay 2 -o "$part/xcodegen.zip" \
       "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" ||
-      { echo "::error::could not download xcodegen $xcodegen_version"; exit 1; }
+      { echo "::error::could not download xcodegen $xcodegen_version"; return 1; }
     got="$(shasum -a 256 "$part/xcodegen.zip" | awk '{ print $1 }')"
-    [[ "$got" == "$xcodegen_sha256" ]] || { echo "::error::xcodegen zip sha256 $got, expected $xcodegen_sha256"; exit 1; }
+    [[ "$got" == "$xcodegen_sha256" ]] || { echo "::error::xcodegen zip sha256 $got, expected $xcodegen_sha256"; return 1; }
     unzip -q "$part/xcodegen.zip" -d "$part" && mkdir -p "$(dirname "$tools")" && rm -rf "$tools" && mv "$part" "$tools"
   fi
-  (cd cmux-next-ios && "$xcodegen" generate -q) || { echo "::error::xcodegen failed"; exit 1; }
+  (cd cmux-next-ios && "$xcodegen" generate -q) || { echo "::error::xcodegen failed"; return 1; }
   xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
     -destination 'generic/platform=iOS Simulator' -derivedDataPath "$app_dd" "${packages[@]}" \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -quiet \
     'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO' build-for-testing || status=1
   # build-for-testing: the scheme's test target CmuxMobileAppUITests compiles too (cmux#55664 broke only it).
   phase "app build-for-testing (CmuxMobileApp + CmuxMobileAppUITests, iOS Simulator)" $((SECONDS - t))
+  return "$status"
+}
+
+# The kit and the app build in their own DerivedData (the slot, the slot's dd), so with both planned they run at
+# once: the verdict waits for the longer one, not their sum (run 46009436922: kit 144 s then app 215 s, 359 s
+# serial). Neither build saturates the Mac for its whole length (module chains, links, the test run on one simulator).
+if [[ -n "$tests" || -n "$build" ]] && [[ -n "$app" ]]; then
+  t=$SECONDS
+  kit & kit_pid=$!
+  app_build || status=1
+  wait "$kit_pid" || status=1
+  phase "kit and app, at once" $((SECONDS - t))
+elif [[ -n "$tests" || -n "$build" ]]; then
+  kit || status=1
+elif [[ -n "$app" ]]; then
+  app_build || status=1
 fi
 
 phase "fast verdict total" $((SECONDS - started))

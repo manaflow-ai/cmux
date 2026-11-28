@@ -121,12 +121,17 @@ class NightlyLiveCodeVariant(unittest.TestCase):
             lib = tree / "scripts/live-code/lib/two-pass.sh"
             lib.parent.mkdir(parents=True)
             lib.write_text('live_code_list() { echo sym > "$2/interposable.txt"; }\n'
+                           'live_code_copy_resource_bundles() { :; }\n'
+                           f'live_code_pin_static_link() {{ echo "$1" > "{temp}/pinned"; }}\n'
                            f'live_code_check() {{ echo {{}} > "$2/cost.json"; return {check_status}; }}\n')
+            (lib.parent / "xcodebuild-args.sh").write_text("")
             out = Path(temp) / "out"
             result = subprocess.run(["bash", LIVE, str(out)], cwd=tree, capture_output=True, text=True,
                                     env={"PATH": os.environ["PATH"], "RUNNER_TEMP": temp})
             result.builds = builds.read_text().splitlines() if builds.exists() else []  # type: ignore[attr-defined]
             result.files = sorted(p.name for p in out.iterdir()) if out.exists() else []  # type: ignore[attr-defined]
+            pinned = Path(temp) / "pinned"
+            result.pinned = pinned.read_text().strip() if pinned.exists() else ""  # type: ignore[attr-defined]
             return result
 
     def test_the_variant_builds_twice_then_checks(self) -> None:
@@ -135,6 +140,8 @@ class NightlyLiveCodeVariant(unittest.TestCase):
         self.assertEqual(result.builds[0], "1 0 none")
         self.assertTrue(result.builds[1].startswith("1 0 /") and result.builds[1].endswith("/interposable.txt"))
         self.assertEqual(len(result.builds), 2)
+        # The manifest's static link is written, not left to Context.environment (live_code_pin_static_link).
+        self.assertEqual(result.pinned, "Packages/macOS/CmuxNext/Package.swift")
         self.assertIn("app-path", result.files)
         self.assertIn("xcodebuild.log", result.files)
 

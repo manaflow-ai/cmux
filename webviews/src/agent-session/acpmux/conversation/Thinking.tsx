@@ -59,6 +59,7 @@ import type { LiveLinePulse } from "./liveLinePulse";
 import { useAgentSignature } from "./agentSignatureModel";
 import { AgentSignature } from "./AgentSignature";
 import { type LiveWait, subagentsLabel, waitingLabel } from "./liveWait";
+import { LiveCount } from "../summary/LiveCount";
 import "../../../ui/motion/motion.css";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
@@ -784,6 +785,10 @@ function ThinkingLine({
           ? waitingLabel(t, liveWait)
           : (turnVerb ??
             (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")));
+  // A wait on subagents is the turn running, which needs no words (Leo, 2026-11-23: ""running"
+  // doesn't need text. it can usually just be. you can put symbols for state."): the line draws the
+  // subagents' mark and count (summary/LiveCount.tsx), its words kept for hover and VoiceOver.
+  const agentsMark = doing === undefined && !compacting && waitsOnAgents;
   const label =
     doing === undefined
       ? idleLabel
@@ -891,7 +896,14 @@ function ThinkingLine({
   ]
     .filter(Boolean)
     .join(" · ");
-  const roll = useRoll(away ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label, label, lead, tail);
+  // The mark comes and goes at once, never a roll: words rolled out over a mark, or a mark under
+  // half-clipped words, is the swap-in Leo wants gone (2026-11-23, on "running a command").
+  const roll = useRoll(
+    away || agentsMark ? undefined : decorative ? "" : sameCall ? `\u0000${call}` : label,
+    label,
+    lead,
+    tail,
+  );
   const lineRef = useRef<HTMLDivElement>(null);
   // Every status in this spot shimmers as "Thinking" does, a wait and each compaction look too: one
   // look for the live spot, no plain or white special case (Leo, 2026-11-22: "the "waiting" also
@@ -1038,14 +1050,18 @@ function ThinkingLine({
             aria-label={decorative ? t("thinking") : undefined}
             aria-live={decorative ? "off" : undefined}
           >
-            <LiveWords
-              decorative={decorative}
-              label={label}
-              lead={lead}
-              verbs={verbs}
-              elapsed={elapsed}
-              elapsedMs={elapsedMs}
-            />
+            {agentsMark ? (
+              <LiveCount n={liveAgents} label={label} />
+            ) : (
+              <LiveWords
+                decorative={decorative}
+                label={label}
+                lead={lead}
+                verbs={verbs}
+                elapsed={elapsed}
+                elapsedMs={elapsedMs}
+              />
+            )}
           </output>
           {elapsed && (
             // tooltip-allow: a time; the tooltip is the one place the whole turn's time shows.
