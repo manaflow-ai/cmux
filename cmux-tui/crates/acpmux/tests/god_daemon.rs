@@ -136,6 +136,9 @@ const PAGE_BYTES: u64 = 131072;
 /// How long the run waits for every chat log to be read, and how often it asks.
 const ALL_LOGS: Duration = Duration::from_secs(120);
 const ALL_LOGS_POLL: Duration = Duration::from_millis(50);
+/// When, after the restarted daemon was spawned, the sweep sends again (`restartSendAfterUs`):
+/// past startup's background passes, so a slower first send names startup work, not size.
+const RESTART_SEND_AFTER_MS: [u64; 2] = [1500, 4000];
 
 /// The longest a size sweep waits for a chat's adoption checkpoint before its restart.
 const ADOPTION_CHECKPOINT_WITHIN: Duration = Duration::from_secs(300);
@@ -2492,6 +2495,17 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_maps = daemon.rss_maps();
+    // The same send again once startup's background passes (cold segments, retention, packs)
+    // have had time to run: a first send slower than these waited on startup work, not on size.
+    let restart_send_after: Vec<(u64, Result<u64, Value>)> = RESTART_SEND_AFTER_MS
+        .iter()
+        .map(|&after| {
+            let since = daemon.spawned.elapsed().as_millis() as u64;
+            std::thread::sleep(Duration::from_millis(after.saturating_sub(since)));
+            let at = daemon.spawned.elapsed().as_millis() as u64;
+            (at, send_first_token(&mut rpc, &id, &format!("size {label} restarted +{after}")))
+        })
+        .collect();
     // The restarted daemon's own startup phases (`gauges.rs`): where its time to adopt went.
     let restart_startup =
         rpc.call("_acpmux/status", json!({})).ok().map(|s| s["gauges"]["startup"].clone());
@@ -2553,6 +2567,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
+        "restartSendAfterUs": restart_send_after.iter()
+            .map(|(after, r)| json!({"afterMs": after, "us": r.as_ref().ok(), "error": r.as_ref().err()}))
+            .collect::<Vec<_>>(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
         "restartStartup": restart_startup,
         "restartMaps": restart_maps, "restartHeap": restart_heap,

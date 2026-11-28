@@ -14,9 +14,13 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { ComposerAttachment, PromptBlock } from "../src/agent-session/acpmux/attachments";
-import { BridgeSocket, receiveTransportEvent } from "../src/agent-session/acpmux/bridgeSocket";
-import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { BridgeSocket, receiveTransportEvent } = await importWithDom(
+  () => import("../src/agent-session/acpmux/bridgeSocket"),
+);
+const { NativeError } = await importWithDom(() => import("../src/agent-session/acpmux/nativeError"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;

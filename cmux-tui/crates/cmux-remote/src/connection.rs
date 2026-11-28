@@ -22,12 +22,23 @@ use crate::observability::{ClientConnectionSnapshot, ConnectionState};
 use crate::provider::{LinkGroup, LinkRequest, ProviderError, lane_bindings};
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 
+mod error;
 mod handshake;
 mod heartbeat;
+
+pub use error::ConnectionError;
+use error::{reconnectable_session_error, retryable_connection_error};
 
 use handshake::{Established, establish_physical_links};
 pub(crate) use handshake::{LinkRejected, send_link_ready, send_link_rejection};
 use heartbeat::run_heartbeat;
+
+/// Whether `group`'s selected path is `path` (both known).
+async fn on_path(group: &Arc<dyn LinkGroup>, path: Option<&str>) -> bool {
+    let Some(path) = path else { return false };
+    group.transport_snapshot().await.selected_path.and_then(|selected| selected.remote).as_deref()
+        == Some(path)
+}
 
 const TERMINAL_CLOSE_SEND_TIMEOUT: Duration = Duration::from_secs(1);
 const TERMINAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -446,15 +457,64 @@ impl ClientConnection {
         config: ClientConnectionConfig,
         reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
     ) -> Result<Arc<Self>, ConnectionError> {
+        Self::connect_with_ik_hint(group, config, reconnect_groups, false).await
+    }
+
+    /// [`Self::connect_with_reconnect_groups`], told whether the pinned daemon offered IK on an
+    /// earlier connection (its welcome's `peer_takes_ik`, kept by the caller). Then the first
+    /// connect runs IK, one round trip shorter than XX, as a redial already does. A daemon that
+    /// stopped taking it fails past the carrier, and the connect runs XX once more, as
+    /// `establish_redial` falls back. With no hint, or `CMUX_REMOTE_COLD_IK=0`, it is XX as before.
+    pub async fn connect_with_ik_hint(
+        group: Arc<dyn LinkGroup>,
+        config: ClientConnectionConfig,
+        reconnect_groups: Option<Arc<dyn ReconnectGroupSource>>,
+        daemon_took_ik: bool,
+    ) -> Result<Arc<Self>, ConnectionError> {
         config.reconnect.validate()?;
+        let first = if cold_ik_enabled(daemon_took_ik) && cold_ik_applies(&config) {
+            match establish_physical_links(
+                group.clone(),
+                &config,
+                0,
+                BTreeMap::new(),
+                true,
+                Vec::new(),
+            )
+            .await
+            {
+                Ok(established) => Some(established),
+                // A carrier that would not open says nothing about IK: no second try.
+                Err(error @ ConnectionError::Provider(_)) => return Err(error),
+                Err(error) => {
+                    crate::phase_timing::mark_with("cold-ik-fell-back", || error.to_string());
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let established = match first {
+            Some(established) => established,
+            None => {
+                establish_physical_links(
+                    group.clone(),
+                    &config,
+                    0,
+                    BTreeMap::new(),
+                    false,
+                    Vec::new(),
+                )
+                .await?
+            }
+        };
         let Established {
             link,
             daemon_key: daemon_public_key,
             daemon_takes_ik,
             daemon_takes_early_data,
             ..
-        } = establish_physical_links(group.clone(), &config, 0, BTreeMap::new(), false, Vec::new())
-            .await?;
+        } = established;
         let session = ReliableSession::new(config.session, Arc::new(link), config.limits);
         let (generation, _) = watch::channel(session.generation());
         let lane_bindings = lane_bindings(config.lane_policy, group.capabilities());
@@ -590,6 +650,12 @@ impl ClientConnection {
         self.daemon_public_key
     }
 
+    /// Whether every welcome of the current generation offered IK: a caller keeps it for the next
+    /// cold connect ([`Self::connect_with_ik_hint`]).
+    pub fn daemon_takes_ik(&self) -> bool {
+        self.daemon_takes_ik.load(Ordering::Acquire)
+    }
+
     pub fn subscribe_generation(&self) -> watch::Receiver<u64> {
         self.generation.subscribe()
     }
@@ -665,6 +731,19 @@ impl ClientConnection {
     /// [`ConnectionError::SessionUnavailable`] and nothing redials.
     pub fn session_unavailable(&self) -> bool {
         self.session_unavailable.load(Ordering::Acquire)
+    }
+
+    /// True while this connection redials a carrier it lost (`Reconnecting`,
+    /// or `Disconnected` between bursts) and may still resume the session: not
+    /// closed, and the daemon has not said the session is gone. A send now
+    /// waits for the resume ([`Self::recover_by`]) rather than for a peer.
+    pub fn carrier_recovering(&self) -> bool {
+        !self.closed.load(Ordering::Acquire)
+            && !self.session_unavailable()
+            && matches!(
+                self.diagnostics_state(),
+                ConnectionState::Reconnecting | ConnectionState::Disconnected
+            )
     }
 
     /// Returns a consistent, credential-free view of the last published
@@ -2054,160 +2133,16 @@ async fn sleep_until_or_never(at: Option<tokio::time::Instant>) {
     }
 }
 
-#[derive(Debug)]
-pub enum ConnectionError {
-    Provider(ProviderError),
-    Crypto(CryptoError),
-    Link(LinkError),
-    Session(SessionError),
-    Protocol(String),
-    GenerationExhausted,
-    GenerationChanged {
-        expected: u64,
-        actual: u64,
-    },
-    ReconnectExhausted {
-        attempts: u32,
-        last: String,
-    },
-    ReconnectAttemptTimedOut {
-        timeout: Duration,
-    },
-    ReconnectDeadlineExceeded {
-        attempts: u32,
-    },
-    ShutdownTimedOut,
-    Closed,
-    /// The daemon refused the reconnect because it no longer has the logical
-    /// session: it outlived the daemon's resume lease, or the daemon closed
-    /// it. Not retryable: nothing can resume it, so the caller should stop
-    /// redialing and offer a new session.
-    SessionUnavailable,
-    /// The daemon refused a new session because it already serves its limit
-    /// of logical client sessions (`limit`, when the daemon named it).
-    /// Retryable: a slot frees when another client disconnects.
-    DaemonAtCapacity {
-        limit: Option<usize>,
-    },
+/// `CMUX_REMOTE_COLD_IK=0` keeps a first connect on XX whatever the hint says.
+pub const COLD_IK_ENV: &str = "CMUX_REMOTE_COLD_IK";
+
+fn cold_ik_enabled(daemon_took_ik: bool) -> bool {
+    daemon_took_ik && std::env::var(COLD_IK_ENV).map_or(true, |value| value != "0")
 }
 
-impl ConnectionError {
-    /// Whether the error represents an unavailable carrier rather than a
-    /// rejected identity, invalid configuration, or protocol violation.
-    pub fn is_retryable_carrier_failure(&self) -> bool {
-        match self {
-            Self::Provider(error) => error.is_retryable_carrier_failure(),
-            Self::Crypto(CryptoError::LinkError(
-                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
-            ))
-            | Self::Crypto(CryptoError::UnexpectedEof)
-            | Self::Crypto(CryptoError::HandshakeTimeout { .. })
-            | Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
-            | Self::Session(SessionError::Link(
-                LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_),
-            ))
-            | Self::Session(SessionError::LinkMessage(_))
-            | Self::Session(SessionError::SchedulerClosed)
-            | Self::ReconnectAttemptTimedOut { .. }
-            | Self::DaemonAtCapacity { .. } => true,
-            _ => false,
-        }
-    }
-
-    /// The far side's refusal, when a dial ended on one no redial cures
-    /// ([`LinkError::Refused`]).
-    pub fn refusal(&self) -> Option<&crate::link::Refusal> {
-        match self {
-            Self::Provider(error) => error.refusal(),
-            Self::Link(error)
-            | Self::Crypto(CryptoError::LinkError(error))
-            | Self::Session(SessionError::Link(error)) => error.refusal(),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for ConnectionError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Provider(error) => error.fmt(formatter),
-            Self::Crypto(error) => error.fmt(formatter),
-            Self::Link(error) => error.fmt(formatter),
-            Self::Session(error) => error.fmt(formatter),
-            Self::Protocol(message) => write!(formatter, "connection protocol failed: {message}"),
-            Self::GenerationExhausted => formatter.write_str("connection generation exhausted"),
-            Self::GenerationChanged { expected, actual } => {
-                write!(formatter, "connection generation changed from {expected} to {actual}")
-            }
-            Self::ReconnectExhausted { attempts, last } => {
-                write!(formatter, "reconnect failed after {attempts} attempts: {last}")
-            }
-            Self::ReconnectAttemptTimedOut { timeout } => {
-                write!(formatter, "reconnect attempt timed out after {}ms", timeout.as_millis())
-            }
-            Self::ReconnectDeadlineExceeded { attempts } => {
-                write!(formatter, "reconnect deadline expired after {attempts} attempts")
-            }
-            Self::ShutdownTimedOut => formatter.write_str("connection shutdown timed out"),
-            Self::Closed => formatter.write_str("connection is closed"),
-            Self::SessionUnavailable => formatter.write_str(
-                "daemon no longer has the requested logical session (it expired or was closed)",
-            ),
-            Self::DaemonAtCapacity { limit: Some(limit) } => write!(
-                formatter,
-                "too many connected clients: the daemon serves its limit of {limit}; \
-                 close other clients or raise the daemon's open-file limit"
-            ),
-            Self::DaemonAtCapacity { limit: None } => formatter.write_str(
-                "too many connected clients: the daemon serves its limit; \
-                 close other clients or raise the daemon's open-file limit",
-            ),
-        }
-    }
-}
-
-fn reconnectable_session_error(error: &SessionError) -> bool {
-    matches!(
-        error,
-        SessionError::Link(LinkError::Closed | LinkError::Transport(_))
-            | SessionError::LinkMessage(_)
-            | SessionError::SchedulerClosed
-    )
-}
-
-fn retryable_connection_error(error: &ConnectionError) -> bool {
-    error.is_retryable_carrier_failure()
-}
-
-impl std::error::Error for ConnectionError {}
-
-impl From<ProviderError> for ConnectionError {
-    fn from(error: ProviderError) -> Self {
-        Self::Provider(error)
-    }
-}
-
-impl From<CryptoError> for ConnectionError {
-    fn from(error: CryptoError) -> Self {
-        Self::Crypto(error)
-    }
-}
-
-impl From<LinkError> for ConnectionError {
-    fn from(error: LinkError) -> Self {
-        Self::Link(error)
-    }
-}
-
-impl From<SessionError> for ConnectionError {
-    fn from(error: SessionError) -> Self {
-        Self::Session(error)
-    }
-}
-
-/// Whether `group`'s selected path is `path` (both known).
-async fn on_path(group: &Arc<dyn LinkGroup>, path: Option<&str>) -> bool {
-    let Some(path) = path else { return false };
-    group.transport_snapshot().await.selected_path.and_then(|selected| selected.remote).as_deref()
-        == Some(path)
+/// A first connect may run IK only when it pins the daemon's key, presents no invitation, and
+/// carries no bearer secret (the pattern `cmux_braid_session::choose` picks for those facts).
+fn cold_ik_applies(config: &ClientConnectionConfig) -> bool {
+    config.expected_daemon.is_some()
+        && !matches!(config.auth, ClientAuthMode::Invitation { .. } | ClientAuthMode::Grant { .. })
 }
