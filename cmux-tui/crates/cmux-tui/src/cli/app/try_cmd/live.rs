@@ -138,6 +138,14 @@ pub(super) struct ChannelPayload {
     /// As [`LivePayload::tree_key`]: the daemon updater of a Team-signed app waits for a pointer naming it.
     #[serde(default)]
     pub tree_key: Option<String>,
+    /// Commits no Mac keeps (hq RFD 0224's kill switch). A daemon on one takes the channel's
+    /// commit at any `rollout.pct` (`daemon_updates::look`). Missing on older files: none.
+    #[serde(default)]
+    pub revoked: Vec<String>,
+    /// The staged share of Macs that take the commit (`cmux_rollout::Rollout::takes`, the
+    /// bucket acpmux and the Cloud updater use). Missing on older files: every Mac.
+    #[serde(default)]
+    pub rollout: cmux_rollout::Rollout,
 }
 
 /// The payload of `body` when a `keys` signature covers it, it is a Mac live
@@ -197,6 +205,15 @@ pub(super) fn verify_channel(
         && payload.daemon_from.first().map(String::as_str) != Some(payload.commit.as_str())
     {
         return Err("the channel's daemon_from does not start at its commit".to_owned());
+    }
+    payload.rollout.checked().map_err(|e| format!("the channel's {e}"))?;
+    for entry in &payload.revoked {
+        if !channel::lower_hex(entry, 40) {
+            return Err(format!("the channel revokes {entry:?}, not a full commit"));
+        }
+        if *entry == payload.commit {
+            return Err(format!("the channel revokes its own commit ({entry})"));
+        }
     }
     Ok(payload)
 }

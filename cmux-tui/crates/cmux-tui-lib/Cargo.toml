@@ -253,6 +253,8 @@ zstd.workspace = true
 tar.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
+# The nightly-live channel's staged share (`rollout.pct`, hq RFD 0224): `daemon_updates::look`.
+cmux-rollout.workspace = true
 # `cmux app try`: the Screen Sharing helper a live try swaps in is checked against the installed
 # helper's designated requirement, as the share host's staging checks it (cli/app/try_cmd/helper.rs).
 cmux-signed-bundle.workspace = true

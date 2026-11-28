@@ -72,6 +72,7 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-rollout",
  "cmux-scope",
  "cmux-sdk",
  "cmux-server",
@@ -2455,6 +2456,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-process",
+ "cmux-rollout",
  "cmux-server",
  "cmux-server-core",
  "cmux-signed-envelope",
@@ -3165,6 +3167,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rollout"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-scope"
 version = "0.1.0"
 dependencies = [
@@ -3664,6 +3675,7 @@ dependencies = [
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-repro",
+ "cmux-rollout",
  "cmux-scope",
  "cmux-sdk",
  "cmux-server",
@@ -3998,6 +4010,7 @@ dependencies = [
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-repro",
+ "cmux-rollout",
  "cmux-scope",
  "cmux-sdk",
  "cmux-server",

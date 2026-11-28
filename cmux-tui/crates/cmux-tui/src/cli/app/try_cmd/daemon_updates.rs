@@ -166,15 +166,27 @@ pub(super) enum Look {
     Nothing(String),
 }
 
-/// What one verified pointer means for an app at `app_commit` whose last apply
-/// is `applied` and last attempt `attempted` (each a `committed_at`).
-pub(super) fn look(
-    payload: &ChannelPayload,
-    app_commit: Option<&str>,
-    applied: Option<u64>,
-    attempted: Option<u64>,
-) -> Look {
-    let Some(app_commit) = app_commit else {
+/// Where this Mac's daemon stands when it reads a pointer: the app's CMUXCommit (a nightly
+/// stamps it short), the last apply and last attempt (each a `committed_at`), the commit of the
+/// last apply, and the id the staged rollout buckets this Mac by ([`host_id`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Seat<'a> {
+    pub app_commit: Option<&'a str>,
+    pub applied: Option<u64>,
+    pub attempted: Option<u64>,
+    pub applied_commit: Option<&'a str>,
+    pub host: Option<&'a str>,
+}
+
+/// What one verified pointer means for a daemon at `seat`.
+///
+/// hq RFD 0224 phase 3: a pointer whose `rollout.pct` leaves this Mac's bucket out
+/// ([`cmux_rollout::Rollout::held_back`], `hash(host id, commit) mod 100 < pct`) is not taken
+/// yet; a later file with a larger share is. A daemon on a revoked commit (the app's own, or
+/// the last apply's) takes the pointer at any share: the kill switch is never staged. A file
+/// with no `rollout` is every Mac, as before.
+pub(super) fn look(payload: &ChannelPayload, seat: Seat<'_>) -> Look {
+    let Some(app_commit) = seat.app_commit else {
         return Look::Nothing("the app has no CMUXCommit".to_owned());
     };
     if !live::takes(live::daemon_list(&payload.daemon_from, &payload.live_from), app_commit) {
@@ -182,11 +194,62 @@ pub(super) fn look(
             "the app's commit {app_commit} is not in the pointer's daemon_from (it needs a new app)"
         ));
     }
-    let floor = applied.max(attempted);
+    let floor = seat.applied.max(seat.attempted);
     if !live::channel_is_newer(floor, payload.committed_at) {
         return Look::Nothing(format!("{} is current", short(&payload.commit)));
     }
+    if !on_revoked(payload, seat)
+        && let Some(why) = payload.rollout.held_back(seat.host, &payload.commit)
+    {
+        return Look::Nothing(format!("{} waits: {why}", short(&payload.commit)));
+    }
     Look::Take { commit: payload.commit.clone(), committed_at: payload.committed_at }
+}
+
+/// Whether the daemon runs a commit the pointer revokes: the last apply's, else the app's own
+/// (a short CMUXCommit matches the full commit it starts).
+fn on_revoked(payload: &ChannelPayload, seat: Seat<'_>) -> bool {
+    let running = seat.applied_commit.or(seat.app_commit).filter(|c| c.len() >= 7);
+    running.is_some_and(|have| payload.revoked.iter().any(|r| r.starts_with(have)))
+}
+
+/// The id the staged rollout buckets this Mac by: the same fingerprint acpmux's self-update
+/// uses on this Mac (`acpmux` `host_fingerprint::current`, a domain-separated SHA-256 of the
+/// host UUID), so the app's daemon and acpmux land in one bucket for a commit. `None` (no host
+/// UUID) waits for 100%.
+pub(super) fn host_id() -> Option<String> {
+    host_uuid().map(|raw| fingerprint(&raw))
+}
+
+/// acpmux's `host_fingerprint::of`: the bucket key, never the raw id.
+pub(super) fn fingerprint(raw: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"acpmux machine credential host v1\0");
+    hash.update(raw.as_bytes());
+    hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(target_os = "macos")]
+fn host_uuid() -> Option<String> {
+    let mut uuid = [0u8; 16];
+    let timeout = libc::timespec { tv_sec: 5, tv_nsec: 0 };
+    // SAFETY: gethostuuid writes exactly 16 bytes into `uuid`.
+    let status = unsafe { libc::gethostuuid(uuid.as_mut_ptr(), &timeout) };
+    (status == 0 && uuid.iter().any(|byte| *byte != 0))
+        .then(|| uuid.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn host_uuid() -> Option<String> {
+    None
+}
+
+/// The commit of the last apply (`channel.json`'s `commit`), `None` when there was none.
+pub(super) fn applied_commit(store: &Store) -> Option<String> {
+    let body = std::fs::read(store.root.join("channel.json")).ok()?;
+    let value = serde_json::from_slice::<Value>(&body).ok()?;
+    value.get("commit")?.as_str().filter(|c| !c.is_empty()).map(str::to_owned)
 }
 
 /// Whether the swap goes at `now_ms`, given the daemon's activity snapshot
@@ -360,11 +423,19 @@ fn check(
         live::verify_channel(&body, &cmux_host::updater::channel::trusted_keys(), super::now())
             .map_err(|error| format!("channel refused ({error})"))?;
     let applied = store.channel_last().map_err(|error| format!("store unreadable ({error})"))?;
-    let (commit, committed_at) =
-        match look(&payload, super::app_commit(&app).as_deref(), applied, last_attempt(&store)) {
-            Look::Nothing(why) => return Err(why),
-            Look::Take { commit, committed_at } => (commit, committed_at),
-        };
+    let (app_commit, applied_commit, host) =
+        (super::app_commit(&app), applied_commit(&store), host_id());
+    let seat = Seat {
+        app_commit: app_commit.as_deref(),
+        applied,
+        attempted: last_attempt(&store),
+        applied_commit: applied_commit.as_deref(),
+        host: host.as_deref(),
+    };
+    let (commit, committed_at) = match look(&payload, seat) {
+        Look::Nothing(why) => return Err(why),
+        Look::Take { commit, committed_at } => (commit, committed_at),
+    };
     team_set_ready(cmux_link::app_caller::signed_app_build(), payload.tree_key.as_deref(), |key| {
         let url = live::team_signed_url(&live::files_base(), key);
         live::get_small(&url, live::LIVE_MAX_BYTES).map(|body| body.is_some())
