@@ -210,6 +210,9 @@ extension EnvironmentValues {
     /// Columns of the tab overview grid: two on a phone, more on an unfolded foldable's wider
     /// page (the host asks its shared layout rule, cmux-mobile-link-ffi `overview_columns`).
     @Entry public var tabsKitOverviewColumns: Int = 2
+    /// The host moves the whole screen in a navigation transition (a swipe back): the accessory
+    /// keeps the keyboard height it last rode until this goes false, so it slides with the page.
+    @Entry public var tabsKitHoldsKeyboard: Bool = false
 }
 
 /// Where and how a tab's live page is shown.

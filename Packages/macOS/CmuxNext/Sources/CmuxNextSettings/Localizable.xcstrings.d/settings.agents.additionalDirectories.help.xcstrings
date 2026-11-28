@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.additionalDirectories.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added to every new chat's Sources. Use full or ~/ paths."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تُضاف إلى مصادر كل محادثة جديدة. استخدم مسارات كاملة أو ~/."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dodaju se u Izvore svakog novog chata. Koristite pune ili ~/ putanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Føjes til hver ny chats kilder. Brug fulde stier eller ~/-stier."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Werden den Quellen jedes neuen Chats hinzugefügt. Volle oder ~/-Pfade verwenden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se añaden a las fuentes de cada chat nuevo. Usa rutas completas o ~/."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajoutés aux sources de chaque nouvelle discussion. Utilisez des chemins complets ou ~/."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aggiunte alle fonti di ogni nuova chat. Usa percorsi completi o ~/."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新しいチャットのソースに追加されます。フルパスか ~/ パスを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ថែមទៅប្រភពនៃការជជែកថ្មីនីមួយៗ។ ប្រើផ្លូវពេញ ឬ ~/។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 새 채팅의 소스에 추가됩니다. 전체 경로나 ~/ 경로를 사용하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Legges til i kildene til hver ny chat. Bruk fulle stier eller ~/-stier."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dodawane do źródeł każdego nowego czatu. Użyj pełnych ścieżek lub ~/."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adicionadas às fontes de cada novo chat. Use caminhos completos ou ~/."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Добавляются к источникам каждого нового чата. Используйте полные пути или ~/."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เพิ่มลงในแหล่งข้อมูลของทุกแชทใหม่ ใช้พาธเต็มหรือ ~/"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Her yeni sohbetin Kaynaklarına eklenir. Tam veya ~/ yolları kullanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Додаються до джерел кожного нового чату. Використовуйте повні шляхи або ~/."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Được thêm vào Nguồn của mọi cuộc trò chuyện mới. Dùng đường dẫn đầy đủ hoặc ~/."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "添加到每个新聊天的来源中。使用完整路径或 ~/ 路径。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "加入每個新聊天的來源。使用完整路徑或 ~/ 路徑。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

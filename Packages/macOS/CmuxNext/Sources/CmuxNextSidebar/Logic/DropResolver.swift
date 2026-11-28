@@ -44,11 +44,13 @@ public nonisolated enum DropResolver {
         private let handle: OpaquePointer
         private var last: (target: DropTarget?, probe: DragProbe)?
 
-        public init?(payload: DragPayload, base: SidebarLayout, sections: [SidebarSection], ungroupedFirst: Bool = false) {
+        /// `moveTo`: the machines the one dragged row's chat can move to (`sidebar_drop::Request::move_to`).
+        public init?(payload: DragPayload, base: SidebarLayout, sections: [SidebarSection], ungroupedFirst: Bool = false, moveTo: [MachineID] = []) {
             let band = DropResolver.ontoBand
             let request = RustDropRequest(y: 0, payload: RustPayload(payload), rows: RustRow.resolvable(base.rows), sections: RustSection.resolvable(sections),
                                           ungroupedFirst: ungroupedFirst, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction),
-                                          sectionTopFraction: Double(sectionTopFraction), workspaceOntoStart: Double(band.start), workspaceOntoEnd: Double(band.end))
+                                          sectionTopFraction: Double(sectionTopFraction), workspaceOntoStart: Double(band.start), workspaceOntoEnd: Double(band.end),
+                                          moveTo: moveTo.map(\.rawValue))
             guard let handle = RustSidebarClient.handle(request, { cmux_sidebar_drag_new($0, $1) }) else { return nil }
             self.handle = handle
         }

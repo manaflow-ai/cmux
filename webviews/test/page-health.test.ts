@@ -349,7 +349,7 @@ const settle = async () => {
 
 // CMUX-571 (Leo, 2026-11-12: "infinite everything feels like nothing"): a visible page at rest woke
 // the app every 2 s forever. After REST_AFTER_BEATS quiet beats it says it rests and arms no timer.
-test("a quiet page rests once the host takes rests, and any key, press, wheel or scroll wakes it", async () => {
+test("a quiet page rests once the host takes rests, any key, press or wheel wakes it, and its own scroll does not", async () => {
   let clock!: ReturnType<typeof timers>;
   const { dom, calls, client, answer } = page("<main></main>", (window) => (clock = timers(window)));
   answer({ rest: true });
@@ -374,9 +374,12 @@ test("a quiet page rests once the host takes rests, and any key, press, wheel or
     for (let i = 0; i < REST_AFTER_BEATS; i++) clock.tick();
     expect(clock.running()).toBe(false);
   }
+  // A person's scroll comes with its wheel, key or press; a bare scroll is the page's own (a chat
+  // keeping its bottom as rows land), which must not wake it.
+  const before = beats(calls).length;
   dom.window.document.dispatchEvent(new dom.window.Event("scroll"));
-  expect(clock.running()).toBe(true);
-  expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 1 } });
+  expect(clock.running()).toBe(false);
+  expect(beats(calls)).toHaveLength(before);
   dom.window.close();
 });
 

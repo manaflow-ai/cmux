@@ -94,12 +94,7 @@ extension WorkspaceRowView {
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
             let painted = colorFill() ?? fill // `workspaceColors.indicatorStyle` (#25653): fill or rail
-            // With subagent lines under it the fill takes the name's part only (`headFill`).
-            let headOnly = subagentsHeight > 0
-            paintFill(headOnly ? nil : painted)
-            headFill.isHidden = !headOnly || painted == nil
-            headFill.backgroundColor = headOnly ? painted?.cgColor : nil
-            subagentsView.tint()
+            paintFill(painted)
             // The one border: the focus ring of the group this row stands for, as its header draws it.
             layer?.borderColor = Palette.focusRing.cgColor
             layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
@@ -117,8 +112,7 @@ extension WorkspaceRowView {
         layoutNeedsYouGlow()
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
-        // The chat's subagent lines, when shown, hang under the status block.
-        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight - subagentsHeight)
+        let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Entering a row should reveal its controls immediately. Keep the
@@ -196,7 +190,7 @@ extension WorkspaceRowView {
             prBadge.frame.origin.y = SidebarStyle.textY(prBadge, centerY: cy)
             trailing = columns.trailingEdge(before: prBadge.frame)
         }
-        let hoverCloses = isClosable && !(revealsHoverControls && isPinned?() == true)
+        let hoverCloses = isClosable
         let showClose = revealsHoverControls && !isShowingPlaceholder && hoverCloses
         let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
         // An end action owns the column. Tree controls and chips remain visible and clickable
@@ -218,9 +212,9 @@ extension WorkspaceRowView {
         // nothing moves. Marks under them hide while they show. An unread
         // badge keeps its slot at rest, and the action that lands there on
         // hover hides it.
-        // A pinned workspace's row draws no x on hover; it closes from its right-click menu (Lawrence msg 19392:
-        // "hover on pinned tab should not have close button, should only be able to close in right click"). Its ⋮
-        // takes the x's place, as on a row that cannot close. The pin is read only while the controls show.
+        // A pinned workspace's row keeps its x on hover, as every row does, so its ⋮ and Unpin stay where an unpinned
+        // row's ⋮ and Pin are (Leo 2026-11-23, ask c-b5d3e0efb6: "you cant close a pinned tab? no good reason for
+        // these limitations"). Only a row that cannot close puts its ⋮ in the x's place.
         setHoverShown(closeSlot, showClose, fades: controlFades)
         setHoverPainted(badge, !(showClose || (showMore && !hoverCloses) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
@@ -298,6 +292,7 @@ extension WorkspaceRowView {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
+        textX = layoutSignature(textX: textX, cy: cy)
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
         title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
@@ -358,7 +353,6 @@ extension WorkspaceRowView {
                                fades: fades)
         if showsNeedsYouGlow { hideMarksForNeedsYouGlow() } else { marksHiddenForGlow = false } // the mark pass showed them
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
-        layoutSubagents(textX: textX, head: b.maxY + statusHeight, full: full)
         if titleArrivalPending && !titleArrivalScheduled {
             titleArrivalScheduled = true
             CATransaction.setCompletionBlock { [weak self] in self?.startTitleArrival() }

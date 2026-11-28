@@ -46,16 +46,6 @@ public nonisolated enum SidebarWorkspaceKind: String, Codable, Hashable, Sendabl
     }
 }
 
-/// Who made a workspace (`workspace-created-by-v1`: the daemon records it at the create).
-public nonisolated enum SidebarCreator: String, Hashable, Sendable {
-    /// The person.
-    case person
-    /// An agent session (a chat's subagent: it nests under that chat).
-    case agent
-    /// A script, an automation, a launcher or a daemon: no person and no chat.
-    case script
-}
-
 /// One workspace row.
 public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var id: WorkspaceID
@@ -132,6 +122,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var chiefAvatar: SidebarChiefAvatar?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
+    /// The acpmux session of the row's agent chat (``AgentSessionRef/session`` of the tab the row names as its
+    /// agent); nil for a row with no agent chat, or a new chat with no session yet. `appearance.agentSignature`
+    /// draws its dot glyph from it (``SidebarAgentSignatures``).
+    public var agentSessionID: String?
     /// The name given to that agent's session (acpmux `displayName`, "Mango") and the one it had before
     /// (the newest of `formerNames`): the hover card's agent line says who it is ("Mango — fka claude-sr2").
     public var agentDisplayName: String?
@@ -199,7 +193,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var checklist: [SidebarChecklistItem] = []
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
-    /// Its agent chats' subagents, which the row lists under its name (`SidebarSubagentStrip`); nil without any.
+    /// Its agent chats' subagents, which the hover card counts and the row's failed mark reads; nil without any.
     public var subagents: SidebarSubagents?
     /// The person's notes for the workspace (Edit Workspace Description…): the hover card shows it
     /// whole and an expanded row its first line (a compact row has no second line of its own). Nil while unset.
@@ -207,10 +201,6 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The task lane the person pinned (Mark as Done, Set Workspace Status): the hover card names
     /// it and done-fold logic can use it. Nil while automatic.
     public var taskStatus: SidebarTaskStatus?
-    /// Who made the workspace, as its daemon recorded it at the create (`extra.created_by.kind`); nil without a
-    /// record (the person in the app). A ``SidebarCreator/script`` row that is no chat's subagent folds behind its
-    /// list's "Automatic (N)" row while `sidebar.showAutomaticSessions` is off (``SidebarAutomaticPlanner``).
-    public var createdBy: SidebarCreator?
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
     public var titleWeight: SidebarRowDecoration.Weight?

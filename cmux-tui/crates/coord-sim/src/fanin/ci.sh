@@ -32,14 +32,22 @@ echo "runner: $(nproc) cpus, $(free -g | awk '/Mem:/{print $2}') GB, nofile $(ul
 # 2-hour timeout covers.
 export CARGO_TARGET_DIR=$ROOT/target-fanin
 if [ "$PROFILE" = perf ]; then export RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes"; fi
-(cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
-BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
+# FANIN_ACPMUX_BIN: a daemon built already (abba.sh runs a base build and a head build in turn).
+if [ -n "${FANIN_ACPMUX_BIN:-}" ]; then
+  BIN=$FANIN_ACPMUX_BIN
+else
+  (cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
+  BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
+fi
 (cd cmux-tui/crates/coord-sim && env -u RUSTFLAGS cargo build --release && env -u RUSTFLAGS cargo test --release fanin) || { echo "FANIN: coord-sim build/test failed"; exit 1; }
 SIM=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/crates/coord-sim/target}/release/coord-sim
 [ -x "$BIN" ] && [ -x "$SIM" ] || { echo "FANIN: binaries missing ($BIN, $SIM)"; exit 1; }
 # Under /tmp (sticky): acpmux refuses a state directory below a writable, non-sticky ancestor.
-RUN=$(mktemp -d /tmp/fanin-run.XXXXXX)
+# FANIN_RUN_BASE (another sticky folder, e.g. /dev/shm) puts the homes on another file system:
+# an A/B of how much of a ramp is the disk.
+RUN=$(mktemp -d "${FANIN_RUN_BASE:-/tmp}/fanin-run.XXXXXX")
 chmod 700 "$RUN"
+echo "FANIN run dir $RUN on $(df -T "$RUN" | awk 'NR==2 {print $2}')"
 # Each ramp starts its daemons from the binary path again, and a runner's target dir can be
 # shared: another job's build there swapped a later ramp's controller to another commit's acpmux
 # (cmux#49864 run29: n=2000 read build 3ded5d2ce while n=50 read this head). Run private copies.

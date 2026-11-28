@@ -267,6 +267,8 @@ Five everyday commands, three groups for the rest:
 | `machine enroll HOST [--harness ID]… [--reverse]` / `machine doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, update, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `session stop NAME --if-idle [--expect-revision REV] [--purge]` | Stop it only when it is idle: no turn (one admitted but not started included), queued prompt, pending permission, agent request, background subagent or background process; with `--expect-revision`, only while its revision (`lastSeq` in `ls --json` / `session info --json`) is still REV. Checked under the lock that admits turns, so none starts between the check and the stop. A refusal stops nothing and exits 6 (`busy` with `busyWith`, or `revision_moved`; `error.data.revision` is the current one). Runs on the session's own daemon: not with `--mesh`, and refused for a peer's session (`stop_if_idle_remote`). |
+| `session stop NAME --purge [--now]` | Stop it and delete it. It is kept 7 days first, off every list, its log on disk: `session deleted` lists the deleted chats, `session undelete NAME` brings one back closed with its whole log (as `NAME-2` when a chat took the name). Once the 7 days end the daemon purges it. `--now` deletes at once, with no grace. A daemon older than restorable deletes deletes at once, and the line says so. |
+| `session deleted` / `session undelete SESSION` | The deleted chats still restorable and until when; bring one back by id or name inside its 7 days (`_acpmux/deleted`, `_acpmux/undelete`; refused with `soft_delete_unsupported` by an older daemon). |
 | `daemon run\|status\|start\|restart\|shutdown\|stop\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
 | `capabilities [--json]` | The protocol capability ids this build serves (`acpmux-v1`, `queue-edit-v1`, ...), with no daemon running. |
 | `daemon restart` | Stop and start the daemon, keeping hosted sessions so they resume after startup. |
@@ -857,6 +859,8 @@ with an inline `OPENCODE_CONFIG_CONTENT` (provider `byo`, `@ai-sdk/openai-compat
 `_acpmux/harness/doctor {id, prompt: true}`; all three take the unix socket only.
 
 ## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
+
+In a NEXT chat, `/model astra-6.2 fast high` selects the matching model, service tier and reasoning effort together. To change only speed on an existing Codex chat, use `acpmux session set SESSION fast-mode=priority` for a model that offers the priority tier. The bridge reads service tiers from the session provider's catalog.
 
 One flag names what runs. Its head is a **family** (`claude`, `codex`, `opencode`, `pi`, `omp`,
 `prime`, `gemini`) or a **profile** (`claude-sr`, `claude-acp`); an optional model follows the
@@ -1455,6 +1459,20 @@ returns once the message is on disk here, and the daemon delivers it when the pe
    state, and `cmux agent ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
    Delivered, held and failed deliveries are kept for a day.
 
+**One hop through a peer (`sendHop`).** A send to `HOST/NAME` where HOST is no peer of this
+daemon asks each connected peer (`_acpmux/send_hop {host}`, 3 s each) whether it peers HOST and
+takes hops, and hands the send to the first that does (its link to HOST up first). That peer queues
+it in its own outbox as a relayed message (`fromRelay {by: "acpmux-hop", machine, session}`), so the
+far chat names the true sender; the answer carries `via`. A daemon takes hops only with
+
+```json
+{"sendHop": true}
+```
+
+and only from a paired peer daemon, only to a host it peers itself, and a hop never hops again.
+With no route the refusal says so: `no session: HOST/NAME (...; tried a hop via: hub (does not peer
+the host))`, with `data.hop.tried`.
+
 **A relay for targets no peer reaches (`sendRelay`).** A host may have no peer that reaches the
 target, such as an agent VM that cannot dial back to the machine that drives it. A relay command,
 e.g. one that hands the message to a broker the driving machine keeps a connection to, still
@@ -1762,8 +1780,10 @@ Extensions:
 | `_acpmux/typing {sessionId, on}` | A person in an attached chat starts or stops typing ([presence](#chat-presence)). At most 2 calls a second per connection (`typing.rate_limited`); an `on` lapses after 8 s. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
 | `_acpmux/events {sessionId, sinceSeen?, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. Pass `sinceSeen: true` for the first recap page, then `afterSeq: pageThrough` for subsequent pages. The first reply returns `seenSeq: null` and an empty page for a reader without a cursor. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |
+| `session/signature {sessionIds}` | Each id's dot glyph, at most 512 ids: `{signatures: {<id>: {seed, variant, accent, drift, dots: [{x, y, r, phase}]}}}`. A pure function of the id (cmux-wallpaper `signature.rs`, the particles wallpaper's variants), so an unknown id gets one too; read-only, never forwarded. |
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
+| `_acpmux/kill {purge, grace}`, `session/delete {grace}`, `_acpmux/undelete {sessionId}`, `_acpmux/deleted` | Restorable delete (capability `chat-soft-delete-v1`): with `grace: true` the chat is kept 7 days, off the lists, and the reply is `{deleted: true, deletedAt, restorableUntil}`; without it, the delete is at once as before. `_acpmux/undelete` brings it back inside the 7 days (`session.not_deleted`, `session.restore_expired`); `_acpmux/deleted` lists them. The retention worker purges one past its 7 days through the same delete. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
 | `_acpmux/queue_approve {promptId, turnId, revision}`, `_acpmux/queue_decline {promptId}` | The owner's answer to a person's prompt that waits for them (`_meta.acpmux.author.approval: "owner"`, a link guest's): approve runs it in its place in the queue (never as a steer), for the queued `turnId` and `revision` the owner saw, else `queue.stale`; once approved it runs under the stricter rules of its sender and its approver (an approval from the Web runs it as a Web prompt, checked again at dispatch); decline drops it, and its `session/prompt` answers `queue.declined`. A request with an author gets `queue.owner_only`; an answer to a prompt that no longer waits gets `queue.not_found` with `decided`. The log records `queue_approved` (with the `control` and `trustGate` it runs under) or `queue_declined`. Capability `queue-approval-v1` ([hub/queue_approve.rs](src/hub/queue_approve.rs)). |
 | `_acpmux/queue_text {promptId}` | One queued prompt read whole: `{promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`. The queue list carries a 200-character `prompt` preview per row; this reads one on demand. A read for whoever may read the log; `queue.not_found` once it left the queue. Capability `queue-text-v1`. |
@@ -1890,7 +1910,7 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
   kind. A client treats a kind it does not know as a plain error.
 - `recovery`: one sentence with the action, e.g. "The disk is full. Free space on the disk that
   holds /home/me/.acpmux: 0.9 GB free of 252 GB. acpmux's chats in /home/me/.acpmux/sessions
-  use 3.0 GB; `cmux agent session stop <session> --purge` removes a chat you no longer need."
+  use 3.0 GB; `cmux agent session stop <session> --purge --now` removes a chat you no longer need."
   acpmux never deletes anything itself.
 - `details`: only the keys that apply: `path`, `freeBytes`, `totalBytes`, `peer` (its name in
   `acpmux machine ls`), `lastSeenAt` (RFC 3339), `binary`, `cwd`, `exitCode`,

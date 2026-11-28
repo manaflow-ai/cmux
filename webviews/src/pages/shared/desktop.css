@@ -114,6 +114,7 @@ body {
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
+  --ds-radius-full: 999px; /* a capsule at any height: the 999px the app's round tracks and badges draw; Tailwind's own rounded-full stays as it is */
   /* glass chrome (level): chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1) */
   --ds-glass-chrome-tint: 62%;
   --ds-glass-chrome-blur: blur(20px) saturate(1.6);
@@ -310,7 +311,7 @@ body {
     calc(var(--tooltip-pad-inline) - var(--tooltip-rim-layout-width));
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
-  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: a tooltip holds text and a plain shortcut, nothing nested */
+  border-radius: var(--cmux-tooltip-radius, calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1))); /* concentric-allow: a tooltip holds text and a plain shortcut, nothing nested */
   /* one-material-allow: the tooltip's fallback for a page that loads no glass.css; on .ui-glass (Tooltip.tsx, titleTooltips.ts) glass.css's .ui-tooltip.ui-glass replaces this fill, frost and shadow with the glass's, so one material either way */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
@@ -765,8 +766,10 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --tooltip-edge: var(--grid-base);
   --tooltip-font-size: var(--text-detail);
   --tooltip-line-height: var(--text-detail--line-height);
-  --tooltip-pad-block: var(--grid-base);
-  --tooltip-pad-inline: calc(var(--grid-base) * 2);
+  /* A look re-skins the tooltip's padding and corner with the component tokens (ui/README.md
+     "Component tokens"); unset, the native numbers. */
+  --tooltip-pad-block: var(--cmux-tooltip-padding-block, var(--grid-base));
+  --tooltip-pad-inline: var(--cmux-tooltip-padding-inline, calc(var(--grid-base) * 2));
   --tooltip-keycap-gap: calc(var(--grid-base) * 2);
   --tooltip-detail-gap: calc(var(--grid-base) / 2);
 }
@@ -919,6 +922,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-icon-box-comfortable: calc(20px * var(--cmux-interface-scale, 1)); /* Comfortable sidebar and Home list icon box only. */
   --grid-glyph: calc(12px * var(--cmux-interface-scale, 1)); /* Small glyph centered inside its icon box. */
   --grid-gap: calc(8px * var(--cmux-interface-scale, 1)); /* Space after an icon or control box. */
+  --grid-chevron-gap: calc(4px * var(--cmux-interface-scale, 1)); /* Least ink-to-ink space between a label and its chevron, either side (docs/cmux-next/ui-guidelines.md). */
+  --grid-hit-min: calc(24px * var(--cmux-interface-scale, 1)); /* Least width and height of a clickable icon, chevron or icon-only button (docs/cmux-next/ui-guidelines.md). */
   --grid-row: calc(28px * var(--cmux-interface-scale, 1)); /* Compact row height. */
   --grid-row-comfortable: calc(32px * var(--cmux-interface-scale, 1)); /* Comfortable row height. */
   --grid-pill-inset: calc(2px * var(--cmux-interface-scale, 1)); /* Vertical inset above and below a row highlight. */

@@ -19,7 +19,10 @@ public final class BrowserDownloadReservations {
     func insert(_ url: URL) { paths.insert(Self.key(url)) }
     func remove(_ url: URL) { paths.remove(Self.key(url)) }
 
-    private static func key(_ url: URL) -> String { url.standardizedFileURL.path(percentEncoded: false) }
+    /// The names held now, for a look off the main thread (`BrowserDownloadPolicy.firstFreeURL`).
+    var heldPaths: Set<String> { paths }
+
+    nonisolated static func key(_ url: URL) -> String { url.standardizedFileURL.path(percentEncoded: false) }
 }
 
 /// Where one download of either engine is written while it runs, a

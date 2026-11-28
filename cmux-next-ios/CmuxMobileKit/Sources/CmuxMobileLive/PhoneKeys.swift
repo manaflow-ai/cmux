@@ -27,6 +27,8 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
         public var message: String {
             switch self {
             case .unavailable: "this iPhone can't make approval keys."
+            // retry-prompt-ok: said for the person's own approval (an Allow or answer signed with
+            // this key); the key read failed, so whether to approve again is theirs.
             case .keychain: "this iPhone couldn't read its approval key. Try again."
             }
         }
