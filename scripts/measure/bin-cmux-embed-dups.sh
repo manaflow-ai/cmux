@@ -32,10 +32,10 @@ for side in base head; do
   tree="$root"; [[ $side == base ]] && tree="$scratch/base"
   start=$SECONDS
   (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$scratch/t-$side" cargo build -q --locked --release -p cmux-tui --bin cmux-tui >&2)
-  cp "$scratch/t-$side/release/cmux-tui" "$scratch/$side"; strip --strip-unneeded "$scratch/$side"
-  echo "SIZE $side file=$(stat -c %s "$scratch/$side") build_seconds=$((SECONDS-start))"
+  cp "$scratch/t-$side/release/cmux-tui" "$scratch/bin-$side"; strip --strip-unneeded "$scratch/bin-$side"
+  echo "SIZE $side file=$(stat -c %s "$scratch/bin-$side") build_seconds=$((SECONDS-start))"
   for f in "${files[@]}"; do
-    python3 -c 'import sys;b=open(sys.argv[1],"rb").read();d=open(sys.argv[2],"rb").read();print("COPIES",sys.argv[3],sys.argv[2].split("/")[-1],len(d),b.count(d))' "$scratch/$side" "$root/$f" "$side"
+    python3 -c 'import sys;b=open(sys.argv[1],"rb").read();d=open(sys.argv[2],"rb").read();print("COPIES",sys.argv[3],sys.argv[2].split("/")[-1],len(d),b.count(d))' "$scratch/bin-$side" "$root/$f" "$side"
   done
 done
 busy=(); for _ in $(seq "$(nproc)"); do (while :; do :; done) & busy+=($!); done
@@ -49,7 +49,7 @@ cases={"customize-recipes":["customize","recipes"],"version":["--version"]}
 for _ in range(60):
     for side in ("base","head"):
         for what,args in cases.items():
-            t=time.perf_counter(); subprocess.run([d+"/"+side]+args,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env=env)
+            t=time.perf_counter(); subprocess.run([d+"/bin-"+side]+args,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env=env)
             r.setdefault((side,what),[]).append((time.perf_counter()-t)*1000)
 for (side,what),v in sorted(r.items()): print(f"BENCH {side} {what} p50_ms={statistics.median(v):.2f} n={len(v)}")
 PY
