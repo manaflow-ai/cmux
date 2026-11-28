@@ -109,10 +109,14 @@ const itemLabel = (item: Element) =>
     .join("")
     .trim();
 
-/** Opens a row's ⋯ menu; resolves with its items' labels. */
-async function openMore(container: HTMLElement, id: string) {
-  const more = actions(container, id).find((button) => button.dataset.menu === "queued-more")!;
-  await act(async () => more.click());
+/** Opens a row's right-click menu, as a right-click on its text lands; resolves with its items' labels. */
+async function openMenu(container: HTMLElement, id: string) {
+  const target = container.querySelector<HTMLElement>(`[data-prompt-id="${id}"] .acpmux-queued-menu`)!;
+  await act(async () => {
+    target.dispatchEvent(
+      new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+    );
+  });
   await settle();
   return [...dom!.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(itemLabel);
 }
@@ -123,7 +127,26 @@ function menuItem(label: string) {
   )!;
 }
 
-/** Return on a row edits it in place, as the ⋯ menu's Edit message does. */
+/** A row's right-click menu: the ⋯ menu's items (side chat, queueing) sit after Edit message. */
+const MENU_P1 = (queueing: string) => [
+  "composer.queueSteer",
+  "composer.queueEditMessage",
+  queueing,
+  "composer.queueMoveUp",
+  "composer.queueMoveDown",
+  "composer.queueDelete",
+];
+const MENU_P2_SIDE = [
+  "composer.queueSteer",
+  "composer.queueEditMessage",
+  "composer.queueSideChat",
+  "composer.queueingOff",
+  "composer.queueMoveUp",
+  "composer.queueMoveDown",
+  "composer.queueDelete",
+];
+
+/** Return on a row edits it in place, as the right-click menu's Edit message does. */
 async function startEdit(container: HTMLElement, id: string) {
   const row = container.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`)!;
   row.focus();
@@ -132,19 +155,15 @@ async function startEdit(container: HTMLElement, id: string) {
   });
 }
 
-test("every queued row shows Steer, Delete and More, in that order, each named", async () => {
+test("every queued row shows Steer and Delete, in that order, each named, and no ⋯ menu", async () => {
   const container = await render(
     async () => true,
     async () => true,
   );
   for (const entry of queue) {
     const buttons = actions(container, entry.id);
-    expect(buttons.map((b) => b.dataset.action ?? b.dataset.menu)).toEqual(["steer", "delete", "queued-more"]);
-    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
-      "composer.queueSteer",
-      "composer.queueDelete",
-      "composer.queueActions",
-    ]);
+    expect(buttons.map((b) => b.dataset.action ?? b.dataset.menu)).toEqual(["steer", "delete"]);
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["composer.queueSteer", "composer.queueDelete"]);
     // Steer is a text button: its word shows beside its glyph. Delete is the trash can.
     expect(buttons[0]!.textContent?.trim()).toBe("composer.queueSteer");
     expect(buttons[1]!.querySelector("svg")?.dataset.icon).toBe("action.delete");
@@ -183,7 +202,6 @@ test("a successful Steer hides its action before the next queue snapshot", async
   expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
     "steer",
     "delete",
-    "queued-more",
   ]);
   await act(async () => {
     actions(container, "p-2")[0]!.click();
@@ -191,24 +209,20 @@ test("a successful Steer hides its action before the next queue snapshot", async
   expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
     "steer",
     "delete",
-    "queued-more",
   ]);
   await act(async () => {
     resolve!(true);
     await Promise.resolve();
   });
-  expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
-    "delete",
-    "queued-more",
-  ]);
+  expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual(["delete"]);
 });
 
-test("the ⋯ menu holds Edit message and Turn off queueing; Edit message opens the text in its row", async () => {
+test("the right-click menu holds Edit message and Turn off queueing; Edit message opens the text in its row", async () => {
   const container = await render(
     async () => true,
     async () => true,
   );
-  expect(await openMore(container, "p-1")).toEqual(["composer.queueEditMessage", "composer.queueingOff"]);
+  expect(await openMenu(container, "p-1")).toEqual(MENU_P1("composer.queueingOff"));
   await act(async () => menuItem("composer.queueEditMessage").click());
   await settle();
   const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea');
@@ -221,14 +235,14 @@ test("Turn off queueing turns queueing off, and the menu then offers to turn it 
     async () => true,
   );
   expect(queueingOn()).toBe(true);
-  await openMore(container, "p-1");
+  await openMenu(container, "p-1");
   await act(async () => menuItem("composer.queueingOff").click());
   await settle();
   expect(queueingOn()).toBe(false);
-  expect(await openMore(container, "p-1")).toEqual(["composer.queueEditMessage", "composer.queueingOn"]);
+  expect(await openMenu(container, "p-1")).toEqual(MENU_P1("composer.queueingOn"));
 });
 
-test("where the chat opens side chats, the ⋯ menu's Open in side chat asks the prompt there and withdraws it", async () => {
+test("where the chat opens side chats, the right-click menu's Open in side chat asks the prompt there and withdraws it", async () => {
   const container = installDom();
   const asked: [string, string][] = [];
   await act(async () => {
@@ -247,11 +261,7 @@ test("where the chat opens side chats, the ⋯ menu's Open in side chat asks the
       />,
     );
   });
-  expect(await openMore(container, "p-2")).toEqual([
-    "composer.queueEditMessage",
-    "composer.queueSideChat",
-    "composer.queueingOff",
-  ]);
+  expect(await openMenu(container, "p-2")).toEqual(MENU_P2_SIDE);
   await act(async () => menuItem("composer.queueSideChat").click());
   await settle();
   expect(asked).toEqual([["p-2", "second"]]);
@@ -335,7 +345,8 @@ test("cancel and edit withdraws a queued prompt and restores its text and images
     );
   });
   const cancel = container.querySelector<HTMLButtonElement>('[data-prompt-id="p-1"] [data-action="cancel-edit"]');
-  expect(cancel?.querySelector("svg")?.dataset.icon).toBe("action.close");
+  // A pencil: the prompt goes back into the composer to be edited.
+  expect(cancel?.querySelector("svg")?.dataset.icon).toBe("action.edit");
   await act(async () => cancel!.click());
   await settle();
   expect(restored).toEqual([
@@ -610,11 +621,7 @@ test("a teammate's queued prompt shows their name and offers no action", async (
   expect(edits).toEqual([]);
   expect(removed).toEqual([]);
   // The person's own rows keep their actions.
-  expect(actions(container, "p-1").map((b) => b.dataset.action ?? b.dataset.menu)).toEqual([
-    "steer",
-    "delete",
-    "queued-more",
-  ]);
+  expect(actions(container, "p-1").map((b) => b.dataset.action ?? b.dataset.menu)).toEqual(["steer", "delete"]);
 });
 
 // Every other path to a queue change stays shut on a teammate's row: its right-click opens no menu
