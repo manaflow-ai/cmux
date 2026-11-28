@@ -155,7 +155,7 @@ test("unreachable and subagent states remain factual with custom verbs", () => {
   expect(container.querySelector("[data-retrying]")).not.toBeNull();
   expect(container.textContent).not.toContain("Imagining");
   act(() => root!.render(<Thinking liveState="subagents" liveAgents={2} />));
-  expect(container.textContent).toContain("Waiting on 2 subagents");
+  expect(container.querySelector(".acpmux-live-count")?.getAttribute("aria-label")).toBe("Waiting on 2 subagents");
   expect(container.textContent).not.toContain("Imagining");
 });
 
@@ -169,7 +169,9 @@ test("waiting on a subagent times the wait, not the whole turn (Leo, 2026-11-20:
     ),
   );
   const line = container.querySelector(".cv-worked")!;
-  expect(line.textContent).toContain("Waiting on 1 subagent");
+  // The wait is the mark and its count (Leo, 2026-11-23: ""running" doesn't need text"), named on hover.
+  expect(line.textContent).not.toContain("Waiting");
+  expect(line.querySelector(".acpmux-live-count")?.getAttribute("title")).toBe("Waiting on 1 subagent");
   // The default look shows one clock: the wait's, never the turn's 7m 39s.
   expect(line.textContent).not.toContain("7m 39s");
   expect(container.querySelector(".cv-worked__time")?.textContent).toBe("2m");

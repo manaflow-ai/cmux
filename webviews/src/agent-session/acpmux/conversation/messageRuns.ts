@@ -270,9 +270,15 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds, live = false
   if (look === "turn-end") return rows;
   let out: AcpmuxRow[] | undefined;
   let index = 0;
+  // Rows an open background run already holds (backgroundRuns.ts, which runs first) are its own: a
+  // run of task notifications or peers there is never grouped a second time.
+  let held: Set<string> | undefined;
+  const joins = (row: AcpmuxRow) => member(row) && !held?.has(row.id);
   while (index < rows.length) {
+    const run = rows[index]!.backgroundRun;
+    if (run?.rows.length && rows[index]!.foldOpen) for (const id of run.rows) (held ??= new Set()).add(id);
     let end = index;
-    while (end < rows.length && member(rows[end]!)) end += 1;
+    while (end < rows.length && joins(rows[end]!)) end += 1;
     if (end === index) {
       out?.push(rows[index]!);
       index += 1;

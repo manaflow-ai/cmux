@@ -8,7 +8,6 @@ import { afterAll, expect, test, beforeEach, afterEach } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -51,6 +50,9 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
+const { keepIdle, loadIdle } = await import("../src/agent-session/acpmux/jumpUp");
+const { JUMP_LATEST } = await import("../src/agent-session/acpmux/transcriptSelectors");
 
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
