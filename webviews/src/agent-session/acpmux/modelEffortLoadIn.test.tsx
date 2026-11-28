@@ -215,7 +215,11 @@ test("an explicit harness switch uses the target start effort, not the previous 
     const target = snapshot("", undefined, "claude-target");
     target.catalog[0]!.start!.effort = "high";
     const settled = snapshot("target-session", "high", "claude-target");
-    return [snapshot(""), { ...target, switching: { phase: "starting", harness: "claude-target" } }, settled];
+    return [
+      snapshot(""),
+      { ...target, switching: { phase: "starting", harness: "claude-target", name: "Claude target" } },
+      settled,
+    ];
   });
   expect(result[0]).toEqual(MEDIUM);
   expect(result.slice(1).map((face) => face.effort)).toEqual(["High", "High"]);
