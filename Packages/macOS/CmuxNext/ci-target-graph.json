@@ -398,6 +398,7 @@
         "CmuxNextKeys",
         "CmuxNextLaunchImages",
         "CmuxNextLayout",
+        "CmuxNextLinkOrder",
         "CmuxNextLiveCode",
         "CmuxNextMacScreen",
         "CmuxNextMallocZone",
@@ -1842,6 +1843,12 @@
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
+      "packages": []
+    },
+    "CmuxNextLinkOrder": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLinkOrder",
+      "targets": [],
       "packages": []
     },
     "CmuxNextLiveCode": {
