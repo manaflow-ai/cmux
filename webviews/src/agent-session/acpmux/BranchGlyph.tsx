@@ -16,7 +16,6 @@ export function BranchGlyph({ className = "acpmux-icon", size = 14 }: { classNam
       strokeWidth={1.25}
       strokeLinecap="round"
       aria-hidden="true"
-      focusable="false"
     >
       <path d="M4.5 2.5v8" />
       <circle cx="11.5" cy="4.5" r="1.75" />
