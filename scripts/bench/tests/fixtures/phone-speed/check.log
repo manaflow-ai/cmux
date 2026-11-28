@@ -1,0 +1,14 @@
+echo-100: 10 terminal bytes
+echo-100	7369231 Ir / 10 operations
+echo-10000: 10 terminal bytes
+echo-10000	7842873 Ir / 10 operations
+stream-100: 740 terminal bytes
+stream-100	7863191 Ir / 10 operations
+stream-10000: 740 terminal bytes
+stream-10000	8473158 Ir / 10 operations
+rotate-100: 70320 terminal bytes
+rotate-100	46123281 Ir / 10 operations
+rotate-10000: 70320 terminal bytes
+rotate-10000	46621932 Ir / 10 operations
+PASS: deterministic terminal work budgets; physical-device calibration pending
+wall=35.799 user=21.246 sys=2.701

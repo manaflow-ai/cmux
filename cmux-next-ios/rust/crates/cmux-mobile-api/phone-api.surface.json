@@ -924,6 +924,9 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/session/residency": {
+        "ty": "json"
+      },
       "/session/retiredAgentSessionIds": {
         "ty": "array"
       },
@@ -24505,6 +24508,9 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/data/session/residency": {
+        "ty": "json"
+      },
       "/data/session/retiredAgentSessionIds": {
         "ty": "array"
       },
@@ -26156,6 +26162,9 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/data/sessions/*/residency": {
+        "ty": "json"
+      },
       "/data/sessions/*/retiredAgentSessionIds": {
         "ty": "array"
       },
@@ -27443,6 +27452,9 @@
       "/data/sessions/*/rateLimitedUntil": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/data/sessions/*/residency": {
+        "ty": "json"
       },
       "/data/sessions/*/retiredAgentSessionIds": {
         "ty": "array"
@@ -29017,6 +29029,12 @@
       },
       "/data/*/attached/*": {
         "ty": "uint64"
+      },
+      "/data/*/capabilities": {
+        "ty": "array"
+      },
+      "/data/*/capabilities/*": {
+        "ty": "string"
       },
       "/data/*/client": {
         "ty": "uint64",
