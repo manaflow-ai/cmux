@@ -104,6 +104,32 @@ class Declared(unittest.TestCase):
         self.assertEqual(dead["macos_15"], "blacksmith-6vcpu-macos-26")
         self.assertTrue(any("pools.macos_15:" in line and "blacksmith-6vcpu-macos-26" in line for line in lines), lines)
 
+    def test_a_bounded_pool_reader_accepts_every_member_it_can_run_on(self) -> None:
+        # main's readers bound the pool value with contains(fromJSON('[labels]'), pool) so a hand-set variable cannot
+        # send a job elsewhere. A list missing a member turns that member's failover back into the dead label
+        # (2026-11-28: every macos_15 reader listed only blacksmith-6vcpu-macos-15). A job that cannot run on a member
+        # is named here with its reason.
+        import re
+        narrower = {
+            # The SwiftPM manifest seeder pins the macOS 15 Xcode, which the macOS 26 image does not carry; its fork
+            # branch is macos-15 too.
+            ("seed-swiftpm-manifests.yml", "macos_15"): {"blacksmith-6vcpu-macos-15"},
+        }
+        pools = runner_pools.load_pools()
+        bounded = re.compile(r"contains\(fromJSON\('(\[[^']*\])'\), fromJSON\(vars\.RUNNER_POOLS(?: \|\| '\{\}')?\)\.(\w+)\)")
+        seen = 0
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            for listed, name in bounded.findall(path.read_text()):
+                if name not in pools:
+                    continue
+                if name != "macos_15":
+                    continue  # other pools' readers bound to sizes beside their members (ios-e2e's 12 vCPU)
+                listed = set(json.loads(listed))
+                seen += 1
+                want = narrower.get((path.name, name), set(runner_pools.members(pools[name])))
+                self.assertEqual(listed, want, f"{path.name}: pools.{name}")
+        self.assertGreater(seen, 0)
+
     def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
         # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
         # incessant pins?" A job measured at one size reads that size's pool, so a stalled size moves by declaration.
