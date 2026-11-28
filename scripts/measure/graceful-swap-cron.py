@@ -93,24 +93,20 @@ def tool_path(out: str) -> str:
     return path
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--app", required=True)
-    parser.add_argument("--json", required=True, help="the part's report.json")
-    parser.add_argument("--out", default=None, help="split-spring's artifact folder")
-    parser.add_argument("--runs", type=int, default=20)
-    args, _rest = parser.parse_known_args(argv)  # split-spring's own args are not this suite's
-    out = os.path.join(args.out or os.path.dirname(os.path.abspath(args.json)), "graceful-swap")
-    os.makedirs(out, exist_ok=True)
+def measure(args, out: str) -> tuple[list[dict], int]:
+    """Run graceful-swap-fleet.py's latency series; its receipts and exit status."""
     scratch = tempfile.mkdtemp(prefix="gsw-cron-")
-    path = tool_path(scratch)
-    if not shutil.which("ffmpeg", path=path) or not shutil.which("ffprobe", path=path):
-        brew = shutil.which("brew", path=path) or "/opt/homebrew/bin/brew"
-        subprocess.run([brew, "install", "ffmpeg"], env={**os.environ, "PATH": path, "HOMEBREW_NO_AUTO_UPDATE": "1"},
-                       capture_output=True, check=False)
-    status = subprocess.run([sys.executable, os.path.join(HERE, "graceful-swap-fleet.py"), "--app", args.app,
-                             "--tree", ROOT, "--out", out, "--runs", str(args.runs), "--films=", "--series", SERIES],
-                            cwd=ROOT, env={**os.environ, "PATH": path, "CMUX_BENCH_LAUNCH": "direct"}).returncode
+    try:
+        path = tool_path(scratch)
+        if not shutil.which("ffmpeg", path=path) or not shutil.which("ffprobe", path=path):
+            brew = shutil.which("brew", path=path) or "/opt/homebrew/bin/brew"
+            subprocess.run([brew, "install", "ffmpeg"], capture_output=True, check=False,
+                           env={**os.environ, "PATH": path, "HOMEBREW_NO_AUTO_UPDATE": "1"})
+        status = subprocess.run([sys.executable, os.path.join(HERE, "graceful-swap-fleet.py"), "--app", args.app,
+                                 "--tree", ROOT, "--out", out, "--runs", str(args.runs), "--films=", "--series", SERIES],
+                                cwd=ROOT, env={**os.environ, "PATH": path, "CMUX_BENCH_LAUNCH": "direct"}).returncode
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)  # this run's own bun scratch folder
     receipts = []
     folder = os.path.join(out, "latency")
     for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
@@ -119,19 +115,47 @@ def main(argv: list[str] | None = None) -> int:
                 receipts.append(json.load(f))
         except (OSError, ValueError):
             continue
-    shutil.rmtree(scratch, ignore_errors=True)  # this run's own bun scratch folder
+    return receipts, status
+
+
+def report_of(receipts: list[dict], status, runs: int, error: str | None = None) -> dict:
+    """report.json: the rows, and every reason a surface has no p95 row (`incomplete`): the bench's own exit status
+    and any error of this script come first, so the cron's part outcome (perf-cron.py note_part_outcomes) and NOW
+    name the cause, not only its symptom (pure)."""
     rows, incomplete = rows_from(receipts)
-    report = {"rows": rows, "bench_status": status, "series": SERIES, "runs": args.runs}
-    if incomplete:
-        report["incomplete"] = incomplete
+    causes = ([f"graceful-swap-cron.py: {error}"] if error else []) + \
+        ([f"graceful-swap-fleet.py exited {status}"] if status not in (0, None) and incomplete else [])
+    report = {"rows": rows, "bench_status": status, "series": SERIES, "runs": runs}
+    if causes or incomplete:
+        report["incomplete"] = causes + incomplete
+    return report
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--app", required=True)
+    parser.add_argument("--json", required=True, help="the part's report.json")
+    parser.add_argument("--out", default=None, help="split-spring's artifact folder")
+    parser.add_argument("--runs", type=int, default=20)
+    args, _rest = parser.parse_known_args(argv)  # split-spring's own args are not this suite's
+    out = os.path.join(args.out or os.path.dirname(os.path.abspath(args.json)), "graceful-swap")
+    receipts, status, error = [], None, None
+    try:
+        os.makedirs(out, exist_ok=True)
+        receipts, status = measure(args, out)
+    except Exception as exc:  # any failure still writes the report, with this as its reason
+        error = f"{type(exc).__name__}: {exc}"[:200]
+    report = report_of(receipts, status, args.runs, error)
     with open(args.json, "w") as f:
         json.dump(report, f, indent=1)
-    for r in rows:
+    for r in report["rows"]:
         print(f"graceful-swap: {r['name']} = {r['p95']} {r['unit']} (budget {r['budget']})")
-    for why in incomplete:
+    for why in report.get("incomplete") or []:
         print(f"graceful-swap: incomplete: {why}")
-    # The cron reads report.json only from a step that exits 0: an invalid run still stores its red count rows.
-    return 0 if rows else 1
+    # Every run exits 0 with its report written: the cron reads report.json only from a step that exits 0, and a
+    # report with `incomplete` is an incomplete part whose reasons NOW shows. Until 2026-11-28 a run with no row exited
+    # 1, stored nothing, and NOW's hot_swap rows read blank for 4 days (step 99c6a45937a1f0d863f22461).
+    return 0
 
 
 if __name__ == "__main__":
