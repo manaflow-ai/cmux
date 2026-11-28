@@ -187,12 +187,13 @@ _HASH_COMMENT_SUFFIXES = (".toml", ".yml", ".yaml", ".sh", ".bash", ".zsh")
 # a comment does not run it (web/tests/vm-image-cmux-vm-auto-roll.test.ts, #48644,
 # cites scripts/ci/one_linux_label.py and made what that helper reaches every area).
 _SLASH_COMMENT_SUFFIXES = (".ts", ".tsx", ".js", ".mjs", ".cjs", ".swift", ".rs", ".go")
-_SLASH_COMMENT_RE = re.compile(r"/\*.*?\*/|(?<![:/\\])//.*$", re.S | re.M)
+_SLASH_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
+_SLASH_LINE_COMMENT_RE = re.compile(r"(?<![:/\\])//[^\n]*")
 
 
 def _without_slash_comments(text: str) -> str:
     """`text` without `//` line comments (a URL's `://` stays) and `/* */` blocks."""
-    return _SLASH_COMMENT_RE.sub("", text)
+    return _SLASH_LINE_COMMENT_RE.sub("", _SLASH_BLOCK_COMMENT_RE.sub("", text))
 # Data files that name helpers without running them: git attributes, the
 # warm-source table, whose entries describe a source in prose (#28568), the
 # single-host fallback declaration, whose `fallback` lines name the rescue that
@@ -680,6 +681,8 @@ _MACOS_DERIVED_OUTPUTS = frozenset({
 _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_ci_change_areas.py",
     "scripts/ci/detect_linux_guard_changes.py",
+    # The cargo fast tier's input list (#49682 put the warm-target helpers in it).
+    "scripts/ci/fast_tier_cargo_route.py",
     "scripts/ci/workflow_guard_groups.py",
 })
 # Files that list test paths without running them: the routing tables,
@@ -775,6 +778,16 @@ def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
     except OSError:
         return None
     return _python_names(text, test)
+
+
+def _shell_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
+    """Whether the shell script `runner` names `test` outside comments, or None
+    when it cannot be read (fail open)."""
+    try:
+        text = (root / runner).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return _names(text, test)
 
 
 def _nothing_imports_test(root: Path, test: str) -> bool:
@@ -994,6 +1007,12 @@ def ci_helper_areas(
                         # that test reaches).
                         and not (runner.startswith(("tests/", "scripts/")) and runner.endswith(".py")
                                  and _python_runner_names(root, runner, referrer) is False)
+                        # A shell script that cites the test only in a comment
+                        # (scripts/ci/github-egress-run.sh, whose header names
+                        # tests/test_cmux_next_checks_workflow.py) does not run it.
+                        and not (runner.startswith(("tests/", "scripts/"))
+                                 and runner.endswith((".sh", ".bash", ".zsh"))
+                                 and _shell_runner_names(root, runner, referrer) is False)
                         # A test that runs this test is judged by the rule for a
                         # test that names the helper: a Linux guard test, or a
                         # manual-lane test nothing runs or imports, reaches no
