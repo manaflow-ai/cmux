@@ -155,6 +155,21 @@ pack() { tar -czf "$out/report.tgz" -C "$work" $(cd "$work" && ls run.jsonl run.
 {
   echo "SSVP self $self ip=${self_ip:-?} user=$(id -un)"
   echo "SSVP keys $(ls ~/.ssh 2>/dev/null | grep -v -E '^known_hosts' | tr '\n' ' ')"
+  # The main display's mode and every refresh rate it offers at that pixel size: a 60 Hz-only display
+  # floors the key-to-frame time near 40 ms (capture plus present wait a refresh each), and max-refresh=1
+  # can only raise to a rate listed here. `offered=60` on the host means a faster display, not a flag.
+  echo "SSVP display $(perl -e 'alarm 120; exec @ARGV' xcrun swift - 2>&1 <<'SWIFT' | tail -1
+import CoreGraphics
+import Foundation
+let id = CGMainDisplayID()
+let opts = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
+guard let cur = CGDisplayCopyDisplayMode(id) else { print("none"); exit(0) }
+let modes = (CGDisplayCopyAllDisplayModes(id, opts) as? [CGDisplayMode]) ?? []
+let hz = Set(modes.filter { $0.pixelWidth == cur.pixelWidth && $0.pixelHeight == cur.pixelHeight }
+  .map { Int($0.refreshRate.rounded()) }).sorted()
+print("\(cur.pixelWidth)x\(cur.pixelHeight)@\(Int(cur.refreshRate.rounded()))Hz offered=\(hz.map(String.init).joined(separator: ","))")
+SWIFT
+)"
 } | tee "$work/probe.txt"
 vs=cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py
 # tcp_check ADDR PORT: one TCP connect from this step, printed as `ok` or the errno and its name.
