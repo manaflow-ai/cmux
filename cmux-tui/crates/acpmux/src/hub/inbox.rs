@@ -1413,7 +1413,12 @@ pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) ->
     let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
     let auto_resume = matches!(
         kind,
-        Some("auto_resume" | super::idle::cache_compact::KIND | super::cold_wake::KIND)
+        Some(
+            "auto_resume"
+                | super::idle::cache_compact::KIND
+                | super::cold_wake::KIND
+                | super::plan_first::GO_KIND
+        )
     );
     agent.is_none()
         && !auto_resume

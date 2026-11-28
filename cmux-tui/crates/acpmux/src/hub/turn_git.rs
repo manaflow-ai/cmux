@@ -95,6 +95,7 @@ impl Hub {
         super::turn_checkpoint::count(&mut msg);
         self.cache_alarm(session, &mut msg);
         self.turn_rules_end(session, &mut msg);
+        self.plan_first_end(session, &mut msg);
         self.sidecars_end(session, &mut msg);
         super::best_of_n::stamp(&session.id, &mut msg);
         // The turn's edits, tests and PRs as one card (`turn_artifacts.rs`).
