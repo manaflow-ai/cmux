@@ -33,4 +33,12 @@ import Testing
 
         #expect(shortcut == StoredShortcut(first: ShortcutStroke(key: "j")))
     }
+    @Test func decodesEscapeAndEscAliasAsCanonicalEscape() throws {
+        let escape = try #require(StoredShortcut.decodeFromJSON("cmd+escape"))
+        let esc = try #require(StoredShortcut.decodeFromJSON("cmd+esc"))
+
+        let expected = StoredShortcut(first: ShortcutStroke(key: "escape", command: true))
+        #expect(escape == expected)
+        #expect(esc == expected)
+    }
 }

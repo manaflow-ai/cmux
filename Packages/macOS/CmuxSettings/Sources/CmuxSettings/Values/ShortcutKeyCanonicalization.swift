@@ -40,6 +40,7 @@ public func canonicalShortcutKey(_ key: String, keyCode: UInt16?) -> String {
 
 private func physicalBaseShortcutKey(for keyCode: UInt16) -> String? {
     switch keyCode {
+    case 53: return "escape"
     case 36, 76: return "\r"
     case 48: return "\t"
     case 49: return "space"

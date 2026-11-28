@@ -121,6 +121,8 @@ private extension ShortcutStroke {
             return "\t"
         case "return", "enter", "↩":
             return "\r"
+        case "escape", "esc":
+            return "escape"
         case "space", "spacebar", "<space>":
             return "space"
         case "comma":
