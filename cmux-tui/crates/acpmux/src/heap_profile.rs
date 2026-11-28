@@ -49,6 +49,14 @@ pub fn request(params: &serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// `_acpmux/heap_profile` for the server: [`request`] off the runtime's threads, as symbolizing
+/// the sampled stacks reads the binary's debug info.
+pub async fn serve(params: serde_json::Value) -> Result<serde_json::Value, crate::rpc::RpcError> {
+    tokio::task::spawn_blocking(move || request(&params))
+        .await
+        .map_err(|e| crate::rpc::RpcError::internal(e.to_string()))
+}
+
 /// The dhat write (or glibc's counts) of [`request`] without `sample`.
 pub fn dump() -> serde_json::Value {
     #[cfg(feature = "dhat-heap")]
