@@ -24,16 +24,20 @@ struct AgentPaneModelsRefreshRelayTests {
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
         let sent = { server.peers.first?.frames.filter { $0.contains("_acpmux/models") } ?? [] }
 
-        #expect(await transport.send(connection: id, frames: [Self.models(id: 1, params: #"{"refresh":true,"cwd":"/"}"#)]) != nil,
-                "a param the pane never sends")
-        #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
+        // cmux#49717: a param the pane never sends is dropped, not refused; the read goes without it.
+        #expect(await transport.send(connection: id, frames: [Self.models(id: 1, params: #"{"refresh":true,"cwd":"/"}"#)]) == nil,
+                "the relay refused a read with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":1"#)
+        let stripped = try #require(sent().first, "the stripped read never reached acpmux")
+        let strippedObject = try JSONSerialization.jsonObject(with: Data(stripped.utf8)) as? [String: Any]
+        #expect(strippedObject?["params"] as? NSDictionary == ["refresh": true] as NSDictionary, "cwd reached acpmux: \(stripped)")
 
         #expect(await transport.send(connection: id, frames: [Self.models(id: 2, params: #"{"refresh":true}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":2"#)
-        let frame = try #require(sent().first)
+        let frame = try #require(sent().dropFirst().first)
         let object = try JSONSerialization.jsonObject(with: Data(frame.utf8)) as? [String: Any]
         let params = try #require(object?["params"] as? [String: Any])
         #expect(params["refresh"] as? Bool == true)
-        #expect(sent().count == 1)
+        #expect(sent().count == 2)
     }
 }

@@ -73,7 +73,15 @@ struct AgentPaneMachineHarnessesRelayTests {
         #expect(reached.count == 1)
         #expect(reached.first?.contains(#""peer":"studio""#) == true, "\(reached)")
 
+        // cmux#49717: a `_meta.acpmux` key the read never takes is dropped, not refused; the read
+        // goes with its peer and without the key.
         let extra = #"{"jsonrpc":"2.0","id":6,"method":"_acpmux/harnesses","params":{"_meta":{"acpmux":{"peer":"studio","harness":"x"}}}}"#
-        #expect(await transport.send(connection: id, frames: [extra]) == .intentInvalid)
+        let extraSent = await transport.send(connection: id, frames: [extra])
+        #expect(extraSent == nil, "the relay refused a peer read with a key it never takes")
+        if extraSent == nil { _ = await inbox.frame(containing: #""id":6"#) }
+        let reachedAgain = (server.peers.first?.frames ?? []).filter { $0.contains("_acpmux/harnesses") }
+        #expect(reachedAgain.count == 2, "\(reachedAgain)")
+        #expect(reachedAgain.last?.contains(#""peer":"studio""#) == true, "\(reachedAgain)")
+        #expect(reachedAgain.last?.contains(#""harness""#) == false, "harness reached acpmux: \(reachedAgain)")
     }
 }

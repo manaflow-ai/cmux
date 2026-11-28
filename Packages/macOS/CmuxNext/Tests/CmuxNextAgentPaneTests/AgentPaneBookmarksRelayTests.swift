@@ -30,21 +30,31 @@ struct AgentPaneBookmarksRelayTests {
                 "a chat outside the pane's scope")
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, method: get, params: #"{"sessionId":"other"}"#)]) != nil,
                 "a chat outside the pane's scope")
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, method: set, params: #"{"sessionId":"s","seq":3,"bookmarked":true,"command":"ls"}"#)]) != nil,
-                "a param the pane never sends")
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, method: get, params: #"{"sessionId":"s","cwd":"/"}"#)]) != nil,
-                "a param the pane never sends")
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 5, method: set, params: #"{"seq":3,"bookmarked":true}"#)]) != nil,
                 "no chat named")
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
+
+        // cmux#49717: a param the pane never sends is dropped, not refused; each goes without it.
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, method: set, params: #"{"sessionId":"s","seq":3,"bookmarked":true,"command":"ls"}"#)]) == nil,
+                "the relay refused a mark with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":3"#)
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, method: get, params: #"{"sessionId":"s","cwd":"/"}"#)]) == nil,
+                "the relay refused a read with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":4"#)
+        let strippedParams = try sent().map { frame in
+            let object = try JSONSerialization.jsonObject(with: Data(frame.utf8)) as? [String: Any]
+            return try #require(object?["params"] as? [String: Any]) as NSDictionary
+        }
+        #expect(strippedParams == [["sessionId": "s", "seq": 3, "bookmarked": true] as NSDictionary, ["sessionId": "s"] as NSDictionary],
+                "a dropped param reached acpmux: \(sent())")
 
         // No gesture: a mark grants nothing.
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 6, method: set, params: #"{"sessionId":"s","seq":3,"bookmarked":true}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":6"#)
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 7, method: get, params: #"{"sessionId":"s"}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":7"#)
-        let frames = sent()
-        #expect(frames.count == 2, "\(frames)")
+        let frames = Array(sent().dropFirst(2))
+        #expect(frames.count == 2, "\(sent())")
         let object = try JSONSerialization.jsonObject(with: Data(try #require(frames.first).utf8)) as? [String: Any]
         let params = try #require(object?["params"] as? [String: Any])
         #expect(params["sessionId"] as? String == "s")

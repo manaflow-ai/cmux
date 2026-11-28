@@ -58,18 +58,22 @@ struct AgentPanePeerSnapshotRelayTests {
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
         let reads = { server.peers.first?.frames.filter { $0.contains("_acpmux/peer_snapshot") } ?? [] }
 
+        // cmux#49717: a param the pane never sends is dropped, not refused; the read goes without it.
         #expect(await transport.send(connection: id, frames: [Self.read(id: 1, params: #"{"sessionId":"m1","host":"other"}"#)])
-                == .intentInvalid, "a param the pane never sends")
-        #expect(reads().isEmpty, "a refused read reached acpmux: \(reads())")
+                == nil, "the relay refused a read with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":1"#)
+        let stripped = try #require(reads().first, "the stripped read never reached acpmux")
+        let strippedObject = try JSONSerialization.jsonObject(with: Data(stripped.utf8)) as? [String: Any]
+        #expect(strippedObject?["params"] as? NSDictionary == ["sessionId": "m1"] as NSDictionary, "host reached acpmux: \(stripped)")
 
         // The chat is not in the pane's scope yet: the copy is drawn before its attach.
         #expect(await transport.send(connection: id, frames: [Self.read(id: 2, params: #"{"sessionId":"huge-blue/lane"}"#)]) == nil,
                 "the relay refused the pane's _acpmux/peer_snapshot")
         _ = await inbox.frame(containing: #""id":2"#)
-        let sent = try #require(reads().first, "the read never reached acpmux")
+        let sent = try #require(reads().dropFirst().first, "the read never reached acpmux")
         let object = try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any]
         let params = try #require(object?["params"] as? [String: Any])
         #expect(params as NSDictionary == ["sessionId": "huge-blue/lane"] as NSDictionary)
-        #expect(reads().count == 1)
+        #expect(reads().count == 2)
     }
 }

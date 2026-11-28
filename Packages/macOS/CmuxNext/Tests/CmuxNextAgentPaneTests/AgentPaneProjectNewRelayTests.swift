@@ -27,16 +27,20 @@ struct AgentPaneProjectNewRelayTests {
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
         let sent = { server.peers.first?.frames.filter { $0.contains("_acpmux/project_new") } ?? [] }
 
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"name":"x","root":"/etc"}"#)]) != nil,
-                "a param the pane never sends")
-        #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
+        // cmux#49717: a param the pane never sends is dropped, not refused; the frame goes as its name.
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"name":"x","root":"/etc"}"#)]) == nil,
+                "the relay refused a frame with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":2"#)
+        let stripped = try #require(sent().first, "the stripped frame never reached acpmux")
+        let strippedObject = try JSONSerialization.jsonObject(with: Data(stripped.utf8)) as? [String: Any]
+        #expect(strippedObject?["params"] as? NSDictionary == ["name": "x"] as NSDictionary, "root reached acpmux: \(stripped)")
 
         transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, params: #"{"name":"habit-tracker"}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":3"#)
         let frames = sent()
-        #expect(frames.count == 1, "\(frames)")
-        let object = try JSONSerialization.jsonObject(with: Data(try #require(frames.first).utf8)) as? [String: Any]
+        #expect(frames.count == 2, "\(frames)")
+        let object = try JSONSerialization.jsonObject(with: Data(try #require(frames.dropFirst().first).utf8)) as? [String: Any]
         let params = try #require(object?["params"] as? [String: Any])
         #expect(params["name"] as? String == "habit-tracker")
         #expect(params.count == 1)

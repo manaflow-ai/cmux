@@ -27,18 +27,25 @@ struct AgentPaneSubagentStopRelayTests {
 
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 1, params: #"{"sessionId":"other","subagentSessionId":"a"}"#)]) != nil,
                 "a chat outside the pane's scope")
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"sessionId":"s","subagentSessionId":"a","command":"ls"}"#)]) != nil,
-                "a param the pane never sends")
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, params: #"{"subagentSessionId":"a"}"#)]) != nil,
                 "no chat named")
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
+
+        // cmux#49717: a param the pane never sends is dropped, not refused; the stop goes without it.
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"sessionId":"s","subagentSessionId":"a","command":"ls"}"#)]) == nil,
+                "the relay refused a stop with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":2"#)
+        let stripped = try #require(sent().first, "the stripped stop never reached acpmux")
+        let strippedObject = try JSONSerialization.jsonObject(with: Data(stripped.utf8)) as? [String: Any]
+        #expect(strippedObject?["params"] as? NSDictionary == ["sessionId": "s", "subagentSessionId": "a"] as NSDictionary,
+                "command reached acpmux: \(stripped)")
 
         // No gesture: a stop grants nothing.
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, params: #"{"sessionId":"s","subagentSessionId":"a"}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":4"#)
         let frames = sent()
-        #expect(frames.count == 1, "\(frames)")
-        let object = try JSONSerialization.jsonObject(with: Data(try #require(frames.first).utf8)) as? [String: Any]
+        #expect(frames.count == 2, "\(frames)")
+        let object = try JSONSerialization.jsonObject(with: Data(try #require(frames.dropFirst().first).utf8)) as? [String: Any]
         let params = try #require(object?["params"] as? [String: Any])
         #expect(params["sessionId"] as? String == "s")
         #expect(params["subagentSessionId"] as? String == "a")

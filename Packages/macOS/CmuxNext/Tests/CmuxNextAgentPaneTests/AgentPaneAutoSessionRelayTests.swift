@@ -32,15 +32,25 @@ struct AgentPaneAutoSessionRelayTests {
         transport.gestures.record(click: true)
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 1, method: Self.set, params: #"{"sessionId":"other","auto":true}"#)]) == .sessionNotInPane)
         transport.gestures.record(click: true)
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, method: Self.set, params: #"{"sessionId":"s","auto":true,"machine":"m"}"#)]) != nil,
-                "a param the pane never sends")
-        transport.gestures.record(click: true)
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, method: Self.leftover, params: #"{"sessionId":"s","action":"apply","path":"/tmp/x"}"#)]) != nil,
-                "the kept changes name no path")
-        transport.gestures.record(click: true)
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, method: "_acpmux/auto_session/wake", params: "{}")]) != nil,
                 "the wake notice is the app's, not the page's")
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
+
+        // cmux#49717: a param the pane never sends is dropped, not refused; each goes without it.
+        transport.gestures.record(click: true)
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, method: Self.set, params: #"{"sessionId":"s","auto":true,"machine":"m"}"#)]) == nil,
+                "the relay refused an auto set with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":2"#)
+        transport.gestures.record(click: true)
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, method: Self.leftover, params: #"{"sessionId":"s","action":"apply","path":"/tmp/x"}"#)]) == nil,
+                "the relay refused the kept changes with a path the pane never sends")
+        _ = await inbox.frame(containing: #""id":3"#)
+        let strippedParams = try sent().map { frame in
+            let object = try JSONSerialization.jsonObject(with: Data(frame.utf8)) as? [String: Any]
+            return try #require(object?["params"] as? [String: Any]) as NSDictionary
+        }
+        #expect(strippedParams == [["sessionId": "s", "auto": true] as NSDictionary, ["sessionId": "s", "action": "apply"] as NSDictionary],
+                "a dropped param reached acpmux: \(sent())")
 
         transport.gestures.record(click: true)
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 5, method: Self.set, params: #"{"sessionId":"s","auto":true,"keepInCloud":true}"#)]) == nil)
@@ -48,8 +58,8 @@ struct AgentPaneAutoSessionRelayTests {
         transport.gestures.record(click: true)
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 6, method: Self.leftover, params: #"{"sessionId":"s","action":"discard"}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":6"#)
-        let frames = sent()
-        #expect(frames.count == 2, "\(frames)")
+        let frames = Array(sent().dropFirst(2))
+        #expect(frames.count == 2, "\(sent())")
         let params = try frames.map { frame in
             let object = try JSONSerialization.jsonObject(with: Data(frame.utf8)) as? [String: Any]
             return try #require(object?["params"] as? [String: Any])

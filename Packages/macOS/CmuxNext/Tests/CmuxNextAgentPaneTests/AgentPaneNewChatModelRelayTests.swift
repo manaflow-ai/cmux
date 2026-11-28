@@ -75,11 +75,18 @@ struct AgentPaneNewChatModelRelayTests {
         #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
         let starts = { server.peers.first?.frames.filter { $0.contains("session/new") } ?? [] }
 
-        #expect(await transport.send(connection: id, frames: [Self.start(id: 1, acpmux: #""harness":"claude","peer":"devbox","model":"m","policy":"bypass""#, cwd: folder)])
-                == .intentInvalid, "a key the pane never sends")
         #expect(await transport.send(connection: id, frames: [Self.start(id: 2, acpmux: #""harness":"claude","peer":"devbox","model":"-p""#, cwd: folder)])
                 == .intentInvalid, "a model that is a flag")
         #expect(starts().isEmpty, "a refused start reached acpmux: \(starts())")
+
+        // cmux#49717: a `_meta.acpmux` key the pane never sends is dropped, not refused; the start
+        // goes without it and keeps its model.
+        #expect(await transport.send(connection: id, frames: [Self.start(id: 1, acpmux: #""harness":"claude","peer":"devbox","model":"m","policy":"bypass""#, cwd: folder)])
+                == nil, "the relay refused a start with a key the pane never sends")
+        _ = await inbox.frame(containing: #""id":1"#)
+        let stripped = try #require(starts().first.flatMap(Self.object).flatMap { (($0["params"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any] })
+        #expect(stripped["policy"] == nil, "policy reached acpmux: \(starts())")
+        #expect(stripped["model"] as? String == "m")
 
         // The person's send on the New Tab with another machine picked.
         transport.gestures.record()
@@ -87,7 +94,7 @@ struct AgentPaneNewChatModelRelayTests {
         #expect(sent == nil, "the relay refused the start on another machine with its model")
         guard sent == nil else { return }
         _ = await inbox.frame(containing: #""id":3"#)
-        let acpmux = try #require(starts().first.flatMap(Self.object).flatMap { (($0["params"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any] })
+        let acpmux = try #require(starts().dropFirst().first.flatMap(Self.object).flatMap { (($0["params"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any] })
         #expect(acpmux["model"] as? String == "claude-opus-5-5")
         #expect(acpmux["peer"] as? String == "devbox")
     }

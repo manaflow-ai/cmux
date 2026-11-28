@@ -30,19 +30,25 @@ struct AgentPaneAgentPairResumeRelayTests {
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 1, params: #"{"sessionId":"other","peerSessionId":"s"}"#)]) == .sessionNotInPane,
                 "a chat outside the pane's scope, even naming one inside it as the peer")
         transport.gestures.record()
-        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"sessionId":"s","promptId":"p"}"#)]) != nil,
-                "a param the pane never sends")
-        transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 3, params: #"{"peerSessionId":"other"}"#)]) != nil,
                 "no chat named")
         #expect(sent().isEmpty, "a refused frame reached acpmux: \(sent())")
+
+        // cmux#49717: a param the pane never sends is dropped, not refused; the resume goes without it.
+        transport.gestures.record()
+        #expect(await transport.send(connection: id, frames: [Self.frame(id: 2, params: #"{"sessionId":"s","promptId":"p"}"#)]) == nil,
+                "the relay refused a resume with a param the pane never sends")
+        _ = await inbox.frame(containing: #""id":2"#)
+        let stripped = try #require(sent().first, "the stripped resume never reached acpmux")
+        let strippedObject = try JSONSerialization.jsonObject(with: Data(stripped.utf8)) as? [String: Any]
+        #expect(strippedObject?["params"] as? NSDictionary == ["sessionId": "s"] as NSDictionary, "promptId reached acpmux: \(stripped)")
 
         transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [Self.frame(id: 4, params: #"{"sessionId":"s","peerSessionId":"other"}"#)]) == nil)
         _ = await inbox.frame(containing: #""id":4"#)
         let frames = sent()
-        #expect(frames.count == 1, "\(frames)")
-        let object = try JSONSerialization.jsonObject(with: Data(try #require(frames.first).utf8)) as? [String: Any]
+        #expect(frames.count == 2, "\(frames)")
+        let object = try JSONSerialization.jsonObject(with: Data(try #require(frames.dropFirst().first).utf8)) as? [String: Any]
         let params = try #require(object?["params"] as? [String: Any])
         #expect(params["sessionId"] as? String == "s")
         #expect(params["peerSessionId"] as? String == "other")

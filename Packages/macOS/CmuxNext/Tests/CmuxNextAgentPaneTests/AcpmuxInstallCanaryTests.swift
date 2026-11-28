@@ -19,13 +19,26 @@ struct AcpmuxInstallCanaryTests {
         #expect(AcpmuxInstallCanary.relayRefusal() == nil)
     }
 
-    /// The incident's shape: a field the relay does not accept refuses the very first frame.
-    @Test func aFieldTheRelayDoesNotAcceptIsRefused() {
-        let frame = #"{"id":1,"jsonrpc":"2.0","method":"initialize","params":{"newField":true,"_meta":{"acpmux":{"peerRowBatches":true}},"clientCapabilities":{},"clientInfo":{"name":"cmux-react-agent-pane","version":"1"},"protocolVersion":1}}"#
+    /// The incident's shape: since cmux#49717 a field the relay does not know goes without it, so the
+    /// very first frame still opens the chat; a forged shape on it is still refused with the reason a
+    /// chat sees.
+    @Test func aFieldTheRelayDoesNotAcceptIsRefused() throws {
         let snapshot = AgentPaneTransport.Snapshot(isFirst: true, localAppToken: nil, socketPath: nil, modeFields: nil,
                                                    sessions: AcpmuxPaneSessions(), options: AcpmuxPermissionOptions())
-        guard case .refuse(.refuse(let error, _, _, _), _) = AgentPaneTransport.checkOne(frame, snapshot) else {
-            Issue.record("the relay took a frame with a field it does not accept")
+        let newer = #"{"id":1,"jsonrpc":"2.0","method":"initialize","params":{"newField":true,"_meta":{"acpmux":{"peerRowBatches":true}},"clientCapabilities":{},"clientInfo":{"name":"cmux-react-agent-pane","version":"1"},"protocolVersion":1}}"#
+        guard case .frame(_, let box) = AgentPaneTransport.checkOne(newer, snapshot) else {
+            Issue.record("the relay refused a first frame for a field it does not know")
+            return
+        }
+        let encoded = try #require(box.encoded(id: 1))
+        let object = try #require(JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [String: Any])
+        let params = try #require(object["params"] as? [String: Any])
+        #expect(params["newField"] == nil, "the unknown field reached acpmux: \(encoded)")
+        #expect(params["clientInfo"] != nil)
+
+        let forged = #"{"id":1,"jsonrpc":"2.0","method":"initialize","params":{"_meta":{"acpmux":"peerRowBatches"},"clientCapabilities":{},"clientInfo":{"name":"cmux-react-agent-pane","version":"1"},"protocolVersion":1}}"#
+        guard case .refuse(.refuse(let error, _, _, _), _) = AgentPaneTransport.checkOne(forged, snapshot) else {
+            Issue.record("the relay took a first frame whose _meta.acpmux is not an object")
             return
         }
         #expect(error.rawValue == "transport.intent_invalid")
