@@ -337,7 +337,7 @@ impl Runner for Fake {
         }
         self.clock += self.cost(args);
         self.ran.push(args.to_vec());
-        self.answers.pop_front().expect("an answer for every step")
+        self.answers.pop_front().unwrap_or_else(|| panic!("no answer for {args:?}; ran {:?}", self.ran))
     }
     /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
     /// is used up and never seen.
