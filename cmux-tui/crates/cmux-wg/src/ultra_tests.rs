@@ -812,6 +812,15 @@ fn bulk_parity_setting_reads_in_range_values_only() {
 }
 
 #[test]
+fn media_follows_its_class_only_when_asked() {
+    assert!(!media_follows_class_from(None));
+    assert!(media_follows_class_from(Some(" class ")));
+    for other in ["", "always", "1", "Class"] {
+        assert!(!media_follows_class_from(Some(other)), "{other:?}");
+    }
+}
+
+#[test]
 fn interactive_is_repaired_at_any_measured_loss() {
     for mode in REPAIR_MODES {
         for (lost, total) in [(0, 1000), (5, 1000), (20, 1000)] {

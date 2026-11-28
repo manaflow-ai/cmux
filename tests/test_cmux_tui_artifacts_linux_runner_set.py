@@ -47,8 +47,6 @@ def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted
             "CI_CLOUD_OVERFLOW_SAVED": [overflow],
             "CI_TRUSTED_RUNNER": [trusted],
             "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
-            # The overflow switch (scripts/ci/one_linux_label.py OVERFLOW): unset until a failover writes it.
-            "CI_OVERFLOW_LINUX": [""],
         },
         silent=("needs",),
     )
@@ -84,6 +82,10 @@ NIGHTLY_CONTROL_JOBS = ("reject-untrusted-pin-ref", "push-gate", "tree-preflight
                         "darwin-fallback-plan", "verify-publish", "adopt-commit-manifest", "verify-cdn-publication")
 NIGHTLY_PINNED_JOBS = NIGHTLY_TREE_JOBS + NIGHTLY_CONTROL_JOBS
 NIGHTLY_ARM = "github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || "
+# cmux_next_ daemon tests: a nightly rerun leaves the pool that failed it (#64136), and the push that saves the test
+# target follows the overflow switch to where pr-pipeline.yml's linux job restores it (scripts/ci/cmux-tui-test-target.sh).
+DAEMON_TESTS_ARM = ("github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' "
+                    "|| github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || vars.CI_OVERFLOW_LINUX || ")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -149,7 +151,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         for job in sorted(LINUX_LABEL_JOBS):
             with self.subTest(job=job):
-                arm = NIGHTLY_ARM if job in NIGHTLY_CONTROL_JOBS else ""
+                arm = (NIGHTLY_ARM if job in NIGHTLY_CONTROL_JOBS
+                       else DAEMON_TESTS_ARM if job == "cmux-next-daemon-tests" else "")
                 self.assertEqual(jobs[job]["runs-on"],
                                  "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + arm + "'cmux-linux' }}")
         for job in ("build", "build-linux"):
@@ -184,7 +187,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             if one_label(name, runs_on):
                 with self.subTest(job=name):
                     # A nightly tree job's attempt-1 pin keeps its place before the one label.
-                    self.assertEqual(labels - ({NIGHTLY} if name in NIGHTLY_PINNED_JOBS else set()), {"cmux-linux"})
+                    pinned = name in NIGHTLY_PINNED_JOBS or name == "cmux-next-daemon-tests"
+                    self.assertEqual(labels - ({NIGHTLY} if pinned else set()), {"cmux-linux"})
                 continue
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
                        | ({PERSISTENT} if runs_on.rstrip().endswith(f"'{PERSISTENT}' }}}}") else set())

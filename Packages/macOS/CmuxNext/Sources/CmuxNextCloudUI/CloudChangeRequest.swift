@@ -3,8 +3,9 @@ public import CmuxNextActions
 public import CmuxNextDesign
 
 /// The person's yes before a Cloud machine change an agent or a script asked for (restore, fork, snapshot
-/// delete), as a create's request asks first. A change that only resizes the person's own machine or adds a
-/// snapshot of it (``unasked``) never asks: it runs at once and ``notice(_:)`` says so after the fact. cmux-platform holds such a
+/// delete), as a create's request asks first. Which changes ask, and whether one that ran toasts, is Rust's
+/// `cloud_handler_change_gate` (cmux-cloud-handlers `decide::change_gate`): a resize or snapshot of the person's own
+/// machine never asks, and ``notice(_:)`` is only its record (the app log), not a toast. cmux-platform holds such a
 /// change for a person's approval; the App sends it only as the person's own, through the approval
 /// loop, so nothing is sent until they click Allow. The App lists ``identifier`` as user-only
 /// (DebugDialog), so automation never answers it. Keys live in Resources/Cloud.xcstrings with every app locale.
@@ -26,23 +27,35 @@ public struct CloudChangeRequest {
 
     public static let identifier = "cmux.dialog.cloud.changeRequest"
 
-    /// The machine changes an agent or a script makes with no Allow: they only change the size of, or add a snapshot
-    /// of, a machine of the person's own, which counts on their plan and nothing else (Leo, 2026-11-18, on this
-    /// dialog for a resize: "this shouldnt wait"). A new machine (create, restore, fork) and a delete still ask.
-    public static let unasked: Set<String> = ["cloudResizeMachine", "palette.cloud.snapshot", "palette.cloud.promoteTemplate"]
+    /// What was asked, one line each in key order, in the person's words: a disk with its unit ("Disk: 128 GB"),
+    /// a size named ("Size: medium"), any other argument as given.
+    public var askedLines: [String] {
+        asked.keys.sorted().map { key in
+            let value = asked[key] ?? ""
+            switch key {
+            case "disk": return String(format: String(localized: "cloud.changeRequest.disk", defaultValue: "Disk: %@ GB", table: "Cloud", bundle: .localizedModule), value)
+            case "size": return String(format: String(localized: "cloud.changeRequest.size", defaultValue: "Size: %@", table: "Cloud", bundle: .localizedModule), value)
+            default: return "\(key): \(value)"
+            }
+        }
+    }
 
-    /// The toast once such a change ran: `title` (the action's palette title), then the machine and what was asked.
+    /// The record of such a change once it ran: `title` (the action's palette title), then the machine and what was asked.
     public func notice(_ title: String) -> String {
         let name = title.hasSuffix("…") ? String(title.dropLast()) : title
-        let details = (machine.map { [$0] } ?? []) + asked.keys.sorted().map { "\($0): \(asked[$0] ?? "")" }
+        let details = (machine.map { [$0] } ?? []) + askedLines
         return String(format: String(localized: "cloud.changeRequest.notice", defaultValue: "%1$@ by an agent or a script: %2$@", table: "Cloud", bundle: .localizedModule),
                       name, details.joined(separator: ", "))
     }
 
-    /// Once `action`'s change ran: an ``unasked`` one tells the person in a toast in `window`; any other said its Allow first.
-    @MainActor public func noticed(_ action: String, title: String, in window: NSWindow?) {
-        guard Self.unasked.contains(action), let window else { return }
-        CmuxToastCenter.shared.showNotice(notice(title), id: "cloud-change-" + action, in: window)
+    /// Once `action`'s change ran: `record` keeps ``notice(_:)`` (the app log), and only a change whose gate says
+    /// `toast` (none today: Rust's `decide::change_gate`) interrupts the person with it in `window`. The run's own
+    /// answer and the machine's row already say it ran.
+    @MainActor public func noticed(_ action: String, title: String, toast: Bool, in window: NSWindow?, record: (String) -> Void) {
+        let notice = notice(title)
+        record(notice)
+        guard toast, let window else { return }
+        CmuxToastCenter.shared.showNotice(notice, id: "cloud-change-" + action, in: window)
     }
     /// The id of the button that says yes.
     public static let accept = "allow"
@@ -53,7 +66,7 @@ public struct CloudChangeRequest {
             title: title,
             lines: [String(localized: "cloud.changeRequest.body", defaultValue: "Asked by an agent or a script. A Cloud machine change can count against your Cloud plan.", table: "Cloud", bundle: .localizedModule)]
                 + (machine.map { [String(format: String(localized: "cloud.changeRequest.machine", defaultValue: "Machine: %@", table: "Cloud", bundle: .localizedModule), $0)] } ?? [])
-                + asked.keys.sorted().map { "\($0): \(asked[$0] ?? "")" },
+                + askedLines,
             buttons: [.cancel(String(localized: "cloud.changeRequest.decline", defaultValue: "Don't Allow", table: "Cloud", bundle: .localizedModule)),
                       CmuxDialogButton(id: Self.accept, title: String(localized: "cloud.changeRequest.accept", defaultValue: "Allow", table: "Cloud", bundle: .localizedModule), role: .default)],
             identifier: Self.identifier)
