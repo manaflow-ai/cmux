@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "carried.proposed" : {
-      "comment" : "Session Info, Carried memory: heading over the notes other machines propose to add, waiting for the person to accept or drop",
+    "settings.experiments.feed" : {
+      "comment" : "Settings > Experimental row title: every update (agent turns, approvals, PRs, CI, notifications) as one Feed page in the app.",
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Proposed"
-          }
-        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "مقترحة"
+            "value" : "الموجز"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Predloženo"
+            "value" : "Feed"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Foreslået"
+            "value" : "Feed"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Vorgeschlagen"
+            "value" : "Feed"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feed"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Propuestas"
+            "value" : "Feed"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Proposées"
+            "value" : "Fil"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Proposte"
+            "value" : "Feed"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "提案"
+            "value" : "フィード"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បានស្នើ"
+            "value" : "ព័ត៌មាន"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "제안됨"
+            "value" : "피드"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Foreslått"
+            "value" : "Feed"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Proponowane"
+            "value" : "Kanał"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Propostas"
+            "value" : "Feed"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Предложено"
+            "value" : "Лента"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ที่เสนอ"
+            "value" : "ฟีด"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Önerilen"
+            "value" : "Akış"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Запропоновано"
+            "value" : "Стрічка"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đề xuất"
+            "value" : "Bảng tin"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "建议"
+            "value" : "动态"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "建議"
+            "value" : "動態"
           }
         }
       }

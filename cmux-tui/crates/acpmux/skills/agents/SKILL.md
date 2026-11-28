@@ -1,19 +1,19 @@
 ---
-name: acpmux
-description: "Drive coding-agent sessions by name with acpmux (Claude Code, Codex, OpenCode, pi, Gemini; this machine or others): run, prompt, wait on, inspect, or start a second agent for a subtask."
+name: agents
+description: "Drive coding-agent sessions by name with `cmux agent` (Claude Code, Codex, OpenCode, pi, Gemini; this machine or others): run, prompt, wait on, inspect, or start a second agent for a subtask."
 ---
 
-# acpmux guide
+# cmux agent guide
 
 `cmux agent` is the public front door for session work. It delegates to the acpmux engine, and
 the original `acpmux` spellings remain aliases. A daemon keeps agent sessions alive; the `acpmux`
 CLI and a JSON-RPC socket drive them. Sessions survive your process, keep
 their history, and can live on other machines (`machine/name`). The daemon
-starts on first use. Print this guide any time with `acpmux guide`
-(`--guide`, `--skill`); the binary is the authority: `acpmux --help`,
+starts on first use. Print this guide any time with `cmux agent guide`
+(`--guide`, `--skill`); the binary is the authority: `cmux agent --help`,
 `cmux agent wait --help`, `cmux agent session --help`.
 
-## 1. Am I inside acpmux?
+## 1. Am I inside a cmux agent session?
 
 ```bash
 test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_SESSION_ID)"
@@ -101,11 +101,11 @@ model id the error tells you the spelling to use.
 Read, never guess:
 
 ```bash
-acpmux defaults               # per family: profile chosen, model, effort, policy
-acpmux preset                 # named bundles for -p
-acpmux harnesses              # profiles with family and argv
-acpmux --json daemon models   # every model id each harness declares or reports; --refresh re-probes
-acpmux daemon reload         # reread harnesses/defaults/presets without stopping sessions
+cmux agent defaults           # per family: profile chosen, model, effort, policy
+cmux agent preset             # named bundles for -p
+cmux agent harnesses          # profiles with family and argv
+cmux agent --json daemon models # every model id each harness declares or reports; --refresh re-probes
+cmux agent daemon reload     # reread harnesses/defaults/presets without stopping sessions
 ```
 
 `daemon reload` is safe while sessions are running: it replaces only catalog-facing
@@ -125,7 +125,7 @@ From a chat with acpmux's MCP tools, message with the `send` tool, not the
 
 ```bash
 cmux agent run -m codex --cwd ~/proj --policy approve-edits --tag task=fix "fix the failing test"   # create, send, print only the reply
-acpmux --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
+cmux agent --json run -m claude "…"                # {"sessionId","name","reply","stopReason"}
 cmux agent exec -m claude "…"                          # run, then delete the session
 cmux agent ensure NAME -m codex --cwd DIR --tag task=review # get it, or create it with a label
 cmux agent send NAME "next step"                       # the person's send: stream the reply; -q for the final text only
@@ -148,12 +148,12 @@ cmux agent search "cache"                              # every authorized sessio
                                                         # reachable hits remain visible; unreachable peers print unavailable with a stable reason
 cmux agent ls [--all] [--wide]                         # live named lanes + STUCK reason; --all: closed/reviewer/sub/unnamed too; --wide: + context, subagents, 24h cost
 cmux agent ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v] [--live] [--machine MACHINE]   # a filter hides nothing
-acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
+cmux agent --json ls --live --fields name,status,peer # scripts; bare `ls --json` is every record, thousands on a busy host
 cmux agent resolve Mango                         # the handle, stable session id, host and task
 cmux agent session rename --handle NAME Mango    # change the handle without changing the task or id
-acpmux icon @ 🥭                                   # the icon every surface draws for this session (emoji, sf:NAME, .svg, URL; `none` clears)
+cmux agent icon @ 🥭                               # the icon every surface draws for this session (emoji, sf:NAME, .svg, URL; `none` clears)
 cmux agent ls Mango                               # the same session's handle, task, host and harness
-acpmux --json ls --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
+cmux agent --json ls --machine local --live        # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
 cmux agent session info NAME                           # model, mode, policy, pending permissions, usage
 cmux agent session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
 cmux agent ls 'review-*' --fields name,status          # name globs (`machine/glob` for one machine); --fields takes dotted paths
@@ -343,7 +343,7 @@ X=/abs/path/to/acpmux                       # the build you try (in a session, "
 mkdir -p /tmp/try-acpmux
 for v in $(env | grep -oE '^(ACPMUX|CLAUDE_CODE_MESSAGING)_[A-Z0-9_]*'); do unset "$v"; done
 export ACPMUX_HOME=/tmp/try-acpmux ACPMUX_SOCKET=/tmp/try-acpmux/acpmux.sock
-$X defaults claude prefer=my-claude,claude   # your own profile first (`acpmux defaults` in the shared home)
+$X defaults claude prefer=my-claude,claude   # your own profile first (`cmux agent defaults` in the shared home)
 $X daemon status                            # starts it; this home's sessions and live agents
 $X daemon restart                           # the new daemon adopts every live agent; they keep their conversation
 $X daemon shutdown --end-agents             # done: end its agents too, then rm -rf /tmp/try-acpmux
@@ -425,15 +425,15 @@ machine named that way; several matches are refused with each one, never guessed
 person for a session id.
 
 ```bash
-acpmux machine status                            # each machine: reachable, round trip, disk, load, build
-acpmux machine pick                              # which machine new work would go to, and why
+cmux agent machine status                        # each machine: reachable, round trip, disk, load, build
+cmux agent machine pick                          # which machine new work would go to, and why
 cmux agent run -m claude --machine MACHINE "…"       # start there; --cwd is a remote path
 cmux agent ensure NAME -m codex --machine MACHINE
 cmux agent send MACHINE/NAME "…"                     # wait, tail, history, cancel work the same
 cmux agent wait                                      # covers remote sessions too
 cmux agent resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=…'
                                                  # the session a PR footer's link (or an id, machine/name, name) names, here or on another machine: machine, ids, model, cwd, lane, PRs, last turn
-acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
+cmux agent bead link NAME cx-cus7j.230           # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
 ```
 
 - **cmux Cloud machines.** A Cloud machine's chats run in that machine's own acpmux, which is not
@@ -443,9 +443,9 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
   (`cmux cloud chat status|last --target machine:vm-… --session SESSION_ID`).
 - **Old spellings.** `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and
   `--host` still work; `machine`, `machine pick`, `machine dedicated` and `--machine` are the names.
-- **Check first.** Run `acpmux machine status` before remote work and after any request to a
+- **Check first.** Run `cmux agent machine status` before remote work and after any request to a
   machine fails. Don't guess from a timeout. It names the next command for a machine it cannot reach
-  (`acpmux machine doctor MACHINE`) and for one on another build (`acpmux machine update MACHINE`, or its
+  (`cmux agent machine doctor MACHINE`) and for one on another build (`cmux agent machine update MACHINE`, or its
   target-specific `--binary-dir DIR` form when the machine differs). The
   update restarts that machine's daemon: run it only when the task asks for it (see below), and
   otherwise report the version mismatch.
@@ -475,7 +475,7 @@ A remote start runs under that machine's rules. `--cwd` must sit inside its
 `webRoots` (a missing folder there is made); with no `--cwd` the session gets a
 scratch folder. `--mode` is refused, and the session starts in the harness's
 asking mode. `--policy approve-all` passes only when that machine serves this one
-as a peer (`servedAs` in `acpmux --json machine ls`); otherwise start it on that
+as a peer (`servedAs` in `cmux agent --json machine ls`); otherwise start it on that
 machine itself, `ssh HOST 'cmux agent new … --policy approve-all -d'`, and drive it
 from here as `MACHINE/NAME`. Every such refusal ends with the command that works
 (`--json`: `error.data.try`, with `error.data.reason`): run that, do not guess.
@@ -492,31 +492,31 @@ already indexes every chat on this device, from every harness (not only the
 ones acpmux started), and answers in milliseconds over tens of thousands.
 
 ```bash
-acpmux chats search resize lag -n 10           # chats whose prompts or answers hold every word, with a snippet
-acpmux chats search flaky test --harness codex --folder ~/wt/cmux
-acpmux chats list -q acpmux --folder ~/proj    # by title or folder, newest first; --account for one account home
-acpmux chats open claude-code:5f0c2a9e         # open one again (KEY from list or search)
-acpmux chats roots                             # which folders the index reads, and which it refuses and why
-acpmux board                                   # this machine's branches, read-only (`--json` for scripts)
+cmux agent chats search resize lag -n 10       # chats whose prompts or answers hold every word, with a snippet
+cmux agent chats search flaky test --harness codex --folder ~/wt/cmux
+cmux agent chats list -q acpmux --folder ~/proj # by title or folder, newest first; --account for one account home
+cmux agent chats open claude-code:5f0c2a9e     # open one again (KEY from list or search)
+cmux agent chats roots                         # which folders the index reads, and which it refuses and why
+cmux agent board                               # this machine's branches, read-only (`--json` for scripts)
 cmux agent resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…'   # the session a link, id or name names
-acpmux who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
+cmux agent who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
 cmux agent history NAME                            # what a session did, one turn per line
-acpmux ledger --since 30d --by pr              # what turns cost, per repo, pull request, day, model or account
-acpmux bead ls cx-cus7j.230                    # the sessions working on a tracker bead
-acpmux process list                            # background processes agents left running
-acpmux ps --json                               # every process and lock acpmux owns: owner now, session, state, why
-acpmux gc                                      # proven orphans only (dry run); --apply ends them, logged; never guess from ps/argv
-acpmux board                                   # read-only local branch board (Labs > Show Preview Features); --json
-acpmux worktree list                           # this machine's worktrees and the agents that made them
-acpmux ls --archived                           # archived chats, newest archive first, and who archived each
-acpmux archive NAME OTHER                      # take chats off the lists (--json says what changed)
-acpmux unarchive NAME                          # bring an archived chat back
-acpmux pr-wait 1234 --sha $(git rev-parse HEAD) --timeout 1800  # block until a PR's checks finish, one shared poller
-acpmux ci wait run 45363996714 --timeout 1800  # wait for a workflow run (or `ci wait pr N`) at no quota while nothing changes
+cmux agent ledger --since 30d --by pr          # what turns cost, per repo, pull request, day, model or account
+cmux agent bead ls cx-cus7j.230                # the sessions working on a tracker bead
+cmux agent process list                        # background processes agents left running
+cmux agent ps --json                           # every process and lock acpmux owns: owner now, session, state, why
+cmux agent gc                                  # proven orphans only (dry run); --apply ends them, logged; never guess from ps/argv
+cmux agent board                               # read-only local branch board (Labs > Show Preview Features); --json
+cmux agent worktree list                       # this machine's worktrees and the agents that made them
+cmux agent ls --archived                       # archived chats, newest archive first, and who archived each
+cmux agent archive NAME OTHER                  # take chats off the lists (--json says what changed)
+cmux agent unarchive NAME                      # bring an archived chat back
+cmux agent pr-wait 1234 --sha $(git rev-parse HEAD) --timeout 1800  # block until a PR's checks finish, one shared poller
+cmux agent ci wait run 45363996714 --timeout 1800  # wait for a workflow run (or `ci wait pr N`) at no quota while nothing changes
 ```
 
 Add `--json` before the command for ids and paths to act on. The rest of the
-surface, one line each in `acpmux --help`: `race` and `compare` (one task on
+surface, one line each in `cmux agent --help`: `race` and `compare` (one task on
 several models), `fork-run` (fork a Cloud machine N ways, keep one), `continue`
 (move a chat to another harness), `briefs` and `task` (tracked work), `watch`
 (wake me when others finish), `inbox` and `deliver` (durable messages, reports),
@@ -539,7 +539,7 @@ corpus both ways and compares exit, output and file tree), and `skill` (this gui
 
 ## 8. Output
 
-Put `--json` before the command: `acpmux --json ls`. Errors under `--json`
+Put `--json` before the command: `cmux agent --json ls`. Errors under `--json`
 are one object on stderr, `{"error": {"code", "detail", "message",
 "sessionId", "retryable"}}`, and nothing on stdout. `--suppress-reads` blanks
 read-tool payloads in event output.
