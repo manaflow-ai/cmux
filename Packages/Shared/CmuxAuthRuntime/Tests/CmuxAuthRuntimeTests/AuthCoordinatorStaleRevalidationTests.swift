@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Local-first sign-out clears local state up front and no longer ends with a
 /// final `clearAuthState()`, so auth work that was already in flight when the

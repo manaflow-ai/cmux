@@ -10,9 +10,17 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
+        // The runtime plus its AuthenticationServices presentation
+        // (re-exports CmuxAuthRuntimeCore).
         .library(
             name: "CmuxAuthRuntime",
             targets: ["CmuxAuthRuntime"]
+        ),
+        // The runtime without AuthenticationServices, for apps that present
+        // auth through their own `AuthPresentationAnchoring`.
+        .library(
+            name: "CmuxAuthRuntimeCore",
+            targets: ["CmuxAuthRuntimeCore"]
         ),
     ],
     dependencies: [
@@ -22,14 +30,29 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "CmuxAuthRuntime",
+            name: "CmuxAuthRuntimeCore",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CMUXAuthCore",
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
+            path: "Sources/CmuxAuthRuntime",
             swiftSettings: [
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
+        .target(
+            name: "CmuxAuthRuntime",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxAuthRuntimeCore",
+                .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+                .product(name: "StackAuthAppleUI", package: "stack-auth-swift-sdk-prerelease"),
+            ],
+            path: "Sources/CmuxAuthRuntimeAppleUI",
+            swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
@@ -39,6 +62,7 @@ let package = Package(
             name: "CmuxAuthRuntimeTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxAuthRuntime",
+                "CmuxAuthRuntimeCore",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
@@ -60,6 +84,6 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             providers: [.apt(["libsqlite3-dev"])]
         )
     )
-    package.targets.first { $0.name == "CmuxAuthRuntime" }?.dependencies.append("SQLite3")
+    package.targets.first { $0.name == "CmuxAuthRuntimeCore" }?.dependencies.append("SQLite3")
 }
 #endif

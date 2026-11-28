@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 actor CancellationAwareValidationAuthClient: AuthClient {
     private let user: CMUXAuthUser

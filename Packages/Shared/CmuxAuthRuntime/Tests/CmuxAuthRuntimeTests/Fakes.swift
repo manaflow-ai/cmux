@@ -3,7 +3,8 @@ import AuthenticationServices
 #endif
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
+import StackAuth
 
 /// In-memory key-value store for deterministic cache tests.
 final class FakeKeyValueStore: CMUXAuthKeyValueStore, @unchecked Sendable {
@@ -240,7 +241,13 @@ actor FakeAuthClient: AuthClient {
 
 /// A no-op presentation anchor for OAuth flows in tests.
 final class FakeAnchor: NSObject, AuthPresentationAnchoring {
+    var interactiveAuthenticator: (any StackInteractiveAuthenticator)? { nil }
+}
+
 #if canImport(AuthenticationServices)
+/// Anchors `ASWebBrowserAuthSessionFactory` in its tests.
+extension FakeAnchor: ASWebAuthenticationPresentationContextProviding,
+    ASAuthorizationControllerPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         ASPresentationAnchor()
     }
@@ -248,8 +255,8 @@ final class FakeAnchor: NSObject, AuthPresentationAnchoring {
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         ASPresentationAnchor()
     }
-#endif
 }
+#endif
 
 /// A sign-out hook latch for asserting the injected `onSignedOut` ran.
 actor HookFlag {

@@ -2,9 +2,9 @@ import CmuxMobileArtifacts
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileRealtime
+import CmuxMobileSystemUIBridge
 import CmuxMobileTransport
 import CmuxSpinner
-import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -42,7 +42,6 @@ struct ChatComposer: View {
     private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
     @State private var showCamera = false
-    @State private var photoItems: [PhotosPickerItem] = []
     /// Picked videos Photos is still copying out (a large one takes seconds): a chip each.
     @State private var preparingVideos = 0
     @State private var optimizingImageIDs = Set<String>()
@@ -114,7 +113,10 @@ struct ChatComposer: View {
         .animation(.cmuxMobileSnappy.unlessReduceMotion, value: attachments)
         .filePreview($preview)
         // Photos and videos, as the Mac's composer takes both (a video goes with its frames).
-        .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
+        .systemPhotoPicker(isPresented: $showPhotos, filter: .imagesAndVideos, selectionLimit: 10) { picks in
+            guard !picks.isEmpty else { return }
+            Task { await loadPhotos(picks) }
+        }
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 let (files, refused) = Self.readFiles(urls)
@@ -134,10 +136,6 @@ struct ChatComposer: View {
         // Files start for the Mac the moment they are picked, not at Send (AttachmentPrestager).
         .onChange(of: attachments.map(\.id), initial: true) { _, _ in
             syncPreparedAttachments()
-        }
-        .onChange(of: photoItems) { _, items in
-            guard !items.isEmpty else { return }
-            Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
         .onChange(of: expandRequested && focus.wrappedValue) { _, expansionFocused in
@@ -915,12 +913,12 @@ struct ChatComposer: View {
         }
     }
 
-    private func loadPhotos(_ items: [PhotosPickerItem]) async {
+    private func loadPhotos(_ items: [SystemPhotoPick]) async {
         for item in items {
-            if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+            if item.isMovie {
                 preparingVideos += 1
                 let started = ContinuousClock.now
-                let picked = try? await item.loadTransferable(type: PickedMovie.self)
+                let picked = await item.loadFile(conformingTo: .movie, copy: { try PickedMovie.copying($0) })
                 preparingVideos -= 1
                 let elapsed = ContinuousClock.now - started
                 PickedMovie.log.info("pick ms=\(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000) ok=\(picked != nil)")
@@ -934,10 +932,9 @@ struct ChatComposer: View {
                 readVideo(attachment)
                 continue
             }
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            guard let data = await item.loadData() else { continue }
             appendOptimizedImage(data, name: "Photo")
         }
-        photoItems = []
     }
 }
 

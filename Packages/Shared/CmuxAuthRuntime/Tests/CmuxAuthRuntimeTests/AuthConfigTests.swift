@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 @Suite struct AuthConfigTests {
     @Test func productionUsesStackWhitelistedCmuxDomain() {

@@ -43,6 +43,30 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
+    dependencies:
+      # LiveStoreKitClient reaches StoreKit through this framework (as the app
+      # does, cmux-next-ios/project.yml): embedded, not linked, loaded on first use.
+      - target: CmuxMobileSystemUI
+        link: false
+        embed: true
+  # The app's CmuxMobileSystemUI framework, built from the app's sources.
+  CmuxMobileSystemUI:
+    type: framework
+    platform: iOS
+    sources:
+      - path: ../../../../cmux-next-ios/SystemUI/Sources
+      - path: ../../CmuxMobileSystemUIBridge/Sources/CmuxMobileSystemUIBridge/SystemUIContract.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.billing.storekit-host.systemui
+        PRODUCT_NAME: CmuxMobileSystemUI
+        INFOPLIST_FILE: ../../../../cmux-next-ios/SystemUI/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_VERSION: "5"
+        SKIP_INSTALL: YES
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
   BillingStoreKitTests:
     type: bundle.unit-test
     platform: iOS

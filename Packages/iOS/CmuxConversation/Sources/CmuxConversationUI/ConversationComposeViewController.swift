@@ -2,7 +2,7 @@
 import CmuxConversationCore
 import CmuxConversationGeometry
 import CmuxMobileSupport
-import PhotosUI
+import CmuxMobileSystemUIBridge
 import UIKit
 import UniformTypeIdentifiers
 
@@ -1123,13 +1123,15 @@ extension ConversationComposeViewController: ConversationAudioHost {
     }
 
     private func presentPhotoPicker() {
-        var configuration = PHPickerConfiguration()
-        configuration.filter = .images
-        configuration.selectionLimit = PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27)
-        configuration.selection = .ordered
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        present(picker, animated: true)
+        // The system photo picker (CmuxMobileSystemUI.framework, so PhotosUI loads on first use).
+        SystemUI.presentPhotoPicker(
+            from: self,
+            filter: .images,
+            selectionLimit: PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27),
+            selection: .ordered
+        ) { [weak self] picks in
+            self?.didPickPhotos(picks.map(\.itemProvider))
+        }
     }
 }
 
@@ -1147,10 +1149,9 @@ extension ConversationComposeViewController: UIDocumentPickerDelegate {
     }
 }
 
-extension ConversationComposeViewController: PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-        let providers = results.map(\.itemProvider)
+extension ConversationComposeViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    /// The photo picker's picks (it has closed itself).
+    private func didPickPhotos(_ providers: [NSItemProvider]) {
         // In the order picked, once every photo has loaded (they finish in any order).
         Task { [weak self] in
             var picked: [ComposerAttachment] = []

@@ -2,7 +2,7 @@ import CMUXAuthCore
 import Foundation
 import StackAuth
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// The cached user and the token store are written apart, so a launch can find user A cached beside user B's
 /// tokens (two probe accounts on one Mac). An install bound to A with B's token is refused as "the cmux API

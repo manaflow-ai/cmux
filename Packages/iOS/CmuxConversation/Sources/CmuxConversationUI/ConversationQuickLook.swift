@@ -1,13 +1,14 @@
-#if canImport(UIKit) && canImport(QuickLook)
+#if os(iOS)
 import CmuxConversationCore
-import QuickLook
+import CmuxMobileSystemUIBridge
 import UIKit
+import os
 
 /// One attachment as Quick Look sees it: a local copy and the title Messages
 /// shows ("Photo" for a photo, the file name for a document).
-final class ConversationQuickLookItem: NSObject, QLPreviewItem, Sendable {
-    let previewItemURL: URL?
-    let previewItemTitle: String?
+final class ConversationQuickLookItem: Sendable {
+    let previewItemURL: URL
+    let previewItemTitle: String
 
     init(url: URL, title: String) {
         previewItemURL = url
@@ -21,8 +22,13 @@ final class ConversationQuickLookItem: NSObject, QLPreviewItem, Sendable {
 /// items (a message's documents, the composer's queued attachments) it
 /// opens at `index` and swipes sideways between them; only the opening item
 /// zooms from `sourceView`.
+///
+/// Quick Look itself lives in CmuxMobileSystemUI.framework, loaded on first
+/// use (linked, it costs the app's launch about 1.55 s); editing is off there.
 @MainActor
-final class ConversationQuickLookPresenter: NSObject, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
+final class ConversationQuickLookPresenter {
+    private static let log = Logger(subsystem: "dev.cmux.mobile", category: "ConversationQuickLook")
+
     private let items: [ConversationQuickLookItem]
     private let index: Int
     private weak var sourceView: UIView?
@@ -39,41 +45,32 @@ final class ConversationQuickLookPresenter: NSObject, QLPreviewControllerDataSou
         self.sourceView = sourceView
     }
 
-    func makeController() -> QLPreviewController {
-        let controller = QLPreviewController()
-        controller.dataSource = self
-        controller.delegate = self
-        controller.currentPreviewItemIndex = index
+    /// The Quick Look controller, or nil when the framework did not load
+    /// (logged; nothing opens).
+    func makeController() -> UIViewController? {
+        guard let provider = SystemUI.provider else {
+            Self.log.error("quick look not shown: CmuxMobileSystemUI did not load")
+            return nil
+        }
+        let opening = index
+        let controller = provider.makePreviewController(
+            urls: items.map(\.previewItemURL),
+            titles: items.map(\.previewItemTitle),
+            index: opening,
+            // Only the opening item zooms from its bubble.
+            sourceView: { [weak self] item in
+                guard item == opening else { return nil }
+                return self?.sourceView
+            },
+            onDismiss: { [weak self] in
+                guard let self else { return }
+                let onDismiss = self.onDismiss
+                self.onDismiss = nil
+                onDismiss?()
+            }
+        )
         controller.view.accessibilityIdentifier = "conversation.quickLook"
         return controller
-    }
-
-    nonisolated func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
-        MainActor.assumeIsolated { items.count }
-    }
-
-    nonisolated func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
-        MainActor.assumeIsolated { items[min(max(index, 0), items.count - 1)] }
-    }
-
-    nonisolated func previewController(_ controller: QLPreviewController, transitionViewFor item: any QLPreviewItem) -> UIView? {
-        // Only the opening item zooms from its bubble (compared by identity).
-        let opening = ObjectIdentifier(item as AnyObject)
-        return MainActor.assumeIsolated {
-            guard items.indices.contains(index), ObjectIdentifier(items[index]) == opening else { return nil }
-            return sourceView
-        }
-    }
-
-    nonisolated func previewControllerDidDismiss(_ controller: QLPreviewController) {
-        MainActor.assumeIsolated {
-            onDismiss?()
-            onDismiss = nil
-        }
-    }
-
-    nonisolated func previewController(_ controller: QLPreviewController, editingModeFor previewItem: any QLPreviewItem) -> QLPreviewItemEditingMode {
-        .disabled
     }
 }
 #endif

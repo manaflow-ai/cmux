@@ -1,10 +1,10 @@
 #if os(iOS)
 import AVKit
 import CmuxMobileDesign
+import CmuxMobileSystemUIBridge
 import CmuxMobileTransport
 import CmuxSpinner
 import PDFKit
-import QuickLook
 import SwiftUI
 import WebKit
 
@@ -318,29 +318,32 @@ public struct ArtifactPreview: View {
 }
 
 /// QLPreviewController for one local file (audio, Office and iWork, RTF, and
-/// anything else Quick Look renders), embedded in the preview page.
+/// anything else Quick Look renders), embedded in the preview page. Quick Look
+/// lives in CmuxMobileSystemUI.framework, loaded on first use (linked, it costs
+/// the app's launch about 1.55 s); without it nothing previews here, and
+/// `canPreview` sends the page to its Share fallback.
 struct QuickLookPreview: UIViewControllerRepresentable {
     let url: URL
     var owner: ManagedPreviewFile? = nil
 
-    static func canPreview(_ url: URL) -> Bool { QLPreviewController.canPreview(url as NSURL) }
+    static func canPreview(_ url: URL) -> Bool { SystemUI.canPreview(url) }
 
-    func makeUIViewController(context: Context) -> QLPreviewController {
-        let controller = QLPreviewController()
-        controller.dataSource = context.coordinator
-        return controller
+    func makeUIViewController(context: Context) -> UIViewController {
+        // canPreview was true, so the framework loaded; an empty page if it went away.
+        SystemUI.provider?.makePreviewController(urls: [url], titles: [""], index: 0, sourceView: nil, onDismiss: nil)
+            ?? UIViewController()
     }
 
-    func updateUIViewController(_ controller: QLPreviewController, context: Context) {
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
         guard context.coordinator.url != url else { return }
         context.coordinator.url = url
         context.coordinator.owner = owner
-        controller.reloadData()
+        SystemUI.provider?.reloadPreviewController(controller, urls: [url], titles: [""])
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(url: url, owner: owner) }
 
-    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+    final class Coordinator {
         var url: URL
         // QL may still request the file while its SwiftUI view is being removed.
         var owner: ManagedPreviewFile?
@@ -348,9 +351,6 @@ struct QuickLookPreview: UIViewControllerRepresentable {
             self.url = url
             self.owner = owner
         }
-
-        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
-        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem { url as NSURL }
     }
 }
 

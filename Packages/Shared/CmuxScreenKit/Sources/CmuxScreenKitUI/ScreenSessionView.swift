@@ -1,7 +1,7 @@
 #if os(iOS)
+import CmuxMobileSystemUIBridge
 import CmuxScreenKit
 import CmuxSpinner
-import PhotosUI
 import SwiftUI
 
 /// The parts of `ScreenSessionView` an app opts into. `.all` is the cmux
@@ -105,7 +105,8 @@ public struct ScreenSessionView: View {
     /// The toolbar's measured height (with the shortcuts bar) while it shows.
     @State private var chromeHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pickedPhoto: PhotosPickerItem?
+    /// The system photo picker is open (one photo, in its current encoding).
+    @State private var choosingPhoto = false
     /// Reading and preparing the picked photo, before it is sent.
     @State private var preparingPhoto = false
     @Environment(\.scenePhase) private var scenePhase
@@ -173,7 +174,9 @@ public struct ScreenSessionView: View {
         .onChange(of: session.preferences.quality) { session.applyQuality() }
         .onChange(of: trackpadShown, initial: true) { startTrackpadHint() }
         // On the root, not the picker: a stall that hides the button while the picker is open keeps the pick.
-        .onChange(of: pickedPhoto) { paste(pickedPhoto) }
+        .systemPhotoPicker(isPresented: $choosingPhoto, filter: .images, selectionLimit: 1, encoding: .current) { picks in
+            paste(picks.first)
+        }
         .onDisappear {
             if features.contains(.orientationLock) { ScreenOrientation.shared.lock(.auto) }
             session.close()
@@ -224,7 +227,7 @@ public struct ScreenSessionView: View {
             if let camera = session.camera, camera.isAvailable, case .connected = session.phase { ScreenFollowButton(camera: camera) }
             if hasMenu { optionsMenu }
             if features.contains(.pasteImage), session.supportsImagePaste, case .connected = session.phase {
-                PhotosPicker(selection: $pickedPhoto, matching: .images, preferredItemEncoding: .current) {
+                Button { choosingPhoto = true } label: {
                     Label("Paste Image", systemImage: "photo.badge.plus").labelStyle(.iconOnly)
                 }
                 .disabled(preparingPhoto || session.imagePaste == .sending)
@@ -608,12 +611,11 @@ public struct ScreenSessionView: View {
     }
 
     /// Reads the picked photo, prepares it off the main thread and sends it to the Mac.
-    private func paste(_ item: PhotosPickerItem?) {
+    private func paste(_ item: SystemPhotoPick?) {
         guard let item else { return }
-        pickedPhoto = nil
         preparingPhoto = true
         Task {
-            let photo = try? await item.loadTransferable(type: Data.self)
+            let photo = await item.loadData()
             // task-owner: one decode and re-encode of the picked photo; its result is read below
             let prepared = await Task.detached(priority: .userInitiated) { photo.flatMap(PastedImage.init(photo:)) }.value
             preparingPhoto = false

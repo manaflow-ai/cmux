@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// A sign-in the app opens in its own browser tab: the hosted page opens there
 /// (passkeys and the emailed code work in it), and its `<scheme>://auth-callback`

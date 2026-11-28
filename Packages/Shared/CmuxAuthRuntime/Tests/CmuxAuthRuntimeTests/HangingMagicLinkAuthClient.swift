@@ -1,6 +1,6 @@
 import CMUXAuthCore
 import Foundation
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// An ``AuthClient`` whose magic-link send suspends forever (cancellation
 /// aware), standing in for a wedged backend call on the email-code path.

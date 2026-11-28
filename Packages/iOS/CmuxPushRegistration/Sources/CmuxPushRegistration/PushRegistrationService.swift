@@ -1,4 +1,4 @@
-public import CmuxAuthRuntime
+public import CmuxAuthRuntimeCore
 public import Foundation
 #if canImport(FoundationNetworking)
 public import FoundationNetworking

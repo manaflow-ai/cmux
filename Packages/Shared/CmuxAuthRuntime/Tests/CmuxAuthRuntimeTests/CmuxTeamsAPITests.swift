@@ -4,7 +4,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// The cmux team API client over a URL session whose transport answers like
 /// `web/app/api/teams`: the request each call sends (method, path, the

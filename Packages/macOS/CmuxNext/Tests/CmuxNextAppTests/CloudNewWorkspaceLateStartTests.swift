@@ -1,6 +1,6 @@
 #if DEBUG
 import AppKit
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings

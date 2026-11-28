@@ -1,7 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 /// Stale validation clears and stale-attempt cancellation must never damage a
 /// FRESH sign-in: a parked clear, validation failure, or auto-login

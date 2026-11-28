@@ -3,7 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import Testing
-@testable import CmuxAuthRuntime
+@testable import CmuxAuthRuntimeCore
 
 @Suite struct EmailVerificationRecoveryClientTests {
     @Test func postsNormalizedEmailToRecoveryEndpoint() async throws {
