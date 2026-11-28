@@ -215,7 +215,8 @@ impl ResumeBudget {
     /// The answer to a failure of `class`.
     pub fn on_failure(&mut self, class: ResumeErrorClass) -> Decision {
         let policy = class.policy();
-        let used = &mut self.used[class.index()];
+        let mut spent = 0;
+        let used = self.used.get_mut(class.index()).unwrap_or(&mut spent);
         if *used >= policy.attempts {
             return Decision::Surface { class, attempts: *used };
         }
@@ -237,7 +238,7 @@ impl ResumeBudget {
 
     /// The attempts `class` has spent since the last success.
     pub fn used(&self, class: ResumeErrorClass) -> u32 {
-        self.used[class.index()]
+        self.used.get(class.index()).copied().unwrap_or_default()
     }
 }
 

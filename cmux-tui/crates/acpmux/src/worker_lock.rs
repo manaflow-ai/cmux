@@ -72,6 +72,17 @@ impl<T> RwLock<T> {
         }
     }
 
+    /// The write lock if no one holds the lock now (a poisoned one too), else None. Never
+    /// waits, so it never stands in the queue that every new reader joins behind a waiting
+    /// writer (module docs): what can be done on a later pass takes this.
+    pub(crate) fn try_write(&self) -> Option<RwLockWriteGuard<'_, T>> {
+        match self.0.try_write() {
+            Ok(guard) => Some(guard),
+            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+            Err(TryLockError::WouldBlock) => None,
+        }
+    }
+
     /// Whether a write would wait now (tests: a note before the wait).
     #[cfg(test)]
     pub(crate) fn write_would_wait(&self) -> bool {

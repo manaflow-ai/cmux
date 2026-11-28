@@ -32,9 +32,15 @@
 //
 // The first render runs --concurrency cases at once (default: one per CPU), each worker with its
 // own browser: rendered one at a time, a shard's ~1,400 cases took ~23 minutes. Budgets are CPU
-// time, so a busy runner does not stretch them. The renders again (the retries) run one at a time,
-// so a state that broke, ran slow or shifted only because its neighbours loaded the runner is
-// judged again on a quiet one.
+// time, so a busy runner does not stretch them. The renders again (the retries) run a quarter as many
+// workers (at least one), so a state that broke, ran slow or shifted only because its neighbours
+// loaded the runner is judged again on a quieter one. One at a time, a shard whose first render left
+// 86 cases not ready spent its 20-minute step on ~97 retries at 7-15 s each (most waiting out a play's
+// timeout, not CPU) and timed out with no verdict (batch run 46081509797, leg 21, 2026-11-28).
+// The last retry renders one case at a time when few cases are left (QUIET_RETRY_CASES), as the base
+// replay in gallery-health.yml does: judged under a quarter of the workers, a state that only shifted
+// or ran slow from load stayed red on the head while the quiet base replay rendered it clean, and the
+// judge failed it as the head's own (10 legs of batch run 46113542594, 2026-11-28).
 //
 //   CMUX_GALLERY_IN_VM=1 bun health.ts --manifest m.json --gallery-dir ../../webviews/dist/gallery
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -47,6 +53,16 @@ import { type Engine, type MatrixCase, parseManifest, runLocal, shardCases } fro
 import { INVARIANT_BASELINE_PATH, type InvariantResult, everyRun, invariantSummary, invariantsOf, judgeInvariants, readInvariantBaseline } from "./invariant-baseline";
 import { SHIFT_BASELINE_PATH, type ShiftResult, judgeShift, least, limit as shiftLimit, readShiftBaseline, shiftScores, shiftSummary } from "./shift-baseline";
 import { UNDECLARED_BASELINE_PATH, type UndeclaredResult, judgeUndeclared, leastCount, readUndeclaredBaseline, undeclaredCounts, undeclaredSummary } from "./undeclared-baseline";
+
+/** Cases the last retry still renders one at a time: ~15 s each at worst, a few minutes of the step. */
+export const QUIET_RETRY_CASES = 24;
+
+/**
+ * Workers for a retry render: a quarter of the first render's, at least one; the last retry of at
+ * most QUIET_RETRY_CASES cases runs one at a time, as the base replay does (see the header).
+ */
+export const retryConcurrency = (concurrency: number, last = false, cases = Infinity): number =>
+  last && cases <= QUIET_RETRY_CASES ? 1 : Math.max(1, Math.floor(concurrency / 4));
 
 export type HealthResult = {
   id: string;
@@ -202,8 +218,9 @@ async function main(): Promise<void> {
   await mkdir(outputDir, { recursive: true });
   const concurrency = Number(values.concurrency);
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("--concurrency must be a positive integer");
-  const run = (manifest: string, attempt: number) =>
-    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0, concurrency: attempt === 0 ? concurrency : 1 });
+  const retries = Number(values.retries);
+  const run = (manifest: string, attempt: number, cases = Infinity) =>
+    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0, concurrency: attempt === 0 ? concurrency : retryConcurrency(concurrency, attempt === retries, cases) });
 
   const shard = join(outputDir, "shard.json");
   await writeFile(shard, JSON.stringify(cases));
@@ -237,7 +254,7 @@ async function main(): Promise<void> {
   let breaking = breakingStates();
   for (
     let attempt = 1;
-    attempt <= Number(values.retries) && (broken.size || slow.size || shifting.size || breaking.size || moving.size);
+    attempt <= retries && (broken.size || slow.size || shifting.size || breaking.size || moving.size);
     attempt++
   ) {
     // Render again only the cases of states still broken, slow or shifting; a state stays broken
@@ -246,7 +263,7 @@ async function main(): Promise<void> {
     const again: MatrixCase[] = cases.filter((item) => retried.has(stateKey(item)));
     const manifest = join(outputDir, `retry-${attempt}.json`);
     await writeFile(manifest, JSON.stringify(again));
-    results = (await run(manifest, attempt)) as HealthResult[];
+    results = (await run(manifest, attempt, again.length)) as HealthResult[];
     const still = brokenStates(results);
     broken = new Map([...broken].filter(([state]) => still.has(state)));
     timings.push(readyTimes(results));

@@ -69,6 +69,13 @@ on:
           taken window; lander merges keep coalescing
         type: boolean
         default: false
+      retries:
+        description: >-
+          how many failed runs a window retries before it holds until the next window (default 3, the old constant). A
+          retry rebuilds the same inputs a red just failed on unless a fix merged in between; a caller whose reds are
+          mostly deterministic passes fewer (cmux-tui-artifacts, vars.NEXT_TUI_ARTIFACTS_RETRIES)
+        type: number
+        default: 3
       runner:
         description: >-
           the runner label for this job ('' keeps cmux-linux). A caller on the nightly's critical path passes its own
@@ -138,7 +145,7 @@ jobs:
       KEY: ${{ inputs.key }}
       HOLD_MINUTES: ${{ inputs.hold_minutes }}
       ON: ${{ !inputs.no_coalesce && '1' || '0' }}
-      RETRIES: 3
+      RETRIES: ${{ inputs.retries }}
       # Read from the push payload, no API call. GitHub commits every PR merge (squash, merge, rebase through the API)
       # as `GitHub <noreply@github.com>`; anything else on the tip was pushed by hand or by a bot.
       DIRECT: ${{ inputs.run_direct_pushes && github.event.head_commit.committer.email != 'noreply@github.com' && '1' || '0' }}
@@ -350,7 +357,7 @@ jobs:
       WINDOW: ${{ inputs.window }}
       ROUND: ${{ inputs.round }}
       HELD: ${{ inputs.held }}
-      RETRIES: 3
+      RETRIES: ${{ inputs.retries }}
     steps:
       - name: Name the marker
         id: name

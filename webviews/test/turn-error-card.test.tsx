@@ -5,12 +5,16 @@
 // human line, offers the way out first, and keeps the agent's own words under Details with Copy.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { failureCopy, failureKind, failureRecovery } from "../src/agent-session/acpmux/failureCopy";
-import { readChatAccounts } from "../src/agent-session/acpmux/chatAccounts";
 import { openClaudeCloudSettings } from "../src/agent-session/acpmux/claudeConnect";
-import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { failureCopy, failureKind, failureRecovery } = await importWithDom(
+  () => import("../src/agent-session/acpmux/failureCopy"),
+);
+const { readChatAccounts } = await importWithDom(() => import("../src/agent-session/acpmux/chatAccounts"));
+const { translatorFor } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 
 const t = translatorFor("en");
 const claude = { name: "Claude Code", harness: "claude" };

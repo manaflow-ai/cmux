@@ -132,7 +132,10 @@ impl Peer {
     /// `ssh` with this host's master options, when they fit.
     pub(in crate::peer) fn ssh_with_master(&self) -> tokio::process::Command {
         let mux = self.ssh_mux();
-        let mut ssh = tokio::process::Command::new(&mux.program);
+        // In its own low-weight scope, with its ProxyCommand hops (`agent_host/scope.rs`).
+        let (program, lead) = crate::agent_host::scope::low_weight(&mux.program);
+        let mut ssh = tokio::process::Command::new(program);
+        ssh.args(lead);
         if let Some((destination, _)) = self.ssh_parts()
             && let Some(path) = mux.control_path(&destination)
             && let Some(options) = options(&path)

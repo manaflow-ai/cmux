@@ -1,0 +1,1 @@
+{"schemaVersion":1,"role":1,"generatedAt":785894400.5,"anchorWallNanos":1764201600000000000,"anchorMonotonicNanos":5000000000,"buildStamp":"0.42.0 (4200) nightly","events":[{"code":1,"tNanos":5000000001},{"code":2,"tNanos":5100000000,"ms":120,"a":1},{"code":7,"tNanos":5200000000,"surface":3,"a":40,"b":42}]}

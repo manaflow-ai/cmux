@@ -84,6 +84,7 @@ async fn chat_move(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value,
     // A chat kept in the Cloud that runs on this Mac with no move under way (it has not gone
     // yet, or the Cloud did not take it) is not there: asked again, it is moved, by the rules
     // for a chat set to auto.
+    let machine = hub.auto_holder.get().is_some_and(|holder| holder.on_machine());
     let laptop = hub.auto_holder.get().is_some_and(|holder| !holder.on_machine());
     let waits_here = (from, to) == (Place::Cloud, Place::Cloud)
         && laptop
@@ -94,7 +95,8 @@ async fn chat_move(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value,
     } else {
         Asker::Agent {
             own_chat: conn.caller() == Some(s.id.as_str()),
-            auto_cloud: crate::placement::auto_cloud_on(),
+            // On a Cloud machine the chat is there because the person sent it (`chat_place`).
+            auto_cloud: machine || crate::placement::auto_cloud_on(),
             enabled: agent_moves_enabled(),
         }
     };
@@ -114,7 +116,10 @@ async fn chat_move(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value,
             // never `moved` for a chat whose setting did not change.
             let row = answer.get("autoSession").unwrap_or(&Value::Null);
             let reads = Place::of_row(row);
-            if reads != to {
+            // A Cloud machine brings a chat home as an Auto chat: the laptop notes "this Mac
+            // only" once it is there (`runtime/moves.rs`).
+            let home = machine && to == Place::Local && row["moving"] == "local";
+            if reads != to && !home {
                 let (reads, to) = (reads.as_str(), to.as_str());
                 let why = format!("this chat was not moved to {to}: it is still set to {reads}");
                 return Err(RpcError::internal(why));
@@ -124,6 +129,11 @@ async fn chat_move(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value,
                 o.insert("status".into(), status.into());
                 o.insert("from".into(), from.as_str().into());
                 o.insert("to".into(), to.as_str().into());
+                if home {
+                    let note = "on its way to the Mac, where it runs as auto; `cmux chat move \
+                                --on local` there keeps it on the Mac only";
+                    o.insert("note".into(), note.into());
+                }
             }
             Ok(answer)
         }

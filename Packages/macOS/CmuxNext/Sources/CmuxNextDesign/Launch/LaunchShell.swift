@@ -8,7 +8,7 @@ import ImageIO
 /// Stage 0 of the launch (cmuxterm-hq docs/design/launch-shell-first.md, "Decision: stage 0 is its
 /// own window"): a plain window made in `applicationDidFinishLaunching` before the Cloud environment
 /// and the app's services, at the front saved window's frame, showing its last committed image (or
-/// the plain shell, or the bare launch's content), in one commit. The real launch window is built as
+/// the bare launch's content; never a plain fill: with neither it makes no window), in one commit. The real launch window is built as
 /// before (`LaunchSnapshotWindow`, `WindowManager.makeController`), takes this window's frame and
 /// orders in above it; this window closes at the real one's first commit, and the input it held is
 /// posted to the real one in order. What it shows and holds is decided in Rust (cmux-launch-shell).
@@ -114,22 +114,30 @@ public final class LaunchShell {
     /// the plan made no window.
     public func show(title: String) {
         guard let prepared else { return framedNow() }
-        shownAt = .now
         let frame = prepared.frame
+        let image = prepared.image()
+        let bare = image == nil && prepared.usesDefaultFrame
+            ? content.bare?(CGRect(origin: .zero, size: frame.size), prepared.look) : nil
+        guard image != nil || bare != nil else {
+            // No picture to show (not decoded in time, or none planned): no window. An empty one in
+            // the saved colours is an opaque cover over where the real window will be, not the window
+            // as it was (Leo, 2026-11-27: "stop putting the opaque thing from the start"); the real
+            // window, drawn from saved state, is the first frame.
+            mark(prepared.imagePath == nil ? "launch_shell.none_no_picture" : "launch_shell.none_image_late")
+            return framedNow()
+        }
+        shownAt = .now
         let window = LaunchShellWindow(contentRect: frame, title: title)
         window.backgroundColor = prepared.look.background
         window.appearance = NSAppearance(named: prepared.look.dark ? .darkAqua : .aqua)
         let view: NSView
         let kind: String
-        if let image = prepared.image() {
+        if let image {
             view = LaunchShellImageView(image: image, scale: window.backingScaleFactor)
             kind = "image"
-        } else if prepared.usesDefaultFrame, let bare = content.bare?(CGRect(origin: .zero, size: frame.size), prepared.look) {
-            view = bare
-            kind = "bare"
         } else {
-            view = NSView()
-            kind = prepared.imagePath == nil ? "plain" : "plain.image_late"
+            view = bare ?? NSView()
+            kind = "bare"
         }
         window.onSwapNeeded = { [weak self] in if let self, let real = self.real { self.swap(to: real) } }
         // One explicit transaction: it commits at `commit()`, before this turn's other work.
@@ -188,7 +196,7 @@ public final class LaunchShell {
         // Stage 0 went first (the backstop): what it held goes to this window now.
         guard let frame, let window else { return replay(to: real) }
         if real.frame != frame { real.setFrame(frame, display: false) }
-        // Over the saved image or the plain shell the real window waits below until what it shows
+        // Over the saved image the real window waits below until what it shows
         // matches stage 0 (every visible region has its saved or live content: `contentReady`), at
         // most the Rust bound (cmux-layout-cache `swap_wait_ms`), so the swap shows no blank pane
         // filling in afterwards (Leo, 2026-11-24: "it's another to say \"ok it's already loaded\"").
@@ -267,7 +275,7 @@ public final class LaunchShell {
 /// What the bare launch lane plugs into stage 0.
 @MainActor public struct LaunchShellContent {
     /// Content for a launch with nothing to restore: the window's content view at `frame` (window
-    /// coordinates), or nil for the plain shell.
+    /// coordinates), or nil for no stage-0 window.
     public var bare: ((_ frame: CGRect, _ look: LaunchShellLook) -> NSView?)?
     /// Calls `ready` (on the main actor, once) when the real window shows Home with its composer
     /// (the bare lane's marks); the swap waits for it, at most `LaunchShell.bareBound` after
@@ -275,7 +283,7 @@ public final class LaunchShell {
     public var bareReady: ((_ ready: @escaping @MainActor () -> Void) -> Void)?
     /// Calls `ready` (on the main actor, once) when the real window's visible regions (sidebar,
     /// tab strips, panes) have their saved or live content, so it looks as stage 0's image does;
-    /// over the image or the plain shell the swap waits for it, at most the Rust bound. Nil: the
+    /// over the image the swap waits for it, at most the Rust bound. Nil: the
     /// swap is at the real window's first commit.
     public var contentReady: (@MainActor (_ ready: @escaping @MainActor () -> Void) -> Void)?
     /// Called with `bare`'s view at the swap, before stage 0 closes: the bare lane takes what was

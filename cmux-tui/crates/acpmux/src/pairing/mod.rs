@@ -134,6 +134,16 @@ pub struct DeviceAuth {
 /// record's id starts with this prefix.
 pub const VOUCHED_PHONE_PREFIX: &str = "vouched-phone:";
 
+/// The device a prompt from the owner's own phone carries when it comes over this machine's unix
+/// socket stamped `via: cloud-mobile` (`server/remote_guard.rs` `sending_device`): cmux-tui's
+/// owner-scoped Cloud mobile client and the Mac's mobile chat relay stamp it, for the owner's
+/// phone only (a teammate's prompt comes through the carrier as a Web connection). The socket
+/// already controls every chat here, so naming it the owner's phone gives nothing the socket
+/// lacks: it passes D13 (`Hub::local_claude_refusal`) for a Claude chat this machine started,
+/// such as the one the phone just started, and it never grants Full access, so the Cloud mobile
+/// asking-mode floor still holds. No store id (`dv-…`) is this.
+pub const CLOUD_MOBILE_OWNER: &str = "cloud-mobile-owner";
+
 /// The id of the phone `device` (its id on the vouching daemon) that the owner's peer daemon
 /// vouches for on connection `conn` ([`VOUCHED_PHONE_PREFIX`]).
 pub fn vouched_phone_id(conn: &str, device: &str) -> String {
@@ -490,6 +500,9 @@ impl Pairing {
     /// from the store on every call, so turning it off or revoking the
     /// machine counts for its very next request.
     pub fn full_access(&self, id: &str) -> bool {
+        if id == CLOUD_MOBILE_OWNER {
+            return false;
+        }
         if id.starts_with(VOUCHED_PHONE_PREFIX) {
             return self.vouched().get(id).copied().unwrap_or(false);
         }
@@ -502,6 +515,9 @@ impl Pairing {
     /// (cmux-mobile-host `host.rs` `admitted`); removing the phone there revokes it. Read from the
     /// store on every call, as `full_access` is, so a removed phone's very next request is not.
     pub fn own_phone(&self, id: &str) -> bool {
+        if id == CLOUD_MOBILE_OWNER {
+            return true;
+        }
         if id.starts_with(VOUCHED_PHONE_PREFIX) {
             return self.vouched().contains_key(id);
         }

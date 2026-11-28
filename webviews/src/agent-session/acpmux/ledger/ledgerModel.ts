@@ -7,8 +7,6 @@
 // grouping to a file, as that CSV or as JSON (`ledgerJson`), every row the read returned.
 import { intl } from "../../../ui/intl";
 
-export const LEDGER_METHOD = "_acpmux/ledger";
-
 export const LEDGER_RANGES = ["24h", "7d", "30d", "all"] as const;
 export type LedgerRange = (typeof LEDGER_RANGES)[number];
 

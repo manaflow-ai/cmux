@@ -167,6 +167,10 @@ fn own_github_login() -> Option<(Zeroizing<String>, Option<String>)> {
 }
 
 /// A GitHub login as GitHub allows it: 1 to 39 letters, digits and inner dashes.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn is_github_login(login: &str) -> bool {
     let bytes = login.as_bytes();
     !bytes.is_empty()

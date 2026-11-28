@@ -30,8 +30,17 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// page to open in a browser tab, signed in as the person's cmux account. A link it refuses opens
     /// as a plain browser tab when it is a web address.
     case shareLink(URL)
+    /// Screen Sharing asked while Home stands for the hidden home workspace: the Mac Screen
+    /// tab (`device`'s screen, or the home page for "") in a workspace the window shows.
+    case macScreen(device: String)
     /// Not something cmux opens; the caller refuses it.
     case unsupported
+
+    /// How many files this route puts into a chat: an ``attachImages(_:from:)``'s, else none.
+    public var attachedFiles: Int {
+        guard case .attachImages(let urls, _) = self else { return 0 }
+        return urls.count
+    }
 }
 
 /// Maps opened URLs and files to routes. Pure: no AppKit, no file writes;

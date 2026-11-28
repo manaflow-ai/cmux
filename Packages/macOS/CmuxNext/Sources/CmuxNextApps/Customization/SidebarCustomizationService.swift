@@ -97,7 +97,10 @@ public final class SidebarCustomizationService: SidebarCustomization {
         // task-owner: one watch per rows mount, cancelled when it remounts.
         sceneWatch = Task { [weak self] in
             for await scene in ObservationStream({ model.scene }) {
-                self?.setDecorations(Self.decorations(scene))
+                // Off the main actor: a decorated row's glyph re-encodes its choreography (up to 32 KiB) on every
+                // scene change, per row; the cmux#59531 sidebar hang was this shape of work on the main thread.
+                let next = await Self.decorationsOffMain(scene)
+                self?.setDecorations(next)
             }
         }
     }
@@ -129,7 +132,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
     /// Every `Group` node naming its row by `row` (the id) or `title`, read as a decoration (later nodes win).
     /// `title` is read too: a rows view that names rows by title (the documented example, the example
     /// looks) decorated nothing while only `row` was read.
-    static func decorations(_ scene: AppScene) -> [String: SidebarRowDecoration] {
+    nonisolated static func decorations(_ scene: AppScene) -> [String: SidebarRowDecoration] {
         var out: [String: SidebarRowDecoration] = [:]
         for node in scene.nodes.values where node.type == .group {
             var props: [String: String] = [:]
@@ -143,7 +146,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
     /// `{choreography: "glyph", trigger?}` (the same, with a trigger), or `{choreography: <a
     /// cmux.particles/1 document>, trigger?}`, which the app host's validator checked with the scene
     /// (a refused one arrives as null and plays nothing). Nil for anything else.
-    static func glyph(_ indicator: AppJSON?) -> SidebarRowGlyph? {
+    nonisolated static func glyph(_ indicator: AppJSON?) -> SidebarRowGlyph? {
         if indicator?.stringValue == "glyph" { return SidebarRowGlyph() }
         guard let members = indicator?.objectValue, let choreography = members["choreography"] else { return nil }
         let trigger = members["trigger"]?.stringValue.flatMap { $0.isEmpty ? nil : String($0.prefix(32)) }
@@ -152,11 +155,14 @@ public final class SidebarCustomizationService: SidebarCustomization {
         return SidebarRowGlyph(document: text, trigger: trigger)
     }
 
-    private static func compactText(_ value: AppJSON) -> String? {
-        // main-actor-ok: one choreography the app host already validated (at most 16 particles,
-        // MAX_DOCUMENT_BYTES 32 KiB).
+    /// `decorations(_:)` on the cooperative pool, so a scene change never encodes rows on the main actor.
+    @concurrent nonisolated static func decorationsOffMain(_ scene: AppScene) async -> [String: SidebarRowDecoration] {
+        decorations(scene)
+    }
+
+    nonisolated private static func compactText(_ value: AppJSON) -> String? {
         let encoder = JSONEncoder()
-        // main-actor-ok: the order is read: equal documents must give equal text for SidebarRowGlyph's Equatable.
+        // The order is read: equal documents must give equal text for SidebarRowGlyph's Equatable.
         encoder.outputFormatting = [.sortedKeys]
         return (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) }
     }
