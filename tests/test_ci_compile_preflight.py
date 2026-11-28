@@ -197,7 +197,10 @@ class LiveBase(unittest.TestCase):
     def test_the_callee_merges_onto_the_live_base_then_fails_fast(self) -> None:
         block = job_block(CALLEE.read_text(), "web")
         merge = block.index("compile_preflight.py merge-live-base")
-        touched = block.index("compile_preflight.py web-touched")
+        # The check that reads the merged root (source_ref == '') runs after the merge; the early one runs only when
+        # the bundle source is the checkout's own GitHub merge commit, whose answer the merge does not change.
+        touched = block.index('compile_preflight.py web-touched "$WEB_SOURCE_ROOT"')
+        self.assertIn("inputs.source_ref != '' && inputs.source_ref == github.sha", block)
         dup = block.index("tests/test_webviews_no_duplicate_import_names.py")
         install = block.index("name: Setup Bun")
         self.assertLess(merge, touched)
@@ -224,7 +227,7 @@ class RouterAdmission(unittest.TestCase):
         config = json.loads(MANIFEST.read_text())["callees"]["cmux-next-compile-preflight.yml"]
         affects = config["affects"]
         self.assertIn("webviews/**", affects)
-        self.assertIn("scripts/cmux-next/**", affects)
+        self.assertIn("scripts/cmux-next/*web*", affects)
         self.assertIn("cmux-tui/crates/acpmux/spec/acpmux-protocol.json", affects)
 
         # The conservative superset must admit every input the full checkout's key currently resolves.
@@ -248,6 +251,36 @@ class RouterAdmission(unittest.TestCase):
         self.assertFalse(admits("docs/ci/notes.md"))
         self.assertFalse(admits("cmux-tui/crates/acpmux/src/lib.rs"))
         self.assertFalse(admits("tools/format/check.py"))
+        # Packages/macOS/** and scripts/cmux-next/** routed every Swift and cmux-next script head: 76 of 121 routed
+        # merges in the 400 to 2026-11-27 20Z reached no web input. Their web inputs still route.
+        self.assertTrue(admits("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings"))
+        self.assertTrue(admits("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/a.key.json"))
+        self.assertTrue(admits("Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift"))
+        self.assertTrue(admits("Resources/markdown-viewer/viewer-navigation.js"))
+        self.assertTrue(admits("scripts/cmux-next/build-agent-pane-web.sh"))
+        self.assertTrue(admits("scripts/cmux-next/web-bundle-key.py"))
+        self.assertFalse(admits("Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift"))
+        self.assertFalse(admits("scripts/cmux-next/sync-app-runtime.sh"))
+        self.assertFalse(admits("Resources/Info.plist"))
+
+    def test_never_web_check_fails_an_input_affects_does_not_route(self) -> None:
+        # The fail-closed half of the narrow list: a webviews source importing a file outside `affects` fails the
+        # head that adds the import. Before, the check read only `paths-ignore`, absent since #61854, and passed all.
+        config = json.loads(MANIFEST.read_text())["callees"]["cmux-next-compile-preflight.yml"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "scripts/ci/workflow_paths_cover_inputs.py").write_text(
+                (ROOT / "scripts/ci/workflow_paths_cover_inputs.py").read_text())
+            narrow = dict(config, affects=[p for p in config["affects"] if p != "examples/**"])
+            (root / "scripts/ci/pr_router.json").write_text(json.dumps({"callees": {
+                "cmux-next-compile-preflight.yml": narrow}}))
+            ignored = cp.router_ignores(root)
+            self.assertTrue(ignored("examples/gallery/gallery.json"))
+            self.assertFalse(ignored("webviews/src/pages/setup-card/SetupCard.tsx"))
+            (root / "scripts/ci/pr_router.json").write_text(json.dumps({"callees": {
+                "cmux-next-compile-preflight.yml": config}}))
+            self.assertFalse(cp.router_ignores(root)("examples/gallery/gallery.json"))
 
     def test_route_skips_unaffected_files_and_fail_opens_unknown_diffs(self) -> None:
         event = {"action": "synchronize", "pull_request": {"draft": False, "head": {}, "base": {}, "labels": []}}

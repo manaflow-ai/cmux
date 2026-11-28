@@ -79,7 +79,47 @@ FILE_RULE = "whole settings file (fileRoot) over the bridge"
 SEED = re.compile(r"\bHomeRules\.call(Data)?\s*\(|\bHomeRust\.call\s*\(|(?<![\w.])welcomeRule\s*\(|(?<![\w.])dockRule\s*\("
                   r"|\bcmux_\w+_(call|apply)\s*\(|\b(CloudStartCore|CloudMachineRules|CloudMoveCore)\(\)\.call(Data)?\s*\("
                   r"|\bLaunchSnapshot\.rule\s*\(")
+BASE_SEED = SEED
 SEED_NAME = "Rust bridge"
+
+# Every other synchronous FFI call that crosses a serialized payload (bytes or a C string in, or a C string out):
+# read from the crates' C headers, so a new `cmux_*` export is covered the day it lands (the brief, 2026-11-27:
+# "ban synchronous Rust FFI calls in sidebar row and flush code paths"). Scalar calls (`cmux_motion_ease(curve, t)`)
+# and the `_free` / `_abi_version` helpers stay out: they cost nanoseconds.
+FFI_HEADERS = ("cmux-tui/crates", "Packages")
+_C_COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
+_C_DECL = re.compile(r"(?P<ret>[A-Za-z_][\w \t*]*?)\b(?P<name>cmux_\w+)\s*\((?P<params>[^;{}()]*)\)\s*;")
+_PAYLOAD = re.compile(r"\bchar\s*\*|\buint8_t\s*\*|\bvoid\s*\*\s*\w*\s*,\s*size_t\b")
+_CHEAP = re.compile(r"_(free|abi_version|version)$")
+
+
+def payload_ffi(root: str) -> list[str]:
+    """Names of the `cmux_*` C functions whose declarations pass a payload, from the tracked headers."""
+    out = subprocess.run(["git", "-C", root, "ls-files", "--", *(f"{d}/*.h" for d in FFI_HEADERS)],
+                         capture_output=True, text=True)
+    names: set[str] = set()
+    for rel in out.stdout.split():
+        if "/vendor/" in rel or "/Tests/" in rel:
+            continue
+        try:
+            with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as handle:
+                text = _C_COMMENT.sub(" ", handle.read())
+        except OSError:
+            continue
+        for m in _C_DECL.finditer(text):
+            if _CHEAP.search(m.group("name")):
+                continue
+            if _PAYLOAD.search(m.group("params")) or "char" in m.group("ret") and "*" in m.group("ret"):
+                names.add(m.group("name"))
+    return sorted(names)
+
+
+def extend_seed(root: str) -> None:
+    """Add the headers' payload FFI calls to SEED (once per run)."""
+    global SEED
+    names = payload_ffi(root)
+    SEED = BASE_SEED if not names else re.compile(
+        BASE_SEED.pattern + r"|(?<![\w.])(" + "|".join(map(re.escape, names)) + r")\s*\(")
 ALLOW = re.compile(r"//\s*bridge-ok:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
 DECL = re.compile(r"(?<![\w.])(func\s+(?P<func>[A-Za-z_]\w*)|var\s+(?P<var>[A-Za-z_]\w*)\s*:|subscript\s*(?=\())")
@@ -430,6 +470,7 @@ def file_hits(sources: list[Source], sink: dict[str, set[str]]) -> list[tuple[st
 
 
 def collect(root: str) -> dict[str, dict[str, list[tuple[int, str]]]]:
+    extend_seed(root)
     sources = load(root)
     toks = {s.path: tokens(s) for s in sources}
     via = reach(sources, toks)
