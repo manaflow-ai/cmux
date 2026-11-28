@@ -24,6 +24,8 @@ import Testing
         #expect(invite.line == "cmux pair ABCDE-12345")
     }
 
+    // The grammar is Rust's (chat_share_link.rs, which runs these cases too); it links on iOS only.
+    #if os(iOS)
     @Test func aChatShareLinkOpensTheSharedChat() throws {
         let id = "0123456789abcdefABCD"
         let guest = try #require(ChatShareLink(origin: "https://share.cmux.dev", page: .guest, shareID: id, secret: "s3cret-_x"))
@@ -40,6 +42,7 @@ import Testing
         #expect(opened("https://share.cmux.dev/x/\(id)") == nil)
         #expect(opened("https://share.cmux.dev/g/short") == nil)
     }
+    #endif
 
     @Test func aServerCodeOpensNothing() {
         #expect(opened("https://cmux.com/pair?i=7KQ4M2XD") == nil)

@@ -2,6 +2,8 @@ import CmuxMobileModel
 import Foundation
 import Testing
 
+// The grammar is Rust's (chat_share_link.rs, which runs these cases too); it links on iOS only.
+#if os(iOS)
 /// A chat share link is read as the Mac daemon reads it (`agent_session_share_link.rs`), and the
 /// page the phone opens carries `in_app=1`, the one-time hand-off code and the guest secret.
 @Suite struct ChatShareLinkTests {
@@ -43,3 +45,4 @@ import Testing
         #expect(guest.pageURL(handoff: "bad code&x=1").absoluteString == "https://share.cmux.dev/g/\(id)?in_app=1#abcdefgh")
     }
 }
+#endif
