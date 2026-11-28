@@ -69,7 +69,7 @@ struct AgentChatUploads {
                           manifest.allSatisfy({ $0.size >= 0 }) else { return AgentPaneReply.failure(code: "upload_refused", message: AgentChatUploadStrings.failed) }
                 }
                 let token = UUID().uuidString.lowercased(), folder = root.appending(path: "staged-" + token, directoryHint: .isDirectory), file = folder.appending(path: name)
-                do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]); guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                guard await AgentPaneStageFiles.make(file, in: folder, work: work) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 stages[token] = Stage(folder: folder, file: file, name: name, size: size, received: 0, session: session, tab: tab, expires: Date().addingTimeInterval(10 * 60))
                 expire(token)
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
@@ -89,17 +89,14 @@ struct AgentChatUploads {
                 guard let stage = stages[token], mine(stage.session, stage.tab), stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
                 let base = session == "new" ? root : ChatUploadFolders(root: root).chat(session)
                 let destination = base.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory).appending(path: "0", directoryHint: .isDirectory).appending(path: stage.name)
-                do {
-                    try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                    try FileManager.default.moveItem(at: stage.file, to: destination)
-                    stages.removeValue(forKey: token)
-                    try? FileManager.default.removeItem(at: stage.folder)
-                } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                stages[token]?.received = -1 // claimed: no chunk or second finish takes it meanwhile; a failed one expires
+                guard await AgentPaneStageFiles.place(stage.file, at: destination, removing: stage.folder, work: work) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentChatUploadStrings.failed) }
+                stages.removeValue(forKey: token)
                 return AgentPaneReply.success(["path": destination.path])
             case .cancel(let token):
                 if let stage = stages[token], mine(stage.session, stage.tab) {
                     stages.removeValue(forKey: token)
-                    try? FileManager.default.removeItem(at: stage.folder)
+                    await AgentPaneStageFiles.remove(stage.folder, work: work)
                 }
                 return AgentPaneReply.success()
             }

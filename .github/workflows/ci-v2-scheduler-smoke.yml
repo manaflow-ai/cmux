@@ -1,0 +1,48 @@
+name: ci-v2 scheduler smoke
+
+on:
+  push:
+    branches: [lane/ci-v2-cmux]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  placement:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    outputs:
+      label: ${{ steps.label.outputs.label }}
+    steps:
+      - name: Compute scheduler label
+        id: label
+        run: echo "label=cmux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-linux" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: placement
+    # The scheduler grants this exact label to this run and attempt. A
+    # one-job runner cannot accept work for another run.
+    runs-on: ${{ needs.placement.outputs.label }}
+    timeout-minutes: 10
+    steps:
+      - name: Record scheduler grant
+        shell: bash
+        run: |
+          set -euo pipefail
+          label="cmux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-linux"
+          test -n "${CMUX_SCHEDULER_VM_SIZE:-}"
+          case "$CMUX_SCHEDULER_VM_SIZE" in 8|16|32) ;; *) exit 1 ;; esac
+          {
+            echo "scheduler_label=$label"
+            echo "scheduler_vm_size=${CMUX_SCHEDULER_VM_SIZE}"
+            echo "runner_name=${RUNNER_NAME}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out cmux
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate a cmux CI helper
+        run: python3 -m py_compile scripts/ci/runner_label_policy.py
