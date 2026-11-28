@@ -120,7 +120,7 @@ impl Peer {
                 continue;
             };
             let delay = if redial_now { Duration::ZERO } else { delay };
-            match self.wait_backoff(delay).await {
+            match self.wait_backoff_after(delay, backoff.failures()).await {
                 BackoffWait::Done => {}
                 // The network that failed before the sleep may take a moment to come back: the
                 // next attempts are quick ones again.
@@ -802,7 +802,8 @@ impl Peer {
         }
         // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
         let mut reader = crate::peer_link::ReaderHeld::default();
-        crate::peer_starved::ensure_started();
+        // The starvation meter runs while this loop does (`peer_starved.rs`).
+        let _starved = crate::peer_starved::watch();
         // The stamped pings still out and when each left, on the runtime's clock, so their pongs
         // time the link's round trip (`peer_link_quality.rs`). Bounded: the oldest goes first.
         let mut pinged: std::collections::VecDeque<(Vec<u8>, tokio::time::Instant)> =

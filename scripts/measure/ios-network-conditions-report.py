@@ -21,6 +21,7 @@ from collections import defaultdict
 
 METRIC_ORDER = [
     "r1_ms",
+    "r2_ms",
     "first_content_ms",
     "setup_ms",
     "interactive_ms",
