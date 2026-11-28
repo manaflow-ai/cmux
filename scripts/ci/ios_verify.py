@@ -249,6 +249,29 @@ def dispatch_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "
             "exit": code, "seconds": round(time.monotonic() - t0), "tail": text.strip()[-400:]}
 
 
+def finished_step(step: dict, head: str, ids: list[str]) -> dict | None:
+    """STEP's result read from a simulator step that already ran (--from-step), or None when no ID ran this work.
+
+    A proof whose poster died after its step finished (cmux#38805: 12/12 green on aws-m4pro-4, then the caller's
+    timeout, exit 124) could not be posted again: re-sending the step answered HTTP 409 "step_key already names a
+    different step" once the controller had dropped the pin, and a changed key queues the whole run again. Each ID is
+    read with `cmux-ci status`. It counts only when it ran this tool's script at HEAD with STEP's args, so another
+    head's or another shard's pass is never borrowed."""
+    for sid in ids:
+        p = subprocess.run(["cmux-ci", "status", sid], capture_output=True, text=True, timeout=120)
+        try:
+            job = json.loads(p.stdout) if p.returncode == 0 else {}
+        except ValueError:
+            job = {}
+        if job.get("ref") != head or job.get("script") != SIM_SCRIPT or job.get("args") != step["args"]:
+            continue
+        ok = job.get("state") == "done" and job.get("exit_code") == 0
+        return {"name": step["name"], "mode": step["mode"], "worker": job.get("worker") or step["worker"],
+                "args": step["args"], "step": sid, "result": "pass" if ok else "fail",
+                "exit": job.get("exit_code"), "seconds": 0, "tail": f"read from finished step {sid} ({job.get('state')})"}
+    return None
+
+
 # Where a flow's `scripts` run, and with which environment. By default the checkout this tool runs from (a person's
 # head checkout). --scripts-at puts them in another tree: the automatic run (.github/workflows/cmux-next-ios-verify-
 # auto.yml) runs this tool from the protected branch, so the head's scripts run in a worktree of the head, with no
@@ -595,6 +618,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-merge-base", action="store_true")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
     ap.add_argument("--attempt", default="1", help="use a new attempt ID to rerun an identical failed simulator step")
+    ap.add_argument("--from-step", action="append", default=[], metavar="ID",
+                    help="post from this finished simulator step instead of running it again (repeatable)")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
@@ -641,9 +666,16 @@ def main(argv: list[str] | None = None) -> int:
         runs = [no_flows_run(changed)]
         video, base_meta, captures = None, None, []
     else:
-        leased = set() if a.pin_strict or not workers else leased_hosts()
+        reused = {}
+        for s in steps if a.from_step else []:
+            got = finished_step(s, head, a.from_step)
+            if got is None:
+                raise SystemExit(f"ios verify: no --from-step ran {s['name']} at {head[:12]}")
+            reused[s["name"]] = got
+        leased = set() if a.pin_strict or not workers or reused else leased_hosts()
         with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-            futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
+            futs = [pool.submit(lambda r: r, reused[s["name"]]) if s["name"] in reused else
+                    pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt, workers, leased)
                     for s in steps]
             futs += [pool.submit(run_script, s) for s in selection["scripts"]]
             runs = [f.result() for f in futs]

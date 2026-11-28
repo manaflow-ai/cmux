@@ -192,6 +192,37 @@ class NoFlows(unittest.TestCase):
         rerun.assert_not_called()
 
 
+class FromStep(unittest.TestCase):
+    """--from-step posts a finished step's result instead of running it again, and only for the same work."""
+    HEAD = "434cecd2bc9a5be7c5031e9c7b5ddeda15dd03cf"
+    STEP = {"name": "sim 1/1: test ui=AppReviewGateUITests", "mode": "test", "worker": "cmux23",
+            "args": ["test", "ui=AppReviewGateUITests", "video"]}
+
+    def job(self, **over):
+        j = {"ref": self.HEAD, "script": ios_verify.SIM_SCRIPT, "args": self.STEP["args"], "state": "done",
+             "exit_code": 0, "worker": "aws-m4pro-4"}
+        j.update(over)
+        return mock.Mock(returncode=0, stdout=json.dumps(j))
+
+    def read(self, proc):
+        with mock.patch.object(ios_verify.subprocess, "run", return_value=proc):
+            return ios_verify.finished_step(self.STEP, self.HEAD, ["694304f17866e34a2c99d717"])
+
+    def test_a_finished_green_step_is_a_pass_from_the_host_that_ran_it(self):
+        got = self.read(self.job())
+        self.assertEqual((got["result"], got["worker"], got["step"]), ("pass", "aws-m4pro-4", "694304f17866e34a2c99d717"))
+
+    def test_a_failed_or_unfinished_step_is_a_fail(self):
+        self.assertEqual(self.read(self.job(exit_code=1))["result"], "fail")
+        self.assertEqual(self.read(self.job(state="running", exit_code=None))["result"], "fail")
+
+    def test_another_head_shard_or_script_is_not_borrowed(self):
+        self.assertIsNone(self.read(self.job(ref="0" * 40)))
+        self.assertIsNone(self.read(self.job(args=["test", "ui=OtherUITests", "video"])))
+        self.assertIsNone(self.read(self.job(script="scripts/ci/other.sh")))
+        self.assertIsNone(self.read(mock.Mock(returncode=1, stdout="")))
+
+
 class Plan(unittest.TestCase):
     def test_simulator_dispatch_identity(self):
         from unittest import mock
