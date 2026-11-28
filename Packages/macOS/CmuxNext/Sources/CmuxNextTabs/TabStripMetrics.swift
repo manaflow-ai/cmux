@@ -240,7 +240,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         cornerRadius = DesignSettings.shared.tabShape.fillCornerRadius(Metrics.tabCornerRadius, height: Metrics.tabHeight,
                                                                        tabHeight: Metrics.tabHeight)
         // Helium's plate around the x's square; a tuned or set square larger than it is its own plate.
-        closePlateSide = max(closeButtonSize, BrowserChromeTuning.HeliumClose(row: tabHeight).plateSide)
+        closePlateSide = max(closeButtonSize, BrowserChromeTuning.HeliumClose.plateSide(row: tabHeight))
         closeCornerRadius = BrowserChromeTuning.value(.closeCorner)
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value

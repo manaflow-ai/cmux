@@ -72,10 +72,10 @@ public nonisolated struct BrowserChromeTuning {
         case .rowHeight, .rowGap: return metric.token.flatMap { tokens.tokens[$0] }.map { CGFloat($0) } ?? 0
         // Helium's x in points, not a share of the row (Lawrence 2026-11-28: "size and icon size etc must perfectly match
         // helium"): its Default density's on a tab under 32 pt, its Spacious density's from 32 pt (``HeliumClose``).
-        case .closeSize: return HeliumClose(row: row).slot
-        case .closeCorner: return HeliumClose(row: row).corner
-        case .closeInk: return HeliumClose(row: row).ink
-        case .closeTrailing: return HeliumClose(row: row).trailing
+        case .closeSize: return HeliumClose.slot
+        case .closeCorner: return HeliumClose.corner
+        case .closeInk: return HeliumClose.ink
+        case .closeTrailing: return HeliumClose.trailing(row: row)
         case .closeHoverOpacity: return 16 // tab_close_button.cc's highlight opacity, at every density
         // The omnibar's own tokens where the density sets them (its bar can differ from the tab row: 28 on 29 at Default).
         case .chipLeading:
@@ -118,22 +118,21 @@ public nonisolated struct BrowserChromeTuning {
     /// Spacious density (a 32 pt tab) the whole 26 pt button less `Insets(1)`, 24 pt around the same 14 pt square, which
     /// sits 8 pt inside the tab's end (`kTabHorizontalPadding`), so the plate's end is 3 pt in. Highlight 16%, pressed
     /// 14%, of black or white (the tab's max contrast), with no fade.
-    public struct HeliumClose: Equatable, Sendable {
-        /// The tab's height, which picks the density: Spacious from 32 pt (Spacious's tab is 32 pt, Default's 28).
-        public let row: CGFloat
-        public init(row: CGFloat) { self.row = row }
+    public enum HeliumClose {
         /// The x's icon and visible square: `kTabCloseButtonSize` with rounded icons.
-        public var slot: CGFloat { 14 }
+        public static let slot: CGFloat = 14
         /// The plate's corner: `kCornerRadius` in tab_close_button.cc.
-        public var corner: CGFloat { 4 }
+        public static let corner: CGFloat = 4
         /// The icon's ink: close_weight500_custom spans 13.42 of its 24 units, drawn at 14 pt.
-        public var ink: CGFloat { 14 * 13.42 / 24 }
-        /// Whether this tab draws Helium's Spacious x.
-        public var isSpacious: Bool { row >= 32 }
+        public static let ink: CGFloat = 14 * 13.42 / 24
+        /// The tab height from which cmux draws Helium's Spacious x: Spacious's tab is 32 pt, Default's 28.
+        public static let spaciousRow: CGFloat = 32
+        /// Whether a `row` tall tab draws Helium's Spacious x.
+        public static func isSpacious(row: CGFloat) -> Bool { row >= spaciousRow }
         /// The plate's side: the 14 pt square at Default, the 24 pt button at Spacious.
-        public var plateSide: CGFloat { isSpacious ? slot + 10 : slot }
+        public static func plateSide(row: CGFloat) -> CGFloat { isSpacious(row: row) ? slot + 10 : slot }
         /// The visible square's inset from the tab's end: 6 at Default, 8 at Spacious.
-        public var trailing: CGFloat { isSpacious ? 8 : 6 }
+        public static func trailing(row: CGFloat) -> CGFloat { isSpacious(row: row) ? 8 : 6 }
     }
 
     /// `points` of Helium's 28 pt row as the same share of `row`, in half points.
