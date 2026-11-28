@@ -9,7 +9,8 @@
 //! The result stays `isError` for the agent (the call did not run) and carries
 //! `_meta["cmux/state"] = "mac_locked"` so a chat can draw it as a state rather than a failure.
 //! [`super::awake`] keeps a Mac from dimming into the lock in the first place (L1); nothing here
-//! unlocks anything.
+//! unlocks anything. [`to_mcp_routed`] names the person's own machines that can take the call now
+//! (L3, the remote route), so the agent moves the call there instead of waiting on the lock.
 
 use cmux_computer_use::ToolOutput;
 use serde_json::{Value, json};
@@ -85,9 +86,43 @@ pub fn map(outcome: Outcome) -> Outcome {
     Outcome::Output(ToolOutput { is_error: true, code: Some(CODE.into()), body, png_base64: png })
 }
 
+/// Names `machines` (the person's machines that can take the call now, design L3's "remote"
+/// route) in a locked result's body: `machines`, the remote route's text and the error line.
+/// Nothing changes when there are none; the generic routes stay.
+fn route_to(body: &mut Value, machines: &[String]) {
+    let Some(first) = machines.first() else { return };
+    let names = machines.join(", ");
+    body["machines"] = json!(machines);
+    body["error"] = format!("{MESSAGE} Ready to take it now: {names}.").into();
+    if let Some(routes) = body["routes"].as_array_mut() {
+        for route in routes.iter_mut().filter(|r| r["route"] == "remote") {
+            route["text"] =
+                format!("Run it on {names}: call the same tool again with machine \"{first}\".")
+                    .into();
+            route["machines"] = json!(machines);
+        }
+    }
+}
+
+/// [`to_mcp`], with the machines that can take the call instead named in a locked result.
+/// `machines` runs only when the call was locked (it asks the daemon, which asks each peer).
+pub fn to_mcp_routed(outcome: Outcome, machines: impl FnOnce() -> Vec<String>) -> Value {
+    let mut outcome = map(outcome);
+    if let Outcome::Output(out) = &mut outcome
+        && out.code.as_deref() == Some(CODE)
+    {
+        route_to(&mut out.body, &machines());
+    }
+    mark(outcome)
+}
+
 /// The MCP `tools/call` result for `outcome`, the locked state marked for the chat.
 pub fn to_mcp(outcome: Outcome) -> Value {
-    let outcome = map(outcome);
+    mark(map(outcome))
+}
+
+/// The MCP result for an already mapped `outcome`, `_meta` marked when it is the locked state.
+fn mark(outcome: Outcome) -> Value {
     let locked = matches!(&outcome, Outcome::Output(out) if out.code.as_deref() == Some(CODE));
     let mut result = outcome.to_mcp();
     if locked && let Some(map) = result.as_object_mut() {
@@ -97,67 +132,5 @@ pub fn to_mcp(outcome: Outcome) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn body(result: &Value) -> Value {
-        serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
-    }
-
-    #[test]
-    fn mac_locked_becomes_the_typed_state_and_keeps_while_locked() {
-        let mut out = ToolOutput::error("mac_locked", "the Mac is locked");
-        out.body["whileLocked"] = json!({"setting": "computerUse.whileLocked", "value": "off"});
-        let result = to_mcp(Outcome::Output(out));
-        assert_eq!(result["isError"], true);
-        assert_eq!(result["_meta"][STATE_META], CODE);
-        let b = body(&result);
-        assert_eq!(b["code"], CODE);
-        assert_eq!(b["state"], "locked");
-        assert_eq!(b["error"], MESSAGE);
-        assert_eq!(b["detail"], "the Mac is locked");
-        assert!(b.get("worker_code").is_none());
-        assert_eq!(b["whileLocked"]["setting"], "computerUse.whileLocked");
-        let routes: Vec<_> =
-            b["routes"].as_array().unwrap().iter().map(|r| r["route"].as_str().unwrap()).collect();
-        assert_eq!(routes, ["unlock", "remote", "cloud"]);
-    }
-
-    #[test]
-    fn legacy_screen_locked_maps_to_mac_locked() {
-        let out = ToolOutput::error("screen_locked", "screen is locked");
-        let Outcome::Output(mapped) = map(Outcome::Output(out)) else { panic!("an output") };
-        assert_eq!(mapped.code.as_deref(), Some(CODE));
-        assert_eq!(mapped.body["worker_code"], "screen_locked");
-        assert_eq!(mapped.body["detail"], "screen is locked");
-        // A request-level refusal and a remote machine's refusal map the same way.
-        for failed in [
-            Outcome::Failed {
-                code: "worker_error".into(),
-                message: "screen_locked: locked".into(),
-            },
-            Outcome::Failed { code: "mac_locked".into(), message: "locked".into() },
-        ] {
-            let result = to_mcp(failed);
-            assert_eq!(result["_meta"][STATE_META], CODE);
-            assert_eq!(body(&result)["state"], "locked");
-        }
-    }
-
-    #[test]
-    fn other_results_pass_through_unchanged() {
-        let cases = [
-            Outcome::Output(ToolOutput::error("app_denied", "denied")),
-            Outcome::Output(ToolOutput::ok(json!({"code": "mac_locked"}))),
-            Outcome::Off(String::new()),
-            Outcome::Failed { code: "worker_error".into(), message: "mac_lockedness".into() },
-            Outcome::Failed { code: "computer_use_unavailable".into(), message: "away".into() },
-        ];
-        for outcome in cases {
-            assert_eq!(map(outcome.clone()), outcome);
-            let result = to_mcp(outcome.clone());
-            assert_eq!(result, outcome.to_mcp());
-            assert!(result.get("_meta").is_none());
-        }
-    }
-}
+#[path = "locked_tests.rs"]
+mod tests;

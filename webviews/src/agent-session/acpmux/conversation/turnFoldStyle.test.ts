@@ -27,7 +27,13 @@ const call = (id: string) => ({
   text: "Run",
   tool: { id, title: "Run", kind: "execute", status: "completed" },
 });
-const prompt: AcpmuxRow = { id: "p", version: 1, at: 0, kind: "user", text: "Fix it" };
+const prompt: AcpmuxRow = {
+  id: "p",
+  version: 1,
+  at: 0,
+  kind: "user",
+  text: "Fix it",
+};
 const work = (id: string, at: number, n: number) =>
   ({
     id,
@@ -36,7 +42,13 @@ const work = (id: string, at: number, n: number) =>
     kind: "activity",
     items: Array.from({ length: n }, (_, i) => call(`${id}-${i}`)),
   }) as AcpmuxRow;
-const say = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "assistant", text });
+const say = (id: string, at: number, text: string): AcpmuxRow => ({
+  id,
+  version: 1,
+  at,
+  kind: "assistant",
+  text,
+});
 const end: AcpmuxRow = {
   id: "s",
   version: 1,
@@ -106,17 +118,17 @@ test("claude: Worked for over the conclusion, the chatter and runs folded under 
   expect(rows.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
 });
 
-// A closed fold keeps substantive replies in sight; short narration between two runs folds with
-// them. The arms that keep every reply in sight are covered by turn-fold-keeps-replies.test.ts.
+// A closed fold keeps only the final answer in sight; a reply between two runs folds with them,
+// however long (Lawrence, 2026-11-19: "in collapsed, literally everything but final assistant message
+// should be collapsed"). The arms that keep every reply in sight are covered by
+// turn-fold-keeps-replies.test.ts.
 for (const family of ["claude", "codex", "gemini", "muse"])
-  test(`${family}: a closed fold keeps a substantive reply between two runs`, () => {
+  test(`${family}: a closed fold folds a reply between two runs, the final answer in sight`, () => {
     const rows = drawn(family, new Set(), replied);
     const worked = rows.find((row) => row.kind === WORKED)!;
     expect(worked.foldOpen).toBe(false);
-    // The substantive reply stays visible, so the closed fold contains only calls and uses the
-    // normal Worked for label without a previous-message count.
+    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
     expect(worked.previous).toBeUndefined();
-    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "n1", "a"]);
   });
 
 test("claude, opened: its runs fold per run with the chatter between them", () => {
@@ -144,19 +156,26 @@ test("claude: a turn that ends on a call keeps its last takeaway in sight, the c
   expect(ids(rows.filter((row) => row.kind !== "turnSummary" && row.kind !== "user"))).toEqual([worked.id, "t"]);
 });
 
-test("claude: a turn with only its reply draws no Worked for", () => {
-  const rows = turnView([prompt, say("a", 5_000, "Yes."), end], new Set(), { now: 70_000, agentFamily: "claude" });
-  expect(rows.some((row) => row.kind === WORKED)).toBe(false);
+// Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways".
+test("claude: a turn with only its reply keeps its Worked for, closed over nothing, so the reply holds its place", () => {
+  const rows = turnView([prompt, say("a", 5_000, "Yes."), end], new Set(), {
+    now: 70_000,
+    agentFamily: "claude",
+  });
+  const worked = rows.find((row) => row.kind === WORKED);
+  expect(worked?.foldOpen).toBe(false);
   expect(ids(rows)).toContain("a");
 });
 
-test("claude: a running turn draws its work as it happens, no Worked for yet", () => {
+// The person's turn holds its "Working for" from the send (Leo, 2026-11-25: "the space below should automatically start
+// accomodating for the working and the thinking already"); no closed Worked for until it ends.
+test("claude: a running turn draws its work as it happens, under its Working for, no Worked for yet", () => {
   const rows = turnView([prompt, work("w1", 1_000, 2), say("n1", 10_000, "Looking.")], new Set(), {
     now: 20_000,
     agentFamily: "claude",
     working: true,
   });
-  expect(rows.some((row) => row.kind === WORKED)).toBe(false);
+  expect(rows.filter((row) => row.kind === WORKED).every((row) => row.turnPhase === "running")).toBe(true);
   expect(ids(rows)).toContain("n1");
 });
 
@@ -220,7 +239,7 @@ const shellEnd = (id: string, at: number, state: "completed" | "stopped" | "fail
 });
 
 for (const family of ["claude", "codex", "gemini", "muse"])
-  test(`${family}: a background command that finished or stopped folds under Worked for`, () => {
+  test(`${family}: a background command that finished or stopped is the composer hat's, never a transcript row`, () => {
     const rows = [
       prompt,
       work("w1", 1_000, 2),
@@ -233,10 +252,15 @@ for (const family of ["claude", "codex", "gemini", "muse"])
     const closed = drawn(family, new Set(), rows);
     const worked = closed.find((row) => row.kind === WORKED)!;
     expect(ids(closed.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
-    // Opened, they draw in their places among the work.
+    // By default the composer hat's line says those ends, and the transcript draws none of them,
+    // opened or not (Leo, 2026-11-25: "what if we simply put it into the composer hat and iddnt put
+    // it into the transcript?"; backgroundRuns.ts hatSaysEnd, #56287).
+    // Opened, the fold shows the work around them, and the reply stays after it.
     const opened = ids(drawn(family, new Set([worked.id]), rows));
-    expect(opened.indexOf("bg1")).toBeGreaterThan(opened.indexOf(worked.id));
-    expect(opened.indexOf("bg2")).toBeLessThan(opened.indexOf("a"));
+    expect(opened).not.toContain("bg1");
+    expect(opened).not.toContain("bg2");
+    expect(opened.indexOf("w1")).toBeGreaterThan(opened.indexOf(worked.id));
+    expect(opened.indexOf("w2")).toBeLessThan(opened.indexOf("a"));
   });
 
 test("a background command that failed stays in sight beside the closed Worked for", () => {

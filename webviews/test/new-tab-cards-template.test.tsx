@@ -8,8 +8,11 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
-import {
+import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { manySessions, noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const {
   NEW_TAB_TEMPLATES,
   PAGE_STYLES,
   parseNewTabTemplate,
@@ -18,8 +21,7 @@ import {
   screenTemplate,
   shownTemplate,
   RETIRED_NEW_TAB_TEMPLATES,
-} from "../src/agent-session/acpmux/newtab/templates";
-import { teardownDom } from "./support/domTeardown";
+} = await importWithDom(() => import("../src/agent-session/acpmux/newtab/templates"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -222,15 +224,14 @@ test("Cards with the agent's chips draws the split, and the mic stays in the box
     );
     const screen = host.querySelector<HTMLElement>(".nt-screen")!;
     const box = host.querySelector<HTMLElement>(".nt-box")!;
-    // The split, not the pill: no toolbar under a pill; the mic and Send in the box; the chips in
-    // the quiet row under it, and the project strip above the box (#27956, Leo 2026-10-29:
+    // The split, not the pill: no toolbar under a pill; the mic, Send and the quiet row's chips in the
+    // card's bar (2026-11-25), and the project strip above the card (#27956, Leo 2026-10-29:
     // "project and cloudness at the top").
     expect(screen.dataset.pill).toBeUndefined();
     expect(host.querySelector(".nt-toolbar")).toBeNull();
     expect(box.querySelector(".nt-pickers .acpmux-mic")).not.toBeNull();
     expect(box.querySelector(".nt-send")).not.toBeNull();
-    expect(box.querySelector(".acpmux-model")).toBeNull();
-    expect(host.querySelector(".nt-foot .acpmux-composer-foot .acpmux-model")).not.toBeNull();
+    expect(box.querySelector(".nt-foot .acpmux-composer-foot .acpmux-model")).not.toBeNull();
     const composer = host.querySelector<HTMLElement>(".nt-composer")!;
     const strip = composer.querySelector(".nt-location");
     expect(strip).not.toBeNull();

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "sandbox.error.notSignedIn" : {
+      "comment" : "Chat: Sandboxed refused while signed out of cmux",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to cmux to run in a sandbox."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Melde dich bei cmux an, um in einer Sandbox auszuführen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connectez-vous à cmux pour exécuter dans un bac à sable."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "سجّل الدخول إلى cmux للتشغيل في صندوق معزول."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inicia sesión en cmux para ejecutar en un sandbox."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登入 cmux 才能在沙箱中執行。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录 cmux 才能在沙箱中运行。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "샌드박스에서 실행하려면 cmux에 로그인하세요."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サンドボックスで実行するには cmux にサインインしてください。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prijavite se na cmux da pokrenete u sandboxu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Log ind på cmux for at køre i en sandkasse."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Accedi a cmux per eseguire in un sandbox."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចូល cmux ដើម្បីដំណើរការក្នុងប្រអប់ខ្សាច់។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Logg inn på cmux for å kjøre i en sandkasse."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zaloguj się do cmux, aby uruchomić w piaskownicy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Entre no cmux para executar em um sandbox."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Войдите в cmux, чтобы запускать в песочнице."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลงชื่อเข้า cmux เพื่อเรียกใช้ในแซนด์บ็อกซ์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Korumalı alanda çalıştırmak için cmux'a giriş yapın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Увійдіть у cmux, щоб запускати в пісочниці."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đăng nhập cmux để chạy trong hộp cát."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

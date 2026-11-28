@@ -120,6 +120,7 @@ const fn access(operation: Op) -> Access {
         | Op::DiffCommentsList
         | Op::DiffCommentsSave
         | Op::DiffCommentsDelete
+        | Op::DiffCommentsThread
         // A pull request review: checked out, drafted and posted with the
         // person's own git and gh, for the app and agents, never a page.
         | Op::GitReviewStart
@@ -281,6 +282,10 @@ const fn access(operation: Op) -> Access {
         | Op::SettingsReset
         | Op::SettingsResetAll
         | Op::SettingsEdit
+        | Op::SettingsHistory
+        | Op::SettingsUndo
+        | Op::SettingsRestore
+        | Op::SettingsResetGroup
         | Op::KeybindingsGet
         | Op::KeybindingsSet
         | Op::KeybindingsRemove
@@ -425,6 +430,7 @@ const fn access(operation: Op) -> Access {
         | Op::ThemeSchemeConvert
         | Op::ThemeSchemeExport
         | Op::ThemeSchemeFromImage
+        | Op::ThemeSlotsResolve
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
@@ -451,6 +457,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudVmProvisionApi
         | Op::CloudVmPublicationApiKeys
         | Op::CloudVmRevokePublicationApiKey
+        | Op::CloudVmAgentKeyCreate
         | Op::CloudRunsCreate
         | Op::CloudRunsStart
         | Op::CloudRunsWait
@@ -467,16 +474,25 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerGithubApp
         | Op::CloudOwnerGithubRepos
         | Op::CloudOwnerGithubConnect
+        | Op::CloudOwnerOp
+        | Op::CloudOwnerGithubComplete
+        | Op::CloudOwnerGithubList
+        | Op::CloudOwnerGithubCloneToken
+        | Op::CloudOwnerSlack
+        | Op::CloudOwnerSlackAwake
         | Op::CloudOwnerTurnCheckpoint
         | Op::CloudOwnerTurnRewind
         | Op::CloudOwnerTurns
         | Op::CloudPreviewsRefresh
         | Op::CloudPreviewsCreateLink
         | Op::CloudPreviewsRevokeLink
+        | Op::CloudArtifactsRead
         | Op::CloudMachineChatAccess
         | Op::CloudMachineShareChat
         | Op::CloudMachineChiefStart
         | Op::CloudMachineChiefResize
+        | Op::CloudMachineSetupDesktop
+        | Op::CloudMachineFork
         => Access::Denied(Denied::NotAllowed),
     }
 }

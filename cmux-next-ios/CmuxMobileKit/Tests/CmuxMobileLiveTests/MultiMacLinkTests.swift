@@ -30,9 +30,19 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
 
     func dialCount(_ macID: String) -> Int { lock.withLock { dials[macID] ?? 0 } }
 
+    /// Macs no dial reaches (this iPhone has no network): their dials fail as a timeout would.
+    private var unreachable: Set<String> = []
+    func setUnreachable(_ macID: String, _ on: Bool) {
+        lock.withLock { if on { unreachable.insert(macID) } else { unreachable.remove(macID) } }
+    }
+
     func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         let mac = endpoint.macDeviceID
-        lock.withLock { dials[mac, default: 0] += 1 }
+        let reachable = lock.withLock { () -> Bool in
+            dials[mac, default: 0] += 1
+            return !unreachable.contains(mac)
+        }
+        guard reachable else { throw LinkError(code: "timeout", message: "dial timed out") }
         if refused.contains(mac) {
             throw LinkError(code: LinkError.unauthorized, message: "signaling connect failed: 401 Unauthorized")
         }
@@ -394,7 +404,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         session.chatsError = "acpmux channel closed"
         session.daemonError = "list-workspaces reply is not an object"
         live.phaseChanged(session)
-        #expect(store.macLinkStatus["m1"] == "Connected")
+        #expect(store.macLinkStatus["m1"] == nil, "a connected Mac says nothing in its header")
         #expect(store.macLinkDiagnostics["m1"]?.contains("acpmux channel closed") == true)
         #expect(store.macLinkDiagnostics["m1"]?.contains("list-workspaces reply is not an object") == true)
 
@@ -420,6 +430,28 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(dialer.dialCount("m2") == 0)
     }
 
+    /// Leo, 2026-11-27: "An error set by a timeout clears when the next good data arrives, as in #62661."
+    @Test func workspacesArrivingClearTheDeadlineErrorWithNoRetry() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected && store.macDataPhase("m1") == .live }
+        let session = try #require(live.sessions["m1"])
+        // The workspaces deadline passed on a slow first load (armWorkspacesDeadline).
+        session.daemonError = "the Mac didn't send its workspaces"
+        live.phaseChanged(session)
+        #expect(store.macLinkDiagnostics["m1"]?.contains("didn't send its workspaces") == true)
+        let dials = dialer.dialCount("m1")
+        live.workspacesArrived(session)
+        #expect(session.daemonError == nil)
+        #expect(store.macLinkDiagnostics["m1"]?.contains("didn't send its workspaces") != true)
+        #expect(dialer.dialCount("m1") == dials, "cleared by the data, not by a redial")
+    }
+
     @Test func bannerRetryKeepsItsMacWhenFocusChanges() async throws {
         let key = "cmuxMobile.live.mac.t-multimac"
         UserDefaults.standard.removeObject(forKey: key)
@@ -443,6 +475,10 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         // Publish the waiting phase synchronously: link observation otherwise
         // runs after this MainActor test yields, which would test the fallback.
         live.phaseChanged(first)
+        // #49567 holds a "Reconnecting" banner for the quiet bound (QuietStatusGate.threshold,
+        // 10 s) on purpose: nothing shows yet. Put it on screen as the bound's end does.
+        #expect(live.banner == nil, "a reconnect inside the quiet bound shows nothing (#49567)")
+        live.bannerHold.show(.reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
         try #require(live.banner?.identity == "m1")
         // The displayed banner still belongs to m1 when focus moves to m2.
         live.focusedMacID = "m2"

@@ -176,6 +176,19 @@ fn status_with_no_api_asks_the_api_that_issued_the_apps_token() {
     assert!(api_origin(None, None).unwrap_err().contains("named none"));
 }
 
+/// The app's Cloud start gate hands the install token it holds on stdin (hq#19758): like the app's own token, it names
+/// the API that issued it, so no `--api` is needed, and `--token-stdin` takes no value.
+#[test]
+fn a_held_token_on_stdin_needs_no_api() {
+    let none = |_: &str| None;
+    let (c, v) = parse(&words(&["status", "--team", "team_x", "--token-stdin"]), &none).unwrap();
+    assert_eq!(
+        (c.api, c.team.as_deref(), c.token, v),
+        (None, Some("team_x"), TokenSource::Stdin, Verb::Status { personal: false })
+    );
+    assert!(parse(&words(&["status", "--token-stdin=tok"]), &none).is_err());
+}
+
 #[test]
 fn a_token_answer_gives_its_token_and_the_api_that_issued_it() {
     use super::super::inference_gateway::credential_answer;
@@ -190,4 +203,35 @@ fn a_token_answer_gives_its_token_and_the_api_that_issued_it() {
         credential_answer(r#"{"access_token":"tok","api_origin":""}"#),
         ("tok".to_owned(), None)
     );
+}
+
+/// `inference gateway mode` sends the cmux token only as the bearer and the team only as `x-cmux-team`; the
+/// machine id rides in the body, which carries neither.
+#[tokio::test]
+async fn seeded_token_and_team_ride_only_in_their_headers() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDgatewayAdminBearer-c41e";
+    let team = "SEEDgatewayAdminTeam-0b7a";
+    let common = Common {
+        api: Some(cmux_cloud_environment::PRODUCTION_API.to_owned()),
+        team: Some(team.to_owned()),
+        token: TokenSource::Command(format!("printf %s {token}")),
+    };
+    let verb = Verb::Mode {
+        personal: false,
+        mode: "gateway".into(),
+        machine: Some(Some("vm_abcdefghij0123456789".into())),
+    };
+    let _ = run(&common, &verb).await;
+    let sent = cmux_egress::capture::requests_to("cloud-api.cmux.dev");
+    assert!(
+        sent.iter().any(|r| r.method == "PUT" && r.target == "/v1/cloud/inference-gateway"),
+        "{sent:?}"
+    );
+    for (secret, place) in [(token, ": header authorization"), (team, ": header x-cmux-team")] {
+        let places = cmux_egress::capture::leaks(secret);
+        assert!(!places.is_empty(), "{secret}: {sent:?}");
+        assert!(places.iter().all(|p| p.ends_with(place)), "{secret}: {places:?}");
+    }
 }

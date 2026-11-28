@@ -69,7 +69,10 @@ public struct DaemonLanePolicy: Sendable {
         "set-workspace-metadata", "create-workspace-group", "update-workspace-group", "delete-workspace-group",
         "move-workspace-group", "move-workspace-to-group", "set-personal-workspace", "create-terminal", "new-tab", "new-screen", "new-pane",
         "new-pane-right", "split", "set-ratio", "set-split-ratio", "set-viewport-pane-width", "undo-layout",
-        "pane-neighbor", "focus-direction", "swap-pane", "zoom-pane", "close-surface", "close-pane", "close-screen",
+        "pane-neighbor", "focus-direction", "swap-pane", "zoom-pane", "close-surface",
+        // Close Tab in one round trip: close-surface then close-terminal's work in one daemon commit
+        // (`batch-close-v1`).
+        "close-tabs", "close-pane", "close-screen",
         "close-terminal", "rename-pane", "rename-surface", "rename-screen", "focus-pane", "select-tab",
         "select-screen", "select-workspace", "move-tab", "move-terminal", "set-tab-pinned", "move-tab-to-workspace",
         "move-tab-to-split", "move-tab-to-column", "move-tab-to-new-workspace", "create-tab-group",
@@ -86,7 +89,7 @@ public struct DaemonLanePolicy: Sendable {
         // Agent chat tabs: cmux-mobile-host sets this Mac's own agent tab host on
         // them (cmux-next-ios/rust/crates/cmux-mobile-host/src/policy.rs); this lane has
         // no such host, so it refuses them below.
-        "new-conversation-tab",
+        "new-conversation-tab", "bind-conversation-tab-session",
         // Frontend projections: guarded per subject below.
         "get-frontend-projection", "put-frontend-projection",
     ]
@@ -161,6 +164,24 @@ public struct DaemonLanePolicy: Sendable {
         case refuse(Data)
     }
 
+    /// The longest trace id a phone may stamp (acpmux's `trace_id_of` bound).
+    static let maximumTraceIDLength = 128
+
+    /// `_meta` on a line command carries the W3C trace id that ties the phone's spans to the Mac's, and
+    /// nothing else: it names no program, target or authority. Mirrors hostd's `trace_meta_refusal`.
+    static func traceMetaRefusal(_ object: [String: Any]) -> String? {
+        guard let value = object["_meta"] else { return nil }
+        guard let meta = value as? [String: Any] else { return "_meta from a phone is an object" }
+        if let key = meta.keys.sorted().first(where: { $0 != "traceId" }) {
+            return "_meta does not take \(key) from a phone"
+        }
+        guard let trace = meta["traceId"] else { return nil }
+        guard let text = trace as? String, (1...maximumTraceIDLength).contains(text.utf8.count),
+              text.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x41 && $0 <= 0x5A) || ($0 >= 0x61 && $0 <= 0x7A) || $0 == 0x2D })
+        else { return "_meta traceId is a short hex id" }
+        return nil
+    }
+
     /// Judges one newline-stripped request line from the phone.
     public func evaluate(_ line: Data) -> Verdict {
         guard line.count <= Self.maximumLineBytes else {
@@ -180,8 +201,12 @@ public struct DaemonLanePolicy: Sendable {
         }
         // Fields too are an allowlist per command: the reviewed creation fields, else the daemon's
         // schema minus program-choosing fields (`commandFields`, generated). A field added later is refused.
+        // `_meta` is the phone's trace id only (`{"traceId": ...}`), on any command.
+        if let why = Self.traceMetaRefusal(object) {
+            return .refuse(Self.errorLine(id: id, code: "forbidden", message: why))
+        }
         let allowed = Self.creationFields[command] ?? Self.commandFields[command] ?? []
-        let extra = Set(object.keys).subtracting(allowed).subtracting(["id", "cmd"])
+        let extra = Set(object.keys).subtracting(allowed).subtracting(["id", "cmd", "_meta"])
         guard extra.isEmpty else {
             return .refuse(Self.errorLine(id: id, code: "forbidden",
                                           message: "\(command) does not take \(extra.sorted().joined(separator: ", ")) from a phone"))
@@ -207,7 +232,7 @@ public struct DaemonLanePolicy: Sendable {
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return projectionVerdict(object, id: id, write: command == "put-frontend-projection")
         }
-        if command == "new-conversation-tab" {
+        if command == "new-conversation-tab" || command == "bind-conversation-tab-session" {
             return .refuse(Self.errorLine(id: id, code: "unavailable",
                                           message: "this Mac's cmux does not let a phone start agent chats"))
         }

@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import Darwin
 
 /// One running `cmux-mobile-host` child: its stdout as event lines, its stdin for
 /// control lines, its stderr appended to a log file. Reading happens on
@@ -42,10 +43,14 @@ public final class MobileHostProcess: Sendable {
             case .retry: return
             case .end:
                 handle.readabilityHandler = nil
+                try? handle.close()
                 queue.finish()
             }
         }
+        let reader = output.fileHandleForReading
         process.terminationHandler = { [weak self] finished in
+            // A helper hostd left running keeps its stdout's end of file from coming: close it after the drain grace.
+            ChildOutputEnds.closeAfterExit(reading: [reader]) { queue.finish() }
             let status = finished.terminationStatus
             let waiters = self?.state.withLock { state -> [CheckedContinuation<Int32, Never>] in
                 state.exitStatus = status
@@ -61,9 +66,11 @@ public final class MobileHostProcess: Sendable {
             $0.input = feed
         }
         do {
+            OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
             try process.run()
         } catch {
-            output.fileHandleForReading.readabilityHandler = nil
+            process.terminationHandler = nil
+            ChildOutputEnds.closeNow(reading: [output.fileHandleForReading], writing: [output.fileHandleForWriting])
             queue.cancel()
             state.withLock {
                 $0.input?.close()
@@ -108,13 +115,17 @@ public final class MobileHostProcess: Sendable {
         process?.terminate()
     }
 
-    /// The log file opened for appending, created with mode 0600 and
-    /// started over once it passes 1 MB.
+    /// Append across starts; above 1 MB, retain the preceding log as `.1`.
+    /// A failed rotation leaves the current log intact and continues appending.
     static func logHandle(_ url: URL?) -> FileHandle? {
         guard let url else { return nil }
         let path = url.path
         let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.intValue ?? 0
-        if size > 1 << 20 { try? FileManager.default.removeItem(atPath: path) }
+        if size > 1 << 20 {
+            // Rename replaces the previous generation atomically. Never delete the
+            // current evidence first: if rotation fails, opening below appends to it.
+            _ = Darwin.rename(path, path + ".1")
+        }
         if !FileManager.default.fileExists(atPath: path) {
             FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
         }

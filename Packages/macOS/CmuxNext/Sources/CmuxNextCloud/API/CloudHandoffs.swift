@@ -7,29 +7,20 @@ extension CloudOwnerAPIClient {
     /// The longest the store holds one wait (`MAX_WAIT_MS`).
     public static let handoffWaitLimitMs = 25_000
 
-    /// `GET /v1/handoffs/:id/wait?after=&timeoutMs=`: `{handoff}` once its version passes `after`
-    /// (nil: at once), or at the deadline (25 s at most). Answers the body as sent.
+    /// `cloud.owner.handoff_wait` (`GET /v1/handoffs/:id/wait?after=&timeoutMs=`): `{handoff}` once its version passes
+    /// `after` (nil: at once), or at the deadline (25 s at most). Answers the body as sent.
     public func handoffWait(_ id: String, after: Int?, timeoutMs: Int = handoffWaitLimitMs) async throws -> Data {
-        guard Self.isHandoffID(id) else { throw CloudAPIError.transport("not a hand-off id") }
         let held = max(0, min(timeoutMs, Self.handoffWaitLimitMs))
-        return try await get("/v1/handoffs/\(id)/wait", query: [("after", max(0, after ?? 0)), ("timeoutMs", held)],
-                             timeout: .milliseconds(held) + .seconds(15))
+        return try await daemon("owner.handoff_wait", ["id": id, "after": max(0, after ?? 0), "timeoutMs": held],
+                                timeout: Self.bound(.milliseconds(held) + .seconds(15)))
     }
 
-    /// `GET /v1/handoffs?limit=&cursor=`: the person's hand-offs, newest first, page after page
-    /// (at most `pages` of 100).
+    /// `cloud.owner.handoffs` (`GET /v1/handoffs?limit=100&cursor=`): the person's hand-offs, newest first, page after
+    /// page (at most `pages` of 100, 30 s each; Rust reads 50 pages at most).
     public func handoffs(pages: Int = 20) async throws -> [CloudHandoff] {
-        struct Page: Decodable { var handoffs: [CloudHandoff]; var nextCursor: String? }
-        var all: [CloudHandoff] = [], cursor: String?
-        for _ in 0..<max(1, pages) {
-            let data = try await get("/v1/handoffs", query: [("limit", 100)], cursor: cursor, timeout: .seconds(30))
-            let page: Page
-            do { page = try JSONDecoder().decode(Page.self, from: data) } catch { throw CloudAPIError.decoding("/v1/handoffs: \(error)") }
-            all += page.handoffs
-            guard let next = page.nextCursor, !next.isEmpty else { break }
-            cursor = next
-        }
-        return all
+        let pages = max(1, min(pages, 50))
+        let data = try await daemon("owner.handoffs", ["pages": pages], timeout: Self.bound(.seconds(30 * pages)))
+        do { return try JSONDecoder().decode([CloudHandoff].self, from: data) } catch { throw CloudAPIError.decoding("/v1/handoffs: \(error)") }
     }
 
     /// The store's ids (`ho_` and 20 hex digits), the only path part that varies.

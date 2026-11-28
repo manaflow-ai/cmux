@@ -3,8 +3,8 @@
 // link reads them ahead of the click, and the card that draws them (useQuery with the same
 // options) finds them in the cache: no card mounts empty and fills in a frame later.
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
-import { categoryById, homes, categoryOf } from "./categories";
-import { legacyPart } from "./legacyLinks";
+import { categoryById } from "./categories";
+import { resolveSettingsLink } from "./settingsLinks";
 import type {
   AgentsState,
   ChannelsState,
@@ -13,7 +13,13 @@ import type {
   SharesState,
   TailnetState,
   LibraryListing,
+  LooksGallery,
+  LookPreview,
+  Checklist,
+  ArchivedState,
 } from "./ops";
+import { asGallery, asPreview } from "./looksGallery";
+import { checklistFacts } from "./customizeProgress";
 import { settingsKeys } from "./queries";
 import { loadCards } from "./components/cardModules";
 import type { SettingsStore } from "./store";
@@ -84,6 +90,18 @@ export function sharesQuery(store: SettingsStore) {
   });
 }
 
+export const ARCHIVED_KEY = [...settingsKeys.all, "archived"] as const;
+
+/** Settings > Sidebar > Archived Workspaces: the archived rows (null: the host has none). */
+export function archivedQuery(store: SettingsStore) {
+  return queryOptions<ArchivedState | null>({
+    queryKey: ARCHIVED_KEY,
+    queryFn: () => store.archived(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** Appearance > Customization Library's key; a change the card makes writes the library it answers here. */
 export const LIBRARY_KEY = [...settingsKeys.all, "customize-library"] as const;
 
@@ -97,8 +115,83 @@ export function libraryQuery(store: SettingsStore) {
   });
 }
 
+export const STANDUP_KEY = [...settingsKeys.all, "customize-standup"] as const;
+
+/** Settings > Customize's PRs in My Build and Standup: one line per library entry, worded by the
+ * CLI (null: the host cannot run it). Each library change answers it again. */
+export function standupQuery(store: SettingsStore) {
+  return queryOptions({
+    queryKey: STANDUP_KEY,
+    queryFn: () => store.customizeStandup(),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
+/** Settings > General > Customize cmux: the checklist at settings revision `revision` with the
+ * connections `has` (null: no CLI). A write moves the revision, so the progress follows it. */
+/** The checklist's one key: the section read and the card share it whatever the revision and
+ * connections are when each starts, so the card draws in the first screen; the card refreshes it
+ * when either changes (CustomizeProgressCard). The read asks with the connections the store holds then. */
+export const checklistKey = [...settingsKeys.all, "customize-checklist"] as const;
+
+export function checklistQuery(store: SettingsStore) {
+  return queryOptions<Checklist | null>({
+    queryKey: checklistKey,
+    queryFn: () => store.customizeChecklist(checklistFacts(store.getSnapshot())),
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
 /** The library as read, and the CLI's refusal of the read in its own words. */
 export type LibraryRead = { library: LibraryListing | null; refusal: string | null };
+
+/** Settings > Appearance > Looks' key; every change the card makes reads the gallery again here. */
+export const LOOKS_KEY = [...settingsKeys.all, "looks"] as const;
+
+/** The gallery as read: the catalog and the stack (null: no Looks part or no CLI, so no card), and
+ * the CLI's refusal of the read in its own words. */
+export type LooksRead = { gallery: LooksGallery | null; refusal: string | null };
+
+/** Settings > Appearance > Looks: the catalog and every installed look, top first. The read is the
+ * CLI's catalog and receipts only (no network), so the list draws at once. */
+export function looksQuery(store: SettingsStore) {
+  return queryOptions<LooksRead | null>({
+    queryKey: LOOKS_KEY,
+    queryFn: async () => {
+      const outcome = await store.looks({ verb: "gallery" });
+      if (!outcome) return null;
+      if (outcome.kind === "value") return { gallery: asGallery(outcome.value), refusal: null };
+      return { gallery: null, refusal: outcome.kind === "refusal" ? outcome.message : null };
+    },
+    staleTime: SECTION_READ_FRESH_MS,
+    structuralSharing: true,
+  });
+}
+
+/** Loads one look's golden-sample image for a scheme (null: the repo has none, or no CLI). */
+export type LookPreviewLoader = (id: string, scheme: "light" | "dark") => Promise<LookPreview | null>;
+
+/** The store's loader: `cmux setup preview ID --scheme S`. */
+export function storePreviewLoader(store: SettingsStore): LookPreviewLoader {
+  return async (id, scheme) => {
+    const outcome = await store.looks({ verb: "preview", id, scheme });
+    return outcome?.kind === "value" ? asPreview(outcome.value) : null;
+  };
+}
+
+/** One look's golden-sample image for `scheme`: each tile asks for its own once it is on screen.
+ * The CLI fetches the one file and caches it a day, so a revisit answers from its cache; the page
+ * keeps it for the session (a missing preview is null and is not asked again). */
+export function lookPreviewQuery(load: LookPreviewLoader, id: string, scheme: "light" | "dark") {
+  return queryOptions<LookPreview | null>({
+    queryKey: [...LOOKS_KEY, "preview", id, scheme],
+    queryFn: () => load(id, scheme),
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+}
 
 /** The customize doctor's key; each fix and dismiss answers it again. */
 export const DOCTOR_KEY = [...settingsKeys.all, "customize-doctor"] as const;
@@ -128,17 +221,25 @@ export function keysQuery(store: SettingsStore) {
   });
 }
 
-/** The section a route shows: the focused key's home, else the path's category or schema section. */
+/** The old CLI login anchors include bare names that the Settings link registry cannot resolve. */
+export function modelConnectionFocus(focus: string | undefined | null): string | null {
+  return focus === "claude-login" || focus === "codex-login" || focus === "gemini-login"
+    ? `models.connection.${focus}`
+    : null;
+}
+
+/** The focused key's home, else the path's category, card, row or connection. */
 export function routeSection(section: string | undefined, focus: string | undefined | null): string {
-  // An old Personalization part link opens the page that draws that part now (legacyLinks.ts).
-  const legacy = legacyPart(section, focus);
-  if (legacy) return legacy.section;
-  const home = focus ? homes.get(focus) : undefined;
-  return home?.category ?? categoryOf(section);
+  if (modelConnectionFocus(focus)) return "models";
+  return resolveSettingsLink(section, focus).section;
 }
 
 /** One read a section draws from: its query options, and whether a stale copy refreshes. */
-export type SectionRead = { options: { queryKey: readonly unknown[] }; revalidate: boolean };
+export type SectionRead = {
+  options: { queryKey: readonly unknown[] };
+  revalidate: boolean;
+  paintWhileLoading?: boolean;
+};
 
 /** Every read `section` draws from; empty for a section with only schema rows. */
 export function sectionReads(store: SettingsStore, section: string): SectionRead[] {
@@ -149,14 +250,27 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
   // stay fresh until the host pushes a change; the per-section host reads refresh when stale.
   for (const id of category.actions) reads.push({ options: sectionActionsQuery(store, id), revalidate: true });
   if (cards.has("themeStudio")) reads.push({ options: { queryKey: settingsKeys.themeColors }, revalidate: false });
-  if (cards.has("accounts")) reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+  if (cards.has("accounts") || cards.has("integrationsHub") || cards.has("models"))
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
   if (cards.has("harnesses")) reads.push({ options: { queryKey: settingsKeys.harnesses }, revalidate: false });
-  if (cards.has("models") || cards.has("cloudModels"))
-    reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
+  if (cards.has("models") || cards.has("cloudModels") || cards.has("integrationsHub"))
+    reads.push({
+      options: { queryKey: settingsKeys.models },
+      revalidate: false,
+      paintWhileLoading: true,
+    });
   if (cards.has("agentHarnesses")) reads.push({ options: agentsQuery(store), revalidate: true });
   if (cards.has("sharedLinks")) reads.push({ options: sharesQuery(store), revalidate: true });
+  if (cards.has("archivedWorkspaces")) reads.push({ options: archivedQuery(store), revalidate: true });
   if (cards.has("customizeLibrary") || cards.has("customizeChecklist"))
     reads.push({ options: libraryQuery(store), revalidate: true });
+  if (cards.has("looksGallery")) reads.push({ options: looksQuery(store), revalidate: true });
+  if (cards.has("customizeProgress")) {
+    // The checklist's connection steps read the Accounts and Models parts the store keeps.
+    reads.push({ options: { queryKey: settingsKeys.accounts }, revalidate: false });
+    reads.push({ options: { queryKey: settingsKeys.models }, revalidate: false });
+    reads.push({ options: checklistQuery(store), revalidate: true });
+  }
   // Customization Problems draws above the library, in its slot.
   if (cards.has("customizeLibrary")) reads.push({ options: doctorQuery(store), revalidate: true });
   if (cards.has("keys")) reads.push({ options: keysQuery(store), revalidate: true });
@@ -176,10 +290,10 @@ export function sectionReads(store: SettingsStore, section: string): SectionRead
 export async function ensureSection(queryClient: QueryClient, store: SettingsStore, section: string): Promise<void> {
   const category = categoryById(section);
   await Promise.all([
-    // The section's cards' code: each card is its own chunk (components/cardModules.tsx).
     loadCards([...category.lead, ...category.trail]),
-    ...sectionReads(store, section).map(({ options, revalidate }) =>
-      queryClient.ensureQueryData({ ...options, revalidateIfStale: revalidate }).catch(() => undefined),
-    ),
+    ...sectionReads(store, section).map(({ options, revalidate, paintWhileLoading }) => {
+      const read = queryClient.ensureQueryData({ ...options, revalidateIfStale: revalidate }).catch(() => undefined);
+      if (!paintWhileLoading) return read;
+    }),
   ]);
 }

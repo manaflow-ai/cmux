@@ -50,7 +50,7 @@ On a Mac, Swift that only changes function bodies goes into a running app with n
 One suite or test, on a fleet Mac: `cmux-ci run --class light --script scripts/ci/package-test-lane.sh --ref SHA
 --arg=suite --arg=Packages/macOS/CmuxNext --arg=CmuxNextSettingsTests` (filter `TARGET`, `TARGET.Suite` or
 `TARGET/test`; a comma list runs after one build). `cmux-ci test` runs Linux, only for the packages in
-`scripts/ci/swift-linux-packages.txt`. The whole `cmux-next swift test` job took 28 min ([timing](../../docs/ci/cmux-next-swift-test-timing.md)).
+`scripts/ci/swift-linux-packages.txt`. The whole `cmux-next swift test` job took 28 min.
 
 ## What CI gates a Mac Swift PR
 

@@ -160,7 +160,8 @@ public final class MainPaneChromeShadeView: NSView {
             path.addRoundedRect(in: card, cornerWidth: corner, cornerHeight: corner)
             shade.path = path
         }
-        shade.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
+        // Black, or Subtle Tone's ink (`Metrics.chromeFrameInk`), in the window's theme scope.
+        shade.fillColor = performWithTheme { Metrics.chromeFrameInk() }.withAlphaComponent(alpha).cgColor
     }
 }
 

@@ -9,10 +9,14 @@ import { afterAll, afterEach, beforeAll, expect, jest, setSystemTime, test } fro
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { HostRecoveringLine } from "./HostError";
-import { RECONNECT_LINE_AFTER_MS, hostRecoveryLine, readHostRestoring } from "./hostRetry";
+import { hostRecoveryLine, readHostRestoring, hostPlannedRestart } from "./hostRetry";
 import type { AcpmuxSnapshot } from "./model";
 import { stallTiming } from "./stallLog";
 import { settleReact } from "../../../test/support/domTeardown";
+// Loaded before the file starts, as the app loads it: the module installs the old host's
+// `cmuxAcpmuxComputerUseState` hook on globalThis when it first loads, and a first load inside a
+// test reads as a leaked global (test/support/leakDetector.ts).
+import "./computerUse/computerUseState";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 // The page's timers are the test's fake ones (the client's reconnect uses `window.setTimeout`).
@@ -203,6 +207,7 @@ async function wedgedChat(limitMs: number) {
     let recoveredAt: number | undefined;
     let lostAt: number | undefined;
     let lineWhileWedged: string | undefined;
+    let lineBeforeRefusal: string | undefined;
     const due = new Map([
       [1_000, 1],
       [3_000, 2],
@@ -219,9 +224,15 @@ async function wedgedChat(limitMs: number) {
       await time.advance(100);
       // The pane gave the deaf socket up and connects again (App.tsx's line counts from here).
       if (recoveredAt === undefined && lostAt === undefined && run.sockets() > 1) lostAt = time.now();
-      // What the pane's line says while it gets the chat back (App.tsx counts from its lost link).
-      if (lostAt !== undefined && recoveredAt === undefined && time.now() - lostAt >= RECONNECT_LINE_AFTER_MS)
-        lineWhileWedged ??= renderToStaticMarkup(<HostRecoveringLine relinkingSince={lostAt} now={time.now()} />);
+      // What the pane's line says while it gets the chat back. App.tsx marks the link down only when an
+      // attempt fails: the given-up socket alone (the second one in flight) says nothing; once that
+      // reconnect was refused (a third socket asks) the link is down until the chat is back.
+      if (lostAt !== undefined && recoveredAt === undefined) {
+        const down = run.sockets() > 2;
+        const line = renderToStaticMarkup(<HostRecoveringLine linkDown={down} now={time.now()} />);
+        if (down) lineWhileWedged ??= line;
+        else lineBeforeRefusal ??= line;
+      }
       if (recoveredAt === undefined && shown([1])[0]! > 0) recoveredAt = time.now();
       // Back: acpmux's next turns come live on the new connection.
       if (recoveredAt !== undefined && later <= 6 && time.now() - recoveredAt >= (later - 4) * 1_000) produce(later++);
@@ -234,6 +245,7 @@ async function wedgedChat(limitMs: number) {
       missed: counts.filter((count) => count === 0).length,
       duplicates: counts.reduce((sum, count) => sum + Math.max(0, count - 1), 0),
       lineWhileWedged,
+      lineBeforeRefusal,
       sockets: run.sockets(),
     };
   } finally {
@@ -251,9 +263,11 @@ test("a working chat whose stream stops while its socket stays open gets every t
   expect(result.duplicates).toBe(0);
   // Quiet 20 s, the check, a refused reconnect, then a 12 s handshake: well under a minute.
   expect(result.timeToRecoverMs!).toBeLessThan(60_000);
-  // While it came back the pane said so, quietly.
-  expect(result.lineWhileWedged).toContain("Reconnecting…");
-  expect(result.lineWhileWedged).toContain('data-host-recovering="reconnecting"');
+  // The drop and the refused reconnect say nothing: the pane keeps connecting quietly (Leo, 2026-11-24:
+  // "let's just keep optimistically connecting and reinforcing the connection").
+  expect(result.lineBeforeRefusal).toBe("");
+  expect(result.lineWhileWedged).not.toContain("Reconnecting…");
+  expect(result.lineWhileWedged).not.toContain('data-host-recovering="reconnecting"');
   // The deaf socket, the refused one, the slow one: no reconnect loop after it is back.
   expect(result.sockets).toBe(3);
 });
@@ -316,46 +330,47 @@ test("the host's restore status reads as a quiet line with its elapsed time", ()
   expect(readHostRestoring({ restoring: { waitedMs: "soon" } }, 5)).toBeUndefined();
   expect(readHostRestoring(undefined, 5)).toBeUndefined();
   const restoring = { waitedMs: 12_000, at: 1_000 };
-  expect(hostRecoveryLine({ restoring, now: 4_000 })).toEqual({ kind: "restoring", waitedMs: 15_000 });
+  expect(hostRecoveryLine({ linkDown: true, restoring, now: 4_000 })).toEqual({ kind: "restoring", waitedMs: 15_000 });
   // The time is its own clock element (HostError.tsx `ClockedWords`): the line's text, tags aside.
   expect(
-    renderToStaticMarkup(<HostRecoveringLine restoring={restoring} now={4_000} />).replace(/<[^>]+>/g, ""),
+    renderToStaticMarkup(<HostRecoveringLine linkDown restoring={restoring} now={4_000} />).replace(/<[^>]+>/g, ""),
   ).toContain("Restoring sessions… 0:15");
-  // A lost link says nothing for its first moment, and leaves the line to the failure past 25 s.
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 500 })).toBeUndefined();
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 12_000 })).toEqual({ kind: "reconnecting" });
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 30_000 })).toBeUndefined();
+  // The link down says the quiet chip for as long as it lasts, at any time; up, nothing.
+  expect(hostRecoveryLine({ linkDown: true, now: 0 })).toEqual({ kind: "reconnecting" });
+  expect(hostRecoveryLine({ linkDown: true, now: 30_000 })).toEqual({ kind: "reconnecting" });
+  expect(hostRecoveryLine({ now: 30_000 })).toBeUndefined();
 });
 
-// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A daemon restart, an
-// update's handoff or a drop that heals within 10 s is something the person can do nothing about: no
-// open chat says anything while it lasts. It said "Reconnecting…" from 1.5 s.
-test("a lost link or a restore that heals within 10 s shows no line on the chat", () => {
-  for (const now of [1_500, 2_000, 5_000, 9_999]) expect(hostRecoveryLine({ relinkingSince: 0, now })).toBeUndefined();
-  expect(renderToStaticMarkup(<HostRecoveringLine relinkingSince={0} now={9_999} />)).toBe("");
-  // A restore the host reports is as quiet for as long.
-  for (const waitedMs of [0, 3_000, 9_999])
-    expect(hostRecoveryLine({ restoring: { waitedMs, at: 0 }, now: 0 })).toBeUndefined();
-  expect(hostRecoveryLine({ restoring: { waitedMs: 4_000, at: 0 }, now: 3_000 })).toBeUndefined();
-  // Past 10 s it is said, once, as one calm line.
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 10_000 })).toEqual({ kind: "reconnecting" });
-  expect(hostRecoveryLine({ restoring: { waitedMs: 4_000, at: 0 }, now: 6_000 })).toEqual({
+// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up"; 2026-11-22: "surely we
+// can think of better fixes than random timing which can shift". A daemon restart, an update's handoff
+// or a drop whose reconnect lands is something the person can do nothing about, and it is no down link:
+// no open chat says anything, however long or short it is. Only a failed attempt says it.
+test("a drop, a waiting handshake or a planned restart shows no line; a failed attempt does", () => {
+  for (const now of [0, 1_500, 9_999, 60_000]) expect(hostRecoveryLine({ now })).toBeUndefined();
+  expect(renderToStaticMarkup(<HostRecoveringLine now={60_000} />)).toBe("");
+  // A restore the host reports while the pane is connected is as quiet.
+  expect(hostRecoveryLine({ restoring: { waitedMs: 30_000, at: 0 }, now: 0 })).toBeUndefined();
+  // A planned restart's refusal is not the link down; any other refusal is.
+  expect(hostPlannedRestart({ code: "host_unavailable", details: { reconnecting: true, handoff: true } })).toBe(true);
+  expect(hostPlannedRestart({ code: "host_unavailable", details: { reconnecting: true } })).toBe(false);
+  expect(hostPlannedRestart({ code: "native.not_connected" })).toBe(false);
+  // Down, it is said at once, as one calm line, with the restore's time when the host restores.
+  expect(hostRecoveryLine({ linkDown: true, now: 0 })).toEqual({ kind: "reconnecting" });
+  expect(hostRecoveryLine({ linkDown: true, restoring: { waitedMs: 4_000, at: 0 }, now: 1_000 })).toEqual({
     kind: "restoring",
-    waitedMs: 10_000,
+    waitedMs: 5_000,
   });
 });
 
 test("a refusal the pane says at once is never covered by the quiet Reconnecting line", () => {
   // Another build's acpmux on the socket: said at once with its Restart, not after 25 s of "Reconnecting…".
-  expect(hostRecoveryLine({ relinkingSince: 0, failureShown: true, now: 2_000 })).toBeUndefined();
+  expect(hostRecoveryLine({ linkDown: true, failureShown: true, now: 2_000 })).toBeUndefined();
   expect(
-    renderToStaticMarkup(
-      <HostRecoveringLine relinkingSince={0} failureShown now={2_000} otherwise={<p>the failure line</p>} />,
-    ),
+    renderToStaticMarkup(<HostRecoveringLine linkDown failureShown now={2_000} otherwise={<p>the failure line</p>} />),
   ).toBe("<p>the failure line</p>");
   // The host's own word that acpmux restores still shows: a refusal without it ends the restore.
   const restoring = { waitedMs: 13_000, at: 0 };
-  expect(hostRecoveryLine({ restoring, failureShown: true, now: 1_000 })).toEqual({
+  expect(hostRecoveryLine({ linkDown: true, restoring, failureShown: true, now: 1_000 })).toEqual({
     kind: "restoring",
     waitedMs: 14_000,
   });

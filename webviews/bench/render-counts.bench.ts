@@ -67,6 +67,7 @@ const record = (scenario: string, per: string, counts: RenderCounts, ms: number)
   };
   pack("WHY", Object.entries(counts.why));
   pack("MOUNT", Object.entries(counts.mountsByComponent));
+  pack("STARTS", Object.entries(counts.starts ?? {}));
 };
 
 /// Two frames and a task after them: whatever the event scheduled has committed.
@@ -92,7 +93,10 @@ const now = (page: Page) => page.evaluate(() => performance.now());
 
 async function openPane(page: Page, port: number, list: number) {
   await page.addInitScript((count) => {
-    (globalThis as { cmuxAcpmuxMockListSize?: number }).cmuxAcpmuxMockListSize = count;
+    const mock = globalThis as { cmuxAcpmuxMockListSize?: number; cmuxAcpmuxMockPaged?: boolean };
+    mock.cmuxAcpmuxMockListSize = count;
+    // The list in pages of the client's `limit`, as acpmux sends it (mock.ts `listPage`).
+    mock.cmuxAcpmuxMockPaged = true;
   }, list);
   await addRenderCountProbe(page);
   await installReactWatch(page);

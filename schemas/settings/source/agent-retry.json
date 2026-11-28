@@ -88,6 +88,37 @@
             "loop",
             "rate limit"
           ]
+        },
+        {
+          "key": "agents.autoRetry.capacityFallbackAfter",
+          "name": "autoRetryCapacityFallbackAfter",
+          "note": "Leo: \"fix 529s properly with better designs\". Consecutive capacity failures on the same prompt count toward the switch.",
+          "title": {
+            "key": "settings.agents.autoRetry.capacityFallbackAfter",
+            "text": "Capacity Failures Before Switching to Sonnet"
+          },
+          "help": {
+            "key": "settings.agents.autoRetry.capacityFallbackAfter.help",
+            "text": "After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 12,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 0,
+          "keywords": [
+            "retry",
+            "capacity",
+            "529",
+            "503",
+            "fallback",
+            "opus",
+            "fable",
+            "sonnet"
+          ]
         }
       ]
     }

@@ -27,6 +27,13 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     /// The Automations page (docs/automations-platonic-ideal.md section 8, option A): scheduled
     /// prompts and commands on this Mac and cmux Cloud. Not in the default layout; Add to Sidebar adds it.
     case automations
+    /// The team's forum page (`experiments.forum`, off by default): threads from people and their agents. Not in
+    /// the default layout; Add to Sidebar adds it, and it stays hidden while the experiment is off.
+    case forum
+    /// Every update in one list (`experiments.feed`, off by default): agent turns, approvals, PRs, CI and
+    /// notifications, the Feed page as its own page (hq docs/design/feed-sidebar.md). Not in the default layout;
+    /// Add to Sidebar adds it, and it stays hidden while the experiment is off.
+    case feed
 }
 
 /// What an item points at: a kind and a string value. Kinds this client

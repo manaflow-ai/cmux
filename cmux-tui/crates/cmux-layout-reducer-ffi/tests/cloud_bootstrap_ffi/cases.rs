@@ -111,6 +111,11 @@ fn the_create_rules_answer() {
     let (_, refusal) =
         call(c"cloud_create_definitive_refusal", &json!({"code": "cmux.cloud.plan_required"}));
     assert_eq!(refusal, json!({"definitive": true}));
+    let (_, gone) = call(
+        c"cloud_create_machine_gone_retries",
+        &json!({"code": "cmux.cloud.not_found", "message": "no such machine in this team", "attempt": 1}),
+    );
+    assert_eq!(gone, json!({"retries": true}));
     let (_, team) =
         call(c"cloud_create_team", &json!({"current": "b", "wasSent": true, "first": "a"}));
     assert_eq!(team, json!({"team": null}));
@@ -121,6 +126,16 @@ fn the_create_rules_answer() {
         &json!({"code": "cmux.cloud.indeterminate", "attempt": 1, "attempts": 3}),
     );
     assert_eq!(retries, json!({"retries": true}));
+    let (code, note) = call(
+        c"cloud_create_spare_note",
+        &json!({"answer": {"machine": {"id": "vm_x"}, "spare_fallback": "all_skipped",
+            "spare_skips": {"image": 2}, "spare_skipped": [{"id": "vm_s", "reason": "image"}]}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        note,
+        json!({"note": r#"spare_fallback=all_skipped spare_skips={"image":2} spare_skipped=1"#})
+    );
 }
 
 #[test]

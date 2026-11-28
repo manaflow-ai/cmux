@@ -30,6 +30,7 @@
 // `dispose` ends the loop, the timer and the observer and takes the mark away; a hidden page counts
 // no gap (it draws none).
 
+import { slackTimersFor } from "../../../pages/shared/slackTimers";
 import { frameTally } from "./frameTally";
 
 /// The mark on the chat (or on any element over it, as the gallery's variants and a test page set it).
@@ -201,15 +202,19 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
       if (handle >= 0 && typeof view?.cancelAnimationFrame === "function") view.cancelAnimationFrame(handle);
     },
   };
+  // The rest is a deadline that may run up to a heartbeat late: on the page's shared timer it rides a
+  // beat instead of waking a chat at rest by itself, and it runs on the beat that rests the page, since a
+  // page with no input and no frame loop has done no work to miss (slackTimers.ts). Armed on a page
+  // already at rest (a switched-to chat's frame loop ends after the beat that rested it), it waits for the
+  // wake that ends the rest: a resting page shows no motion to restore, and its own timer woke the chat
+  // 2.8 to 4 s into the rest (bench/chat-switch.bench.ts idle_wakeups). The wake runs it before the input
+  // that woke the page is handled.
+  const timers = view ? slackTimersFor(view) : undefined;
   const later =
     clock?.later ??
     ((callback: () => void, ms: number) =>
-      typeof view?.setTimeout === "function" ? view.setTimeout(callback, ms) : -1);
-  const cancelLater =
-    clock?.cancelLater ??
-    ((handle: number) => {
-      if (handle >= 0 && typeof view?.clearTimeout === "function") view.clearTimeout(handle);
-    });
+      timers?.later(callback, ms, undefined, { atRest: true, whenAwake: true }) ?? -1);
+  const cancelLater = clock?.cancelLater ?? ((handle: number) => timers?.cancel(handle));
   const state = new FrameBudgetState();
   let handle: number | undefined;
   let rest: number | undefined;

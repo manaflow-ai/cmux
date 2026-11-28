@@ -268,6 +268,56 @@ class SpawnOwnerRatchet(unittest.TestCase):
         code, out = self.check("--base-ref", "HEAD")
         self.assertEqual(code, 0, out)
 
+    MID_FILE_TEST_MODULE = "\n".join([
+        "#[cfg(test)]",
+        "pub(crate) mod seams {",
+        "    fn t() { tokio::spawn(async {}); }",
+        "    const OPEN: char = '{';",
+        "    const S: &str = \"}\";",
+        "    const R: &str = r#\"}}\"#;",
+        "    // }",
+        "}",
+        "fn live<'a>(x: &'a str) {",
+        "    tokio::spawn(async {});",
+        "}",
+        "#[cfg(test)]",
+        "mod tests {",
+        "    fn t() { tokio::spawn(async {}); }",
+        "}",
+        "",
+    ])
+
+    def test_product_code_after_a_mid_file_test_module_still_counts(self):
+        # lane/inline-tests-sweep-8 (2026-11-27): the old reading dropped everything after the first inline
+        # `#[cfg(test)] mod x {`, so agent.rs's nine live spawns behind `mod leader_wakeups` were never counted
+        # and a sweep that moved that module out read as adding them.
+        self.baseline({})
+        self.write(HUB, self.MID_FILE_TEST_MODULE)
+        code, out = self.check("--list")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([l for l in out.splitlines() if "fresh.rs:" in l], [f"{HUB}:10: tokio::spawn(async {{}});"])
+
+    def test_ci_accepts_a_row_for_debt_the_base_file_already_holds(self):
+        self.git("init", "-q")
+        self.baseline({})
+        self.write(HUB, self.MID_FILE_TEST_MODULE)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.baseline({HUB: 1})
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"records {HUB} at 1", out)
+        # A spawn the old reading also saw is not hidden debt: still a raise.
+        self.baseline({HUB: 2})
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 1, out)
+        # One more than the base's own file holds is still a raise.
+        self.baseline({HUB: 2})
+        self.write(HUB, self.MID_FILE_TEST_MODULE + "fn more() { tokio::spawn(async {}); }\n")
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"raises {HUB} to 2", out)
+
     def test_a_known_moved_row_carries_its_base_allowance(self):
         old = "cmux-tui/crates/cmux-remote/src/identity.rs"
         moved = "cmux-tui/crates/cmux-remote/src/identity/auth_database.rs"
@@ -282,6 +332,34 @@ class SpawnOwnerRatchet(unittest.TestCase):
         code, out = self.check("--base-ref", "HEAD")
         self.assertEqual(code, 0, out)
         self.assertIn(f"carries {old} -> {moved}", out)
+
+    def renamed_across_crates(self, spawns):
+        """A file with two unowned spawns at base, `git mv`d to another crate with SPAWNS spawns and its row moved
+        (baseline_renames.py: git's rename, no explicit seam)."""
+        old, new = "cmux-tui/crates/acpmux/src/tui/run.rs", "cmux-tui/crates/acpmux-tui/src/run.rs"
+        body = "fn f() {\n    tokio::spawn(a());\n    tokio::spawn(b());\n    let x = 1;\n    let y = 2;\n}\n"
+        self.git("init", "-q")
+        self.baseline({old: 2})
+        self.write(old, body)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        (self.root / new).parent.mkdir(parents=True)
+        self.git("mv", old, new)
+        self.write(new, body.replace("    let y = 2;\n", "    tokio::spawn(c());\n" * (spawns - 2) + "    let y = 2;\n"))
+        self.baseline({new: spawns})
+        return old, new
+
+    def test_a_renamed_file_carries_its_base_row_to_its_new_path(self):
+        old, new = self.renamed_across_crates(2)
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"carries {old} -> {new} at 2", out)
+
+    def test_a_renamed_file_that_adds_a_spawn_still_fails(self):
+        _, new = self.renamed_across_crates(3)
+        code, out = self.check("--base-ref", "HEAD")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"raises {new} to 3 (base HEAD: 2)", out)
 
     def test_the_committed_baseline_holds_on_this_tree(self):
         result = subprocess.run([sys.executable, "-I", str(CHECK), str(SOURCE)], capture_output=True, text=True)

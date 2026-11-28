@@ -7,6 +7,7 @@
 /// message (CloudStartView, cloudStartProgress.ts); the prompt stays in the composer until the chat
 /// opens on the machine.
 
+import { keepCloudLanding, takeCloudLanding, type AutoLanding } from "./autoWhereModel";
 import { shownChatFolder } from "./folderlessCloud";
 import { githubFolderRepo } from "./githubRepos";
 import { isAgentHome } from "./sessionList";
@@ -19,11 +20,14 @@ import type { CloudSize } from "./cloudPlans";
 /// copied and the chat starts in the machine's own home folder (cloudStartFolder).
 export type CloudStart = {
   task: string;
+  autoLanding?: AutoLanding;
   attachments?: ComposerAttachment[];
   cwd?: string;
   home?: boolean;
   harness?: string;
   model?: string;
+  /** The Cloud picker made this selection independently of this Mac's selection. */
+  cloudOnly?: true;
   /** The permission mode picked before the first send (cloudModePick.ts); none: the machine's own start mode. */
   mode?: string;
   /** The picker's effort for `model`: the machine's agent starts on it (AgentPaneCloudStart `effort`). */
@@ -32,6 +36,7 @@ export type CloudStart = {
    *  agent names it to the edge as `x-cmux-connection` (cmux-tui/docs/model-connections.md). */
   account?: string;
   environment?: string;
+  machine?: string;
   reservationKey?: string;
   /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
   gestureTicket?: string;
@@ -341,12 +346,14 @@ export async function startCloudChat(
   else if (start.home) params.home = true;
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
+  if (start.cloudOnly) params.cloudOnly = true;
   // The mode picked for this start (cloudModePick.ts); the host starts the chat in it on the
   // person's own machine (AgentPaneCloudStart `mode`).
   if (start.mode) params.mode = start.mode;
   if (start.effort) params.effort = start.effort;
   if (start.account) params.account = start.account;
   if (start.environment) params.environment = start.environment;
+  if (start.machine) params.machine = start.machine;
   if (start.reservationKey) params.reservationKey = start.reservationKey;
   if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
   if (start.signedIn) params.signedIn = true;
@@ -355,10 +362,15 @@ export async function startCloudChat(
   const plan = currentCloudPlan();
   const planMax = start.planMax ?? (plan.state === "active" ? plan.maxSize : null);
   if (planMax) params.planMax = planMax;
+  if (start.autoLanding) {
+    keepCloudLanding(start.autoLanding, key);
+    params.autoPlaced = true;
+  }
   try {
     await call("cloud.startChat", params);
     return { ok: true };
   } catch (error) {
+    if (start.autoLanding) takeCloudLanding(key);
     const { code, message, userMessage, retryable, details } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;
@@ -417,6 +429,7 @@ export function cloudStartFingerprint(start: CloudStart): string {
     start.harness ?? null,
     start.model ?? null,
     start.environment ?? null,
+    ...(start.machine ? [`machine:${start.machine}`] : []),
     // Only a send that switches team names it, so every other start keeps the key it had.
     ...(start.team ? [start.team] : []),
     // A start in another mode is another start; one with no pick keeps the key it had.

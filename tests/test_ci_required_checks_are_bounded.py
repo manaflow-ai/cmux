@@ -27,7 +27,6 @@ from pathlib import Path
 
 import yaml
 
-from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metadata_routing
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +39,7 @@ if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
 import required_status_checks as _required_status_checks  # noqa: E402
 # A hung job wastes runners whether or not its check is required.
-ALWAYS_BOUNDED = ("ci-status", "web-validation", "Web complexity")
+ALWAYS_BOUNDED = ("ci-status", "web-validation")
 # pull_request workflows that end a superseded run themselves instead of with a
 # concurrency group, and why a group would be wrong there.
 OWN_SUPERSESSION = {
@@ -49,6 +48,10 @@ OWN_SUPERSESSION = {
     # (next_batch.py `superseded`), within its 15-minute timeout. Cancelling one
     # instead would read as a red run on the pull request.
     "cmux-next-batch.yml": "debounce runs supersede themselves and exit 0",
+    # Its seconds-long `changed` gate has no group on purpose: it diffs against the previous head, and a push that
+    # measures nothing must not cancel the head still being measured. The measuring `report` job cancels per pull
+    # request through its own job-level concurrency.
+    "chat-open-perf-report.yml": "the changed gate has no group; the report job cancels per pull request",
 }
 # Every context whose workflows must be bounded. Tests patch this name.
 REQUIRED_CONTEXTS = tuple(dict.fromkeys((*_required_status_checks.REQUIRED_CHECKS, *ALWAYS_BOUNDED)))
@@ -96,14 +99,6 @@ def reachable(roots: set[Path], workflows: dict[Path, dict]) -> set[Path]:
 
 def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
     name = job.get("name") or job_id
-    if path.name == "web-complexity-trusted.yml" and job_id == "complexity" and "${{" in name:
-        # Interpret only the validated routing contract. Unknown expressions
-        # must remain unmatched instead of silently dropping timeout coverage.
-        try:
-            validate_metadata_routing(workflow)
-        except (AssertionError, KeyError, TypeError):
-            return name
-        return REQUIRED_CHECK
     if isinstance(name, str) and "${{" in name:
         # A name that differs only on a title or body edit (pattern pr-edit-fans-out-ci) is the check's
         # name on a push. Unknown expressions stay unmatched rather than silently drop coverage.
@@ -158,8 +153,12 @@ def main() -> int:
     for path, workflow in workflows.items():
         if "pull_request" not in triggers(workflow):
             continue
-        # A group is the requirement; whether it cancels a superseded pull
-        # request run is checked by test_ci_pr_runs_cancel_superseded.py.
+        # Job-level groups also bound superseded work. Validate every job, including
+        # the explicitly preserved short gate, rather than exempt the whole workflow.
+        from test_ci_pr_runs_cancel_superseded import job_groups_problem
+
+        if not workflow.get("concurrency") and job_groups_problem(workflow, path.name, "pull_request") is None:
+            continue
         if not workflow.get("concurrency") and path.name not in OWN_SUPERSESSION:
             failures.append(
                 f"{path.relative_to(ROOT)} runs on pull_request with no "
@@ -182,7 +181,7 @@ def main() -> int:
 
     print(
         f"{len(REQUIRED_CONTEXTS)} required and always-bounded checks are bounded; "
-        "every pull_request workflow has a concurrency group"
+        "every pull_request workflow bounds superseded work"
     )
     return 0
 

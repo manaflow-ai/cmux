@@ -12,7 +12,7 @@ const REMOTE_DOCS: &[(&str, &str)] = &[
         include_str!("../../../../../docs/remote-agents-and-cloud.md"),
     ),
     ("acpmux README", include_str!("../../README.md")),
-    ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+    ("agents skill", include_str!("../../skills/agents/SKILL.md")),
     ("integrate-harness skill", include_str!("../../skills/integrate-harness/SKILL.md")),
     ("cmux-acpmux skill", include_str!("../../../../../skills/cmux-acpmux/SKILL.md")),
     ("cmux skill", include_str!("../../../../../skills/cmux/SKILL.md")),
@@ -275,11 +275,11 @@ fn documented_acpmux_commands_and_flags_are_in_the_clap_surface() {
 
 /// The skills agents load teach the current names (`machine`, `machine pick`,
 /// `machine dedicated`, `--machine`), not the hidden aliases kept for old scripts. The
-/// acpmux skill's "Old spellings" bullet is the one place that names them.
+/// agents skill's "Old spellings" bullet is the one place that names them.
 #[test]
 fn agent_skills_use_current_command_names() {
     const SKILLS: &[&str] = &[
-        "acpmux skill",
+        "agents skill",
         "integrate-harness skill",
         "cmux-acpmux skill",
         "cmux skill",
@@ -339,7 +339,9 @@ fn move_sessions_takes_the_same_flags_as_session_move() {
         from: Some("mini-3".into()),
         slow_ok: false,
         abort: false,
+        take_back: false,
         from_snapshot: false,
+        as_harness: None,
     };
     for verb in [&["move-sessions"][..], &["session", "move"][..]] {
         for machine in ["--machine", "--host"] {
@@ -674,4 +676,26 @@ fn stale_nested_command_is_rejected() {
     let shapes = command_shapes();
     let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
     assert!(documented_shape(&words, &shapes).is_none());
+}
+
+/// `session fork -m MODEL` without `--harness` forks onto another model of the chat's own
+/// harness; it was refused, so no fork could change only its model.
+#[test]
+fn a_fork_takes_a_model_without_a_harness() {
+    use super::{Command, flatten};
+    let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+    for argv in [
+        &["acpmux", "session", "fork", "chat", "-m", "opencode/big-pickle"][..],
+        &["acpmux", "fork", "chat", "-m", "opencode/big-pickle"][..],
+    ] {
+        let fork = parse(argv);
+        assert!(
+            matches!(
+                fork,
+                Ok(Command::Fork { ref model, ref harness, .. })
+                    if model.as_deref() == Some("opencode/big-pickle") && harness.is_none()
+            ),
+            "{argv:?}"
+        );
+    }
 }

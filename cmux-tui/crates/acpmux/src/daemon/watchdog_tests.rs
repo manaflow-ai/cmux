@@ -130,3 +130,379 @@ fn pings_reach_an_abstract_notify_socket() {
     let n = systemd.recv(&mut buf).unwrap();
     assert_eq!(&buf[..n], b"WATCHDOG=1");
 }
+
+#[test]
+fn a_hello_waits_until_just_before_systemds_limit_from_the_last_ping() {
+    let plan = Plan::for_limit(LIMIT);
+    let pinged = Instant::now();
+    // The check a minute after the last ping waits out the rest of systemd's 180 s, less 10 s.
+    assert_eq!(plan.hello_wait(pinged, pinged + Duration::from_secs(60)), Duration::from_secs(110));
+    // Past the window it still gets the floor: one hello is never handed zero.
+    assert_eq!(plan.hello_wait(pinged, pinged + Duration::from_secs(175)), HELLO_BOUND);
+    assert_eq!(plan.hello_wait(pinged, pinged + Duration::from_secs(400)), HELLO_BOUND);
+}
+
+/// The stand-in daemon's socket and answer delay, for [`stand_in_daemon`] in a child process.
+const STAND_IN_SOCKET: &str = "ACPMUX_WATCHDOG_STAND_IN";
+const STAND_IN_DELAY_MS: &str = "ACPMUX_WATCHDOG_STAND_IN_DELAY_MS";
+
+/// Not a check: run in a child of this test binary (`stand_in`), it is a daemon of its own that
+/// answers each hello after the delay, so a test can SIGSTOP it (cmux-fault) as a starved Mac is.
+#[test]
+fn stand_in_daemon() {
+    let Ok(path) = std::env::var(STAND_IN_SOCKET) else { return };
+    let delay = Duration::from_millis(
+        std::env::var(STAND_IN_DELAY_MS).ok().and_then(|v| v.parse().ok()).unwrap_or(0),
+    );
+    let listener = UnixListener::bind(&path).unwrap();
+    for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { return };
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let _ = BufReader::new(stream.try_clone().unwrap()).read_line(&mut line);
+            std::thread::sleep(delay);
+            let _ = stream.write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n");
+            let _ = stream.read(&mut [0u8; 1]);
+        });
+    }
+}
+
+/// A stand-in daemon process this test spawned, killed and reaped on drop.
+struct StandIn {
+    child: std::process::Child,
+    socket: PathBuf,
+    process: cmux_fault::process::Recorded,
+}
+
+impl Drop for StandIn {
+    fn drop(&mut self) {
+        self.process.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn stand_in(dir: &Path, delay: Duration) -> StandIn {
+    let socket = dir.join("stand-in.sock");
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "daemon::watchdog::tests::stand_in_daemon",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(STAND_IN_SOCKET, &socket)
+        .env(STAND_IN_DELAY_MS, delay.as_millis().to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let process = cmux_fault::process::Recorded::child(
+        &child,
+        "stand-in acpmux daemon",
+        &cmux_fault::trace::Trace::new(),
+    );
+    let up = Instant::now();
+    while UnixStream::connect(&socket).is_err() {
+        assert!(
+            up.elapsed() < Duration::from_secs(20),
+            "the stand-in daemon never bound its socket"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    StandIn { child, socket, process }
+}
+
+/// systemd's side: the times pings arrive, read until the returned flag is set.
+fn systemd(dir: &Path) -> (String, std::sync::Arc<std::sync::Mutex<Vec<Instant>>>) {
+    let path = dir.join("notify");
+    let socket = UnixDatagram::bind(&path).unwrap();
+    socket.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let pings = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = pings.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 64];
+        loop {
+            match socket.recv(&mut buf) {
+                Ok(n) if &buf[..n] == b"WATCHDOG=1" => seen.lock().unwrap().push(Instant::now()),
+                Ok(_) => {}
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(_) => return,
+            }
+        }
+    });
+    (path.to_str().unwrap().to_owned(), pings)
+}
+
+/// The longest stretch with no ping from `from` to `to`: past systemd's limit, systemd ends the daemon.
+fn longest_quiet(pings: &[Instant], from: Instant, to: Instant) -> Duration {
+    let mut last = from;
+    let mut longest = Duration::ZERO;
+    for &at in pings.iter().filter(|&&at| at >= from && at <= to).chain(std::iter::once(&to)) {
+        longest = longest.max(at.saturating_duration_since(last));
+        last = at;
+    }
+    longest
+}
+
+/// The daemon's plan scaled down 60 times: a 3 s limit, a check a second, no startup grace, and
+/// the old fixed hello bound scaled the same (20 s of 180 s).
+fn scaled() -> Plan {
+    Plan {
+        limit: Duration::from_secs(3),
+        every: Duration::from_secs(1),
+        grace: Duration::ZERO,
+        reserve: Duration::from_millis(300),
+        floor: Duration::from_millis(333),
+        hold: Duration::from_secs(15),
+        // Far over a loaded test host's scheduling noise: no test pauses this process.
+        gap: Duration::from_secs(10),
+    }
+}
+
+fn watching(
+    socket: PathBuf,
+    notify: String,
+    plan: Plan,
+) -> (std::sync::Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let flag = stop.clone();
+    let held = Hold::new(&notify, plan.limit);
+    let thread = std::thread::spawn(move || watch(&socket, &notify, plan, None, &held, &flag));
+    (stop, thread)
+}
+
+/// incident 6, a starved Mac never comes back: a daemon that answers every hello, only slower than
+/// the old fixed hello bound, was read as hung and ended by systemd within its limit, over and
+/// over. The hello now waits on systemd's own deadline, so slow is never dead.
+#[test]
+fn a_daemon_answering_slower_than_the_old_hello_bound_keeps_its_pings() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = scaled();
+    let daemon = stand_in(dir.path(), Duration::from_millis(1_200));
+    // Before: each check waited the fixed bound only, so none of these answers counted.
+    let old_start = Instant::now();
+    let mut old_pings = 0;
+    while old_start.elapsed() < Duration::from_secs(4) {
+        if hello(&daemon.socket, plan.floor).is_ok() {
+            old_pings += 1;
+        }
+    }
+    let old_quiet = old_start.elapsed();
+    // After: the same daemon, watched as the daemon watches itself.
+    let (notify, pings) = systemd(dir.path());
+    let start = Instant::now();
+    let (stop, thread) = watching(daemon.socket.clone(), notify, plan);
+    std::thread::sleep(Duration::from_secs(6));
+    stop.store(true, Ordering::Relaxed);
+    let end = Instant::now();
+    let pings = pings.lock().unwrap().clone();
+    let quiet = longest_quiet(&pings, start, end);
+    eprintln!(
+        "slow hello (1.2 s against a {:?} old bound, {:?} limit): before {old_pings} pings, {:?} quiet (systemd ends it); after {} pings, longest quiet {:?}",
+        plan.floor,
+        plan.limit,
+        old_quiet,
+        pings.len(),
+        quiet
+    );
+    assert_eq!(old_pings, 0, "the old fixed bound counted a slow answer");
+    assert!(pings.len() >= 3, "the slow daemon's answers should ping: {pings:?}");
+    assert!(
+        quiet < plan.limit,
+        "systemd would end a daemon that answers every hello: {quiet:?} quiet"
+    );
+    let _ = thread.join();
+}
+
+/// The detector (handbook `starved-app-never-comes-back`): SIGSTOP the daemon through cmux-fault.
+/// Frozen for less than systemd's limit, it comes back with no restart; frozen for good, the
+/// watchdog stops pinging so systemd's restart (agents kept) lands within the limit: never a
+/// wait with no end, and never a restart of a daemon that was only starved.
+#[test]
+fn a_sigstopped_daemon_is_kept_while_starved_and_restarted_within_the_limit_when_hung() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = scaled();
+    let daemon = stand_in(dir.path(), Duration::ZERO);
+    let (notify, pings) = systemd(dir.path());
+    let start = Instant::now();
+    let (stop, thread) = watching(daemon.socket.clone(), notify, plan);
+    std::thread::sleep(Duration::from_millis(1_100));
+    // Starved: frozen for two thirds of the limit, then thawed.
+    assert!(daemon.process.freeze());
+    std::thread::sleep(Duration::from_millis(2_000));
+    assert!(daemon.process.resume());
+    std::thread::sleep(Duration::from_millis(2_000));
+    let starved_end = Instant::now();
+    // Hung: frozen for good.
+    assert!(daemon.process.freeze());
+    let frozen = Instant::now();
+    std::thread::sleep(plan.limit + plan.every);
+    stop.store(true, Ordering::Relaxed);
+    let end = Instant::now();
+    let pings = pings.lock().unwrap().clone();
+    let starved_quiet = longest_quiet(&pings, start, starved_end);
+    let after_freeze: Vec<_> = pings.iter().filter(|&&at| at > frozen).collect();
+    eprintln!(
+        "starved 2 s of a {:?} limit: longest quiet {starved_quiet:?}; frozen for good: {} pings after, quiet {:?}",
+        plan.limit,
+        after_freeze.len(),
+        end - frozen
+    );
+    assert!(
+        starved_quiet < plan.limit,
+        "a daemon starved for less than the limit was ended: {starved_quiet:?} quiet"
+    );
+    assert!(
+        after_freeze.is_empty(),
+        "a frozen daemon kept its pings, so nothing ever restarts it: {after_freeze:?}"
+    );
+    daemon.process.resume();
+    let _ = thread.join();
+}
+
+/// systemd's side, every line: what arrives on the notify socket and when.
+fn notify_log(dir: &Path) -> (String, std::sync::Arc<std::sync::Mutex<Vec<(Instant, String)>>>) {
+    let path = dir.join("notify-log");
+    let socket = UnixDatagram::bind(&path).unwrap();
+    socket.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let lines = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = lines.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 64];
+        loop {
+            match socket.recv(&mut buf) {
+                Ok(n) => seen
+                    .lock()
+                    .unwrap()
+                    .push((Instant::now(), String::from_utf8_lossy(&buf[..n]).into_owned())),
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(_) => return,
+            }
+        }
+    });
+    (path.to_str().unwrap().to_owned(), lines)
+}
+
+fn wait_for(lines: &std::sync::Mutex<Vec<(Instant, String)>>, n: usize) -> Vec<String> {
+    let until = Instant::now() + Duration::from_secs(5);
+    loop {
+        let got: Vec<String> = lines.lock().unwrap().iter().map(|(_, l)| l.clone()).collect();
+        if got.len() >= n || Instant::now() > until {
+            return got;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The mechanism, as systemd 255 reads it: `WATCHDOG_USEC=0` stops its timer, and the end of the
+/// hold arms the limit again and pings, so systemd counts from the ping.
+#[test]
+fn a_hold_stops_systemds_timer_and_its_release_arms_the_limit_and_pings() {
+    let dir = tempfile::tempdir().unwrap();
+    let (notify, lines) = notify_log(dir.path());
+    let held = Hold::new(&notify, LIMIT);
+    assert_eq!(held.release(), None, "a release with no hold writes nothing");
+    assert!(held.since().is_none());
+    held.take();
+    assert!(held.since().is_some());
+    assert!(held.release().is_some());
+    assert!(held.since().is_none());
+    assert_eq!(
+        wait_for(&lines, 3),
+        ["WATCHDOG_USEC=0", "WATCHDOG_USEC=180000000", "WATCHDOG=1"],
+        "hold, then re-arm at the limit and a ping"
+    );
+}
+
+#[test]
+fn a_daemon_systemd_does_not_watch_holds_nothing() {
+    // No `start` armed this test process: the RPC answers held:false.
+    assert!(!hold());
+}
+
+/// A gap is lateness past the plan on the monotonic clock (the 2026-11-27 provider: both clocks
+/// moved across a 5 min 10 s pause), or the wall clock ahead of the monotonic one (a pause the
+/// monotonic clock does not count); scheduling noise is not one.
+#[test]
+fn a_resume_is_a_clock_gap_well_past_the_planned_wait() {
+    let every = Duration::from_secs(60);
+    let slack = Plan::for_limit(LIMIT).gap;
+    assert_eq!(slack, Duration::from_secs(30));
+    assert_eq!(Plan::for_limit(LIMIT).every, every);
+    // On time, or a few seconds late: no resume.
+    assert_eq!(resumed(every, every, every, slack), None);
+    assert_eq!(resumed(every, every + Duration::from_secs(3), every, slack), None);
+    // The 13:29Z pause: both clocks ran 5 min 10 s past the plan.
+    let pause = Duration::from_secs(310);
+    assert_eq!(resumed(every, every + pause, every + pause, slack), Some(pause));
+    // A pause the monotonic clock did not count: the wall clock ran ahead.
+    assert_eq!(resumed(every, every, every + pause, slack), Some(pause));
+    // A wall clock set back reads 0 and is no pause.
+    assert_eq!(resumed(every, every, Duration::ZERO, slack), None);
+}
+
+/// The hold's decisions: kept until a resume or its bound; a daemon that stops answering while
+/// held restarts itself (systemd's timer cannot end it then); not held, nothing changes.
+#[test]
+fn a_hold_ends_on_resume_or_its_bound_and_a_hung_daemon_restarts_itself() {
+    let bound = HOLD_BOUND;
+    let since = Instant::now();
+    let soon = since + Duration::from_secs(60);
+    assert_eq!(hold_step(None, soon, true, &Verdict::Ping, bound), HoldStep::Keep);
+    assert_eq!(hold_step(None, soon, false, &Verdict::Hung, bound), HoldStep::Keep);
+    assert_eq!(hold_step(Some(since), soon, false, &Verdict::Ping, bound), HoldStep::Keep);
+    assert_eq!(hold_step(Some(since), soon, true, &Verdict::Ping, bound), HoldStep::Release);
+    assert_eq!(
+        hold_step(Some(since), since + bound, false, &Verdict::Ping, bound),
+        HoldStep::Release,
+        "no resume seen within the bound: armed again anyway"
+    );
+    assert_eq!(hold_step(Some(since), soon, false, &Verdict::Hung, bound), HoldStep::Restart);
+    assert_eq!(hold_step(Some(since), soon, true, &Verdict::Hung, bound), HoldStep::Restart);
+    assert_eq!(HOLD_BOUND, Duration::from_secs(15 * 60));
+}
+
+/// The watch with a hold, scaled down: no ping while held (systemd's timer is off), the hello
+/// goes on, and with no resume seen the hold's bound arms the limit again and pings resume, so
+/// a hung daemon is still restarted after it.
+#[test]
+fn a_held_watch_stops_pinging_and_arms_again_after_its_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = Plan { hold: Duration::from_millis(2_500), ..scaled() };
+    let daemon = stand_in(dir.path(), Duration::ZERO);
+    let (notify, lines) = notify_log(dir.path());
+    let held = std::sync::Arc::new(Hold::new(&notify, plan.limit));
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let thread = {
+        let (socket, notify, held, stop) =
+            (daemon.socket.clone(), notify.clone(), held.clone(), stop.clone());
+        std::thread::spawn(move || watch(&socket, &notify, plan, None, &held, &stop))
+    };
+    std::thread::sleep(Duration::from_millis(1_500));
+    held.take();
+    let took = Instant::now();
+    std::thread::sleep(plan.hold + plan.every * 3);
+    stop.store(true, Ordering::Relaxed);
+    let _ = thread.join();
+    let lines = lines.lock().unwrap().clone();
+    let at = |want: &str| lines.iter().position(|(at, l)| *at >= took && l == want);
+    let zero = at("WATCHDOG_USEC=0").expect("the hold reached systemd");
+    let rearm = at("WATCHDOG_USEC=3000000").expect("the bound armed the limit again");
+    assert!(rearm > zero);
+    let (rearmed_at, _) = lines[rearm];
+    let held_for = rearmed_at - took;
+    let pinged_while_held = lines[zero..rearm].iter().filter(|(_, l)| l == "WATCHDOG=1").count();
+    let after = lines[rearm..].iter().filter(|(_, l)| l == "WATCHDOG=1").count();
+    eprintln!(
+        "held {held_for:?} (bound {:?}): {pinged_while_held} pings while held, {after} after",
+        plan.hold
+    );
+    assert_eq!(pinged_while_held, 0, "a ping while held: {lines:?}");
+    assert!(held_for >= plan.hold && held_for < plan.hold + plan.every * 2, "{held_for:?}");
+    assert!(after >= 2, "pings did not resume after the hold: {lines:?}");
+    assert!(held.since().is_none());
+}

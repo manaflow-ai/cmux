@@ -17,12 +17,16 @@ name = "cmux-vm-pool"
 path = "src/main.rs"
 
 [dependencies]
+cmux-egress.workspace = true
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }
 tokio = { workspace = true }
 futures-util = { workspace = true }
 url = { workspace = true }
+
+[dev-dependencies]
+cmux-egress = { workspace = true, features = ["capture"] }
 
 [lints]
 workspace = true

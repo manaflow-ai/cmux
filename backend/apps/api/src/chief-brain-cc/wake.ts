@@ -74,7 +74,10 @@ export const WAKE_CLIENT = `#!/bin/sh
 #   chief-wake clear              every pending timer
 set -eu
 call() {
-  out=$(curl -sS -m 60 -w '\\n%{http_code}' -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4018/vm) || { echo "chief-wake: no turn is running on this machine (127.0.0.1:4018 does not answer)" >&2; exit 1; }
+  # A request that could not be built (a missing file, bad JSON) arrives empty: send nothing, as the step above said.
+  req=$(cat)
+  [ -n "$req" ] || { echo "chief-wake: nothing was sent" >&2; exit 2; }
+  out=$(printf '%s' "$req" | curl -sS -m 60 -w '\\n%{http_code}' -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4018/vm) || { echo "chief-wake: no turn is running on this machine (127.0.0.1:4018 does not answer)" >&2; exit 1; }
   code=$(printf '%s' "$out" | tail -n 1)
   body=$(printf '%s' "$out" | sed '$d')
   [ "$code" = 200 ] || { echo "chief-wake: $body" >&2; exit 1; }

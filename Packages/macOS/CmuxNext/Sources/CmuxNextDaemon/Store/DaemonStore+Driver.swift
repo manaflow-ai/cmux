@@ -134,18 +134,22 @@ final class EventInbox: Sendable {
         state.withLock { $0.events.compactMap { $0 } }
     }
 
-    /// Takes everything buffered and clears the pending-frame flag.
+    /// Takes everything buffered and clears the pending-frame flag. The lock is held for a swap of the buffer only:
+    /// the holes coalescing left are dropped after it, so the pump never waits on the main thread copying and
+    /// destroying a 4,096-event batch inside the lock (hq#8685: a hang in `drain` there).
     func take() -> [DaemonEventEnvelope] {
-        state.withLock { state in
+        let events = state.withLock { state -> [DaemonEventEnvelope?] in
             state.framePending = false
             state.takenThrough = state.receivedThrough
             state.collapsed = false
             state.echoes.removeAll(keepingCapacity: true)
             state.latest.removeAll(keepingCapacity: true)
             state.live = 0
-            defer { state.events.removeAll(keepingCapacity: true) }
-            return state.events.compactMap { $0 }
+            var events: [DaemonEventEnvelope?] = []
+            swap(&events, &state.events)
+            return events
         }
+        return events.compactMap { $0 }
     }
 
     /// Keeps new events from scheduling frames (during a resync).
@@ -186,7 +190,10 @@ extension DaemonStore {
         beginConnection()
         let pump = Task.detached { [weak self] () -> String? in
             do {
-                for try await envelope in connection.events where driver.inbox.append(envelope) {
+                var first = true
+                for try await envelope in connection.events {
+                    if first { first = false; DaemonLaunchTimings.shared.mark("daemon.store_first_event") }
+                    guard driver.inbox.append(envelope) else { continue }
                     driver.scheduler.scheduleFrame { self?.drain() }
                 }
                 return nil
@@ -289,6 +296,9 @@ extension DaemonStore {
         resyncRetry?.cancel()
         resyncRetry = nil
         driver.inbox.hold()
+        // The first tree's resync: on a cold launch the first tree came ~430 ms after the connect, against ~90
+        // warm (startup-matrix cut 2); this mark splits the wait before the ask from the wait for the answer.
+        if !isLoaded { DaemonLaunchTimings.shared.mark("daemon.store_first_resync_start") }
         // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline
         Task { @MainActor in
             var failed = false

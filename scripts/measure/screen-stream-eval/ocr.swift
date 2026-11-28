@@ -6,8 +6,14 @@
 //   swiftc -O -o screen-eval-ocr ocr.swift
 //   screen-eval-ocr HOST_IMAGE VIEWER_IMAGE TRUTH_TXT [--host-crop X,Y,W,H --viewer-crop X,Y,W,H
 //     --calibration FILE --source-geometry FILE --readiness FILE]
+//   screen-eval-ocr HOST_IMAGE VIEWER_IMAGE TRUTH_TXT [--cut-host X,Y,W,H] [--cut-viewer X,Y,W,H]
 // Crops use explicit top-left image pixels. A common-marker comparison needs
 // a real-pair calibration bound to the current source and selected window.
+// --cut-host and --cut-viewer only cut each image to its rect before OCR, for a caller whose own
+// receipt vouches for the rect (rd_marker_calibration.py, same_pixels.py). The cut happens here, on
+// the decoded pixels: `sips --cropOffset` on macOS 27 left the 1080 p host screenshot 1920x1080, so
+// the host side OCR'd the wrong pixels (11-28 ssqc-1141: 42 % and 100 % vs the drawn text). The
+// report's host_ocr_image and viewer_ocr_image are the sizes Vision read, for the receipts to check.
 //
 // Prints one JSON object. Lines are compared in reading order with runs of spaces collapsed, since
 // OCR does not keep a code file's indentation.
@@ -54,16 +60,58 @@ func image(_ path: String) -> CGImage {
     return image
 }
 
-/// The recognized lines, top to bottom, then left to right.
-func recognize(_ image: CGImage) -> [String] {
+/// Engine settings, the same for the host screenshot and the viewer frame. The scene draws 13 pt Menlo:
+/// 13 px tall on a 1x display, under Vision's default minimum text height (1/32 of the image, 34 px on
+/// a 1080 p screenshot), so Vision misread or dropped whole lines of the host's own screenshot (17.6 %
+/// vs the drawn text on the 11-26 runs). Upscaling to Retina size and a minimum height below a 13 px
+/// glyph's x-height let it read them. SCREEN_EVAL_OCR_SCALE (1-4) and SCREEN_EVAL_OCR_MIN_TEXT_PX (source pixels;
+/// negative: Vision's default) override them; tests/ocr-host-fixture.sh measures each.
+let ocrScale = Int(ProcessInfo.processInfo.environment["SCREEN_EVAL_OCR_SCALE"] ?? "") ?? 2
+let ocrMinTextPixels = Double(ProcessInfo.processInfo.environment["SCREEN_EVAL_OCR_MIN_TEXT_PX"] ?? "") ?? 6
+guard (1 ... 4).contains(ocrScale) else { fail("SCREEN_EVAL_OCR_SCALE is 1-4") }
+
+/// `image` scaled by `factor` with high-quality interpolation onto white RGB.
+func upscaled(_ image: CGImage, by factor: Int) -> CGImage {
+    guard factor > 1 else { return image }
+    let width = image.width * factor, height = image.height * factor
+    let space = CGColorSpaceCreateDeviceRGB()
+    guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+    else { fail("cannot make a \(width)x\(height) OCR canvas") }
+    context.interpolationQuality = .high
+    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    guard let scaled = context.makeImage() else { fail("cannot upscale the OCR input") }
+    return scaled
+}
+
+/// The recognized lines, top to bottom; the pieces Vision splits one text row into are joined, left to
+/// right, with a space, so a split row is still one line.
+func recognize(_ source: CGImage) -> [String] {
+    // A Retina screenshot already draws 13 pt at 26 px: no upscale past 4320 px tall.
+    let image = upscaled(source, by: max(1, min(ocrScale, 4320 / max(1, source.height))))
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = false
+    // A negative SCREEN_EVAL_OCR_MIN_TEXT_PX leaves Vision's own default (the old setting).
+    if ocrMinTextPixels >= 0 { request.minimumTextHeight = Float(min(1, ocrMinTextPixels / Double(source.height))) }
     do { try VNImageRequestHandler(cgImage: image).perform([request]) } catch { fail("OCR failed: \(error)") }
-    let observations = (request.results ?? []).sorted {
-        abs($0.boundingBox.midY - $1.boundingBox.midY) > 0.004 ? $0.boundingBox.midY > $1.boundingBox.midY : $0.boundingBox.minX < $1.boundingBox.minX
+    let observations = (request.results ?? []).sorted { $0.boundingBox.midY > $1.boundingBox.midY }
+    var rows: [[VNRecognizedTextObservation]] = []
+    for observation in observations {
+        // Same row: its middle lies inside the row's first box's vertical extent.
+        if let first = rows.last?.first, observation.boundingBox.midY >= first.boundingBox.minY,
+           observation.boundingBox.midY <= first.boundingBox.maxY {
+            rows[rows.count - 1].append(observation)
+        } else {
+            rows.append([observation])
+        }
     }
-    return observations.compactMap { $0.topCandidates(1).first?.string }.map(normalize).filter { !$0.isEmpty }
+    return rows.map { row in
+        normalize(row.sorted { $0.boundingBox.minX < $1.boundingBox.minX }
+            .compactMap { $0.topCandidates(1).first?.string }.joined(separator: " "))
+    }.filter { !$0.isEmpty }
 }
 
 func normalize(_ line: String) -> String {
@@ -121,13 +169,23 @@ guard args.count >= 4, (args.count - 4) % 2 == 0 else { fail("usage: screen-eval
 var options: [String: String] = [:]
 for index in stride(from: 4, to: args.count, by: 2) {
     let key = args[index]
-    guard ["--host-crop", "--viewer-crop", "--calibration", "--source-geometry", "--readiness"].contains(key), options[key] == nil else { fail("unknown or repeated option: \(key)") }
+    guard ["--host-crop", "--viewer-crop", "--calibration", "--source-geometry", "--readiness", "--cut-host", "--cut-viewer"].contains(key), options[key] == nil else { fail("unknown or repeated option: \(key)") }
     options[key] = args[index + 1]
 }
 let hostImage = image(args[1]), viewerImage = image(args[2])
 var hostInput = hostImage, viewerInput = viewerImage
 var cropReceipt: [String: Any]?
 var comparisonReady = true
+let cuts = (host: options.removeValue(forKey: "--cut-host"), viewer: options.removeValue(forKey: "--cut-viewer"))
+if (cuts.host != nil || cuts.viewer != nil) && !options.isEmpty { fail("--cut-host and --cut-viewer do not combine with calibrated crops") }
+if let value = cuts.host {
+    guard let cut = hostImage.cropping(to: PixelCrop(value, image: hostImage).rect) else { fail("cannot cut the host image") }
+    hostInput = cut
+}
+if let value = cuts.viewer {
+    guard let cut = viewerImage.cropping(to: PixelCrop(value, image: viewerImage).rect) else { fail("cannot cut the viewer image") }
+    viewerInput = cut
+}
 if !options.isEmpty {
     guard let hostValue = options["--host-crop"], let viewerValue = options["--viewer-crop"] else { fail("explicit host and viewer crops must be supplied together") }
     let hostCrop = PixelCrop(hostValue, image: hostImage), viewerCrop = PixelCrop(viewerValue, image: viewerImage)
@@ -185,7 +243,15 @@ var report: [String: Any] = [
     "truth_chars": truth.count,
     "host_image": ["width": hostImage.width, "height": hostImage.height],
     "viewer_image": ["width": viewerImage.width, "height": viewerImage.height],
+    "host_ocr_image": ["width": hostInput.width, "height": hostInput.height],
+    "viewer_ocr_image": ["width": viewerInput.width, "height": viewerInput.height],
+    "engine": ["scale": ocrScale, "min_text_px": ocrMinTextPixels, "level": "accurate", "language_correction": false],
 ]
+// The recognized text itself, for diagnosing a CER (off by default: the receipts stay small).
+if ProcessInfo.processInfo.environment["SCREEN_EVAL_OCR_TEXT"] == "1", comparisonReady {
+    report["host_text"] = host
+    report["viewer_text"] = viewer
+}
 if let cropReceipt {
     report["crops"] = cropReceipt
     report["comparison_ready"] = comparisonReady

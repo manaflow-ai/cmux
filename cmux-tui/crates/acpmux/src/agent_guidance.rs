@@ -53,23 +53,21 @@ const MAX_DESCRIPTION_CHARS: usize = 300;
 /// background so the person always gets an answer (Leo, 2026-11-06: "either there's some sort
 /// of prompt or a skill that tells you to do that, or we just do it for you"; acpmux also
 /// moves it, `hub/auto_background.rs`).
-pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your work in the chat (cmux defaults; the person's own instructions win):
-- Plan: for a task with more than one step, keep a task list (TaskCreate and TaskUpdate; TodoWrite where those are missing). cmux draws it as a checklist. Write the whole list first, short items, one in progress; mark each done when done, delete what you drop, and when the person's message changes the work, rewrite or clear it; no standing duties in it. Do not also write it as a numbered list.
-- Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
-- CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine), never a loop or repeated gh pr checks, gh run view or sleep. Rate limits, deadlines, cleanup: the cmux:cmux-quota skill.
-- Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
-- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
-- Sub-sessions, offered sessions and editing cmux itself: load the cmux:cmux-chat skill with your first reads.";
+pub const CLAUDE_GUIDANCE: &str = "cmux NEXT draws your work in this chat (defaults; the person's own instructions win):
+- Run research, reviews, waits and subagents in the background; keep answering meanwhile. Fork helpers by default (Agent subagent_type: fork).
+- Name another session as HOST/NAME or cmux://agent/<harness>/<sessionId> in inline code (a chip); never invent an id.
+- A turn that changed files or ran commands ends with a 2-3 sentence recap (true now, verified, not done, decision left), in acpmux_wrap_up when listed, not also in prose.
+- UI work: load cmux:cmux-ui-preview before the first UI edit (live mode, a preview tab, before/after pictures).
+- Sub-sessions, offered sessions, editing cmux: load cmux:cmux-chat with your first reads.";
 
-/// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
-pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person's own instructions win). This chat runs in cmux NEXT, which draws your work in the chat:
-- Plan: for a task with more than one step, keep a plan with your plan tool (Codex: update_plan). cmux draws it as a checklist. Write the whole plan first, short items, one in progress; mark each done as you start the next; rewrite it when the plan changes, and clear it when the person's message changes the work; no standing duties in it. Do not also write it as a numbered list.
-- Side sessions (only with the tools listed; skip this when they are not): start a sub-session (cmux.subsessions_start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
-- Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
-- CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine; it sleeps through rate limits), never a loop or repeated calls of gh pr checks, gh run view or sleep. On a GitHub rate limit, wait for its reset (`gh api rate_limit` is free), never retry at once. Stop only processes you started, by PID.
-- Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a link. Never invent an id.
-- Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
-- Editing cmux itself: when asked to change how cmux looks or behaves, use the cmux-live and cmux-customization guides (`cmux docs search live`).";
+/// Every other harness's first-turn guidance.
+pub const AGENT_GUIDANCE: &str = "cmux chat guidance: cmux NEXT draws your work in this chat (defaults; the person's own instructions win):
+- Side sessions (only with the tools listed; skip this when they are not): start one (cmux.subsessions_start_session, worktree: true if it edits files yours may touch) only when the person asked for parallel or background work, with the assignment and expected result (and background, in a separate worktree). Work you noticed outside the task: offer it (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at turn end), not do it here. Never a session for a quick lookup or an answer you need now.
+- Run research, reviews, waits and subagents in the background; keep answering meanwhile. Fork helpers with inherited turns by default.
+- Name another session as HOST/NAME or cmux://agent/<harness>/<sessionId> in inline code (a link); never invent an id.
+- A turn that changed files or ran commands ends with a 2-3 sentence recap (true now, verified, not done, the person's one decision), in acpmux_wrap_up when listed, not also in prose.
+- UI work: read the cmux-ui-preview skill before the first UI edit (live mode, a preview tab, before/after pictures, trying it at turn end).
+- Editing cmux itself: the cmux-live and cmux-customization guides (`cmux docs search live`).";
 
 /// The harness families the switches name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,16 +143,19 @@ pub struct UserSkill {
     pub dir: PathBuf,
 }
 
-/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`.
+/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`
+/// (`cmux-next` instead of `cmux` on macOS, `cmux_config::NEXT_DIR`).
 pub fn user_skills_dir() -> Option<PathBuf> {
     let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(dir) = var(USER_SKILLS_DIR_ENV) {
         return Some(dir);
     }
     if let Some(xdg) = var("XDG_CONFIG_HOME") {
-        return Some(xdg.join("cmux/skills"));
+        return Some(xdg.join(cmux_config::NEXT_DIR).join("skills"));
     }
-    var("HOME").or_else(dirs::home_dir).map(|home| home.join(".config/cmux/skills"))
+    var("HOME")
+        .or_else(dirs::home_dir)
+        .map(|home| home.join(".config").join(cmux_config::NEXT_DIR).join("skills"))
 }
 
 /// The person's skills in `dir`, in name order. A folder without a readable `SKILL.md`, or one
@@ -349,7 +350,10 @@ fn materialize_within(
     }
     let manifest = json!({
         "name": USER_PLUGIN_NAME,
-        "description": "Your own skills from ~/.config/cmux/skills, for agents cmux starts",
+        "description": format!(
+            "Your own skills from ~/.config/{}/skills, for agents cmux starts",
+            cmux_config::NEXT_DIR
+        ),
         "version": env!("CARGO_PKG_VERSION"),
     });
     files.push((".claude-plugin/plugin.json".to_owned(), manifest.to_string().into_bytes()));
@@ -419,178 +423,5 @@ fn collect_files(root: &Path, rel: &Path, depth: usize, out: &mut Vec<PathBuf>) 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn skill(root: &Path, dir: &str, text: &str) {
-        std::fs::create_dir_all(root.join(dir)).unwrap();
-        std::fs::write(root.join(dir).join("SKILL.md"), text).unwrap();
-    }
-
-    #[test]
-    fn families_get_their_own_guidance() {
-        let on = Switches::default();
-        // Claude Code: the rules a cut skill listing would hide, then the skill for the rest.
-        let claude = first_turn_text(Family::Claude, &on, &[]).unwrap();
-        assert!(claude.contains("cmux:cmux-chat") && claude.contains("first reads"), "{claude}");
-        for rule in [
-            "TaskCreate",
-            "TaskUpdate",
-            "TodoWrite",
-            "background",
-            "HOST/NAME",
-            "recap",
-            "acpmux_wrap_up",
-            "acpmux pr-wait",
-            "cmux:cmux-quota",
-            // A stale list never lingers (design/chat-plan-lifecycle.md).
-            "rewrite or clear it",
-            "no standing duties",
-        ] {
-            assert!(claude.contains(rule), "{rule} missing: {claude}");
-        }
-        assert!(claude.len() < AGENT_GUIDANCE.len(), "stays under Codex's: {} bytes", claude.len());
-        let codex = first_turn_text(Family::Codex, &on, &[]).unwrap();
-        for tool in [
-            "update_plan",
-            "cmux.subsessions_start_session",
-            "cmux.sessions_offer_session",
-            "cmux.sessions_suggest_tasks",
-            "recap",
-            "inline code",
-            "clear it when the person's message changes the work",
-        ] {
-            assert!(codex.contains(tool), "{tool} missing: {codex}");
-        }
-        assert!(codex.contains("skip this when they are not"), "{codex}");
-    }
-
-    #[test]
-    fn switches_turn_off_per_family_and_default_on() {
-        assert_eq!(Switches::from_settings_text(None), Switches::default());
-        assert_eq!(Switches::from_settings_text(Some("not json")), Switches::default());
-        let sw = Switches::from_settings_text(Some(
-            r#"{"agents": {"guidance": {"codex": false}}, "agents.guidance.userSkills": false}"#,
-        ));
-        assert!(sw.claude && !sw.codex && sw.other && !sw.user_skills);
-        assert_eq!(first_turn_text(Family::Codex, &sw, &[]), None);
-        assert!(first_turn_text(Family::Other, &sw, &[]).is_some());
-    }
-
-    #[test]
-    fn user_skills_are_read_validated_and_indexed_for_codex_only() {
-        let root = tempfile::tempdir().unwrap();
-        skill(
-            root.path(),
-            "deploy",
-            "---\nname: deploy\ndescription: \"Ship the app to staging.\"\n---\n\nSteps.",
-        );
-        skill(root.path(), "bad", "---\nname: Bad Name\ndescription: x\n---\n");
-        skill(root.path(), "nofront", "just text");
-        std::fs::create_dir_all(root.path().join("empty")).unwrap();
-        let skills = user_skills(root.path());
-        assert_eq!(skills.len(), 1, "{skills:?}");
-        assert_eq!(skills[0].description, "Ship the app to staging.");
-
-        let on = Switches::default();
-        let codex = first_turn_text(Family::Codex, &on, &skills).unwrap();
-        assert!(codex.contains("- deploy: Ship the app to staging. ("), "{codex}");
-        assert!(codex.contains("deploy/SKILL.md"), "{codex}");
-        let claude = first_turn_text(Family::Claude, &on, &skills).unwrap();
-        assert!(!claude.contains("Ship the app"), "Claude gets them as a plugin: {claude}");
-        let off = Switches { codex: false, ..on };
-        let only_index = first_turn_text(Family::Codex, &off, &skills).unwrap();
-        assert!(only_index.starts_with("The person's own skills"), "{only_index}");
-    }
-
-    /// Codex's index of cmux's own skills: one line per skill under a header naming their
-    /// shared folder once (each line its own path when they do not share one), nothing at all
-    /// without skills.
-    #[test]
-    fn cmux_skills_are_indexed_with_their_folder() {
-        assert_eq!(cmux_skills_text(&[]), None);
-        let skill = |name: &str, root: &str| UserSkill {
-            name: name.into(),
-            description: format!("About {name}."),
-            dir: PathBuf::from(root).join(name),
-        };
-        let root = "/state/agent-tools/abc/skills";
-        let text = cmux_skills_text(&[skill("cmux-browser", root), skill("acpmux", root)]).unwrap();
-        assert_eq!(
-            text,
-            "cmux skills, each at /state/agent-tools/abc/skills/<name>/SKILL.md. When one's description matches the task, read its SKILL.md first and follow it:\n- cmux-browser: About cmux-browser.\n- acpmux: About acpmux."
-        );
-        let mixed = cmux_skills_text(&[skill("a", root), skill("b", "/elsewhere")]).unwrap();
-        assert!(mixed.ends_with("- b: About b. (/elsewhere/b/SKILL.md)"), "{mixed}");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_symlinked_skill_md_is_refused() {
-        let root = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let target = outside.path().join("SKILL.md");
-        std::fs::write(&target, "---\nname: outside\ndescription: Not in the folder.\n---\n")
-            .unwrap();
-        std::fs::create_dir_all(root.path().join("outside")).unwrap();
-        std::os::unix::fs::symlink(&target, root.path().join("outside/SKILL.md")).unwrap();
-        assert!(user_skills(root.path()).is_empty(), "the index must not point outside the folder");
-    }
-
-    #[test]
-    fn a_long_description_is_cut_in_the_index() {
-        let root = tempfile::tempdir().unwrap();
-        let long = "word ".repeat(2000);
-        skill(root.path(), "long", &format!("---\nname: long\ndescription: {long}\n---\n"));
-        let skills = user_skills(root.path());
-        assert_eq!(skills[0].description.chars().count(), MAX_DESCRIPTION_CHARS + 1);
-        assert!(skills[0].description.ends_with('…'));
-        let codex = first_turn_text(Family::Codex, &Switches::default(), &skills).unwrap();
-        assert!(codex.len() < AGENT_GUIDANCE.len() + 1000, "{} bytes", codex.len());
-    }
-
-    #[test]
-    fn the_plugin_copies_at_most_its_byte_budget_and_skill_md_first() {
-        let root = tempfile::tempdir().unwrap();
-        let state = tempfile::tempdir().unwrap();
-        let md = "---\nname: big\ndescription: Big.\n---\n";
-        skill(root.path(), "big", md);
-        std::fs::write(root.path().join("big/a-large.bin"), vec![b'x'; 4096]).unwrap();
-        std::fs::write(root.path().join("big/b-small.md"), "small").unwrap();
-        let skills = user_skills(root.path());
-        let budget = (md.len() + "small".len()) as u64;
-        let dir = materialize_within(state.path(), &skills, budget).unwrap().unwrap();
-        assert!(dir.join("skills/big/SKILL.md").is_file());
-        assert!(dir.join("skills/big/b-small.md").is_file());
-        assert!(!dir.join("skills/big/a-large.bin").exists(), "over the budget");
-    }
-
-    #[test]
-    fn user_plugin_copies_regular_files_once_per_content() {
-        let root = tempfile::tempdir().unwrap();
-        let state = tempfile::tempdir().unwrap();
-        skill(root.path(), "notes", "---\nname: notes\ndescription: Take notes.\n---\n");
-        std::fs::create_dir_all(root.path().join("notes/references")).unwrap();
-        std::fs::write(root.path().join("notes/references/more.md"), "more").unwrap();
-        std::fs::write(root.path().join("notes/.secret"), "hidden").unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink("/etc/hosts", root.path().join("notes/hosts")).unwrap();
-
-        assert_eq!(materialize_user_plugin(state.path(), &[]).unwrap(), None);
-        let skills = user_skills(root.path());
-        let dir = materialize_user_plugin(state.path(), &skills).unwrap().unwrap();
-        assert!(dir.join("skills/notes/SKILL.md").is_file());
-        assert_eq!(
-            std::fs::read_to_string(dir.join("skills/notes/references/more.md")).unwrap(),
-            "more"
-        );
-        assert!(!dir.join("skills/notes/.secret").exists());
-        assert!(!dir.join("skills/notes/hosts").exists());
-        let manifest: Value = serde_json::from_str(
-            &std::fs::read_to_string(dir.join(".claude-plugin/plugin.json")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(manifest["name"], USER_PLUGIN_NAME);
-        assert_eq!(materialize_user_plugin(state.path(), &skills).unwrap().unwrap(), dir);
-    }
-}
+#[path = "agent_guidance_tests.rs"]
+mod tests;

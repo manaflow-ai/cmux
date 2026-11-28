@@ -32,6 +32,7 @@
 mod attention;
 mod branches;
 
+pub(crate) use branches::turn_usage;
 pub use branches::{BranchStats, MAX_BRANCHES};
 
 use crate::store::{EventRecord, SessionMeta, SessionStatus, Store, TurnUsage};
@@ -311,6 +312,8 @@ impl SessionFold {
             self.attention.record(record, self.in_range(at));
         }
         match record.kind.as_str() {
+            // A line the harness wrote into a turn is the turn's work, not a message.
+            "user_message" if crate::adopt_replay::harness_row(&record.msg) => {}
             "user_message" => {
                 let steer = record.msg.get("steer").and_then(Value::as_bool) == Some(true);
                 let prompt_id =

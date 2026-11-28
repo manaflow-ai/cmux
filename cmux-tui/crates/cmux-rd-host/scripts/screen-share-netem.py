@@ -7,6 +7,15 @@ viewer, in two network namespaces joined by a veth whose ends carry `tc netem`.
                              [--drop-seconds S --drop-seconds S]
                              [--workload marker|motion]
                              [--out FILE.jsonl]
+  sudo screen-share-netem.py BIN --probe --out FILE.jsonl
+
+--probe is goals/screen-share-fast.md's probe (cmuxterm-hq goals/screen-share-netem.md): 50 ms RTT and 1 % loss,
+a baseline row of fresh sessions, then a drop-10s and a drop-60s row (a full drop 3 s after connect), 10 sessions
+each, a drop-300s row of 5 (the 5 min drop of cmuxterm-hq goals/screen-share-netem-1s-nightly.md), and a switch row
+of 10: 3 s after connect the viewer's address moves (10.77.0.2 -> 10.77.0.3, the old one removed), the way a laptop
+that leaves Wi-Fi for a hotspot comes back with a new source address on the same socket. Its --out file is what
+cmuxterm-hq screen_share_fast_receipt.py extract --format netem publishes as NOW's screen_share_fast.netem_unmet and
+screen_share_fast.netem_1s_unmet.
 
 It is the connectivity harness's netem leg (cmuxterm-hq docs/architecture/connectivity-harness)
 applied to Mac Screen's own session path: `serve` is the host Mac Screen runs (`CmuxNextMacScreen`),
@@ -25,6 +34,8 @@ Each attempt is one fresh session (new keys, new link). Per attempt it records:
                   true when a marker arrived after the selected full-drop interval
   recovery_ms     the longest stall minus the drop itself: how long frames took to come back once
                   the network did
+  switch row      recovered_after_drop is true when a key press sent after the address moved came back
+                  as a marker and the host did not end the session; recovery_ms is the longest stall
 With --gate-recovery-ms MS every drop row is a gate: the run exits 1, naming each attempt, when an
 attempt did not recover or took longer than MS to. CI runs the 10 s and 60 s rows this way
 (screen-share-drop-gate.yml), so a change that breaks the reconnect after a drop fails its PR.
@@ -34,6 +45,11 @@ import argparse, json, os, select, shutil, subprocess, sys, time
 
 HOST_NS, VIEW_NS = "rdshare-h", "rdshare-v"
 HOST_IP, VIEW_IP = "10.77.0.1", "10.77.0.2"
+# The viewer's address after the switch row's move: same veth, same subnet, the old address removed.
+SWITCH_IP = "10.77.0.3"
+SWITCH = "switch"
+# How long the switch row keeps the bench running past the move: room for a reconnect and its samples.
+SWITCH_WINDOW_S = 10
 
 
 def sh(cmd, check=True):
@@ -57,6 +73,8 @@ def setup(args):
         sh(f"ip netns exec {ns} ip addr add {ip}/24 dev {dev}")
         sh(f"ip netns exec {ns} ip link set {dev} mtu 1500 up")
         sh(f"ip netns exec {ns} ethtool -K {dev} gso off tso off gro off", check=False)
+    # Removing the viewer's first address must leave the added one (the switch row), not flush it.
+    sh(f"ip netns exec {VIEW_NS} sysctl -qw net.ipv4.conf.vv.promote_secondaries=1", check=False)
     netem(args.rtt, args.loss)
     disp = args.display
     if not shutil.which("Xvfb"):
@@ -64,22 +82,33 @@ def setup(args):
     xvfb = subprocess.Popen(["ip", "netns", "exec", HOST_NS, "Xvfb", disp, "-screen", "0",
                              "1920x1080x24", "-nolisten", "tcp"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    time.sleep(1.0)
+    # The display is up when its socket is; a fixed sleep lost that race on a loaded runner
+    # (testapp: "Connection refused").
+    sock = f"/tmp/.X11-unix/X{disp.lstrip(':').split('.')[0]}"
+    deadline = time.time() + 10
+    while not os.path.exists(sock) and xvfb.poll() is None and time.time() < deadline:
+        time.sleep(0.05)
     started(xvfb, "Xvfb " + disp)
     app = subprocess.Popen(["ip", "netns", "exec", HOST_NS, args.bin, "testapp", "--display", disp,
                             "--workload", args.workload],
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     time.sleep(1.0)
-    started(app, "testapp")
+    started(app, "testapp", others=[xvfb])
     return [app, xvfb]
 
 
-def started(proc, what):
+def started(proc, what, others=()):
     """Stops the run when a helper exited during start-up: every attempt after it would fail
-    with the host's "Connection refused" and say nothing of why."""
+    with the host's "Connection refused" and say nothing of why. OTHERS, the helpers already
+    started, are stopped too: an Xvfb left running holds its display, and the next run exits
+    at start with "Server is already active"."""
     if proc.poll() is None:
         return
     err = (proc.stderr.read() if proc.stderr else "").strip()
+    for other in others:
+        if other.poll() is None:
+            other.kill()
+            other.wait()
     teardown()
     sys.exit(f"screen-share-netem: {what} exited {proc.returncode} at start: {err[-400:]}")
 
@@ -94,14 +123,54 @@ def teardown():
         sh(f"ip netns del {ns}", check=False)
 
 
-def readline(proc, deadline):
+class Lines:
+    """Lines from a child's stdout, read off the descriptor itself. A buffered pipe's readline()
+    pulls every line that has arrived into Python's buffer, where select() no longer sees them:
+    a host that printed displays, key and candidates in one write left the key there, and the
+    attempt timed out with no key ("answer line: invalid type: null"), about one session in
+    ten, or half of them on a busy machine."""
+
+    def __init__(self, pipe):
+        self.fd = pipe.fileno()
+        self.buf = b""
+        self.eof = False
+
+    def fileno(self):
+        return self.fd
+
+    def ready(self):
+        """A whole line is buffered, or the pipe ended: next() returns at once."""
+        return b"\n" in self.buf or self.eof
+
+    def fill(self):
+        """One read of what the descriptor has (call it when select says readable)."""
+        chunk = os.read(self.fd, 65536)
+        self.buf += chunk
+        self.eof = self.eof or not chunk
+
+    def take(self):
+        """The next buffered line, or "" at the end of the pipe, or None when neither."""
+        if b"\n" in self.buf:
+            line, self.buf = self.buf.split(b"\n", 1)
+            return line.decode(errors="replace") + "\n"
+        if self.eof:
+            rest, self.buf = self.buf, b""
+            return rest.decode(errors="replace")
+        return None
+
+
+def readline(lines, deadline):
+    """The next line from LINES (a Lines) by DEADLINE, "" at the end of the pipe, None on timeout."""
     while True:
+        line = lines.take()
+        if line is not None:
+            return line
         left = deadline - time.time()
         if left <= 0:
             return None
-        r, _, _ = select.select([proc.stdout], [], [], left)
+        r, _, _ = select.select([lines], [], [], left)
         if r:
-            return proc.stdout.readline()
+            lines.fill()
 
 
 def sample_budget(base_samples, drop_s, trigger_s=0):
@@ -119,6 +188,27 @@ def recovered_after_drop(drop_s, drop_restored, stalls_ms, host_ended):
     return drop_s is None or (drop_restored and not host_ended and bool(stalls_ms))
 
 
+def move_viewer(to_ip, from_ip):
+    """The switch row's network move: the viewer's veth gains TO_IP and loses FROM_IP, so its next
+    datagram leaves with a new source address and the host must follow it."""
+    sh(f"ip netns exec {VIEW_NS} ip addr add {to_ip}/24 dev vv")
+    sh(f"ip netns exec {VIEW_NS} ip addr del {from_ip}/24 dev vv")
+
+
+def recovered_after_switch(switch_ns, sample_times, host_ended):
+    """A switch attempt recovered when a key press sent after the move (CLOCK_MONOTONIC, the
+    bench's own clock on this machine) came back as a marker, and the host kept the session."""
+    if switch_ns is None or host_ended:
+        return False
+    return any(s.get("sent_ns", 0) > switch_ns and s.get("decoded_ns") for s in sample_times or [])
+
+
+def row_name(row):
+    if row == SWITCH:
+        return SWITCH
+    return f"drop-{row:g}s" if row is not None else "baseline"
+
+
 def recovery_ms(drop_s, stalls_ms):
     """The time past the drop itself that frames took to come back: the longest stall spans the
     drop (from the first key it swallowed) and then the recovery."""
@@ -133,7 +223,7 @@ def drop_gate(records, bound_ms):
     failures = []
     for rec in records:
         drop_s = rec.get("drop_s")
-        if drop_s is None:
+        if drop_s is None and rec.get("row") != SWITCH:
             continue
         name = f"attempt {rec.get('attempt')} ({rec.get('row')})"
         if "connect_ms" not in rec:
@@ -221,19 +311,24 @@ def stage_table(rows):
 
 
 def attempt(args, n, drop_s=None):
+    """One fresh session. DROP_S is the row: None (baseline), a full-drop duration, or SWITCH."""
+    switch = drop_s == SWITCH
+    if switch:
+        drop_s = None
     rec = {"attempt": n, "rtt_ms": args.rtt, "loss_pct": args.loss, "ok": False}
-    rec["row"] = f"drop-{drop_s:g}s" if drop_s is not None else "baseline"
+    rec["row"] = row_name(SWITCH if switch else drop_s)
     if drop_s is not None:
         rec["drop_s"] = drop_s
     session = "netem-" + os.urandom(8).hex()
-    bench_args = [args.bin, "bench", "--link", "1", "--samples",
-                  str(sample_budget(args.samples, drop_s, args.blip_at or 0)),
+    budget = sample_budget(args.samples, SWITCH_WINDOW_S if switch else drop_s, args.blip_at or 0)
+    bench_args = [args.bin, "bench", "--link", "1", "--samples", str(budget),
                   "--input", "key"]
     viewer = subprocess.Popen(["ip", "netns", "exec", HOST_NS if args.one_ns else VIEW_NS, *bench_args], stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
     host = None
     try:
-        line = readline(viewer, time.time() + 10)
+        viewer_out = Lines(viewer.stdout)
+        line = readline(viewer_out, time.time() + 10)
         try:
             viewer_key = json.loads(line)["key"]
         except (ValueError, KeyError, TypeError):
@@ -245,6 +340,7 @@ def attempt(args, n, drop_s=None):
                                  args.display, "--profile", "baseline", *args.serve_arg],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, bufsize=1)
+        host_out = Lines(host.stdout)
         host.stdin.write(json.dumps({"session": session, "peer_key": viewer_key, "scope": "control",
                                      "stun": [], "display": args.display,
                                      "viewer": {"user": "viewer", "install": "bench"}}) + "\n")
@@ -254,7 +350,7 @@ def attempt(args, n, drop_s=None):
         while True:
             # Once the key and a candidate are in, wait only briefly for more: serve with
             # no STUN prints no candidates_done, and the handshake clock is already running.
-            line = readline(host, min(dl, time.time() + 0.2) if host_key and cands else dl)
+            line = readline(host_out, min(dl, time.time() + 0.2) if host_key and cands else dl)
             if not line:
                 break
             msg = json.loads(line)
@@ -272,9 +368,10 @@ def attempt(args, n, drop_s=None):
                                        "candidates": cands}) + "\n")
         viewer.stdin.flush()
         blip_done = args.blip_at is None or drop_s is None
+        switch_ns = None
         blip_until = None
         drop_restored = drop_s is None
-        streams = {host.stdout: "host", viewer.stdout: "viewer"}
+        streams = {host_out: "host", viewer_out: "viewer"}
         deadline = t0 + args.timeout
         while streams and time.time() < deadline:
             if not blip_done and "connect_ms" in rec and time.time() - t0 >= args.blip_at:
@@ -282,13 +379,23 @@ def attempt(args, n, drop_s=None):
                 blip_until = time.time() + drop_s
                 blip_done = True
                 rec["blip_s"] = drop_s
+            if switch and switch_ns is None and "connect_ms" in rec and time.time() - t0 >= (args.blip_at or 0):
+                move_viewer(SWITCH_IP, VIEW_IP)
+                switch_ns = time.monotonic_ns()
+                rec["switch_at_ms"] = round((time.time() - t0) * 1000, 1)
             if blip_until and time.time() >= blip_until:
                 netem(args.rtt, args.loss)
                 blip_until = None
                 drop_restored = True
-            r, _, _ = select.select(list(streams), [], [], 0.05)
+            r = [s for s in streams if s.ready()]
+            if not r:
+                r, _, _ = select.select(list(streams), [], [], 0.05)
+                for s in r:
+                    s.fill()
             for s in r:
-                line = s.readline()
+                line = s.take()
+                if line is None:
+                    continue
                 if not line:
                     del streams[s]
                     continue
@@ -309,7 +416,7 @@ def attempt(args, n, drop_s=None):
                     rec["host_ended"] = msg["ended"]
                 elif who == "viewer" and "g2g_ms" in msg:
                     rec["report"] = msg
-                    streams.pop(viewer.stdout, None)
+                    streams.pop(viewer_out, None)
             if "report" in rec:
                 break
         if blip_until:
@@ -320,9 +427,14 @@ def attempt(args, n, drop_s=None):
             rec["g2g_ms"] = rep.get("g2g_ms")
             rec["lost"] = rep.get("lost")
             rec["stalls_ms"] = rep.get("stalls_ms")
-            rec["recovered_after_drop"] = recovered_after_drop(
-                drop_s, drop_restored, rec["stalls_ms"], rec.get("host_ended")
-            )
+            if switch:
+                rec["recovered_after_drop"] = recovered_after_switch(
+                    switch_ns, rep.get("sample_times"), rec.get("host_ended"))
+                rec["recovery_ms"] = round(max(rec["stalls_ms"] or [0.0]), 1)
+            else:
+                rec["recovered_after_drop"] = recovered_after_drop(
+                    drop_s, drop_restored, rec["stalls_ms"], rec.get("host_ended")
+                )
             if drop_s is not None:
                 rec["recovery_ms"] = recovery_ms(drop_s, rec["stalls_ms"])
             rec["frames_per_s"] = rep.get("frames_per_s")
@@ -341,6 +453,10 @@ def attempt(args, n, drop_s=None):
     except Exception as e:  # noqa: BLE001 - a broken attempt is a failed attempt
         rec["error"] = repr(e)
     finally:
+        if switch:
+            # Back to the first address for the next session (promote_secondaries keeps it).
+            sh(f"ip netns exec {VIEW_NS} ip addr add {VIEW_IP}/24 dev vv", check=False)
+            sh(f"ip netns exec {VIEW_NS} ip addr del {SWITCH_IP}/24 dev vv", check=False)
         for p in (viewer, host):
             if p and p.poll() is None:
                 try:
@@ -358,12 +474,50 @@ def attempt(args, n, drop_s=None):
     return rec
 
 
+PROBE_RTT_MS, PROBE_LOSS_PCT, PROBE_DROPS, PROBE_BLIP_AT, PROBE_ATTEMPTS = 50, 1, (10, 60, 300), 3, 10
+# The 5 min drop row runs fewer sessions: 5 x ~5.5 min keeps the whole probe near 45 min on a nightly.
+PROBE_ROW_ATTEMPTS = {300.0: 5}
+DEFAULT_ATTEMPTS = 50
+
+
+def row_attempts(args, row):
+    """Sessions in ROW: --attempts, capped for the probe's long drop row."""
+    cap = PROBE_ROW_ATTEMPTS.get(row) if args.probe and row != SWITCH else None
+    return min(args.attempts, cap) if cap else args.attempts
+
+
+def plan(args, error):
+    """The rows to run: one drop duration per row, None for a baseline row with no drop. --probe fixes the link and
+    the rows (goals/screen-share-fast.md plan step 1); it also sets the timeout to cover the longest drop."""
+    if args.probe:
+        if args.drop_seconds is not None:
+            error("--probe sets its own rows; drop --drop-seconds")
+        args.rtt, args.loss = PROBE_RTT_MS, PROBE_LOSS_PCT
+        args.blip_at = PROBE_BLIP_AT if args.blip_at is None else args.blip_at
+        if args.attempts == DEFAULT_ATTEMPTS:
+            args.attempts = PROBE_ATTEMPTS
+        drop_seconds = [None, *map(float, PROBE_DROPS), SWITCH]
+    else:
+        if args.drop_seconds is not None and args.blip_at is None:
+            error("--drop-seconds requires --blip-at")
+        drop_seconds = args.drop_seconds
+        if drop_seconds is None:
+            drop_seconds = [args.blip_s] if args.blip_at is not None else [None]
+    drops = [d for d in drop_seconds if d is not None and d != SWITCH]
+    if any(duration <= 0 for duration in drops):
+        error("drop durations must be positive")
+    if args.blip_at is not None and drops:
+        # Leave enough wall time for the full loss interval and one recovery sample.
+        args.timeout = max(args.timeout, args.blip_at + max(drops) + 30)
+    return drop_seconds
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("bin")
     ap.add_argument("--rtt", type=float, default=50)
     ap.add_argument("--loss", type=float, default=0)
-    ap.add_argument("--attempts", type=int, default=50)
+    ap.add_argument("--attempts", type=int, default=DEFAULT_ATTEMPTS)
     ap.add_argument("--samples", type=int, default=20)
     ap.add_argument("--workload", default="marker")
     ap.add_argument("--display", default=":173")
@@ -380,6 +534,9 @@ def main():
     ap.add_argument("--gate-recovery-ms", type=float, default=None, metavar="MS",
                     help="fail the run when a drop attempt does not recover, or takes longer than MS "
                          "after the network is back")
+    ap.add_argument("--probe", action="store_true",
+                    help="the published probe: --rtt 50 --loss 1, a baseline row, 10 s, 60 s and 300 s full drops, "
+                         "then a mid-session address switch")
     ap.add_argument("--timeout", type=float, default=90)
     ap.add_argument("--serve-arg", action="append", default=[])
     ap.add_argument("--out")
@@ -390,18 +547,9 @@ def main():
                     "the bench's sample_times and the run ends with the per-stage table (one machine, "
                     "one CLOCK_MONOTONIC: the join needs no clock probe)")
     args = ap.parse_args()
-    if args.drop_seconds is not None and args.blip_at is None:
-        ap.error("--drop-seconds requires --blip-at")
+    drop_seconds = plan(args, ap.error)
     if args.gate_recovery_ms is not None and args.blip_at is None:
         ap.error("--gate-recovery-ms requires --blip-at (it gates the drop rows)")
-    drop_seconds = args.drop_seconds
-    if drop_seconds is None:
-        drop_seconds = [args.blip_s] if args.blip_at is not None else [None]
-    if any(duration <= 0 for duration in drop_seconds if duration is not None):
-        ap.error("drop durations must be positive")
-    if args.blip_at is not None and any(duration is not None for duration in drop_seconds):
-        # Leave enough wall time for the full loss interval and one recovery sample.
-        args.timeout = max(args.timeout, args.blip_at + max(drop_seconds) + 30)
     procs = setup(args)
     out = open(args.out, "a") if args.out else None
     samples = []
@@ -409,7 +557,7 @@ def main():
     try:
         n = 0
         for drop_s in drop_seconds:
-            for _ in range(args.attempts):
+            for _ in range(row_attempts(args, drop_s)):
                 n += 1
                 rec = attempt(args, n, drop_s)
                 records.append(rec)

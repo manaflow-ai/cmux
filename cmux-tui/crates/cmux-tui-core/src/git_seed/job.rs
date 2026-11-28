@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, mpsc};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -25,6 +25,11 @@ use crate::fs_ops::Roots;
 
 /// Finished jobs kept for `git.seed.status`.
 const KEPT_FINISHED: usize = 64;
+
+/// Longest a `git.seed.status` with `wait_ms` holds its answer for the job to end (or reach
+/// its head). It answers at once when the job ends, so a client asks again at most this
+/// often while it runs and still hears progress.
+const STATUS_WAIT_CEILING: Duration = Duration::from_millis(1000);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -76,6 +81,8 @@ struct Status {
     progress: Progress,
     failed: Option<Failed>,
     notes: Vec<&'static str>,
+    /// The clone's warm mirror ([`super::run::mirror`]): `hit`, `miss` or `off`.
+    mirror: Option<&'static str>,
     /// When done: what the folder has checked out.
     head: Option<(String, Option<String>)>,
     /// When an export is done: its answer's fields.
@@ -124,13 +131,25 @@ impl Status {
 /// One seed.
 pub struct Job {
     id: String,
-    folder: PathBuf,
+    pub(super) folder: PathBuf,
     /// With `folder`, what makes a retry this job ([`StartParams::retry_key`]).
     key: String,
     status: Mutex<Status>,
+    /// Told on every status change, for a `git.seed.status` that waits ([`Self::wait_end`]).
+    changed: Condvar,
 }
 
 impl Job {
+    fn running(id: String, folder: PathBuf, key: String, phase: Phase) -> Self {
+        Self {
+            id,
+            folder,
+            key,
+            status: Mutex::new(Status::running(phase)),
+            changed: Condvar::new(),
+        }
+    }
+
     pub(super) fn id(&self) -> &str {
         &self.id
     }
@@ -141,6 +160,25 @@ impl Job {
 
     fn update(&self, change: impl FnOnce(&mut Status)) {
         change(&mut self.status.lock().unwrap_or_else(PoisonError::into_inner));
+        self.changed.notify_all();
+    }
+
+    /// Waits up to `limit` while the job runs and its head mark is what it was: the
+    /// answer a client would otherwise poll for comes as soon as it changes. Whether it
+    /// waited at all (a job already ended answers at once).
+    fn wait_end(&self, limit: Duration) -> bool {
+        let status = self.status.lock().unwrap_or_else(PoisonError::into_inner);
+        let head_ready = status.head_ready;
+        if status.state != State::Running {
+            return false;
+        }
+        let _ = self
+            .changed
+            .wait_timeout_while(status, limit, |status| {
+                status.state == State::Running && status.head_ready == head_ready
+            })
+            .unwrap_or_else(PoisonError::into_inner);
+        true
     }
 
     pub(super) fn enter(&self, phase: Phase) {
@@ -176,6 +214,11 @@ impl Job {
 
     pub(super) fn note(&self, note: &'static str) {
         self.update(|status| status.notes.push(note));
+    }
+
+    /// What the clone's warm mirror came to: `hit`, `miss` or `off`.
+    pub(super) fn mirror(&self, outcome: &'static str) {
+        self.update(|status| status.mirror = Some(outcome));
     }
 
     pub(super) fn finish(&self, result: Result<(), Failed>) {
@@ -214,6 +257,9 @@ impl Job {
             "notes": status.notes,
             "timings": status.timings(),
         });
+        if let (Some(mirror), Some(object)) = (status.mirror, answer.as_object_mut()) {
+            object.insert("mirror".into(), mirror.into());
+        }
         if status.head_ready
             && let Some(object) = answer.as_object_mut()
         {
@@ -242,11 +288,13 @@ impl Job {
 }
 
 /// How a service runs git: the credential paths (the machine's own unless a
-/// test names them) and extra config (tests only).
+/// test names them), extra config (tests only) and the warm mirrors' folder a
+/// clone borrows from (`None`: every clone is direct).
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     pub git: Git,
     pub credentials: Option<Vec<Credential>>,
+    pub mirrors: Option<PathBuf>,
 }
 
 #[derive(Default)]
@@ -273,12 +321,19 @@ type Holder = (mpsc::Sender<hold::Op>, hold::Alive);
 #[derive(Deserialize)]
 struct StatusParams {
     job: String,
+    /// Hold the answer up to this long (at most [`STATUS_WAIT_CEILING`]) while the job runs
+    /// and has not reached its head; the answer then says `waited: true`. Older daemons ignore
+    /// it and answer at once, so a client still pauses when `waited` is missing.
+    #[serde(default)]
+    wait_ms: Option<u64>,
 }
 
 impl GitSeedService {
     #[must_use]
     pub fn new(roots: Roots) -> Self {
-        Self::with_config(roots, Config::default())
+        // The machine's warm mirrors, on unless `CMUX_SEED_MIRROR=off` ([`super::run::mirror`]).
+        let config = Config { mirrors: run::mirror::default_root(), ..Config::default() };
+        Self::with_config(roots, config)
     }
 
     pub(crate) fn with_config(roots: Roots, config: Config) -> Self {
@@ -309,6 +364,7 @@ impl GitSeedService {
                 ],
             },
             credentials: Some(vec![Credential::Anonymous]),
+            mirrors: None,
         };
         Self::with_config(roots, config)
     }
@@ -318,6 +374,7 @@ impl GitSeedService {
         match cmd {
             "git.seed.start" => self.start(params),
             "git.seed.export" => self.export(params),
+            "git.seed.borrowable" => run::borrow::borrowable(&self.config.git, &self.roots, params),
             "git.seed.hold" => self.hold(params),
             "git.seed.hold.head" => self.hold_head(params),
             "git.seed.hold.end" => self.hold_end(params),
@@ -336,7 +393,14 @@ impl GitSeedService {
                     message: "no such seed job on this machine (the daemon may have restarted)"
                         .into(),
                 })?;
-                Ok(job.answer())
+                let waited = params.wait_ms.is_some_and(|wait| {
+                    job.wait_end(Duration::from_millis(wait).min(STATUS_WAIT_CEILING))
+                });
+                let mut answer = job.answer();
+                if waited && let Some(object) = answer.as_object_mut() {
+                    object.insert("waited".into(), true.into());
+                }
+                Ok(answer)
             }
             _ => Err(SeedRefusal::bad_request("unknown git.seed op")),
         }
@@ -360,12 +424,9 @@ impl GitSeedService {
             Some(_) => None,
             None => Some(place::bundle(&self.roots, &params.bundle, &id)?),
         };
-        let job = Arc::new(Job {
-            id,
-            folder: folder.clone(),
-            key: params.retry_key(),
-            status: Mutex::new(Status::running(Phase::Clone)),
-        });
+        let carry =
+            params.carry.as_deref().map(|path| place::carry(&self.roots, path, &id)).transpose()?;
+        let job = Arc::new(Job::running(id, folder.clone(), params.retry_key(), Phase::Clone));
         // A delta only applies source changes to a folder already in use: its
         // dependencies are left alone.
         let first = params.since.is_none();
@@ -390,12 +451,13 @@ impl GitSeedService {
         let seed = run::Seed::new(
             job.clone(),
             params,
-            folder,
             bundle,
+            carry,
             self.roots.clone(),
             self.config.git.clone(),
             credentials,
-        );
+        )
+        .with_mirrors(self.config.mirrors.clone());
         // Publish the barrier before start answers: no agent may observe a
         // partially cloned or checked-out repository as ready.
         let mut barrier = cmux_git::sync_barrier::Sync::begin(&job.folder).map_err(|error| {
@@ -447,12 +509,7 @@ impl GitSeedService {
         refuse_while_filling(&folder)?;
         place::output(&self.roots, &params.bundle, &folder)?;
         let id = new_id();
-        let job = Arc::new(Job {
-            id,
-            folder: folder.clone(),
-            key: params.retry_key(),
-            status: Mutex::new(Status::running(Phase::Export)),
-        });
+        let job = Arc::new(Job::running(id, folder.clone(), params.retry_key(), Phase::Export));
         let export =
             Export::new(job.clone(), params, folder, self.roots.clone(), self.config.git.clone());
         let worker = job.clone();
@@ -488,12 +545,8 @@ impl GitSeedService {
         let mut others = jobs.by_id.values().map(|job| job.folder.as_path());
         place::not_nested(&self.roots, &folder, &mut others)?;
         hold::fresh(&folder)?;
-        let job = Arc::new(Job {
-            id: new_id(),
-            folder: folder.clone(),
-            key: key.unwrap_or_default(),
-            status: Mutex::new(Status::running(Phase::Copy)),
-        });
+        let job =
+            Arc::new(Job::running(new_id(), folder.clone(), key.unwrap_or_default(), Phase::Copy));
         // The barrier is taken before the hold answers: nothing the copy writes reads ready.
         let barrier = cmux_git::sync_barrier::Sync::begin(&folder).map_err(|error| {
             SeedRefusal::bad_request(format!("cannot begin repository sync: {error}"))
@@ -532,13 +585,18 @@ impl GitSeedService {
 
     /// `git.seed.hold.end {ok}`: the barrier ready, or left failed; answers the job's status.
     fn hold_end(&self, params: &Value) -> Result<Value, SeedRefusal> {
-        let ok = serde_json::from_value::<hold::JobParams>(params.clone())
-            .ok()
+        let parsed = serde_json::from_value::<hold::JobParams>(params.clone()).ok();
+        let ok = parsed
+            .as_ref()
             .and_then(|params| params.ok)
             .ok_or_else(|| SeedRefusal::bad_request("hold.end needs ok: true or false"))?;
+        let partial = parsed.and_then(|params| params.partial);
+        if partial.as_deref().is_some_and(|reason| !hold::PARTIAL_REASONS.contains(&reason)) {
+            return Err(SeedRefusal::bad_request("hold.end's partial names no known reason"));
+        }
         let (job, owner) = self.running_hold(params)?;
         let (reply, ended) = mpsc::channel();
-        owner.send(hold::Op::End(ok, reply)).map_err(|_| hold_ended())?;
+        owner.send(hold::Op::End(ok, partial, reply)).map_err(|_| hold_ended())?;
         // A copy that could not finish is the job's own failed status, answered below.
         let _finished: Result<(), Failed> = ended.recv().map_err(|_| hold_ended())?;
         let job = self.jobs().by_id.get(&job).cloned().ok_or_else(hold_ended)?;
@@ -608,6 +666,7 @@ impl Status {
             progress: Progress::default(),
             failed: None,
             notes: Vec::new(),
+            mirror: None,
             head: None,
             exported: None,
             head_ready: false,
@@ -693,4 +752,61 @@ fn new_id() -> String {
     }
     let hex: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
     format!("seed_{hex}")
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+
+    fn job() -> Arc<Job> {
+        Arc::new(Job::running("seed_t".into(), PathBuf::from("/t"), String::new(), Phase::Clone))
+    }
+
+    #[test]
+    fn a_held_status_answers_when_the_job_ends() {
+        let job = job();
+        let worker = job.clone();
+        let ender = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            worker.finish(Ok(()));
+        });
+        let began = Instant::now();
+        assert!(job.wait_end(Duration::from_secs(5)));
+        let took = began.elapsed();
+        ender.join().unwrap();
+        assert_eq!(job.answer()["state"], "done");
+        assert!(took >= Duration::from_millis(90), "answered before the end: {took:?}");
+        assert!(took < Duration::from_secs(3), "waited past the end: {took:?}");
+    }
+
+    #[test]
+    fn a_held_status_answers_when_the_head_is_ready() {
+        let job = job();
+        let worker = job.clone();
+        let marker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            // Progress alone does not end the wait.
+            worker.enter(Phase::Fetch);
+            std::thread::sleep(Duration::from_millis(50));
+            worker.reached_head();
+        });
+        let began = Instant::now();
+        assert!(job.wait_end(Duration::from_secs(5)));
+        marker.join().unwrap();
+        assert!(began.elapsed() >= Duration::from_millis(90));
+        assert_eq!(job.answer()["head_ready"], true);
+        assert_eq!(job.answer()["state"], "running");
+    }
+
+    #[test]
+    fn a_held_status_answers_at_its_limit_or_at_once_when_ended() {
+        let job = job();
+        let began = Instant::now();
+        assert!(job.wait_end(Duration::from_millis(60)));
+        assert!(began.elapsed() >= Duration::from_millis(55));
+        job.finish(Err(Failed { code: "seed.t", error: "t".into(), install_url: None }));
+        let began = Instant::now();
+        assert!(!job.wait_end(Duration::from_secs(5)), "an ended job does not wait");
+        assert!(began.elapsed() < Duration::from_millis(500));
+    }
 }

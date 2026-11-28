@@ -7,7 +7,7 @@
 // until you pick it.
 {
   "name": "Plush Dusk",
-  "description": "Light: one soft lavender surface, soft raised panes on even gaps, no borders, no glass, one saturated accent.",
+  "description": "Light: soft lavender, raised panels, one bright accent.",
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
   "colors": {
@@ -36,7 +36,7 @@
     "palette = 9=#a24844",
     "palette = 10=#237236",
     "palette = 11=#7f5f04",
-    "palette = 12=#2f65a7",
+    "palette = 12=#23599b",
     "palette = 13=#8e4c89",
     "palette = 14=#086f74",
     "palette = 15=#857f8c"

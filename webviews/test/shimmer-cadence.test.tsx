@@ -3,8 +3,6 @@ import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { RowShimmer, ShimmerEnabledContext, ShimmerText } from "../src/agent-session/acpmux/conversation/ShimmerText";
-import { startShimmerCadence } from "../src/agent-session/acpmux/conversation/shimmerCadence";
 import {
   configureThinkingLook,
   DEFAULT_THINKING_LOOK,
@@ -16,6 +14,14 @@ import {
   thinkingLook,
 } from "../src/agent-session/acpmux/conversation/thinkingLook";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { RowShimmer, ShimmerEnabledContext, ShimmerText } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/ShimmerText"),
+);
+const { startShimmerCadence } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/shimmerCadence"),
+);
 
 let dom: JSDOM;
 let root: Root | undefined;
@@ -288,7 +294,15 @@ test("the thinking look's defaults write nothing on the root; out-of-range value
   expect(root.style.getPropertyValue("--cv-shimmer-period")).toBe("1250ms");
   expect(root.style.getPropertyValue("--cv-shimmer-band")).toBe("80px");
   expect(root.dataset.jumpButton).toBe("dots");
-  expect(thinkingLook()).toEqual({ shimmer: "continuous", periodMs: 1250, bandPx: 80, jumpButton: "dots" });
+  expect(thinkingLook()).toEqual({
+    shimmer: "continuous",
+    periodMs: 1250,
+    bandPx: 80,
+    jumpButton: "dots",
+    glyph: null,
+    glyphKey: "",
+    glyphSize: 0,
+  });
   configureThinkingLook({});
   expect(root.style.length).toBe(0);
   expect(root.dataset.jumpButton).toBeUndefined();

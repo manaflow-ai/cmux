@@ -53,11 +53,18 @@ impl Hub {
                 .map(|(n, reason)| (n.clone(), reason.clone()))
                 .collect();
             // Keep cached models until fresh probes finish, invalidating only
-            // changed/removed profiles. Listeners, peers, store and policy stay put.
-            self.known_models
+            // changed/removed profiles (`model_lists`): their ACP list, read under another
+            // profile, is dropped, and their live list turns stale until its probe answers.
+            // Listeners, peers, store and policy stay put.
+            self.known_efforts
                 .lock()
-                .unwrap()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
+            for name in current.harnesses.keys() {
+                if current.harnesses.get(name) != next.harnesses.get(name) {
+                    self.model_lists.profile_changed(name);
+                }
+            }
             // Every field of `Config` is named here, with no `..`: a field added to it does not
             // build until it is copied below or listed as kept until a restart, with why. A
             // field in neither is how `remoteDaemon` stayed at its start value, and
@@ -80,6 +87,7 @@ impl Hub {
                 pool,
                 web_roots,
                 vm_host,
+                auto_cloud_enroll,
                 peers,
                 web_asking_modes,
                 agent_start_timeout_ms,
@@ -93,6 +101,11 @@ impl Hub {
                 auto_evacuate,
                 default_permission_mode,
                 remote_daemon,
+                remote_pipe,
+                lane_gh_broker,
+                lane_gh_carrier,
+                direct_port,
+                iroh_direct,
                 notify_command,
                 disk_low_bytes,
                 agent_inbox,
@@ -100,15 +113,17 @@ impl Hub {
                 page_rule,
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
+                capacity_fallback_after,
+                auto_resume_disk_free_bytes,
                 login_env_allow,
                 coderouter_claude_route,
                 machine_wake,
                 peer_wake,
                 btw,
                 titles,
-                summaries,
                 context_overrides,
                 send_relay,
+                send_hop,
                 new_relay,
                 artifacts,
                 composer_max_rows,
@@ -117,6 +132,7 @@ impl Hub {
                 // configures (`daemon.rs`), or is this run's own state.
                 acpmux_v2: _,      // the v2 surfaces are registered at start
                 artifacts_sync: _, // its sync task starts with the daemon
+                memory: _,         // its sync task starts with the daemon
                 write_journal: _,  // the replica and journal open at start
                 store: _,          // the open store
                 // The bound listener, its port and token stay; the hosts and origins it admits
@@ -168,6 +184,7 @@ impl Hub {
             current.pool = pool;
             current.web_roots = web_roots;
             current.vm_host = vm_host;
+            current.auto_cloud_enroll = auto_cloud_enroll;
             // The peers stay put, but a saved peer's VM boundary follows the file at once: a
             // `false` there is the caller taking it back (`vm_boundary.rs`).
             // So does whether this Mac lends it GitHub (`github_broker.rs`).
@@ -185,6 +202,18 @@ impl Hub {
             // The next circuit asking for the cmux-tui remote daemon reads it
             // (`cmux_tui_service.rs`): `acpmux config --set remote_daemon=...` serves it at once.
             current.remote_daemon = remote_daemon;
+            // And `remote_pipe.ssh` (sshd beside it), read by the same gate.
+            current.remote_pipe = remote_pipe;
+            // The next broker stream reads it (`hub_carrier_broker.rs`).
+            current.lane_gh_broker = lane_gh_broker;
+            // The daemon starts the carrier forward once, at its start (`server/machine_enroll.rs`);
+            // a restart applies a change.
+            current.lane_gh_carrier = lane_gh_carrier;
+            // The carrier binds its direct port at its start (`hub_carrier_direct.rs`); a
+            // restart applies a change.
+            current.direct_port = direct_port;
+            // The iroh endpoint too (`hub_carrier_iroh.rs`).
+            current.iroh_direct = iroh_direct;
             // Each of these is read where it is used, so the next use follows the file.
             current.notify_command = notify_command;
             current.disk_low_bytes = disk_low_bytes;
@@ -192,10 +221,19 @@ impl Hub {
             // The next person's prompt to an idle chat reads it (`person_hold.rs`).
             current.person_hold = person_hold;
             // The next message to a coordinator's inbox reads it (`inbox_page_rule.rs`).
+            let names = super::inbox::page_rule::session_names(page_rule.as_ref());
+            *self.page_rule_sessions.lock().unwrap_or_else(|e| e.into_inner()) = names;
             current.page_rule = page_rule;
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
+            self.auto_resume_disabled.store(
+                current.auto_resume_delays_ms.as_deref().is_some_and(<[_]>::is_empty),
+                std::sync::atomic::Ordering::SeqCst,
+            );
+            current.capacity_fallback_after = capacity_fallback_after;
+            // The disk waiter reads it at each re-check (`auto_resume/disk_wait.rs`).
+            current.auto_resume_disk_free_bytes = auto_resume_disk_free_bytes;
             current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
             // The next wake of any peer runs the new command (`Peer::wake`).
@@ -204,9 +242,9 @@ impl Hub {
             current.peer_wake = peer_wake;
             current.btw = btw;
             current.titles = titles;
-            current.summaries = summaries;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
+            current.send_hop = send_hop;
             current.new_relay = new_relay;
             current.artifacts = artifacts;
             current.composer_max_rows = composer_max_rows;
@@ -233,6 +271,8 @@ impl Hub {
             )
         };
         self.start_auto_evacuate().await;
+        // Enrollment turned on since: its timer starts (`owner_return.rs`).
+        self.start_owner_return().await;
         // Every row, closed ones too, reads the new usage warning thresholds.
         self.events.changed(None);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
@@ -249,194 +289,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::{Config, ProfileSources, SessionResourceConfig, StoreMode};
-
-    #[tokio::test]
-    async fn reloaded_session_limits_survive_a_later_daemon_config_save() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("config.json");
-        let config = Config {
-            path: Some(path.clone()),
-            profile_sources: ProfileSources::none(),
-            ..Config::default()
-        };
-        config.save().unwrap();
-        let mut config = config;
-        config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, root.path()).unwrap();
-        let hub = Hub::new(config, store);
-        // Reload may discover installed profiles, but this test starts none.
-        *hub.probe_only.lock().unwrap() = Some(Default::default());
-
-        for expected in [
-            SessionResourceConfig {
-                memory_mb: Some(6144),
-                swap_mb: Some(2048),
-                tasks_max: Some(8192),
-                sessions_tasks_max: Some(131_072),
-                cpu_class: Some(crate::cpu_class::CpuClass::Normal),
-            },
-            SessionResourceConfig::default(),
-        ] {
-            let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
-            changed.session = expected.clone();
-            changed.save().unwrap();
-
-            hub.reload_catalog().await.unwrap();
-            let current = hub.config.read().await;
-            assert_eq!(current.session, expected);
-            current.save().unwrap();
-            drop(current);
-
-            let saved: Config = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-            assert_eq!(saved.session, expected, "daemon save must retain the reloaded limits");
-        }
-    }
-
-    /// Edited `usageWarnings` thresholds apply at the next reload: summaries warn by them, and a
-    /// later daemon save keeps them in the file.
-    #[tokio::test]
-    async fn reloaded_usage_warnings_apply_and_survive_a_later_daemon_config_save() {
-        use crate::config::{UsageLimits, UsageWarningsConfig};
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("config.json");
-        let config = Config {
-            path: Some(path.clone()),
-            profile_sources: ProfileSources::none(),
-            ..Config::default()
-        };
-        config.save().unwrap();
-        let mut config = config;
-        config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, root.path()).unwrap();
-        let hub = Hub::new(config, store);
-        *hub.probe_only.lock().unwrap() = Some(Default::default());
-        assert_eq!(*hub.usage_limits.lock().unwrap(), UsageLimits::default());
-
-        for expected in [
-            UsageWarningsConfig {
-                context_tokens: Some(1_000_000),
-                subagents_per_hour: Some(0),
-                autocompact_cap: Some(false),
-            },
-            UsageWarningsConfig::default(),
-        ] {
-            let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
-            changed.usage_warnings = expected.clone();
-            changed.save().unwrap();
-
-            hub.reload_catalog().await.unwrap();
-            assert_eq!(*hub.usage_limits.lock().unwrap(), expected.limits());
-            let current = hub.config.read().await;
-            assert_eq!(current.usage_warnings, expected);
-            current.save().unwrap();
-            drop(current);
-
-            let saved: Config = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-            assert_eq!(
-                saved.usage_warnings, expected,
-                "daemon save must retain the reloaded thresholds"
-            );
-        }
-    }
-
-    /// A hub whose config is `root/config.json` (memory store, no profiles), as the daemon runs.
-    fn hub_on_disk(root: &std::path::Path) -> (std::path::PathBuf, Arc<Hub>) {
-        let path = root.join("config.json");
-        let config = Config {
-            path: Some(path.clone()),
-            profile_sources: ProfileSources::none(),
-            ..Config::default()
-        };
-        config.save().unwrap();
-        let mut config = config;
-        config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, root).unwrap();
-        let hub = Hub::new(config, store);
-        *hub.probe_only.lock().unwrap() = Some(Default::default());
-        (path, hub)
-    }
-
-    /// `acpmux config --set remote_daemon=127.0.0.1:PORT` on a running daemon (step 4 of the
-    /// fleet Mac bootstrap) serves the cmux-tui remote daemon at once, and clearing it stops it,
-    /// with no restart (cmux#43305 review, P1-F1).
-    #[cfg(feature = "hub-carrier")]
-    #[tokio::test]
-    async fn config_set_remote_daemon_reaches_the_cmux_tui_service_without_a_restart() {
-        use crate::hub_carrier::CmuxTuiGate;
-        let root = tempfile::tempdir().unwrap();
-        let (path, hub) = hub_on_disk(root.path());
-        let gate = crate::cmux_tui_service::ConfiguredGate::new(&hub);
-        assert_eq!(gate.admit(7781).await.unwrap_err().reason, "service.off");
-
-        // What `acpmux config --set` does: load, set, save, then `_acpmux/reload_config`.
-        let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
-        changed.set("remote_daemon", "127.0.0.1:7781").unwrap();
-        changed.save().unwrap();
-        hub.reload_catalog().await.unwrap();
-        assert_eq!(hub.config.read().await.remote_daemon.as_deref(), Some("127.0.0.1:7781"));
-        // Served now: admitted, or held only by this machine's own consent.
-        match gate.admit(7781).await {
-            Ok(address) => assert_eq!(address, "127.0.0.1:7781".parse().unwrap()),
-            Err(refused) => {
-                assert_eq!(refused.reason, crate::cli::cloud_join::CONSENT_REQUIRED, "{refused:?}")
-            }
-        }
-
-        let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
-        changed.set("remote_daemon", "none").unwrap();
-        changed.save().unwrap();
-        hub.reload_catalog().await.unwrap();
-        assert_eq!(gate.admit(7781).await.unwrap_err().reason, "service.off");
-    }
-
-    /// The other settings a reload used to leave behind until a restart follow the file too.
-    #[tokio::test]
-    async fn reload_applies_every_setting_read_where_it_is_used() {
-        let root = tempfile::tempdir().unwrap();
-        let (path, hub) = hub_on_disk(root.path());
-        let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
-        changed.notify_command = Some("true".into());
-        changed.disk_low_bytes = Some(4096);
-        changed.agent_inbox = Some(false);
-        changed.hold_agent_starts_to_starter = true;
-        changed.auto_resume_delays_ms = Some(vec![]);
-        changed.login_env_allow = vec!["RELOAD_TEST_*".into()];
-        changed.coderouter_claude_route = Some("claude".into());
-        changed.btw.model.insert("claude".into(), "claude-haiku".into());
-        changed.titles.generate = Some(false);
-        changed.context_overrides.user = Some("from the file".into());
-        changed.save().unwrap();
-        let expected = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
-
-        hub.reload_catalog().await.unwrap();
-        let current = hub.config.read().await;
-        assert_eq!(current.notify_command, expected.notify_command);
-        assert_eq!(current.disk_low_bytes, Some(4096));
-        assert_eq!(current.agent_inbox, Some(false));
-        assert!(current.hold_agent_starts_to_starter);
-        assert_eq!(current.auto_resume_delays_ms, Some(vec![]));
-        assert_eq!(current.login_env_allow, expected.login_env_allow);
-        assert_eq!(current.coderouter_claude_route, expected.coderouter_claude_route);
-        assert_eq!(current.btw, expected.btw);
-        assert_eq!(current.titles, expected.titles);
-        assert_eq!(current.context_overrides, expected.context_overrides);
-    }
-
-    /// A config.json the daemon would refuse to start with (WireGuard on, no `wireguardStatic`)
-    /// is refused by `_acpmux/reload_config`, which says why and keeps the running config.
-    #[tokio::test]
-    async fn reload_refuses_a_config_the_daemon_would_not_start_with() {
-        let root = tempfile::tempdir().unwrap();
-        let (path, hub) = hub_on_disk(root.path());
-        let mut changed = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
-        changed.transport.wireguard = true;
-        changed.session.memory_mb = Some(6144);
-        changed.save().unwrap();
-        let refused = format!("{:?}", hub.reload_catalog().await.unwrap_err());
-        assert!(refused.contains("wireguardStatic.listen"), "{refused}");
-        assert_eq!(hub.config.read().await.session.memory_mb, None, "the refused file applied");
-    }
-}
+#[path = "catalog_reload_tests.rs"]
+mod tests;

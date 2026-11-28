@@ -10,22 +10,22 @@ import CmuxNextSettings
 func debugCEFPagesReport(_ services: AppServices) -> JSONValue {
     .object(["pages": .array(services.cache.cef.rendererPages.map { page in
         var members: [String: JSONValue] = [
-            "browser": .number(Double(page.browserID)), "origin": .string(page.origin), "hidden": .bool(page.hidden),
-            "loading": .bool(page.loading), "renderer_clients": .array(page.rendererClients.map { .number(Double($0)) }),
+            "browser": .number(Double(page.browserID)), "origin": .string(page.origin), "hidden": .bool(page.hidden), "unresponsive": .bool(page.unresponsive), "exited": .bool(page.exited),
+            "loading": .bool(page.loading), "renderer_clients": .array(page.rendererClients.map { .number(Double($0)) }), "on_screen": .bool(page.onScreen), "hang_ends": .number(Double(page.hangEnds)),
         ]
         // cmux's own pages also give their path (the agent page's chat or New Tab), never a query;
         // a browser tab keeps only its origin.
         if page.origin.hasPrefix("cmux-page://") { members["path"] = .string(URL(string: page.url)?.path ?? "") }
         return .object(members)
-    })])
+    }), "page_gc": .object(services.cache.cef.pageCollectorStats.mapValues { .number(Double($0)) })])
 }
 
 /// `debug.cef_page_devtools {browser, method, params}`: a DevTools method on one of cmux's own Chromium pages by browser
-/// id (`debug.cef_pages`), its JSON reply (``CEFEngine/cmuxPageDevTools(browser:method:params:)``).
+/// id (`debug.cef_pages`), its JSON reply (``CEFEngine/cmuxPageDevTools(browser:method:params:timeoutMS:)``).
 @MainActor
 func debugCEFPageDevTools(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
     let answer = await services.cache.cef.cmuxPageDevTools(browser: params["browser"]?.intValue, method: params["method"]?.stringValue,
-                                                           params: (params["params"]?.objectValue ?? [:]).mapValues(debugDevToolsValue))
+                                                           params: (params["params"]?.objectValue ?? [:]).mapValues(debugDevToolsValue), timeoutMS: params["timeout_ms"]?.intValue)
     return .object([answer.error == nil ? "result" : "error": .string(answer.error ?? answer.result ?? "")])
 }
 

@@ -392,6 +392,12 @@ pub enum Input {
     PeerChiefNote {
         text: String,
     },
+    /// A background spawn's start lines (`Spawner::background_start`):
+    /// steered into the running main turn; after it, only logged (the view
+    /// shows each subagent), so it never starts a turn of its own.
+    SpawnStartNote {
+        text: String,
+    },
     /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
     EscalateAuth {
         agent: String,
@@ -661,7 +667,7 @@ impl std::fmt::Debug for Engine {
 pub struct Settings {
     /// The constant working directory of every turn session.
     pub session_dir: PathBuf,
-    /// `MUX_HARNESS` (default claude, or a configured claude-cr).
+    /// `MUX_HARNESS` (default claude).
     pub harness: String,
     /// `MUX_POLICY` (default approve-all).
     pub policy: String,
@@ -892,6 +898,9 @@ pub(crate) struct MachineLimit {
     pub(crate) load: Box<dyn Fn() -> Option<String> + Send + Sync>,
 }
 
+/// A running turn's keep check (`Brain::keep_pending`): its key, session shape, and view identity.
+type KeepPending = (String, u64, Vec<(optchat_core::NodeId, bool)>);
+
 pub struct Brain {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
@@ -1001,8 +1010,8 @@ pub struct Brain {
     prewarm_ours: Option<bool>,
     /// The turn session the last turn kept (`Settings::keep_turn_session`).
     kept: Option<turns::KeptTurn>,
-    /// The running turn's keep check: its key and the session shape.
-    keep_pending: Option<(String, u64)>,
+    /// The running turn's keep check: its key, session shape, and view identity.
+    keep_pending: Option<KeepPending>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
 
@@ -1014,6 +1023,10 @@ pub struct Brain {
     sign_ins: crate::needs_you_feed::SignInRequests,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
+    /// Endpoint-wide Claude gateway health shared with the spawn path.
+    gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>,
+    /// Direct Messages API engine used while the Claude gateway is down.
+    fallback_engine: Option<Engine>,
     /// B4: the VMs behind cloud peers, how long a peer idles before its VM
     /// pauses, and since when each idles (the paused peers are saved in
     /// `state.cloud_paused`).
@@ -1102,6 +1115,8 @@ pub struct Brain {
     turn_view: Option<String>,
     /// The running turn's engine (engine.rs), for the trace.
     turn_engine: Option<crate::engine::TurnEngine>,
+    /// Whether the current turn is executing on the direct gateway fallback.
+    turn_gateway_fallback: bool,
     turn_route: Option<crate::turn_route::RoutePick>,
     /// The configured engine before own-turn routing; subagents keep their defaults.
     turn_spawn_engine: Option<crate::engine::TurnEngine>,
@@ -1257,6 +1272,14 @@ impl Brain {
         let mut state = file.load();
         let acpmux = matches!(settings.engine, Engine::Acpmux);
         let mut stale_sessions = recover::recover(&chat, &mut state, acpmux);
+        let pruned_spawns = state.prune_spawns();
+        if pruned_spawns > 0
+            && let Err(error) = file.save(&state)
+        {
+            log(&format!(
+                "pruning {pruned_spawns} completed spawn records: {error}"
+            ));
+        }
         // Only this home's turn sessions: a name without its prefix is a
         // host before audit round 3's or another home's, never removed.
         let own = format!("{}-", settings.turn_prefix);
@@ -1334,6 +1357,8 @@ impl Brain {
             workspaces: None,
             sign_ins: crate::needs_you_feed::SignInRequests::new("", None, Arc::new(|_: &str| {})),
             sub_starter: None,
+            gateway: None,
+            fallback_engine: None,
             cloud_vms: None,
             cloud_idle,
             reported_elsewhere: Default::default(),
@@ -1376,6 +1401,7 @@ impl Brain {
             first_words: turns::FirstWords::default(),
             turn_view: None,
             turn_engine: None,
+            turn_gateway_fallback: false,
             turn_route: None,
             turn_spawn_engine: None,
             describer: None,
@@ -1553,6 +1579,14 @@ impl Brain {
             control::start_ticker(self.tx.clone());
         }
         self.sub_starter = starter;
+    }
+
+    pub fn set_gateway(&mut self, gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>) {
+        self.gateway = gateway;
+    }
+
+    pub fn set_fallback_engine(&mut self, engine: Option<Engine>) {
+        self.fallback_engine = engine;
     }
 
     /// The subagent sessions another acpmux link reports (placed_agents.rs):
@@ -1958,6 +1992,14 @@ impl Brain {
             }
             Input::WatchFired(fired) => self.watch_fired(*fired),
             Input::PeerChiefNote { text } => self.peer_chief_note(text),
+            Input::SpawnStartNote { text } => {
+                if self.phase == Phase::Running && self.turn_side().is_none() {
+                    self.queue(text, Source::Note);
+                    self.interrupt_for_newer();
+                } else {
+                    (self.log)(&format!("spawn start note after its turn: {text}"));
+                }
+            }
             Input::EscalateAuth {
                 agent,
                 request,
@@ -2108,7 +2150,20 @@ impl Brain {
     /// cx-oqnw3: a compactor fault is a system notice (the app reads
     /// `state/compactor.json`), never a Chief message; a good probe removes
     /// it, and retracts a notice an older build posted as a message (cx-1hpt).
+    ///
+    /// A compactor that cannot run because the turns' own agent is not installed is no fault: the
+    /// Set Up card already says that agent is missing, with its Install button. First-run findings:
+    /// a clean Mac's Chief conversation showed "Chief memory summaries are paused. The Chief still
+    /// answers." under the card from the first launch on. A compactor whose other agent is missing
+    /// (a Codex Chief that compacts on Claude Code) still posts its notice.
     fn compactor_status(&mut self, status: Result<(), String>) {
+        let status = match status {
+            Err(text) if crate::harness_gate::turn_agent_missing(&text, self.turn_harness()) => {
+                (self.log)(&text);
+                Ok(())
+            }
+            status => status,
+        };
         self.stuck_fault = false;
         self.probe_fault = status.is_err();
         if let Some(settle) = &self.settle_status {
@@ -2118,6 +2173,13 @@ impl Brain {
             Err(text) => self.post_compactor_notice(COMPACTOR_NOTICE, text),
             Ok(()) => self.retract_compactor_notice(),
         }
+    }
+
+    /// The harness the Chief's turns run on: the last turn's, else the configured one.
+    pub(super) fn turn_harness(&self) -> &str {
+        self.turn_engine
+            .as_ref()
+            .map_or(self.settings.harness.as_str(), |e| e.harness.as_str())
     }
 
     /// A stuck line's notice (`Input::CompactorStuck`): posted like the

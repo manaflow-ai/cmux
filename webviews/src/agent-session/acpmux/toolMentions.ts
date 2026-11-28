@@ -10,10 +10,13 @@
 //
 // l10n-allow-file: the notes are text for the agent, not the person, so they are not localized.
 import type { StringKey, Translate } from "./i18n";
+import computerUseTile from "./icons/computerUseTile.png";
 import { codeSpans, type SlashCommand } from "./slashCommands";
 
 /// Computer Use's tile (the midnight cursor): the composer's @computer-use and the setup window's head.
-export const COMPUTER_USE_TILE = new URL("./icons/computerUseTile.png", import.meta.url).href;
+/// Imported, not `new URL(..., import.meta.url)`: the shipped pages inline each PNG as a data URL, and a
+/// classic (non-module) script that bundles this file cannot parse `import.meta`.
+export const COMPUTER_USE_TILE: string = computerUseTile;
 
 export type ToolMentionId = "computer-use" | "browser-use";
 
@@ -95,6 +98,20 @@ export function toolSlashCommands(t: Translate): SlashCommand[] {
     label: t(tool.label),
   }));
 }
+
+/// True: `command` is one of `toolSlashCommands`' rows (not an extension's command of the same name,
+/// which names its extension), or the cmux plugin's skill behind one of the two tools. The New Tab lists the tools only after `@`, never in its
+/// `/` menu or `/help` (Lucas 2026-11-24: "those should only show when the user types @").
+export function isToolCommand(command: SlashCommand): boolean {
+  if (command.extension !== undefined) return false;
+  // The skills behind the tools, which acpmux's session plugin gives Claude Code (agent_tools.rs):
+  // `@computer-use` and `@browser-use` already name them.
+  if (command.source !== "extension") return CMUX_TOOL_SKILLS.has(command.name);
+  return TOOL_MENTIONS.some((tool) => command.name === tool.id && command.insert === `@${tool.id} `);
+}
+
+/// The cmux plugin's skills for the two tools, as Claude Code lists them.
+const CMUX_TOOL_SKILLS: ReadonlySet<string> = new Set(["cmux:cmux-browser", "cmux:cmux-computer-use"]);
 
 /// The tools `text` names as `@computer-use` / `@browser-use` (or `$computer-use`) outside code (a
 /// fenced block or an inline span is literal text, never a mention), in menu order.

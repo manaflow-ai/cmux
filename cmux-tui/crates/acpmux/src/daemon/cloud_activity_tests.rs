@@ -4,27 +4,30 @@ use super::*;
 fn a_running_turn_is_sent_then_renewed_and_its_end_carries_the_end_time() {
     let mut t = Tracker::default();
     // Nothing at work and nothing sent: the agent learns 0 once.
-    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turns": 0}}));
+    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turn_end": 1, "turns": 0}}));
     assert!(t.line(0, false, 0).is_none(), "an unchanged 0 between renewals");
     assert!(t.line(0, true, 0).is_some(), "every renewal goes, 0 included");
 
     t.acted(1_000);
     let started = t.line(1, false, 0).unwrap();
-    assert_eq!(started, json!({"acp_activity": {"turns": 1, "last_agent_action_at": 1_000}}));
+    assert_eq!(
+        started,
+        json!({"acp_activity": {"turn_end": 1, "turns": 1, "last_agent_action_at": 1_000}})
+    );
     // A mux record that changes nothing sends nothing; the tick renews.
     t.acted(1_500);
     assert!(t.line(1, false, 0).is_none(), "an action while at work waits for the renewal");
     t.acted(2_000);
     assert_eq!(
         t.line(1, true, 0).unwrap(),
-        json!({"acp_activity": {"turns": 1, "last_agent_action_at": 2_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 1, "last_agent_action_at": 2_000}})
     );
 
     // The turn ends at 3 000: the count drops and the end is the last action.
     t.acted(3_000);
     assert_eq!(
         t.line(0, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 3_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 3_000}})
     );
     assert!(t.line(0, false, 0).is_none());
 }
@@ -40,7 +43,7 @@ fn an_action_after_the_count_dropped_to_zero_still_goes() {
     t.acted(2_000);
     assert_eq!(
         t.line(0, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 2_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 2_000}})
     );
     assert!(t.line(0, false, 0).is_none());
 }
@@ -55,7 +58,7 @@ fn an_unsent_line_goes_again_and_older_times_never_move_back() {
     t.unsent();
     assert_eq!(
         t.line(2, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 2, "last_agent_action_at": 5_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 2, "last_agent_action_at": 5_000}})
     );
 }
 
@@ -81,18 +84,18 @@ fn the_first_zero_after_work_carries_the_time_it_was_seen() {
     // Quiet for ten minutes, then the count drops before `turn_result` is read.
     assert_eq!(
         t.line(0, false, 601_000).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 601_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 601_000}})
     );
     // Later zeros keep that time: an idle machine's period is not restarted by renewals.
     assert_eq!(
         t.line(0, true, 900_000).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 601_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 601_000}})
     );
     // The first line a daemon sends, 0 at work, counts from when it was seen as well.
     let mut fresh = Tracker::default();
     assert_eq!(
         fresh.line(0, true, 5_000).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_agent_action_at": 5_000}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_agent_action_at": 5_000}})
     );
 }
 
@@ -112,7 +115,7 @@ fn each_line_names_its_daemon() {
     let mut t = Tracker::new("/run/acpmux-a.sock".into());
     assert_eq!(
         t.line(2, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 2, "daemon": "/run/acpmux-a.sock"}})
+        json!({"acp_activity": {"turn_end": 1, "turns": 2, "daemon": "/run/acpmux-a.sock"}})
     );
 }
 
@@ -284,13 +287,13 @@ fn after_a_lag_a_session_at_work_is_unknown_until_its_turn_ends() {
 #[test]
 fn a_persons_prompt_time_goes_at_once_and_never_moves_back() {
     let mut t = Tracker::default();
-    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turns": 0}}));
+    assert_eq!(t.line(0, true, 0).unwrap(), json!({"acp_activity": {"turn_end": 1, "turns": 0}}));
     assert!(t.line(0, false, 0).is_none());
 
     t.person_prompted(7_000);
     assert_eq!(
         t.line(0, false, 0).unwrap(),
-        json!({"acp_activity": {"turns": 0, "last_person_prompt_at": 7_000}}),
+        json!({"acp_activity": {"turn_end": 1, "turns": 0, "last_person_prompt_at": 7_000}}),
         "a new prompt time goes without waiting for the renewal"
     );
     assert!(t.line(0, false, 0).is_none(), "an unchanged time sends nothing");
@@ -397,4 +400,81 @@ fn a_session_at_work_across_a_restart_is_unknown_until_its_turn_ends() {
         phases(&t.line(2, false, now + 1).unwrap()),
         [("model-wait".to_owned(), now + 1), ("model-wait".to_owned(), now + 1)]
     );
+}
+
+fn parked(entries: &[(&str, &str, u64)]) -> crate::parked_wait::ParkedMap {
+    let mut map = crate::parked_wait::ParkedMap::new();
+    for (sid, call, at_ms) in entries {
+        let wake = crate::parked_wait::Wake::Timer { at_ms: *at_ms };
+        map.entry((*sid).to_owned()).or_default().insert((*call).to_owned(), wake);
+    }
+    map
+}
+
+/// RFD 0063 step 2: a `sleep` handed to the platform is not a running local tool call. While
+/// every call a session has open is parked it reports `parked` with the timer's wake, not
+/// `tool` (which keeps the machine awake); a call that is not parked beside it, a process of its
+/// own or a subagent keeps it awake; the end of the parked call brings `model-wait` back.
+#[test]
+fn a_parked_sleep_is_no_local_tool_and_carries_its_wake() {
+    let mut t = Tracker::default();
+    assert!(t.tool_event("a", "tool_call_update", &call("sleep1", "in_progress")));
+    // Open but not (yet) parked: a tool runs in the guest.
+    t.observe(&[turn("a")], 1_000);
+    assert_eq!(phases(&t.line(1, false, 1_000).unwrap()), [("tool".to_owned(), 1_000)]);
+
+    // The waiter parked it until 601 000: the platform may pause and must wake by then.
+    t.set_parked(parked(&[("a", "sleep1", 601_000)]));
+    t.observe(&[turn("a")], 1_200);
+    let line = t.line(1, false, 1_200).expect("the phase change goes at once");
+    assert_eq!(
+        line["acp_activity"]["phases"]["turns"][0],
+        json!({"phase": "parked", "since": 1_200, "processes": 0, "attached": false,
+            "wake": [{"kind": "timer", "at": 601_000}]})
+    );
+
+    // A second call that is not parked: the guest works.
+    assert!(!t.tool_event("a", "tool_call", &call("grep", "in_progress")));
+    t.observe(&[turn("a")], 2_000);
+    assert_eq!(phases(&t.line(1, false, 2_000).unwrap()), [("tool".to_owned(), 2_000)]);
+    assert!(!t.tool_event("a", "tool_call_update", &call("grep", "completed")));
+    t.observe(&[turn("a")], 3_000);
+    assert_eq!(phases(&t.line(1, false, 3_000).unwrap()), [("parked".to_owned(), 3_000)]);
+
+    // A background process of its own pins the machine awake.
+    let busy = SessionAtWork { processes: 1, ..turn("a") };
+    t.observe(&[busy], 4_000);
+    assert_eq!(phases(&t.line(1, false, 4_000).unwrap()), [("pinned".to_owned(), 4_000)]);
+
+    // The sleep ended: unparked, its call completed, the turn waits on the model again.
+    t.set_parked(parked(&[]));
+    assert!(t.tool_event("a", "tool_call_update", &call("sleep1", "completed")));
+    t.observe(&[turn("a")], 601_100);
+    let line = t.line(1, false, 601_100).unwrap();
+    assert_eq!(phases(&line), [("model-wait".to_owned(), 601_100)]);
+    assert!(line["acp_activity"]["phases"]["turns"][0].get("wake").is_none());
+}
+
+/// A parked entry for a call that is not open (its `completed` already read) parks nothing,
+/// and a session that missed events stays `unknown` even with a parked call.
+#[test]
+fn only_an_open_call_parks_and_unknown_wins() {
+    let mut t = Tracker::default();
+    t.set_parked(parked(&[("a", "gone", 9_000)]));
+    t.observe(&[turn("a")], 1_000);
+    assert_eq!(phases(&t.line(1, false, 1_000).unwrap()), [("model-wait".to_owned(), 1_000)]);
+    assert!(t.tool_event("a", "tool_call_update", &call("gone", "in_progress")));
+    t.lagged();
+    t.observe(&[turn("a")], 2_000);
+    assert_eq!(phases(&t.line(1, false, 2_000).unwrap()), [("unknown".to_owned(), 2_000)]);
+}
+
+/// Every line carries the turn-end promise (version 1), at work or not, so the agent can
+/// advertise `activity-turn-end`; an older daemon's line has none (cmux-host's old-vs-new test).
+#[test]
+fn every_line_promises_turn_end() {
+    let mut t = Tracker::default();
+    assert_eq!(t.line(0, true, 0).unwrap()["acp_activity"]["turn_end"], TURN_END_VERSION);
+    assert_eq!(t.line(2, false, 1_000).unwrap()["acp_activity"]["turn_end"], 1);
+    assert_eq!(t.line(0, false, 2_000).unwrap()["acp_activity"]["turn_end"], 1);
 }

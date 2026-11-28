@@ -17,7 +17,8 @@ import { noOwnerOf, StackTeamSync, type StackEvent, type StackSyncReply } from "
 import { domainExternal, recheckDomains as recheckDue, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
-import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { platformSsoJoin, type SsoJoin } from "./team-sso-join.ts"
+import { ssoCallback, ssoMaxAgeMs, ssoSamlAcs, ssoSamlMetadata, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { mintHandoff, redeemHandoff, type HandoffDeps, type Minter, type RedeemAsk } from "./auth-handoff.ts"
 import { stackLowReadPace, stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
@@ -814,6 +815,8 @@ export class TeamDO extends OwnerDO<TeamState> {
   carryTo: ((personalTeam: string, fromTeam: string, vmPlan: string) => Promise<void>) | undefined = undefined
   stack: StackServer | undefined = undefined; stackPace: (() => Promise<boolean>) | undefined = undefined; stackLowPace: (() => Promise<boolean>) | undefined = undefined
 
+  /** Tests only: replaces the JIT join on cmux-platform after an SSO sign-in (team-sso-join.ts). */
+  ssoJoin: ((team: string, accessToken: string) => Promise<SsoJoin>) | undefined = undefined
   private loginDeps(entity: string): LoginDeps {
     const engine = this.bind(entity)
     return {
@@ -824,7 +827,8 @@ export class TeamDO extends OwnerDO<TeamState> {
       kek: this.env.INTEGRATIONS_KEK,
       stack: this.stack ?? stackServer(this.env),
       now: Date.now(),
-      submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+      join: (accessToken) => (this.ssoJoin ?? ((t, a) => platformSsoJoin(this.env.PLATFORM, this.env.CLOUD_API_ORIGIN ?? "https://platform", t, a)))(entity, accessToken)
     }
   }
 
@@ -835,6 +839,14 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   async ssoCallback(entity: string, state: string, code: string, pathConnection: string, iss: string | null) {
     return ssoCallback(this.loginDeps(entity), state, code, pathConnection, iss)
+  }
+
+  async ssoSamlAcs(entity: string, relayState: string, samlResponse: string, pathConnection: string, origin: string) {
+    return ssoSamlAcs(this.loginDeps(entity), relayState, samlResponse, pathConnection, origin)
+  }
+
+  async ssoSamlMetadata(entity: string, connection: string, origin: string) {
+    return ssoSamlMetadata(this.bind(entity).currentState, entity, connection, origin) ?? null
   }
 
   async ssoRedeem(entity: string, code: string, clientVerifier: string) {
@@ -894,6 +906,17 @@ export class TeamDO extends OwnerDO<TeamState> {
   async grantTestPlan(plan: string, session: string, subscription: string): Promise<{ added: boolean; revoked: boolean } | { refused: "production" }> {
     if (this.env.ENVIRONMENT === "production") return { refused: "production" }
     return (await import("./inference/plan.ts")).grantTestPlan(this.ctx.storage.sql, plan, session, subscription, Date.now())
+  }
+  /**
+   * RPC from cmux-platform (Cloud's cloud.billing.checkout, which checked the caller may buy for this team): a signed
+   * test-mode checkout link for a cmux NEXT plan on this team (plan-checkout.ts), or null where none can be made
+   * (production, not a NEXT plan, another team's object, no test key or webhook).
+   */
+  async nextPlanLink(entity: string, plan: string): Promise<string | null> {
+    if (this.env.ENVIRONMENT === "production" || !this.env.CLOUD_API_ORIGIN) return null
+    if (this.boundEntity() !== null && this.boundEntity() !== entity) return null
+    const m = await import("./plan-checkout.ts")
+    return m.isNextPlan(plan) ? m.planLink(this.env, this.env.CLOUD_API_ORIGIN, entity, plan) : null
   }
   /** RPC from plan-checkout.ts: the test plan's subscription was cancelled. */
   async revokeTestPlan(subscription: string): Promise<boolean> { return (await import("./inference/plan.ts")).revokeTestPlan(this.ctx.storage.sql, subscription, Date.now()) }

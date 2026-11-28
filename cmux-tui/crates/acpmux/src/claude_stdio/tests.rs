@@ -778,3 +778,74 @@ fn the_translator_starts_in_the_mode_the_process_runs_in() {
     let skips = profile(json!(["claude", "--dangerously-skip-permissions"]));
     assert_eq!(spawn_mode(&skips, "bypassPermissions"), "bypassPermissions");
 }
+
+/// A Stop hook that blocks the stop: Claude Code writes its reason as a synthetic user line
+/// (`Stop hook feedback:\n<reason>`). It becomes one `stop_hook_feedback` update with the reason;
+/// a subagent's own, or a synthetic line with another head, is none.
+#[tokio::test]
+async fn a_stop_hook_block_is_one_update_with_its_reason() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let kinds = |msgs: &[Message]| -> Vec<Value> {
+        msgs.iter()
+            .filter_map(|m| match m {
+                Message::Notification { params, .. } => {
+                    params.as_ref().and_then(|p| p.get("update")).cloned()
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let hook = json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isSynthetic": true,
+        "message": {"role": "user", "content": [{"type": "text", "text": "Stop hook feedback:\n[~/.claude/hooks/check.sh]: 2 tests still fail."}]}});
+    let updates = kinds(&t.inbound(&hook).await);
+    assert_eq!(
+        updates,
+        [
+            json!({"sessionUpdate": "stop_hook_feedback", "text": "[~/.claude/hooks/check.sh]: 2 tests still fail."})
+        ]
+    );
+    let mut child = hook.clone();
+    child["parent_tool_use_id"] = json!("toolu_1");
+    assert!(
+        !kinds(&t.inbound(&child).await).iter().any(|u| u["sessionUpdate"] == "stop_hook_feedback"),
+        "a subagent's hook is its own"
+    );
+    let other = json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isSynthetic": true,
+        "message": {"role": "user", "content": "hook text"}});
+    assert!(kinds(&t.inbound(&other).await).is_empty());
+}
+
+/// A pooled Claude Code is warmed with one side question while idle (`WARM`, `hub/pool/start.rs`):
+/// a `side_question` control request whose answer is the request's, never a prompt or a
+/// transcript event; a warm asked while a turn runs is refused before writing anything.
+#[tokio::test]
+async fn a_warm_is_one_idle_side_question_and_refused_in_a_turn() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let req = Message::request(30, WARM, json!({}));
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!("an idle warm writes") };
+    assert_eq!(
+        lines,
+        vec![json!({
+            "type": "control_request",
+            "request_id": "side-30",
+            "request": {"subtype": "side_question", "question": WARM_QUESTION},
+        })]
+    );
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {"subtype": "success", "request_id": "side-30",
+                         "response": {"response": "ok", "synthetic": false}}
+        }))
+        .await;
+    assert!(
+        matches!(&msgs[..], [Message::Response { id, result: Some(_), error: None }] if *id == 30),
+        "{msgs:?}"
+    );
+    t.in_turn.store(true, Ordering::SeqCst);
+    let busy = Message::request(31, WARM, json!({}));
+    assert!(matches!(
+        t.outbound(&busy).await,
+        Outbound::Reply(Message::Response { error: Some(_), .. })
+    ));
+}

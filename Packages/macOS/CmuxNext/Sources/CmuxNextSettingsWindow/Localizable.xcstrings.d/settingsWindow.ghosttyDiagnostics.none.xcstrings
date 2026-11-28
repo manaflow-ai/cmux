@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.ghosttyDiagnostics.none" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every setting in your Ghostty config applies in cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ghostty の設定はすべて cmux に適用されます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تُطبَّق كل إعدادات Ghostty في cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sve postavke vaše Ghostty konfiguracije primjenjuju se u cmuxu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle indstillinger i din Ghostty-konfiguration gælder i cmux."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle Einstellungen deiner Ghostty-Konfiguration gelten in cmux."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todos los ajustes de tu configuración de Ghostty se aplican en cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tous les réglages de votre configuration Ghostty s’appliquent dans cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tutte le impostazioni della tua configurazione di Ghostty si applicano in cmux."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការកំណត់ទាំងអស់ក្នុង Ghostty របស់អ្នកត្រូវបានអនុវត្តក្នុង cmux។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ghostty 설정의 모든 항목이 cmux에 적용됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle innstillingene i Ghostty-konfigurasjonen din gjelder i cmux."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wszystkie ustawienia z konfiguracji Ghostty działają w cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todas as configurações do seu Ghostty se aplicam no cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Все настройки вашей конфигурации Ghostty применяются в cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การตั้งค่าทั้งหมดใน Ghostty ของคุณใช้ได้ใน cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ghostty yapılandırmanızdaki tüm ayarlar cmux’ta geçerlidir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Усі налаштування вашої конфігурації Ghostty діють у cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mọi thiết lập trong cấu hình Ghostty của bạn đều áp dụng trong cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 Ghostty 配置中的所有设置都在 cmux 中生效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 Ghostty 設定中的所有設定都會在 cmux 中生效。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

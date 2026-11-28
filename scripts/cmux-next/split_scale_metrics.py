@@ -317,7 +317,13 @@ def transition(strip, trace, tolerance=TOLERANCE, static=True):
             settled = None if pixel is None else max(settled, pixel)
         out["settled_ms"] = settled
         if timed.get("layout_first_ms") is None:
-            errors.append("nothing moved after the input")
+            # A static round whose pixels changed after the input did move: the trace missed its tick (a one-tick
+            # close with a dropped mover, nightly f3b932edb s9-chat-w30 close_down). Time it by its pixels, as
+            # split_move_metrics does, instead of failing the round.
+            if static and pixels.get("first_frame_ms") is not None:
+                out["first_frame_ms"], out["settled_ms"] = pixels.get("first_frame_ms"), pixels.get("settled_ms")
+            else:
+                errors.append("nothing moved after the input")
     elif static:
         out["first_frame_ms"], out["settled_ms"] = pixels.get("first_frame_ms"), pixels.get("settled_ms")
     else:
@@ -337,7 +343,11 @@ def summarize(records):
     with an `error` (no measurement, or a gesture that did nothing) is counted in `failed_rounds`, which fails the
     cell; its numbers are not borrowed from the other rounds."""
     good = [r for r in records if not r.get("error")]
-    out = {"rounds": len(records), "failed_rounds": len(records) - len(good),
+    # A round that timed out twice (the gesture's deadline, retried once by the bench) is reported on its own: the cell
+    # is not complete, but the headline does not rank a slow app's missed deadline as the worst settle.
+    timed_out = [r for r in records if r.get("error") and r.get("timed_out")]
+    out = {"rounds": len(records), "failed_rounds": len(records) - len(good) - len(timed_out),
+           "timed_out_rounds": len(timed_out), "retried_rounds": sum(1 for r in records if r.get("retried")),
            "errors": [r["error"] for r in records if r.get("error")][:3]}
     for key in SUMMARY_KEYS:
         values = [r.get(key) for r in good if _number(r.get(key))]
@@ -361,7 +371,7 @@ def verdict(summary, refresh_ms=None):
         value = summary.get(key)
         return None if value is None else value <= limit
     checks = {
-        "complete": summary.get("rounds", 0) > 0 and not summary.get("failed_rounds"),
+        "complete": summary.get("rounds", 0) > 0 and not summary.get("failed_rounds") and not summary.get("timed_out_rounds"),
         "first_frame": under("first_frame_ms", TARGETS["first_frame_ms"]),
         "settled": under("settled_ms", TARGETS["settled_ms"]) if not summary.get("unsettled") else False,
         "p95": under("frame_p95_ms", p95_target(refresh)),
@@ -427,6 +437,116 @@ def table(report):
     return "\n".join(lines)
 
 
+BASELINE_KEYS = ("first_frame_ms", "blank_frames", "retargets", "settled_ms")
+
+
+def baseline_cells(report, keep=None):
+    """A report's cells cut to the numbers the per-PR table compares (BASELINE_KEYS), for `--baseline`: the "before"
+    column is the newest nightly's own measurement of the same cells, so a pull request gets before and after from one
+    bench run (no second exclusive hold on the bench Mac). `keep(cell)` picks cells; None keeps all."""
+    out = {}
+    for cell, per in (report.get("cells") or {}).items():
+        if keep is not None and not keep(cell):
+            continue
+        out[cell] = {name: {k: s.get(k) for k in BASELINE_KEYS} for name, s in per.items() if isinstance(s, dict)}
+    return out
+
+
+def encode_baseline(sha, cells):
+    """`--baseline`'s value: zlib + urlsafe base64 of {"sha", "cells"} (a fleet step's args are short and take no '*')."""
+    import base64, json, zlib
+    raw = json.dumps({"sha": sha, "cells": cells}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(zlib.compress(raw, 9)).decode()
+
+
+def decode_baseline(text):
+    """`encode_baseline()` back to {"sha", "cells"}; None for an empty or unreadable value (no before column)."""
+    import base64, json, zlib
+    if not text:
+        return None
+    try:
+        value = json.loads(zlib.decompress(base64.urlsafe_b64decode(text.encode())))
+    except (ValueError, zlib.error):
+        return None
+    return value if isinstance(value, dict) and isinstance(value.get("cells"), dict) else None
+
+
+def row_table(report, budget_ms=None, base=None):
+    """The per-PR table (goal instant-splits): one row per cell x transition, worst first. `first_frame_ms` is input to
+    the first frame that moved; `blank_frames` is the worst round's count of frames where a pane showed one flat
+    color that is neither its before nor its final content (a blank mid-animation); `retargets` is end-point drift
+    (a mover's motion reversed or sped up again mid-flight). `flag` is "slow" over the budget, "blank" with any blank
+    frame, "drift" with any retarget, "unmeasured" with no first frame or a failed round (joined with "+"); "" when
+    the row is ok. With `base` ({"sha", "cells"}, the newest nightly's numbers for the same cells) each row also
+    carries base_<key> for BASELINE_KEYS, the before column. The order: flagged rows before ok ones, unmeasured,
+    then blank before slow, then first frame descending."""
+    budget = TARGETS["first_frame_ms"] if budget_ms is None else budget_ms
+    base_cells = (base or {}).get("cells") or {}
+    rows = []
+    for cell, per in (report.get("cells") or {}).items():
+        for name, s in per.items():
+            first, blank, drift = s.get("first_frame_ms"), s.get("blank_frames"), s.get("retargets")
+            flags = []
+            if first is None or s.get("failed_rounds"):
+                flags.append("unmeasured")
+            elif first > budget:
+                flags.append("slow")
+            if blank:
+                flags.append("blank")
+            if drift:
+                flags.append("drift")
+            row = {"cell": cell, "transition": name, "first_frame_ms": first, "blank_frames": blank,
+                   "retargets": drift, "settled_ms": s.get("settled_ms"), "flag": "+".join(flags)}
+            if base is not None:
+                before = (base_cells.get(cell) or {}).get(name) or {}
+                row.update({f"base_{k}": before.get(k) for k in BASELINE_KEYS})
+            rows.append(row)
+    rows.sort(key=lambda r: (not r["flag"], "unmeasured" not in r["flag"], "blank" not in r["flag"],
+                             -(r["first_frame_ms"] if r["first_frame_ms"] is not None else 1e9), r["cell"], r["transition"]))
+    return rows
+
+
+def row_table_ok(rows):
+    """True when every row is measured, under the budget, has no blank frame and no retarget (no rows is not ok)."""
+    return bool(rows) and not any(r["flag"] for r in rows)
+
+
+def row_table_markdown(rows, budget_ms=None, base_sha=None):
+    """`row_table()` as a Markdown table, worst first, a verdict line above; flagged rows are in bold. Rows with
+    base_* numbers show before -> after (before = the nightly `base_sha`'s measurement of the same cell)."""
+    budget = TARGETS["first_frame_ms"] if budget_ms is None else budget_ms
+    if not rows:
+        return "split table: no rows measured (not ok)"
+    worst, flagged = rows[0], sum(1 for r in rows if r["flag"])
+    based = any(any(r.get(f"base_{k}") is not None for k in BASELINE_KEYS) for r in rows)
+
+    def fmt(v):
+        return "-" if v is None else f"{v:g}"
+
+    def pair(r, key):
+        if not based:
+            return fmt(r.get(key))
+        return f"{fmt(r.get('base_' + key))} -> {fmt(r.get(key))}"
+    lines = [f"**split table: {'ok' if row_table_ok(rows) else 'over'}** - worst row {worst['cell']} {worst['transition']}, "
+             f"first frame {fmt(worst['first_frame_ms'])} ms, blank frames {fmt(worst['blank_frames'])}, "
+             f"retargets {fmt(worst.get('retargets'))}; "
+             f"{flagged} of {len(rows)} rows over {budget:g} ms, blank, drifting or unmeasured."]
+    if based:
+        firsts = [(r["base_first_frame_ms"], r["first_frame_ms"]) for r in rows
+                  if r.get("base_first_frame_ms") is not None and r.get("first_frame_ms") is not None]
+        worse = sum(1 for b, a in firsts if a > b * 1.2 and a - b > 4)
+        better = sum(1 for b, a in firsts if b > a * 1.2 and b - a > 4)
+        lines.append(f"Before = the newest full split-scale matrix (nightly tick) at `{(base_sha or '?')[:12]}`, same cells; after = this head. First frame: "
+                     f"{worse} rows worse, {better} better (over 20% and 4 ms).")
+    lines += ["", "| cell | transition | first frame ms | blank frames | retargets (end-point drift) | settled ms | |",
+              "|---|---|---:|---:|---:|---:|---|"]
+    for r in rows:
+        mark = f"**{r['flag']}**" if r["flag"] else "ok"
+        lines.append(f"| {r['cell']} | {r['transition']} | {pair(r, 'first_frame_ms')} | {pair(r, 'blank_frames')} | "
+                     f"{pair(r, 'retargets')} | {pair(r, 'settled_ms')} | {mark} |")
+    return "\n".join(lines)
+
+
 def _settled(summary, unsettled_ms=None):
     """(settled ms the headline counts, whether it is a floor); inf when nothing was measured."""
     value = summary.get("settled_ms")
@@ -449,14 +569,20 @@ def headline(cells, flat, unsettled_ms=None):
     transition and the worst flatness ratio. A cell with a failed round is the worst (settled None: nothing was
     measured). A round still moving when its strip ended settled no sooner than the strip, `unsettled_ms`: the cell
     counts at least that (`settled_at_least`), so a slow cell still gives the check a number, never a pass."""
-    worst = None
+    worst, timed_out = None, []
     for cell, per in cells.items():
         for name, summary in per.items():
             value, floor = _settled(summary, unsettled_ms)
+            if summary.get("timed_out_rounds"):
+                timed_out.append(f"{cell} {name}")
+                if value == float("inf") and not summary.get("failed_rounds") and not summary.get("unsettled"):
+                    continue  # only deadlines missed: listed in `timed_out_cells`, not ranked as the worst settle
             if worst is None or value > worst["settled_ms"]:
                 worst = {"cell": cell, "transition": name, "settled_ms": value, "settled_at_least": floor}
     if worst is None:
-        return {}
+        return {"timed_out_cells": timed_out} if timed_out else {}
+    if timed_out:
+        worst["timed_out_cells"] = timed_out
     if worst["settled_ms"] == float("inf"):
         worst["settled_ms"] = None
     ratios = [f.get("ratio") for f in flat.values() if _number(f.get("ratio"))]

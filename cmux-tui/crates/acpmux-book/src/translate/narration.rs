@@ -116,7 +116,9 @@ fn is_note(note: &str) -> bool {
     };
     // An action prefix alone does not make a progress note: "Let me check; the cache is stale"
     // contains an answer. Ambiguous clauses stay visible.
-    let rest = &note[action..];
+    let Some(rest) = note.get(action..) else {
+        return false;
+    };
     !rest.contains([',', ';', ':', '|'])
         && !rest.split(|c: char| !(c.is_ascii() && is_word(c as u8))).any(|w| any_eq(SAYING, w))
         && !has_finite_verb(rest)
@@ -172,42 +174,17 @@ fn has_finite_verb(rest: &str) -> bool {
             word.chars().filter(|c| c.is_alphabetic() || matches!(c, '\'' | '’' | '-')).collect()
         })
         .collect();
-    words.iter().enumerate().skip(1).any(|(at, word)| {
+    words.windows(2).any(|pair| {
+        let [previous, word] = pair else { return false };
         any_eq(FINDING_VERBS, word)
             || (word.ends_with("ed")
                 && word.chars().count() >= 4
                 && word.chars().all(char::is_alphabetic)
                 && !word.to_ascii_lowercase().ends_with("eed")
-                && !any_eq(ED_ADJECTIVE_AFTER, &words[at - 1]))
+                && !any_eq(ED_ADJECTIVE_AFTER, previous))
     })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::is_work_narration;
-    #[test]
-    fn narration_is_a_short_progress_note_and_anything_else_is_an_answer() {
-        for (text, narration) in [
-            ("Let me check the cache.", true),
-            ("Reading `client.ts` next.", true),
-            ("I'm running the tests", true),
-            ("I’ll look at the logs. Checking CI.", true),
-            ("Both checks are still running", true),
-            ("Checking the failed jobs.", true),
-            ("Waiting for the build...", true),
-            ("Let me check. The cache is stale.", false),
-            ("Let me check; the cache is stale", false),
-            ("Running two tasks is faster", false),
-            ("Checking the cache found no errors.", false),
-            ("Checking the cache returned nothing.", false),
-            ("Checking the jobs failed twice.", false),
-            ("Let me check. Reading it. Testing it.", false),
-            ("Done.", false),
-            ("Checkingly odd.", false),
-            ("Let me checks", false),
-            ("Reading the feed now", true),
-        ] {
-            assert_eq!(is_work_narration(text), narration, "{text:?}");
-        }
-    }
-}
+#[path = "narration_tests.rs"]
+mod tests;

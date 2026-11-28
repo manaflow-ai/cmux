@@ -598,6 +598,29 @@ class WorkflowRepair(unittest.TestCase):
         self.assertNotIn("actions/cache/restore", workflow)
         self.assertNotIn("actions/cache/save", workflow)
 
+    def test_gate_profile_overrides_every_single_unit_release_package(self):
+        # Nov 21-24: #47836 gave `[profile.release.package.cmux-tui-core]` codegen-units = 1. `[profile.gate]` inherits
+        # release's package overrides, so the gate test build of cmux-tui-core took 35 minutes, the gate step ran out
+        # its limit and the last group (the v2.pr04.* rows) never ran. Every package release builds at fewer units than
+        # the gate profile needs its own `[profile.gate.package.X]` line with at least the gate profile's units.
+        try:
+            import tomllib
+        except ImportError:  # Python before 3.11: this test must never stop the report itself
+            self.skipTest("tomllib needs Python 3.11")
+        root = os.path.join(HERE, "..", "..", "..")
+        with open(os.path.join(root, "cmux-tui", "Cargo.toml"), "rb") as handle:
+            profiles = tomllib.load(handle)["profile"]
+        gate = profiles["gate"]
+        self.assertEqual(gate.get("inherits"), "release")
+        gate_units = gate["codegen-units"]
+        gate_packages = gate.get("package", {})
+        slow = []
+        for name, override in profiles["release"].get("package", {}).items():
+            units = gate_packages.get(name, {}).get("codegen-units", override.get("codegen-units", gate_units))
+            if units < gate_units:
+                slow.append(f"{name}: codegen-units {units} under the gate profile (add [profile.gate.package.{name}])")
+        self.assertEqual(slow, [])
+
     def test_cargo_steps_before_the_home_end_inside_their_step_limit(self):
         # Nov 19: a continue-on-error cargo step ahead of the home hit its timeout-minutes; the CI runner signalled
         # only the step's shell, a cargo it left behind held the shared target directory's lock, and the home waited

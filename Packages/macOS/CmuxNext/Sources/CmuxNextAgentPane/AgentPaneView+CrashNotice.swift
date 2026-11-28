@@ -5,14 +5,17 @@ import CmuxNextPages
 /// A page whose web content process ended loads again by itself in a new process
 /// (``AgentPageCrashRetry``): at once when the pane is on screen, else when it is next shown, with
 /// no notice meanwhile (Leo, 2026-11-01: "how come it says this??? why doens't it just retry on its
-/// own"). Only a page that keeps ending (3 retries in 60 s) shows the crash notice and waits for
-/// the person's Reload. The process already took what the page held (an open menu, the caret,
-/// unsent chips), so a retry loses nothing a Reload would keep.
+/// own"). A page that keeps ending (3 retries in 60 s) shows the crash notice, a line with no
+/// button, and still loads again by itself every 30 s while shown (Leo, 2026-11-22: "vacuous
+/// decisions like that should be just done"). The process already took what the page held (an
+/// open menu, the caret, unsent chips), so a retry loses nothing a Reload would keep.
 extension AgentPaneView {
     /// The old host's web content process ended (`termination`: WebKit's reason and pid, or an
     /// injected end in tests): logged with its siblings (``AgentPageTerminations``), then a retry
     /// or the notice.
     func webContentProcessDidTerminate(_ termination: PageTermination = .unknown) {
+        // The old host has no page to tell it: its last frame stays until a new document paints.
+        documentWillChange(.contentEnded)
         contentEnded(termination.withPid(fallback: knownWebContentPid))
     }
 
@@ -47,10 +50,11 @@ extension AgentPaneView {
 
     private func showCrashNotice() {
         guard crashNotice == nil else { return }
+        // It kept ending: the notice says so, over the page, not over a picture of a chat that works.
+        endDocumentCover(painted: false, reason: "crash notice")
         let message = ChromeLabel(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center
-        let reload = ThemedBezelButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
-        let notice = NSStackView(views: [message, reload])
+        let notice = NSStackView(views: [message])
         notice.orientation = .vertical
         notice.spacing = 12
         notice.translatesAutoresizingMaskIntoConstraints = false
@@ -95,20 +99,38 @@ extension AgentPaneView {
         terminations.loadedAgain(self, session: model.sessionId)
     }
 
-    /// The notice's Reload: the person's request for every chat that ended with this one.
-    @objc private func reloadAfterCrashes() {
+    /// Reloads now every chat that ended with this one (`debug.agent_pane` crash_notice press).
+    func reloadAfterCrashes() {
         terminations.reload(from: self)
     }
 
-    /// Takes the notice away and reloads this pane's page (a Reload the person pressed here or in
-    /// a chat that ended with this one).
+    /// Takes the notice away and reloads this pane's page (a reload of every chat that ended with
+    /// this one, ``reloadAfterCrashes()``).
     func reloadAfterCrash() {
         crashNotice?.removeFromSuperview()
         crashNotice = nil
         crashReloadCount += 1
-        // The person's Reload: the next end retries again.
+        // A reload that starts over: the next end retries quickly again.
         crashRetry.cancel()
         crashRetry.budget.reset()
         if let page { page.reloadAfterCrashes() } else { source.load(into: webView) }
+    }
+}
+
+extension AgentPaneView {
+    /// The person's reload (Cmd-R, "Agent Chat: Reload", the tab's Reload): a crash notice's Reload when one
+    /// shows, else the page saves its draft and reloads under a picture of itself (``PageWebView/reloadForPerson(saveWait:)``),
+    /// so the chat never blanks. The old host (no page host) loads its document again.
+    /// A crash notice's Reload brings back every chat that ended with this one, as the notice's button does.
+    /// Repeated requests while the page saves are one reload, and the pane's close cancels it (``close()``).
+    public func reloadForPerson() {
+        if crashNotice != nil { return reloadAfterCrashes() }
+        guard let page else { return source.load(into: webView) }
+        guard personReload == nil else { return }
+        // task-owner: personReload; one save-then-reload, cancelled by close(), cleared when it ends
+        personReload = Task { [weak self, page] in
+            await page.reloadForPerson()
+            self?.personReload = nil
+        }
     }
 }

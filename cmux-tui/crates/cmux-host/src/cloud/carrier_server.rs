@@ -116,6 +116,10 @@ pub struct Resumes {
     /// Notes the resume in the ticket threads' state (set by
     /// [`CarrierServer::spawn`]).
     noter: Mutex<Option<Waker>>,
+    /// Others told of a resume the same way (the Auto mode socket,
+    /// `auto_session_server.rs`): each drops its connections from before the
+    /// pause in its own note.
+    others: Mutex<Vec<Waker>>,
 }
 
 impl Resumes {
@@ -124,6 +128,14 @@ impl Resumes {
         if let Some(note) = self.noter.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
             note();
         }
+        for note in self.others.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+            note();
+        }
+    }
+
+    /// Also tells `noter` of every resume from now on.
+    pub fn also(&self, noter: Box<dyn Fn() + Send + Sync>) {
+        self.others.lock().unwrap_or_else(PoisonError::into_inner).push(noter);
     }
 
     fn set_noter(&self, noter: Option<Waker>) {
@@ -538,7 +550,7 @@ fn serve<H: Http>(
 /// refusal.
 fn answer<H: Http>(stream: UnixStream, shared: &Shared<H>, stop: &Stop, hooks: Hooks) {
     let started = Instant::now();
-    let stopping = || refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
+    let stopping = || refusal("vm.agent_stopping", "the Cloud agent is stopping");
     if let Err(why) = read_ask(&stream) {
         return finish(stream, refusal("request.invalid", &why), false, started, hooks);
     }
@@ -597,12 +609,12 @@ fn ticket<H: Http>(
     let mut state = shared.lock();
     loop {
         if stop.is_set() {
-            let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
+            let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping");
             return (stopping, false, state.generation);
         }
         match state.ask((hooks.now)(), started) {
             Asked::Stopping => {
-                let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
+                let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping");
                 return (stopping, false, state.generation);
             }
             Asked::Reply { reply, kept, generation } => {

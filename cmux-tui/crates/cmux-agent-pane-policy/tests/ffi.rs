@@ -10,7 +10,8 @@ use cmux_agent_pane_policy::ffi::{
     cmux_agent_pane_policy_abi_version, cmux_agent_pane_policy_bytes_free,
     cmux_agent_pane_policy_call, cmux_agent_pane_policy_check,
     cmux_agent_pane_policy_check_gesture, cmux_agent_pane_policy_filter_reply,
-    cmux_agent_pane_policy_free, cmux_agent_pane_policy_new, cmux_agent_pane_policy_observe,
+    cmux_agent_pane_policy_free, cmux_agent_pane_policy_json_keys_verdict,
+    cmux_agent_pane_policy_new, cmux_agent_pane_policy_observe,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -212,7 +213,7 @@ fn c_abi_runs_the_check_corpus() {
 /// only a click passes it.
 #[test]
 fn c_abi_a_click_only_answer_passes_on_a_click_only() {
-    assert_eq!(cmux_agent_pane_policy_abi_version(), 3);
+    assert_eq!(cmux_agent_pane_policy_abi_version(), 6);
     let pane = new();
     call(pane.0, "add", json!({"session": "s1"})).unwrap();
     let frames = [
@@ -220,6 +221,7 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/plan/build","params":{"sessionId":"s1","permissionId":"p1","target":"compare"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_respond","params":{"sessionId":"s1","permissionId":"p1","optionId":"yes"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_group_respond","params":{"sessionId":"s1","groupId":"g1","revision":1,"decisionKey":"k","decision":"allow_once"}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/customize_run","params":{"run":{"customize":"keep"}}}"#,
     ];
     for frame in frames {
         let old = check(&pane, frame, false, false, None, None);
@@ -241,6 +243,7 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
     assert_eq!(
         p["click_only"],
         json!([
+            "_acpmux/customize_run",
             "_acpmux/permission_group_respond",
             "_acpmux/permission_respond",
             "_acpmux/plan/build",
@@ -375,6 +378,87 @@ fn c_abi_the_ops_without_a_pane() {
     );
 }
 
+#[test]
+fn c_abi_prompt_ops_match_the_shared_presentation_rules() {
+    let none = std::ptr::null();
+    assert_eq!(
+        call(none, "prompt_scrub", json!({"text": "token: abcdefghijklmnop"})).unwrap(),
+        json!({"text": "token: [redacted]"})
+    );
+    assert_eq!(
+        call(none, "prompt_visible", json!({"text": "a\u{200b}\u{202e}b"})).unwrap(),
+        json!({"text": "a<U+200B><U+202E>b"})
+    );
+    assert_eq!(
+        call(none, "prompt_shown_command", json!({"value": ["bash", "-lc", "rm -rf ~"]})).unwrap(),
+        json!({"command": "bash -lc 'rm -rf ~'"})
+    );
+    assert_eq!(
+        call(none, "prompt_cut", json!({"text": "abcdef", "limit": 4})).unwrap(),
+        json!({"text": "abc…"})
+    );
+    let offered = json!([
+        {"kind": "allow_once", "optionId": "allow"},
+        {"kind": "reject_once", "optionId": "deny"},
+        {"kind": "allow_always", "optionId": "always"}
+    ]);
+    assert_eq!(
+        call(none, "prompt_once_option", json!({"allow": true, "offered": offered})).unwrap(),
+        json!({"option": "allow"})
+    );
+    assert_eq!(
+        call(none, "prompt_always_option", json!({"offered": offered})).unwrap(),
+        json!({"option": "always"})
+    );
+    assert_eq!(
+        call(none, "prompt_option", json!({"allow": false, "offered": offered})).unwrap(),
+        json!({"option": "deny"})
+    );
+    let request = json!({
+        "toolCall": {"title": "Run", "rawInput": {"command": ["echo", "hi"]}, "_meta": {}},
+        "options": [{"kind": "allow_once", "optionId": "allow"}, {"kind": "reject_once", "optionId": "deny"}]
+    });
+    let read = call(none, "prompt_read", json!({"request": request})).unwrap();
+    assert_eq!(read["is_question"], false);
+    assert_eq!(read["is_tool_permission"], true);
+    assert_eq!(read["summary"], "Run\necho hi");
+}
+
+#[test]
+fn c_abi_prompt_input_summary_and_invalid_requests() {
+    let none = std::ptr::null();
+    assert_eq!(
+        call(
+            none,
+            "prompt_input_summary",
+            json!({"input": {"env": {"TOKEN": "hidden"}, "cwd": "/tmp"}})
+        ),
+        Ok(json!({"summary": {"fields": {"cwd": "/tmp"}, "truncated": true}}))
+    );
+    for env in [Value::Null, json!("hidden"), json!(["hidden"])] {
+        assert_eq!(
+            call(none, "prompt_input_summary", json!({"input": {"env": env}})),
+            Ok(json!({"summary": {"fields": {}, "truncated": true}}))
+        );
+    }
+    for (op, request) in [
+        ("prompt_scrub", json!({"text": null})),
+        ("prompt_visible", json!({})),
+        ("prompt_input_summary", json!({"input": []})),
+        ("prompt_cut", json!({"text": "abc", "limit": -1})),
+        ("prompt_once_option", json!({"allow": "yes", "offered": []})),
+        ("prompt_always_option", json!({"offered": {}})),
+        ("prompt_option", json!({"allow": true})),
+        ("prompt_read", json!({"request": null})),
+    ] {
+        assert_eq!(call(none, op, request), Err(ERR_INVALID), "{op}");
+    }
+    assert_eq!(
+        call(none, "prompt_cut", json!({"text": "👩🏽‍💻👩🏽‍💻👩🏽‍💻", "limit": 2})),
+        Ok(json!({"text": "👩🏽‍💻…"}))
+    );
+}
+
 /// The pick a gesture ticket is bound to, asked without a frame check (the
 /// host redeems a ticket for a page op such as `cloud.startChat`, and holds a
 /// click's intent by the same values): every case of tests/cases/picks.json
@@ -411,8 +495,42 @@ fn c_abi_runs_the_pick_corpus() {
         json!({"digest": null})
     );
     assert_eq!(call(none, "canonical_digest", json!({})), Err(ERR_INVALID));
+    // The text canonical_digest hashes: keys in UTF-8 byte order, no
+    // whitespace, only quote, backslash and control characters escaped.
+    assert_eq!(
+        call(
+            none,
+            "canonical_json",
+            json!({"value": {"é": "\u{1}", "Which one?": "B", "a/b": [1, 2.0, true, null]}})
+        )
+        .unwrap(),
+        json!({"json": "{\"Which one?\":\"B\",\"a/b\":[1,2,true,null],\"é\":\"\\u0001\"}"})
+    );
+    assert_eq!(
+        call(none, "canonical_json", json!({"value": {"q": 1.5}})).unwrap(),
+        json!({"json": null})
+    );
+    assert_eq!(call(none, "canonical_json", json!({})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": 1})), Err(ERR_INVALID));
     assert_eq!(call(none, "pick", json!({"method": "m", "params": []})), Err(ERR_INVALID));
+}
+
+/// Swift writes integral floats as Int64, including both signs of zero. A
+/// gesture ticket and its answer must therefore hash the same bytes for each.
+#[test]
+fn canonical_answer_zero_matches_swift_through_the_c_abi() {
+    let pane = std::ptr::null();
+    let integer = json!({"value": {"q": [0]}});
+    let digest = call(pane, "canonical_digest", integer).unwrap();
+    assert!(digest["digest"].is_string());
+    for zero in [-0.0_f64, 0.0] {
+        let answer = json!({"value": {"q": [zero]}});
+        assert_eq!(
+            call(pane, "canonical_json", answer.clone()).unwrap(),
+            json!({"json": r#"{"q":[0]}"#})
+        );
+        assert_eq!(call(pane, "canonical_digest", answer).unwrap(), digest);
+    }
 }
 
 /// The host reserves a permission answer's ticket only for an option the
@@ -592,4 +710,44 @@ fn service_wait_says_busy_or_down() {
     let down = call(none, "service_wait", json!({"process_alive": false, "socket_accepts": false}));
     assert_eq!(down.unwrap(), json!({"state": "down", "restart": true}));
     assert_eq!(call(none, "service_wait", json!({"process_alive": true})), Err(ERR_INVALID));
+}
+
+fn keys_verdict(bytes: &[u8]) -> i32 {
+    unsafe { cmux_agent_pane_policy_json_keys_verdict(bytes.as_ptr(), bytes.len()) }
+}
+
+/// The strict duplicate-key check through the C ABI (the Swift host's only
+/// caller of src/json_keys.rs): 0 clean, 1 malformed, 2 duplicate.
+#[test]
+fn c_abi_json_keys_verdict() {
+    assert_eq!(keys_verdict(br#"{"a":1,"b":[1,{"a":2}]}"#), 0);
+    assert_eq!(keys_verdict(br#"{"a":1,"a":2}"#), 2);
+    assert_eq!(keys_verdict(br#"[{"x":{"k":1,"k":1}}]"#), 2);
+    // A composed and a decomposed accent are one key (NFC), as Swift compares them.
+    assert_eq!(keys_verdict("{\"\u{e9}\":1,\"e\u{301}\":2}".as_bytes()), 2);
+    assert_eq!(keys_verdict(br#"{"\u00e9":1,"\u0065\u0301":2}"#), 2);
+    assert_eq!(keys_verdict(br#"{"a":1,}"#), 1);
+    assert_eq!(keys_verdict(b"{\"a\":1} x"), 1);
+    assert_eq!(keys_verdict(b""), 1);
+    assert_eq!(keys_verdict(&[b'"', 0xff, b'"']), 1, "not UTF-8 is malformed");
+    assert_eq!(unsafe { cmux_agent_pane_policy_json_keys_verdict(std::ptr::null(), 0) }, 1);
+    assert_eq!(unsafe { cmux_agent_pane_policy_json_keys_verdict(std::ptr::null(), 3) }, ERR_NULL);
+    let deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
+    assert_eq!(keys_verdict(deep.as_bytes()), 0, "no recursion");
+}
+
+#[test]
+fn new_tab_projects_json_op_works_without_a_pane_handle() {
+    let reply =
+        call(std::ptr::null(), "new_tab_projects", json!({"projects":["/a","/b"]})).unwrap();
+    let rows: Value = serde_json::from_str(reply["rows"].as_str().unwrap()).unwrap();
+    assert_eq!(rows[0]["cwd"], "/a");
+    assert_eq!(rows[0]["displayGroup"]["lead"], "/a");
+    let refreshed = call(
+        std::ptr::null(),
+        "new_tab_projects",
+        json!({"projects":["/b","/a"],"seed":reply["rows"]}),
+    )
+    .unwrap();
+    assert_eq!(refreshed, reply);
 }

@@ -38,7 +38,7 @@ fn no_search_home() -> PathBuf {
     std::env::temp_dir().join(format!("acpmux-agent-tools-claude-home-{}", std::process::id()))
 }
 
-fn hub() -> Arc<Hub> {
+fn hub(bin: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
@@ -69,6 +69,13 @@ fn hub() -> Arc<Hub> {
         "permissionPolicy": "approve-all",
     }))
     .unwrap();
+    // A Codex launch asks its own binary whether it already has a cmux server.
+    let mut paths = vec![bin.to_owned()];
+    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    let path = std::env::join_paths(paths).unwrap().into_string().unwrap();
+    for profile in cfg.harnesses.values_mut().filter(|h| h.family.as_deref() == Some("codex")) {
+        profile.env.insert("PATH".into(), path.clone());
+    }
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
@@ -161,7 +168,10 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
         std::env::set_var("ACPMUX_SECRET_TOOLS", "1");
         std::env::set_var("ACPMUX_OFFER_TOOLS", "1");
     }
-    let hub = hub();
+    let codex = fake_bin(&bin, "codex");
+    std::fs::write(codex, "#!/bin/sh\necho \"No MCP server named 'cmux' found.\" >&2\nexit 1\n")
+        .unwrap();
+    let hub = hub(&bin);
 
     // An ACP harness: the servers in session/new, the secret tools (cx-ncc.42)
     // and the offer tool (cx-807da) for this session on this daemon's socket.
@@ -200,7 +210,10 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
             "cmux-sessions",
             "cmux-subsessions",
             "cmux-forum",
-            "acpmux"
+            "acpmux",
+            // The hosted tools (`hosted_mcp.rs`), on by default.
+            acpmux::hosted_mcp::SERVER_NAME,
+            acpmux::agent_tools::SAVED_SERVERS_NAME
         ],
         "{upstreams}"
     );
@@ -381,13 +394,13 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     }
     assert!(!plugin.join("skills/cmux-cua").exists(), "the legacy skill is gone");
     // The acpmux CLI guide, pointing at the sub-session tools first.
-    let acpmux_skill = std::fs::read_to_string(plugin.join("skills/acpmux/SKILL.md")).unwrap();
-    assert!(acpmux_skill.contains("name: acpmux"), "{acpmux_skill}");
-    assert!(acpmux_skill.contains("cmux-subsessions") && acpmux_skill.contains("start_session"));
+    let agents_skill = std::fs::read_to_string(plugin.join("skills/agents/SKILL.md")).unwrap();
+    assert!(agents_skill.contains("name: agents"), "{agents_skill}");
+    assert!(agents_skill.contains("cmux-subsessions") && agents_skill.contains("start_session"));
     // It names the send tool before any `acpmux send`: chats ran `acpmux send` in Bash 15,810
     // times to 188 send tool calls (2026-11-09 audit, cmuxterm-hq#8104).
-    let tool = acpmux_skill.find("mcp__acpmux__send").expect("the skill names the send tool");
-    let cli = acpmux_skill.find("cmux agent send").unwrap();
+    let tool = agents_skill.find("mcp__acpmux__send").expect("the skill names the send tool");
+    let cli = agents_skill.find("cmux agent send").unwrap();
     assert!(
         tool < cli,
         "the skill teaches `cmux agent send` (byte {cli}) before the tool ({tool})"
@@ -397,19 +410,8 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     )
     .unwrap();
     assert_eq!(manifest["name"], "cmux");
-    // The background-shell hook (`bg_hook.rs`) runs before every Bash call.
-    let hooks: Value =
-        serde_json::from_str(&std::fs::read_to_string(plugin.join("hooks/hooks.json")).unwrap())
-            .unwrap();
-    let bash = &hooks["hooks"]["PreToolUse"][0];
-    assert_eq!(bash["matcher"], "Bash", "{hooks}");
-    // With the daemon's home, which the harness's env does not carry. The shell starts it only
-    // for a call it may answer, and a hook binary that fails (version skew) lets the call run:
-    // the command ends `true` (`hook_command`).
-    let command = bash["hooks"][0]["command"].as_str().unwrap();
-    let with_home = format!("'__bg-hook' '{}' ;; esac; true", acpmux::config::home().display());
-    assert!(command.starts_with("input=$(cat); case ") && command.ends_with(&with_home), "{hooks}");
-    assert!(command.contains(r#"*'"run_in_background":true'*"#), "{hooks}");
+    // Tool hooks use the existing Claude control channel. No command hook runs beside them.
+    assert!(!plugin.join("hooks/hooks.json").exists());
 
     // `agents.memory.enabled` adds the memory server for the next session,
     // with the session as its provenance.

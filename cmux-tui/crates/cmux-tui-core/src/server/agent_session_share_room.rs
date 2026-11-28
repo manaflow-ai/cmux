@@ -357,7 +357,7 @@ pub(super) async fn call(
     body: Option<&Value>,
     timeout: Duration,
 ) -> Option<(u16, Value)> {
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui_core::server::agent_session_share_room")
         .default_headers(cmux_build_space::headers().ok()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
@@ -529,10 +529,12 @@ impl Drop for DeleteGuard {
         let shares = shares(&mux);
         shares.release_room_delete(&self.share_id);
         shares.rearm();
-        // A late PUT that found this worker in flight wrote its host token after the worker's
-        // last read: the queued `DELETE` runs now with it, not at the share's expiry.
+        // A late PUT or the expiry timer may have tried to start cleanup while this worker
+        // still held the claim. Check both after releasing it.
         if self.tokenless
-            && view(&mux, &self.share_id).is_some_and(|v| v.delete && v.host_token.is_some())
+            && view(&mux, &self.share_id).is_some_and(|v| {
+                v.delete && (v.host_token.is_some() || shares.now() >= v.expires_at)
+            })
         {
             delete(&mux, &self.share_id, None);
         }
@@ -680,7 +682,7 @@ fn delete_after(
 }
 
 /// Starts the share's host socket, or has the running one reconcile.
-fn host(mux: &Arc<Mux>, share_id: &str) {
+pub(super) fn host(mux: &Arc<Mux>, share_id: &str) {
     let bridge = &shares(mux).bridge;
     let mut hosts = bridge.hosts.lock().unwrap_or_else(|e| e.into_inner());
     if hosts.get(share_id).is_some_and(|(_, host)| host.send(Cmd::Reconcile).is_ok()) {
@@ -825,7 +827,12 @@ async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> R
     let config = tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(MAX_HOST_FRAME_BYTES))
         .max_frame_size(Some(MAX_HOST_FRAME_BYTES));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui_core::server::agent_session_share_room",
+    );
     match tokio::time::timeout(timeout, connect).await {
         Ok(Ok((socket, _))) => Ok(socket),
         Ok(Err(tungstenite::Error::Http(reply))) => Err(match reply.status().as_u16() {
@@ -1067,6 +1074,7 @@ impl Guests {
                 }
                 ask
             }
+            "guest_cancel" => relay::Ask::Cancel,
             "guest_typing" => relay::Ask::Typing(frame.get("on") == Some(&Value::Bool(true))),
             "older" => match frame.get("before_seq").and_then(Value::as_u64) {
                 Some(before) => relay::Ask::Older(before),
@@ -1104,7 +1112,8 @@ impl Guests {
         tries: u32,
     ) {
         self.waiting.remove(guest);
-        if !view(mux, share_id).is_some_and(|v| v.active.iter().any(|g| g == guest)) {
+        let Some(view) = view(mux, share_id) else { return };
+        if !view.active.iter().any(|g| g == guest) {
             return;
         }
         let bridge = &shares(mux).bridge;
@@ -1207,7 +1216,8 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
             let redeem = Redeem {
                 share_id: share_id.to_owned(),
-                secret: field("secret"),
+                // A null secret is no secret (an account-only accept), never an empty one to check.
+                secret: frame.get("secret").filter(|v| !v.is_null()).map(|_| field("secret")),
                 name: field("name"),
                 attempt_id: field("attempt_id"),
                 // The account the room signed in: an invitee's (no secret then), or a signed-in
@@ -1253,7 +1263,13 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 avatar_url: frame.get("avatar_url").and_then(Value::as_str).map(str::to_owned),
             };
             let directory = mux.session_state_directory();
-            let asked = shares(mux).request_access(directory.as_deref(), ask);
+            let name = ask.name.clone();
+            let asked = shares(mux).ask_access(directory.as_deref(), ask);
+            if let Ok((answer, Some((session, surface)))) = &asked {
+                // The account as recorded (trimmed, lowercased), as the Share dialog lists it.
+                let account = answer["account"].as_str().unwrap_or_default();
+                tell_owner_of_request(mux, session, *surface, &name, account);
+            }
             let request_id = frame.get("request_id").unwrap_or(&Value::Null);
             let attempt_id = frame.get("attempt_id").unwrap_or(&Value::Null);
             match asked {
@@ -1274,6 +1290,30 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
             Vec::new()
         }
         _ => Vec::new(),
+    }
+}
+
+/// Tells the owner a new access request waits on their chat, the way Google Docs mails an
+/// owner "X is requesting access": a notification (banner, sidebar mark, the ledger) on the
+/// surface showing the chat, which opens it; the Share dialog approves or declines.
+fn tell_owner_of_request(mux: &Mux, session: &str, surface: u64, name: &str, account: &str) {
+    let shown = super::chat_surface(mux, session, surface);
+    let who = if name.trim().is_empty() { account } else { name.trim() };
+    let title = format!("{who} asks to join this chat");
+    let body = if who == account {
+        "Open Share to approve or decline.".to_owned()
+    } else {
+        format!("{account} · Open Share to approve or decline.")
+    };
+    if let Err(error) = mux.post_notification_as(
+        &crate::workspace_registry::Actor::Daemon,
+        title,
+        body,
+        crate::mux::NotificationLevel::Info,
+        shown,
+        crate::mux::NotificationSource::Daemon,
+    ) {
+        eprintln!("cmux-tui: share access request notification failed: {error:#}");
     }
 }
 
@@ -1350,3 +1390,7 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
 #[cfg(test)]
 #[path = "agent_session_share_room_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(test)]
+#[path = "agent_session_share_room_seeded_tests.rs"]
+mod seeded_tests;

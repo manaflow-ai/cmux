@@ -47,7 +47,7 @@ test("the sidebar draws each section's header above its categories", async () =>
   expect(shown[0]).toEqual({ header: null, links: ["general", "customize", "updates"] });
   expect(shown.find((section) => section.links.includes("agents"))).toEqual({
     header: "AI",
-    links: ["chat", "agents", "chief", "models"],
+    links: ["chat", "agents", "chief", "models", "automations"],
   });
   // Every page is in the sidebar once, those under More too (closed, they are inert until opened).
   expect(shown.flatMap((section) => section.links)).toEqual(categories.map((category) => category.id));

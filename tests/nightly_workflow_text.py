@@ -11,6 +11,7 @@ workflow's text or YAML read this expansion, so they keep checking those
 steps' commands in place.
 """
 from __future__ import annotations
+# guard-inputs: scripts/ci/nightly-steps/ .github/workflows/nightly.yml
 
 from pathlib import Path
 import re
@@ -47,6 +48,11 @@ def nightly_text() -> str:
     return expand(NIGHTLY_YML.read_text(encoding="utf-8"))
 
 
+def workflow_text(name: str) -> str:
+    """Another workflow (one nightly.yml calls, such as nightly-compilation-cache.yml) with its moved steps inline."""
+    return expand((ROOT / ".github/workflows" / name).read_text(encoding="utf-8"))
+
+
 STEP_ANCHOR = re.compile(r"^( *)- &([A-Za-z0-9_-]+)\n((?:\1  .*\n|\n(?=\1  ))+)", re.MULTILINE)
 # A `key: &name` anchor inside an anchored step (the publish lease's `env: &next-publish-lease`, #42267), or a
 # scalar one, `key: &name value` (the Chromium engine fetch's `&r2a ${{ secrets... }}`, #45938): a written-out
@@ -75,4 +81,6 @@ def write_out_step_aliases(text: str) -> str:
 
 if __name__ == "__main__":
     # tests/test_nightly_universal_build.sh reads this: moved scripts inline, every step written out.
-    print(write_out_step_aliases(nightly_text()), end="")
+    # An argument names a workflow nightly.yml calls (nightly-compilation-cache.yml) to print instead.
+    import sys
+    print(write_out_step_aliases(workflow_text(sys.argv[1]) if len(sys.argv) > 1 else nightly_text()), end="")

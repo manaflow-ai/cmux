@@ -233,3 +233,45 @@ fn macos_surface_spawn_returns_within_deadline() {
         .expect("macOS surface PTY spawn blocked past its five-second deadline")
         .expect("macOS surface PTY spawn failed");
 }
+
+/// A quiet holder terminal's reader parks and its first thread ends. That
+/// thread lets go of its own handle, so its stack is freed now and not when the
+/// tab closes; shutdown still waits for the reader, now on another thread.
+#[cfg(unix)]
+#[test]
+fn a_parked_reader_lets_go_of_its_ended_threads_handle() {
+    let mux = Mux::new_for_test("reader-detach", SurfaceOptions::default());
+    let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+        .expect("test PTY should spawn");
+    let pty = surface.as_pty().unwrap();
+    pty.reader_completion.reset();
+    let (installed_tx, installed_rx) = sync_channel(0);
+    let parking = surface.clone();
+    let reader = std::thread::spawn(move || {
+        installed_rx.recv().unwrap();
+        super::spawn::detach_own_reader_thread(parking.as_pty().unwrap());
+    });
+    *pty.reader_thread.lock().unwrap() = Some(reader);
+    installed_tx.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while pty.reader_thread.lock().unwrap().is_some() {
+        assert!(Instant::now() < deadline, "the parked reader kept its thread's handle");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(pty.reader_detached.load(Ordering::Acquire));
+
+    // Another thread's call leaves a handle it does not own alone.
+    let other = std::thread::spawn(|| {});
+    *pty.reader_thread.lock().unwrap() = Some(other);
+    super::spawn::detach_own_reader_thread(pty);
+    pty.reader_thread.lock().unwrap().take().expect("not this thread's handle").join().unwrap();
+
+    let completion = pty.reader_completion.clone();
+    let resumed = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        completion.complete();
+    });
+    surface.finish_terminal_reader(Instant::now() + Duration::from_secs(5));
+    assert!(pty.reader_completion.is_complete(), "shutdown did not wait for the resumed reader");
+    resumed.join().unwrap();
+}

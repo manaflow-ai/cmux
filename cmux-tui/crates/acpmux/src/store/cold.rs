@@ -50,6 +50,12 @@ pub const COLD_FILE: &str = "cold.zst";
 /// history store: the archive's blob, size and hash. A chat with a stub and no segment is cold; its
 /// first read fetches the archive back into `cold.zst` and thaws it as any archive.
 pub const CLOUD_STUB: &str = "cold.zst.cloud";
+/// What stays on this disk of an offloaded chat for search: its archive's lines the search
+/// projector reads (`text_index::wanted`), in order, in one zstd file. Written before the upload,
+/// so an offloaded chat stays findable by `acpmux search` with no fetch; removed with the stub at
+/// the thaw. Leo, 2026-11-27: "if things are completed/idle we should just be moving them off to
+/// r2 if we really want to keep the session histories and whatnot".
+pub const SEARCH_COPY: &str = "cold-search.zst";
 /// The folder a rehydrate decodes into, renamed to `events/` once every file is on the disk.
 const THAW_DIR: &str = "cold-thaw.tmp";
 /// Where a commit renames `events/` before removing it, and a rehydrate any `events/` without a
@@ -59,11 +65,15 @@ const DROP_DIR: &str = "events.cold-drop";
 const COLD_SEGMENTS_DROP_DIR: &str = "cold-segments.cold-drop";
 /// The header's schema.
 const SCHEMA: &str = "acpmux.cold.v1";
-/// zstd's strongest level that needs no large window to decode (19). Event logs are JSON lines
-/// that repeat their keys and much of their text, so it pays: about 10x on a Claude chat
-/// (`store/cold_tests.rs` prints a fixture's numbers). Archiving is rare and runs on a blocking
-/// thread, one chat at a time; decoding at any level is fast.
-const LEVEL: i32 = 19;
+/// zstd level 9: event logs are JSON lines that repeat their keys and much of their text, so even
+/// a middle level packs them about 14x, and it is about 50x faster than 19. 19 assumed archiving is
+/// rare. 2026-11-28, gcp-agent-lane-2: the passes took 0.5-2.3 GB each, 7 passes in 3 h, and
+/// `perf` put 57% of the daemon's CPU in `cold_pass` -> `copy_hashed` (zstd opt2), one core held
+/// for minutes. On 79 MB of that host's chat logs (one thread): level 19 packs at 3.5 MB/s to
+/// 16.4x, 9 at 187 MB/s to 14.3x, 3 at 850 MB/s to 11.7x. 9 keeps most of the bytes saved for 2%
+/// of the CPU. Decoding is about 4 GB/s at any level, and archives already written at 19 still
+/// read back.
+const LEVEL: i32 = 9;
 /// The longest header or trailer line read back.
 const LINE_MAX: u64 = 4 * 1024 * 1024;
 
@@ -307,8 +317,23 @@ impl LocalStore {
         if !crate::home_fs::try_exists_nofollow(self.cold_path(id))?
             && crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id))?
         {
-            // Offloaded to cloud history: not searched, never fetched for a query (one search
-            // would pull every offloaded chat back). A local text index of them is the next step.
+            // Offloaded to cloud history: never fetched for a query (one search would pull every
+            // offloaded chat back). Its search copy, kept local at the offload, is read instead;
+            // one offloaded before the copy existed is not searched.
+            let copy = self.dir(id).join(SEARCH_COPY);
+            if !crate::home_fs::try_exists_nofollow(&copy)? {
+                return Ok(());
+            }
+            let file = crate::home_fs::private_state_file(&copy)?;
+            let mut reader =
+                BufReader::with_capacity(256 * 1024, zstd::stream::read::Decoder::new(file)?);
+            let mut line = Vec::new();
+            while reader.read_until(b'\n', &mut line)? > 0 {
+                if let Ok(record) = parse_record(&line) {
+                    visit(record);
+                }
+                line.clear();
+            }
             return Ok(());
         }
         decode_files(&self.cold_path(id), &mut |entry, part, hash| {
@@ -368,23 +393,66 @@ impl LocalStore {
     /// archive's removal run under the cold lock, and only when the archive still holds the bytes
     /// uploaded and the chat still has no segment. A crash between the stub and the removal
     /// leaves both: the archive is read, and the stub goes with it at the thaw.
+    /// The bytes freed are the archive's less its search copy's ([`SEARCH_COPY`]).
     pub(super) fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
         let archive = self.cold_path(id);
         if !self.is_cold(id) || !crate::home_fs::try_exists_nofollow(&archive)? {
             return Ok(None);
         }
         let Some(cloud) = self.cloud()? else { return Ok(None) };
+        let kept = self.write_search_copy(id, &archive)?;
         let record = cmux_session_cloud::offload::upload(&archive, &cloud)?;
         let _cold = self.cold.lock(id);
         let _sealed = self.unsealed(id)?;
         if self.held_has_segment(id)? {
             return Ok(None);
         }
-        let freed = cmux_session_cloud::offload::commit(&archive, &record)?;
+        let freed = cmux_session_cloud::offload::commit(&archive, &record)?
+            .map(|bytes| bytes.saturating_sub(kept));
         if let Some(bytes) = freed {
             tracing::info!(session = %id, bytes, stored = record.stored_bytes, "offloaded a cold chat to cloud history");
         }
         Ok(freed)
+    }
+
+    /// Writes [`SEARCH_COPY`] from `archive`, checked against its hashes as any decode is: its
+    /// size. Atomic, and before any upload, so a stub never stands without it.
+    pub(super) fn write_search_copy(&self, id: &str, archive: &Path) -> Result<u64> {
+        let mut encoder = zstd::stream::write::Encoder::new(Vec::new(), LEVEL)?;
+        decode_files(archive, &mut |entry, part, hash| {
+            if !entry.name.ends_with(".ndjson") {
+                return copy_hashed(part, &mut std::io::sink(), hash);
+            }
+            let mut reader = BufReader::new(part);
+            let mut line = Vec::new();
+            let mut copied = 0;
+            while reader.read_until(b'\n', &mut line)? > 0 {
+                hash.update(&line);
+                copied += line.len() as u64;
+                if super::text_index::wanted(&line) {
+                    encoder.write_all(&line)?;
+                    if !line.ends_with(b"\n") {
+                        encoder.write_all(b"\n")?;
+                    }
+                }
+                line.clear();
+            }
+            Ok(copied)
+        })?;
+        let bytes = encoder.finish()?;
+        crate::config::write_atomic(&self.dir(id).join(SEARCH_COPY), &bytes)?;
+        Ok(bytes.len() as u64)
+    }
+
+    /// See [`Store::cloud_configured`]. A config that does not read counts as not set up.
+    pub(super) fn cloud_configured(&self) -> bool {
+        self.cloud().is_ok_and(|cloud| cloud.is_some())
+    }
+
+    /// See [`Store::offloaded`].
+    pub(super) fn offloaded(&self, id: &str) -> bool {
+        crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id)).unwrap_or(false)
+            && !crate::home_fs::try_exists_nofollow(self.cold_path(id)).unwrap_or(true)
     }
 
     /// See [`Store::register_cloud_root`]. Reads every chat folder's stub (one small file each),
@@ -787,6 +855,8 @@ impl LocalStore {
         }
         if offloaded {
             crate::home_fs::remove_file(&stub)?;
+            // The log is back and searched from its segments again.
+            let _ = crate::home_fs::remove_file(dir.join(SEARCH_COPY));
         }
         sync_directory(&dir)?;
         let _ = crate::home_fs::remove_dir_all(&aside);

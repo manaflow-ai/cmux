@@ -159,7 +159,7 @@ def check_preflight_retest():
            f"a feat-cmux-next publisher whose daemon tests are stuck: re-tested ({values.get('daemon_tested')!r}, {result.stderr.strip()[-300:]})")
 
 
-def run_policy(event, ref, message):
+def run_policy(event, ref, message, dispatch_daemon_tests="", extra=None):
     with tempfile.TemporaryDirectory() as tmp:
         git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@example.com"]
         subprocess.run(["git", "init", "-q", tmp], check=True)
@@ -167,13 +167,35 @@ def run_policy(event, ref, message):
         output = os.path.join(tmp, "github-output")
         open(output, "w").close()
         env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": output,
-               "EVENT_NAME": event, "REF": ref})
+               "EVENT_NAME": event, "REF": ref, "DISPATCH_DAEMON_TESTS": dispatch_daemon_tests})
+        head = subprocess.run(["git", "-C", tmp, "rev-parse", "HEAD"], check=True, capture_output=True,
+                              text=True).stdout.strip()
+        for name, value in (extra or {}).items():
+            env[name] = value.replace("{tmp}", tmp).replace("{head}", head)
         result = subprocess.run(["bash", "-c", policy_step()], cwd=tmp, env=env,
                                 capture_output=True, text=True)
         if result.returncode != 0:
             return f"exit {result.returncode}: {result.stderr.strip()}"
         values = dict(line.split("=", 1) for line in open(output).read().splitlines() if "=" in line)
         return values.get("daemon_tests")
+
+
+def run_policy_with_remote(event, ref, message, extra):
+    """run_policy with a fake `git ls-remote` on PATH that prints FAKE_TIP for refs/heads/feat-cmux-next."""
+    with tempfile.TemporaryDirectory() as bin_dir:
+        real_git = subprocess.run(["bash", "-c", "command -v git"], capture_output=True, text=True).stdout.strip()
+        fake = os.path.join(bin_dir, "git")
+        with open(fake, "w") as handle:
+            handle.write("#!/usr/bin/env bash\n"
+                         'if [[ "$1" == ls-remote ]]; then\n'
+                         '  [[ "$2" == */remote.git && -n "${FAKE_TIP:-}" ]] || exit 2\n'
+                         '  [[ "$FAKE_TIP" == "{head}" ]] && FAKE_TIP="$SHA"\n'
+                         '  printf "%s\\trefs/heads/feat-cmux-next\\n" "$FAKE_TIP"; exit 0\n'
+                         "fi\n"
+                         f'exec {real_git} "$@"\n')
+        os.chmod(fake, os.stat(fake).st_mode | stat.S_IEXEC)
+        extra = dict(extra, PATH=f"{bin_dir}:{os.environ['PATH']}")
+        return run_policy(event, ref, message, extra=extra)
 
 
 def main():
@@ -193,11 +215,57 @@ def main():
     for event, ref, message, want, why in cases:
         got = run_policy(event, ref, message)
         _check(got == want, f"{why}: {event} {ref} -> {got!r}, want {want!r}")
+    # A tree-only dispatch (the hot verify rust look) skips them; an explicit true, or a push, does not read it.
+    for event, flag, want, why in [
+        ("workflow_dispatch", "false", "false", "a tree-only dispatch (daemon_tests=false) skips the daemon tests"),
+        ("workflow_dispatch", "true", "true", "a dispatch with daemon_tests=true runs them"),
+        ("push", "false", "true", "only a dispatch reads daemon_tests"),
+    ]:
+        ref = "refs/heads/codex/some-lane" if event == "workflow_dispatch" else "refs/heads/feat-cmux-next"
+        got = run_policy(event, ref, plain, flag)
+        _check(got == want, f"{why}: {event} {ref} daemon_tests={flag} -> {got!r}, want {want!r}")
+
+    # REQUESTED-RERUN-TREE-ONLY: a re-run of a feat-cmux-next commit that is no longer the tip publishes its tree
+    # only; the tip's own re-run, an unreadable tip, the off switch and a first attempt still test.
+    moved = "0" * 40
+    for attempt, tip, switch, want, why in [
+        ("2", moved, "", "false", "a re-run of a commit behind the feat-cmux-next tip publishes its tree only"),
+        ("3", moved, "", "false", "attempt 3 behind the tip publishes its tree only"),
+        ("2", "{head}", "", "true", "a re-run of the tip still runs the daemon tests"),
+        ("2", "", "", "true", "an unreadable tip still runs the daemon tests"),
+        ("2", moved, "1", "true", "vars.CMUX_TUI_RERUN_DAEMON_TESTS = '1' tests re-runs again"),
+        ("1", moved, "", "true", "a first attempt keeps its rule (the stale step decides)"),
+    ]:
+        # A remote whose feat-cmux-next head is `tip` (none when empty: ls-remote prints nothing).
+        remote = "{tmp}/no-such-remote" if not tip else "{tmp}/remote.git"
+        setup = {"RUN_ATTEMPT": attempt, "SHA": "{head}", "CMUX_TUI_REF_REMOTE": remote,
+                 "CMUX_TUI_RERUN_DAEMON_TESTS": switch, "FAKE_TIP": tip}
+        got = run_policy_with_remote("push", "refs/heads/feat-cmux-next", plain, setup)
+        _check(got == want, f"{why}: attempt {attempt} -> {got!r}, want {want!r}")
+    got = run_policy_with_remote("push", "refs/heads/codex/some-lane", plain,
+                                 {"RUN_ATTEMPT": "2", "SHA": "{head}", "CMUX_TUI_REF_REMOTE": "{tmp}/remote.git",
+                                  "FAKE_TIP": moved})
+    _check(got == "false", f"a lane-branch re-run keeps the lane rule: {got!r}")
+
+    with open(os.path.join(ROOT, ".github", "workflows", "cmux-next-hot-verify.yml"), encoding="utf-8") as handle:
+        hot_verify = handle.read()
+    _check('gh workflow run cmux-tui-artifacts.yml --repo "$GITHUB_REPOSITORY" --ref "$branch" -f daemon_tests=false'
+           in hot_verify, "the hot verify rust look asks for the tree only")
 
     all_jobs = jobs()
     preflight = all_jobs["tree-preflight"]
     _check(preflight["outputs"].get("daemon_tests") == "${{ steps.daemon-policy.outputs.daemon_tests }}",
            "tree-preflight exports daemon_tests")
+    _check(preflight["outputs"].get("reuse_key") == "${{ steps.reuse-key.outputs.key }}",
+           "tree-preflight exports the same-input reuse key")
+    _check(preflight["outputs"].get("reuse_hit") == "${{ steps.reuse.outputs.hit }}",
+           "tree-preflight exports the same-input reuse hit")
+    reuse_steps = {step.get("id"): step for step in preflight["steps"]}
+    _check({"reuse-key", "reuse"} <= set(reuse_steps),
+           "tree-preflight fingerprints and looks up the same-input pass")
+    for name in ("build-linux", "build", "build-windows", "build-darwin-fallback", "cmux-next-daemon-tests"):
+        _check("needs.tree-preflight.outputs.reuse_hit != 'true'" in str(all_jobs[name].get("if", "")),
+               f"{name} skips all work when the same-input pass is reused")
 
     daemon_if = str(all_jobs["cmux-next-daemon-tests"]["if"])
     _check(daemon_if.count("needs.tree-preflight.outputs.daemon_tests == 'true'") >= 2,

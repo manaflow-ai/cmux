@@ -72,6 +72,38 @@ fn only_a_closed_connection_or_a_gone_or_refused_socket_is_a_dropped_link() {
 }
 
 #[test]
+fn a_timeout_on_a_fresh_connections_first_request_is_a_dropped_link() {
+    let timed_out = |what: &str| StartFailure::TimedOut { what: what.to_owned() };
+    assert!(link_dropped(&timed_out("identify (no reply within 10.0 seconds)")));
+    assert!(link_dropped(&timed_out("set-client-info (no reply within 10.0 seconds)")));
+    assert!(
+        !link_dropped(&timed_out("agent-session-start (no reply within 10.0 seconds)")),
+        "the start itself may have run on the machine"
+    );
+    assert!(!link_dropped(&timed_out("identify-extra (no reply within 10.0 seconds)")));
+    assert!(!link_dropped(&timed_out("")));
+    let read: StartFailure = serde_json::from_value(
+        json!({"kind": "timedOut", "what": "identify (no reply within 10.0 seconds)"}),
+    )
+    .unwrap();
+    assert!(link_dropped(&read));
+}
+
+#[test]
+fn only_a_first_request_timeout_says_the_held_link_is_stale() {
+    let timed_out = |what: &str| StartFailure::TimedOut { what: what.to_owned() };
+    assert!(link_stale(&timed_out("identify (no progress for 10.0 s)")));
+    assert!(link_stale(&timed_out("set-client-info (no progress for 10.0 s)")));
+    assert!(!link_stale(&timed_out("agent-session-start (no progress for 10.0 s)")));
+    assert!(
+        !link_stale(&StartFailure::ConnectionClosed),
+        "a closed link ends and redials by itself"
+    );
+    assert!(!link_stale(&StartFailure::ConnectFailed { code: ENOENT }));
+    assert!(!link_stale(&StartFailure::Other));
+}
+
+#[test]
 fn only_the_machines_older_daemon_refusing_updates_it_first() {
     assert!(updates_before_copying_again(false, Some("machine_outdated"), Some("target")));
     assert!(updates_before_copying_again(false, Some("machine_outdated"), None));

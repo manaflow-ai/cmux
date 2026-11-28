@@ -452,7 +452,13 @@ async fn a_slow_stop_does_not_fold_the_next_prompt_into_the_stopped_turn() {
 /// does not let the late result start another turn.
 #[tokio::test]
 async fn a_compacting_claude_stop_is_prompt_and_idempotent() {
-    let (_hub, mut c) = claude_setup().await;
+    let hold = std::env::temp_dir().join(format!("acpmux-compact-stop-{}", uuid::Uuid::now_v7()));
+    std::fs::write(&hold, "").unwrap();
+    let (hub, mut c) = claude_setup_env(BTreeMap::from([(
+        "FAKE_CLAUDE_COMPACT_HOLD".to_owned(),
+        hold.to_string_lossy().into_owned(),
+    )]))
+    .await;
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let prompt_id = "compact-stop-prompt";
@@ -498,10 +504,18 @@ async fn a_compacting_claude_stop_is_prompt_and_idempotent() {
     assert_eq!(result["msg"]["promptId"], prompt_id, "{result}");
     assert!(result["msg"]["turnId"].as_str().is_some(), "{result}");
     assert!(result["msg"]["turnSeq"].as_u64().is_some(), "{result}");
-    // The fake emits its compaction result after 800 ms. It is stale after the
-    // forced end: no second turn or forced result is recorded for the stop.
-    tokio::time::sleep(Duration::from_millis(900)).await;
-    let events = _hub.events(&id, 0, 10_000).unwrap();
+    // Release the stale result only after forced cancellation. A subsequent control
+    // response is ordered after that result in the fake's stdout, so no sleep guesses
+    // whether the adapter has consumed it. Neither operation starts another turn.
+    std::fs::remove_file(&hold).unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        c.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": "plan"})),
+    )
+    .await
+    .expect("the fake did not finish its late compaction")
+    .unwrap();
+    let events = hub.events(&id, 0, 10_000).unwrap();
     let results: Vec<_> = events.iter().filter(|e| e.kind == "turn_result").collect();
     assert_eq!(results.len(), 1, "{results:?}");
     assert_eq!(events.iter().filter(|e| e.kind == "turn_started").count(), 1, "{events:?}");
@@ -766,8 +780,8 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
     assert_eq!(summary["lastMessage"], json!({"role": "agent", "text": "echo: second"}));
 }
 
-/// A test's stand-in harness runs at normal CPU class once its start is over, not at the
-/// product's background default (`cpu_class.rs`). The stand-ins time their turns with short
+/// A test's stand-in harness runs at normal CPU class once its start is over (`cpu_class.rs`; the
+/// product's default too since 2026-11-24, when it was background). The stand-ins time their turns with short
 /// sleeps (a Codex-steer turn polls 300 x 10 ms for a joined prompt), and on a loaded fleet Mac
 /// (load 13 to 21 on 10 performance cores) a background-class stand-in did not end that turn in
 /// 18 to 30 s: this test, the forum's steered rule and the steer race failed only on macOS.
