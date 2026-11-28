@@ -110,6 +110,7 @@ pub use person_key::start_keyed;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod provision;
+mod runtime_stall;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
@@ -585,6 +586,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let _ = mode;
         std::future::pending::<()>().await;
     }
+    // A runtime that stops running tasks logs it and writes its stacks (`daemon/runtime_stall.rs`).
+    runtime_stall::start();
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
     #[cfg(target_os = "linux")]
     watchdog::start(socket_path());
@@ -904,6 +907,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         hub.watches.open(&home().join("watches.json"));
     }
     hub.start_watches();
+    // A fleet hold that lifts thaws its chats (`hub/session_hold.rs`).
+    hub.start_fleet_thaw();
     // What the join in config.json starts (`server/machine_enroll.rs`): the team hub's relay
     // (`server/mesh_relay.rs`), kept on the hub so a sign-in enroll can start one live, and the
     // hub carrier on the same hub and credential (`hub_carrier.rs`), through which this machine
