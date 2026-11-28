@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46184101136",
+  "recorded_at": "2026-11-28T20:28:45Z",
+  "reason": "image inputs changed in b226e8c8a4d55b0ba799b2ef57f664a1247485e7..7b7dc910587af25042542330c6d118d4e8c629b1; cmux-tui 0d1e69fa1ee6, the commit the Cloud machine channel serves (pinned d788eb8c134b)",
+  "dry_run": false,
+  "cmux_tui": "0d1e69fa1ee6a4d254a2eb689c1abb753b8a72c0",
+  "fixes": [
+    {
+      "sha": "7b7dc910587af25042542330c6d118d4e8c629b1",
+      "mergedAt": "2026-11-28T20:00:30Z",
+      "subject": "cloud image bake: acpmux-login-env warms the login shell and retries the read (roll 46173290720) (#65328)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-28T20:28:45Z",
+    "snapshot_id": "sh-986e8daf0cfd4446933f8b14bb2acf68",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46184101136): 35 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b579b62ce2c987f3bc53801715acd0c953200b18",
+    "image": "cloud-native-auto-0d1e69fa-46184101136-1",
+    "revision": "ci-46184101136-1",
+    "at": "2026-11-28T20:28:45Z"
+  },
+  "rolled_back": false
+}
