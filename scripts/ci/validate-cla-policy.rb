@@ -274,7 +274,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "b2eaa9067fc84e471e9d794ceb805e4774dca9c6b43d42d52af6d10f5a060077"
+EXPECTED_GUARD_SCRIPT_DIGEST = "b09e77ca0af6f07389fec818079c319009c9d60ccb0d7abfb8f15a2719427894"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
