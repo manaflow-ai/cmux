@@ -106,3 +106,26 @@ test("an answered group holds no place in the asks stack over the composer", () 
   );
   expect(groupsHoldStack(undefined)).toBe(false);
 });
+
+test("Revoke still revokes after Always, when the answered panel draws nothing", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { usePermissionUpkeep } = await import("../src/agent-session/acpmux/permissions/upkeep");
+  const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+  let revoked = 0;
+  const actions = { onRetry: () => {}, onRevoke: () => void revoked++, onRefresh: () => {} };
+  const state = { ...listed([edit("resolved", "allow_chat")]), chatAllowance: true };
+  // As the pane mounts it: the upkeep always, the panel only while it holds the stack.
+  function Pane() {
+    const still = usePermissionUpkeep(state, actions);
+    return groupsHoldStack(state, still) ? (
+      <PermissionPanel state={state} onRespond={() => {}} {...actions} still={still} />
+    ) : null;
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Pane />));
+  expect(host.querySelector(".acpmux-permission-panel")).toBeNull();
+  await act(async () => {
+    window.dispatchEvent(new window.CustomEvent("cmux-acpmux-permissionRevoke"));
+  });
+  expect(revoked).toBe(1);
+});

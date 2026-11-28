@@ -4,14 +4,15 @@ import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/toolRowModel";
-import { useAutoRetry } from "../autoRetry";
 import { permissionDiffs } from "../permissionMessage";
 import { shellCommand } from "../toolActivity";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
+import { groupsHoldStack } from "./askRows";
 import { permissionKeyAction } from "./prompt";
+import { permissionReading, usePermissionUpkeep } from "./upkeep";
 import { ProposedEdits } from "./ProposedEdits";
 import { focusRoute } from "../../../ui/focusRoute";
 import { HoldRing } from "./HoldButton";
@@ -49,6 +50,10 @@ type Props = {
   /// Hold to approve's scope and hold time, in place of the experiments' (holdToApprove.experiment.ts).
   /// The pane passes none; the gallery and tests do.
   hold?: { scope: HoldScope; durationMs: number; reduced?: boolean };
+  /// Whether a failed read has lasted past the deadline, from the pane's `usePermissionUpkeep`,
+  /// which also runs the app's Check and retry, Revoke and Refresh while the panel draws nothing.
+  /// Absent (the gallery, tests), the panel runs that work itself.
+  still?: boolean;
 };
 
 const record = (value: unknown) =>
@@ -246,7 +251,7 @@ function AskRow({
   );
 }
 
-export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh, hold }: Props) {
+export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh, hold, still: paneStill }: Props) {
   const t = useT();
   // Hold to approve (HoldButton.tsx, off unless its experiment is on), read once per panel.
   const [experimentHold] = useState(holdSettings);
@@ -277,9 +282,6 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
       ["permissionAllowOnce", () => respondToPending("allow_once")],
       ["permissionAllowChat", () => respondToPending("allow_chat")],
       ["permissionDeny", () => respondToPending("deny")],
-      ["permissionRetry", runRetry],
-      ["permissionRevoke", runRevoke],
-      ["permissionRefresh", runRefresh],
       ["permissionExpand", () => setExpandSignal((value) => value + 1)],
     ]);
     /// The pending group `decision` would answer now, if any.
@@ -317,26 +319,6 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
       event.stopPropagation();
     };
     document.addEventListener("keydown", onKey, true);
-    function runRetry() {
-      const current = stateRef.current;
-      if (current.supported && current.uncertain && !current.busy && !current.loading) callbacks.current.onRetry();
-    }
-    function runRevoke() {
-      const current = stateRef.current;
-      if (
-        current.supported &&
-        current.chatAllowance &&
-        current.ready !== false &&
-        !current.busy &&
-        !current.loading &&
-        !current.uncertain
-      )
-        callbacks.current.onRevoke();
-    }
-    function runRefresh() {
-      const current = stateRef.current;
-      if (current.supported && !!current.error && !current.busy && !current.loading) callbacks.current.onRefresh();
-    }
     for (const [name, handler] of handlers) window.addEventListener(`cmux-acpmux-${name}`, handler);
     return () => {
       document.removeEventListener("keydown", onKey, true);
@@ -344,21 +326,17 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
     };
   }, []);
   // The chat's permission requests could not be read (`ready` false, nothing in doubt): they are read
-  // again on its own (autoRetry.ts), never behind a Refresh button, since a read has no cost (Leo,
-  // 2026-11-22: "vacuous decisions like that should be just done"). Nothing shows at first; past
-  // the deadline, one quiet line. A failed answer (the read is fine) keeps its words and Refresh,
+  // again on its own (upkeep.ts, autoRetry.ts), never behind a Refresh button, since a read has no
+  // cost (Leo, 2026-11-22: "vacuous decisions like that should be just done"). Nothing shows at first;
+  // past the deadline, one quiet line. A failed answer (the read is fine) keeps its words and Refresh,
   // and an answer in doubt keeps Check and retry, which sends the person's decision again.
-  const reading = state.supported && !state.ready && !state.uncertain && (!!state.error || state.loading);
-  const readFailed = reading && !!state.error;
-  const { stillTrying } = useAutoRetry(readFailed ? state.error : undefined, onRefresh, {
-    busy: state.loading || state.busy,
-  });
-  if (!state.supported) return null;
-  const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
+  const ownStill = usePermissionUpkeep(state, { onRetry, onRevoke, onRefresh }, paneStill === undefined);
+  const still = paneStill ?? ownStill;
+  const reading = permissionReading(state).reading;
   // An answered group leaves the panel at once: its answer reads in the transcript, on the call it
   // approved or as a one-line receipt where it was answered, never again over the composer.
-  const still = reading && stillTrying;
-  if (!pending.length && !still && (!state.error || readFailed)) return null;
+  if (!groupsHoldStack(state, still)) return null;
+  const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
   // The group the keys answer (respondToPending): the first one waiting, whose answers list the
   // letters. No keycap is drawn: the pending command is one quiet row (Leo 2026-10-14), its answers small.

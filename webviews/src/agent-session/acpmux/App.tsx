@@ -681,6 +681,7 @@ import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, groupsHoldStack } from "./permissions/askRows";
+import { usePermissionUpkeep } from "./permissions/upkeep";
 import { withoutQuietThoughts } from "./conversation/thoughts";
 import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
@@ -10461,7 +10462,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return callNative<void>("chat.new", readOnlyContinuationRequest);
   }, []);
   const secret = snapshot.secret;
-  const hasPermissionGroups = groupsHoldStack(snapshot.permissionGroups);
+  // The grouped permissions' chat-wide work runs here, not in the panel, which draws only while a
+  // group waits or a line shows: Revoke after Always, with nothing left to draw, still revokes.
+  const permissionActions = {
+    onRetry: () => void callNative("chat.permission_group.retry", {}),
+    onRevoke: () => void callNative("chat.permission_chat.revoke", {}),
+    onRefresh: () => void callNative("chat.permission_groups.refresh", {}),
+  };
+  const permissionStill = usePermissionUpkeep(snapshot.permissionGroups, permissionActions);
+  const hasPermissionGroups = groupsHoldStack(snapshot.permissionGroups, permissionStill);
   const trustOpen = Boolean(trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"));
   // The trust question folds out on the fold's clock when it is answered (conversation/fold.ts), so
   // the stack's top and the transcript's rows over it travel together, instead of the stack dropping
@@ -10610,15 +10619,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           onRespond={(groupId, revision, decision) => {
             void callNative("chat.permission_group.respond", { groupId, revision, decision });
           }}
-          onRetry={() => {
-            void callNative("chat.permission_group.retry", {});
-          }}
-          onRevoke={() => {
-            void callNative("chat.permission_chat.revoke", {});
-          }}
-          onRefresh={() => {
-            void callNative("chat.permission_groups.refresh", {});
-          }}
+          {...permissionActions}
+          still={permissionStill}
         />
       )}
       {(individualPermission || childAsk || secret || toolCards.length > 0) && (
