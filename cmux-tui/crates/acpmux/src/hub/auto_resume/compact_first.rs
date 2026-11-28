@@ -95,6 +95,7 @@ impl Hub {
         session: &Arc<Session>,
         cut: CutTurn<'_>,
         attempt: usize,
+        gate: Option<(Arc<Notify>, crate::protocol::session::RetryReason)>,
     ) {
         let cause = super::super::turn_errors::resume_cause(cut.error, cut.error);
         let rate = (cause == Some("rate_limit")).then(|| cut.turn_id.to_owned());
@@ -107,7 +108,7 @@ impl Hub {
         {
             self.compact_first(session, cut, attempt).await;
         } else {
-            self.auto_resume(session, cut, attempt).await;
+            self.auto_resume(session, cut, attempt, gate).await;
         }
         // Whatever the attempt did, the hold it was due for is over: a fold or a continuation
         // ended it, a skip did not. A compaction's continuation that still waits ends it itself.
@@ -179,7 +180,7 @@ impl Hub {
                         not_before: None,
                         slash: None,
                     };
-                    hub.auto_resume(&session, cut, step.attempt).await;
+                    hub.auto_resume(&session, cut, step.attempt, None).await;
                 });
             }
             // Stop or close came while it compacted: they settled the turn.
@@ -217,7 +218,7 @@ impl Hub {
                 )
                 .await
         {
-            self.auto_resume(session, cut, attempt).await;
+            self.auto_resume(session, cut, attempt, None).await;
             return;
         }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
