@@ -125,7 +125,7 @@ jobs:
     # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
     # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
     if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
     continue-on-error: true
     permissions:
@@ -1361,8 +1361,7 @@ jobs:
           if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
             echo "clang libclang-dev pkg-config: already installed"
           else
-            sudo apt-get update
-            sudo apt-get install -y clang libclang-dev pkg-config
+            bash scripts/ci/apt-retry.sh -y clang libclang-dev pkg-config
           fi
 
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
@@ -1936,7 +1935,7 @@ jobs:
     needs: [coalesce, tooling-tests-base-red, full-carry]
     # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
     # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail. On a pull request
-    # into feat-cmux-next (not the docs-only fallback's call) it runs only tt-remote-p10k, tt-webviews-tests-per-file,
+    # into feat-cmux-next (not the docs-only fallback's call) it runs only tt-remote-p10k, tt-cli-path-folder-access, tt-webviews-tests-per-file,
     # tt-web-lint-prepush and tt-tailnet; ci/steps.toml's tooling-tests-1..5 run the rest.
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.full-carry.outputs.tier != 'none' && needs.tooling-tests-base-red.outputs.base_red != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -2073,7 +2072,7 @@ jobs:
             all=true
             grep -qx 'tooling_all=false' "$RUNNER_TEMP/tooling.out" && all=false
             keep=" "
-            for id in tt-remote-p10k tt-webviews-tests-per-file tt-web-lint-prepush tt-tailnet; do
+            for id in tt-remote-p10k tt-cli-path-folder-access tt-webviews-tests-per-file tt-web-lint-prepush tt-tailnet; do
               if [ "$all" = true ] || [[ "$routed" == *" $id "* ]]; then keep="$keep$id "; fi
             done
             printf 'tooling_all=false\ntooling_steps=%s\n' "$keep" > "$RUNNER_TEMP/tooling.out"
@@ -2185,6 +2184,16 @@ jobs:
             bash scripts/ci/apt-ensure.sh zsh
           fi
           python3 tests/test_issue_4148_remote_p10k_keyboard_reset.py
+
+      # First-run findings row 18: a folder macOS refuses (Desktop after Don't Allow) gets a hint that says where to allow it.
+      - name: The app's zsh layer says where to allow a folder macOS refused
+        id: tt-cli-path-folder-access
+        if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-cli-path-folder-access ')) }}
+        run: |
+          if ! command -v zsh >/dev/null 2>&1; then
+            bash scripts/ci/apt-ensure.sh zsh
+          fi
+          bash scripts/cmux-next/tests/cli-path-folder-access.test.sh
 
       - name: The fast gates workflow and its merge and gate script
         id: tt-fast-gates
