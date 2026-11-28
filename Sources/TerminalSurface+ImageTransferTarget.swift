@@ -19,7 +19,8 @@ extension TerminalSurface {
         }
         if mode == .paste, isManagedCloudImageTarget(in: workspace) { return .cloud }
         guard let workspace else { return .local }
-        if workspace.isRemoteTerminalSurface(id) {
+        if workspace.isRemoteTerminalSurface(id) ||
+            workspace.isPreservedEndedRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
         // A restored `cmux ssh` pane keeps its remote PTY binding while it
