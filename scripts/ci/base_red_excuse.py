@@ -504,8 +504,24 @@ def settled_answer(route: str):
         return kept if completed_state(kept) == state else NOT_KEPT
     if (found := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
         state = completed_state(run_now(found["repo"], int(found["run"])))
-        return settled_get(route, state) if state is not None else NOT_KEPT
+        if state is None:
+            return NOT_KEPT
+        kept = settled_get(route, state)
+        if kept is NOT_KEPT and state[0] == 1:
+            kept = settled_get(sibling_jobs_route(route), state)
+        return kept
     return NOT_KEPT
+
+
+# One attempt, one list (2026-11-28, forge-land-no-github-read): a completed run of one attempt has the same jobs
+# under filter=all (last_real_jobs) and filter=latest (base_run_jobs), yet each was kept under its own route, so a
+# judgement that read a base run both ways spent two job-list reads on one answer. Each now serves the other's kept
+# list for that attempt only: a run re-run since names attempt 2, and is read live as before. Detector:
+# tests/test_base_red_excuse.py SettledEvidence.test_a_one_attempt_run_serves_both_filters_from_one_kept_list.
+def sibling_jobs_route(route: str) -> str:
+    """ROUTE (a run's jobs list) under the other filter: filter=all for filter=latest, and the reverse."""
+    return (route.replace("filter=all&", "filter=latest&", 1) if "filter=all&" in route
+            else route.replace("filter=latest&", "filter=all&", 1))
 
 
 def settle(route: str, found) -> None:
@@ -6443,6 +6459,8 @@ _FAIL_FAST = ("head fail-fast (head-fail-fast.yml, #54837): cancels the head's o
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
         "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
+        "app-store-shelf-pr": "installs every App Store shelf listing at the head (app-store-shelf-check.sh): "
+                              "a product check whose red reads the packages, judged as any job's",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
@@ -6627,6 +6645,8 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-proxy/", "cmux-tui/crates/cmux-transport-rewrite/",
                   # cmux-next-ios/rust names cmux-json (its Cargo.toml path dependency)
                   "cmux-tui/crates/cmux-json/",
+                  # cmux-mobile-host depends on cmux-api-compat, the typed floating pane schema (#63394)
+                  "cmux-tui/crates/cmux-api-compat/",
                   # files those crates include_str! and paths the kit's Swift names as literals (same date)
                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.avif",
                   "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "design/icons/source/agent-composer.json",
@@ -8022,6 +8042,9 @@ def risk_evidence_quota(view: "FailedView | Unplaced", workflow_info: dict | Non
         r"Policy: docs/ci/risk-tiers\.md|"
         r"(?:::|##\[)warning(?:::|\])the glaeda-route App's read failed; grading on GITHUB_TOKEN|"
         r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, GitHub rate limit \(not a verdict on this pull request\)|"
+        # risk-tier.yml's own line when the reset is past RATE_LIMIT_WAIT_S (#64468 run 46145858015).
+        r"(?:::|##\[)warning(?:::|\])risk evidence: ungraded, the soonest budget reset \(\d{2}:\d{2}:\d{2}Z\) "
+        r"is past the \d+s wait; rerun after it|"
         r"gh api .* exited [1-9]\d* \(GitHub API quota: structured refusal; endpoint [^,]+, HTTP (?:403|429)\)|"
         r"gh api .*: GitHub rate limit; waiting \d+s for the budget|"
         r"##\[error\]Process completed with exit code 1\.?|Cleaning up orphan processes"

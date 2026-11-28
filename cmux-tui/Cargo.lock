@@ -1437,6 +1437,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-workspace-creation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-apps"
 version = "0.1.0"
 dependencies = [
@@ -1828,6 +1836,7 @@ dependencies = [
  "cmux-lifeline",
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -2304,6 +2313,7 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "icu_normalizer",
+ "proptest",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2856,7 +2866,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "cc",
  "cmux-encode",

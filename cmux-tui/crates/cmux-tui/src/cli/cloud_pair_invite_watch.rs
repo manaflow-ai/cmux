@@ -168,3 +168,7 @@ pub(crate) async fn watch(input: &[u8], emit: &mut impl FnMut(&Value)) -> Value 
 #[cfg(test)]
 #[path = "cloud_pair_invite_watch_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cloud_pair_invite_watch_seeded_tests.rs"]
+mod seeded_tests;
