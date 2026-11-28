@@ -1193,6 +1193,8 @@ jobs:
             scripts/ci/ios_gate_screen_diff.py
             scripts/ci/deadline_http.py
             cmux-tui/
+            # cargo loads every cmux-tui member; one links this by path (tests/test_ci_sparse_cargo_path_deps.py).
+            workers/cmux-vm/cli/
           sparse-checkout-cone-mode: false
       - name: Fetch the legs' stills
         continue-on-error: true
