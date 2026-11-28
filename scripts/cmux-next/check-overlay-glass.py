@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Reads (scripts/ci/guard_step_inputs.py; check_pool_affected.py --verify --match check-overlay-glass.py holds it):
+# guard-inputs: Packages/macOS/CmuxNext/Sources/**/*.swift
 """Fails when cmux NEXT's Swift paints a floating surface solid instead of the shared glass.
 
 Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS." Popovers, tooltips, hover

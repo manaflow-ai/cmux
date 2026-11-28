@@ -143,6 +143,29 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: kept.path))
     }
 
+    /// A quit mid-fetch leaves a `cas/1` staging tree and its chunk store; a launch that serves
+    /// the kept update (so prunes no tree) still removes them, after the answer.
+    @Test func aServedLaunchRemovesTheStagingAQuitLeft() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, pointer) = try await WebUpdateStoreTests.makeArchive(in: root)
+        let base = root.appending(path: "store", directoryHint: .isDirectory)
+        let store = WebUpdateStore(base: base)
+        let tree = try await store.install(archive: archive, pointer: pointer)
+        try store.write(WebUpdateState(active: pointer, floor: pointer.committedAt))
+        let left = store.casStaging()
+        for folder in [left.tree, left.chunks] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("chunk".utf8).write(to: folder.appending(path: "piece"))
+        }
+        #expect(Self.staging(in: base).count == 2)
+        let updater = Self.updater(Server(), store: store, app: .init(abi: 2, webBuiltAt: pointer.committedAt - 1))
+        #expect(await updater.launchTree() == tree)
+        await updater.launchSettled()
+        #expect(Self.staging(in: base).isEmpty)
+        #expect(store.verifiedTree(pointer) == tree)
+    }
+
     @Test func aKeptUpdateFromAnotherChannelIsNotServedAtLaunch() async throws {
         let root = try WebUpdateStoreTests.scratch()
         defer { try? FileManager.default.removeItem(at: root) }

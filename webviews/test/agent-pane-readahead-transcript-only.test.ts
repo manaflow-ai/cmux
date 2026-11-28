@@ -11,9 +11,11 @@
 // minute with 12 chats whose rows move every 10 s, for the PR's Performance table.
 import { afterAll, beforeAll, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { keptTail } from "../src/agent-session/acpmux/tailCache";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -66,6 +68,8 @@ class Daemon {
   pages: { sessionId: string; afterSeq?: number; bytes: number }[] = [];
   /// Chats whose next read-ahead page fails (acpmux answers an error).
   failing = new Set<string>();
+  /// Chats whose newest page holds no record a tail draws (a pending agent start's log).
+  empty = new Set<string>();
   bytes = 0;
 
   constructor() {
@@ -105,7 +109,7 @@ class Daemon {
         },
         { sessionId, seq: 3, at: START + 2, dir: "mux", kind: "turn_result", msg: { status: "completed" } },
       ];
-      result = { events, hasMore: false, lastSeq: row.lastSeq };
+      result = { events: this.empty.has(sessionId) ? [] : events, hasMore: false, lastSeq: row.lastSeq };
       this.reads.push(sessionId);
     } else if (message.method === "_acpmux/events" && row && typeof params.afterSeq === "number") {
       // A forward page: the records the chat logged after `afterSeq`, each a short reply.
@@ -383,6 +387,71 @@ test("a chat that ran on is read from where its read stopped, not as a whole pag
     expect(daemon.pages.slice(from).map((page) => [page.sessionId, page.afterSeq])).toEqual([
       [ran.sessionId, undefined],
     ]);
+  } finally {
+    client.close();
+  }
+}, 30_000);
+
+/// Leo, 2026-11-19 (ask-8477f4ea5d): "we could use this as an opportunity to audit claude desktop's
+/// ram cpu gpu usage network usage if we havent already?" At idle, acpmux sent his app about 3.5 MB/s.
+/// A recent chat whose newest page holds nothing a tail draws (a pending agent start logs only
+/// `agent_start_waiting`, every 10 s) kept no tail, so every change in the list read it again: each
+/// tick re-asked its page while its transcript never moved. Asked once, then again only once it does.
+test("a chat whose page holds nothing to keep is not read again until its transcript moves", async () => {
+  prefix = "0190f000";
+  rows = makeRows();
+  const pending = rows.slice(1, 4);
+  for (const row of pending) row.transcriptSeq = 0;
+  let now = START;
+  setSystemTime(new Date(now));
+  const daemon = new Daemon();
+  for (const row of pending) daemon.empty.add(row.sessionId);
+  const client = await AcpmuxDirectClient.connect(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://readahead-empty.invalid/",
+      token: "t",
+      sessionId: id(0),
+    },
+    () => {},
+    undefined,
+    () => daemon as unknown as WebSocket,
+  );
+  try {
+    // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+    await settle();
+    expect(daemon.reads.length).toBe(RECENT);
+    const first = daemon.reads.length;
+
+    // One minute of the pending starts' `agent_start_waiting` every 10 s: rows move, transcripts do not.
+    for (let tick = 1; tick <= 60_000 / TICK_MS; tick += 1) {
+      now += TICK_MS;
+      setSystemTime(new Date(now));
+      for (const row of pending) {
+        row.updatedAt = now;
+        row.lastSeq += 1;
+        daemon.changed("agent_start_waiting", { ...row });
+      }
+      // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+      await settle();
+    }
+    const idle = daemon.reads.length - first;
+    console.log(`agent-pane-readahead: ${pending.length} pending chats, rows moved every 10 s: ${idle} reads/min`);
+    expect(idle).toBe(0);
+
+    // The agent starts and the chat gets its first transcript record: read once.
+    now += TICK_MS;
+    setSystemTime(new Date(now));
+    const started = pending[0]!;
+    daemon.empty.delete(started.sessionId);
+    started.updatedAt = now;
+    started.lastSeq += 1;
+    started.transcriptSeq = started.lastSeq;
+    daemon.changed("turn_result", { ...started });
+    // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+    await settle();
+    expect(daemon.reads.slice(first)).toEqual([started.sessionId]);
   } finally {
     client.close();
   }

@@ -340,3 +340,44 @@ fn a_prepared_transcript_moves_with_only_its_growth() {
         native::grow_into_from(&src, again.path(), other.path(), "claude-project", home.path());
     assert!(refused.unwrap().is_none());
 }
+
+#[test]
+fn a_subagent_transcript_that_cannot_land_is_named_unacked() {
+    let src_home = tempfile::tempdir().unwrap();
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let dir = src_home.path().join(".claude/projects/-src");
+    put(&dir.join(format!("{sid}.jsonl")), "{\"type\":\"user\"}\n");
+    put(&dir.join(sid).join("subagents/agent-a1.jsonl"), "{\"agentId\":\"a1\"}\n");
+    let bundle = tempfile::tempdir().unwrap();
+    for (label, rel) in [
+        ("claude-project", PathBuf::from(format!("{sid}.jsonl"))),
+        ("claude-subagent", Path::new(sid).join("subagents/agent-a1.jsonl")),
+    ] {
+        native::copy_into_from(
+            &dir.join(rel),
+            &bundle.path().join("native"),
+            label,
+            src_home.path(),
+        )
+        .unwrap();
+    }
+    let dst_home = tempfile::tempdir().unwrap();
+    let there = meta("claude", "claude", sid, "/dst");
+    // Every entry lands: nothing unacked.
+    native::restore_in(bundle.path(), &there, dst_home.path()).unwrap();
+    assert!(native::unacked_in(bundle.path(), &there, dst_home.path()).is_empty());
+
+    // A folder where the subagent transcript goes: the restore cannot place it, and the check
+    // names it where the count used to read as a move.
+    let blocked_home = tempfile::tempdir().unwrap();
+    let child = blocked_home
+        .path()
+        .join(".claude/projects/-dst")
+        .join(sid)
+        .join("subagents/agent-a1.jsonl");
+    std::fs::create_dir_all(child.join("in-the-way")).unwrap();
+    let _ = native::restore_in(bundle.path(), &there, blocked_home.path());
+    let unacked = native::unacked_in(bundle.path(), &there, blocked_home.path());
+    assert_eq!(unacked.len(), 1, "{unacked:?}");
+    assert!(unacked[0].starts_with("claude-subagent/"), "{unacked:?}");
+}

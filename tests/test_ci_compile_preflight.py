@@ -9,8 +9,10 @@ SignInButton from a path that does not exist) landed with every web build skippe
 feat-cmux-next's web bundle build and NIGHTLY red. This test keeps the gate that catches them:
   - both changes reach a web bundle, so the preflight builds them; a change that reaches none builds nothing;
   - the build's bundler errors (the exact lines NIGHTLY run 45907763450 printed) become annotations;
-  - the router admits a conservative web-bundle input superset (or unknown diffs), while docs/tooling-only changes
-    skip the caller job at the job level; the callee has no job-level `if:` and preserves the build verdict for inputs;
+  - the gate has no tier rule: pr-router.yml calls it on every head its route job runs for, with no `start` gate
+    and no label or tier condition; the callee's job skips on web=false unless a bundle consumer forces it.
+    The route skips known non-web paths or uses the exact bundle-input check; unknown inputs fail open.
+    never-web-check keeps the ignored paths disjoint from bundle inputs, so a head that reaches a bundle builds. Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can reuse, we reuse.";
   - the build step runs build-web-bundles.sh, the build NIGHTLY runs.
 The build itself (a merged tree with each break, red) is proven on a runner: the PR that added this test.
 """
@@ -197,7 +199,10 @@ class LiveBase(unittest.TestCase):
     def test_the_callee_merges_onto_the_live_base_then_fails_fast(self) -> None:
         block = job_block(CALLEE.read_text(), "web")
         merge = block.index("compile_preflight.py merge-live-base")
-        touched = block.index("compile_preflight.py web-touched")
+        # The check that reads the merged root (source_ref == '') runs after the merge; the early one runs only when
+        # the bundle source is the checkout's own GitHub merge commit, whose answer the merge does not change.
+        touched = block.index('compile_preflight.py web-touched "$WEB_SOURCE_ROOT"')
+        self.assertIn("inputs.source_ref != '' && inputs.source_ref == github.sha", block)
         dup = block.index("tests/test_webviews_no_duplicate_import_names.py")
         install = block.index("name: Setup Bun")
         self.assertLess(merge, touched)
@@ -212,15 +217,16 @@ class LiveBase(unittest.TestCase):
         self.assertLess(parse, block.index("compile_preflight.py web-build"), "the parse fails before the build")
 
 
-class RouterAdmission(unittest.TestCase):
-    def test_router_calls_it_only_for_web_inputs_or_unknown_diffs(self) -> None:
+class NeverSkipped(unittest.TestCase):
+    def test_router_calls_it_on_every_tier(self) -> None:
         block = job_block(ROUTER.read_text(), "compile-preflight")
         self.assertIn("uses: ./.github/workflows/cmux-next-compile-preflight.yml", block)
         condition = re.search(r"^    if: (.*)$", block, re.M).group(1)
-        self.assertIn("needs.route.outputs.start", condition)
-        self.assertIn("cmux-next-compile-preflight.yml", condition)
-        self.assertIn("!cancelled()", condition)
+        self.assertEqual(condition, "${{ !cancelled() && needs.route.result == 'success' }}")
+        for tier_word in ("start", "ready-to-land", "full-ci", "CI_LAND", "draft", "fast-gates"):
+            self.assertNotIn(tier_word, condition)
 
+    def test_router_affects_cover_the_resolved_bundle_inputs(self) -> None:
         config = json.loads(MANIFEST.read_text())["callees"]["cmux-next-compile-preflight.yml"]
         affects = config["affects"]
         self.assertIn("webviews/**", affects)
@@ -290,14 +296,103 @@ class RouterAdmission(unittest.TestCase):
         self.assertIn(name, web_start)
         self.assertIn(name, unknown_start)
 
-    def test_the_callee_job_has_no_job_level_if_and_builds_as_nightly(self) -> None:
+    def test_the_callee_job_skips_only_on_the_routes_no_web_verdict_and_builds_as_nightly(self) -> None:
         text = CALLEE.read_text()
         block = job_block(text, "web")
-        self.assertNotRegex(block, r"^    if:", "a job-level if: would report the check skipped")
+        conditions = re.findall(r"^    if: (.*)$", block, re.M)
+        self.assertEqual(conditions, ["${{ inputs.web != 'false' || inputs.force_web }}"], "web=false skips unless a bundle consumer forces it")
+        self.assertIn('compile_preflight.py never-web-check "$WEB_SOURCE_ROOT"', block)
+        router = job_block(ROUTER.read_text(), "compile-preflight")
+        self.assertIn("web: ${{ needs.route.outputs.preflight_web || 'true' }}", router)
+        self.assertIn("preflight_web: ${{ steps.route.outputs.preflight_web }}", job_block(ROUTER.read_text(), "route"))
         self.assertIn("name: web bundle build", block)
         self.assertIn("compile_preflight.py web-build", block)
         self.assertIn('compile_preflight.py web-touched "$WEB_SOURCE_ROOT" HEAD^1 HEAD', block)
         self.assertIn("fetch-depth: 2", block)
+
+    def test_a_warm_runner_skips_unpacking_the_bun_cache_archive(self) -> None:
+        # A pool runner keeps its own Bun cache across jobs; the restore unpacked the 1.1 GB archive over it anyway,
+        # a 30 s median of a 205 s build job (11-27 05:30-11:36Z). The check runs first, and the restore only when the
+        # runner's cache is empty; CI_BUN_CACHE_RESTORE_WARM=1 restores everywhere again (fast gates' same rule).
+        block = job_block(CALLEE.read_text(), "web")
+        warm_at = block.index("name: Is this runner's own Bun package cache warm")
+        restore_at = block.index("name: Restore the webviews Bun package cache")
+        build_at = block.index("name: Build the web bundles")
+        self.assertLess(warm_at, restore_at)
+        self.assertLess(restore_at, build_at)
+        self.assertIn("id: bun-warm", block[warm_at:restore_at])
+        self.assertIn("vars.CI_BUN_CACHE_RESTORE_WARM", block[warm_at:restore_at])
+        self.assertIn("steps.bun-warm.outputs.warm != 'true'", block[restore_at:build_at])
+        # The build itself never depends on the warm check: a warm runner still builds.
+        build_if = re.search(r"name: Build the web bundles.*\n\s+if: (.*)", block).group(1)
+        self.assertNotIn("bun-warm", build_if)
+
+
+class NeverWebCheck(unittest.TestCase):
+    """compile_preflight.py never-web-check: no web bundle input is a path the router's paths-ignore skips."""
+
+    def test_the_checkout_passes(self) -> None:
+        if not (ROOT / "webviews").is_dir():
+            self.skipTest("webviews/ is not checked out (sparse checkout)")
+        run = subprocess.run([sys.executable, "-I", str(SCRIPT), "never-web-check", str(ROOT)],
+                             capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+    def test_an_ignored_web_input_is_named(self) -> None:
+        ignored = cp.router_ignores(ROOT)
+        self.assertTrue(ignored("cmuxd/src/main.rs"))
+        problems = cp.never_web_problems(ROOT, ["scripts/ci/compile_preflight.py", "webviews"],
+                                         lambda path: path.endswith((".py", ".rs")))
+        self.assertIn("scripts/ci/compile_preflight.py", problems)
+        self.assertIn("webviews/probe.rs", problems)
+
+
+class PreflightWeb(unittest.TestCase):
+    """pr_router.preflight_web: the route's verdict the callee's `web` input carries."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import pr_router
+
+        cls.router = pr_router
+        cls.callees = pr_router.load_manifest()
+
+    def web(self, files: list[str] | None, labels: tuple[str, ...] = ()) -> bool:
+        event = {"pull_request": {"labels": [{"name": name} for name in labels]}}
+        return self.router.preflight_web(event, self.callees, files,
+                                         exact=lambda root, paths: (None, "unreadable fixture"))[0]
+
+    def test_a_rust_swift_python_or_docs_only_change_skips(self) -> None:
+        self.assertFalse(self.web(["cmuxd/src/main.rs", "Cargo.lock", "cmuxd/Cargo.toml"]))
+        self.assertFalse(self.web(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift", "scripts/foo.py"]))
+        self.assertFalse(self.web(["docs/handbook/x.md", ".github/workflows/rust-tests.yml"]))
+
+    def test_a_possible_bundle_input_builds_when_exact_inputs_are_unreadable(self) -> None:
+        for path in ("webviews/src/App.tsx", "webviews/README.md", "webviews/scripts/x.py",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
+                     "scripts/cmux-next/web-bundle-key.py", ".github/workflows/pr-router.yml",
+                     ".github/workflows/cmux-next-compile-preflight.yml", "schemas/x.json", "README.md"):
+            self.assertTrue(self.web(["cmuxd/src/main.rs", path]), path)
+
+    def test_tier_none_and_carried_heads_keep_web_coverage(self) -> None:
+        event = {"action": "synchronize", "pull_request": {
+            "draft": False, "head": {}, "base": {}, "labels": []}}
+        name = "cmux-next-compile-preflight.yml"
+        for decided, carried in ((("none", "test"), None), (("full", "test"), {name})):
+            for files in (None, ["webviews/src/App.tsx"]):
+                with self.subTest(decided=decided, files=files):
+                    start, _ = self.router.route(event, self.callees, files,
+                                                 decided=decided, carried=carried)
+                    self.assertNotIn(name, start)
+                    self.assertTrue(self.router.preflight_web(event, self.callees, files, start=start)[0])
+        condition = re.search(r"^    if: (.*)$", job_block(ROUTER.read_text(), "compile-preflight"), re.M).group(1)
+        self.assertEqual(condition, "${{ !cancelled() && needs.route.result == 'success' }}")
+
+    def test_full_ci_unknown_or_empty_files_build(self) -> None:
+        self.assertTrue(self.web(["cmuxd/src/main.rs"], labels=("full-ci",)))
+        self.assertTrue(self.web(None))
+        self.assertTrue(self.web([]))
 
 
 class SharedWebArtifact(unittest.TestCase):
@@ -326,22 +421,31 @@ class SharedWebArtifact(unittest.TestCase):
         self.assertIn("inputs.source_ref == '' || inputs.validate_live_base", merge["if"])
         react = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())["jobs"]
         self.assertEqual(react["react-apps-head-bundles"]["with"]["source_ref"], "${{ inputs.sha || github.sha }}")
-        compare = next(step for step in steps if step.get("id") == "live-web")
+        compare = next(step for step in steps if step.get("id") == "live-web-key")
+        need = next(step for step in steps if step.get("id") == "live-web")
         build = next(step for step in steps if step.get("name") == "Validate the different live-base web sources")
         self.assertEqual(build["if"], "steps.live-web.outputs.build == 'true'")
-        # Execute the workflow's comparison and build command against a stand-in bundler. A
-        # stale merge with distinct source inputs must build; an identical tree must not.
-        for key, expected in (("consumer-key", 0), ("live-base-key", 1)):
-            with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
+        self.assertEqual(need["if"], "steps.live-web-key.outputs.differs == 'true'")
+        # Execute the workflow's comparison, the reuse decision and the build command against a stand-in
+        # bundler. A stale merge with distinct source inputs must build unless those exact sources already
+        # built green (a cache entry under their key); an identical tree must not build twice.
+        for key, hit, expected in (("consumer-key", "", 0), ("live-base-key", "", 1),
+                                   ("live-base-key", "false", 1), ("live-base-key", "true", 0)):
+            with self.subTest(key=key, hit=hit), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 scripts = root / "scripts/cmux-next"
                 scripts.mkdir(parents=True)
                 (scripts / "web-bundle-key.py").write_text("print(" + repr(key) + ")")
                 (scripts / "build-web-bundles.sh").write_text("#!/bin/bash\necho build >> builds\n")
-                env = dict(os.environ, CONSUMER_KEY="consumer-key", GITHUB_OUTPUT=str(root / "out"),
-                           RUNNER_TEMP=tmp, CMUX_WEB_SOURCE_KEY=key)
+                env = dict(os.environ, CONSUMER_KEY="consumer-key", GITHUB_OUTPUT=str(root / "key-out"),
+                           GITHUB_STEP_SUMMARY=str(root / "summary"), RUNNER_TEMP=tmp, CMUX_WEB_SOURCE_KEY=key)
                 subprocess.run(["bash", "-e", "-c", compare["run"]], cwd=root, env=env, check=True)
-                if "build=true" in (root / "out").read_text().splitlines():
+                outputs = dict(line.split("=", 1) for line in (root / "key-out").read_text().splitlines())
+                self.assertEqual(outputs["key"], key)
+                if outputs.get("differs") == "true":
+                    env.update(KEY=outputs["key"], HIT=hit, GITHUB_OUTPUT=str(root / "out"))
+                    subprocess.run(["bash", "-e", "-c", need["run"]], cwd=root, env=env, check=True)
+                if (root / "out").exists() and "build=true" in (root / "out").read_text().splitlines():
                     command = build["run"].replace("scripts/ci/compile_preflight.py", str(SCRIPT))
                     subprocess.run(["bash", "-e", "-c", command], cwd=root, env=env, check=True,
                                    capture_output=True, text=True)
@@ -350,6 +454,49 @@ class SharedWebArtifact(unittest.TestCase):
         for name in ("Setup Bun", "Setup Node"):
             step = next(step for step in steps if step.get("name") == name)
             self.assertIn("steps.live-web.outputs.build == 'true'", step["if"])
+
+    def test_live_base_validation_is_keyed_and_its_build_is_the_one_save(self) -> None:
+        import yaml
+        steps = yaml.safe_load(CALLEE.read_text())["jobs"]["web"]["steps"]
+        names = [step.get("name") for step in steps]
+        consumer_lookup = next(step for step in steps if step.get("id") == "web-bundle-cache")
+        lookup = next(step for step in steps if step.get("id") == "live-web-cache")
+        # Lookup only: the consumer tree's bytes in web-bundles-out must not be overwritten.
+        self.assertIs(lookup["with"]["lookup-only"], True)
+        self.assertEqual(lookup["if"], "steps.live-web-key.outputs.differs == 'true'")
+        self.assertEqual(lookup["with"]["key"], "cmux-next-web-bundles-v1-${{ steps.live-web-key.outputs.key }}")
+        # The GitHub cache's version hashes the path string: lookups and the save must share it.
+        self.assertEqual(lookup["with"]["path"], consumer_lookup["with"]["path"])
+        saves = [step for step in steps if step.get("uses", "").startswith("actions/cache/save@")]
+        self.assertEqual(len(saves), 1, "one per-ref save, as before (tests/ci_per_ref_cache_saves_baseline.txt)")
+        save = saves[0]
+        self.assertEqual(save["with"]["path"], consumer_lookup["with"]["path"])
+        self.assertEqual(save["with"]["key"], "cmux-next-web-bundles-v1-${{ steps.live-web.outputs.build == 'true' "
+                         "&& steps.live-web.outputs.key || steps.web-bundle-key.outputs.key }}")
+        self.assertIn("steps.live-web.outputs.build == 'true'", save["if"])
+        swap_in = names.index("Put the live-base web bundles where the cache save reads")
+        swap_out = names.index("Put the consumer tree's web bundles back")
+        validate = names.index("Validate the different live-base web sources")
+        self.assertLess(validate, swap_in)
+        self.assertEqual(names.index(save["name"]), swap_in + 1)
+        self.assertEqual(swap_out, swap_in + 2)
+        # Every consumer of web-bundles-out runs after the consumer bytes are back.
+        for consumer in ("Bind the artifact to its source key and output bytes", "Publish this run's web bundles to R2",
+                         "Publish this run's web bundles without a fleet identity"):
+            self.assertGreater(names.index(consumer), swap_out)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "web-bundles-out").mkdir()
+            (root / "web-bundles-out" / "consumer.js").write_text("consumer")
+            (root / "live-web-bundles-out").mkdir()
+            (root / "live-web-bundles-out" / "live.js").write_text("live")
+            env = dict(os.environ, RUNNER_TEMP=tmp)
+            subprocess.run(["bash", "-e", "-c", steps[swap_in]["run"]], env=env, check=True)
+            self.assertEqual([p.name for p in (root / "web-bundles-out").iterdir()], ["live.js"])
+            subprocess.run(["bash", "-e", "-c", steps[swap_out]["run"]], env=env, check=True)
+            self.assertEqual([p.name for p in (root / "web-bundles-out").iterdir()], ["consumer.js"])
+            self.assertEqual([p.name for p in (root / "live-web-bundles-out").iterdir()], ["live.js"])
+            self.assertFalse((root / "consumer-web-bundles-out").exists())
 
     def test_manifest_accepts_copy_and_rejects_wrong_key_changed_missing_or_extra_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

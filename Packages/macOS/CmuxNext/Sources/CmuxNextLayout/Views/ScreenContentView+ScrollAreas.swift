@@ -42,9 +42,9 @@ extension ScreenContentView {
         var needsFrames = false
         for id in areaScrolls.keys where baseGeometry.scrollAreas[id] == nil { areaScrolls[id] = nil }
         for (id, area) in baseGeometry.scrollAreas {
-            var scroll = areaScrolls[id] ?? ScrollAreaScroll()
-            let effects = scroll.state.reduce(.sync(scroll.strip(area), focused: focused, source: source, animated: animated, reveals: reveals))
+            let scroll = areaScrolls[id] ?? ScrollAreaScroll()
             areaScrolls[id] = scroll
+            let effects = scroll.state.reduce(.sync(scroll.strip(area), focused: focused, source: source, animated: animated, reveals: reveals))
             if effects.needsFrames { needsFrames = true }
         }
         refreshRowShift()
@@ -91,18 +91,16 @@ extension ScreenContentView {
 
     @discardableResult
     func endAreaScroll(_ id: SplitID, timestamp: TimeInterval) -> Bool {
-        guard var scroll = areaScrolls[id] else { return false }
+        guard let scroll = areaScrolls[id] else { return false }
         let effects = scroll.state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))
-        areaScrolls[id] = scroll
         return applyArea(effects)
     }
 
     /// One mouse wheel notch (Shift-wheel) on an area.
     @discardableResult
     func discreteAreaScroll(_ id: SplitID, direction: Int) -> Bool {
-        guard var scroll = areaScrolls[id] else { return false }
+        guard let scroll = areaScrolls[id] else { return false }
         let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
-        areaScrolls[id] = scroll
         return applyArea(effects)
     }
 
