@@ -137,9 +137,12 @@ extension LiveCoordinator {
         session.acpmux.onWatchEvent = { [weak self, weak session] event in
             guard let session else { return }
             let hub = session.acpmux
-            // The chat list arrived: a failed bind's "Chats: ..." no longer stands (Leo, 2026-11-27:
-            // "Stale errors clear on fresh data.").
-            if case .sessionsLoaded = event, session.chatsErrors.fresh() { self?.updateDiagnostics(session) }
+            // The chats are ready the moment the list is in, which is before `bind` returns (it
+            // still seeds the pending prompts): a failure the bind before left says nothing from
+            // here on, not only once this bind returns (#46669's follow made that gap a read). A
+            // failed bind's "Chats: ..." no longer stands once fresh data arrives (Leo, 2026-11-27:
+            // "Stale errors clear on fresh data."); an error a person's action set stays.
+            if hub.isReady, session.chatsErrors.fresh() { self?.phaseChanged(session) }
             session.feed.handle(event, sessions: hub.sessions)
             // One chat's event updates that chat's entries; only a whole list rebuilds them. Each
             // event used to rebuild both maps over every chat on the main actor (about 30,000
