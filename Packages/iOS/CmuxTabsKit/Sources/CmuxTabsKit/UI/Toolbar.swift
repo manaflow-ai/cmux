@@ -120,6 +120,7 @@ struct TabsToolbar: View {
     var onBack: () -> Void
     var onForward: () -> Void
     var onReload: () -> Void
+    var titleAction: TabsKitMenuItem? = nil
     var onMenu: () -> Void
     var onTabs: () -> Void
     var onBeginEditing: () -> Void
@@ -333,6 +334,24 @@ struct TabsToolbar: View {
 
             if let t = titleOnly {
                 titleLabel(t, r)
+                if let action = titleAction {
+                    Button(action: unlessSwiped(action.action)) {
+                        Image(systemName: action.systemImage)
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(theme.colors.label)
+                            .frame(width: 44, height: m.control)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(GlassContentButtonStyle())
+                    .disabled(!action.isEnabled)
+                    .opacity(collapsed ? 0 : 1)
+                    .allowsHitTesting(!collapsed && !chrome.editing)
+                    .accessibilityHidden(collapsed || chrome.editing)
+                    .accessibilityLabel(action.title)
+                    .accessibilityAddTraits(action.isSelected ? .isSelected : [])
+                    .accessibilityIdentifier(action.id)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             } else if !chrome.editing {
                 label(r)
             } else {
@@ -353,7 +372,9 @@ struct TabsToolbar: View {
                 }
             }
 
-            // Trailing reload / stop.
+            // Trailing reload / stop. Left out under a title action: hidden,
+            // it still sat over that action's slot and took its hit point.
+            if titleOnly == nil || titleAction == nil {
             Button(action: unlessSwiped(onReload)) {
                 ZStack {
                     if loading {
@@ -376,6 +397,7 @@ struct TabsToolbar: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
             // retry-prompt-ok: the browser's own Reload control, used on purpose
             .accessibilityLabel(loading ? "Stop" : "Reload")
+            }
         }
         .frame(width: r.width, height: r.height)
         .overlay(alignment: .bottomLeading) {

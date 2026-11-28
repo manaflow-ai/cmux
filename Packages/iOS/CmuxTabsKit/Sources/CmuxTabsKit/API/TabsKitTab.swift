@@ -151,17 +151,19 @@ public struct TabsKitMenuItem: Identifiable {
     public var symbolBundle: Bundle?
     public var isEnabled: Bool
     public var isDestructive: Bool
+    public var isSelected: Bool
     /// Runs after the menu starts closing.
     public var action: @MainActor () -> Void
 
     public init(id: String? = nil, title: String, systemImage: String, symbolBundle: Bundle? = nil, isEnabled: Bool = true,
-                isDestructive: Bool = false, action: @escaping @MainActor () -> Void) {
+                isDestructive: Bool = false, isSelected: Bool = false, action: @escaping @MainActor () -> Void) {
         self.id = id ?? title
         self.title = title
         self.systemImage = systemImage
         self.symbolBundle = symbolBundle
         self.isEnabled = isEnabled
         self.isDestructive = isDestructive
+        self.isSelected = isSelected
         self.action = action
     }
 }

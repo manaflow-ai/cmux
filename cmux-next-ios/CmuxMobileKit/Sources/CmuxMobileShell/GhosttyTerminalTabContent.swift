@@ -888,14 +888,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         if let live = model.session.underlyingSession as? DaemonTerminalSession, let macID = hostMacs[tab.id], let show = showConnectedDevices {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
         }
-        // Fit to Phone, one tap away and remembered for this program (Leo, 2026-11-21): on,
-        // the Mac's terminal resizes to the phone; off, the Mac keeps its columns.
+        // Fit to Phone, also directly in the title capsule (Leo, 2026-11-21): on,
+        // the Mac's terminal resizes to the phone; off, the phone projects it.
         if liveTabs.contains(tab.id) {
-            let program = model.session.programName
-            let fits = fitToPhoneMemory.fitToPhone(for: program)
-            actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
-                self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
-            })
+            actions.append(fitToPhoneAction(model: model, tab: tab, in: workspace))
             // The projection's exception undone by hand: typing into a TUI fitted it to the
             // phone on its own (`TerminalProjectingSession`); this gives the Mac its size back
             // and forgets the program.
@@ -934,7 +930,31 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         ]
     }
 
-    /// Per-program Fit to Phone (the page menu's toggle).
+    func titleAction(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabAction? {
+        // prepareCard creates the slot before TabsKit reads the toolbar. Reading its
+        // observed host updates this button after a reconnect or a mode change.
+        guard let model = slots[tab.id]?.host.model, liveTabs.contains(tab.id),
+              hostMacs[tab.id] == workspace.macID else { return nil }
+        return fitToPhoneAction(model: model, tab: tab, in: workspace)
+    }
+
+    private func fitToPhoneAction(model: TerminalModel, tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabAction {
+        // The program's remembered choice, which `TerminalSessionChoice` builds from:
+        // with Re-wrap on Phone off (the default, #62286) a page that keeps the Mac's
+        // grid is a plain session too, so the session's type can't say "not fit".
+        let fits = fitToPhoneMemory.fitToPhone(for: model.session.programName)
+        return TerminalTabAction(title: TerminalFitToPhoneMemory.title, systemImage: fits ? "checkmark" : "iphone",
+                                 isSelected: fits) { [weak self] in
+            // Read the current session at the tap, even if an open menu predates a
+            // reconnect or the foreground program changed while it was open.
+            guard let self, let current = self.hosts[tab.id]?.model else { return }
+            let program = current.session.programName
+            self.setFitToPhone(!self.fitToPhoneMemory.fitToPhone(for: program), program: program,
+                              tab: tab, in: workspace)
+        }
+    }
+
+    /// Per-program Fit to Phone (the title button and page menu's shared toggle).
     var fitToPhoneMemory = TerminalFitToPhoneMemory()
 
     /// Remembers `program`'s Fit to Phone and applies it now: this tab's host is built
