@@ -671,6 +671,43 @@ class GitHubApiTests(CapturedOutput):
         runs = ib.builder_runs(runner=FakeGh((0, runs_json, "")), sleep=lambda _s: None)
         self.assertTrue(runs[0]["submittable"])
 
+    def _failed_run_with_jobs(self, jobs):
+        runs_json = json.dumps({"workflow_runs": [{"id": 46081613482, "display_title": f"cmux-next-ios INTERNAL {A}",
+                                                   "status": "completed", "conclusion": "failure",
+                                                   "created_at": "2026-10-20T08:00:00Z", "head_sha": "f" * 40}]})
+        gh = FakeGh((0, runs_json, ""), (0, json.dumps({"jobs": jobs}), ""))
+        return ib.builder_runs(runner=gh, sleep=lambda _s: None), gh
+
+    def test_an_archive_that_never_got_a_runner_is_no_attempt(self):
+        """Run 46081613482: the archive was cancelled with no runner ("not acquired by Runner of type self-hosted"),
+        the run concluded failure, and the plan held every INTERNAL build for 6 h (decide run 46083735879)."""
+        runs, gh = self._failed_run_with_jobs([
+            {"name": "Pick the archive runner", "conclusion": "success", "runner_name": "pool-1"},
+            {"name": "Archive (unsigned, no secrets)", "conclusion": "cancelled", "runner_name": ""},
+            {"name": "Sign, validate, upload to cmux INTERNAL", "conclusion": "skipped", "runner_name": None}])
+        self.assertEqual(gh.calls, 2)
+        self.assertEqual(runs[0]["conclusion"], "cancelled")
+        later = NOW + dt.timedelta(minutes=10)
+        runs[0]["created_at"] = (NOW - dt.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        decision = ib.plan(B, ib.mark_yolo(runs, set()), [], True, later, ib.STATIC_PREFIXES,
+                           since_failure=["docs/x.md"])
+        self.assertFalse(decision.reason.startswith("BLOCKED"), decision.reason)
+
+    def test_an_archive_that_failed_on_a_runner_stays_a_failure(self):
+        runs, _ = self._failed_run_with_jobs([
+            {"name": "Archive (unsigned, no secrets)", "conclusion": "failure", "runner_name": "cmux23-glaeda-7"}])
+        self.assertEqual(runs[0]["conclusion"], "failure")
+        runs, _ = self._failed_run_with_jobs([
+            {"name": "Archive (unsigned, no secrets)", "conclusion": "cancelled", "runner_name": "cmux23-glaeda-7"}])
+        self.assertEqual(runs[0]["conclusion"], "failure")
+
+    def test_unreadable_jobs_keep_the_failure(self):
+        runs_json = json.dumps({"workflow_runs": [{"id": 9, "display_title": f"cmux-next-ios INTERNAL {A}",
+                                                   "status": "completed", "conclusion": "failure",
+                                                   "created_at": "2026-10-20T08:00:00Z", "head_sha": "f" * 40}]})
+        gh = FakeGh((0, runs_json, ""), (1, "", "gh: Not Found (HTTP 404)"))
+        self.assertEqual(ib.builder_runs(runner=gh, sleep=lambda _s: None)[0]["conclusion"], "failure")
+
     def test_unregistered_workflow_is_no_runs(self):
         gh = FakeGh((1, "", "gh: Not Found (HTTP 404)"))
         self.assertEqual(ib.builder_runs(runner=gh, sleep=lambda _s: None), [])

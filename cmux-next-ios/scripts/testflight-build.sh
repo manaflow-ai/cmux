@@ -545,7 +545,23 @@ for i in "${!resolve_waits[@]}"; do
        -clonedSourcePackagesDirPath "$spm_cache" > "$out/logs/resolve.log" 2>&1; then
     break
   fi
-  if ! grep -Eq "returned error: (403|429|5[0-9][0-9])|badResponseStatusCode\((403|429|5[0-9][0-9])\)|Could not resolve host|Connection (reset|refused|timed out)|early EOF|RPC failed|Operation too slow|curl 92" "$out/logs/resolve.log" \
+  # A dead loopback git proxy (a fleet Mac's 127.0.0.1:18434, http.https://github.com/.proxy in its global
+  # git config) refuses every SwiftPM clone at once: run 46063492254 (2026-11-27) failed here with "Failed to
+  # connect to 127.0.0.1 port 18434" after its xcframework build. The job's git shim goes direct for its own
+  # calls, but SwiftPM's clones read the global config. Every later try goes direct, with no wait
+  # (hq docs/handbook/proxy-accepts-connect-never-answers.md).
+  if [[ ${resolve_direct:-0} == 0 ]] && grep -Eq "Failed to connect to (127\.0\.0\.1|localhost)|Proxy CONNECT|CONNECT tunnel failed|Received HTTP code [0-9]+ from proxy" "$out/logs/resolve.log"; then
+    echo "swift packages: the git proxy is down; resolving direct"
+    resolve_direct=1
+    export GIT_CONFIG_COUNT=4 GIT_CONFIG_KEY_2=http.proxy GIT_CONFIG_VALUE_2= \
+      GIT_CONFIG_KEY_3=http.https://github.com/.proxy GIT_CONFIG_VALUE_3=
+    unset HTTPS_PROXY https_proxy HTTP_PROXY http_proxy ALL_PROXY all_proxy
+    if xcodebuild -resolvePackageDependencies -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+         -clonedSourcePackagesDirPath "$spm_cache" > "$out/logs/resolve.log" 2>&1; then
+      break
+    fi
+  fi
+  if ! grep -Eq "returned error: (403|429|5[0-9][0-9])|badResponseStatusCode\((403|429|5[0-9][0-9])\)|Could not resolve host|Connection (reset|refused|timed out)|Failed to connect|early EOF|RPC failed|Operation too slow|curl 92" "$out/logs/resolve.log" \
      || (( i == ${#resolve_waits[@]} - 1 )); then
     grep -E "error:|fatal:" "$out/logs/resolve.log" | sort -u | head -20
     die "swift package resolve failed (logs/resolve.log)"

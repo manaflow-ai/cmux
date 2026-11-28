@@ -347,7 +347,35 @@ def builder_runs(runner=subprocess.run, sleep=time.sleep) -> list[dict]:
                          "conclusion": r.get("conclusion"), "created_at": r["created_at"],
                          "builder": r.get("head_sha"),
                          "submittable": "(submittable)" in (r.get("display_title") or "")})
+    for r in [r for r in runs if r["status"] == "completed" and r["conclusion"] == "failure"][:NO_RUNNER_CHECKS]:
+        if archive_never_ran(r["id"], runner=runner, sleep=sleep):
+            r["conclusion"] = "cancelled"
+            r["no_runner"] = True
     return runs
+
+
+# A run whose archive never got a runner is no build attempt: it says nothing about the commit or the builder.
+# Run 46081613482 (2026-11-27 23:17Z): GitHub gave up on the archive job ("The job was not acquired by Runner of
+# type self-hosted even after multiple attempts"), cancelled it with no runner, and the run concluded failure.
+# The plan read that as an infra failure of the head and held every automatic INTERNAL build for 6 h (decide run
+# 46083735879) while the phone-link fix waited for TestFlight. Such a run now counts as cancelled, so the next
+# push builds. Only the newest few failures are read (one jobs call each), which covers the backoff's window.
+NO_RUNNER_CHECKS = 3
+
+
+def archive_never_ran(run_id: int, runner=subprocess.run, sleep=time.sleep) -> bool:
+    """Whether the run's archive job ended without a runner (cancelled before it started a step). False when unsure."""
+    try:
+        data = _gh_json([f"repos/{REPO}/actions/runs/{run_id}/jobs?per_page=30"], runner=runner, sleep=sleep, attempts=2)
+    except (subprocess.CalledProcessError, GitHubUnavailable, OSError, ValueError):
+        return False
+    jobs = data.get("jobs") if isinstance(data, dict) else None
+    if not isinstance(jobs, list):
+        return False
+    archive = [j for j in jobs if isinstance(j, dict) and str(j.get("name", "")).startswith("Archive")]
+    if not archive or any(j.get("conclusion") == "failure" for j in jobs if isinstance(j, dict)):
+        return False
+    return all(j.get("conclusion") == "cancelled" and not j.get("runner_name") for j in archive)
 
 
 def yolo_shas(runner=subprocess.run, sleep=time.sleep) -> set[str]:

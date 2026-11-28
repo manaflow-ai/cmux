@@ -137,12 +137,51 @@ class ArchiveKeepsSwiftPackagesTest(unittest.TestCase):
         text = BUILD_SCRIPT.read_text()
         self.assertIn("spm_cache=${CMUX_MOBILE_SPM_CACHE:-$cache/spm}", text)
         self.assertNotIn('-clonedSourcePackagesDirPath "$cache/spm"', text)
-        self.assertEqual(text.count('-clonedSourcePackagesDirPath "$spm_cache"'), 4)
+        self.assertEqual(text.count('-clonedSourcePackagesDirPath "$spm_cache"'), 5)
         kept = text.index('-skipPackageUpdates > "$out/logs/resolve.log"')
         network = text.index('for i in "${!resolve_waits[@]}"')
         self.assertLess(kept, network)
         self.assertLess(text.index("GIT_CONFIG_KEY_0=http.lowSpeedLimit"), kept)
         self.assertIn("early EOF", text[network:text.index("-disableAutomaticPackageResolution")])
+
+
+class ResolveGoesDirectWhenTheGitProxyIsDownTest(unittest.TestCase):
+    """Run 46063492254 (2026-11-27): every SwiftPM clone failed with "Failed to connect to 127.0.0.1 port 18434"
+    (a fleet Mac's dead loopback git proxy) and the archive died after its xcframework build."""
+
+    def run_resolve(self, fake: str) -> tuple[subprocess.CompletedProcess, Path]:
+        text = BUILD_SCRIPT.read_text()
+        block = text[text.index('mkdir -p "$spm_cache"'):text.index("args+=(-disableAutomaticPackageResolution)")]
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        temp = Path(holder.name)
+        (temp / "bin").mkdir()
+        (temp / "logs").mkdir()
+        xcodebuild = temp / "bin/xcodebuild"
+        xcodebuild.write_text("#!/bin/bash\necho call >> \"$CALLS\"\n" + fake)
+        xcodebuild.chmod(0o755)
+        script = ("set -euo pipefail\nlog() { echo \"==> $*\"; }\ndie() { echo \"error: $*\" >&2; exit 1; }\n"
+                  "sleep() { echo \"slept $1\" >> \"$CALLS\"; }\n" + block + "\necho resolved\n")
+        env = {"PATH": f"{temp / 'bin'}:/usr/bin:/bin", "CALLS": str(temp / "calls"), "out": str(temp),
+               "spm_cache": str(temp / "spm"), "HOME": str(temp)}
+        result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, timeout=60)
+        return result, temp / "calls"
+
+    def test_a_refused_loopback_proxy_retries_direct_at_once(self) -> None:
+        result, calls = self.run_resolve(
+            'if [[ "${GIT_CONFIG_KEY_3:-}" == "http.https://github.com/.proxy" && -z "${GIT_CONFIG_VALUE_3-x}" ]]; then exit 0; fi\n'
+            "echo \"fatal: unable to access 'https://github.com/apple/swift-asn1.git/': Failed to connect to 127.0.0.1 "
+            'port 18434 after 0 ms: Couldn\'t connect to server"\nexit 1\n')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("the git proxy is down; resolving direct", result.stdout)
+        self.assertEqual(calls.read_text().split("\n").count("call"), 2)
+        self.assertNotIn("slept", calls.read_text())
+
+    def test_another_failure_keeps_the_proxy(self) -> None:
+        result, calls = self.run_resolve('echo "error: no such product Foo"\nexit 1\n')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("resolving direct", result.stdout)
+        self.assertEqual(calls.read_text().split("\n").count("call"), 1)
 
 
 if __name__ == "__main__":
