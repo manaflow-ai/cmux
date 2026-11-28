@@ -51,7 +51,8 @@ less Rust the app links or bundles, the web ABI and files a Swift test reads), o
 tier by itself. It runs no app compile or package test tier: ci-web, the cargo jobs, the signed tree publish,
 hot-verify and the daemon tier check it. `hot_only` and `hot_layers` say so.
 
-Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
+Pushes, dispatches and pull requests labeled `full-ci` run every tier (under `full-ci`, the app
+compile tiers native and mac_release only when the diff reaches them: full_ci_app_compile). The
 workflow runs the tiers picked here on every same-repository pull request; a
 fork pull request runs the heavier Mac tiers only with `full-ci`. A changed file this script cannot place selects every
 tier, so an unknown input never skips a check.
@@ -323,8 +324,12 @@ BUNDLE_INPUTS = (
     "schemas/layout-motion/contract.json",
     # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
     "schemas/transcript-look/transcript-look.json",
+    # The composer status peek pin the agent pane imports (src/agent-session/acpmux/peekPin.ts).
+    "schemas/composer-status/peek-pin.json",
     # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
     "examples/gallery/gallery.json", "examples/looks/*",
+    # The setups the Make cmux Yours setups shelf imports (src/pages/onboarding/setupShelf.ts).
+    "examples/setups/*/cmux-setup.json",
     # The key styles the key presentation imports (src/ui/keyStyle.ts).
     "schemas/keymap/key-styles.json",
     # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).
@@ -1281,9 +1286,7 @@ HOT_WEB_NEEDS_APP = ("webviews/src/web-abi.json",)
 # The Route fields hot_only turns off: every app compile and package test tier. `daemon` stays.
 HOT_ONLY_OFF = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift",
                 "package_build", "fast_reads", "fast_package", "fast_registry", "all_tests", "ffi_repin")
-# What `--hot-only` writes. On a hot-only pull request cmux-next-guards.yml keeps tooling-tests off the minis (it
-# still runs, on Linux) and fleet-test-compile.yml compiles no Swift test target: both read this router's verdict on
-# the same merge-commit diff, never a copy of its rule.
+# What `--hot-only` writes for consumers of this router's verdict on the merge-commit diff.
 HOT_ONLY_OUTPUTS = ("hot_only", "hot_layers")
 # A part of the rest that keeps hot_only off: any of these tiers.
 APP_TIERS = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift")
@@ -1345,6 +1348,29 @@ def hot_only_layers(root: Path, event: str, changed: list[str] | None, labels: s
     return layers
 
 
+FULL_CI_NO_APP_COMPILE_REASON = ("full-ci, but no changed file reaches an app compile (the same paths without the label"
+                                 " leave native and mac_release off): the Release compile runs after the merge, on"
+                                 " the feat-cmux-next push")
+
+
+def full_ci_app_compile(root: Path, event: str, changed: list[str], labels: set[str],
+                        base_workflow: str | None, repin: str | None, result: Route) -> None:
+    """Under full-ci, the app compile tiers (native, mac_release) follow what the diff reaches.
+
+    Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." `ready-to-land` adds full-ci,
+    and full-ci asked every tier, so the Mac Release compile (Xcode 26) ran on daemon-Rust-, iOS- and CI-only heads it
+    cannot change: 2026-11-27T07..13Z, 9 of its 24 pull request heads (166 of 393 runner-min). Path routing without
+    the label (path_route) is the input-reach rule every other pull request already uses: a Swift, app, web bundle,
+    app-linked Rust (FFI) or Mac Release input, the workflow's Mac jobs, or a file it cannot place keeps them on. The
+    other full-ci tiers stay. Every feat-cmux-next push still runs the Release compile (path_route: push), so the
+    merge is fully covered, as fast_tier_cargo_route.py does for the cargo fast tier under full-ci."""
+    reach = path_route(root, event, changed, labels - {"full-ci"}, base_workflow, repin)
+    if reach.full or reach.native or reach.mac_release or reach.cmuxnext_swift:
+        return
+    result.native = result.mac_release = False
+    result.reasons.append(FULL_CI_NO_APP_COMPILE_REASON)
+
+
 def path_route(root: Path, event: str, changed: list[str] | None, labels: set[str],
                base_workflow: str | None = None, repin: str | None = None) -> Route:
     """`base_workflow`: the base's cmux-next.yml, for a pull request that changes it (None: every tier).
@@ -1365,6 +1391,8 @@ def path_route(root: Path, event: str, changed: list[str] | None, labels: set[st
         return result
     if "full-ci" in labels:
         result.everything("labeled full-ci (batch integration PR): every tier")
+        if changed:
+            full_ci_app_compile(root, event, changed, labels, base_workflow, repin, result)
         return result
     if not changed:
         result.everything("the diff is unknown or empty: every tier")

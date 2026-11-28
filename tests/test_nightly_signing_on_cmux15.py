@@ -122,8 +122,7 @@ class SigningOnCmux15Test(unittest.TestCase):
                     # Except a nightly-next-only job on another track: the one-job JIT VM (NIGHTLY_NEXT_ONLY_OWNED).
                     other_track = name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next"
                     with self.subTest(job=name, event=event, ref=ref, mode="one-mini"):
-                        expected = ([LABEL, "glaeda-nightly-mini"] if name == "nightly-next-deltas"
-                                    else JIT_LABEL if other_track else LABEL)
+                        expected = JIT_LABEL if other_track else LABEL
                         self.assertEqual(route(name, context), expected)
 
     def test_the_release_uploads_leave_the_signer(self) -> None:
@@ -177,9 +176,6 @@ class SigningOnCmux15Test(unittest.TestCase):
                 with self.subTest(job=name, context=context):
                     self.assertTrue(labels)
                     self.assertEqual(labels[0], LABEL, "a pin always starts with the literal signer label")
-                    if name == "nightly-next-deltas" and context["vars.CI_NIGHTLY_MINI"]:
-                        self.assertEqual(labels, [LABEL, "glaeda-nightly-mini"])
-                        continue
                     for label in labels:
                         self.assertFalse(shared.match(str(label)), label)
                         # A signer runner: cmux15's, or ultra1's (nightly-next-one's second signer, note-33).

@@ -72,3 +72,70 @@ fn whitespace_runs_are_one_space_and_a_case_change_that_grows_text_keeps_its_pla
     let at = hit.snippet.find("needle").expect("word in snippet");
     assert_eq!(hit.snippet[..at].chars().count(), BEFORE + 1, "{}", hit.snippet);
 }
+
+/// The matcher before `Needle::may_match` gated it: fold with a character map, then look.
+fn reference_find(needle: &Needle, text: &str) -> Option<usize> {
+    let folded = Folded::new(text);
+    let mut first: Option<usize> = None;
+    for word in needle.words() {
+        let at = folded.find(word)?;
+        first = Some(first.map_or(at, |f| f.min(at)));
+    }
+    first
+}
+
+/// Characters whose folding is not one ASCII byte, or is whitespace: `Σ` and both sigmas,
+/// `İ` (two characters lowered), the Kelvin sign (lowers to ASCII `k`), Unicode spaces.
+fn tricky_text() -> impl proptest::strategy::Strategy<Value = String> {
+    use proptest::strategy::Strategy as _;
+    proptest::collection::vec(
+        proptest::sample::select(vec![
+            'a', 'b', 'K', 'k', 'S', 's', 'Σ', 'σ', 'ς', 'İ', 'i', '\u{307}', '\u{212A}', ' ',
+            '\n', '\t', '\u{3000}', '\u{a0}', 'é', 'É',
+        ]),
+        0..40,
+    )
+    .prop_map(|chars| chars.into_iter().collect())
+}
+
+fn tricky_words() -> impl proptest::strategy::Strategy<Value = Vec<String>> {
+    use proptest::strategy::Strategy as _;
+    proptest::collection::vec(
+        proptest::collection::vec(
+            proptest::sample::select(vec![
+                'a', 'b', 'k', 'K', 's', 'σ', 'Σ', 'ς', 'i', '\u{307}', 'İ', '\u{212A}', 'é',
+            ]),
+            1..4,
+        )
+        .prop_map(|chars| chars.into_iter().collect::<String>()),
+        1..3,
+    )
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(4096))]
+
+    /// The gate's oracle: `may_match` is false exactly when the full matcher over the flattened
+    /// text finds nothing, and the gated `find` answers as the ungated one.
+    #[test]
+    fn may_match_is_exactly_the_full_matcher(text in tricky_text(), words in tricky_words()) {
+        let needle = Needle::parse(&words.join(" ")).expect("words");
+        let flat = flatten(&text);
+        let full = reference_find(&needle, &flat);
+        proptest::prop_assert_eq!(needle.may_match(&text), full.is_some(), "{:?} in {:?}", words, text);
+        proptest::prop_assert_eq!(needle.find(&flat), full);
+        proptest::prop_assert_eq!(needle.find(&text), reference_find(&needle, &text));
+    }
+
+    /// A word holding whitespace (a quoted phrase) never makes the gate drop a message the full
+    /// matcher finds.
+    #[test]
+    fn a_phrase_never_hides_a_match(text in tricky_text(), words in tricky_words()) {
+        let needle = Needle::of_words(vec![words.join(" ")]).expect("words");
+        let flat = flatten(&text);
+        if reference_find(&needle, &flat).is_some() {
+            proptest::prop_assert!(needle.may_match(&text));
+        }
+        proptest::prop_assert_eq!(needle.find(&flat), reference_find(&needle, &flat));
+    }
+}

@@ -135,6 +135,8 @@ pub async fn probe(url: &str, key: Option<KeyHeader<'_>>) -> Probe {
         Ok(t) => t,
         Err(refusal) => return Probe::Failed(refusal.0),
     };
+    // An MCP server the person added: a host they name.
+    cmux_egress::allow_named(url);
     let _ = rustls::crypto::ring::default_provider().install_default();
     let http = match crate::happy_dial::http_client()
         .timeout(TIMEOUT)

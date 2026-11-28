@@ -55,6 +55,21 @@ pub(crate) struct RemoteRows {
     /// peer): a byte page of the whole list (`_acpmux/sessions` with no `limit`) reads its own
     /// rows from here, not a hash and a sort of every row.
     by_page_key: PSet<(u128, Box<str>)>,
+    /// Each peer's closed rows, oldest first (by `updatedAt`, then key): the closed-row bound
+    /// (`peer_closed_bound.rs`) counts and trims a peer's closed rows from here, never by a walk
+    /// of all its rows under the writer lock each time one of them closes.
+    closed_by_peer: PMap<String, PSet<(u64, String)>>,
+}
+
+/// One of a peer's rows marked stale, built before the writer lock
+/// ([`RemoteRows::stale_marks`]).
+pub(crate) struct StaleMark {
+    key: String,
+    /// The row it was built from: put in only while that is still the row under `key`.
+    from: Arc<RemoteSession>,
+    row: Arc<RemoteSession>,
+    /// Its announcement, when the mark changed it.
+    announced: Option<PeerRow>,
 }
 
 /// A row's place in list order: newest first, then its session id, then its peer (none first),
@@ -122,6 +137,8 @@ impl RemoteRows {
         let place = ListPlace::of(&key, &row);
         if row.summary.closed() {
             self.closed_order.insert(place);
+            let closed = self.closed_by_peer.entry(row.peer.clone()).or_default();
+            closed.insert((row.summary.updated_ms(), key.clone()));
         } else {
             self.open_order.insert(place);
         }
@@ -139,6 +156,7 @@ impl RemoteRows {
             && a.summary.peer() == b.summary.peer()
             && a.summary.name() == b.summary.name()
             && a.summary.alias() == b.summary.alias()
+            && a.summary.handle() == b.summary.handle()
             && a.summary.former_names() == b.summary.former_names()
             && a.summary.same_pair(&b.summary)
     }
@@ -157,6 +175,12 @@ impl RemoteRows {
         let place = ListPlace::of(key, &row);
         if row.summary.closed() {
             self.closed_order.remove(&place);
+            if let Some(closed) = self.closed_by_peer.get_mut(&row.peer) {
+                closed.remove(&(row.summary.updated_ms(), key.to_owned()));
+                if closed.is_empty() {
+                    self.closed_by_peer.remove(&row.peer);
+                }
+            }
         } else {
             self.open_order.remove(&place);
         }
@@ -199,12 +223,19 @@ impl RemoteRows {
     }
 
     /// Marks `peer`'s rows stale (`peer_cache::mark_stale`): the summaries that changed. Each row
-    /// is taken out and put back through `insert`, so the index follows whatever the mark touched.
-    /// There is no other way to change a row in place. Each summary shares the text the row had
-    /// before the mark, the mark kept apart (`PeerRow::stale_announced`), so it copies no row.
+    /// is put back through `insert_shared`, so the index follows whatever the mark touched. Each
+    /// summary shares the text the row had before the mark, the mark kept apart
+    /// (`PeerRow::stale_announced`), so it copies no row.
     pub(crate) fn mark_peer_stale(&mut self, peer: &str, last_seen: Option<u64>) -> Vec<PeerRow> {
-        let keys: Vec<String> = self
-            .of_peer(peer)
+        let marks = self.stale_marks(peer, last_seen);
+        self.put_stale_marks(marks)
+    }
+
+    /// [`Self::mark_peer_stale`]'s rows, built (each parsed, marked and written again) from this
+    /// table without changing it: from a snapshot, before the writer lock, so the lock is held
+    /// only to put them in ([`Self::put_stale_marks_built_from`]).
+    pub(crate) fn stale_marks(&self, peer: &str, last_seen: Option<u64>) -> Vec<StaleMark> {
+        self.of_peer(peer)
             .filter(|(_, r)| {
                 let status = r.summary.status();
                 status != Some("closed")
@@ -212,20 +243,43 @@ impl RemoteRows {
                         || !r.summary.stale()
                         || r.summary.last_seen() != last_seen)
             })
-            .map(|(k, _)| k.clone())
-            .collect();
+            .map(|(key, from)| {
+                let mut row = RemoteSession::clone(from);
+                let announced = row
+                    .summary
+                    .mark_stale(last_seen)
+                    .then(|| PeerRow::stale_announced(&from.summary, &row.summary, last_seen));
+                StaleMark {
+                    key: key.clone(),
+                    from: Arc::clone(from),
+                    row: Arc::new(row),
+                    announced,
+                }
+            })
+            .collect()
+    }
+
+    /// Puts `marks` in when each was built from the row this table holds under its key now, and
+    /// answers the summaries that changed; else changes nothing and answers None (a writer came
+    /// between the snapshot and the lock: the caller marks under the lock, as before).
+    pub(crate) fn put_stale_marks_built_from(
+        &mut self,
+        marks: Vec<StaleMark>,
+    ) -> Option<Vec<PeerRow>> {
+        let current = marks
+            .iter()
+            .all(|m| self.rows.get(&m.key).is_some_and(|row| Arc::ptr_eq(row, &m.from)));
+        current.then(|| self.put_stale_marks(marks))
+    }
+
+    fn put_stale_marks(&mut self, marks: Vec<StaleMark>) -> Vec<PeerRow> {
         let mut changed = Vec::new();
-        for key in keys {
-            let live = self.stale_from.get(&key).cloned();
-            let Some(row) = self.take(&key) else { continue };
-            let live = live.unwrap_or_else(|| Arc::clone(&row));
-            let before = row.summary.clone();
-            let mut row = Arc::unwrap_or_clone(row);
-            if row.summary.mark_stale(last_seen) {
-                changed.push(PeerRow::stale_announced(&before, &row.summary, last_seen));
-            }
-            self.insert(key.clone(), row);
+        for StaleMark { key, from, row, announced } in marks {
+            // The row as the peer last listed it: what the first mark of an outage replaced.
+            let live = self.stale_from.get(&key).cloned().unwrap_or(from);
+            self.insert_shared(key.clone(), row);
             self.stale_from.insert(key, live);
+            changed.extend(announced);
         }
         changed
     }
@@ -258,6 +312,20 @@ impl RemoteRows {
             .flat_map(PMap::values)
             .flat_map(PSet::iter)
             .filter_map(|key| self.rows.get_key_value(key))
+            .inspect(|_| super::remote_table::under_writer::walked())
+    }
+
+    /// How many of peer `peer`'s rows are closed, counted as rows are written.
+    pub(crate) fn closed_of_peer(&self, peer: &str) -> usize {
+        self.closed_by_peer.get(peer).map_or(0, PSet::len)
+    }
+
+    /// The keys of peer `peer`'s closed rows past its `kept` newest (by `updatedAt`, then key),
+    /// oldest first: reads only those, never the peer's other rows.
+    pub(crate) fn closed_of_peer_past(&self, peer: &str, kept: usize) -> Vec<String> {
+        let Some(closed) = self.closed_by_peer.get(peer) else { return Vec::new() };
+        let past = closed.len().saturating_sub(kept);
+        closed.iter().take(past).map(|(_, key)| key.clone()).collect()
     }
 
     /// Whether peer `peer` lists any row.
@@ -376,6 +444,36 @@ impl RemoteRows {
         keys.into_iter().filter_map(|k| self.rows.get_key_value(k.as_str())).collect()
     }
 
+    /// Peer `peer`'s rows `rest` can name exactly: its name with or without `PEER/`, its alias as
+    /// stored or as spoken, its handle (its default one too) in any case, a former name, and a
+    /// prefix of its peer's session id (`Hub::name_on`'s first step, `harness_key`'s exact
+    /// names). A superset each caller filters by its own test, read through the indexes: a
+    /// prompt to `HOST/NAME` walked every peer's rows twice, 0.4 ms a prompt at 2,000 sessions
+    /// on one connection (coord-sim fanin, 2026-11-27).
+    pub(crate) fn exact_of_peer<'a>(
+        &'a self,
+        peer: &str,
+        rest: &str,
+    ) -> Vec<(&'a String, &'a Arc<RemoteSession>)> {
+        let n = &self.names;
+        let mut keys: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
+        for map in [&n.by_name, &n.by_bare_name, &n.by_spoken, &n.by_former] {
+            keys.extend(map.get(rest).into_iter().flatten());
+        }
+        keys.extend(n.by_alias.get(rest).into_iter().flatten());
+        keys.extend(n.by_handle.get(&rest.to_ascii_lowercase()).into_iter().flatten());
+        keys.extend(
+            n.muxes
+                .range::<_, (String, String)>((rest.to_owned(), String::new())..)
+                .take_while(|(mux, _)| mux.starts_with(rest))
+                .map(|(_, k)| k),
+        );
+        keys.into_iter()
+            .filter_map(|k| self.rows.get_key_value(k.as_str()))
+            .filter(|(_, r)| r.peer == peer)
+            .collect()
+    }
+
     /// The rows whose name ends in `key`'s last segment: every row `key` can be the short name
     /// of ([`super::peers::remote_segment`] decides which are).
     pub(crate) fn short_named<'a>(
@@ -431,6 +529,10 @@ struct Names {
     by_alias: POrdMap<String, PSet<String>>,
     by_former: PMap<String, PSet<String>>,
     by_last_segment: PMap<String, PSet<String>>,
+    /// Its alias as `acpmux ls` prints it (`session_handle::spoken_alias`).
+    by_spoken: PMap<String, PSet<String>>,
+    /// Its handle as shown (its default one when it has none), in lower case.
+    by_handle: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
 }
@@ -442,6 +544,12 @@ impl Names {
         let bare = name.strip_prefix(row.peer.as_str()).and_then(|rest| rest.strip_prefix('/'));
         let last = name.rsplit_once('/').map(|(_, last)| last);
         [(0, Some(name.to_owned())), (1, bare.map(str::to_owned)), (2, last.map(str::to_owned))]
+    }
+
+    /// `row`'s handle as shown, in lower case: `session_handle::matches` is this in any case.
+    fn handle_key(row: &RemoteSession) -> String {
+        crate::session_handle::display(row.summary.handle(), &row.receipt.mux_session_id)
+            .to_ascii_lowercase()
     }
 
     fn map(&mut self, which: u8) -> &mut PMap<String, PSet<String>> {
@@ -463,7 +571,10 @@ impl Names {
         }
         if let Some(alias) = row.summary.alias() {
             self.by_alias.entry(alias.to_owned()).or_default().insert(key.to_owned());
+            let spoken = crate::session_handle::spoken_alias(alias).into_owned();
+            self.by_spoken.entry(spoken).or_default().insert(key.to_owned());
         }
+        self.by_handle.entry(Self::handle_key(row)).or_default().insert(key.to_owned());
         self.keys.insert(key.to_owned());
         self.muxes.insert((row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -495,6 +606,22 @@ impl Names {
                 self.by_alias.remove(alias);
             }
         }
+        if let Some(alias) = row.summary.alias() {
+            let spoken = crate::session_handle::spoken_alias(alias);
+            if let Some(keys) = self.by_spoken.get_mut(&*spoken) {
+                keys.remove(key);
+                if keys.is_empty() {
+                    self.by_spoken.remove(&*spoken);
+                }
+            }
+        }
+        let handle = Self::handle_key(row);
+        if let Some(keys) = self.by_handle.get_mut(&handle) {
+            keys.remove(key);
+            if keys.is_empty() {
+                self.by_handle.remove(&handle);
+            }
+        }
         self.keys.remove(key);
         self.muxes.remove(&(row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -506,6 +633,8 @@ impl Names {
             && self.by_alias.is_empty()
             && self.by_former.is_empty()
             && self.by_last_segment.is_empty()
+            && self.by_spoken.is_empty()
+            && self.by_handle.is_empty()
             && self.keys.is_empty()
             && self.muxes.is_empty()
     }

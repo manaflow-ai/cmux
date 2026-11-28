@@ -58,8 +58,10 @@ final class BrowserPageLoads {
             if url != recordedURL {
                 recordedURL = url
                 recordedTitle = state.title
-                history.recordVisit(url: url, title: state.title, at: Date())
-            } else if let title = state.title, title != recordedTitle {
+                history.recordVisit(url: url, title: state.title, at: Date(),
+                                   actor: tab.isAgentDriven ? "agent" : nil, sessionID: nil)
+            } else if let title = state.title, title != recordedTitle, !tab.isAgentDriven {
+                // The store retitles the person's newest visit of a URL; an agent tab's title is not theirs.
                 recordedTitle = title
                 history.updateTitle(title, for: url)
             }

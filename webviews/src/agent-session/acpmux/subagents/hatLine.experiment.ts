@@ -14,33 +14,32 @@ import { defineExperiment } from "../../../experiments/experiment";
 ///
 /// Every arm but `words` draws one harness mark per running line (HatHeadDeck.tsx): pointing at one
 /// pops it and the line's words become that line's name and latest step; a click opens it; leaving
-/// gives the sentence back. They also put the hide control flush at the line's end (an eye-slash in
-/// muted ink) instead of the tab over the middle of the hat's top edge, which sat on the line's words.
+/// gives the sentence back. Every arm hides from the hat's top-edge tab: the eye-slash #60014 put at the
+/// line's end is gone (Leo, 2026-11-27: "remove the hide eye icon").
 /// Compare them in the gallery's `agent-pane.composer-hat-line-deck`.
 export const hatLineLook = defineExperiment({
   id: "composer-hat-line-deck",
   title: "Composer hat: marks on the one line",
   description:
-    "The one-line hat: words only, the sentence then one harness mark per running line to thumb through (hover pops it and names its line, click opens it), the marks leading the sentence, or a small fanned deck of cards leading it. The arms with marks put the hide control flush at the line's end.",
+    "The one-line hat: words only, the sentence then one harness mark per running line to thumb through (hover pops it and names its line, click opens it), the marks leading the sentence, or a small fanned deck of cards leading it.",
   arms: {
     trail: {
       label: "Sentence, then marks",
       description:
-        "The sentence first, then one harness mark per running line (Claude, Codex, a command's terminal). Pointing at one pops it and the words become its name and latest step; running the pointer along the marks thumbs through them; a click opens it. The hide eye sits flush at the line's end.",
+        "The sentence first, then one harness mark per running line (Claude, Codex, a command's terminal). Pointing at one pops it and the words become its name and latest step; running the pointer along the marks thumbs through them; a click opens it.",
     },
     lead: {
       label: "Marks, then sentence",
-      description:
-        "The same marks, leading the line in the lines' icon column, the sentence after them; the hide eye at the line's end.",
+      description: "The same marks, leading the line in the lines' icon column, the sentence after them.",
     },
     cards: {
       label: "Fanned cards, then sentence",
       description:
-        "The running lines as a small fanned deck leading the line; the hovered card flips to the front and names its line, the wheel thumbs card to card, a click opens it; the hide eye at the line's end.",
+        "The running lines as a small fanned deck leading the line; the hovered card flips to the front and names its line, the wheel thumbs card to card, a click opens it.",
     },
     words: {
       label: "Words only",
-      description: "The sentence alone (cmux#56287), no marks; the hide tab hangs from the top edge, as before.",
+      description: "The sentence alone (cmux#56287), no marks.",
     },
   },
   // The marks after the words: the sentence keeps its place at the composer's leading edge (no jump

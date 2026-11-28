@@ -343,6 +343,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
+        timeout-minutes: 6
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
@@ -361,6 +362,7 @@ jobs:
         id: checkout-retry
         if: steps.checkout.outcome == 'failure'
         continue-on-error: true
+        timeout-minutes: 8
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
@@ -898,6 +900,11 @@ jobs:
           # broken fleet cache fails the same way. Admission keeps the text
           # match, so a real compile error stays one build.
           source scripts/cmux-next/lib/compilation-cache.sh
+          # Xcode's build service crashing mid-build ("Build again to
+          # continue") is no compile error; one clean retry gets a new one.
+          if [ "$status" -ne 0 ] && cmux_next_build_service_crashed "$compile_log"; then
+            retry_compile=1
+          fi
           if [ "$status" -ne 0 ] && [ "$first_compile_fleet" -eq 1 ]; then
             if cmux_next_runtime_cas_failed "$compile_log"; then
               retry_compile=1
@@ -2212,7 +2219,7 @@ jobs:
             --script scripts/ci/package-test-lane.sh --ref "$GITHUB_SHA" \
             --arg=run --arg="--event=$EVENT_NAME" --arg="--full-suite=$FULL_SUITE" \
             --env "CMUX_CI_XCODE_APP=$STEP_XCODE_APP" \
-            --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 | tee "$lane_log" || status=$?
+            --env "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=$(case "$STEP_XCODE_APP" in *Xcode_27*) echo 27 ;; *Xcode_26*) echo 26 ;; esac)" | tee "$lane_log" || status=$?
           # The fleet step has no GITHUB_OUTPUT; its fingerprint receipt comes
           # back as one line of the streamed log.
           receipt="$(sed -n 's/^CMUX_INTERFACE_FINGERPRINT=//p' "$lane_log" | tail -n 1)"
@@ -2388,7 +2395,7 @@ jobs:
     env:
       # The owned label's Xcode exactly when runs-on took it, as swift-package-tests.
       CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(((github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26), 'Xcode_27') && '27' || '26' }}
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}

@@ -165,6 +165,23 @@ strings_fresh() { # <sha>
 # computed, promotes as before with a warning (the feed must not stop on a cache outage).
 # NIGHTLY_NEXT_WEB_BUNDLES=0 turns it off. In the tick (GH_TICK_CACHE) a key found green is not
 # read again; any other answer is read again on the next call.
+# web_matrix_green <sha>: 0 = not red (green, no status yet, unreadable, or off), 1 = red. web-bundle-matrix.yml posts
+# `cmux-next/web-bundle-matrix` on every feat-cmux-next push, from the merged tree: a duplicate import two green pull
+# requests made together stops here, not at the nightly's "Build the web bundles" hours later. Only a posted `failure`
+# refuses; a commit whose run was replaced has no status and is promoted as before.
+web_matrix_reason=""
+web_matrix_green() { # <sha>
+  web_matrix_reason=""
+  [[ "${NIGHTLY_NEXT_WEB_MATRIX:-1}" != 0 ]] || return 0
+  local state
+  state="$(gh api "repos/$repo/commits/$1/statuses?per_page=100" \
+    --jq '[.[] | select(.context == "cmux-next/web-bundle-matrix")][0] | (.state // "") + " " + (.description // "") + " " + (.target_url // "")' 2>/dev/null)" || return 0
+  if [[ "$state" == failure* ]]; then
+    web_matrix_reason="web-bundle-matrix.yml is red on it (${state#failure })"
+    return 1
+  fi
+  return 0
+}
 web_bundles_objects="${CMUX_NIGHTLY_NEXT_WEB_BUNDLES_URL:-https://ci-cache-next.cmux.com/v1/any/objects}"
 web_bundles_reason=""
 # web_bundles_green <sha> <root>: 0 = built green (or unknown, or off), 1 = not built green. Sets
@@ -552,6 +569,11 @@ request() { # <sha>
     return 1
   fi
   echo "web bundles ${1:0:12}: $web_bundles_reason"
+  if ! web_matrix_green "$1"; then
+    echo "not promoting ${1:0:12}: $web_matrix_reason; an older green commit is promoted, and the next tick asks again"
+    precheck_refused=1
+    return 1
+  fi
   # Main's promote guard requires the tree-commit marker (the same check), so
   # a commit without one is not requested: the backfill marks it. A tip whose
   # tree is still building (request_tree_pending) is the exception main's
