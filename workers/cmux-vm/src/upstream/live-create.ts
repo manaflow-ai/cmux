@@ -6,7 +6,7 @@ import { PROVIDER_CREATE_BUDGET_MS, type CreateAdmissionClient } from "../limits
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
-import { makeUpstreamHttp } from "./live-http.ts";
+import { makeUpstreamHttp, type CallTrail } from "./live-http.ts";
 import { CREATE_QUEUE_FULL, resourceFloorsReached, UpstreamError, UpstreamVm, type SizeRequest, type UpstreamClientService } from "./client.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { pendingVmCreationEvidenceOf, cancellingVmCreationEvidenceOf, type VmCreationEvidence } from "../proofs/vm-creation.ts";
@@ -281,8 +281,12 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     if (phases !== undefined) phases["recovered"] = Option.isSome(existing);
     const created = Option.isSome(existing) ? existing.value : yield* Effect.gen(function* () {
       if (Either.isLeft(imageVerdict)) return yield* Effect.fail(imageVerdict.left);
-      // A provider create slot (limits/create-admission.ts) is taken before the send begins, so a refusal sent
-      // nothing and the same key's retry starts clean, like a failed image read above.
+      // Every check that can refuse this send runs before the provider create slot (limits/create-admission.ts) is
+      // taken: a retry the send fence would refuse never holds a slot a person's create is waiting for. PATCH, not
+      // the root fix: the slots fill because the provider holds creates to the 45 s cut (CREATE_SEND_TIMEOUT_MS).
+      yield* journal.checkSend();
+      // The slot is taken before the send begins, so a refusal sent nothing and the same key's retry starts clean,
+      // like a failed image read above. beginSend still decides in the ledger's transaction (a race since checkSend).
       const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases, spec.background === true || caller.value.agent !== undefined || caller.value.maxRunSeconds !== undefined, caller.value.tenantId, spec.deadlineAt);
       const token = yield* journal.beginSend().pipe(Effect.onError(() => release));
       // Staging, 2026-11-27 05:51-06:01Z: in a burst of creates the provider held POST /v5/vms past the 120 s cut, 13
@@ -290,14 +294,23 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       // journey's create past its 300 s bound. As a background request it answers 202 after 60 s and the stored
       // answer (the VM) is polled, so a slow create is still one create with its answer. A create with no answer at all
       // in CREATE_SEND_TIMEOUT_MS, polls included, gives its slot back (see that constant).
-      return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: CREATE_SEND_TIMEOUT_MS, backgroundUntil: Date.now() + CREATE_SEND_TIMEOUT_MS, backgroundAfterSecs: CREATE_BACKGROUND_AFTER_SECS }).pipe(
+      // What the provider answered, on the vm_create line however the create ends (CallTrail: statuses and ms only).
+      const trail: CallTrail = {};
+      const keepTrail = Effect.sync(() => { if (phases !== undefined) phases["send"] = { ...trail }; });
+      return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: CREATE_SEND_TIMEOUT_MS, backgroundUntil: Date.now() + CREATE_SEND_TIMEOUT_MS, backgroundAfterSecs: CREATE_BACKGROUND_AFTER_SECS, trail }).pipe(
+        Effect.ensuring(keepTrail),
         Effect.tap(keep),
         Effect.tap((body) => Effect.sync(() => { if (phases !== undefined) Object.assign(phases, providerTimings(body)); })),
         Effect.flatMap(decode), Effect.flatMap(checkedSent),
       )).pipe(
         Effect.ensuring(release),
         // A rejection counts only once the exact slug also answers 404: a 409 may mean the slug already exists.
-        Effect.tapError((error) => Effect.sync(() => { if (phases !== undefined && error.status === null) phases["createCut"] = true; })),
+        Effect.tapError((error) => Effect.sync(() => {
+          if (phases === undefined) return;
+          if (error.status === null) phases["createCut"] = true;
+          phases["failStatus"] = error.status ?? "none";
+          if (error.kind !== undefined) phases["failKind"] = error.kind;
+        })),
         Effect.catchAll((error) => timedPhase(phases, "recoverAfterMs", recover).pipe(Effect.flatMap((found) => Option.isSome(found)
           ? Effect.sync(() => { if (phases !== undefined) phases["recovered"] = true; return found.value; })
           : definitelyRejected(error.status) ? journal.rejected(token).pipe(Effect.zipRight(Effect.fail(error))) : Effect.fail(error)))),

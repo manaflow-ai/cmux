@@ -96,14 +96,19 @@ impl Policy {
     /// Why agent code may not read or clear the cookies of `domain` (a
     /// cookie's Domain value), or `None`.
     pub fn cookie_refusal(&self, domain: &str) -> Option<String> {
-        if !self.base.is_active() && !self.agent.is_active() {
+        if !self.is_active() {
             return None;
         }
         let host = Self::cookie_host(domain);
         if host.is_empty() {
             return Some("the cookie names no domain".into());
         }
-        self.base.cookie_refusal(&host).or_else(|| self.agent.cookie_refusal(&host))
+        self.base
+            .cookie_refusal(&host)
+            .or_else(|| self.agent.cookie_refusal(&host))
+            // A cookie of the person's profile is its sign-in: only a
+            // leased site's (RFD 0125 D7.2).
+            .or_else(|| self.leases.as_ref()?.refusal(&host, super::now_ms()))
     }
 
     /// Why agent code may not set a cookie with this Domain value, or `None`.
@@ -112,7 +117,7 @@ impl Policy {
         if let Some(reason) = self.cookie_refusal(domain) {
             return Some(reason);
         }
-        if !self.base.is_active() && !self.agent.is_active() {
+        if !self.is_active() {
             return None;
         }
         let raw = domain.trim();
@@ -120,6 +125,15 @@ impl Policy {
         self.base
             .cookie_set_refusal(raw, &host)
             .or_else(|| self.agent.cookie_set_refusal(raw, &host))
+            // Writing a sign-in cookie acts on the site: a read lease never
+            // allows it (RFD 0125 D7.2 tiers).
+            .or_else(|| {
+                self.leases.as_ref()?.refusal_for(
+                    &host,
+                    cmux_browser_grants::Tier::Act,
+                    super::now_ms(),
+                )
+            })
     }
 }
 

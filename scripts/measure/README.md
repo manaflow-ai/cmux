@@ -12,6 +12,27 @@ Details: [scripts/bench/README.md](../bench/README.md).
 
 This file indexes every entry in `scripts/measure/`. Registered benches wrap some of these scripts; the rest are listed below by area. Status is by last commit date as of 2026-11-16: `active` is touched in the last 30 days, `stale` is not.
 
+## NIGHTLY GUI probe transport
+
+`ext-rows-nightly.sh rows=agent_prompts cu_host=nightly` and
+`accounts-nightly-launch.py cu_host=nightly` explicitly use the fleet Mac's installed
+`/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux` for Computer Use. The direct
+Python probes accept `--cu-host nightly`; omission retains the existing PATH transport.
+The app being tested remains the isolated copy and every interaction is scoped to its PID.
+
+The shared transport reads `server status` for `cmux-app-nightly`, validates the returned
+session, PID and absolute socket, then runs `computer-use doctor` against that socket.
+Only exit zero permits MCP startup. MCP receives `CMUX_TUI_SOCKET` explicitly because its
+transport does not use global CLI flags. Probe app identity variables are removed only
+from this host client's child environment. A missing host CLI, unavailable daemon, failed
+doctor or denied tool ends the probe; no settings, permissions or services are changed,
+and there is no alternate driver. A fleet GUI label alone does not prove product Computer
+Use readiness. Receipts include the selected host executable, session, PID and socket.
+
+Regression detector: `python3.9 tests/test_accounts_nightly_transport.py` checks the real
+subprocess arguments/environment, launcher/parser compatibility and failure before probe
+actions, including doctor refusal and terminal MCP denial.
+
 ## Registered benches
 
 | bench | wraps (script) | what |
@@ -276,6 +297,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `browser-fuzz.sh` | Seeded fuzz of URLs, navigation and tab storms (correctness). | fuzz row k | 2026-11-14 | active |
 | `browser-use-perf.sh` | cmux browser host REPL against other browser-automation tools, no model. | - | 2026-11-03 | active |
 | `pane-compile-ab.mjs` | The agent pane's JS compile before first paint, A against B, cold or with a warm code cache, in headless Chrome over http; `--attach PORT` checks a running cmux's pane for code cache consumption. | research:startup | 2026-11-23 | active |
+| `crash-report-read.sh` | A fleet Mac's cmux crash reports as image + offset per frame (crashed thread, lastExceptionBacktrace, main) with image UUIDs and load addresses, plus recent cef.log FATAL / Check failed lines, so a stripped CEF frame ("ChromeWebAppShortcutCopierMain") can be symbolicated against the CEF `-debug` asset. Read only; `--class light --target-worker HOST`. | feature-flows walk SIGTRAP (run 46185455947) | 2026-11-28 | active |
 | `cef-tab.sh` | New Chromium tab: input to visible and to page pixels. | PL-cef-tab | 2026-10-27 | active |
 | `cef-embedder.sh` | CEF fork embedder tests against an unreleased fork build. | PL-cef-fork | 2026-11-12 | active |
 | `cef-helpers.sh` | Chromium helper check: renderer and GPU helpers start, no V8 OOM. | - | 2026-11-05 | active |
