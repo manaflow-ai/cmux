@@ -257,5 +257,10 @@ mod tests {
             reply,
             json!({"phase": "connecting", "scope": "chat", "effects": [{"kind": "submitKey"}]})
         );
+        // The Swift side sends every field on every event and auth kind; the unused ones are ignored.
+        let request = json!({"phase": "ask", "scope": "chat", "auth": {"kind": "none", "optional": false},
+                             "event": {"kind": "connect", "scope": "", "empty": false}});
+        let reply = crate::compose::call("mcpConnect.step", &request).unwrap();
+        assert_eq!(reply["phase"], "connecting");
     }
 }
