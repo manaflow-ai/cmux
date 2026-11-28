@@ -117,6 +117,7 @@ mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
 mod fork_model;
+mod fork_own_process;
 mod fork_replay;
 mod fork_request;
 #[cfg(test)]
@@ -444,6 +445,7 @@ mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
 mod team_information;
 mod team_sent;
+mod team_settings;
 mod terminal_input;
 #[cfg(test)]
 mod time_breakdown_restore_tests;
@@ -1242,6 +1244,8 @@ pub struct Hub {
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// RFD 0170's team directory for the navigator, picker and Session Info (`team_directory.rs`).
     pub(super) team_directory: team_directory::TeamDirectoryCell,
+    /// RFD 0170 phase 4's customization and Slack bindings (`team_settings.rs`).
+    pub(super) team_settings: team_settings::TeamSettingsCell,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
     pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -1497,6 +1501,8 @@ pub struct Hub {
     pub(super) surge_inbox: StdMutex<Option<bool>>,
     /// The fleet hold as its file last read (`session_hold.rs`).
     pub(crate) fleet_hold: StdMutex<session_hold::FleetHoldCache>,
+    /// Wakes the fleet hold's thaw task after a change (`session_hold.rs` `start_fleet_thaw`).
+    pub(crate) fleet_thaw: Notify,
     /// Each chat's surge triage state between passes (`surge_triage.rs` `Journal`).
     pub(super) surge_triage_journals: StdMutex<HashMap<String, surge_triage::Journal>>,
     /// The thread owners every chat subscribed itself to (`surge_triage.rs`).
@@ -1805,6 +1811,7 @@ impl Hub {
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
+        let team_settings_path = home.as_ref().map(|h| h.join(team_settings::FILE));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
@@ -1880,6 +1887,7 @@ impl Hub {
             pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
             team_directory: Default::default(),
+            team_settings: team_settings::TeamSettingsCell::new(team_settings_path),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
@@ -1998,6 +2006,7 @@ impl Hub {
             surge_triager: StdMutex::new(None),
             surge_inbox: StdMutex::new(None),
             fleet_hold: StdMutex::new(session_hold::FleetHoldCache::default()),
+            fleet_thaw: Notify::new(),
             surge_triage_journals: StdMutex::new(HashMap::new()),
             surge_subscribers: StdMutex::new(None),
             surge_digest_pace: StdMutex::new(HashMap::new()),
@@ -2654,6 +2663,7 @@ impl Hub {
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(fork_from),
+            agent_fork: StdMutex::new(None),
             applied: Default::default(),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
