@@ -3,6 +3,11 @@
 
 use super::*;
 
+/// How long a request open on a link that broke on an unstored entry waits for the reattach
+/// (`Hub::reach_broken_link`) to bring its real answer before it is answered with the store's
+/// refusal: past the retry's 5 s backoff a few times, under the client's 30 s limit.
+const BROKEN_ANSWER_BOUND: std::time::Duration = std::time::Duration::from_secs(20);
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -256,13 +261,23 @@ impl Hub {
                     let child =
                         session.child.lock().await.clone().filter(|c| c.generation == agent);
                     if let Some(child) = child.filter(|c| c.is_broken()) {
-                        // An entry from its host could not be stored: every request open on it is
-                        // answered now, with the store's refusal (`disk.full` on a full disk) or
-                        // the link's own error, never left to the client's limit. The next request
-                        // reattaches; the host keeps the entry for it.
-                        let full = self.store.durability().and_then(|d| (d.full)());
-                        let why = full.as_deref().unwrap_or(crate::agent::LINK_UNLOGGED);
-                        child.fail_pending_if_unheard_with(why).await;
+                        // An entry from its host could not be stored. Its open requests stay
+                        // open while `reach_broken_link` (below) reattaches: the replay brings
+                        // their real answers, so a turn the disk filled in ends as the agent ended
+                        // it once space returns (F20; H9: a full disk is a pause, not a failure).
+                        // A link still broken past `BROKEN_ANSWER_BOUND` answers them with the
+                        // store's refusal (`disk.full` on a full disk) or the link's own error,
+                        // never left to the client's 30 s limit (#51667).
+                        let (hub, c) = (self.clone(), child.clone());
+                        self.scope.spawn_named("broken-link-answer-bound", async move {
+                            tokio::time::sleep(BROKEN_ANSWER_BOUND).await;
+                            if !c.is_broken() || c.has_exited() {
+                                return;
+                            }
+                            let full = hub.store.durability().and_then(|d| (d.full)());
+                            let why = full.as_deref().unwrap_or(crate::agent::LINK_UNLOGGED);
+                            c.fail_pending_if_unheard_with(why).await;
+                        });
                     }
                     if self.full_access_managed_off() {
                         let child = session.child.lock().await.clone();
