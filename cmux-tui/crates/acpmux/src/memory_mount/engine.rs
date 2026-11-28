@@ -57,15 +57,106 @@ pub struct State {
     /// The store's sequence number at the last pass.
     #[serde(default)]
     pub remote_seq: Option<u64>,
+    /// Which `state.log` lines follow this snapshot: those carrying the same epoch.
+    #[serde(default)]
+    pub log_epoch: u64,
 }
 
 impl State {
+    /// `state.json`, then the `state.log` lines written since it.
     pub fn load(state_dir: &Path) -> State {
-        std::fs::read(state_dir.join("state.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        load_with_log(state_dir).0
     }
+
+    fn apply(&mut self, delta: Delta) {
+        for (path, base) in delta.files {
+            match base {
+                Some(base) => self.files.insert(path, base),
+                None => self.files.remove(&path),
+            };
+        }
+        self.last_seq = delta.last_seq;
+        if let Some(refused) = delta.refused {
+            self.refused = refused;
+        }
+        self.last_error = delta.last_error;
+        self.last_ok = delta.last_ok;
+        self.remote_seq = delta.remote_seq;
+    }
+}
+
+/// One saved pass in `state.log`: the files it moved (`None` is gone) and the small fields
+/// whole. A pass that pulls one note appends a line, not the whole `files` map again (two
+/// megabytes on a fleet's private scope, rewritten on every remote change).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Delta {
+    /// The `logEpoch` of the snapshot this line follows; lines of an older one are stale.
+    epoch: u64,
+    #[serde(default)]
+    files: BTreeMap<String, Option<Base>>,
+    last_seq: u64,
+    #[serde(default)]
+    refused: Option<BTreeMap<String, Refused>>,
+    #[serde(default)]
+    last_error: Option<String>,
+    #[serde(default)]
+    last_ok: Option<u64>,
+    #[serde(default)]
+    remote_seq: Option<u64>,
+}
+
+impl Delta {
+    fn between(saved: &State, now: &State) -> Delta {
+        let mut files = BTreeMap::new();
+        for (path, base) in &now.files {
+            if saved.files.get(path) != Some(base) {
+                files.insert(path.clone(), Some(base.clone()));
+            }
+        }
+        for path in saved.files.keys() {
+            if !now.files.contains_key(path) {
+                files.insert(path.clone(), None);
+            }
+        }
+        Delta {
+            epoch: now.log_epoch,
+            files,
+            last_seq: now.last_seq,
+            refused: (saved.refused != now.refused).then(|| now.refused.clone()),
+            last_error: now.last_error.clone(),
+            last_ok: now.last_ok,
+            remote_seq: now.remote_seq,
+        }
+    }
+}
+
+/// The log is folded into a new snapshot once it outgrows this or the snapshot, whichever is
+/// larger: each line stays O(change) and a load reads at most about twice the state.
+const LOG_COMPACT_BYTES: u64 = 1 << 20;
+
+/// The state, the log's length, and whether its tail is torn (a crash mid-append): appending
+/// after a torn line would glue the next line onto it, so the next save compacts.
+fn load_with_log(state_dir: &Path) -> (State, u64, bool) {
+    let mut state: State = std::fs::read(state_dir.join("state.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    let Ok(log) = std::fs::read(state_dir.join("state.log")) else {
+        return (state, 0, false);
+    };
+    let mut torn = !log.is_empty() && !log.ends_with(b"\n");
+    for line in log.split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
+        match serde_json::from_slice::<Delta>(line) {
+            Ok(delta) if delta.epoch == state.log_epoch => state.apply(delta),
+            Ok(_) => {}
+            Err(_) => {
+                torn = true;
+                break;
+            }
+        }
+    }
+    (state, log.len() as u64, torn)
 }
 
 /// What a pass did.
@@ -91,6 +182,16 @@ pub struct Engine {
     hashed: HashMap<String, (Stamp, String)>,
     /// The state as `state.json` last held it: a pass that changed nothing writes nothing.
     saved: Option<State>,
+    /// `state.log`'s length; past [`LOG_COMPACT_BYTES`] and the snapshot the next save compacts.
+    log_bytes: u64,
+    /// `state.json`'s length at the last compaction.
+    snapshot_bytes: u64,
+    /// The next save writes a whole snapshot (a torn log tail, a failed append).
+    compact_due: bool,
+    /// Unreferenced bases are listed and removed on a full pass, not on every pull.
+    prune_due: bool,
+    /// Bytes written to `state.json` and `state.log` since start (tests read it).
+    pub state_bytes_written: u64,
     /// Files read and hashed by pushes since start (what the stamp cache saves; tests read it).
     pub hashed_reads: u64,
     /// Whole-folder walks since start: one per full pass, none per [`Engine::pass_changed`]
@@ -165,7 +266,9 @@ impl Engine {
                     return Err(e).context("take the memory sync lock");
                 }
             };
-        let state = State::load(&state_dir);
+        let (state, log_bytes, torn) = load_with_log(&state_dir);
+        let snapshot_bytes =
+            std::fs::metadata(state_dir.join("state.json")).map(|m| m.len()).unwrap_or(0);
         let saved = Some(state.clone());
         Ok(Engine {
             client,
@@ -176,6 +279,11 @@ impl Engine {
             state,
             hashed: HashMap::new(),
             saved,
+            log_bytes,
+            snapshot_bytes,
+            compact_due: torn,
+            prune_due: true,
+            state_bytes_written: 0,
             hashed_reads: 0,
             scans: 0,
             dirty: BTreeSet::new(),
@@ -190,6 +298,7 @@ impl Engine {
     /// Pull, then push every file under the folder; the state is saved either way.
     pub async fn pass(&mut self) -> Result<Report> {
         let mut report = Report::default();
+        self.prune_due = true;
         let result = async {
             self.pull(&mut report).await?;
             self.push(&mut report).await
@@ -532,15 +641,43 @@ impl Engine {
         }
     }
 
-    pub fn save(&self) -> Result<()> {
+    /// Write the whole state as a new snapshot and start an empty log after it.
+    pub fn save(&mut self) -> Result<()> {
+        self.state.log_epoch += 1;
         let bytes = serde_json::to_vec(&self.state)?;
         write_atomic(&self.state_dir.join("state.json"), &bytes)
-            .context("save the memory sync state")
+            .context("save the memory sync state")?;
+        // The old log's lines carry the old epoch, so a crash before this leaves them ignored.
+        write_atomic(&self.state_dir.join("state.log"), b"")
+            .context("reset the memory sync log")?;
+        self.state_bytes_written += bytes.len() as u64;
+        self.snapshot_bytes = bytes.len() as u64;
+        self.log_bytes = 0;
+        self.compact_due = false;
+        self.saved = Some(self.state.clone());
+        Ok(())
     }
 
-    /// Save (and prune the bases) only when the pass changed the state; `last_ok` alone is
-    /// written at most once a minute. A pass per remote change on a folder of thousands of
-    /// files otherwise rewrote a megabyte of JSON and listed every base, each time.
+    /// Append what moved since the last save as one `state.log` line.
+    fn append(&mut self, saved: &State) -> std::io::Result<Delta> {
+        use std::io::Write as _;
+        let delta = Delta::between(saved, &self.state);
+        let mut line = serde_json::to_vec(&delta)?;
+        line.push(b'\n');
+        let mut log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.state_dir.join("state.log"))?;
+        log.write_all(&line)?;
+        self.log_bytes += line.len() as u64;
+        self.state_bytes_written += line.len() as u64;
+        Ok(delta)
+    }
+
+    /// Save only when the pass changed the state (`last_ok` alone at most once a minute), as a
+    /// log line of what moved; a snapshot only once the log outgrows it. Bases are pruned on a
+    /// full pass or a snapshot. A pull per remote change on a folder of thousands of files
+    /// otherwise rewrote two megabytes of JSON and listed every base, about once a second.
     fn save_if_changed(&mut self) -> Result<()> {
         let (files_moved, changed) = match &self.saved {
             None => (true, true),
@@ -557,12 +694,31 @@ impl Engine {
                 (files_moved, changed)
             }
         };
-        if files_moved {
-            self.prune_bases();
+        if !changed {
+            return Ok(());
         }
-        if changed {
+        let compact = self.compact_due
+            || self.log_bytes > LOG_COMPACT_BYTES.max(self.snapshot_bytes)
+            || self.saved.is_none();
+        if compact {
             self.save()?;
-            self.saved = Some(self.state.clone());
+        } else if let Some(mut saved) = self.saved.take() {
+            match self.append(&saved) {
+                Ok(delta) => {
+                    saved.apply(delta);
+                    self.saved = Some(saved);
+                }
+                Err(e) => {
+                    self.saved = Some(saved);
+                    self.compact_due = true;
+                    tracing::warn!("append the memory sync log: {e}; writing a snapshot");
+                    self.save()?;
+                }
+            }
+        }
+        if files_moved && (self.prune_due || compact) {
+            self.prune_bases();
+            self.prune_due = false;
         }
         Ok(())
     }
