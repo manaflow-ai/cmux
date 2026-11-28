@@ -89,18 +89,6 @@ public enum JSONValue: Sendable, Hashable, Codable {
         return current
     }
 
-    /// A copy holding only the values at `paths` (and the objects on the way to them): what a
-    /// rules call that reads those keys needs. The settings file's root is 160 KB for some people;
-    /// sent whole over the Rust bridge per row it hung the main thread for seconds (thread
-    /// p1795759419, cmux#59531). An empty object when none is set.
-    public func keeping(_ paths: [[String]]) -> JSONValue {
-        var kept = JSONValue.object([:])
-        for path in paths {
-            if let value = value(at: path) { kept = kept.setting(value, at: path) }
-        }
-        return kept
-    }
-
     // MARK: - Foundation bridging
 
     /// Bridges a `JSONSerialization` object graph. Nil for unsupported types.
