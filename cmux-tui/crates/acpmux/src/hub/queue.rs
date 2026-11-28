@@ -28,7 +28,7 @@ impl Drop for TurnLockWait<'_> {
 mod lost_start;
 // A direct prompt accepted before its turn started goes back at the head (`restore_queue`).
 #[path = "unstarted_prompt.rs"]
-mod unstarted_prompt;
+pub(in crate::hub) mod unstarted_prompt;
 // The waiting records and the order a restore reads, indexed (`restore_queue`).
 #[path = "queue_waiting.rs"]
 mod queue_waiting;

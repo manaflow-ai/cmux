@@ -19,6 +19,7 @@
 pub mod config;
 pub mod fetch;
 pub mod offload;
+pub mod replica;
 pub mod seal;
 pub mod store;
 pub mod stub;

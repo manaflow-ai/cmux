@@ -26,6 +26,7 @@ use lock::{
     wait_for_lock_release_with_budget,
 };
 mod running;
+pub(crate) mod running_replica;
 pub use running::connect_running;
 mod snapshot_clear;
 pub(crate) mod start_exe;

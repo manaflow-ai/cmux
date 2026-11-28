@@ -385,6 +385,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_HISTORY_DELETE, Request),
         untyped(method::MUX_HISTORY_OFFLOAD, Request),
+        untyped(method::MUX_RUNNING_REPLICA, Request),
         untyped(method::MUX_LIFECYCLE, Request),
         untyped(method::MUX_TRANSCRIPT_OFFLOAD, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),

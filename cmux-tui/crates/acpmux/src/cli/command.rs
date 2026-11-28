@@ -1240,6 +1240,9 @@ pub enum Command {
     HistoryDelete(HistoryDeleteArgs),
     #[command(hide = true)]
     HistoryOffload(HistoryOffloadArgs),
+    /// Manage the opt-in durable replica of ordinary running chats.
+    #[command(subcommand, name = "running-replica")]
+    RunningReplica(RunningReplicaCmd),
     #[command(hide = true)]
     Lifecycle(LifecycleArgs),
     #[command(hide = true)]
@@ -1387,6 +1390,24 @@ pub enum Command {
     /// `daemon handoff-check`: the build and the restart handoff this binary takes.
     #[command(hide = true)]
     DaemonHandoffCheck,
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum RunningReplicaCmd {
+    /// Show the latest replica checkpoint and enrollment state.
+    Status,
+    /// Capture a durable checkpoint for a running chat.
+    Checkpoint { session: String },
+    /// Derive the opaque root address for a chat from its id.
+    Address { session: String },
+    /// Recover a checkpoint into a new idle chat identity.
+    Recover {
+        pair: String,
+        #[arg(long)]
+        cwd: PathBuf,
+        #[arg(long, short)]
+        name: Option<String>,
+    },
 }
 
 #[derive(Args)]

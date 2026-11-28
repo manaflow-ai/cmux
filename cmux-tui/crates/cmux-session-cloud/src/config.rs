@@ -21,6 +21,9 @@ pub struct Config {
     pub key_file: Option<PathBuf>,
     /// Put before the GC root's pair id; a Cloud machine sets its own namespace here.
     pub root_prefix: Option<String>,
+    /// Separately opt in to checkpoints of ordinary running chats. Cold history stays independent.
+    #[serde(default)]
+    pub running_replica: bool,
     /// The state folder the config was read from.
     #[serde(skip)]
     pub state: PathBuf,

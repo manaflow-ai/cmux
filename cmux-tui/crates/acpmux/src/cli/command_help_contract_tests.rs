@@ -678,6 +678,30 @@ fn stale_nested_command_is_rejected() {
     assert!(documented_shape(&words, &shapes).is_none());
 }
 
+#[test]
+fn running_replica_commands_parse_with_recovery_destination() {
+    use super::{Command, RunningReplicaCmd};
+    let parse = |argv: &[&str]| Cli::try_parse_from(argv).unwrap().command.map(super::flatten);
+    assert!(matches!(
+        parse(&["acpmux", "running-replica", "status"]),
+        Some(Command::RunningReplica(RunningReplicaCmd::Status))
+    ));
+    assert!(matches!(
+        parse(&["acpmux", "running-replica", "address", "chat-1"]),
+        Some(Command::RunningReplica(RunningReplicaCmd::Address { session })) if session == "chat-1"
+    ));
+    assert!(matches!(
+        parse(&[
+            "acpmux", "running-replica", "recover", "csh.abc", "--cwd", "/tmp/recovered",
+            "--name", "restored"
+        ]),
+        Some(Command::RunningReplica(RunningReplicaCmd::Recover { pair, cwd, name }))
+            if pair == "csh.abc"
+                && cwd == std::path::PathBuf::from("/tmp/recovered")
+                && name.as_deref() == Some("restored")
+    ));
+}
+
 /// `session fork -m MODEL` without `--harness` forks onto another model of the chat's own
 /// harness; it was refused, so no fork could change only its model.
 #[test]

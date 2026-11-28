@@ -61,6 +61,9 @@ Use the machine or session id named by those commands when you retry. A paused m
 
 ## Fork, snapshot, hand off
 
+For an opted-in ordinary chat interrupted by machine loss, see
+[Recover a running chat replica](../running-chat-replicas.md).
+
 ```bash
 cmux cloud fork-machine
 cmux cloud snapshot-machine
