@@ -1310,7 +1310,7 @@ fi
 # Paths are made relative to the checked tree (the merged and base trees sit in
 # different temp folders), so a red the base already has compares equal.
 vp_flagged_files() {
-  sed -E 's/\x1b\[[0-9;]*m//g; s#[^[:space:]'"'"'"(]*/(merged|base)/(webviews|config)/#\2/#g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
+  sed -E 's/\x1b\[[0-9;]*m//g; s#[^[:space:]'"'"'"(]*/(merged|base)/(webviews|config|Resources/markdown-viewer)/#\2/#g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
 }
 # Files outside webviews/ that its vp check loads: vite.config.ts imports
 # ../config/vite-plus/check and resolves ../Resources/markdown-viewer through
