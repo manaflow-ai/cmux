@@ -553,7 +553,8 @@ impl LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
         sealed: Option<Folders>,
     ) -> Result<bool> {
-        let scan = kind_index::Scan { kinds, copied: true, strict: false, heads: false };
+        let scan =
+            kind_index::Scan { kinds, copied: true, strict: false, heads: false, whole: false };
         if let Some(folders) = sealed
             && let Some(heads) = self.kind_heads.whole(id, index, folders)
         {

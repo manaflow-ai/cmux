@@ -292,6 +292,19 @@ pub trait Store: Send + Sync {
     ) -> Result<()> {
         self.scan_back(id, after, before, skip, visit)
     }
+    /// [`Store::scan_back_indexed`] for a read a strict scan follows (a log load's first read
+    /// back, `Hub::catch_up_locked`): a file store makes a segment's copy by reading every line,
+    /// so the strict scans take it instead of reading the segment again (`ReadBackMode::Checked`).
+    fn scan_back_checked(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_indexed(id, after, before, skip, visit)
+    }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
     /// `skip(dir, kind)` true says a record is surely not wanted: a file store
@@ -1769,7 +1782,7 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, false)
+        self.scan_back_in(id, after, before, skip, visit, kind_index::ReadBackMode::Raw)
     }
 
     fn scan_back_indexed(
@@ -1780,7 +1793,18 @@ impl Store for LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_back_in(id, after, before, skip, visit, true)
+        self.scan_back_in(id, after, before, skip, visit, kind_index::ReadBackMode::Indexed)
+    }
+
+    fn scan_back_checked(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_back_in(id, after, before, skip, visit, kind_index::ReadBackMode::Checked)
     }
 
     fn flush(&self) -> Result<()> {

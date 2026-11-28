@@ -2388,10 +2388,24 @@ impl Hub {
         #[cfg(test)]
         log_load::catch_up_note(&log_load::NOTE_BEFORE_CATCH_UP_LOCK, "takes the append lock");
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.catch_up_locked(session);
+        self.catch_up_read(session, false);
+    }
+
+    /// [`Self::catch_up`] for a log load, whose strict scans read the log next: its read back
+    /// makes copies they take (`Store::scan_back_checked`), so a load reads the segment being
+    /// written once, not once for the read back and again for each strict scan.
+    pub(super) fn catch_up_for_load(&self, session: &Session) {
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_BEFORE_CATCH_UP_LOCK, "takes the append lock");
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.catch_up_read(session, true);
     }
 
     fn catch_up_locked(&self, session: &Session) {
+        self.catch_up_read(session, false);
+    }
+
+    fn catch_up_read(&self, session: &Session, checked: bool) {
         // Once: every caller holds `append_lock`. Marked only once the tail is counted, since
         // `scan_events` reads the mark without that lock (review of #36022, finding 1).
         if session.caught_up.load(Ordering::SeqCst) {
@@ -2404,20 +2418,20 @@ impl Hub {
         let mut results = Vec::new();
         // Under the append lock: `turn_result` is indexed, so a chat whose results are all
         // failures reads only the index copies back, not its whole log.
-        let restored = self.store.scan_back_indexed(
-            &session.id,
-            after,
-            u64::MAX,
-            &|dir, kind| dir != b"mux" || kind != b"turn_result",
-            &mut |record| {
-                let success =
-                    record.msg["status"] == "completed" && record.msg["stopReason"] != "cancelled";
-                results.push(record);
-                // A success settles everything before it; the bounded window settles the rest
-                // (a streak older than it reads as starting at the window's oldest result).
-                !success && results.len() < crate::session_liveness::RESTORE_RESULTS
-            },
-        );
+        let skip = |dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"turn_result";
+        let mut visit = |record: EventRecord| {
+            let success =
+                record.msg["status"] == "completed" && record.msg["stopReason"] != "cancelled";
+            results.push(record);
+            // A success settles everything before it; the bounded window settles the rest
+            // (a streak older than it reads as starting at the window's oldest result).
+            !success && results.len() < crate::session_liveness::RESTORE_RESULTS
+        };
+        let restored = if checked {
+            self.store.scan_back_checked(&session.id, after, u64::MAX, &skip, &mut visit)
+        } else {
+            self.store.scan_back_indexed(&session.id, after, u64::MAX, &skip, &mut visit)
+        };
         let rebuilt = restored.is_ok() && !results.is_empty();
         if rebuilt {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());

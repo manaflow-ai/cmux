@@ -260,7 +260,7 @@ impl Hub {
             // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
-        self.catch_up(session);
+        self.catch_up_for_load(session);
         if !session.caught_up.load(Ordering::SeqCst) {
             // What an earlier run kept on disk did not read (`take_back_kept`): nothing recovers
             // or rebuilds its queue without it (review of #37284 at 23e76b07, F2). The log stays

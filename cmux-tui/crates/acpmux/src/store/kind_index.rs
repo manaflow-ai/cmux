@@ -358,6 +358,8 @@ pub(super) struct Window {
     start: u64,
     lines_len: u64,
     len: u64,
+    /// Whether every line of the bytes it covers read ([`Copied::parsed`]).
+    parsed: bool,
 }
 
 impl std::io::Read for Window {
@@ -488,6 +490,25 @@ pub(super) struct Scan<'a> {
     /// A copy made by line heads alone, no line parsed ([`LocalStore::copy_for_read_back`]): it
     /// says its lines were not all read (`parsed` false), so a strict scan makes it again.
     pub(super) heads: bool,
+    /// Take only a copy whose lines all read, as a strict scan does, without failing on a line
+    /// that does not: a checked read back makes the copy a strict scan takes ([`ReadBackMode`]).
+    pub(super) whole: bool,
+}
+
+/// How `scan_back_in` reads a segment back.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ReadBackMode {
+    /// From the segment's end (`scan_back`).
+    Raw,
+    /// From its copy, made by line heads where it has none ([`LocalStore::copy_for_read_back`]).
+    Indexed,
+    /// From its copy, made by reading every line where it has none or its copy is by heads: a
+    /// log load's first read back (`Hub::catch_up_locked`) is followed by its strict scans
+    /// (`restore_ownership_epoch_after`, `restore_transfer_authority_after`), which take no copy
+    /// by heads. A heads copy at the load made each of them read the open segment whole again: a
+    /// restart of a 20 MB chat read 2.7x a 2 MB one's bytes, past the 1.2x bound
+    /// (`stress::god_chat`, CI run 46117643851).
+    Checked,
 }
 
 impl Scan<'_> {
@@ -531,7 +552,7 @@ impl LocalStore {
         before: u64,
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
-        indexed: bool,
+        mode: ReadBackMode,
     ) -> Result<()> {
         let done = std::cell::Cell::new(false);
         // One line, newest first: false once the read is over (`visit` stopped, or `after`).
@@ -568,8 +589,11 @@ impl LocalStore {
                 continue;
             }
             let mut file = super::cold_segments::open_segment(path)?;
-            let copy =
-                if indexed { self.copy_for_read_back(id, index, path, &file)? } else { None };
+            let copy = match mode {
+                ReadBackMode::Raw => None,
+                ReadBackMode::Indexed => self.copy_for_read_back(id, index, path, &file, false)?,
+                ReadBackMode::Checked => self.copy_for_read_back(id, index, path, &file, true)?,
+            };
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment
@@ -642,23 +666,28 @@ impl LocalStore {
         index: u32,
         path: &Path,
         file: &super::cold_segments::SegmentFile,
+        checked: bool,
     ) -> Result<Option<(ReadBack, u64)>> {
         let stamp = Stamp::of_segment(file)?;
         if let Some(window) = self.kind_index_window(id, index, &stamp)
             && (stamp.id.2 == 0 || stamp.len.saturating_sub(window.len) < COPY_AFTER)
+            && (window.parsed || !checked)
         {
             let from = window.len;
             return Ok(Some((ReadBack::Window(window), from)));
         }
         let read = |stamp: &Stamp| {
-            self.read_kind_index(id, index, stamp).map(|c| (ReadBack::Lines(c.lines), c.len))
+            self.read_kind_index(id, index, stamp)
+                .filter(|c| c.parsed || !checked)
+                .map(|c| (ReadBack::Lines(c.lines), c.len))
         };
         let copy = read(&stamp);
         let behind = copy.as_ref().map_or(stamp.len, |(_, from)| stamp.len.saturating_sub(*from));
         if stamp.id.2 == 0 || behind < COPY_AFTER {
             return Ok(copy);
         }
-        let scan = Scan { kinds: &[], copied: true, strict: false, heads: true };
+        let scan =
+            Scan { kinds: &[], copied: true, strict: false, heads: !checked, whole: checked };
         if let Err(e) = self.scan_segment(id, index, path, &scan, &mut |_| true) {
             tracing::debug!(session = %id, segment = index, "copying a segment for a read back failed: {e}");
             return Ok(copy);
@@ -715,7 +744,7 @@ impl LocalStore {
             std::fs::read_dir(self.dir(id).join("events"))?;
         }
         let copied = kinds.iter().all(|k| INDEXED_KINDS.contains(k));
-        let scan = Scan { kinds, copied, strict, heads: false };
+        let scan = Scan { kinds, copied, strict, heads: false, whole: false };
         let segments = self.segments(id)?;
         let start = self.segment_starts.start(id, &segments, after)?;
         for (index, path) in segments.into_iter().skip(start) {
@@ -740,7 +769,9 @@ impl LocalStore {
         let stamp = if scan.copied { Some(Stamp::of_segment(&file)?) } else { None };
         let (mut copy, from, mut parsed, copy_hash) =
             match stamp.as_ref().and_then(|s| self.read_kind_index(id, index, s)) {
-                Some(c) if c.parsed || !scan.strict => (Some(c.lines), c.len, c.parsed, c.hash),
+                Some(c) if c.parsed || !(scan.strict || scan.whole) => {
+                    (Some(c.lines), c.len, c.parsed, c.hash)
+                }
                 _ => (None, 0, true, 0),
             };
         for line in copy.iter().flat_map(|lines| lines.split(|b| *b == b'\n')) {
@@ -868,7 +899,13 @@ impl LocalStore {
                 header.lines_hash,
             ) == header.seal
             && self.kind_index_checks.carried_exact(id, index, now);
-        same.then_some(Window { file, start, lines_len: header.lines_len, len: header.len })
+        same.then_some(Window {
+            file,
+            start,
+            lines_len: header.lines_len,
+            len: header.len,
+            parsed: header.parsed,
+        })
     }
 
     pub(super) fn read_kind_index(&self, id: &str, index: u32, segment: &Stamp) -> Option<Copied> {
