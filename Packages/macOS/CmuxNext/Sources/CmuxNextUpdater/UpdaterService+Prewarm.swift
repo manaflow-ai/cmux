@@ -9,8 +9,10 @@ struct StagedPrewarmRun {
     let urgency: StagedUpdatePrewarm.Urgency
     /// The pre-warm's log line once it ended; nil while it runs.
     var line: String?
-    /// The pre-warm's task: cancelling it stops every process it started (``UpdaterService/stopPrewarm(_:)``).
+    /// The pre-warm's task: cancelling it starts no further run (``UpdaterService/stopPrewarm(_:)``).
     var task: Task<Void, Never>?
+    /// The process groups its runs started: the stop kills them and waits for every member to exit.
+    var groups = PrewarmProcessGroups()
 }
 
 /// An install click that waits for the pre-warm (``UpdaterService/installAfterPrewarm(_:)``).
@@ -54,7 +56,7 @@ extension UpdaterService {
         log.append("launch pre-warm of \(build): started (\(trigger))")
         let prewarm = StagedUpdatePrewarm(installations: UpdateInstallPreflight.stagedInstallations(bundleIdentifier: bundleIdentifier),
                                           bundleIdentifier: bundleIdentifier, build: build)
-        let runner = prewarmRunner, log = log, work = work
+        let runner = prewarmRunner, log = log, work = work, groups = prewarmRun?.groups
         let marker = prewarmMarker(bundleIdentifier: bundleIdentifier)
         // task-owner: one pre-warm per staged build; ends after its last process (each stopped at its timeout).
         // Best effort until an install click waits for it (``installAfterPrewarm(_:)`` raises `urgency`); its folder
@@ -62,7 +64,7 @@ extension UpdaterService {
         // (``StagedUpdatePrewarm/perform(work:processes:timeout:total:clock:marker:urgency:progress:)``), its processes through AsyncProcess.
         prewarmRun?.task = Task.detached(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
             let line: String
-            if let runner { line = await runner(prewarm) } else { line = await prewarm.perform(work: work, marker: marker, urgency: urgency, progress: { log.append($0) }) }
+            if let runner { line = await runner(prewarm) } else { line = await prewarm.perform(work: work, marker: marker, urgency: urgency, launched: groups.map { groups in { groups.launched($0) } }, progress: { log.append($0) }) }
             log.append(line)
             await self?.prewarmEnded(urgency, line: line)
         }
@@ -122,13 +124,23 @@ extension UpdaterService {
     /// Sparkle swaps the staged bundle into place on an install and removes its staging folder on an install or a
     /// cancel; a pre-warm process still starting from there loads half a bundle and dies in dyld ("Library not
     /// loaded: @rpath/Sparkle.framework", SIGABRT), a crash report for a process nobody started. Cancelling the
-    /// pre-warm's task signals each of its processes at once (their whole process group, ``AsyncProcess``), before
-    /// this returns, and starts no further run. A pre-warm that already ended is left as it was.
+    /// pre-warm's task starts no further run, and every process of its groups gets SIGKILL, and each group's leader has exited, before
+    /// this returns (``PrewarmProcessGroups``, at most ``prewarmStopBound``): a run's own stop gives a process 2 s on SIGTERM,
+    /// and one that shuts down slowly (Chromium's browser process) kept loading from the folder Sparkle removed
+    /// (StagedUpdatePrewarmRealStopTests). A pre-warm that already ended is left as it was.
     func stopPrewarm(_ why: String) {
         guard let run = prewarmRun, run.line == nil, let task = run.task, !task.isCancelled else { return }
         task.cancel()
-        log.append("launch pre-warm of \(run.build): stopped\(why)")
+        let ended = run.groups.killAndWait(bound: Self.prewarmStopBound)
+        let processes = ended.map { ended in
+            " (\(ended.groups) process groups killed, leaders ended in \(StagedUpdatePrewarm.milliseconds(ended.waited)) ms"
+                + (ended.stillRunning > 0 ? ", \(ended.stillRunning) not yet reaped" : "") + ")"
+        } ?? ""
+        log.append("launch pre-warm of \(run.build): stopped\(why)\(processes)")
     }
+
+    /// How long a stop waits for the pre-warm's SIGKILLed processes to exit before Sparkle goes on.
+    static let prewarmStopBound: Duration = .milliseconds(500)
 
     /// The pre-warm `run` (its ``StagedPrewarmRun/urgency``) ended with `line`; an install waiting for it goes on.
     /// A pre-warm replaced since (another staged build) changes nothing.
