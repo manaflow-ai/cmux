@@ -10,24 +10,37 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Root } from "react-dom/client";
-import { noChat, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import { cmuxLinkTarget } from "../src/agent-session/acpmux/conversation/cmuxLinks";
-import { PromptTyped } from "../src/agent-session/acpmux/conversation/PromptText";
-import { setLinkPlaces } from "../src/agent-session/acpmux/chips/cmuxLinkPlaces";
-import { setPageChats } from "../src/agent-session/acpmux/chips/cmuxLinkResolve";
-import { SessionHoverStore } from "../src/agent-session/acpmux/started/sessionHover";
-import { SessionHoverContext } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
-import { linkedText } from "../src/agent-session/acpmux/chips/linkedText";
-import { deeplinks } from "../src/agent-session/acpmux/composer/deeplinks";
-import { resetSessionRefs, setSessionRefResolver } from "../src/agent-session/acpmux/conversation/sessionRefs";
-import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
-import { openOfferChat, openSenderChat } from "../src/agent-session/acpmux/rows/rowActions";
-import { chipSelectionText, selectionHtml } from "../src/agent-session/acpmux/conversation/selectionCopy";
-import { htmlMarkdown } from "../src/agent-session/acpmux/richClipboard";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+type SessionHoverStore = import("../src/agent-session/acpmux/started/sessionHover").SessionHoverStore;
+const { noChat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { cmuxLinkTarget } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/cmuxLinks"));
+const { PromptTyped } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/PromptText"));
+const { setLinkPlaces } = await importWithDom(() => import("../src/agent-session/acpmux/chips/cmuxLinkPlaces"));
+const { setPageChats } = await importWithDom(() => import("../src/agent-session/acpmux/chips/cmuxLinkResolve"));
+const { SessionHoverStore } = await importWithDom(() => import("../src/agent-session/acpmux/started/sessionHover"));
+const { SessionHoverContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/started/sessionHoverCardModel"),
+);
+const { linkedText } = await importWithDom(() => import("../src/agent-session/acpmux/chips/linkedText"));
+const { deeplinks } = await importWithDom(() => import("../src/agent-session/acpmux/composer/deeplinks"));
+const { resetSessionRefs, setSessionRefResolver } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/sessionRefs"),
+);
+const { SubsessionContext, SubsessionStore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subsessions"),
+);
+const { openOfferChat, openSenderChat } = await importWithDom(
+  () => import("../src/agent-session/acpmux/rows/rowActions"),
+);
+const { chipSelectionText, selectionHtml } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/selectionCopy"),
+);
+const { htmlMarkdown } = await importWithDom(() => import("../src/agent-session/acpmux/richClipboard"));
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;

@@ -689,6 +689,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     override public func layout() {
         super.layout()
         Self.layoutPasses &+= 1
+        // A window edge drag runs in AppKit's tracking loop, which the app's event monitor does not see:
+        // each live-resize pass notes the drag, so low background work waits until it ends.
+        if window?.inLiveResize == true { Interactivity.note(.drag) }
         fitScreensToBounds()
         updateVisibility()
         if overlayPlane.syncFrame() { overlayIsStale = true }

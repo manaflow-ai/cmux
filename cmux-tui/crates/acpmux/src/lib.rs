@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod abi_hello;
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
 pub mod acpmux_mcp;
@@ -90,6 +91,7 @@ mod codex_auth_file;
 pub mod codex_bundle;
 mod codex_cloud_auth;
 pub mod codex_cmux_entry;
+pub mod codex_dedupe;
 pub mod codex_desktop;
 pub mod codex_repo_gate;
 mod codex_signed_out;
@@ -149,11 +151,15 @@ pub mod github_session_env;
 pub mod god_fixture;
 pub mod hypervisor;
 pub mod install_share;
+/// Bounded journal reads reduced once into timestamped replay states.
+pub mod journal_replay;
 pub mod key_check;
 pub mod memory_follow;
+pub mod model_router;
+pub mod parked_wait;
+pub mod spec_exec;
 mod subscription_store;
 mod subscriptions;
-pub mod model_router;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -212,6 +218,9 @@ pub mod idempotency;
 mod job;
 mod joined_model_plane;
 pub mod terminal_autocompact;
+#[cfg(test)]
+mod unbuffered_json_reads_tests;
+pub mod working_set;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
@@ -386,6 +395,7 @@ mod session_handle;
 pub mod session_icon;
 pub mod session_identity;
 pub mod session_liveness;
+pub mod session_manifest;
 pub mod session_name;
 pub mod session_order;
 mod session_scope;

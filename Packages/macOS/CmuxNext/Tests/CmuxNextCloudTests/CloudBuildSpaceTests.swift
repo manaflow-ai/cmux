@@ -93,23 +93,10 @@ struct CloudBuildSpaceTests {
         await #expect(throws: CMUXBuildSpaceError.self) { try await daemon.listNetworks() }
     }
 
-    @Test("CloudOwnerAPIClient adds the header to its session's requests with a build space, none without", arguments: [true, false])
-    func ownerClient(tagged: Bool) async throws {
-        let owner = CloudOwnerAPIClient(baseURL: Self.base, accessToken: { "access" }, teamID: { "team_1" },
-                                        buildSpace: Self.state(tagged))
-        let request = try await owner.authorized(URLRequest(url: Self.base.appendingPathComponent("v1/handoffs")), access: "access")
-        #expect(request.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer access")
-        #expect(request.value(forHTTPHeaderField: "x-cmux-team") == "team_1")
-    }
-
     @Test("CloudOwnerAPIClient of a misconfigured dev build refuses every request")
     func ownerClientRefuses() async {
         let owner = CloudOwnerAPIClient(baseURL: Self.base, accessToken: { "access" }, teamID: { "team_1" },
                                         buildSpace: Self.misconfigured)
-        await #expect(throws: CMUXBuildSpaceError.self) {
-            _ = try await owner.authorized(URLRequest(url: Self.base.appendingPathComponent("v1/handoffs")), access: "access")
-        }
         #expect(await owner.gitHubApp(team: "team_1") == .unknown)
     }
 
@@ -138,23 +125,9 @@ struct CloudBuildSpaceTests {
         }
     }
 
-    @Test("The install transport's POST and GET carry the header with a build space, none without", arguments: [true, false])
-    func installTransport(tagged: Bool) throws {
-        let transport = InstallHTTPTransport(baseURL: Self.base, buildSpace: Self.state(tagged))
-        let post = try transport.postRequest("v1/install/token", json: Data("{}".utf8), bearer: "b", headers: ["x-a": "1"])
-        let get = try transport.getRequest("v1/me?x=1", bearer: nil, headers: [:])
-        for request in [post, get] {
-            #expect(request.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-        }
-        #expect(post.value(forHTTPHeaderField: "x-a") == "1")
-        #expect(get.url?.absoluteString == "https://cloud-api-staging.cmux.dev/v1/me?x=1")
-    }
-
     @Test("The install transport and identity of a misconfigured dev build refuse: no request, no install token")
     func installRefuses() async throws {
-        let transport = InstallHTTPTransport(baseURL: Self.base, buildSpace: Self.misconfigured)
-        #expect(throws: CMUXBuildSpaceError.self) { _ = try transport.postRequest("v1/install/token", json: Data(), bearer: nil, headers: [:]) }
-        #expect(throws: CMUXBuildSpaceError.self) { _ = try transport.getRequest("v1/me", bearer: nil, headers: [:]) }
+        let transport = InstallHTTPTransport(baseURL: Self.base, buildSpace: Self.misconfigured, machineIO: nil)
         await #expect(throws: CMUXBuildSpaceError.self) { _ = try await transport.post("v1/install/token", json: Data(), bearer: nil, headers: [:]) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("build-space-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }

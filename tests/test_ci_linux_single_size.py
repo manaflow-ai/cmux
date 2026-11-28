@@ -107,7 +107,6 @@ SINGLE_SIZE: dict[str, int] = {
     "docs-deploy-reusable.yml": 0,
     "feature-flag-review-drift.yml": 0,
     "fleet-artifact-cdn.yml": 0,
-    "fleet-test-compile.yml": 0,
     "git-mirror-bundle.yml": 0,
     "indexnow.yml": 0,
     "ios-app-store.yml": 0,
