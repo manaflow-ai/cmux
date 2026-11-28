@@ -11,16 +11,13 @@ import CmuxNextSettings
 @MainActor
 struct AgentReplySites {
     let services: AppServices
-    /// This pane's favicon encodes, kept across requests.
-    var favicons = AgentPaneFaviconPNGs()
+    var favicons = AgentPaneFaviconPNGs()  // this pane's favicon encodes, kept across requests
 
     func wire(_ links: AgentPaneReplyLinks) {
         links.copyWork = services.work
         links.settings = { [weak services] in services?.settings?.snapshot.agentPaneReplies ?? .fallback }
-        let favicons = favicons
-        links.sites = { [weak services] urls in
-            guard let services else { return [:] }
-            return AgentReplySites(services: services, favicons: favicons).sites(for: urls)
+        links.sites = { [weak services, favicons] urls in
+            services.map { AgentReplySites(services: $0, favicons: favicons).sites(for: urls) } ?? [:]
         }
         links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }
         links.cachedPullRequest = { url in AgentReplyPullRequests.shared.answer(url, read: false) }
