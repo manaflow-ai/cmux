@@ -8800,6 +8800,117 @@ jobs:
 
 
 
+class PushBranchGitHub(FakeGitHub):
+    """cmux#61489 at b5a5a3ad: "cmux-next degenerate lab" runs on pull requests and on pushes to nightly-next alone.
+    Its pull_request run 10 failed job 1; feat-cmux-next has no run of the workflow; nightly-next's push run 20 failed
+    the same job (job 2, FakeGitHub's base red)."""
+
+    PATH = ".github/workflows/cmux-next-degenerate-lab.yml"
+    WORKFLOW = """name: cmux-next degenerate lab
+on:
+  push:
+    branches:
+      - nightly-next
+  pull_request:
+    paths:
+      - scripts/cmux-next/degenerate-lab/**
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: python3 -I scripts/cmux-next/degenerate-lab/lab.py
+"""
+
+    def __init__(self, *, workflow=WORKFLOW, push_conclusion="failure"):
+        super().__init__()
+        self.files = {("feat-cmux-next", self.PATH): workflow}
+        self.run_record = {"id": 10, "workflow_id": 7, "event": "pull_request", "path": self.PATH, "head_sha": HEAD,
+                           "name": "cmux-next degenerate lab", "status": "completed", "conclusion": "failure"}
+        self.push_runs = [{"id": 20, "event": "push", "head_branch": "nightly-next", "status": "completed",
+                           "conclusion": push_conclusion, "head_sha": BASE_SHA, "path": self.PATH,
+                           "name": "cmux-next degenerate lab"}]
+        if push_conclusion != "failure":
+            self.jobs[2] = dict(self.jobs[2], conclusion=push_conclusion)
+            self.jobs[2]["steps"] = [dict(step, conclusion="success") for step in self.jobs[2]["steps"]]
+            self.logs[2] = log(SWIFT, TEST_STEP, "all tests passed")
+
+    def json(self, route, *, paginate=False):
+        if route.endswith("/actions/runs/10"):
+            self.routes.append(route)
+            return copy.deepcopy(self.run_record)
+        if "/actions/workflows/7/runs?" in route:
+            self.routes.append(route)
+            if "branch=nightly-next" in route:
+                runs = copy.deepcopy(self.push_runs)
+                if "&event=" in route:
+                    event = route.split("&event=", 1)[1].split("&", 1)[0]
+                    runs = [run for run in runs if run.get("event") == event]
+                return {"workflow_runs": runs}
+            assert "branch=feat-cmux-next" in route, route
+            return {"workflow_runs": []}
+        if "/pulls?head=" in route:
+            self.routes.append(route)
+            return []
+        if f"/compare/nightly-next...{HEAD}" in route:
+            self.routes.append(route)
+            return {"merge_base_commit": {"sha": BASE_SHA}, "files": []}
+        return super().json(route, paginate=paginate)
+
+    def run(self, args):
+        raise excuse.Refused("GraphQL refused (the broker's mark)")
+
+    def blob(self, repo, ref, path):
+        if (ref, path) not in self.files:
+            raise excuse.Refused(f"{repo}@{ref}: {path} unread")
+        return self.files[(ref, path)]
+
+
+class PushBranchIsTheBase(unittest.TestCase):
+    """A workflow that never runs on the PR's base is judged against the branches it runs on pushes to (its literal
+    `on.push.branches`, push_branch_verdicts): cmux#61489's degenerate-lab reds were refused as "no feat-cmux-next run
+    of its workflow has a verdict for it to compare with" while nightly-next's push runs failed the same jobs."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_cmux_61489_a_red_shared_with_the_push_branch_is_excused(self):
+        github = PushBranchGitHub()
+        said = self.judge(github)
+        self.assertIn("base for 'cmux-next swift test': workflow 'cmux-next degenerate lab' "
+                      "(cmux-next-degenerate-lab.yml) never runs on feat-cmux-next (no feat-cmux-next run has a "
+                      "verdict for it) but runs on pushes to nightly-next", said)
+        self.assertIn("excused 'cmux-next swift test'", said)
+        self.assertIn("nightly-next run 20", said)
+        self.assertTrue(any("branch=nightly-next" in route for route in github.routes))
+
+    def test_a_pass_on_the_push_branch_is_the_heads_own_red(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on nightly-next run 20"):
+            self.judge(PushBranchGitHub(push_conclusion="success"))
+
+    def test_no_verdict_on_the_push_branch_names_it_in_the_refusal(self):
+        github = PushBranchGitHub()
+        github.push_runs = []
+        with self.assertRaisesRegex(excuse.Refused, r"no feat-cmux-next run of its workflow has a verdict for it .*"
+                                                    r"nor on its push branches \(nightly-next\)"):
+            self.judge(github)
+
+    def test_only_literal_push_branches_other_than_the_base_are_read(self):
+        for branches, expected in (("[nightly-next]", ["nightly-next"]),
+                                   ("[feat-cmux-next, nightly-next]", ["nightly-next"]),
+                                   ("['release/*', '!x', nightly-next]", ["nightly-next"]),
+                                   ("[feat-cmux-next]", [])):
+            with self.subTest(branches=branches):
+                workflow = PushBranchGitHub.WORKFLOW.replace("    branches:\n      - nightly-next",
+                                                             f"    branches: {branches}")
+                github = PushBranchGitHub(workflow=workflow)
+                self.assertEqual(excuse.push_branches(REPO, "feat-cmux-next", github.run_record, github), expected)
+        no_push = PushBranchGitHub.WORKFLOW.replace("  push:\n    branches:\n      - nightly-next\n", "")
+        github = PushBranchGitHub(workflow=no_push)
+        self.assertEqual(excuse.push_branches(REPO, "feat-cmux-next", github.run_record, github), [])
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(github)
+
+
 class RedFromTheOldBaseAfterRetarget(unittest.TestCase):
     """A red whose pull_request(_target) run fired while the pull request had another base, whose workflow at the
     current base has a branch filter excluding that base, is excused (retargeted_red): no run for the current base
