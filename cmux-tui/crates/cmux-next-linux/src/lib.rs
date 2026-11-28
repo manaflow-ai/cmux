@@ -244,7 +244,7 @@ fn form_encode(value: &str) -> String {
 /// 24 random bytes as hex, as dev-slot.sh's `openssl rand -hex 24`.
 pub fn fresh_token() -> std::io::Result<String> {
     let mut bytes = [0u8; 24];
-    getrandom::fill(&mut bytes).map_err(std::io::Error::other)?;
+    getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
     Ok(bytes.iter().fold(String::with_capacity(48), |mut s, b| {
         let _ = write!(s, "{b:02x}");
         s
