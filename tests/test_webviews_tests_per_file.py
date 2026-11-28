@@ -33,6 +33,11 @@ SHARDS = ROOT / "scripts" / "ci" / "webviews_test_shards.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
+# The run's gallery build (gallery_stages): a folder with the frame page the scans serve.
+if [ "$1" = run ] && [ "$2" = gallery:build ]; then
+  mkdir -p "$CMUX_GALLERY_OUT_DIR" && touch "$CMUX_GALLERY_OUT_DIR/frame.html"
+  exit 0
+fi
 [ "$1" = test ] || exit 9
 # The test file is the last argument: the runner passes options such as --timeout before it.
 file="${!#}"
@@ -985,6 +990,50 @@ class PerFileRunner(unittest.TestCase):
         self.assertNotEqual(runs[-1][2], "cold", "it starts from its config's warm cache")
         self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
         self.assertEqual(int(self.peak.read_text(encoding="utf-8").split()[-1]), 1, "it runs by itself")
+
+    def gallery_scan_peaks(self, build):
+        # Four alone gallery scans and one other alone file, behind a gallery file that warms the cache.
+        scan = '// cmux-web-test-alone\nimport { controlContrast } from "./support/controlContrast";\n' \
+               '// Its dev server is the gallery one: vite.config.gallery-dev.ts.\n'
+        contents = {f"test/control-contrast-{part}.test.ts": scan for part in range(1, 5)}
+        contents["test/gallery-warm.test.ts"] = 'import config from "../vite.config.gallery-dev.ts";\n'
+        pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs"]);\n'
+        contents["test/agent-a.test.ts"] = pane_server
+        contents["test/agent-huge.test.ts"] = "// cmux-web-test-alone\n" + pane_server
+
+        def web_hook(web):
+            (web / "package.json").write_text('{"scripts": {"gallery:build": "x"}}\n', encoding="utf-8")
+            (web / "test" / "support").mkdir(parents=True, exist_ok=True)
+            (web / "test" / "support" / "galleryStageServer.ts").write_text("", encoding="utf-8")
+
+        self.web_hook = web_hook if build else None
+        try:
+            result, _, calls = self.run_runner(list(contents), contents=contents)
+        finally:
+            self.web_hook = None
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents), "each file runs once")
+        runs = [line.split()[0] for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        peaks = [int(n) for n in self.peak.read_text(encoding="utf-8").split()]
+        return runs, peaks, output
+
+    def test_alone_gallery_scans_run_two_at_a_time_on_the_gallery_build(self):
+        """The gallery scans declare alone for the Vite dev server they loaded stages from (#41067). On the
+        run's gallery build a stage is a static page, and one at a time they were 512-917 s of the
+        2,819-3,622 s full-matrix shards (jobs 138258027727, 138270158348, 138273448778): two at once on
+        the build, the other alone files still by themselves, last."""
+        runs, peaks, output = self.gallery_scan_peaks(build=True)
+        self.assertEqual(runs[-1], "./test/agent-huge.test.ts", "the other alone file runs last")
+        # One of the scans warms the gallery config's cache first; the other three run on the build.
+        self.assertIn("gallery scans on the built gallery: 3 files, 2 at a time", output)
+        self.assertEqual(max(peaks), 2, peaks)
+        self.assertEqual(peaks[-1], 1, "the other alone file runs by itself")
+
+    def test_alone_gallery_scans_stay_one_at_a_time_without_the_gallery_build(self):
+        _, peaks, output = self.gallery_scan_peaks(build=False)
+        self.assertNotIn("gallery scans on the built gallery", output)
+        self.assertEqual(max(peaks), 1, peaks)
 
     def peaks(self):
         def peak(path):
