@@ -481,3 +481,7 @@ cmux-tui/crates/cmux-config/src/app_ops/section_reads.rs	com.cmuxterm.app	1	keep
 scripts/cmux-next/agent-conn-chaos/linux_daemon.py	join(self.env["XDG_CONFIG_HOME"], "cmux")	1	keep	harness: XDG_CONFIG_HOME is the run's own mkdtemp root, never a person's (scripts ship in no build)
 scripts/cmux-next/auto-journal-nightly-recovery.ts	.config/cmux	1	keep	harness: writes settings under the run's own scratch home (out/home), never a person's (scripts ship in no build)
 cmux-tui/crates/cmux-cloud-machine/src/github_setup.rs	.cache/cmux"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots); the Cloud machine's gh sign-in log, moved from CloudGitHubSetup.swift, whose row goes with its Swift copy in step B
+scripts/cmux-next/autocloud-sync-probe.ts	.config/cmux	2	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
+scripts/cmux-next/autocloud-sync-probe.ts	join(home, ".config", "cmux")	2	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
+scripts/cmux-next/autocloud-sync-probe.ts	join(home, "bin", "cmux")	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
+scripts/cmux-next/update-e2e.py	/tmp/cmux-nightly.sock	2	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)

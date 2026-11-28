@@ -90,12 +90,14 @@ jobs:
           fi
           out="$RUNNER_TEMP/cloud-mvp-nightly-readback"
           mkdir -p "$out"
+          # macOS Bash 3.2 with set -u calls "${args[@]}" of an empty array unbound (run 46166264543, a push with
+          # no build input): expand it only when set. cmuxterm-hq docs/handbook/unset-var-reads-as-zero.md.
           args=()
           if [ -n "$BUILD" ]; then args+=("--arg=build=$BUILD"); fi
           status=0
           "$client" run --class light --display --sign-in agent \
             --script scripts/measure/cloud-mvp-nightly-readback.sh --ref "$REF_SHA" --repo manaflow-ai/cmux \
-            --key "cloud-mvp-readback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "${args[@]}" \
+            --key "cloud-mvp-readback-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" ${args[@]+"${args[@]}"} \
             --artifact .build/cloud-mvp-nightly-readback/report.tgz \
             --timeout 2400 --queue-timeout 10800 2>&1 | tee "$out/step.log" || status=${PIPESTATUS[0]}
           step="$(grep -o -E 'step [0-9a-f]{24}' "$out/step.log" | head -1 | cut -d' ' -f2 || true)"
