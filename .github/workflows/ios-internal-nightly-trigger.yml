@@ -115,7 +115,15 @@ jobs:
   yolo:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.yolo != ''
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 20
+    # The dispatch waits up to 20 min for a spent GitHub API limit (run 46103940180, 2026-11-28, lost a pushed
+    # stack to one 403), plus the full clone, the stack and the push.
+    timeout-minutes: 45
+    # The release App secrets (CMUX_FFI_RELEASE_APP_*) live only in the ffi-release environment (deployment
+    # policy: feat-cmux-next only, the ref a YOLO dispatch runs on). Without it the mint below read an empty
+    # app id, fell back to the job token, and the ref create failed again (run 46085910676, 2026-11-28).
+    environment:
+      name: ffi-release
+      deployment: false
     permissions:
       # contents: write pushes the ios-yolo/ stack branch; actions: write dispatches the builder;
       # pull-requests: write tells a PR it was left out.
@@ -148,9 +156,23 @@ jobs:
           permission-contents: write
           permission-workflows: write
 
+      # The dispatch's second quota, as the decide job mints it: when the job token's limit is spent the builder
+      # dispatch retries with the bot App token before it waits for the reset.
+      - name: Mint the dispatch fallback token
+        id: app-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
       - name: Stack the PRs and dispatch the build
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_FALLBACK_TOKEN: ${{ steps.app-token.outputs.token }}
           # Only the stack branch's create and push take it; reads, the dispatch and comments stay on the job token.
           YOLO_PUSH_TOKEN: ${{ steps.push-token.outputs.token }}
           YOLO: ${{ inputs.yolo }}
