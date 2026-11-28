@@ -41,6 +41,7 @@ pub mod settings_window;
 pub mod shortcut;
 pub mod site_engines;
 pub mod snapshot;
+pub mod stored_defaults;
 pub mod theme;
 
 use serde_json::Value;
@@ -79,6 +80,7 @@ const AREAS: &[AreaCall] = &[
     shortcut::call,
     site_engines::call,
     snapshot::call,
+    stored_defaults::call,
     theme::call,
 ];
 
