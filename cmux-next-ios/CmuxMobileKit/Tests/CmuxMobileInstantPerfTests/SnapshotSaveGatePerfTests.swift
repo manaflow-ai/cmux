@@ -1,3 +1,6 @@
+// LiveCoordinator is iOS-only (#if os(iOS)), so this bench builds for the simulator only; the macOS
+// `swift test` build of this target failed without the guard (kit run 46194270445).
+#if os(iOS)
 @testable import CmuxMobileLive
 import CmuxMobileModel
 import Foundation
@@ -65,3 +68,4 @@ extension InstantPerfTests {
         }
     }
 }
+#endif
