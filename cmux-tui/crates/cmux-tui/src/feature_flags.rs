@@ -191,6 +191,22 @@ pub(crate) const HYBRID_CHAT_START: &str = "hybrid-chat-start";
 /// whatever the plan.
 pub(crate) const HYBRID_CHAT_START_ENV: &str = "CMUX_HYBRID_START";
 
+/// The `DisabledFeatures` name of a hybrid start that takes `--attach` files.
+pub(crate) const HYBRID_ATTACH: &str = "hybrid-attach";
+/// Lets a hybrid start take `--attach` (`1`, `true`, `on`, `yes`). Off by default: with it off, a
+/// Cloud start with `--attach` stays the Cloud one, which refuses the files, as before.
+pub(crate) const HYBRID_ATTACH_ENV: &str = "CMUX_HYBRID_ATTACH";
+
+/// Whether a hybrid start takes `--attach`: [`HYBRID_ATTACH_ENV`] turns it on, and the managed
+/// policy or this tester's wave can still turn it off (`disabled`).
+pub(crate) fn hybrid_attach_enabled(
+    env: &dyn Fn(&str) -> Option<String>,
+    disabled: &dyn Fn(&str) -> bool,
+) -> bool {
+    env(HYBRID_ATTACH_ENV).is_some_and(|value| matches!(value.trim(), "1" | "true" | "on" | "yes"))
+        && !disabled(HYBRID_ATTACH)
+}
+
 /// The hybrid start's flag (`hybrid::Account::flag`), which wins over the plan: `CMUX_HYBRID_START`
 /// when it says on or off, else off when the managed policy or this tester's wave disables
 /// [`HYBRID_CHAT_START`] (`disabled`), else on when cmux-next.json's `cloud.autoCloud` is `true`
