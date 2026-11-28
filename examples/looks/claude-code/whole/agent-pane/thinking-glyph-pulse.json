@@ -1,0 +1,18 @@
+// A third take on the look's thinking glyph: one accent dot that breathes, the quietest of the
+// three. Try it with agentPane.display.thinking.glyph: {"$file": "agent-pane/thinking-glyph-pulse.json"}.
+{
+  "$schema": "cmux.particles/1",
+  "particle": { "shape": "circle", "size": 4, "color": "accent", "max": 1 },
+  "phases": {
+    "pulse": {
+      "duration": 1400,
+      "ease": "easeInOut",
+      "frames": [
+        { "at": 0, "dots": [[0, 0, 0.7]] },
+        { "at": 0.5, "dots": [[0, 0, 1.1]] },
+        { "at": 1, "dots": [[0, 0, 0.7]] }
+      ]
+    }
+  },
+  "triggers": { "cycle": ["pulse"] }
+}
