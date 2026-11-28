@@ -29,7 +29,7 @@ static TICKS: AtomicU64 = AtomicU64::new(0);
 /// One in `every` datagrams, spread by a multiplicative hash of a counter.
 fn lose(every: u64) -> bool {
     let n = TICKS.fetch_add(1, Ordering::Relaxed);
-    n.wrapping_mul(0x9E37_79B9_7F4A_7C15) % every == 0
+    n.wrapping_mul(0x9E37_79B9_7F4A_7C15).is_multiple_of(every)
 }
 
 /// Both ends' inbound datagrams. A relayed datagram (through this side's TURN

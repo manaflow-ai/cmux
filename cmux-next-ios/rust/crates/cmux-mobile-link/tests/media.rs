@@ -160,7 +160,7 @@ async fn stream_with(pair: &Pair, n: u64, mut source: Source) -> Streamed {
             skipped += 1;
             continue;
         }
-        let keyframe = keyframe_next || source.periodic.is_some_and(|every| i % every == 0);
+        let keyframe = keyframe_next || source.periodic.is_some_and(|every| i.is_multiple_of(every));
         keyframe_next = false;
         let size = if source.adaptive {
             let per_frame = (state.target_bps / 8 / 60) as usize;
