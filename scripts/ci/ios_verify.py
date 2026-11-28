@@ -188,6 +188,25 @@ def has_agent_account(environ=os.environ, home: str | None = None) -> bool:
 UNSIGNED_EXIT = 3  # main(): a pair-e2e would go unsigned; nothing ran and nothing is posted
 
 
+STALE_TOOLING_EXIT = 4  # main(): --no-merge-base on a head older than a fix to the simulator tooling it would run
+# The simulator steps run at --ref HEAD (cmux-ci run takes one ref), so cmux-next-ios-sim.sh and the pair harness are
+# the head's copies even when this loop is the base's (cmux-next-ios-verify-auto.yml). cmux#62242 at 964d43e3 forked
+# before cmux#65147: a 71 min Mac app build, then pair-e2e failed at its credential, a fix the base already had.
+SIM_TOOLING = (SIM_SCRIPT, "scripts/ci/cmux_next_pair_e2e.py", "scripts/ci/ios_verify.py", "scripts/ci/proof_record.py")
+
+
+def stale_tooling(head: str, base_ref: str, files: tuple[str, ...] = SIM_TOOLING) -> list[str]:
+    """The simulator tooling files the base changed after HEAD forked that HEAD's copy still lacks: a run at HEAD
+    would spend Mac hours on the old harness. A file the head already carries as the base has it does not count."""
+    fork = git("merge-base", base_ref, head, check=False)
+    if not fork:
+        return []
+    changed = git("diff", "--name-only", fork, base_ref, "--", *files, check=False).split()
+    return [f for f in changed
+            if git("rev-parse", "-q", "--verify", f"{head}:{f}", check=False)
+            != git("rev-parse", "-q", "--verify", f"{base_ref}:{f}", check=False)]
+
+
 def unsigned_pair(steps: list[dict], reused: dict) -> list[str]:
     """The pair-e2e steps this run would send unsigned (not read back with --from-step). Each builds the Mac app
     (45-60 min on a fleet Mac) and then exits 1 at pairing, so a proof with one can only fail: cmux#59658 attempt 7
@@ -688,6 +707,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="comma-separated worker hints; by default the fleet places two shards")
     ap.add_argument("--pair-e2e", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--no-merge-base", action="store_true")
+    ap.add_argument("--stale-tooling-ok", action="store_true",
+                    help="with --no-merge-base, run even when the base has newer simulator tooling than the head")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
     ap.add_argument("--attempt", default="1", help="use a new attempt ID to rerun an identical failed simulator step")
     ap.add_argument("--from-step", action="append", default=[], metavar="ID",
@@ -744,6 +765,14 @@ def main(argv: list[str] | None = None) -> int:
             if got is None:
                 raise SystemExit(f"ios verify: no --from-step ran {s['name']} at {head[:12]}")
             reused[s["name"]] = got
+        stale = [] if merged or a.stale_tooling_ok or not steps else stale_tooling(head, f"origin/{view['baseRefName']}")
+        if stale:
+            print(f"ios verify: base-merge first: {view['baseRefName']} changed {', '.join(stale)} after {head[:12]} "
+                  "forked, and the simulator steps run the head's copy, so this run would test the old harness and can "
+                  "fail on a fix the base already has. Nothing ran and nothing was posted. Run it without "
+                  "--no-merge-base (or merge the base into the PR), or pass --stale-tooling-ok to run it anyway",
+                  file=sys.stderr, flush=True)
+            return STALE_TOOLING_EXIT
         unsigned = unsigned_pair(steps, reused)
         if unsigned:
             print(f"ios verify: {', '.join(unsigned)} needs the agent account to sign both apps in, and this machine "
