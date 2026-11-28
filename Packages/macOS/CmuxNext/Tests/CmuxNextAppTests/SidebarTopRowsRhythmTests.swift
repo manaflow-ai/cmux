@@ -107,8 +107,8 @@ import Testing
             }
             for index in 1..<fills.count {
                 let step = abs(fills[index].midY - fills[index - 1].midY)
-                // Home to the first pin adds the top section's gap (the Chief's row stands apart from the workspaces).
-                let expected = index == 1 ? pitch + SidebarListBlocks.topSectionGap : pitch
+                // Home (the Chief) to the first pin steps as rows step: no extra gap under the Chief (Lawrence 2026-11-28).
+                let expected = pitch
                 #expect(abs(step - expected) <= Self.tolerance,
                         "\(c.testDescription): top rows \(index - 1) to \(index) step \(step) pt, expected \(expected) pt")
             }
