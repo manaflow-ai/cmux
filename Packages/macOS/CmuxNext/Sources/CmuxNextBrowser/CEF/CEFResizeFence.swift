@@ -128,6 +128,8 @@ final class CEFResizeFence {
 /// The app's send right on one fence, freed once by whichever comes first: every page reported (main actor) or the
 /// fence's deadline (off the main actor, ``CEFResizeFences/join(window:layer:timeoutMs:refreshMs:ask:)``).
 nonisolated final class CEFFenceRight: Sendable {
+    // concurrency-allow: one port number read or swapped for null under the lock, with no I/O under it; the
+    // deallocate runs after the lock is let go.
     private let name: Mutex<mach_port_t>
 
     init(port: mach_port_t) { name = Mutex(port) }

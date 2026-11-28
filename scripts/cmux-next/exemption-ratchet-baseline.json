@@ -28,7 +28,7 @@
    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudMachineChanges.swift": 2,
    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift": 3,
    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Gateway/PersonalGateway.swift": 1,
-   "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceFlows.swift": 21,
+   "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudPlaceFlows.swift": 24,
    "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudSettingsPages.swift": 3,
    "Packages/macOS/CmuxNext/Sources/CmuxNextControl/SessionConsent/SessionConsentResponder+Nightly.swift": 1,
    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Launch/LayoutCache.swift": 2,
@@ -50,7 +50,7 @@
    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+Output.swift": 1,
    "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/InstalledBuildRelaunch.swift": 1
   },
-  "total": 80
+  "total": 83
  },
  "perf-gate-ok": {
   "check": "the perf gate",

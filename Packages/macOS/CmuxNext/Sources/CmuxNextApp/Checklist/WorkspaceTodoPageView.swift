@@ -44,7 +44,7 @@ struct WorkspaceTodoPageView: View {
         return WorkspaceTodoRowActions(
             toggle: { model.toggle($0) },
             setState: { model.setState($0, $1) },
-            beginEdit: { model.editing = $0 },
+            startEditing: { model.editing = $0 },
             commitEdit: { item, text in
                 model.editing = nil
                 model.edit(item, text: text)
