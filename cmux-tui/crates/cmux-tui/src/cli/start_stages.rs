@@ -275,3 +275,72 @@ pub(super) fn chat(trace: &Value, taken: &Marks, answer: &Value) -> Marks {
     }
     marks
 }
+
+/// The spans of a start's trace, in order: each runs from the span before it to its own mark. `select` is the tap
+/// (the command's start); `vm_running` ends at `running` (or `created`, for a machine already up). `first_token` is
+/// there only when a turn reports its first token apart from its first text; no turn does yet.
+pub(super) const SPANS: &[(&str, &[&str])] = &[
+    ("select", &[]),
+    ("vm_running", &["running", "created"]),
+    ("session_start", &["session_start"]),
+    ("session_ready", &["session_ready"]),
+    ("sent", &["sent"]),
+    ("first_token", &["first_token"]),
+    ("first_text", &["first_text"]),
+];
+
+/// The trace id a start runs under: a W3C trace id (32 lowercase hex, not all zero) the caller gave in
+/// `CMUX_TRACE_ID` or `TRACEPARENT`, so a probe or a move joins its own rows on it, else a fresh one.
+pub(super) fn trace_id(given: Option<&str>, traceparent: Option<&str>) -> String {
+    let valid = |id: &str| {
+        id.len() == 32
+            && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+            && id.bytes().any(|byte| byte != b'0')
+    };
+    if let Some(id) = given.map(str::trim).map(str::to_ascii_lowercase).filter(|id| valid(id)) {
+        return id;
+    }
+    // `00-<trace id>-<span id>-<flags>`.
+    if let Some(id) = traceparent
+        .and_then(|tp| tp.trim().split('-').nth(1))
+        .map(str::to_ascii_lowercase)
+        .filter(|id| valid(id))
+    {
+        return id;
+    }
+    let mut bytes = [0u8; 16];
+    if getrandom::fill(&mut bytes).is_err() || bytes.iter().all(|byte| *byte == 0) {
+        // No randomness: the clock still tells two starts apart.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(1, |since| since.as_nanos())
+            .max(1);
+        bytes = nanos.to_be_bytes();
+    }
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// The `trace` object of a start's answer, from its `stages` marks: `spans` (`{name, start_ms, end_ms, ms}`, each
+/// from the span before it), and `phases_ms`, each span's length by name. A span whose mark the run never reached
+/// is left out, and the next one runs from the last one reached.
+pub(super) fn trace(id: &str, stages: Option<&Value>) -> Value {
+    let mut spans = Vec::new();
+    let mut phases = Map::new();
+    let mut before = 0u64;
+    for (name, ends) in SPANS {
+        let end = if ends.is_empty() {
+            Some(0)
+        } else {
+            ends.iter().find_map(|mark| {
+                stages.and_then(|stages| stages.get(*mark)).and_then(Value::as_u64)
+            })
+        };
+        let Some(end) = end else { continue };
+        let start = before.min(end);
+        let ms = end - start;
+        spans.push(json!({"name": name, "start_ms": start, "end_ms": end, "ms": ms}));
+        phases.insert((*name).to_owned(), json!(ms));
+        before = before.max(end);
+    }
+    json!({"trace_id": id, "spans": spans, "phases_ms": phases})
+}
