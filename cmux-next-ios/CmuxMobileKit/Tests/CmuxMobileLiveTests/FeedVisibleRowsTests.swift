@@ -37,7 +37,11 @@ import UIKit
     static func item(_ index: Int, extra: Int = 0) -> FeedItem {
         // Bodies of one to four lines, so rows differ in height.
         let lines = (0 ... (index % 4) + extra).map { "Line \($0) of event \(index): the agent finished a step." }
-        return FeedListPlanTests.item("e\(index)", lines.joined(separator: "\n"), ago: Double(index))
+        // Each event from its own chat (tab): one chat's run folds into a stack (`FeedStacks`), which
+        // would leave two rows on screen, not N, and this suite measures N rows.
+        var item = FeedListPlanTests.item("e\(index)", lines.joined(separator: "\n"), ago: Double(index))
+        item.tabID = "t\(index)"
+        return item
     }
 
     static func counts(_ list: FeedListController) -> Counts {
@@ -45,16 +49,23 @@ import UIKit
     }
 
     /// Runs layout passes until the list has applied everything and shows `rows` events (bounded).
-    static func settle(_ window: UIWindow, _ list: FeedListController, rows: Int) async {
+    /// A list that goes idle showing some other count (rows folded into stacks, a dropped update)
+    /// stops after a few quiet passes and fails here, naming both counts, instead of spinning to the
+    /// deadline (it once cost the suite 120 s a step and showed only as cells with no layout).
+    static func settle(_ window: UIWindow, _ list: FeedListController, rows: Int,
+                       sourceLocation: SourceLocation = #_sourceLocation) async {
         let deadline = Date().addingTimeInterval(120)
-        var quiet = 0
-        while Date() < deadline, quiet < 4 {
+        var quiet = 0, idleWrong = 0, shown = 0
+        while Date() < deadline, quiet < 4, idleWrong < 120 {
             window.layoutIfNeeded()
             try? await Task.sleep(for: .milliseconds(16))
             let table = list.collectionView
-            let shown = (table?.numberOfSections ?? 0) > 1 ? table?.numberOfRows(inSection: 1) ?? 0 : 0
-            quiet = !list.hasPendingWork && shown == rows ? quiet + 1 : 0
+            shown = (table?.numberOfSections ?? 0) > 1 ? table?.numberOfRows(inSection: 1) ?? 0 : 0
+            let idle = !list.hasPendingWork
+            quiet = idle && shown == rows ? quiet + 1 : 0
+            idleWrong = idle && shown != rows ? idleWrong + 1 : 0
         }
+        #expect(shown == rows, "the list settled showing \(shown) event rows, not \(rows)", sourceLocation: sourceLocation)
     }
 
     /// The first event row whose bottom is below the top of the visible area.
