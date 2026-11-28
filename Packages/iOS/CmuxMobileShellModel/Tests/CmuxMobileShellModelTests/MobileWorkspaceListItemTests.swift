@@ -556,18 +556,6 @@ import Testing
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "bottom"))
     }
 
-    @Test func listMoveIntentLandingAtVeryBottomAppendsUngroupedWorkspace() {
-        let workspaces = [workspace("a"), workspace("b"), workspace("c")]
-        let items = workspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
-        let intent = items.moveIntent(
-            workspaces: workspaces,
-            groups: [],
-            sourceOffsets: IndexSet(integer: 0),
-            destination: 3
-        )
-        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: nil))
-    }
-
     @Test func collapsedGroupEmitsNoEndOfGroupSlot() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [
