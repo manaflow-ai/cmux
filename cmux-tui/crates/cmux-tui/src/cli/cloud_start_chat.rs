@@ -1812,7 +1812,7 @@ fn steps(
     {
         return outcome;
     }
-    // The fresh name a new machine gets (no listed machine or create has it): a start-session machine of that name is this run's.
+    // The fresh name a new machine gets (no listed machine or create has it).
     let mut fresh = None;
     let machine = match &wanted {
         Machine::New => {
@@ -1825,6 +1825,7 @@ fn steps(
         }
         other => other.clone(),
     };
+    let own = fresh::own(fresh.as_ref(), request, &machine, &listed);
     progress.machine = Some(machine.clone());
     // A turn to wait on and no time left for it: nothing starts, and a machine made so far
     // is there for the same ask again.
@@ -1854,10 +1855,10 @@ fn steps(
         start.push("--no-focus".to_owned());
     }
     start.push("--json".to_owned());
-    // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
+    // On `own`, the start is bounded and a stuck machine is given up (fresh.rs); a
     // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
     // A machine still booting at the bound (a cold create: no spare) is waited on while it boots (fresh::Boot).
-    let mut boot = fresh
+    let mut boot = own
         .as_ref()
         .filter(|_| request.from_folder.is_none())
         .map(|name| fresh::Boot::new(runner, name, deadline));
@@ -1868,7 +1869,7 @@ fn steps(
         }
         None => runner.cmux(&start),
     };
-    if let Some(name) = &fresh
+    if let Some(name) = &own
         && let Some(stuck) = fresh::stuck(runner, &ran, boot.as_ref(), name, deadline)
     {
         return stuck;
@@ -2229,13 +2230,27 @@ fn send_prompt(
                     deadline,
                 );
             }
+            // The link took the frame and answered nothing: one read of the chat settles it ([`link_send_landed`]).
             Err(link_wait::SendFailure::Unsure(reason)) => {
-                return failed(
-                    "chat.send_failed",
-                    format!("the prompt may not have reached the chat: {reason}"),
-                    json!({"answer": answer}),
-                    1,
-                );
+                match link_send_landed(runner, machine_id, session, &reason, &mut answer, deadline)
+                {
+                    Some(true) if !request.wait => return Outcome::Done(answer),
+                    Some(true) => {
+                        let start = (0, None, None);
+                        return wait_turn(
+                            runner, request, machine_id, session, start, answer, deadline,
+                        );
+                    }
+                    Some(false) => progress.sending = false,
+                    None => {
+                        return failed(
+                            "chat.send_failed",
+                            format!("the prompt may not have reached the chat: {reason}"),
+                            json!({"answer": answer}),
+                            1,
+                        );
+                    }
+                }
             }
             Err(link_wait::SendFailure::NotSent(_)) => progress.sending = false,
         }
@@ -2461,35 +2476,6 @@ pub(super) fn status(
     }
     Outcome::Done(answer)
 }
-
-/// The prompt to the chat tab `tab` over the machine's link, within what is left of the deadline. `NotSent`
-/// when there is no link (no app, no socket) or the daemon refused: the exec route takes over.
-fn send_over_link(
-    runner: &mut dyn Runner,
-    machine_id: &str,
-    tab: u64,
-    prompt: &str,
-    deadline: Deadline,
-) -> Result<(), link_wait::SendFailure> {
-    use link_wait::SendFailure::NotSent;
-    let asked =
-        runner.app("cloud.machine_stream", json!({"machine": machine_id}), Duration::from_secs(10));
-    let Some(socket) = asked
-        .and_then(Result::ok)
-        .and_then(|answer| answer.get("socket").and_then(Value::as_str).map(str::to_owned))
-    else {
-        return Err(NotSent("no link socket".into()));
-    };
-    let wait = deadline.bound(runner, LINK_SEND_WAIT);
-    if wait.is_zero() {
-        return Err(NotSent("no time left".into()));
-    }
-    let prompt_id = format!("cli-{}", uuid::Uuid::new_v4().simple());
-    runner.send_link(&socket, tab, &prompt_id, prompt, wait).map(|_| ())
-}
-
-/// The longest the link send waits for its answers.
-const LINK_SEND_WAIT: Duration = Duration::from_secs(10);
 
 /// 4. The turn after `baseline` in `session`: its end and its reply.
 fn wait_turn(
@@ -3330,7 +3316,7 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
 }
 
 /// Whether `listed` (`cloud list-machines`) has a machine titled `name` or a create of that name on its way.
-fn lists_name(listed: &Value, name: &str) -> bool {
+pub(super) fn lists_name(listed: &Value, name: &str) -> bool {
     let has = |key: &str, field: &str| {
         at(listed, key)
             .as_array()
@@ -3785,6 +3771,8 @@ mod fault;
 mod folder;
 mod fresh;
 mod internal;
+mod link_send;
+use link_send::{link_send_landed, send_over_link};
 mod recover;
 mod start_fault;
 use folder::local_folder;
