@@ -109,7 +109,10 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
-        run: bun test --timeout 60000 test
+        # test/cmux-old.test.ts regenerates the committed spec from the v0.65.1 tag; the depth-1 checkout has no tags.
+        run: |
+          git cat-file -e "v0.65.1^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "refs/tags/v0.65.1:refs/tags/v0.65.1"
+          bun test --timeout 60000 test
 
   # The Worker's schema gate now reads src/db/schema-requirements.ts (shared with the deploy gate).
   cmux-vm-schema-gate:

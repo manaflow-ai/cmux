@@ -474,7 +474,7 @@ describe("ghGraphql() retries a failed read", () => {
       if (a === undefined || a === "throw") throw new Error("test: network down")
       if (a === "errors") return Response.json({ errors: [{ type: "SERVICE_UNAVAILABLE", message: "try again" }] })
       return a === 200 ? Response.json({ data: { ok: true } }) : new Response("bad gateway", { status: a })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
     return () => calls
   }
   beforeAll(() => {
