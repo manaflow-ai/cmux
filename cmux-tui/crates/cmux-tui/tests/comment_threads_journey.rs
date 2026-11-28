@@ -432,7 +432,8 @@ mod cmux_next_comment_threads_journey {
         });
         assert_eq!(threads[&ignored]["chases"], 3, "chase: {}", threads[&ignored]);
         assert!(threads[&answered].get("stalled").is_none(), "chase: {}", threads[&answered]);
-        assert!(threads[&answered].get("chases").is_none(), "chase: {}", threads[&answered]);
+        // The send marks both awaiting (`chases: 0`); the answered one is never chased.
+        assert_eq!(threads[&answered]["chases"], 0, "chase: {}", threads[&answered]);
 
         // A stalled thread is chased no more.
         std::thread::sleep(Duration::from_millis(2 * BOUND_MS));
