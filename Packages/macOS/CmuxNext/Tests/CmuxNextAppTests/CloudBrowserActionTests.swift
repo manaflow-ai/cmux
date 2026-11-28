@@ -94,7 +94,7 @@ struct CloudBrowserActionTests {
     // MARK: The route a CLI run opens
 
     @Test func aBrowserRouteTheAppAskedForOpensWithoutThePageCheck() throws {
-        let request = try BrowserTabOpen.request(route: pageJSON(Self.route()), machineName: "alpha")
+        let request = try BrowserTabOpen.request(route: CloudPageProvider.pageJSON(Self.route()), machineName: "alpha")
         #expect(request.url.absoluteString == "http://localhost:3000/docs")
         #expect(request.machine == "vm-alpha01")
         #expect(request.machineName == "alpha")
@@ -104,10 +104,10 @@ struct CloudBrowserActionTests {
 
     @Test func aRouteWithoutItsCredentialOrToAnotherHostIsRefused() {
         #expect(throws: BrowserTabOpen.Refusal.proxyInvalid) {
-            try BrowserTabOpen.request(route: pageJSON(Self.route(password: "short")), machineName: "alpha")
+            try BrowserTabOpen.request(route: CloudPageProvider.pageJSON(Self.route(password: "short")), machineName: "alpha")
         }
         #expect(throws: BrowserTabOpen.Refusal.invalidURL) {
-            try BrowserTabOpen.request(route: pageJSON(Self.route(url: "https://example.com/")), machineName: "alpha")
+            try BrowserTabOpen.request(route: CloudPageProvider.pageJSON(Self.route(url: "https://example.com/")), machineName: "alpha")
         }
     }
 

@@ -66,6 +66,24 @@ NARROW_EXTRA = {
 }
 
 
+# Files outside the package roots that a listed package's Linux test targets read through `#filePath` (the Rust
+# side's fixtures, the shared schemas): a change to one reaches that package's row and groups as a change inside
+# it would. Before 11-27 the connection contract fixture (#60410) reached no group, so a Rust-side contract change
+# ran neither ConnectionContractScenarioTests nor ConnectionContractCopyTests: not on the pull request, the push or
+# the hourly tier. tests/test_swift_linux_reach.py finds every such read in the listed test targets and checks it
+# is named here, in the workflow's push paths and in pr_router.json's `affects` and `paths`.
+EXTRA_INPUTS = {
+    "cmux-next-ios/CmuxMobileKit": (
+        "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json",
+        "cmux-next-ios/rust/crates/cmux-mobile-host/tests/fixtures/seal-vectors.json",
+        "cmux-next-ios/verify/agent-cli-hybrid/",
+        "schemas/deeplinks/agent-link.json",
+        "schemas/notice-timing/notice-timing.json",
+        "design/icons/source/",
+    ),
+}
+
+
 def linux_target_names(root: Path, pkg: str) -> list[str]:
     """The names in PKG's manifest literal `let NAME: Set<String> = [...]` (NARROW_LIST); raises when it is gone."""
     var = NARROW_LIST[pkg]
@@ -183,6 +201,7 @@ def reach(changed: list[str], root: Path = ROOT) -> dict:
     for f in changed:
         # A narrowed package's inputs outside the package roots (NARROW_EXTRA) reach only its row.
         touched.update(p for p, prefixes in narrowed.items() if not f.startswith(PACKAGE_ROOTS) and f.startswith(prefixes))
+        touched.update(p for p, prefixes in EXTRA_INPUTS.items() if f.startswith(prefixes))
         if not f.startswith(PACKAGE_ROOTS):
             continue
         p = owner(f, pkgs)

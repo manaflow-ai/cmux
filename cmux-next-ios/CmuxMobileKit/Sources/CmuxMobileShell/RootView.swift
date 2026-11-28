@@ -211,6 +211,14 @@ public struct RootView: View {
                 LastPlaceMemory.shared.flush()
             }
         }
+        // The vault (Settings → Cloud → Vault): at launch and back in the app, seal the person's
+        // Cloud machines what they should hold, off the main thread and bounded; nothing is sent
+        // when the vault is off on this phone.
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            guard phase == .active else { return }
+            VaultSync.shared.install()
+            VaultTriggers.foreground()
+        }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
         .onGeometryChange(for: Bool.self) { proxy in
             let insets = proxy.safeAreaInsets
@@ -698,6 +706,8 @@ struct ShellView: View {
         .modifier(BillingDemoSheet(billing: billing))
         #endif
         .cmuxMobileToast($shell.toast)
+        // Shake anywhere: copy this launch's log and open the bug report form (ShakeToReport).
+        .shakeToReportBug()
         .modifier(LiveCallHost(shell: shell))
         #if canImport(CmuxMobileLinkFFI)
         // Another device waiting for a linked Mac's Allow: answered here (ask-45c37458ea).
@@ -709,7 +719,7 @@ struct ShellView: View {
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
         .sheet(item: $shell.cloudChats) { item in
-            CloudChatsScreen(shell: shell, attention: item.attention)
+            CloudChatsScreen(shell: shell, attention: item.attention, task: item.task)
         }
         .sheet(item: $shell.messagingChief) { subject in
             ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
@@ -1038,7 +1048,7 @@ struct ShellTabs: View {
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
                 WorkspacesScreen(shell: shell)
-                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.workspacesPath.isEmpty,
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.atRoot(.workspaces),
                                    started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .workspaces))
                     .modifier(TabRetapScroll(shell: shell, tab: .workspaces))
@@ -1047,7 +1057,7 @@ struct ShellTabs: View {
             .badge(shell.store.attentionCount)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
                 FeedTabContent(shell: shell)
-                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.feedPath.isEmpty,
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.atRoot(.feed),
                                    started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .feed))
                     .modifier(TabBarProbeHost())
@@ -1062,13 +1072,20 @@ struct ShellTabs: View {
                     scrollRequest: shell.settingsScrollTarget,
                     directory: shell.deviceDirectory,
                     sizing: shell.sizingService,
+                    tryPullRequests: shell.tryPullRequestService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
                     cloudPages: shell.live == nil || ChiefCloudConfig.current(buildSpace: .nightly) == nil ? nil : SettingsCloudPages(
                         machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })
                             .id(ChiefSources.shared.personalListIdentity)) },
                         automations: { AnyView(CloudAutomationsScreen().id(ChiefSources.shared.personalListIdentity)) },
-                        connectGitHub: { AnyView(GitHubConnectRow()) }
+                        connectGitHub: { AnyView(GitHubConnectRow()) },
+                        vault: {
+                            AnyView(Group {
+                                if let model = VaultModel.live() { VaultScreen(model: model) }
+                            }
+                            .id(ChiefSources.shared.vaultKeyAccount))
+                        }
                     ),
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }

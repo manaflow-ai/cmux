@@ -121,7 +121,8 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         out = self.tmp / "out"
         out.write_text("")
         env = {**os.environ, "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-               "HEAD_REPO": head_repo, "GITHUB_BASE_REF": "feat-cmux-next"}
+               "HEAD_REPO": head_repo, "GITHUB_BASE_REF": "feat-cmux-next",
+               "MACHINE_CHANNEL_PR_HEAD_ALL": "1"}
         for k in ("HEAD_SHA", "GH_TOKEN", "GITHUB_RUN_ID", "MACHINE_CHANNEL_PR_HEAD_QUIET_MIN"):
             env.pop(k, None)
         env.update(extra or {})
@@ -171,6 +172,18 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         self.assertEqual(step["env"]["MACHINE_CHANNEL_PR_HEAD_QUIET_MIN"],
                          "${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_QUIET_MIN || '30' }}")
 
+    def test_only_the_merge_trains_tip_builds_by_default(self) -> None:
+        self.merge_ref("webviews/app.ts", "")
+        off = {"MACHINE_CHANNEL_PR_HEAD_ALL": "0", "MACHINE_CHANNEL_PR_HEAD_QUIET_MIN": "0"}
+        self.assertEqual(self.plan(extra={**off, "HEAD_REF": "lane/x"})["build"], "false")
+        self.assertEqual(self.plan(extra=off)["build"], "false")
+        self.assertEqual(self.plan(extra={**off, "HEAD_REF": "lane/merge-train"})["build"], "true")
+        self.assertEqual(self.plan(extra={**off, "MACHINE_CHANNEL_PR_HEAD_ALL": "1", "HEAD_REF": "lane/x"})["build"], "true")
+
+    def test_the_router_passes_the_all_heads_switch(self) -> None:
+        step = next(s for s in load(ROUTER)["jobs"]["route"]["steps"] if s.get("id") == "machine-channel")
+        self.assertEqual(step["env"]["MACHINE_CHANNEL_PR_HEAD_ALL"], "${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_ALL || '0' }}")
+
     def test_a_head_behind_the_base_builds_nothing(self) -> None:
         # The base moved a tree input after the head forked: the head's key is not the merge's.
         self.merge_ref("webviews/app.ts", "cmux-tui/src/main.rs")
@@ -192,6 +205,17 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         self.assertEqual(self.plan(extra={"HEAD_SHA": "a" * 40, "GH_TOKEN": "t", "GITHUB_RUN_ID": "7"})["build"], "true")
         # No token (the callee's own plan job on a pull request): no lookup, the build runs.
         self.assertEqual(self.plan(extra={"HEAD_SHA": "a" * 40})["build"], "true")
+
+    def test_the_plan_passes_its_merge_key_and_branch(self) -> None:
+        self.merge_ref("webviews/app.ts", "")
+        mine = subprocess.run(["python3", str(self.repo / "scripts/ci/cmux_tui_tree_key.py"), "--version", "v2", "HEAD"],
+                              cwd=self.repo, check=True, capture_output=True, text=True).stdout.strip()
+        stub = self.repo / "scripts/ci/cmux_machine_channel_head_built.py"
+        stub.write_text("import sys\n"
+                        f"a = sys.argv[1:]\nassert a[a.index('--key') + 1] == '{mine}', a\n"
+                        "assert a[a.index('--branch') + 1] == 'lane/x', a\nprint(15)\n")
+        got = self.plan(extra={"HEAD_SHA": "a" * 40, "HEAD_REF": "lane/x", "GH_TOKEN": "t", "GITHUB_RUN_ID": "7"})
+        self.assertEqual(got["build"], "false")
 
     def test_a_fork_head_builds_nothing(self) -> None:
         self.commit("webviews/app.ts")
@@ -241,11 +265,59 @@ class HeadBuilt(unittest.TestCase):
         get, _ = self.api({10: self.both()[:1], 11: self.both(expired=True)})
         self.assertIsNone(mod.built(get, "a" * 40, "machine-channel-"))
 
+    def branch_api(self, own: dict[int, list[dict]], earlier: list[tuple[int, str, list[dict]]]):
+        """This head's runs (OWN) and the branch's runs (EARLIER: id, head sha, artifacts)."""
+        calls: list[str] = []
+        arts = {**own, **{i: a for i, _, a in earlier}}
+
+        def get(path: str) -> object:
+            calls.append(path)
+            if "branch=" in path:
+                return {"workflow_runs": [{"id": i, "head_sha": sha} for i, sha, _ in earlier]}
+            if path.startswith("actions/workflows/"):
+                return {"workflow_runs": [{"id": i} for i in own]}
+            return {"artifacts": arts[int(path.split("/")[2])]}
+
+        return get, calls
+
+    def test_a_base_merge_that_moved_no_input_takes_the_earlier_heads_build(self) -> None:
+        # The land queue's update-branch made head a*40; head b*40 (same tree key) built both legs.
+        mod = self.load()
+        get, calls = self.branch_api({20: []}, [(20, "a" * 40, []), (15, "b" * 40, self.both())])
+        keys = {"b" * 40: "d" * 40}
+        got = mod.built(get, "a" * 40, "machine-channel-", exclude=20, key="d" * 40, branch="lane/x",
+                        key_of=lambda r: keys.get(r, ""))
+        self.assertEqual(got, 15)
+        self.assertIn("actions/workflows/pr-router.yml/runs?branch=lane%2Fx&event=pull_request&per_page=30", calls)
+
+    def test_an_earlier_head_with_another_key_or_one_leg_builds(self) -> None:
+        mod = self.load()
+        get, _ = self.branch_api({}, [(16, "c" * 40, self.both()[:1]), (15, "b" * 40, self.both())])
+        self.assertIsNone(mod.built(get, "a" * 40, "machine-channel-", key="d" * 40, branch="lane/x",
+                                    key_of=lambda r: "e" * 40))
+        # No key (an unread one) or no branch: the SHA lookup only, as before.
+        get, calls = self.branch_api({}, [(15, "b" * 40, self.both())])
+        self.assertIsNone(mod.built(get, "a" * 40, "machine-channel-", key="", branch="lane/x",
+                                    key_of=lambda r: "d" * 40))
+        self.assertFalse(any("branch=" in c for c in calls))
+
+    def test_the_earlier_head_read_is_bounded(self) -> None:
+        mod = self.load()
+        earlier = [(100 - i, f"{i:040x}", self.both()) for i in range(10)]
+        get, calls = self.branch_api({}, earlier)
+        seen: list[str] = []
+        got = mod.built(get, "a" * 40, "machine-channel-", key="d" * 40, branch="lane/x",
+                        key_of=lambda r: seen.append(r) or "e" * 40)
+        self.assertIsNone(got)
+        self.assertEqual(len(seen), mod.KEY_READS)
+        self.assertLessEqual(sum("/artifacts" in c for c in calls), mod.ARTIFACT_READS)
+
     def test_the_route_step_passes_the_head_and_the_token(self) -> None:
         route = load(ROUTER)["jobs"]["route"]
         step = next(s for s in route["steps"] if s.get("id") == "machine-channel")
         self.assertEqual(step["env"]["HEAD_SHA"], "${{ github.event.pull_request.head.sha || '' }}")
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(step["env"]["HEAD_REF"], "${{ github.event.pull_request.head.ref || '' }}")
         self.assertEqual(route["permissions"]["actions"], "read")
 
 

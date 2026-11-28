@@ -52,7 +52,7 @@ pub(super) fn arguments(args: &Value, enabled: bool) -> Result<Value, String> {
         })?;
     if capsule.len() > crate::hub::MAX_CAPSULE_BYTES {
         return Err(format!(
-            "capsule is {} UTF-8 bytes; summarize it to at most {} bytes and retry",
+            "capsule is {} UTF-8 bytes; summarize it to at most {} bytes",
             capsule.len(),
             crate::hub::MAX_CAPSULE_BYTES
         ));

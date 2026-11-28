@@ -245,12 +245,11 @@ fn mux(
                 state.claim(&prompt, from, out);
             }
         }
-        "turn_started" => {
+        "turn_started" if state.turn_key.is_empty() || *state.turn_key == *msg.turn_id => {
+            super::bounded(&msg.turn_id)?;
+            state.turn_key = msg.turn_id.to_string();
             state.started_event_ms = Some(state.at_ms);
-            if state.turn_key.is_empty() {
-                super::bounded(&msg.turn_id)?;
-                state.turn_key = msg.turn_id.to_string();
-            }
+            state.turn_started(out);
         }
         // v1 keeps the provisional end's timestamp only for a result with the same named turn.
         "turn_end" if msg.turn_id.is_empty() => state.started_event_ms = None,

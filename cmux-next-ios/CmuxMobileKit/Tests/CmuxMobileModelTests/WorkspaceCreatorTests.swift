@@ -174,8 +174,8 @@ final class ScriptedBackend: WorkspaceCreationBackend {
     @Test func uniqueTitles() {
         #expect(WorkspaceCreator.uniqueTitle("New Workspace", existing: []) == "New Workspace")
         #expect(WorkspaceCreator.uniqueTitle("New Workspace", existing: ["New Workspace", "New Workspace 2"]) == "New Workspace 3")
-        #expect(WorkspaceCreator.title(for: "~") == "New Workspace")
-        #expect(WorkspaceCreator.title(for: "~/notes") == "notes")
+        #expect(WorkspaceCreationRules.placeholderTitle(directory: "~", existing: []) == "New Workspace")
+        #expect(WorkspaceCreationRules.placeholderTitle(directory: "~/notes", existing: []) == "notes")
     }
 
     @Test func mockBackendSucceedsThenFailsOnRequest() async throws {

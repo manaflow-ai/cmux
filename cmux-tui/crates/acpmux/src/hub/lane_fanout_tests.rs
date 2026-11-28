@@ -44,7 +44,8 @@ fn the_count_is_the_lanes_live_descendants_and_its_open_creates() {
 
 #[test]
 fn the_limit_reads_env_then_settings_within_the_ceiling() {
-    assert_eq!(max_from(None, None), (DEFAULT_MAX, "default"));
+    assert_eq!(max_from(None, None), (NO_CAP, "default"));
+    assert!(!Lane { id: "r".into(), live: 5000, max: NO_CAP, source: "default" }.over());
     assert_eq!(max_from(None, Some(5)), (5, "settings"));
     assert_eq!(max_from(Some("7"), Some(5)), (7, "env"));
     assert_eq!(max_from(Some("0"), None), (1, "env"));

@@ -5,7 +5,7 @@ import type { ChatRow } from "./wire";
 
 const adapted = (text: string, edition?: number) => {
   const row: ChatRow = { id: 7, rev: 1, kind: "text", at: 1, open: false, est: 1, body: { text } };
-  return adaptRow({ id: row.id, rev: row.rev, row }, new Map(), { sessionId: "chat" }, 1, edition)[0]!;
+  return adaptRow({ id: row.id, rev: row.rev, est: row.est, row }, new Map(), { sessionId: "chat" }, 1, edition)[0]!;
 };
 
 test("replacement text with the same id, revision and length gets a distinct measurement key", () => {

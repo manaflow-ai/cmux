@@ -8,6 +8,11 @@
       "risk": "read",
       "digest": "a24f88a2f0799132"
     },
+    "cloud.artifacts.read": {
+      "source": "local",
+      "class": "read",
+      "digest": "b9af125af6a2590d"
+    },
     "cloud.auth.status": {
       "source": "app",
       "owner": "app:cmux/cloud",
@@ -379,6 +384,21 @@
       "class": "read",
       "digest": "3d8680b859d23639"
     },
+    "cloud.owner.op": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "873bd350087e96c1"
+    },
+    "cloud.owner.slack": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
+    "cloud.owner.slack_awake": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "48c3cf7f287ca4e2"
+    },
     "cloud.owner.turn_checkpoint": {
       "source": "local",
       "class": "mutation",
@@ -399,7 +419,7 @@
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "803c028818fee28d"
+      "digest": "288c304741b24f78"
     },
     "cloud.port.close": {
       "source": "app",
@@ -413,7 +433,7 @@
       "owner": "app:cmux/cloud",
       "class": "mutation",
       "risk": "mutate-own",
-      "digest": "5c87af31e3f9543f"
+      "digest": "68cbc6bebc57a65f"
     },
     "cloud.port.list": {
       "source": "app",
@@ -530,7 +550,12 @@
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "34636fdecb9b6e88"
+      "digest": "06cef7c508952184"
+    },
+    "cloud.vm.agent_key_create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2e5265af3111daba"
     },
     "cloud.vm.attention.emit": {
       "source": "cloud",

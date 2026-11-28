@@ -16,11 +16,16 @@
   ],
   "committed": [
     {
-      "paths": ["**/Cargo.lock"],
+      "paths": [
+        "**/Cargo.lock"
+      ],
       "why": "A lockfile pins dependency resolution; it is an input to the build, not an output of it."
     },
     {
-      "paths": ["webviews/src/ui/deviceGlyphPaths.ts", "webviews/src/ui/deviceGlyphVariants.ts"],
+      "paths": [
+        "webviews/src/ui/deviceGlyphPaths.ts",
+        "webviews/src/ui/deviceGlyphVariants.ts"
+      ],
       "why": "Device glyph outlines exported from SF Symbols on a Mac (scripts/icons/export_sf_symbols.swift, then device_glyph_paths.py). No Linux or web build has that font, so these are vendored icon data, an input to the build.",
       "ruling": "https://github.com/manaflow-ai/cmuxterm-hq/issues/11397"
     }
@@ -29,7 +34,12 @@
     {
       "id": "page-strings",
       "generator": "webviews/scripts/pages/gen-strings.mjs",
-      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json", "webviews/src/pages/changelog/generated/pane-strings.json", "webviews/src/pages/settings/generated/pane-strings.json"],
+      "outputs": [
+        "webviews/src/**/generated/strings.json",
+        "webviews/src/pages/home-channels/generated/pane-strings.json",
+        "webviews/src/pages/changelog/generated/pane-strings.json",
+        "webviews/src/pages/settings/generated/pane-strings.json"
+      ],
       "status": "build"
     },
     {
@@ -46,32 +56,45 @@
     {
       "id": "extension-sdk-customize-types",
       "generator": "cmux-tui/crates/cmux-extension-sdk/build.rs",
-      "outputs": ["cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/**"],
+      "outputs": [
+        "cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/**"
+      ],
       "status": "build"
     },
     {
       "id": "instrument-tokens",
       "generator": "scripts/cmux-next/gen-instrument-tokens.py",
-      "outputs": ["webviews/src/ui/instrument.generated.css"],
-      "inputs": ["schemas/instrument/**"],
+      "outputs": [
+        "webviews/src/ui/instrument.generated.css"
+      ],
+      "inputs": [
+        "schemas/instrument/**"
+      ],
       "status": "build"
     },
     {
       "id": "feature-tips",
       "generator": "webviews/scripts/pages/gen-feature-tips.mjs",
-      "outputs": ["webviews/src/ui/featureTips/tips.generated.json"],
+      "outputs": [
+        "webviews/src/ui/featureTips/tips.generated.json"
+      ],
       "status": "build"
     },
     {
       "id": "design-scale",
       "generator": "webviews/scripts/pages/gen-design-scale.mjs",
-      "outputs": ["webviews/src/ui/theme.generated.css", "webviews/src/ui/designTokens.generated.ts"],
+      "outputs": [
+        "webviews/src/ui/theme.generated.css",
+        "webviews/src/ui/designTokens.generated.ts"
+      ],
       "status": "build"
     },
     {
       "id": "design-scale-swift",
       "generator": "scripts/cmux-next/gen-design-scale-swift.py",
-      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignScale.generated.swift"],
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignScale.generated.swift"
+      ],
       "status": "build"
     },
     {
@@ -84,20 +107,56 @@
       "status": "build"
     },
     {
+      "id": "daemon-wire-types",
+      "generator": "cmux-tui/bindings/codegen/swift_app/generate.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**/*.generated.swift"
+      ],
+      "status": "build"
+    },
+    {
+      "id": "daemon-capabilities",
+      "generator": "scripts/cmux-next/gen-daemon-capabilities.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonCapability.generated.swift"
+      ],
+      "inputs": [
+        "cmux-tui/spec/gui-capabilities.json"
+      ],
+      "status": "build"
+    },
+    {
+      "id": "backdrop-art-entries",
+      "generator": "scripts/cmux-next/art/generate_backdrop_art.py",
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift"
+      ],
+      "inputs": [
+        "art/manifest.json"
+      ],
+      "status": "build"
+    },
+    {
       "id": "motion-scale",
       "generator": "scripts/cmux-next/gen-motion-scale.py",
       "outputs": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/Motion/MotionScale.generated.swift",
         "webviews/src/motion/scale.generated.ts"
       ],
-      "inputs": ["schemas/motion-scale/**"],
-      "check": ["--check"],
+      "inputs": [
+        "schemas/motion-scale/**"
+      ],
+      "check": [
+        "--check"
+      ],
       "status": "committed"
     },
     {
       "id": "type-scale",
       "generator": "scripts/cmux-next/gen-type-scale.py",
-      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift"],
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift"
+      ],
       "inputs": [
         "schemas/type-scale/**",
         "schemas/design-scale/scene-scale.json",
@@ -105,7 +164,9 @@
         "schemas/layout-grid/layout-grid.json",
         "schemas/motion-scale/motion-scale.json"
       ],
-      "check": ["--check"],
+      "check": [
+        "--check"
+      ],
       "status": "committed"
     },
     {
@@ -115,16 +176,27 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift",
         "webviews/src/ui/statusGlyphs.generated.ts"
       ],
-      "inputs": ["schemas/status-glyphs/**"],
-      "check": ["--check"],
+      "inputs": [
+        "schemas/status-glyphs/**"
+      ],
+      "check": [
+        "--check"
+      ],
       "status": "committed"
     },
     {
       "id": "phone-lane-fields",
       "generator": "scripts/cmux-next/gen-phone-lane-fields.py",
-      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift"],
-      "inputs": ["cmux-tui/spec/sdk-schema.json", "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift"],
-      "check": ["--check"],
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift"
+      ],
+      "inputs": [
+        "cmux-tui/spec/sdk-schema.json",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift"
+      ],
+      "check": [
+        "--check"
+      ],
       "status": "committed"
     },
     {
@@ -136,8 +208,12 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ProtectedFolderEntry.generated.swift",
         "webviews/src/agent-session/acpmux/protectedFolders.generated.ts"
       ],
-      "inputs": ["cmux-tui/crates/acpmux/data/protected-folders.json"],
-      "check": ["--check"],
+      "inputs": [
+        "cmux-tui/crates/acpmux/data/protected-folders.json"
+      ],
+      "check": [
+        "--check"
+      ],
       "status": "committed"
     },
     {
@@ -147,8 +223,13 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swift"
       ],
-      "inputs": ["schemas/settings/chrome-styles.json", "plans/cmux-next/action-catalog.json"],
-      "check": ["--check"],
+      "inputs": [
+        "schemas/settings/chrome-styles.json",
+        "plans/cmux-next/action-catalog.json"
+      ],
+      "check": [
+        "--check"
+      ],
       "status": "committed"
     },
     {
@@ -160,7 +241,11 @@
         "agent-chat/src/agentBrands.generated.ts",
         "cmux-tui/crates/acpmux/src/chats/brand/table.rs"
       ],
-      "inputs": ["scripts/agent-icons/**", "design/agent-icons/**", "scripts/icons/build_pack.py"],
+      "inputs": [
+        "scripts/agent-icons/**",
+        "design/agent-icons/**",
+        "scripts/icons/build_pack.py"
+      ],
       "status": "committed"
     },
     {
@@ -170,21 +255,34 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Catalog.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Members.swift"
       ],
-      "inputs": ["scripts/icons/**", "design/icons/**"],
+      "inputs": [
+        "scripts/icons/**",
+        "design/icons/**"
+      ],
       "status": "committed"
     },
     {
       "id": "pane-protocol",
       "generator": "webviews/scripts/pane-protocol-codegen.ts",
-      "outputs": ["webviews/src/protocol/generated/*"],
-      "inputs": ["webviews/src/protocol/ir/**", "webviews/src/protocol/codegen/**"],
+      "outputs": [
+        "webviews/src/protocol/generated/*"
+      ],
+      "inputs": [
+        "webviews/src/protocol/ir/**",
+        "webviews/src/protocol/codegen/**"
+      ],
       "status": "build"
     },
     {
       "id": "acpmux-protocol",
       "generator": "webviews/scripts/acpmux-protocol-codegen.ts",
-      "outputs": ["webviews/src/agent-session/acpmux/protocol/generated/*"],
-      "inputs": ["cmux-tui/crates/acpmux/spec/**", "webviews/src/protocol/codegen/**"],
+      "outputs": [
+        "webviews/src/agent-session/acpmux/protocol/generated/*"
+      ],
+      "inputs": [
+        "cmux-tui/crates/acpmux/spec/**",
+        "webviews/src/protocol/codegen/**"
+      ],
       "status": "build"
     },
     {
@@ -199,13 +297,17 @@
     {
       "id": "iroh-v2-contracts",
       "generator": "workers/iroh-v2/scripts/generate-contracts.ts",
-      "outputs": ["workers/iroh-v2/generated/*"],
+      "outputs": [
+        "workers/iroh-v2/generated/*"
+      ],
       "status": "committed"
     },
     {
       "id": "control-plane-types",
       "generator": "scripts/gen-control-plane-types.sh",
-      "outputs": ["workers/presence/src/generated/controlPlane.ts"],
+      "outputs": [
+        "workers/presence/src/generated/controlPlane.ts"
+      ],
       "status": "committed"
     },
     {
@@ -215,13 +317,17 @@
         "web/services/relay/generated/managedRelayCatalog.ts",
         "workers/presence/src/generated/managedRelayCatalog.ts"
       ],
-      "inputs": ["config/iroh/managed-relay-catalog.json"],
+      "inputs": [
+        "config/iroh/managed-relay-catalog.json"
+      ],
       "status": "committed"
     },
     {
       "id": "app-store-packages",
       "generator": "scripts/cmux-next/sync-app-runtime.sh",
-      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/**"],
+      "outputs": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/**"
+      ],
       "status": "build"
     },
     {

@@ -25,7 +25,9 @@
 //!   it is `offline` and reconnects on use, instead of logging in to a machine nobody reads.
 //!
 //! A peer this daemon lends its GitHub login (`githubBroker`) is dialed at start and kept, as
-//! before: that peer asks over this link, and only over it. A leased peer (`peer_lease.rs`) and
+//! before: that peer asks over this link, and only over it. A dedicated agent VM (`vmBoundary`)
+//! too: this daemon reads its chats ahead into copies (`hub/peer_snapshot/warm.rs`), and
+//! `session move --from-snapshot` starts them from those copies when that VM dies (RFD 0167 row 4). A leased peer (`peer_lease.rs`) and
 //! one a test builds keep the old rule too: dialed at once, kept while it answers.
 
 use super::Peer;
@@ -185,9 +187,13 @@ impl Peer {
     }
 
     /// Whether this peer's link closes, or stops redialing, once unused: a saved peer's does,
-    /// unless this daemon lends it its GitHub login (that peer asks over this link alone).
+    /// unless this daemon lends it its GitHub login (that peer asks over this link alone) or its
+    /// config names it a dedicated agent VM (`vmBoundary`): this daemon keeps that peer's copies
+    /// (`hub/peer_snapshot/warm.rs` `keeps_copies`), read over this link alone, and a move from a
+    /// copy is how its chats outlive its death. Left undialed it held none: a host killed under
+    /// 20 chats moved 0 of them (fleet-recovery-bench, 2026-11-27, `copies_at_kill` 0).
     fn closes_idle(&self) -> bool {
-        self.wanted.demand.closes_idle && !self.github_broker()
+        self.wanted.demand.closes_idle && !self.github_broker() && !self.vm_boundary()
     }
 
     /// Whether the peer has gone unused for [`IDLE_CLOSE_AFTER`] with nothing keeping it: no

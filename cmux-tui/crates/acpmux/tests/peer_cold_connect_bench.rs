@@ -266,7 +266,7 @@ async fn old_listener() -> (u16, Arc<Mutex<Vec<String>>>) {
     let seen = attempts.clone();
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
-            match tokio_tungstenite::accept_async(stream).await {
+            match acpmux::server::accept_ws(stream).await {
                 Err(error) => {
                     seen.lock().unwrap().push(format!("rejected: {error}"));
                 }

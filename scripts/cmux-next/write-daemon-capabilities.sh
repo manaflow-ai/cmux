@@ -21,6 +21,8 @@
 # with a universal one) and write-cmux-tui-version.sh (release, nightly and
 # build-sign-upload.sh).
 #
+# It also writes <bin>/cmux-tui.version.json (write-cmux-tui-build-stamp.sh).
+#
 # A binary that cannot print its list (a cmux-tui from before the command, a
 # non-executable cached slice, a test fake) leaves no file and a warning, so the
 # bundle claims no capability. --require makes that an error; bundle-cmux-tui.sh
@@ -36,6 +38,8 @@ if [[ "${1:-}" == --require ]]; then
 fi
 bin_dir="${1:?usage: write-daemon-capabilities.sh [--require] <bin dir>}"
 out="$bin_dir/daemon-capabilities.json"
+# The bundled build stamp first: the capability list below may give up early.
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-cmux-tui-build-stamp.sh" "$bin_dir"
 work="$(mktemp -d "${TMPDIR:-/tmp}/daemon-capabilities.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 

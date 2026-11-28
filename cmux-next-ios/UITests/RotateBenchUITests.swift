@@ -104,7 +104,7 @@ final class RotateBenchUITests: XCTestCase {
             arguments: ["-cmux-mobile-demo", "kbd-chat"],
             field: { app in
                 let text = app.textViews["chat.composer.field"]
-                return text.exists ? text : app.buttons["Reply to Claude"].firstMatch
+                return text.exists ? text : app.buttons["agentChat.composer.collapsed"].firstMatch
             },
             hide: { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap() }))
     }

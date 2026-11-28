@@ -236,6 +236,20 @@ pub struct Verdict {
     pub available_ram_fraction: Option<f64>,
     /// `None` until two samples at least `sample_seconds` apart.
     pub swap_mb_per_min: Option<f64>,
+    /// The share of all CPUs busy since the last sample, in percent (one decimal);
+    /// none on the first sample or where the platform has no reading. Read, never
+    /// judged: nothing here puts it in `over`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_busy_pct: Option<f64>,
+    /// The time-weighted p50 (nearest rank) of `cpu_busy_pct` over the meter's
+    /// ring of its own samples (ten minutes), the way
+    /// host_budget.py's cpu-ring reads it: lane-place's measured lane cap needs it
+    /// (`measured_lane_cap`). None until the ring covers a minute.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_p50_pct: Option<f64>,
+    /// The seconds the ring behind `cpu_p50_pct` covers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu_window_s: Option<f64>,
     /// Why it is over budget, one phrase each; empty when within it.
     pub over: Vec<String>,
     pub ok: bool,
@@ -300,12 +314,20 @@ pub fn evaluate(
             .available_ram_fraction
             .map(|a| (a * 1000.0).round() / 1000.0),
         swap_mb_per_min: swap_mb_per_min.map(|r| r.round()),
+        cpu_busy_pct: sample.cpu_busy.and_then(busy_pct),
+        cpu_p50_pct: None,
+        cpu_window_s: None,
         over,
         ok,
         warning,
         enforce: budget.enforce,
         formula: f.clone(),
     }
+}
+
+/// A busy share (0..1) as a percent with one decimal; none when it is not a share.
+pub fn busy_pct(share: f64) -> Option<f64> {
+    (share.is_finite() && (0.0..=1.0).contains(&share)).then(|| (share * 1000.0).round() / 10.0)
 }
 
 /// The word for a memory-pressure level as macOS numbers it
@@ -393,6 +415,10 @@ pub use probe::{
 
 // Timer lateness, the interactive-speed signal (RFD 0072): a thread, and the pure window.
 pub mod lateness;
+
+// Memory stall shaped as PSI from `/proc/vmstat` where PSI is off (RFD 0182 B1): a thread,
+// and the pure averages.
+pub mod mem_stall;
 
 // The level the app shows, which does not flicker, and a verdict judged again
 // with a newer memory pressure.

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The parent view of a pane's Chromium window. The fork's
 /// `CmuxParentViewTracker` keeps the page window over this view, clips it to
@@ -382,7 +383,8 @@ final class CEFHostView: NSView {
     /// transforms, manual frame animation in an ancestor).
     func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
         // A drag's first move of this page detaches its window before the fork re-places it (``pageWillMoveInMotion()``).
-        (superview as? CEFTabContentView)?.pageWillMoveInMotion()
+        // Only a post that comes with a move of the view in its window: a post for an occlusion or clip change moves nothing.
+        (superview as? CEFTabContentView)?.pageWillMoveInMotion(postedBy: self)
         // Before the fork's update: a view now wholly outside its window detaches its page, so the fork never orders
         // a page window in 100,000 points off the window (a window share of it then gets no frame).
         layerHosting.placementChanged()
@@ -409,6 +411,14 @@ final class CEFHostView: NSView {
 /// window.
 final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFollowing {
     weak var tab: CEFTab?
+    /// AppKit can invoke `resizeSubviews(withOldSize:)` and then `layout()` for the same pane size.
+    /// The resize callback already lays out every child, so the immediately following layout pass
+    /// would repeat the Chromium geometry and occlusion work.
+    private var layoutAfterResizePending = false
+    private var layoutAfterResizeSize: CGSize = .zero
+    private var layoutAfterResizeGeneration = 0
+    private var layoutInvalidationGeneration = 0
+    private(set) var layoutContentInvocationCount = 0
     /// The page's size through a person's resize drag (`paneResizeGestureDidChange`) or a key resize's hold
     /// (``holdPage(for:)``); nil otherwise.
     private(set) var heldPageSize: CGSize?
@@ -428,6 +438,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// A divider drag began and this container's page has not moved in it yet: its window detaches at its first move
     /// (``pageWillMoveInMotion()``), so a page whose pane the drag never moves is never detached and attached again.
     var paneMotionAwaitsMove = false
+    /// The page's rect in its window at the drag's press: a geometry post detaches the page only once it differs.
+    var paneMotionStartRect: CGRect?
     /// A split's, close's or zoom's spring found the page holding the keys: its window stays a page window through the
     /// motion, and the page waits at the size it rests at instead of laying out at every frame's size
     /// (``CEFTabContentView/paneMotionWillRest(sizeChange:)``). True from the spring's start to its landing or first retarget.
@@ -511,17 +523,36 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
 
     override func layout() {
         super.layout()
+        if layoutAfterResizePending, bounds.size == layoutAfterResizeSize,
+           layoutInvalidationGeneration == layoutAfterResizeGeneration {
+            layoutAfterResizePending = false
+            return
+        }
+        layoutAfterResizePending = false
         layoutContent()
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
         layoutContent()
+        layoutAfterResizePending = true
+        layoutAfterResizeSize = bounds.size
+        layoutAfterResizeGeneration = layoutInvalidationGeneration
+        AfterFrameCommit().run { [weak self] in
+            self?.layoutAfterResizePending = false
+        }
+    }
+
+    /// Marks a layout request so a resize callback cannot consume a later state change's layout pass.
+    func requestLayout() {
+        layoutInvalidationGeneration &+= 1
+        needsLayout = true
     }
 
     /// The page (the pane's shared `CEFHostView` and the snapshot) takes
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
+        layoutContentInvocationCount += 1
         // DevTools can open, close or change dock while the drag is already active.
         refreshSyncedDrag()
         // DevTools docked, a side panel or a device fit came up mid-drag: they lay out as before.
@@ -616,7 +647,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         endRestHold()
         // The detach waits for this page's first move in the drag (``pageWillMoveInMotion()``): with 9 panes a drag
         // moves 2 to 6, and the press detached all 9 page windows and the landing attached all 9 again.
-        if motionHosting == nil { paneMotionAwaitsMove = true }
+        if motionHosting == nil {
+            paneMotionAwaitsMove = true
+            paneMotionStartRect = tab?.host.hostView.convert(tab?.host.hostView.bounds ?? .zero, to: nil)
+        }
         beginPageSync(.drag)
     }
 
@@ -640,7 +674,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         guard size.width >= 1, size.height >= 1, heldPageSize != nil || startPageHold() else { return false }
         if heldPageSize != size {
             heldPageSize = size
-            needsLayout = true
+            requestLayout()
         }
         return true
     }
@@ -670,7 +704,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         heldPageSize = nil
         layer?.masksToBounds = false
         layer?.backgroundColor = nil
-        needsLayout = true
+        requestLayout()
     }
 
     /// Adds the fit frame under the page for a fit and removes it otherwise.
@@ -681,6 +715,6 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         } else if tab?.deviceEmulation?.fit == nil, let current {
             current.removeFromSuperview()
         }
-        needsLayout = true
+        requestLayout()
     }
 }

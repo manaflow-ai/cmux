@@ -37,9 +37,7 @@ impl Hub {
                     || super::own_host::is_own_machine_name(host)
                 {
                     (Scope::Here, rest)
-                } else if self.peer(host).is_some()
-                    || self.remote_sessions.read().iter().any(|(_, r)| r.peer == host)
-                {
+                } else if self.peer(host).is_some() || self.remote_sessions.read().has_peer(host) {
                     (Scope::Peer(host), rest)
                 } else {
                     return None;
@@ -86,6 +84,20 @@ impl Hub {
                         closed: meta.status == SessionStatus::Closed,
                     });
                 }
+            }
+        }
+        if let Scope::Peer(host) = scope {
+            // A key one of the peer's rows names exactly names no harness: read only the rows
+            // the exact index finds (`RemoteRows::exact_of_peer`), not every peer's.
+            let rows = self.remote_sessions.read();
+            let prefix = format!("{host}/");
+            if rows.exact_of_peer(host, word).into_iter().any(|(_, r)| {
+                let name = r.summary.name().unwrap_or_default();
+                let bare = name.strip_prefix(&prefix).unwrap_or(name);
+                let id = r.receipt.mux_session_id.as_str();
+                names(bare, id, r.summary.handle(), r.summary.has_former_name(word))
+            }) {
+                return None;
             }
         }
         if !matches!(scope, Scope::Here) {

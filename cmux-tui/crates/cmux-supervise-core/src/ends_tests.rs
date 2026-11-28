@@ -39,3 +39,29 @@ fn a_marked_end_counts_once_and_a_missing_one_is_a_death_once() {
     assert_eq!((ledger.stops, ledger.faults), (2, 1));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_record_from_an_earlier_boot_is_named_as_the_host_restart() {
+    let dir = std::env::temp_dir().join(format!("supervise-ends-boot-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let files = Files::new(&dir, "daemon", 5);
+    let mut who = crate::identity::current().unwrap();
+    who.boot_id = "an-earlier-boot".into();
+    let rec = OwnerRecord::new(who, None, vec!["daemon".into()]);
+    record::store(&files.owner, &rec).unwrap();
+    match settle_previous(&files, &[], &record::write_file) {
+        Previous::Died(d) => {
+            let StopCause::Died(why) = &d.cause else { panic!("{:?}", d.cause) };
+            assert!(why.contains("host's restart"), "{why}");
+            assert!(why.contains("an-earlier-boot"), "{why}");
+        }
+        other => panic!("{other:?}"),
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // Same boot: a death of the process itself, never a host restart.
+    let same = OwnerRecord { boot_id: "b1".into(), ..rec };
+    assert!(!died_reason(&same, Some("b1")).contains("host's restart"));
+    assert!(died_reason(&same, Some("b2")).contains("boot b1 ended; now boot b2"));
+    assert!(!died_reason(&same, None).contains("host's restart"));
+}

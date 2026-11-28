@@ -105,7 +105,7 @@ pub(super) fn draw_permission_card(
     fill(buf, area, Style::default());
     super::composer::rounded_border(buf, area, Style::default().fg(c.attention_fg));
     let inner_w = area.width.saturating_sub(4) as usize;
-    let head = format!("Needs permission  ·  {}", truncate(title, inner_w.saturating_sub(20)));
+    let head = "Needs permission".to_owned();
     buf.set_stringn(
         area.x + 2,
         area.y + 1,
@@ -123,8 +123,18 @@ pub(super) fn draw_permission_card(
             c.dim(),
         );
     }
+    // The whole command, wrapped at word breaks (cmux#49116), never cut to the head's width.
+    let chips_y = area.y + area.height.saturating_sub(2);
+    let mut y = area.y + 2;
+    for line in super::question::wrap_text(title, inner_w) {
+        if y >= chips_y {
+            break;
+        }
+        buf.set_stringn(area.x + 2, y, &line, inner_w, Style::default());
+        y += 1;
+    }
     let mut x = area.x + 2;
-    let y = area.y + 2;
+    let y = chips_y.max(area.y + 2);
     app.perm_rows.clear();
     for (i, (_, name, kind)) in options.iter().enumerate() {
         let label = format!(" {}  {} ", i + 1, name);
@@ -173,7 +183,8 @@ pub(super) fn draw_new_session(
     } else {
         agent
     };
-    let policy_hint = match POLICIES[form.policy] {
+    let policy = POLICIES.get(form.policy).copied().unwrap_or("deny-all");
+    let policy_hint = match policy {
         "ask" => "you approve each tool call",
         "approve-reads" => "reads auto, writes ask",
         "approve-edits" => "reads and edits auto, shell asks",
@@ -193,7 +204,9 @@ pub(super) fn draw_new_session(
                 },
             ),
         ];
-        out[0].0 = out[0].0.trim_end().to_owned();
+        if let Some(first) = out.first_mut() {
+            first.0 = first.0.trim_end().to_owned();
+        }
         if !hint.is_empty() {
             out.push((format!("  {hint}"), c.prompt().fg(c.status_dim_fg)));
         }
@@ -204,12 +217,12 @@ pub(super) fn draw_new_session(
         (agent_line, ""),
         (form.name.text(), if form.name.is_empty() { "blank = automatic" } else { "" }),
         (form.cwd.text(), ""),
-        (format!("◀ {} ▶", POLICIES[form.policy]), policy_hint),
+        (format!("◀ {policy} ▶"), policy_hint),
         (form.prompt.text(), if form.prompt.is_empty() { "optional" } else { "" }),
     ];
     let mut header = vec![vec![]];
-    for (i, (v, hint)) in values.iter().enumerate() {
-        let (l, ls) = label(i, names[i]);
+    for (i, (name, (v, hint))) in names.iter().zip(values.iter()).enumerate() {
+        let (l, ls) = label(i, name);
         let mut line = vec![(l, ls)];
         line.extend(val(i, v, hint).into_iter().skip(1));
         header.push(line);
@@ -260,7 +273,9 @@ pub(super) fn draw_picker(f: &mut ratatui::Frame, area: Rect, p: &mut Picker, ap
         .visible
         .iter()
         .map(|&ri| {
-            let row = &p.rows[ri];
+            let Some(row) = p.rows.get(ri) else {
+                return DialogRow { spans: vec![], selectable: false, note: None };
+            };
             if row.header {
                 DialogRow {
                     spans: vec![(format!(" {}", row.label), c.prompt_title())],

@@ -25,6 +25,7 @@ import contextlib
 import http.server
 import importlib.util
 import json
+import functools
 import subprocess
 import threading
 import unittest
@@ -67,12 +68,16 @@ def config_names() -> set[str]:
     return {p.name for p in tracked(".json") if any(host in read(p) for host in HOSTS)}
 
 
-def cdn_files():
+@functools.cache
+def cdn_files() -> tuple[tuple[Path, str], ...]:
+    """Every tracked script that reads a CDN host, read once: two tests scan the same tree."""
     configs = config_names()
+    out = []
     for path in tracked(".py"):
         text = read(path)
         if any(host in text for host in HOSTS) or any(f'"{n}"' in text or f"'{n}'" in text for n in configs):
-            yield path, text
+            out.append((path, text))
+    return tuple(out)
 
 
 def is_request(node) -> bool:
