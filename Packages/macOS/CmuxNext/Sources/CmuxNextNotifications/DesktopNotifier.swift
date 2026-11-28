@@ -310,16 +310,19 @@ package final class DesktopNotifier: NSObject {
     private let findDeadline = DemandTimer(owner: "notifications.open-when-found")
 
     /// A banner `id` in Notification Center that this launch did not post (it survived a relaunch):
-    /// whether it is there and its tab's surface (`userInfo["surface"]`). Nil center: not found.
-    package func deliveredSurface(_ id: String) async -> (found: Bool, surface: UInt64?) {
-        guard let center = configuredCenter() else { return (false, nil) }
+    /// whether it is there and its tab's surface (`userInfo["surface"]`). Not there: the tab banners
+    /// Notification Center does hold (`held`, nil with no center), so a miss tells "never delivered" or
+    /// "removed" from a wrong lookup (relaunch-click, 2026-11-28T09:02Z: not_found with no evidence either way).
+    package func deliveredSurface(_ id: String) async -> (found: Bool, surface: UInt64?, held: [String]?) {
+        guard let center = configuredCenter() else { return (false, nil, nil) }
         return await withCheckedContinuation { continuation in
             center.getDeliveredNotifications { delivered in
                 guard let match = delivered.last(where: { $0.request.identifier == id }) else {
-                    continuation.resume(returning: (false, nil)); return
+                    let held = delivered.map(\.request.identifier).filter { $0.hasPrefix(Self.tabBannerPrefix) }
+                    continuation.resume(returning: (false, nil, held)); return
                 }
                 let surface = (match.request.content.userInfo["surface"] as? NSNumber)?.uint64Value
-                continuation.resume(returning: (true, surface))
+                continuation.resume(returning: (true, surface, nil))
             }
         }
     }

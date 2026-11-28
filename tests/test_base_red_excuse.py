@@ -1138,6 +1138,24 @@ class SettledEvidence(unittest.TestCase):
             first = self.judge()
             self.assertEqual(self.judge(), first)
 
+    def test_a_one_attempt_run_serves_both_filters_from_one_kept_list(self):
+        # last_real_jobs reads filter=all, base_run_jobs filter=latest: with one attempt they are the same jobs, so
+        # one kept list answers both (forge-land-no-github-read, 2026-11-28); a run re-run since reads live again.
+        state = excuse.completed_state(self.state)
+        kept = [{"total_count": 1, "jobs": [{"id": 3, "run_id": 20, "run_attempt": 1, "status": "completed"}]}]
+        both = {f: f"repos/{REPO}/actions/runs/20/jobs?filter={f}&per_page=100" for f in ("all", "latest")}
+        for wrote, asked in (("all", "latest"), ("latest", "all")):
+            with self.subTest(wrote=wrote):
+                for route in both.values():
+                    path = excuse.settled_file(route, state)
+                    if path.exists():
+                        path.unlink()
+                excuse.settled_put(both[wrote], kept, state)
+                self.assertEqual(excuse.settled_answer(both[asked]), kept)
+        self.glaeda["runs"][f"run:{REPO}/20"].update(run_attempt=2, updated_at="2026-11-17T09:00:00Z")
+        self.hold()
+        self.assertIs(excuse.settled_answer(both["all"]), excuse.NOT_KEPT)
+
     def test_an_unfinished_job_is_never_served_from_the_store(self):
         route = f"repos/{REPO}/actions/jobs/5"
         excuse.settled_put(route, {"id": 5, "status": "in_progress"})
@@ -1945,10 +1963,12 @@ class Excusing(unittest.TestCase):
         self.gh.logs[1] = (ROOT / "tests/fixtures/test_reds/51655-changes-checkout-job-514215463833.log").read_text()
 
     def test_a_checkout_death_is_rerun_never_the_prs_own_red(self):
-        # glaeda-gh reruns a "was refused at setup by its runner" own_red once per (head, run), never stops on it.
+        # A network checkout death is infra since #57288 (test_reds.checkout_infra, read by lost_runner before
+        # checkout_death): a re-run like a cancelled job, never this PR's own red, and never excused.
         self.checkout_death_setup()
-        with self.assertRaisesRegex(excuse.Refused, r"^'.+' was refused at setup by its runner's actions/checkout "
-                                                    r"step, .*Operation too slow.*it gets re-run, never excused"):
+        with self.assertRaisesRegex(excuse.Infra, r"^'.+' is infra, not a verdict \(job 1: its checkout step "
+                                                  r"\(actions/checkout@\w+\) failed on the network .*from promisor "
+                                                  r"remote\); it is never this PR's own red and needs a re-run"):
             self.judge()
 
     def test_a_checkout_death_a_submodule_pin_can_cause_stays_judged(self):
@@ -8688,6 +8708,31 @@ class RiskEvidenceQuotaMarker(unittest.TestCase):
                                        marker429,
                                        "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)"))
         self.assertIsNone(self.case(self.MARKER, "##[warning]an unrelated warning"))
+
+    def test_reset_past_the_wait_is_still_the_quota_verdict(self):
+        """cmux#64468 run 46145858015 and #64465 run 46145944548: risk-tier.yml's own warning for a reset past
+        RATE_LIMIT_WAIT_S ended the grade step, and the classifier refused the quota red as a real failure."""
+        past = ("##[warning]risk evidence: ungraded, the soonest budget reset (12:51:43Z) is past the 420s wait; "
+                "rerun after it")
+        comments = self.MARKER.replace("pulls/7/files?per_page=100", "issues/7/comments?per_page=100")
+        captured = (
+            "gh api 'repos/o/r/issues/7/comments?per_page=100&page=1' exited 1 (GitHub API quota: structured "
+            "refusal; endpoint repos/o/r/issues/7/comments?per_page=100&page=1, HTTP 403)",
+            comments, "## Risk tier: ungraded", "",
+            "GitHub's API budget refused `repos/o/r/issues/7/comments?per_page=100&page=1` with HTTP 403; the reset "
+            "boundary is in the machine-readable marker below.",
+            "That is not a verdict on this pull request. The next push, edit or label regrades it, or rerun this job.",
+            "", "Policy: docs/ci/risk-tiers.md",
+            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
+            "##[warning]the glaeda-route App's read failed; grading on GITHUB_TOKEN",
+            self.MARKER, "## Risk tier: ungraded",
+            "##[warning]risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)",
+            past, "##[error]Process completed with exit code 1.")
+        self.assertIn("HTTP 403", self.case(*captured) or "")
+        self.assertIn("HTTP 403", self.case(self.MARKER, past) or "")
+        for wrong in (past.replace("(12:51:43Z)", "(soon)"), past + " and a real failure"):
+            with self.subTest(wrong=wrong):
+                self.assertIsNone(self.case(self.MARKER, wrong))
 
     def test_any_malformed_marker_rejects_even_beside_a_valid_one(self):
         for payload in ('[]', 'null', '{bad}', '{"graded":false}',
@@ -18931,6 +18976,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # The scale fixture gate (#63279): a display Mac times main-thread blocks at 1,100 workspaces (advisory).
+            "cmux-next-scale-fixture.yml",
             # iPhone DEV built ahead (#51721): an advisory fleet build per PR head; never a required check.
             "cmux-next-ios-try-ahead.yml",
             # cmux ios verify per iOS PR head (ask-292c9fdd30): dispatches the protected-branch run that posts the
