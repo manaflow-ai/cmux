@@ -3845,6 +3845,27 @@ open(out, 'w').write(json.dumps(seen))
       globalThis.fetch = realFetch;
     }
   });
+  test("directExec premint mints once ahead of the first exec, which then reuses it", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ statusCode: 0, stdout: "ok", stderr: "" }), { status: 200, headers: { "content-type": "application/json" } })) as any;
+    let mints = 0;
+    let fail = true;
+    try {
+      const api = { raw: async () => { mints += 1; if (fail) return { status: 503, body: { ok: false, error: { code: "cloud.unavailable" } } }; return { status: 200, body: { ok: true, value: { token: "tok_abcdefgh", vm_id: "vm1", linux_user: "u", api_base_url: "https://fs.example", expires_at: Date.now() + 900_000 } } }; } } as any;
+      const exec = journey.directExec(api, "m1", { secrets: [] });
+      expect(await exec.premint()).toBeNull();
+      fail = false;
+      expect(typeof (await exec.premint())).toBe("number");
+      const first = await exec("start");
+      expect(mints).toBe(2);
+      expect(first.stdout).toBe("ok");
+      expect(first.route?.client_session_ms).toBeUndefined();
+      expect(await exec.premint()).toBe(0);
+      expect(mints).toBe(2);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
   test("directExec shares one client-session mint between calls that start together", async () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response(JSON.stringify({ statusCode: 0, stdout: "ok", stderr: "" }), { status: 200, headers: { "content-type": "application/json" } })) as any;
