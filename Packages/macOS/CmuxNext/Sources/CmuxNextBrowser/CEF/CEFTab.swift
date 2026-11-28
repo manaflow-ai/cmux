@@ -43,6 +43,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public private(set) var browserID: Int32?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
+    /// The agent session that last drove this page (``BrowserTab/noteAgentSession(_:)``).
+    @ObservationIgnored public private(set) var agentSessionID: String?
+    public func noteAgentSession(_ session: String) { agentSessionID = session }
     /// The fork refuses this page's WebAuthn now (CMUX_WEBAUTHN_MODE_REFUSE, set by ``applyWebAuthnRefusal()`` or
     /// copied by the fork from an opener that had it), until the person takes the page (``allowWebAuthnForPerson()``).
     @ObservationIgnored var webAuthnRefused = false

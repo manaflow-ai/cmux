@@ -130,3 +130,30 @@ fn a_failure_pauses_moves_for_a_while_not_for_good() {
     assert!(backing_off(Some(now), now + Duration::from_secs(1)));
     assert!(!backing_off(Some(now), now + RETRY_AFTER));
 }
+
+#[test]
+fn the_daemons_ssh_runs_in_its_own_low_weight_scope() {
+    let argv: Vec<String> =
+        helper_argv("/usr/bin/systemd-run").iter().map(|a| a.to_string_lossy().into()).collect();
+    assert_eq!(
+        argv,
+        [
+            "/usr/bin/systemd-run",
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            "--slice=acpmuxhelpers.slice",
+            "-p",
+            "CPUWeight=100",
+            "-p",
+            "IOWeight=100",
+            "--",
+        ]
+    );
+    // Below the daemon's own weight, so its children never outrank it or the agents.
+    assert!(HELPER_WEIGHT < crate::daemon_priority::UNIT_WEIGHT);
+    // A test (and a Mac, a terminal) runs the program itself.
+    let (program, lead) = low_weight(std::ffi::OsStr::new("ssh"));
+    assert_eq!((program.to_str(), lead.len()), (Some("ssh"), 0));
+}

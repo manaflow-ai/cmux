@@ -66,7 +66,7 @@ pub fn unnamed_v1_list_uses(
             continue;
         }
         for hit in token.find_iter(text) {
-            let line = text[..hit.start()].matches('\n').count() + 1;
+            let line = text.get(..hit.start()).unwrap_or_default().matches('\n').count() + 1;
             found.entry((rel.clone(), hit.as_str().to_owned())).or_default().push(line);
         }
     }

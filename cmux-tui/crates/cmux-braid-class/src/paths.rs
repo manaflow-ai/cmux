@@ -67,6 +67,10 @@ impl<Id: Copy> Pick<Id> {
 /// An unmeasured round trip sorts after every measured one, unmeasured capacity after every
 /// measured one. Ties keep the caller's order, so a caller that lists its current path
 /// first stays on it.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "round is bounded by MAX_PICK, matching the fixed selection array"
+)]
 pub fn paths_for<Id: Copy>(class: Class, paths: &[PathView<Id>]) -> Pick<Id> {
     let take = match class {
         Class::Bulk => MAX_PICK,
@@ -86,10 +90,12 @@ pub fn paths_for<Id: Copy>(class: Class, paths: &[PathView<Id>]) -> Pick<Id> {
         let best = paths
             .iter()
             .enumerate()
-            .filter(|(i, p)| p.alive && !taken[..round].contains(i))
+            .filter(|(i, p)| p.alive && !taken.iter().take(round).any(|t| t == i))
             .min_by_key(|(_, p)| key(p));
         let Some((i, path)) = best else { break };
-        taken[round] = i;
+        if let Some(slot) = taken.get_mut(round) {
+            *slot = i;
+        }
         pick.push(path.id);
     }
     pick

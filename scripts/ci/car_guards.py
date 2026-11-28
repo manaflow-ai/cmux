@@ -64,6 +64,7 @@ own red), 2 on error or bad input.
 from __future__ import annotations
 
 import argparse
+import ast
 import concurrent.futures
 import json
 import os
@@ -98,6 +99,12 @@ RETRY_TIMEOUT = {"guard": 900, "python": 450}
 # Seconds the retries of entries the car does not touch may start within; past it they are not retried (and warn).
 RETRY_BUDGET = 900
 JOBS = int(os.environ.get("CAR_GUARDS_JOBS", str(max(2, (os.cpu_count() or 4)))))
+# A planned python file with at least SHARD_MIN_TESTS test methods in at least two TestCase classes runs as SHARDS
+# commands, its classes split across them by test count, side by side in the cheap pool; its verdict stays one result.
+# Run 46068974948's class: a 681-file car ran tests/test_base_red_excuse.py (1139 tests, ~254 s) and
+# tests/test_app_ffi_release_workflow.py (131 tests, ~202-354 s) each as one command, the car's longest entries.
+SHARD_MIN_TESTS = int(os.environ.get("CAR_GUARDS_SHARD_MIN_TESTS", "100"))
+SHARDS = int(os.environ.get("CAR_GUARDS_SHARDS", str(max(2, (os.cpu_count() or 4) // 8))))
 # The whole car's bound, in seconds. The train stops a car guard at 1800 s and keeps nothing it did (run 46068974948:
 # pr-62654 and pr-58290 each "timed out after 1800 seconds", no verdict, no name of what was slow). Every entry takes
 # at most the time left, so a slow car ends before the train's bound with a verdict that names what it did not run.
@@ -156,8 +163,7 @@ def entries(root: Path, base: str, head: str, where: str, the_plan: dict, skip: 
                         "cmd": ["bash", "scripts/cmux-next/check-no-godfiles.sh", "--base", base]})
         for test in the_plan["python"]:
             if test["lane"] in LINUX_LANES:
-                out.append({"name": f"python:{test['path']}", "kind": "python", "serial": test.get("serial", False),
-                            "cmd": [sys.executable, test["path"]]})
+                out.extend(python_entries(root, test["path"], test.get("serial", False)))
         web = [t["path"] for t in the_plan["web"] if not t.get("browser")]
         if web:
             out.append({"name": "web", "kind": "web", "cwd": "webviews",
@@ -183,6 +189,145 @@ def entries(root: Path, base: str, head: str, where: str, the_plan: dict, skip: 
             for name in filters:
                 out.append({"name": f"swift:{name}", "kind": "swift", "needs": build,
                             "cmd": ["swift", "test", "--skip-build", "--package-path", package, "--filter", f"^{name}\\."]})
+    return out
+
+
+TESTCASE_BASES = {"TestCase", "IsolatedAsyncioTestCase"}
+
+
+def test_classes(source: str) -> dict[str, int] | None:
+    """{class: test methods} for every module-level unittest.TestCase subclass in SOURCE, in file order, or None when
+    the file cannot be split safely by class: it does not parse, does not end in unittest.main() (or
+    unittest_shard.main()), defines load_tests, builds a TestCase class anywhere but the module's top level, or
+    derives one from a base this file does not define (its tests could not be counted, nor the class named alone)."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return None
+    mains = [node for node in tree.body if isinstance(node, ast.If) and "__main__" in ast.unparse(node.test)]
+    if not any(isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == "main"
+               and isinstance(call.func.value, ast.Name) and call.func.value.id in ("unittest", "unittest_shard")
+               for node in mains for call in ast.walk(node)):
+        return None
+    top = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+    if any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "load_tests" for node in tree.body):
+        return None
+    nested = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef) and top.get(node.name) is not node]
+    if any(any(isinstance(b, (ast.Name, ast.Attribute)) and ast.unparse(b).split(".")[-1] in TESTCASE_BASES
+               for b in node.bases) for node in nested):
+        return None
+
+    def base_names(node: ast.ClassDef) -> list[str]:
+        return [ast.unparse(b) for b in node.bases]
+
+    def is_case(name: str, seen: frozenset = frozenset()) -> bool | None:
+        """True a TestCase, False not one, None unknown (a base from elsewhere)."""
+        node = top.get(name)
+        if node is None or name in seen:
+            return None
+        verdicts = []
+        for base in base_names(node):
+            if base in ("object",):
+                verdicts.append(False)
+            elif base.split(".")[-1] in TESTCASE_BASES and (base.startswith("unittest.") or base in TESTCASE_BASES):
+                verdicts.append(True)
+            elif base in top:
+                verdicts.append(is_case(base, seen | {name}))
+            else:
+                verdicts.append(None)
+        if True in verdicts:
+            return True if None not in verdicts else None
+        return None if None in verdicts else False
+
+    def tests_of(name: str, seen: frozenset = frozenset()) -> set[str]:
+        node = top[name]
+        own = {item.name for item in node.body
+               if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name.startswith("test")}
+        for base in base_names(node):
+            if base in top and base not in seen:
+                own |= tests_of(base, seen | {name})
+        return own
+
+    out: dict[str, int] = {}
+    for name in top:
+        verdict = is_case(name)
+        if verdict is None:
+            # A class with bases from elsewhere is only a problem when it might be a TestCase with tests.
+            if any(b.split(".")[-1] not in ("object",) for b in base_names(top[name])) and tests_of(name):
+                return None
+            continue
+        if verdict and tests_of(name):
+            out[name] = len(tests_of(name))
+    return out
+
+
+def python_entries(root: Path, path: str, serial: bool = False) -> list[dict]:
+    """The entries that run the python test file PATH: one command for the file, or, for a large file (SHARD_MIN_TESTS
+    tests in two or more TestCase classes), up to SHARDS commands that each run some of its classes by name, balanced
+    by test count. Shards run the file as the whole-file entry does (`python3 FILE Class ...`: `-I -m unittest
+    tests.test_x.Class` cannot import a file under tests/, which is no package, since -I puts no folder on sys.path),
+    and merge_shards folds their results back into one `python:FILE` verdict."""
+    name = f"python:{path}"
+    whole = {"name": name, "kind": "python", "serial": serial, "cmd": [sys.executable, path]}
+    if serial or SHARDS < 2:
+        return [whole]
+    try:
+        source = (root / path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return [whole]
+    classes = test_classes(source)
+    if not classes or len(classes) < 2 or sum(classes.values()) < SHARD_MIN_TESTS:
+        return [whole]
+    count = min(SHARDS, len(classes))
+    groups: list[list[str]] = [[] for _ in range(count)]
+    weight = [0] * count
+    # Largest class first onto the lightest shard; each shard keeps its classes in file order.
+    order = {cls: n for n, cls in enumerate(classes)}
+    for cls in sorted(classes, key=lambda c: (-classes[c], order[c])):
+        slot = min(range(count), key=lambda i: (weight[i], i))
+        groups[slot].append(cls)
+        weight[slot] += classes[cls]
+    out = []
+    for index, group in enumerate(groups, 1):
+        group.sort(key=order.__getitem__)
+        out.append({"name": f"{name}#{index}/{count}", "kind": "python", "file": name, "classes": group,
+                    "tests": weight[index - 1], "cmd": [sys.executable, path, *group]})
+    return out
+
+
+# Worst first: a file's merged status is its worst shard's. A timeout outranks a failure, so a file one shard of
+# which timed out is never excused as base-red on another shard's failure alone.
+SHARD_RANK = ["timeout", "fail", "quarantined-fail", "error", "unrun", "retry", "skipped", "warn", "base-red", "pass"]
+
+
+def merge_shards(todo: list[dict], results: list[dict]) -> list[dict]:
+    """RESULTS with each sharded file's shard results folded into one `python:FILE` result, in the place of its first
+    shard: it passes only when every shard passed, takes its worst shard's status otherwise, and its tail names
+    each shard that did not pass and the classes it ran (a timed-out shard, the classes that timed out)."""
+    by_name = {e["name"]: e for e in todo}
+    out: list[dict] = []
+    merged: dict[str, dict] = {}
+    for result in results:
+        entry = by_name.get(result["name"], {})
+        file = entry.get("file")
+        if not file:
+            out.append(result)
+            continue
+        whole = merged.get(file)
+        if whole is None:
+            whole = merged[file] = {"name": file, "kind": "python", "status": "pass", "seconds": 0.0, "tail": "",
+                                    "shards": []}
+            out.append(whole)
+        whole["shards"].append({"name": result["name"], "classes": entry["classes"], "status": result["status"],
+                                "seconds": result["seconds"]})
+        # Shards run side by side: the file took as long as its slowest shard.
+        whole["seconds"] = max(whole["seconds"], result["seconds"])
+        if SHARD_RANK.index(result["status"]) < SHARD_RANK.index(whole["status"]):
+            whole["status"] = result["status"]
+        if result["status"] != "pass":
+            what = "timed out" if result["status"] == "timeout" else result["status"]
+            whole["tail"] += (f"shard {result['name'].rsplit('#', 1)[1]} {what}, classes: {', '.join(entry['classes'])}\n"
+                              + result.get("tail", "") + "\n")
     return out
 
 
@@ -252,6 +397,8 @@ def run_all(root: Path, todo: list[dict]) -> list[dict]:
     `needs` did not pass is skipped."""
     by_name: dict[str, dict] = {}
     cheap = [e for e in todo if e["kind"] in CHEAP and not e.get("serial")]
+    # A large file's shards start first, heaviest first, so the car's longest work never starts last.
+    cheap.sort(key=lambda e: -e.get("tests", 0))
     with concurrent.futures.ThreadPoolExecutor(max_workers=JOBS) as pool:
         for result in pool.map(lambda e: run_one(root, e), cheap):
             by_name[result["name"]] = result
@@ -328,7 +475,10 @@ def at_base(root: Path, base: str, head: str, results: list[dict], todo: list[di
         if added.returncode != 0:
             return set(), set(), f"the base check did not run: {added.stderr.strip()[-300:]}"
         try:
-            again = run_all(tree, [by_name[n] for n in python])
+            # A sharded file is planned again from the base's own copy (its classes may differ there).
+            base_todo = [e for n in python for e in python_entries(tree, n.split(":", 1)[1], by_name.get(n, {}).get("serial", False))]
+            by_name.update({e["name"]: e for e in base_todo})
+            again = run_all(tree, base_todo)
             # A slow test timed out at the base where the head's got its alone retry (retry_timeouts): give the base
             # the same retry, else a test failing at both ends reads as the car's. Run 45372757083: the head's
             # tests/test_cmux_next_route.py failed after 647 s (300 s, then 347 s alone), and the same 7 failures at
@@ -337,7 +487,7 @@ def at_base(root: Path, base: str, head: str, results: list[dict], todo: list[di
                 limit = RETRY_TIMEOUT.get(result["kind"])
                 if result["status"] == "retry" and limit:
                     result.update(run_one(tree, by_name[result["name"]], timeout=limit))
-            red = {r["name"] for r in again if r["status"] == "fail"}
+            red = {r["name"] for r in merge_shards(base_todo, again) if r["status"] == "fail"}
             red_web: set[str] = set()
             if web:
                 (tree / "webviews/node_modules").symlink_to(root / "webviews/node_modules")
@@ -359,6 +509,7 @@ def run(root: Path, base: str, head: str, where: str, the_plan: dict, prior: dic
     flaky = quarantined(root)
     results = run_all(root, todo)
     retry_timeouts(root, todo, results, the_plan.get("files", []))
+    results = merge_shards(todo, results)
     for result in results:
         if result["status"] in ("fail", "timeout") and result["name"] in flaky:
             result["status"] = "quarantined-fail"

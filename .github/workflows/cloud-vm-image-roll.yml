@@ -1,4 +1,5 @@
 name: Cloud VM image roll
+run-name: Cloud VM image roll ${{ inputs.commit || github.sha }}
 
 # A merged cmux-tui or image fix reaches production's Cloud VM boot image with no hand PR:
 #

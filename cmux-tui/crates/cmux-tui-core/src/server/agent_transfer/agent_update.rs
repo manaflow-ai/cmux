@@ -40,8 +40,9 @@
 //! Who: trusted local (Unix) connections only, as `agent-session-attach`.
 //! The remote relay (`remote_relay/gate.rs`, the conversations-only
 //! `cmux link` entry) runs before this handler and does not list these verbs
-//! (default deny); a WebSocket client is refused here. Unknown params are a
-//! bad request; `ids` are only names acpmux matches against its own rows.
+//! (default deny); a WebSocket client is refused here. Unknown params are
+//! ignored for wire compatibility; `ids` are only names acpmux matches
+//! against its own rows. Client-supplied commands are never executed.
 
 use crate::panic_free::JsonFields;
 use std::path::Path;

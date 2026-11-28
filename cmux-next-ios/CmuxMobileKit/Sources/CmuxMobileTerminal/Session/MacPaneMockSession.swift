@@ -47,6 +47,12 @@ public final class MacPaneMockSession: TerminalSession {
     public private(set) var inlineTUI = false
 
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
+    public private(set) var preservesHostGrid = false
+    public func setPreservesHostGrid(_ preserves: Bool) {
+        preservesHostGrid = preserves
+        if preserves { setClaimsSize(false) }
+    }
+
     private var claims = true
     private var asked: (columns: Int, rows: Int)?
     private var line = ""
@@ -138,6 +144,7 @@ public final class MacPaneMockSession: TerminalSession {
     }
 
     public func setClaimsSize(_ claims: Bool) {
+        let claims = claims && !preservesHostGrid
         guard claims != self.claims else { return }
         self.claims = claims
         claimChanges += 1

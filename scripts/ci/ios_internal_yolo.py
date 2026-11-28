@@ -158,6 +158,16 @@ def gh(*args: str, input_text: str | None = None, token: str | None = None) -> s
 PR_FIELDS = "number title headRefOid isCrossRepository state"
 
 
+def dispatch_builder(sha: str, base: str, **seams) -> None:
+    """The nightly trigger's dispatch (ios_internal_builder.cmd_dispatch): waits out a spent API limit and tries
+    GH_FALLBACK_TOKEN, where a bare `gh workflow run` lost a pushed stack to one 403 (run 46103940180, 2026-11-28:
+    "API rate limit exceeded for installation"). Raises when it never got through, so the job stays red."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import ios_internal_builder as builder
+    if builder.cmd_dispatch(sha, base, **seams) != 0:
+        raise RuntimeError(f"yolo: the builder dispatch of {sha[:12]} never got through")
+
+
 def read_prs(numbers: list[int] | None) -> list[PullRequest]:
     owner, name = REPO.split("/")
     if numbers is None:
@@ -235,8 +245,7 @@ def cmd_run(prs_text: str, dry_run: bool) -> int:
     dispatched = False
     if stack.included and not dry_run:
         push_branch(branch, base, stack.head)
-        gh("workflow", "run", BUILDER_WORKFLOW, "--repo", REPO, "--ref", BUILDER_BRANCH,
-           "-f", f"sha={stack.head}", "-f", f"base={base}")
+        dispatch_builder(stack.head, base)
         dispatched = True
         prune(now)
     run_url = f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{REPO}/actions/runs/" \
