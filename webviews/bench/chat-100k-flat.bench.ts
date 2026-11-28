@@ -402,7 +402,9 @@ try {
           if (process.env.BENCH_LOG_ASKS) {
             const p = message.params ?? {};
             const n = (result as { events?: unknown[] } | null)?.events?.length;
-            console.log(`ASK ${Date.now()} ${message.method} ${String(p.sessionId ?? "").slice(-6)} pi=${p.promptIndex === true} before=${p.beforeSeq ?? "-"} n=${n ?? "-"}`);
+            console.log(
+              `ASK ${Date.now()} ${message.method} ${String(p.sessionId ?? "").slice(-6)} pi=${p.promptIndex === true} before=${p.beforeSeq ?? "-"} n=${n ?? "-"}`,
+            );
           }
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         },
@@ -529,7 +531,8 @@ try {
             const reason = text.split(" ")[1]!;
             held.set(reason, (held.get(reason) ?? 0) + 1);
           }
-          if (process.env.BENCH_LOG_ASKS) console.log(`PAGELOG ${Date.now()} ${index} ${message.type()}: ${text.slice(0, 200)}`);
+          if (process.env.BENCH_LOG_ASKS)
+            console.log(`PAGELOG ${Date.now()} ${index} ${message.type()}: ${text.slice(0, 200)}`);
           said.push(`${message.type()}: ${message.text().slice(0, 300)}`);
           if (said.length > 40) said.shift();
         });
