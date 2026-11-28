@@ -176,8 +176,10 @@ test("a row is read once, whether or not replies are read", () => {
   // reader with replies too.
   view.tool!.command = "gh pr view 4 -R acme/a";
   expect(transcriptPullRequests(rows, { replies: true }).map((pr) => pr.number)).toEqual([3]);
-  // A new row object is read again.
-  expect(refs([{ ...rows[0]! }])).toEqual(["acme/a#4"]);
+  // A new row object reads each call it holds by the call object: a kept call keeps its reading
+  // (calls are never changed in place), a new call object is read.
+  expect(refs([{ ...rows[0]! }])).toEqual(["acme/a#3"]);
+  expect(refs([{ ...rows[0]!, items: [{ ...view, tool: { ...view.tool! } }] }])).toEqual(["acme/a#4"]);
 });
 
 test("the summary card leaves out the pull requests the agent only named; Session Info keeps them", () => {
