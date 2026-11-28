@@ -35,9 +35,16 @@ url="https://github.com/indygreg/apple-platform-rs/releases/download/apple-codes
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
-  --connect-timeout 10 --max-time 120 --retry 5 --retry-delay 2 --retry-all-errors \
-  --output "$tmp/rcodesign.tar.gz" "$url"
+# The release asset mirror first (scripts/ci/release_asset_mirror.py): it waits
+# out a busy upstream instead of failing. CMUX_RELEASE_MIRROR=off, a missing
+# python3, or a failure leaves the direct download as it was.
+mirror_script="$(dirname "$0")/release_asset_mirror.py"
+if [[ "${CMUX_RELEASE_MIRROR:-}" == off || ! -f "$mirror_script" ]] || ! command -v python3 >/dev/null 2>&1 ||
+  ! python3 -I "$mirror_script" fetch "$url" --sha256 "$RCODESIGN_SHA256" --out "$tmp/rcodesign.tar.gz" >&2; then
+  curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+    --connect-timeout 10 --max-time 120 --retry 5 --retry-delay 2 --retry-all-errors \
+    --output "$tmp/rcodesign.tar.gz" "$url"
+fi
 printf '%s  %s\n' "$RCODESIGN_SHA256" "$tmp/rcodesign.tar.gz" | sha256sum --check --strict --quiet >&2 || {
   echo "install-rcodesign: $name.tar.gz does not match its pinned sha256" >&2
   exit 1

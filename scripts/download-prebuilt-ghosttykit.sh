@@ -147,9 +147,23 @@ if [ -n "$CACHED_ARCHIVE" ] && [ -f "$CACHED_ARCHIVE" ]; then
   fi
 fi
 
+# The release asset mirror holds the same archive by its sha256
+# (scripts/ci/release_asset_mirror.py). One mirror read, no upstream: on a miss
+# the curl loop below runs as it always has. --verify-only checks the release
+# itself, so it never reads the mirror; CMUX_RELEASE_MIRROR=off skips it too.
+MIRROR_SCRIPT="$SCRIPT_DIR/ci/release_asset_mirror.py"
+FROM_MIRROR=0
+if [ "$FROM_CACHE" -eq 0 ] && [ "$VERIFY_ONLY" -eq 0 ] && [ "${CMUX_RELEASE_MIRROR:-}" != off ] &&
+  [ -f "$MIRROR_SCRIPT" ] && command -v python3 >/dev/null 2>&1; then
+  if CMUX_RELEASE_UPSTREAM=off python3 -I "$MIRROR_SCRIPT" fetch "$DOWNLOAD_URL" \
+    --sha256 "$EXPECTED_SHA256" --out "$ARCHIVE_PATH" --deadline 0; then
+    FROM_MIRROR=1
+  fi
+fi
+
 # Each attempt is its own curl process so --continue-at resumes from the bytes
 # already on disk; curl's built-in --retry starts the file over.
-if [ "$FROM_CACHE" -eq 0 ]; then
+if [ "$FROM_CACHE" -eq 0 ] && [ "$FROM_MIRROR" -eq 0 ]; then
   echo "Downloading $ARCHIVE_NAME for ghostty $GHOSTTY_SHA"
   attempt=0
   while :; do

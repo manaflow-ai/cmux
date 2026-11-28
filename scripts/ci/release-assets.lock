@@ -1,0 +1,37 @@
+# Release assets scripts download, mirrored by scripts/ci/release_asset_mirror.py fill into the CI cache
+# bucket (release-assets/v1/). One `URL SHA256` per line, copied exactly from the script that pins it.
+# tests/test_release_asset_mirror.py checks each row against its source script where that script is on main;
+# bump a row in the same change that bumps the script's pin.
+
+# scripts/ensure-sentry-cli.sh (the macOS row is on main; the other two come from feat-cmux-next's copy)
+https://github.com/getsentry/sentry-cli/releases/download/3.3.0/sentry-cli-Darwin-universal dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5
+https://github.com/getsentry/sentry-cli/releases/download/3.3.0/sentry-cli-Linux-x86_64 5563b71cc28cd8b1e2cd1037f8e377083992ec112c9bf1ff0efd26dfe3b1e67e
+https://github.com/getsentry/sentry-cli/releases/download/3.3.0/sentry-cli-Linux-aarch64 66ac0b802e82fcef7610dc29559f18efc1eef67bf9610a19705a844ed0697dd4
+
+# scripts/sparkle_generate_appcast.sh
+https://github.com/sparkle-project/Sparkle/releases/download/2.8.1/Sparkle-2.8.1.tar.xz 5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be
+
+# scripts/ci/install-actionlint.sh, with the version and sha256 ci-guards.yml passes it
+https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+
+# scripts/ci/install-rcodesign.sh
+https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign/0.29.0/apple-codesign-0.29.0-x86_64-unknown-linux-musl.tar.gz dbe85cedd8ee4217b64e9a0e4c2aef92ab8bcaaa41f20bde99781ff02e600002
+
+# .github/workflows/ci-macos.yml, the pinned shell for shell-integration tests
+https://github.com/nushell/nushell/releases/download/0.113.1/nu-0.113.1-aarch64-apple-darwin.tar.gz 458aa21674221b2e8adbd784f9ba8113288b78f3c352465cef37b114ff3dffd5
+https://github.com/nushell/nushell/releases/download/0.113.1/nu-0.113.1-x86_64-apple-darwin.tar.gz 18ec6448cd8562b4f94ba24bace6164c5d8b8d634c8105751ec45e17d34549b2
+
+# .github/workflows/cmux-tui-testbox-warmup.yml, the pinned test runner
+https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.148/cargo-nextest-0.9.148-x86_64-unknown-linux-gnu.tar.gz 223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc
+
+# feat-cmux-next: scripts/cmux-next/lint-tools.lock
+https://github.com/ast-grep/ast-grep/releases/download/0.51.0/app-aarch64-apple-darwin.zip e18e13c27ed6c4b3ec4de00745b0755dee9dc26c035e226f4dd5d147dca99cc8
+https://github.com/ast-grep/ast-grep/releases/download/0.51.0/app-x86_64-apple-darwin.zip 8438fe549da59da28518c45bdaab5b851aabafe8fb4f8dc05c261a7649b4eca6
+https://github.com/ast-grep/ast-grep/releases/download/0.51.0/app-x86_64-unknown-linux-gnu.zip a7eead5552d3a8daad70f5d50d935da44bd0c138e946b5b0a96b1d38169fa639
+https://github.com/nicklockwood/SwiftFormat/releases/download/0.64.0/swiftformat.zip 95ea62625d0b898a7af870293311ae6f09e4a3147ecd900593687e4b9ab2fd98
+https://github.com/nicklockwood/SwiftFormat/releases/download/0.64.0/swiftformat_linux.zip 599eb5d2d8cf43e1128e79cd72f3bc2fec1b3189c3ac7593fbe732f2568fed36
+https://github.com/realm/SwiftLint/releases/download/0.65.1/portable_swiftlint.zip c1e429b0599cf1b516f369a2d9ec04eaf0e436f3c12b637df8851fa52ff694d0
+https://github.com/realm/SwiftLint/releases/download/0.65.1/swiftlint_linux_amd64.zip caeed6f4a679c35539ffaf124f6c4ab4a8416917f7d8796279dc52b74026059d
+
+# feat-cmux-next: scripts/ci/cmux-next-ios-sim.sh (the project generator)
+https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
