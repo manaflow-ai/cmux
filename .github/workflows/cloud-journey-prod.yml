@@ -321,6 +321,13 @@ jobs:
           # its weekly limit turned the real leg into skips (run 44649399953). Falls back while it is not set.
           # The hourly tick's gate picks route=machine when the login is spent: no login, the machine's own model route.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && steps.gate.outputs.route != 'machine' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
+          # The login pool (feat-cmux-next scripts/cmux-next/claude-login-pool.ts): CMUX_JOURNEY_CLAUDE_OAUTH_POOL is one
+          # setup-token per line, asked first; then the login above, then the repository's. The run takes the first slot
+          # with quota (one max_tokens 1 request each, before any machine) and writes only the slot index to probe.json;
+          # with every slot spent the run falls back to team mode (no login copied, the team's model route, login_kind=team
+          # in probe.json); a team with no route there reads as an infra skip in NOW. Unset: the login above alone.
+          CMUX_JOURNEY_CLAUDE_OAUTH_POOL: ${{ matrix.agent == 'claude' && matrix.model == 'real' && steps.gate.outputs.route != 'machine' && secrets.CMUX_JOURNEY_CLAUDE_OAUTH_POOL || '' }}
+          CLAUDE_CODE_OAUTH_TOKEN_FALLBACK: ${{ matrix.agent == 'claude' && matrix.model == 'real' && steps.gate.outputs.route != 'machine' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           REAL_ROUTE: ${{ steps.gate.outputs.route || 'login' }}
           NO_MODEL: ${{ steps.gate.outputs.skip }}
           CODEX_AUTH_JSON: ${{ matrix.agent == 'codex' && matrix.model == 'real' && secrets.CODEX_AUTH_JSON || '' }}
