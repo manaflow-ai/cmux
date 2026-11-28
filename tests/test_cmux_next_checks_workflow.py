@@ -3337,6 +3337,26 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.mac_release == 'true' && !(needs.app-compile-placement.outputs.gateway_attempt",
                       place["env"]["CASCADE_RUNS"])
 
+    def test_a_full_ci_pr_head_the_fleet_compiled_takes_no_mac(self):
+        """docs/ci/cmux-next-workflow-notes/2026-11-27-release-compile-pr-fleet-pass.md: with full-ci the build
+        fleet's app compile is skipped, so a compile-status pass at the exact head stands in for the Mac."""
+        self.assertIn("compile-status", self.job()["needs"])
+        context = self.context(["Packages/macOS/CmuxNext/Package.swift"], labels=("full-ci",))
+        context["github.event.pull_request.base.ref"] = "feat-cmux-next"
+        context["needs.app-compile-fleet.outputs.verdict"] = ""
+        for state in ("", "none", "fail", "awaiting_land", "running", "unavailable"):
+            with self.subTest(state=state):
+                context["needs.compile-status.outputs.state"] = state
+                self.assertTrue(self.runs(context))
+        context["needs.compile-status.outputs.state"] = "pass"
+        self.assertFalse(self.runs(context))
+        context["vars.CMUX_NEXT_PR_FLEET_PASS_SKIPS_MAC"] = "0"
+        self.assertTrue(self.runs(context))
+        # A fork never reads compile-status, and keeps its Mac compile.
+        fork = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"], head_repo="someone/cmux")
+        fork["needs.compile-status.outputs.state"] = "pass"
+        self.assertTrue(self.runs(fork))
+
     def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
         jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
         fast = jobs["release-compile-fast"]

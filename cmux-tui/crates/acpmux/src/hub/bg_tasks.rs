@@ -281,9 +281,15 @@ impl Hub {
         };
         let profile = self.spawn_profile_for(meta, &profile, &defaults.env).await?;
         let at = Some((session.id.as_str(), meta.name.as_str()));
-        let cmd = crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
-            .await
-            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        let (cmd, scratch) =
+            crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
+                .await
+                .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        if scratch.is_some() {
+            return Err(RpcError::invalid_params(
+                "GitHub Copilot credentials require an agent launch",
+            ));
+        }
         Ok(crate::agent::command_env(&cmd).into_iter().collect())
     }
 
@@ -318,6 +324,17 @@ impl Hub {
             .iter()
             .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
             .map(|t| (t.record.id.clone(), t.record.cwd.clone()))
+            .collect()
+    }
+
+    /// The chat's running tasks' records, for what a move would interrupt (`move_interrupts.rs`).
+    pub(super) fn bg_running_records(&self, session: &Session) -> Vec<Record> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .map(|t| t.record.clone())
             .collect()
     }
 
