@@ -44,6 +44,19 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
     echo "cmux_next tests: ${budget} GiB of memory holds CARGO_BUILD_JOBS=$jobs of $cores cores"
   fi
 fi
+# GIANTS_ONE_AT_A_TIME (scripts/ci/cargo-groups.sh, cargo-giant-lock.sh): the acpmux lib, the acpmux lib test and
+# cmux-tui-core each hold about CARGO_GROUPS_GIANT_GIB (16) GiB in one rustc, so where the budget holds fewer than
+# two (a 31 GiB nightly VM) they compile one at a time and the other crates keep the jobs. Sized by memory alone,
+# two at once take an uncapped VM down (cmux-tui-artifacts run 46173391786 attempt 2, job 141099663884).
+giant_gib=${CARGO_GROUPS_GIANT_GIB:-16}
+if [[ -n "${budget:-}" && -z "${CARGO_GROUPS_NO_GIANT_LOCK:-}" ]] && ((budget < 2 * giant_gib)) && command -v flock >/dev/null; then
+  export CARGO_GROUPS_GIANTS="${CARGO_GROUPS_GIANTS:-acpmux cmux_tui_core}"
+  export CARGO_GROUPS_GIANT_LOCK="$log_dir/cmux-next-tests-giant.lock"
+  export CARGO_GROUPS_INNER_WRAPPER="${RUSTC_WRAPPER:-}"
+  RUSTC_WRAPPER="$root/scripts/ci/cargo-giant-lock.sh"
+  export RUSTC_WRAPPER
+  echo "cmux_next tests: ${budget} GiB holds fewer than two giants at ${giant_gib} GiB: $CARGO_GROUPS_GIANTS compile one at a time"
+fi
 log="$log_dir/cmux-next-tests.txt"
 
 # Only the members whose sources name cmux_next_ (the filter matches the

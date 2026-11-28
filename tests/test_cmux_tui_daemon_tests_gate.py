@@ -90,6 +90,10 @@ class DaemonTestsGateTests(unittest.TestCase):
                 expected = "ubuntu-24.04"
             elif int(context["github.run_attempt"]) > 1 and nightly:
                 expected = "cmux-gcp-nightly-x64"
+            elif context["github.event_name"] == "push" and context["github.ref"] in (
+                    "refs/heads/nightly-next", "refs/heads/feat-cmux-next"):
+                # Attempt 1 of a trunk push: the acpmux test rustc OOMs in a 14 GiB slot (run 46179078616).
+                expected = "cmux-gcp-nightly-jit-x64"
             else:
                 expected = "cmux-linux"
             self.assertEqual(route(runs_on, context), expected, context)

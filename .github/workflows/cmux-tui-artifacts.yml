@@ -2260,7 +2260,12 @@ jobs:
     # Blacksmith. 2026-11-28 08:30-11:40Z: every overflow PR missed (a cold 20 min), and every push's job on the pool
     # was cut by a runner shutdown 18-23 min in (cmuxterm-hq#36618) before its save, so pool PRs kept restoring the
     # 04:00Z save with 686-887 files changed and compiled 28-40 min.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # A trunk push (feat-cmux-next, nightly-next) takes the uncapped nightly JIT VM on attempt 1, as the build legs
+    # do (#65436, #65541): on a cmux-linux slot (memory.max 14 GiB) the kernel SIGKILLed the acpmux lib and lib test
+    # rustc on all three attempts, the last at CARGO_BUILD_JOBS=1 (cmux-tui-artifacts run 46179078616, job
+    # 141084477118, runner c1a-0205-2, 2026-11-28 19:06-19:54Z), so no tree got its marker. There the script compiles
+    # the giants one at a time (scripts/ci/cmux-next-daemon-tests.sh). Pull requests and dispatches keep the label above.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'push' && (github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # 60 was the green run's whole length: job 137409209815 (7d439038, 2026-11-23,
     # cmux-runner-pool) took 59:56: setup 11 min (runner 2:20, checkout 2,
     # supersede check 1:40, Zig packages 2:16), the test compile 22:40 on a
