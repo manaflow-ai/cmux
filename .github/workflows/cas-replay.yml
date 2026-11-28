@@ -44,6 +44,8 @@ on:
       - "tests/test_cas_acpmux_update_replay.py"
       - "tests/test_cas_replay_workflow.py"
       - "tests/test_verify_cas_replay_artifact.py"
+      - "scripts/ci/cmux_tui_tree_key.py"
+      - "scripts/cmux-next/cmux-tui-tree-inputs.txt"
   pull_request:
     paths:
       - "cmux-tui/crates/cmux-cas/**"
@@ -58,6 +60,8 @@ on:
       - "tests/test_cas_acpmux_update_replay.py"
       - "tests/test_cas_replay_workflow.py"
       - "tests/test_verify_cas_replay_artifact.py"
+      - "scripts/ci/cmux_tui_tree_key.py"
+      - "scripts/cmux-next/cmux-tui-tree-inputs.txt"
   workflow_dispatch:
     inputs:
       count:
