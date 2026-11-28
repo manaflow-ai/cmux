@@ -66,6 +66,22 @@ class CronRows(unittest.TestCase):
         self.assertEqual(cron["chat_snappy.long_session.shifts_per_send"]["budget"], 0)
         self.assertEqual(cron["chat_snappy.long_session.failed_sends"]["p95"], 1)
         self.assertIsNone(cron["chat_snappy.long_session.send_first_token"]["budget"])
+        # The spans carry no frame log: no frames-missed rows rather than a zero.
+        self.assertNotIn("chat_snappy.long_session.late_sends", cron)
+
+    def test_frames_missed_count_the_late_sends_not_the_phase(self):
+        source = open(BENCH).read()
+        start, end = source.index("def pct("), source.index("def git_sha(")
+        scope = {"FRAME_MS": 16.0}
+        exec(source[start:end], scope)  # noqa: S102
+        # 15.9 ms and -2 ms both painted in the Enter's next frame (the key's phase); 26 ms missed one.
+        rows = scope["rows_of"]([{"userPaintMs": 15.9, "framesMissed": 0}, {"userPaintMs": -2, "framesMissed": 0},
+                                 {"userPaintMs": 26, "framesMissed": 1}], [])
+        self.assertEqual(rows["late_sends"], 1)
+        self.assertEqual(rows["send_frames_missed_p50"], 0)
+        cron = {r["name"]: r for r in scope["cron_rows"]([{"duress": "none", "rows": rows}])}
+        self.assertEqual(cron["chat_snappy.none.late_sends"]["p95"], 1)
+        self.assertEqual(cron["chat_snappy.none.send_frames_missed"]["budget"], 0)
 
 
 if __name__ == "__main__":
