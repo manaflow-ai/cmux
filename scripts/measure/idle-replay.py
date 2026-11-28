@@ -16,11 +16,13 @@ hibernating is the baseline; every policy is scored by:
   wakes           gaps longer than T that end in a turn
   wake_s          wakes x the measured wake (--wake-ms, daemon.log p50)
   person_wakes    of those, wakes whose next prompt came from a person (no [notice ...] / [inbox] prefix)
-Static policies: T in 1, 2, 5, 15, 60 min. Dynamic ones read only what the daemon knows at the turn's end:
+Static policies sweep fixed timeouts. The adaptive-v1 row matches the daemon policy, assuming zero
+where end-of-turn background counts are missing (reported explicitly). Other dynamic rows are
+exploratory parameter sweeps; their wait signal uses future notices and is not a causal measurement:
   history  the session's own last gaps: when their median is above H the next gap is predicted long and the
            harness goes after `short`; else it stays `long`
-  wait     a daemon-owned wait is pending (the next prompt is a "Background command finished" notice, which
-           only a command started before the turn ended sends): it goes after `short`
+  wait     the next prompt is a "Background command finished" notice: it goes after `short`;
+           this proxy cannot establish what the daemon knew when the turn ended
   pressure the host's resident harnesses at that moment (from the same traces): above the host's cap the
            timeout is divided by the overload
   combo    all three
@@ -345,6 +347,7 @@ def main() -> int:
     print(f"{out['sessions']} sessions on {', '.join(out['hosts'])}; {out['gaps']} gaps, {out['idle_session_hours']} idle session-hours; "
           f"{out['person_gaps']} gaps end in a person's prompt")
     print(f"to-agent p50 after a wake {out['to_agent_ms_p50']['after_wake']} ms vs resident {out['to_agent_ms_p50']['resident']} ms")
+    print(f"adaptive-v1: {out['adaptive_v1_missing_background_counts']} gaps lack background counts (assumed zero)")
     print(f"never hibernate: {out['never']}")
     print(f"{'policy':48} {'GBh saved':>10} {'wakes':>7} {'wake s':>8} {'person':>7} {'net GBh':>8} {'static@=wakes':>14} {'gap':>7}")
     for r in out["static"]:
