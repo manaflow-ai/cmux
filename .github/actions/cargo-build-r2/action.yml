@@ -1,0 +1,158 @@
+name: Cargo build in R2
+description: >-
+  Restore or save a Rust workspace's target dir and cargo registry in R2 (cmux-ci-cache-next), the
+  path cmux-tui-spec.yml's acpmux-tests and clippy jobs use, so a big Linux cargo build no longer
+  lives in the GitHub Actions cache. That store sits at its 10 GB cap: on 2026-11-28 about 10 GB an
+  hour was saved into it and nothing unread for ~35 minutes survived, so these 0.3-1.7 GB entries
+  were evicted and re-saved every hour and pushed out every small reuse marker with them.
+
+  The key is the same input set as before (the workspace's Cargo.lock files, its rust-toolchain.toml
+  and .cargo/config.toml) plus `rustc -Vv` and a hash of the checkout path (cargo's fingerprints
+  hold absolute paths). A miss restores the newest entry under the same name and checkout path. Only a
+  feat-cmux-next push saves (the caller's gate and this action's); a restore that fails is a cold build.
+
+  `mode: restore` early in the job, `mode: save` at its end with the same `name`. Save needs the R2
+  write secrets, which only the next-cache-writer environment holds.
+
+inputs:
+  mode:
+    description: "`restore` or `save`."
+    required: true
+  name:
+    description: Entry name, one per build shape (profile, features, target), e.g. `cmux-tui-headless-debug`.
+    required: true
+  workspace:
+    description: The cargo workspace directory.
+    required: false
+    default: cmux-tui
+  restored:
+    description: "save only: this job's restore step's `cache-hit`; an exact hit is not saved again."
+    required: false
+    default: "false"
+  registry-restored:
+    description: "save only: the restore step's `registry-hit`."
+    required: false
+    default: "false"
+  access-key-id:
+    description: "save only: secrets.CI_CACHE_R2_ACCESS_KEY_ID."
+    required: false
+    default: ""
+  secret-access-key:
+    description: "save only: secrets.CI_CACHE_R2_SECRET_ACCESS_KEY."
+    required: false
+    default: ""
+  account-id:
+    description: "save only: secrets.CI_CACHE_R2_ACCOUNT_ID."
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    description: "`true` when the exact target entry was restored (the name rust-cache's output had)."
+    value: ${{ steps.target.outputs.cache-hit }}
+  target-matched-key:
+    description: The target entry restored, exact or newest by prefix; empty on a miss.
+    value: ${{ steps.target.outputs.cache-matched-key }}
+  registry-hit:
+    description: "`true` when the exact registry entry was restored."
+    value: ${{ steps.registry.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Key the cargo build in R2
+      id: key
+      if: ${{ github.repository == 'manaflow-ai/cmux' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        WS: ${{ inputs.workspace }}
+        NAME: ${{ inputs.name }}
+      run: |
+        set -euo pipefail
+        inputs="$( { git ls-files -z -- "$WS/Cargo.lock" "$WS/**/Cargo.lock" "$WS/rust-toolchain.toml" '.cargo/config.toml' \
+          | xargs -0 sha256sum; rustc -Vv; cargo -V; } | sha256sum | cut -c1-16)"
+        checkout="$(printf '%s' "$GITHUB_WORKSPACE" | sha256sum | cut -c1-8)"
+        prefix="$NAME-cargo-v1-$checkout-"
+        {
+          echo "target-prefix=$prefix"
+          echo "target-key=$prefix$inputs"
+          echo "registry-prefix=cargo-registry-v1-"
+          echo "registry-key=cargo-registry-v1-$inputs"
+          echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore the cargo build from R2
+      id: target
+      if: ${{ inputs.mode == 'restore' && steps.key.outputs.target-key != '' }}
+      continue-on-error: true
+      uses: ./.github/actions/cache-restore
+      env:
+        CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      with:
+        backend: r2
+        path: ${{ inputs.workspace }}/target
+        key: ${{ steps.key.outputs.target-key }}
+        restore-keys: ${{ steps.key.outputs.target-prefix }}
+
+    - name: Restore the cargo registry from R2
+      id: registry
+      if: ${{ inputs.mode == 'restore' && steps.key.outputs.registry-key != '' }}
+      continue-on-error: true
+      uses: ./.github/actions/cache-restore
+      env:
+        CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      with:
+        backend: r2
+        path: ${{ steps.key.outputs.registry }}
+        key: ${{ steps.key.outputs.registry-key }}
+        restore-keys: ${{ steps.key.outputs.registry-prefix }}
+
+    # Workspace crates rebuild on every commit; keeping them only makes the entry bigger (cmux-tui-spec.yml).
+    - name: Strip the workspace crates
+      id: strip
+      if: ${{ inputs.mode == 'save' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.key.outputs.target-key != '' && inputs.restored != 'true' && inputs.access-key-id != '' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        WS: ${{ inputs.workspace }}
+        REGISTRY: ${{ steps.key.outputs.registry }}
+      run: |
+        set -euo pipefail
+        [[ -d "$WS/target" ]] || { echo "no $WS/target to save"; exit 1; }
+        cargo metadata --no-deps --format-version 1 --manifest-path "$WS/Cargo.toml" > "$RUNNER_TEMP/cargo-metadata.json"
+        python3 -I scripts/ci/cargo_target_strip.py "$WS/target" --cargo-metadata "$RUNNER_TEMP/cargo-metadata.json"
+        rm -rf "$REGISTRY/src"
+        du -sh "$WS/target" "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
+
+    - name: Save the cargo build to R2
+      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.strip.outcome == 'success' }}
+      continue-on-error: true
+      uses: ./.github/actions/cache-save
+      env:
+        CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+        AWS_ACCESS_KEY_ID: ${{ inputs.access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.secret-access-key }}
+        CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', inputs.account-id) }}
+      with:
+        backend: r2
+        path: ${{ inputs.workspace }}/target
+        key: ${{ steps.key.outputs.target-key }}
+
+    - name: Save the cargo registry to R2
+      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.strip.outcome == 'success' && inputs.registry-restored != 'true' }}
+      continue-on-error: true
+      uses: ./.github/actions/cache-save
+      env:
+        CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+        AWS_ACCESS_KEY_ID: ${{ inputs.access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.secret-access-key }}
+        CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', inputs.account-id) }}
+      with:
+        backend: r2
+        path: ${{ steps.key.outputs.registry }}
+        key: ${{ steps.key.outputs.registry-key }}

@@ -23,6 +23,10 @@ def load(name: str) -> dict:
     return yaml.safe_load((ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8"))
 
 
+R2_RESTORE = "Restore the cargo build from R2"
+R2_SAVE = "Save the cargo build to R2"
+
+
 def step(job: dict, name: str) -> dict:
     for item in job["steps"]:
         if item.get("name") == name:
@@ -80,13 +84,15 @@ class HeadlessDebugDaemon(unittest.TestCase):
     def test_a_pull_request_builds_incrementally_from_the_feat_target_dir(self) -> None:
         # The exact-binary key names the whole cmux-tui tree, so a pull request that
         # changes cmux-tui never hits it and compiled the workspace and Ghostty cold
-        # (about 309 s of the 7 min job). feat-cmux-next keeps the target dir under one
-        # shared key; conformance restores it read-only and rebuilds only what changed.
+        # (about 309 s of the 7 min job). feat-cmux-next keeps the target dir in R2
+        # (.github/actions/cargo-build-r2, not the 10 GB GitHub cache that evicted it within
+        # ~35 min on 2026-11-28); conformance restores it and rebuilds only what changed.
         def target_cache(job: dict) -> dict:
             names = [s.get("name") for s in job["steps"]]
-            cache = step(job, "Cache the cmux-tui target dir")
-            self.assertTrue(str(cache.get("uses", "")).startswith("Swatinem/rust-cache@"))
-            self.assertLess(names.index("Cache the cmux-tui target dir"), names.index("Build exact headless cmux-tui"))
+            cache = step(job, R2_RESTORE)
+            self.assertEqual(cache.get("uses"), "./.github/actions/cargo-build-r2")
+            self.assertIs(cache.get("continue-on-error"), True)
+            self.assertLess(names.index(R2_RESTORE), names.index("Build exact headless cmux-tui"))
             # #46962: conformance gates its build steps on a green result for the same
             # input tree as well, so its condition wraps the producer's.
             self.assertIn(
@@ -99,17 +105,14 @@ class HeadlessDebugDaemon(unittest.TestCase):
             return cache["with"]
 
         produced, consumed = target_cache(self.producer), target_cache(self.consumer)
-        for field in ("workspaces", "shared-key", "cache-workspace-crates"):
-            self.assertEqual(produced[field], consumed[field], field)
-        self.assertEqual(produced["workspaces"], "cmux-tui -> target")
-        self.assertEqual(str(produced["cache-workspace-crates"]).lower(), "true")
-        # The producer saves on its trusted feat/main pushes; a pull request or merge group never writes it.
-        if "save-if" in produced:
-            for event in ("pull_request", "pull_request_target", "merge_group"):
-                self.assertIn(f"github.event_name != '{event}'", produced["save-if"])
-            self.assertIn("refs/heads/feat-cmux-next", produced["save-if"])
-        # Pull request caches stay read-only, like the exact binary's.
-        self.assertIs(consumed["save-if"], False)
+        self.assertEqual((produced["mode"], consumed["mode"]), ("restore", "restore"))
+        self.assertEqual(produced["name"], consumed["name"])
+        # Only the producer's feat-cmux-next push saves; a pull request never writes it.
+        save = step(self.producer, R2_SAVE)
+        self.assertEqual((save["with"]["mode"], save["with"]["name"]), ("save", produced["name"]))
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'", save["if"])
+        self.assertIn("next-cache-writer", self.producer["environment"])
+        self.assertNotIn(R2_SAVE, [s.get("name") for s in self.consumer["steps"]])
 
     def test_journey_staging_reuses_the_headless_build(self) -> None:
         # backend.yml journey-staging built cmux-tui cold (36-39 min of its 50) and its own rust-cache never
@@ -120,27 +123,15 @@ class HeadlessDebugDaemon(unittest.TestCase):
         restore = step(journey, "Restore the headless cmux-tui build")["with"]
         save = step(self.producer, "Save the headless cmux-tui build")["with"]
         self.assertEqual((save["path"], save["key"]), (restore["path"], restore["key"]))
-        produced = step(self.producer, "Cache the cmux-tui target dir")["with"]
-        consumed = step(journey, "Cache the cmux-tui target dir")["with"]
-        for field in ("shared-key", "workspaces", "add-rust-environment-hash-key", "cache-workspace-crates"):
-            self.assertEqual(produced[field], consumed[field], field)
-        self.assertIs(consumed["save-if"], False)
-        # The exact key hashes Cargo.lock, which moves several times an hour, and rust-cache has no fallback
-        # (run 45903917201 compiled cold for 35 min). The journey then restores the newest headless-debug
-        # entry under any lock hash, with rust-cache's own paths in its order, so the entry's version matches.
+        # The cargo build's newest R2 entry under any Cargo.lock (run 45903917201 compiled cold for 35 min
+        # when rust-cache, exact-key only, missed), read-only here.
+        produced = step(self.producer, R2_RESTORE)["with"]
+        consumed = step(journey, R2_RESTORE)
+        self.assertEqual(consumed["with"], produced)
+        self.assertIs(consumed["continue-on-error"], True)
         names = [s.get("name") for s in journey["steps"]]
-        fallback_name = "Restore the newest headless target dir (any Cargo.lock)"
-        fallback = step(journey, fallback_name)
-        self.assertLess(names.index("Cache the cmux-tui target dir"), names.index(fallback_name))
-        self.assertLess(names.index(fallback_name), names.index("Build Linux cmux-tui for the headless journey"))
-        self.assertTrue(str(fallback["uses"]).startswith("actions/cache/restore@"))
-        self.assertIn("steps.headless-target.outputs.cache-hit != 'true'", fallback["if"])
-        self.assertIs(fallback["continue-on-error"], True)
-        self.assertEqual(fallback["with"]["restore-keys"].split(), ["v0-rust-cmux-tui-headless-debug-"])
-        self.assertTrue(fallback["with"]["key"].startswith(f"v0-rust-{produced['shared-key']}-"))
-        paths_run = step(journey, "Paths of the headless target dir")["run"]
-        order = ['"$cargo_home/registry"', '"$cargo_home/git"', '"$GITHUB_WORKSPACE/cmux-tui/target"']
-        self.assertEqual(sorted(order, key=paths_run.index), order)
+        self.assertLess(names.index(R2_RESTORE), names.index("Build Linux cmux-tui for the headless journey"))
+        self.assertNotIn(R2_SAVE, names)
         build_env = step(journey, "Build Linux cmux-tui for the headless journey")["env"]
         producer_env = step(self.producer, "Build exact headless cmux-tui")["env"]
         self.assertEqual(build_env["CMUX_GHOSTTY_VT_ZIG_CPU"], producer_env["CMUX_GHOSTTY_VT_ZIG_CPU"])

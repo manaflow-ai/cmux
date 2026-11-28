@@ -30,3 +30,15 @@ nightly-compilation-cache.yml: refresh-test-compilation-cache: Save DerivedData 
 nightly-compilation-cache.yml: refresh-test-compilation-cache: Save Swift packages
 pr-checks.yml: advisory: Restore this pull request's Swift facts cache
 reload-build.yml: build: Save DerivedData cache
+# Landed after the rule without failing a pull request (the guard was already red on feat-cmux-next, 2026-11-28);
+# listed so the guard is green again and catches the next one. Each is a shrink target like the rest.
+cas-replay.yml: a1: Save the marker
+cas-replay.yml: u2: Save the marker
+chat-size-ladder.yml: ladder: Cache cargo build
+ci-web.yml: react-apps-check-shard: Save the React Compiler transform cache
+cmux-next-compile-preflight.yml: web: Cache the web bundles under this source key
+ios-link-ffi-cache-seed.yml: fleet: Save CmuxMobileLinkFFI.xcframework
+ios-link-ffi-cache-seed.yml: mac: Save CmuxMobileLinkFFI.xcframework (fleet entry)
+ios-link-ffi-cache-seed.yml: mac: Save CmuxMobileLinkFFI.xcframework (this Xcode's entry)
+nightly-pr-build.yml: helpers: Save the pass
+nightly-pr-build.yml: swift-fleet: Save the pass

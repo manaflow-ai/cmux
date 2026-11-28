@@ -60,9 +60,14 @@ env:
 jobs:
   transfer-cli:
     name: session move tests (transfer_cli)
+    # A feat-cmux-next push saves the cargo build to R2; only next-cache-writer holds the write credentials, and its
+    # deployment branches are feat-cmux-next only (tests/test_ci_pull_request_caches_are_read_only.py).
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     if: ${{ (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && ((vars.CI_HEAVY_AT_LAND || '1') == '0' || github.event.action == 'labeled')) || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       # github.sha: the push's commit, or the pull request's merge commit; the summary names it.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -73,20 +78,18 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
-      # Keyed on the toolchain and the UTC day, not cmux-tui/Cargo.lock (24 changes in the 24 h to 2026-11-28
-      # 02:30Z, each one a new entry in the 10 GB GitHub cache that evicts the rest): one save a day.
-      - name: Day of the target-dir cache
-        id: rust-day
-        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # One target dir for the transfer_cli build.
+      # In R2 (.github/actions/cargo-build-r2), not the 10 GB GitHub cache: that store churned ~10 GB/h on 2026-11-28
+      # and kept nothing unread past ~35 min, so this entry was evicted before most runs read it. Keyed on the
+      # toolchain and every Cargo.lock; a miss restores the newest entry, and a failed restore is a cold build.
+      - name: Restore the cargo build from R2
+        id: rust-cache
+        continue-on-error: true
+        timeout-minutes: 6
+        uses: ./.github/actions/cargo-build-r2
         with:
-          cache-bin: false
-          workspaces: cmux-tui -> target
-          shared-key: cmux-tui-session-move-${{ hashFiles('cmux-tui/rust-toolchain.toml', '.cargo/config.toml') }}-${{ steps.rust-day.outputs.day }}
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-          cache-on-failure: true
-          add-rust-environment-hash-key: false
+          mode: restore
+          name: cmux-tui-session-move
 
       # One build, every transfer_cli test (the move matrix, history, pause, attachments, live moves).
       - name: cargo test -p acpmux --test transfer_cli
@@ -98,3 +101,18 @@ jobs:
           echo "Commit: $SHA" >> "$GITHUB_STEP_SUMMARY"
           cargo test --locked -p acpmux --test transfer_cli --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/transfer_cli.log"
           grep -E '^test result:' "$RUNNER_TEMP/transfer_cli.log" >> "$GITHUB_STEP_SUMMARY" || true
+
+      # Only a feat-cmux-next push writes it; the next-cache-writer environment holds the R2 credentials.
+      - name: Save the cargo build to R2
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        timeout-minutes: 8
+        uses: ./.github/actions/cargo-build-r2
+        with:
+          mode: save
+          name: cmux-tui-session-move
+          restored: ${{ steps.rust-cache.outputs.cache-hit }}
+          registry-restored: ${{ steps.rust-cache.outputs.registry-hit }}
+          access-key-id: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          account-id: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID }}
