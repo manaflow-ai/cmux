@@ -81,14 +81,15 @@ public struct HomeChiefComputer: Equatable, Sendable {
     /// `cloud.plan.required` refusal stays the real gate.
     public static func planAllows(paysForCloud: Bool?) -> Bool { paysForCloud ?? true }
 
-    /// The plans whose owners get a Chief's own Cloud computer: cmux NEXT Plus (`go`), Pro and Max, and Founders (Pro
-    /// sold early at Pro's limits), as the server's `COMPUTER_PLANS` (backend chief-brain-cc/sandbox-plan.ts), with
-    /// its `stub_default`, the stub plan of development, staging and test.
-    public static let computerPlans: Set<String> = ["go", "pro", "max", "founders", "stub_default"]
+    /// The plans whose owners get a Chief's own Cloud computer: cmux NEXT Plus (`go`), Pro, Max and Team, and Founders
+    /// (Pro sold early at Pro's limits), as the server's `COMPUTER_PLANS` (backend chief-brain-cc/sandbox-plan.ts), with
+    /// its `stub_default`, the stub plan of development, staging and test. Team is in since cmux issue 59902: an owner
+    /// whose plan reads `team` saw the upsell.
+    public static let computerPlans: Set<String> = ["go", "pro", "max", "team", "founders", "stub_default"]
 
     /// Whether plan `planId` allows a Chief's computer. An unknown plan (nil: the Mac has not read one) leaves it to
     /// the server, whose `cloud.plan.required` refusal stays the real gate; a known plan outside
-    /// ``computerPlans`` (Team, free) gets none.
+    /// ``computerPlans`` (free) gets none.
     public static func planAllows(planId: String?) -> Bool {
         guard let planId = planId?.lowercased(), !planId.isEmpty else { return true }
         return computerPlans.contains(planId)

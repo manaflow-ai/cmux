@@ -25,12 +25,18 @@ public final class HomeChiefProfileView: NSView {
         /// A Chief of this Mac with no computer of its own yet: Set Up Computer gives it one, as a Cloud Chief's
         /// (the move to the Cloud and the Computer Use picker stay).
         case noComputer
+        /// The app could not read the plan and the Cloud service has not said either: the tab says why, with Try Again,
+        /// rather than an upsell or a Set Up the server may refuse (cmux issue 59902).
+        case planUnreadable
     }
 
     /// The gate for a read: the plan first, since the upsell is the same wherever the Chief runs. A Chief of this
     /// Mac uses the Cloud machine picked for it, else its own computer once it has one (`hasComputer`), else
     /// `setsUp` offers one (``localComputer``).
-    public nonisolated static func gate(paid: Bool, cloudChief: Bool, hasComputer: Bool, machine: Bool = false, setsUp: Bool = false) -> Gate? {
+    /// `planUnreadable`: the plan read failed and nothing else says the plan allows it; a computer on screen still shows.
+    public nonisolated static func gate(paid: Bool, cloudChief: Bool, hasComputer: Bool, machine: Bool = false, setsUp: Bool = false,
+                                        planUnreadable: Bool = false) -> Gate? {
+        if planUnreadable, !hasComputer { return .planUnreadable }
         guard paid else { return .paywall }
         guard cloudChief else { return hasComputer ? nil : machine ? .machine : setsUp ? .noComputer : .needsCloudChief }
         return hasComputer ? nil : .notSetUp
@@ -85,6 +91,10 @@ public final class HomeChiefProfileView: NSView {
     }
     /// Upgrade, on the paywall.
     public var onUpgrade: () -> Void = {}
+    /// Why the plan could not be read (the app's last plan read failed and none is known); nil when it was read.
+    public var planError: () -> String? = { nil } { didSet { refresh() } }
+    /// Try Again, when the plan could not be read: reads it again.
+    public var onRetryPlan: () -> Void = {}
     /// Move to Cloud, for a Chief of this Mac.
     public var onMoveToCloud: () -> Void = {}
     /// Set Up Computer, for a Cloud Chief with none: asks the Cloud service to make it one (made in the
@@ -289,7 +299,8 @@ public final class HomeChiefProfileView: NSView {
         computer.watchesScreen = tab == .computer
         // The app's plan read, or the Cloud service's own answer for this Chief (it holds before the app's read answers).
         let gate = Self.gate(paid: paid() || computer.entitled, cloudChief: cloudChief(), hasComputer: computer.shown != nil,
-                             machine: settings?.attachedMachine.map { !machineGone($0) } ?? false, setsUp: setsUpLocally)
+                             machine: settings?.attachedMachine.map { !machineGone($0) } ?? false, setsUp: setsUpLocally,
+                             planUnreadable: !computer.entitled && planError() != nil)
         shownGate = gate
         gateBox.isHidden = gate == nil
         showGate(gate)

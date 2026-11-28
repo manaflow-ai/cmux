@@ -20,11 +20,12 @@ export const FAILED_FRESH_MS = 10_000
 const answers = new WeakMap<object, { team: string; at: number; plan: string | null }>()
 
 /**
- * The plans whose owners get a Chief's own Cloud computer (2026-11-20: only cmux NEXT Plus, Pro and Max): Plus (plan id `go`), Pro, Max, and Founders,
- * which is Pro sold early at the same limits (domains/cloud-plan.ts PAID_PLAN_LIMITS). `stub_default` is the stub
- * plan of development, staging and test only. Team and any other plan get no computer.
+ * The plans whose owners get a Chief's own Cloud computer: cmux NEXT Plus (plan id `go`), Pro, Max, Team, and Founders,
+ * which is Pro sold early at the same limits (domains/cloud-plan.ts PAID_PLAN_LIMITS). Team was left out at first
+ * (2026-11-20) and is in since cmux issue 59902 (2026-11-26): an owner whose personal team pays for Team saw the upsell.
+ * `stub_default` is the stub plan of development, staging and test only. Any other plan gets no computer.
  */
-export const COMPUTER_PLANS: ReadonlySet<string> = new Set(["go", "pro", "max", "founders", "stub_default"])
+export const COMPUTER_PLANS: ReadonlySet<string> = new Set(["go", "pro", "max", "team", "founders", "stub_default"])
 
 /** The stub plan id when the stub rule gives `team` one (development, staging and test only), else null. */
 const stubPlan = (b: ChiefBrainDO, team: string): string | null =>
@@ -65,8 +66,8 @@ export const ownerComputerEntitled = async (b: ChiefBrainDO, owner: string | nul
 /** Whether plan id `plan` (null: unknown) gives a Chief's own computer. */
 export const computerPlanAllowed = (plan: string | null): boolean => plan !== null && COMPUTER_PLANS.has(plan)
 
-/** A Chief's computer refused to an owner whose plan is not Plus, Pro or Max (the Cloud machines' code and details). */
-export const COMPUTER_PLAN_REQUIRED = () => ({ status: 403 as const, code: "cloud.plan.required", error: `a Chief's computer needs cmux NEXT Plus, Pro or Max (${PRICING_URL}); go on without it, and only if the person's task cannot be done without a screen, tell them once in one line with that link`, details: planRequiredDetails() })
+/** A Chief's computer refused to an owner whose plan is not Plus, Pro, Max or Team (the Cloud machines' code and details). */
+export const COMPUTER_PLAN_REQUIRED = () => ({ status: 403 as const, code: "cloud.plan.required", error: `a Chief's computer needs cmux NEXT Plus, Pro, Max or Team (${PRICING_URL}); go on without it, and only if the person's task cannot be done without a screen, tell them once in one line with that link`, details: planRequiredDetails() })
 
 /** The refusal of a sandbox or a computer without a Cloud plan (the Cloud machines' code and details). */
 export const PLAN_REQUIRED = () => ({ status: 403, json: { code: "cloud.plan.required", error: "cloud.plan.required: your own computer and sandboxes need a cmux Cloud plan; ask the person to upgrade", details: planRequiredDetails() } })

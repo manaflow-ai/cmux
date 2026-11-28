@@ -16,6 +16,13 @@ extension HomeEngineStrings {
     static func computerPaywall(_ chief: String) -> String {
         String(localized: "home.engine.computer.paywall", defaultValue: "\(chief) gets its own computer with cmux Cloud", table: "Home", bundle: .localizedModule)
     }
+    /// The Computer tab when the plan could not be read; `detail` is why, in the app's plain words.
+    static func computerPlanUnreadable(_ detail: String) -> String {
+        String(localized: "home.engine.computer.planUnreadable", defaultValue: "Couldn’t check your cmux plan. \(detail)", table: "Home", bundle: .localizedModule)
+    }
+    static var computerRetryPlan: String {
+        String(localized: "home.engine.computer.planRetry", defaultValue: "Try Again", table: "Home", bundle: .localizedModule)
+    }
     static var computerUpgrade: String {
         String(localized: "home.engine.computer.upgrade", defaultValue: "Upgrade", table: "Home", bundle: .localizedModule)
     }

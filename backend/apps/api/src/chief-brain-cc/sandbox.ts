@@ -337,7 +337,7 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
     // Sandboxes and a computer are cmux Cloud: the owner's plan first (sandbox-plan.ts).
     const paid = req.action === "create" || req.action === "fork"
     if (paid && !(await ownerEntitled(b, owner))) return PLAN_REQUIRED()
-    // The Chief's own computer, every verb on it (setup, screenshot, click, ...): Plus, Pro or Max only.
+    // The Chief's own computer, every verb on it (setup, screenshot, click, ...): Plus, Pro, Max or Team only.
     if (req.action === "computer" && !(await ownerComputerEntitled(b, owner))) {
       const r = COMPUTER_PLAN_REQUIRED()
       return { status: r.status, json: { code: r.code, error: r.error, details: r.details } }

@@ -330,7 +330,7 @@ const handleGithub = async (request: Request, env: Env, agent: string): Promise<
  * grant covers mutate-own; never a member, never the Chief's own token. Read only: nothing here starts, wakes or
  * drives the VM, and no Freestyle key or token leaves the Worker.
  */
-const computerPlanRefused = () => fail({ status: 403, code: "cloud.plan.required", message: "a Chief's computer needs cmux NEXT Plus, Pro or Max", extra: { details: planRequiredDetails() } })
+const computerPlanRefused = () => fail({ status: 403, code: "cloud.plan.required", message: "a Chief's computer needs cmux NEXT Plus, Pro, Max or Team", extra: { details: planRequiredDetails() } })
 
 const handleComputer = async (request: Request, env: Env, agent: string, path: "computer" | "computer/screen"): Promise<Response> => {
   if (request.method !== "GET") return fail({ status: 405, code: "method_not_allowed", message: "GET" })
@@ -367,7 +367,7 @@ const handleComputerControl = async (request: Request, env: Env, agent: string, 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
   if (!body || typeof body !== "object" || Array.isArray(body)) return fail({ status: 400, code: "validation.invalid", message: "body is a JSON object" })
   const sandboxes = sandboxesOf(env, agent)
-  // Driving the computer is for Plus, Pro and Max (sandbox-plan.ts COMPUTER_PLANS); hand_back and provision (which
+  // Driving the computer is for Plus, Pro, Max and Team (sandbox-plan.ts COMPUTER_PLANS); hand_back and provision (which
   // answers its own refusal) are not gated here.
   if (path === "computer/control" && body.action !== "take_over" && body.action !== "hand_back" && body.action !== "provision") return fail({ status: 400, code: "validation.invalid", message: "action must be take_over, hand_back or provision" })
   const ungated = path === "computer/control" && (body.action === "hand_back" || body.action === "provision")

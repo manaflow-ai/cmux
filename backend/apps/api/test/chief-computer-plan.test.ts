@@ -2,16 +2,17 @@ import { describe, expect, it } from "vitest"
 import { COMPUTER_PLANS, computerPlanAllowed } from "../src/chief-brain-cc/sandbox-plan.ts"
 
 /**
- * A Chief's own Cloud computer is for cmux NEXT Plus (plan id `go`), Pro and Max (and Founders, Pro sold early at Pro's
- * limits). Team, no plan, and an unknown answer get none (chief-brain-cc/sandbox-plan.ts COMPUTER_PLANS).
+ * A Chief's own Cloud computer is for cmux NEXT Plus (plan id `go`), Pro, Max and Team (and Founders, Pro sold early at
+ * Pro's limits). No plan and an unknown answer get none (chief-brain-cc/sandbox-plan.ts COMPUTER_PLANS). cmux issue 59902:
+ * a Team owner's Computer tab showed the upsell.
  */
 describe("which plans get a Chief's computer", () => {
-  it("allows Plus, Pro, Max and Founders", () => {
-    for (const plan of ["go", "pro", "max", "founders"]) expect(computerPlanAllowed(plan), plan).toBe(true)
+  it("allows Plus, Pro, Max, Team and Founders", () => {
+    for (const plan of ["go", "pro", "max", "team", "founders"]) expect(computerPlanAllowed(plan), plan).toBe(true)
   })
 
-  it("refuses Team, no plan, free, an unknown plan and an unanswered read", () => {
-    for (const plan of ["team", "none", "free", "enterprise", ""]) expect(computerPlanAllowed(plan), plan).toBe(false)
+  it("refuses no plan, free, an unknown plan and an unanswered read", () => {
+    for (const plan of ["none", "free", "enterprise", ""]) expect(computerPlanAllowed(plan), plan).toBe(false)
     expect(computerPlanAllowed(null)).toBe(false)
   })
 

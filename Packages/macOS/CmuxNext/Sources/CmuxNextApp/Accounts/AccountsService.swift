@@ -99,6 +99,9 @@ final class AccountsService: AccountsServices {
                                 labeler: { await labels.labeler() })
     }
 
+    /// cmux.com's billing routes' client (``CodeRouterClient/billing(_:account:labeler:)``), on the web origin.
+    var billingClient: CodeRouterClient? { let labels = labels; return .billing(services.cloud.configuration, account: services.cloud.auth) { await labels.labeler() } }
+
     // MARK: AccountsServices
 
     func detect() async -> [ProviderDetection] {
