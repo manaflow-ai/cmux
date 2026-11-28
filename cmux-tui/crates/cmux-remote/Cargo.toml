@@ -62,6 +62,9 @@ libc.workspace = true
 rand_core = { version = "0.9", default-features = false }
 # The relay's own TLS trust (RelayTls); already in the graph through tokio-tungstenite.
 rustls.workspace = true
+# RelayTls's default trust, read once per process (relay_platform_roots.rs); already in the graph
+# through tokio-tungstenite.
+rustls-native-certs = "0.8"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

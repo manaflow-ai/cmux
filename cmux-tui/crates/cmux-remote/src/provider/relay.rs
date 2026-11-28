@@ -42,6 +42,8 @@ mod carrier;
 mod credential_read;
 #[path = "relay_liveness.rs"]
 mod liveness;
+#[path = "relay_platform_roots.rs"]
+mod platform_roots;
 use credential_read::*;
 
 /// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
@@ -464,8 +466,10 @@ impl RelayTls {
         self.outer.snapshot()
     }
 
+    /// The connector a relay connect uses: the given roots, else the platform's, read once per
+    /// process ([`platform_roots::platform_roots`]) instead of on every connect.
     fn connector(&self) -> Option<Connector> {
-        self.client_config.clone().map(Connector::Rustls)
+        self.client_config.clone().or_else(platform_roots::platform_roots).map(Connector::Rustls)
     }
 }
 
