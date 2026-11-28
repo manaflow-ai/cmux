@@ -3884,19 +3884,18 @@ async fn dispatch_method(
                         .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
                 }
                 method::MUX_INBOX_THREADS => {
-                    // Its held count reads the surge journal's tail from the log.
-                    let hub = Arc::clone(hub);
-                    tokio::task::spawn_blocking(move || Ok(hub.inbox_threads(&s)))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox listing stopped: {e}")))?
+                    // Its held count reads the surge journal's tail from the log: read here, off
+                    // the worker, not queued on the blocking pool. Under load the pool's queue
+                    // held this read behind every other blocking job (cosmic-gray, 2026-11-27:
+                    // `acpmux session inbox` 60 s+); the read itself takes no hub-wide lock.
+                    Ok(crate::qos::off_worker(|| hub.inbox_threads(&s)))
                 }
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
-                    let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
-                    // Held messages that left memory are read from the log (`inbox_surge.rs`).
-                    tokio::task::spawn_blocking(move || hub.inbox_thread_whole(&s, &thread, mark))
-                        .await
-                        .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))?
+                    let thread = thread()?;
+                    // Held messages that left memory are read from the log (`inbox_surge.rs`),
+                    // off the worker and not behind the blocking pool's queue, as above.
+                    crate::qos::off_worker(|| hub.inbox_thread_whole(&s, thread, mark))
                 }
                 _ => {
                     let text = text_of("text")
