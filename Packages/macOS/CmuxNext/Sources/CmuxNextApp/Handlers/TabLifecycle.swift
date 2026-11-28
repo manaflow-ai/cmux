@@ -272,8 +272,7 @@ enum TabLifecycle {
         var agentTab: (@MainActor (SurfaceID) -> Void)?
         var homePlacement = false
         if placement?.agentDriven ?? scripted {
-            let session = invocation.callerAgentSession
-            agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface, session: session) }
+            agentTab = { @MainActor [weak cache, session = invocation.callerAgentSession] surface in cache?.markAgentDriven(surface: surface, session: session) }
         }
         let beside = invocation.besideCaller ? ctx.services.paneController(for: pane) : nil // An agent's tab beside its chat: selected there, or moved out (AgentBesidePlacement).
         if invocation.besideCaller {

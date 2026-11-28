@@ -463,8 +463,7 @@ final class TabContentCache {
             entry.extensionMenuHandler = handler
             entry.state.extensionMenuHandler = handler
         }
-        if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
-        if let session = agentMarks.sessions[key] { page.noteAgentSession(session) }
+        if agentDrivenTabs.contains(key) { page.markAgent(reading: false, session: agentMarks.sessions[key]) } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         pageRequests.siteEngines.follow(entry.state, page: page) // browser.siteEngines for the pages it reaches (#45018)
         browsers[key] = entry
