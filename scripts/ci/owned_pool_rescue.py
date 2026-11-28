@@ -632,6 +632,7 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-split-table.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-stress-bench.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-tab-switch.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-web-perf.yml": _GATEWAY_ONLY,  # stress-measure (#61915)
     ".github/workflows/fleet-compile-check.yml": _GATEWAY_ONLY,
     ".github/workflows/ios-base-bisect.yml": _GATEWAY_ONLY,
     ".github/workflows/screen-stream-eval.yml": _GATEWAY_ONLY,

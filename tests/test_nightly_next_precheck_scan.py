@@ -341,6 +341,99 @@ class TickWalkTests(unittest.TestCase):
         self.assertIn(f"requested nightly-next promotion of {self.shas[0][:12]}", result.stdout)
 
 
+FAKE_SCAN_ARGS = """import os, sys
+open(os.environ["SCAN_ARGS"], "w").write(" ".join(sys.argv[1:]))
+"""
+
+
+@unittest.skipUnless(shutil.which("timeout") and shutil.which("git"), "needs coreutils timeout and git")
+class TickWalkReachesNightlyNextTests(unittest.TestCase):
+    """2026-11-28: the feed sat at ececce733689 from 23:33Z while 184 commits landed. The 150-deep
+    checkout no longer held nightly-next and the walk stopped at 120 commits, so the newest green
+    commit just above nightly-next was never asked: "0 to ask, 120 passed over" every tick."""
+
+    def git(self, cwd: Path, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="tick-reach-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        source = self.tmp / "source"
+        source.mkdir()
+        self.git(source, "init", "-q", "-b", "feat-cmux-next")
+        script = source / "scripts/cmux-next/request-nightly-next.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text(FAKE_REQUEST)
+        script.chmod(0o755)
+        self.shas: list[str] = []
+        for i in range(200):
+            (source / "n.txt").write_text(str(i))
+            self.git(source, "add", "-A")
+            self.git(source, "commit", "-q", "-m", f"c{i}")
+            self.shas.append(self.git(source, "rev-parse", "HEAD"))
+        self.shas.reverse()  # newest first
+        # nightly-next 185 commits behind, the newest green commit right above it.
+        self.promoted = self.shas[185]
+        self.green = self.shas[184]
+        self.git(source, "branch", "nightly-next", self.promoted)
+        self.origin = self.tmp / "origin.git"
+        subprocess.run(["git", "clone", "-q", "--bare", str(source), str(self.origin)], check=True)
+        self.repo = self.tmp / "repo"
+        # The job's checkout: 150 deep, so nightly-next is not in it.
+        subprocess.run(["git", "clone", "-q", "--depth", "150", "--branch", "feat-cmux-next",
+                        f"file://{self.origin}", str(self.repo)], check=True)
+        self.assertNotEqual(subprocess.run(["git", "-C", str(self.repo), "cat-file", "-e", f"{self.promoted}^{{commit}}"],
+                                           capture_output=True).returncode, 0)
+        tooling = self.repo / ".tick-tooling/scripts/ci"
+        tooling.mkdir(parents=True)
+        (tooling / "nightly_next_precheck_scan.py").write_text(FAKE_SCAN_ARGS + FAKE_SCAN)
+        self.bin = self.tmp / "bin"
+        self.runner_temp = self.tmp / "runner"
+        self.behavior = self.tmp / "behavior"
+        for d in (self.bin, self.runner_temp, self.behavior):
+            d.mkdir()
+        gh = self.bin / "gh"
+        gh.write_text("#!/usr/bin/env bash\nexit 0\n")
+        gh.chmod(0o755)
+        self.plan = self.tmp / "plan.txt"
+        self.asked = self.tmp / "asked.txt"
+        self.asked.write_text("")
+        self.args = self.tmp / "scan-args.txt"
+        self.script = self.tmp / "step.sh"
+        self.script.write_text(request_step()["run"])
+
+    def run_step(self, **env: str) -> subprocess.CompletedProcess:
+        # Every commit above the green one red ("skip"), as the scan read them on 2026-11-28.
+        self.plan.write_text("".join(f"{sha} skip because\n" for sha in self.shas[:184])
+                             + f"{self.green} ask because\n{self.promoted} stop because\n")
+        (self.behavior / self.green).write_text("request")
+        full = {k: str(v) for k, v in request_step().get("env", {}).items()}
+        full.update(os.environ)
+        full.update(PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}", RUNNER_TEMP=str(self.runner_temp),
+                    GITHUB_REPOSITORY=REPO, BEHAVIOR=str(self.behavior), PLAN=str(self.plan), ASKED=str(self.asked),
+                    SCAN_ARGS=str(self.args), GIT_TERMINAL_PROMPT="0")
+        full.update(env)
+        return subprocess.run(["bash", str(self.script)], cwd=self.repo, env=full, capture_output=True, text=True, timeout=120)
+
+    def test_the_walk_deepens_to_nightly_next_and_asks_the_green_commit_above_it(self) -> None:
+        result = self.run_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"walking 186 first-parent commits (nightly-next: {self.promoted[:12]})", result.stdout)
+        self.assertIn("--commits 186", self.args.read_text())
+        self.assertIn(f"--promoted {self.promoted}", self.args.read_text())
+        self.assertEqual(self.asked.read_text().split(), [self.green])
+        self.assertIn(f"requested nightly-next promotion of {self.green[:12]}", result.stdout)
+
+    def test_the_walk_is_bounded(self) -> None:
+        result = self.run_step(TICK_WALK_MAX_COMMITS="150")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--commits 150", self.args.read_text())
+        self.assertEqual(self.asked.read_text().split(), [])
+
+
 class TickStepBoundTests(unittest.TestCase):
     def test_the_scan_fits_the_step_with_the_walk(self) -> None:
         step = request_step()
