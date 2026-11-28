@@ -147,7 +147,10 @@ export function setCloudPreviewContext(next: CloudPreviewContext, view: string |
       ...(state.knownByContext.get(machineSessionKey(next)) ?? []),
       ...state.unscopedKnown,
     ]);
-    state.knownByContext.set(key, state.knownPorts);
+    // Only a turn that knows a port is kept: an empty set says what a missing key does, and every
+    // turn of a long chat would otherwise keep one (a 7,000-turn chat held 1,942 empty sets, 0.3 MB,
+    // growing with the transcript). A port event or seed stores this set when it gains one.
+    if (state.knownPorts.size > 0) state.knownByContext.set(key, state.knownPorts);
   }
   const queued = state.pending;
   state.pending = [];
@@ -197,6 +200,11 @@ export function cloudPreviewPorts(view: string | null = null): readonly CloudPre
 /// Forgets a view that closed, waking its readers with no cards.
 export function dropCloudPreviewPorts(view: string): void {
   if (byView.delete(view)) wake(view);
+}
+
+/// Tests: how many chat contexts `view` keeps known ports for.
+export function cloudPreviewContextsKept(view: string | null = null): number {
+  return byView.get(view)?.knownByContext.size ?? 0;
 }
 
 /// Tests: forgets every view's ports.
