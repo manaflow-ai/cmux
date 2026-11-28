@@ -3018,6 +3018,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/server/accounts/*",
   "cmux-tui/crates/acpmux/src/server/chats/*",
   "cmux-tui/crates/acpmux/src/server/outbound_queue_tests/*",
+  "cmux-tui/crates/acpmux/src/server/pull_request_actions/*",
   "cmux-tui/crates/acpmux/src/server/peer_forward/*",
   "cmux-tui/crates/acpmux/src/server/races/*",
   "cmux-tui/crates/acpmux/src/server/races/peer/*",
