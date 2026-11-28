@@ -77,4 +77,26 @@ grep -q 'could not unpack k2.tar.gz' "$tmp/out3" || { cat "$tmp/out3"; echo "FAI
 [[ "$(cat "$tmp/target/sentinel")" == keep ]] || { echo "FAIL: a corrupt archive changed the directory"; exit 1; }
 ! ls -d "$tmp"/target.r2-restoring.* > /dev/null 2>&1 || { echo "FAIL: the corrupt archive's staging directory was left behind"; exit 1; }
 
+# 4. A directory that cannot go whole (a bind-mounted cache inside it, or another user's entries: cmux-tui job
+# 140826310692 on a pool slot) is merged over, never nested: before, mv put the staging directory inside it and
+# the restore still said "restored". A read-only file in a read-only subdirectory stands in for another slot's
+# 0644 crate (root ignores modes: skipped).
+if [[ "$(id -u)" != 0 ]]; then
+  rm -rf "$tmp/target"; mkdir -p "$tmp/target/held"; echo old > "$tmp/target/held/entry"; chmod 444 "$tmp/target/held/entry"; chmod 555 "$tmp/target/held"
+  trap 'chmod -R u+w "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
+  bash "$script" restore "$tmp/target" k1 > "$tmp/out4" 2>&1
+  grep -q 'could not replace .* whole' "$tmp/out4" || { cat "$tmp/out4"; echo "FAIL: expected the kept-paths line"; exit 1; }
+  grep -q 'merged k1.tar.gz' "$tmp/out4" || { cat "$tmp/out4"; echo "FAIL: expected a merge"; exit 1; }
+  cmp -s "$tmp/src/deps/libserde.rmeta" "$tmp/target/deps/libserde.rmeta" || { echo "FAIL: merged bytes differ"; exit 1; }
+  ! ls -d "$tmp"/target/*r2-restoring* "$tmp"/target.r2-restoring.* > /dev/null 2>&1 || { echo "FAIL: staging nested or left"; exit 1; }
+
+  # 5. An archive whose entries land on a path it cannot write is a miss, said out loud, and nothing nests.
+  mkdir -p "$tmp/src2/held"; echo new > "$tmp/src2/held/entry"
+  "$REAL_TAR" -czf "$tmp/bucket/k3.tar.gz" -C "$tmp/src2" .
+  bash "$script" restore "$tmp/target" k3 > "$tmp/out5" 2>&1 || true
+  grep -q 'could not restore k3.tar.gz' "$tmp/out5" || { cat "$tmp/out5"; echo "FAIL: expected a loud miss"; exit 1; }
+  ! grep -q 'restored k3' "$tmp/out5" || { cat "$tmp/out5"; echo "FAIL: a failed merge reported restored"; exit 1; }
+  ! ls -d "$tmp"/target/*r2-restoring* "$tmp"/target.r2-restoring.* > /dev/null 2>&1 || { echo "FAIL: staging nested or left"; exit 1; }
+fi
+
 echo PASS

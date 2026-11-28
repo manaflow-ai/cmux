@@ -126,10 +126,26 @@ PY2
       for stale in "${dir%/}".r2-restoring.*; do [[ -d "$stale" ]] && rm -rf "$stale"; done
       staging="$(mktemp -d "${dir%/}.r2-restoring.XXXXXX")"
       if unpack "$extension" "$work/archive" "$staging"; then
-        rm -rf "$dir"
-        mv "$staging" "$dir"
-        rm -rf "$work"
-        return 0
+        rm -rf "$dir" 2> "$work/rm.err" || true
+        if [[ ! -e "$dir" ]]; then
+          mv "$staging" "$dir"
+          rm -rf "$work"
+          return 0
+        fi
+        # The directory could not go whole: a mount point in it (a runner's bind-mounted cache, such as
+        # ~/.cargo/registry/cache on a pool slot) or entries another user owns. mv would then put the staging
+        # directory inside it and report a restore that never landed (cmux-tui job 140826310692, 2026-11-28:
+        # 847 "rm: cannot remove" lines, then "restored", then cargo's "Permission denied (os error 13)").
+        # Merge the archive over what is left instead; a path it cannot write is a miss, said out loud.
+        echo "r2-cache: could not replace $dir whole ($(wc -l < "$work/rm.err") paths kept: $(head -n 1 "$work/rm.err"))"
+        if cp -a "$staging/." "$dir/" 2> "$work/cp.err"; then
+          echo "r2-cache: merged $candidate.$extension into $dir"
+          rm -rf "$staging" "$work"
+          return 0
+        fi
+        echo "r2-cache: could not restore $candidate.$extension into $dir ($(wc -l < "$work/cp.err") paths: $(head -n 1 "$work/cp.err")); a miss"
+        rm -rf "$staging" "$work"
+        return 1
       fi
       # A truncated or corrupt archive must not leave half a cache behind.
       rm -rf "$staging"
