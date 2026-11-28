@@ -7,6 +7,10 @@ import re
 import sys
 import tempfile
 import unittest
+import os
+from unittest import mock
+
+import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +21,64 @@ import mac_grants  # noqa: E402
 PR = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
       "GITHUB_REPOSITORY_OWNER": "manaflow-ai", "HEAD_REPO": "manaflow-ai/cmux",
       "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "XCODE_APP": "/Applications/Xcode_26.6.app"}
+
+
+class PinnedPipelineRunnerTest(unittest.TestCase):
+    def test_versioned_pin_selects_the_capability_and_missing_pin_stays_generic(self):
+        for version in ("26.6", "27.2", "28.1.3"):
+            for suffix in ("", "/Contents/Developer"):
+                with self.subTest(version=version, suffix=suffix):
+                    pin = f"/Applications/Xcode_{version}.app{suffix}"
+                    self.assertEqual(json.loads(mac_grants.pinned_runner(pin)), ["cmux-mac", f"xcode-{version}"])
+        for pin in (None, "", "  "):
+            self.assertEqual(json.loads(mac_grants.pinned_runner(pin)), ["cmux-mac"])
+        with self.assertRaisesRegex(ValueError, "must name a version"):
+            mac_grants.pinned_runner("/Applications/Xcode.app")
+
+    def test_router_and_recovery_emit_the_same_selector(self):
+        import pr_router
+        import ios_fast_dispatch as dispatch
+        head, merge, base = "a" * 40, "b" * 40, "c" * 40
+        pr = {"state": "open", "head": {"sha": head, "repo": {"full_name": "manaflow-ai/cmux"}},
+              "base": {"ref": "feat-cmux-next"}, "merge_commit_sha": merge}
+        commit = {"parents": [{"sha": base}, {"sha": head}]}
+        for version in ("26.6", "27.2", "28.1.3"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "outputs"
+                env = {"CMUX_CI_XCODE_APP": f"/Applications/Xcode_{version}.app", "GITHUB_OUTPUT": str(output),
+                       "REPO": "manaflow-ai/cmux", "PR": "63161", "SHA": head, "GH_TOKEN": "test"}
+                with mock.patch.dict(os.environ, env), mock.patch.object(dispatch, "get", side_effect=[pr, commit]):
+                    pr_router.write_outputs([], {}, [])
+                    self.assertEqual(dispatch.main(["resolve"]), 0)
+                selectors = [json.loads(line.partition("=")[2]) for line in output.read_text().splitlines()
+                             if line.startswith("mac_runner=")]
+                self.assertEqual(selectors, [["cmux-mac", f"xcode-{version}"]] * 2)
+
+    def test_every_caller_supplies_the_pin_and_all_pinned_jobs_keep_fork_routes(self):
+        def load(name):
+            return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+        pipeline, router, recovery = map(load, ("pr-pipeline.yml", "pr-router.yml", "ios-fast-verdict-dispatch.yml"))
+        inputs = pipeline.get("on", pipeline.get(True))["workflow_call"]["inputs"]
+        self.assertEqual(inputs["mac_runner"], {"required": True, "type": "string"})
+        for workflow, source, output_step in ((router, "route", "route"), (recovery, "resolve", "resolve")):
+            job = workflow["jobs"][source]
+            self.assertEqual(job["outputs"]["mac_runner"], f"${{{{ steps.{output_step}.outputs.mac_runner }}}}")
+            step = next(s for s in job["steps"] if s.get("id") == output_step)
+            self.assertEqual(step["env"]["CMUX_CI_XCODE_APP"], "${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}")
+            checkout = next(s for s in job["steps"] if "actions/checkout" in s.get("uses", ""))
+            self.assertIn("scripts/ci/mac_grants.py", checkout["with"]["sparse-checkout"].split())
+            for caller in workflow["jobs"].values():
+                if caller.get("uses") == "./.github/workflows/pr-pipeline.yml":
+                    self.assertEqual(caller["with"]["mac_runner"], f"${{{{ needs.{source}.outputs.mac_runner }}}}")
+        selected = []
+        for name, job in pipeline["jobs"].items():
+            if job.get("env", {}).get("CMUX_CI_XCODE_APP") != "${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}":
+                continue
+            selected.append(name)
+            self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                             "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+                             "github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(inputs.mac_runner) }}")
+        self.assertEqual(selected, ["ios-macos", "mac", "mac-fallback"])
 
 
 class MacGrantsTest(unittest.TestCase):

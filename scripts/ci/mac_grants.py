@@ -68,6 +68,15 @@ def xcode_label(sources: Iterable[str | None]) -> str:
     return ""
 
 
+def pinned_runner(xcode_app: str | None) -> str:
+    """Owned Mac labels matching the same versioned Xcode path the job will select."""
+    pin = (xcode_app or "").strip()
+    capability = xcode_label([pin])
+    if pin and not capability:
+        raise ValueError(f"Mac Xcode pin must name a version for runner selection: {pin!r}")
+    return json.dumps([MAC_LABEL] + ([capability] if capability else []), separators=(",", ":"))
+
+
 def same_repo_pr(env: Mapping[str, str]) -> bool:
     repo = (env.get("GITHUB_REPOSITORY") or "").strip()
     owner = (env.get("GITHUB_REPOSITORY_OWNER") or repo.partition("/")[0]).strip()

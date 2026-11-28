@@ -92,6 +92,17 @@ class Scratch(unittest.TestCase):
         self.assertEqual((build / "product").read_text(), "built")
         self.assertEqual(build.resolve(), (self.scratch / "xcode-a/Packages__Shared__A").resolve())
 
+    def test_integration_setup_repairs_a_build_link_after_cache_eviction(self):
+        # clean:false preserves the workspace link after its target is pruned between jobs.
+        build = self.workspace / "Packages/Shared/A/.build"
+        build.symlink_to(self.store / "evicted/Packages__Shared__A", target_is_directory=True)
+        self.assertTrue(build.is_symlink())
+        self.assertFalse(build.exists())
+        scratch.link(self.workspace, self.store, RUNNER, fingerprint="current-xcode")
+        self.assertTrue(build.is_dir())
+        (build / "probe").write_text("writable")
+        self.assertEqual((self.scratch / "current-xcode/Packages__Shared__A/probe").read_text(), "writable")
+
     def test_a_kept_build_drops_its_resource_bundles_and_keeps_its_modules(self):
         # SwiftPM never deletes a resource the tree no longer has from a kept bundle: cmux#26961's
         # job compiled a MiscHandlers.xcstrings another branch's job on that runner had copied there.

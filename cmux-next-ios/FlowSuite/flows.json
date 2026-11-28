@@ -28,6 +28,21 @@
   },
   "flows": [
     {
+      "id": "screen-share-webrtc-synthetic",
+      "title": "Synthetic screen pixels traverse real WebRTC and decode without a display",
+      "source": ["aziz:screen-sharing", "leo:mock-phone-checks"],
+      "kit": [],
+      "ui": [],
+      "swift": [
+        {"package": "Packages/Shared/CmuxVNCWebRTC", "filter": "HeadlessSyntheticScreenStreamTests"}
+      ],
+      "paths": [
+        "Packages/Shared/CmuxVNCWebRTC/**",
+        "Packages/Shared/CmuxVNC/**",
+        "Packages/Shared/CmuxEgress/**"
+      ]
+    },
+    {
       "id": "smoke-launch-sign-in",
       "title": "The app launches, offers sign-in with Apple first, and every sign-in control responds",
       "source": ["aziz:app-store-readiness#3", "aziz:app-store-readiness#4"],

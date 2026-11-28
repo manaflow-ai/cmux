@@ -78,6 +78,9 @@ jobs:
       # The steps those jobs run only (pr_router.py nightly_gate_table): a landing head of the affected tier runs just
       # the steps the nightly also runs that its change routes. Empty: every routed step.
       only: ${{ steps.route.outputs.only }}
+      mac_runner: ${{ steps.route.outputs.mac_runner }}
+      mac_integration: ${{ steps.route.outputs.mac_integration }}
+      mac_integration_only: ${{ steps.route.outputs.mac_integration_only }}
       # The `cmux/ios-fast` commit status the route posted (pr_router.py ios_status); `pending` hands it to
       # ios-fast-status below, which posts the verdict's own result.
       ios_status: ${{ steps.route.outputs.ios_status }}
@@ -115,6 +118,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/fast_track.py
             scripts/ci/risk_tier.py
+            scripts/ci/mac_grants.py
             scripts/ci/ci_steps.py
             scripts/ci/check_reusable_workflow_permissions.py
             scripts/ci/deadline_http.py
@@ -145,6 +149,7 @@ jobs:
         id: route
         # A draft head starts only callees marked `draft` (scripts/ci/head_tier.py); 0 turns that off.
         env:
+          CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
           # The compile preflight's web job runs only when a changed file is a web bundle input, answered here by the
           # job's own check (pr_router.py preflight_web, compile_preflight.py router_web); 0 runs it on every head
@@ -588,9 +593,12 @@ jobs:
     if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
     uses: ./.github/workflows/pr-pipeline.yml
     with:
+      mac_runner: ${{ needs.route.outputs.mac_runner }}
       defer_web_browser: true
       jobs: ${{ needs.route.outputs.table || '' }}
       only: ${{ needs.route.outputs.only || '' }}
+      mac_integration: ${{ needs.route.outputs.mac_integration || '' }}
+      mac_integration_only: ${{ needs.route.outputs.mac_integration_only || '' }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
@@ -609,6 +617,7 @@ jobs:
     if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && needs.compile-preflight.result == 'success' && contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') && contains(fromJSON(needs.route.outputs.table || '[]'), 'web-browser') }}
     uses: ./.github/workflows/pr-pipeline.yml
     with:
+      mac_runner: ${{ needs.route.outputs.mac_runner }}
       jobs: '["web-browser"]'
       web_browser_only: true
       web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
@@ -660,6 +669,8 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MAC_INTEGRATION: ${{ needs.route.outputs.mac_integration }}
+          MAC_VERDICT: ${{ needs.pipeline.outputs.mac_integration_verdict }}
           PIPELINE: ${{ needs.pipeline.result }}
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
@@ -689,6 +700,13 @@ jobs:
             gated=$(python3 -I scripts/ci/proof_record.py gate --suite ios-flows) || { echo "::error::proof record not read; failing so this job can be rerun"; exit 1; }
             IFS=$'\t' read -r pstate pdesc <<< "$gated"
             if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
+          fi
+          if [ -n "$MAC_INTEGRATION" ] && [ "$MAC_VERDICT" != success ]; then
+            if [ "$MAC_VERDICT" = failure ]; then
+              state=failure; desc="Failed selected integration assertions: $MAC_INTEGRATION"
+            else
+              state=error; desc="Missing or skipped selected integration assertions: $MAC_INTEGRATION"
+            fi
           fi
           python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
 

@@ -22,6 +22,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,82 @@ sys.path.insert(0, str(ROOT / "tests"))
 import ci_steps  # noqa: E402
 import crate_results  # noqa: E402
 from test_ci_post_merge_checks import BASE, branch_matches, load_workflows, triggers  # noqa: E402
+
+
+class MacIntegrationGateTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        import pr_router
+        cls.router = pr_router
+        cls.callees = pr_router.load_manifest()
+        cls.paths = ["Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenStreamHost.swift"]
+        cls.selected = ["screen-webrtc-headless"]
+
+    def test_selected_suite_runs_on_cheap_none_and_carried_heads(self) -> None:
+        event = {"action": "synchronize", "pull_request": {"draft": False}}
+        for tier in ("cheap", "none", "full"):
+            with self.subTest(tier=tier):
+                start, _ = self.router.route(event, self.callees, self.paths,
+                                             decided=(tier, "carried"), carried={"pr-pipeline.yml"})
+                self.assertIn("pr-pipeline.yml", start)
+                jobs, selected, only = self.router.mac_integration_table(self.paths, start, [])
+                self.assertEqual((jobs, selected, only), (["mac"], self.selected, self.selected))
+
+    def test_full_tier_keeps_its_route_and_unrelated_paths_do_not_add_mac(self) -> None:
+        self.assertEqual(self.router.mac_integration_table(self.paths, ["pr-pipeline.yml"], ["linux", "mac"]),
+                         (["linux", "mac"], self.selected, []))
+        self.assertEqual(self.router.mac_integration_table(["docs/readme.md"], ["pr-pipeline.yml"], []),
+                         ([], [], []))
+        self.assertEqual(self.router.mac_integration_steps(None), self.selected)
+        with mock.patch.object(ci_steps, "load", side_effect=ValueError("unreadable table")):
+            self.assertEqual(self.router.mac_integration_steps(self.paths), self.selected)
+        self.assertEqual(self.router.mac_integration_table(self.paths, [], []), ([], [], []))
+
+    def test_only_actual_passing_selected_results_prove_the_suite(self) -> None:
+        step = ci_steps.Step("screen-webrtc-headless", "mac", "true")
+        for code, skipped, expected in ((0, False, "success"), (1, False, "failure"),
+                                        (None, False, "failure"), (0, True, "error")):
+            with self.subTest(code=code, skipped=skipped):
+                result = ci_steps.Result(step, code, 0, "", skipped=skipped)
+                self.assertEqual(ci_steps.selected_verdict([result], self.selected), expected)
+        self.assertEqual(ci_steps.selected_verdict([], self.selected), "error")
+        self.assertEqual(ci_steps.selected_verdict([ci_steps.Result(step, 0, 0, "")], ["absent"]), "error")
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            with mock.patch.dict(os.environ, {"CI_STEP_VERDICT_STEPS": step.name, "GITHUB_OUTPUT": str(output)}):
+                ci_steps.finish([ci_steps.Result(step, 0, 0, "", skipped=True)], "mac", io.StringIO())
+            self.assertIn("selected_verdict=error", output.read_text())
+
+    def test_workflow_passes_selection_and_aggregates_actual_assertion_result(self) -> None:
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        mac = pipeline["jobs"]["mac"]
+        self.assertIn("inputs.mac_integration != ''", mac["if"])
+        steps = {step["name"]: step for step in mac["steps"] if "name" in step}
+        self.assertEqual(steps["Route the Mac tiers"]["if"], "inputs.mac_integration_only == ''")
+        scratch = steps["Prepare Swift scratch for selected Mac integrations"]
+        # No fast_tier predicate: selected native suites need scratch even when tier routing is skipped.
+        self.assertEqual(scratch["if"], "inputs.mac_integration != '' && contains(runner.name, '-glaeda')")
+        self.assertEqual(shlex.split(scratch["run"]),
+                         ["python3", "scripts/ci/owned_spm_scratch.py", "link", "$GITHUB_WORKSPACE"])
+        names = list(steps)
+        self.assertLess(names.index("Select Xcode"), names.index(scratch["name"]))
+        self.assertLess(names.index(scratch["name"]), names.index("Run the routed mac steps (ci/steps.toml)"))
+        run = steps["Run the routed mac steps (ci/steps.toml)"]
+        self.assertIn('--only "$MAC_ONLY"', run["run"])
+        self.assertIn("inputs.mac_integration", run["env"]["CI_STEP_VERDICT_STEPS"])
+        self.assertIn("steps.routed.outputs.selected_verdict", mac["outputs"]["integration_verdict"])
+        post = next(step for step in router["jobs"]["ios-fast-status"]["steps"] if step.get("name") == "Post the verdict")
+        script = post["run"]
+        # Execute the actual workflow aggregation with no proof gate, replacing only the final status post.
+        script = script.replace('python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"', 'echo "$state"')
+        for selected, verdict, expected in (("", "", "success"), ("screen", "success", "success"),
+                                            ("screen", "failure", "failure"), ("screen", "", "error"),
+                                            ("screen", "skipped", "error")):
+            env = dict(os.environ, MAC_INTEGRATION=selected, MAC_VERDICT=verdict, PIPELINE="success",
+                       RUN="false", VERDICT="", NEED_PROOF="false")
+            result = subprocess.run(["bash", "-eu", "-c", script], env=env, text=True, capture_output=True, check=True)
+            self.assertEqual(result.stdout.strip(), expected)
 
 
 class NightlyGateTest(unittest.TestCase):
@@ -1119,11 +1196,11 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(start, ["pr-pipeline.yml"])
         self.assertIn("indexnow", why["pr-pipeline.yml"])
         self.assertEqual(started(["docs/x.md"])[0], [])
-        # A cheap head (a draft) starts none of its jobs, even when the changed files are unknown.
+        # A cheap head starts no broad jobs; unknown files conservatively select the narrow screen assertion.
         start, why = started(["web/app/lib/indexnow.ts"], draft=True)
         self.assertEqual(start, [])
         self.assertIn("cheap tier", why["pr-pipeline.yml"])
-        self.assertEqual(started(None, draft=True)[0], [])
+        self.assertEqual(started(None, draft=True)[0], ["pr-pipeline.yml"])
         self.assertEqual(started(None)[0], ["pr-pipeline.yml"])
         # Under --pr-scope a whole-tree `**` routes nothing, so tt-ci-step-table runs on a pull request only through
         # tooling-tests-5's named inputs: a change to the table or a workflow routes it.
@@ -1203,7 +1280,10 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
         self.assertEqual(router["jobs"]["pipeline"]["with"], {
             "jobs": "${{ needs.route.outputs.table || '' }}",
-            "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True})
+            "only": "${{ needs.route.outputs.only || '' }}", "defer_web_browser": True,
+            "mac_integration": "${{ needs.route.outputs.mac_integration || '' }}",
+            "mac_integration_only": "${{ needs.route.outputs.mac_integration_only || '' }}",
+            "mac_runner": "${{ needs.route.outputs.mac_runner }}"})
 
     def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
         """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
@@ -1294,7 +1374,11 @@ class PipelineTest(unittest.TestCase):
                 if name in PIPELINE_LAND_TIER_JOBS:
                     # The land tier (#54886's condition and label guard): runs only at the head handed to land.
                     deferred = "!inputs.defer_web_browser && " if name == "web-browser" else ""
-                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
+                    land_tier = PIPELINE_LAND_TIER
+                    if name == "mac":
+                        # Explicit native assertions also run in the cheap PR tier.
+                        land_tier = land_tier.replace("(github.event_name", "(inputs.mac_integration != '' || github.event_name", 1)
+                    self.assertEqual(job["if"], f"${{{{ {deferred}({routed}) && {land_tier} && {PIPELINE_LABEL_GUARD} }}}}")
                 else:
                     self.assertEqual(job["if"], f"${{{{ {routed} }}}}")
                 runs = [s for s in job["steps"] if f"ci/run run --job {name} " in s.get("run", "")]
@@ -1735,6 +1819,17 @@ class MacJobTest(unittest.TestCase):
         "scripts/cmux-next/fast-tier.py",
     )
 
+    def test_package_suite_commands_resolve_a_real_package(self) -> None:
+        for step in ci_steps.load().steps.values():
+            for line in step.run.splitlines():
+                if "package-test-lane.sh suite " not in line:
+                    continue
+                args = shlex.split(line)
+                package = args[args.index("suite") + 1]
+                with self.subTest(step=step.name, package=package):
+                    self.assertTrue((ROOT / package / "Package.swift").is_file(),
+                                    "suite takes a checkout-relative package directory, not a package name")
+
     def test_it_runs_on_an_owned_mac_and_a_fork_on_blacksmith(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         self.assertEqual(
@@ -1760,7 +1855,11 @@ class MacJobTest(unittest.TestCase):
 
     def test_each_step_asks_the_router_first(self) -> None:
         steps = [s for s in ci_steps.load().steps.values() if s.job == "mac"]
-        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier"])
+        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier", "screen-webrtc-headless"])
+        screen = next(s for s in steps if s.name == "screen-webrtc-headless")
+        self.assertIn("HeadlessSyntheticScreenStreamTests", screen.run)
+        self.assertTrue(screen.inputs and screen.blocks and screen.alone)
+        steps = [s for s in steps if s.name != screen.name]
         canary = ci_steps.load().steps["swift-canary"]
         for step in steps + [canary]:
             with self.subTest(step=step.name):
