@@ -110,6 +110,20 @@ class GracefulSwap(Bench):
             ctx.notes.append("not imperceptible: a region showed a transient or blank frame, shifted or lost state")
 
     @staticmethod
+    def now_publish_line(ctx: Context, key: str, p95: float) -> str:
+        """NOW reads these rows from hand-measure state, not the bench ledger: the exact command that publishes one.
+
+        cmuxterm-hq now_benches.HOT_SWAP_ROWS reads hand row hot_swap.mac.<surface>.p95_ms@<capture Mac>; for 4 days
+        the goal hot-swap-fast read no value while imports went only to the ledger (11-28)."""
+        hand = key.replace("hot_swap_mac_", "hot_swap.mac.").replace("_p95_ms", ".p95_ms")
+        host = ctx.arg("capture_host")  # --arg capture_host=H, or --host-name H on an import
+        sha = (ctx.build or {}).get("sha")
+        return ("NOW reads this row only once published (cmuxterm-hq checkout, lane VM ok): "
+                "python3 tools/fleet-reconcilers/now_hand_measures.py publish "
+                f"--row {hand}@{host or '<capture Mac>'} --value {p95:g} --step {ctx.arg('step') or '<cmux-ci step>'} "
+                f"--sha {sha or '<app sha>'}")
+
+    @staticmethod
     def ingest_latency(ctx: Context, receipt: dict, path: Path) -> None:
         surface = receipt.get("surface")
         if surface not in LATENCY_ROWS:
@@ -117,22 +131,40 @@ class GracefulSwap(Bench):
         key, bar = LATENCY_ROWS[surface]
         regions = receipt.get("regions") or {}
         watched = regions.get(receipt["watch"]) or {}
-        samples = watched.get("samples_ms") or []
+        samples = [float(v) for v in watched.get("samples_ms") or []]
         if not samples:
             raise BenchError(f"{path}: the watched region {receipt['watch']!r} never changed")
         others = [r for name, r in regions.items() if name != receipt["watch"]]
         runs = int(receipt.get("runs") or len(samples))
+        missed = int(watched.get("missed") or 0)
+        censored = False
+        if missed:
+            # A missed run is a save that had not shown when its film ended: its latency is at least the film's
+            # window, never "no sample". Dropping it turned 2 fast runs of 20 into a green p95 (cmux 75ef6ec3).
+            window = receipt.get("window_ms")
+            if not isinstance(window, (int, float)) or window <= 0:
+                raise BenchError(f"{path}: {missed} of {runs} runs missed and the receipt has no window_ms to bound "
+                                 "them; a p95 of the runs that showed is not a p95 (recapture with a harness that "
+                                 "writes window_ms)")
+            bounded = sorted(samples + [float(window)] * missed)
+            p50_v, p95_v = (bounded[max(1, -(-len(bounded) * q // 100)) - 1] for q in (50, 95))
+            censored = p95_v >= window
         kept = min((int(r.get("kept", 0)) for r in others), default=runs)
         transient = sum(int(r.get("transient_frames", 0)) for r in others)
         labels = {"surface": surface, "watch": receipt["watch"], "trigger": receipt.get("label") or "latency",
                   "drafts_kept": f"{kept}/{runs}", "transient_frames": transient, "bar_ms": bar,
-                  "missed": watched.get("missed", 0)}
-        p50 = float(watched["p50_ms"])
-        p95 = float(watched["p95_ms"])
-        ctx.row(key, p95, "ms", p50=p50, p95=p95, n=len(samples), labels=labels)
-        if p95 > bar or kept < runs or transient:
-            ctx.notes.append(f"{key}: p95 {p95:.0f} ms against {bar} ms, drafts kept {kept}/{runs}, "
-                             f"{transient} transient frames")
+                  "missed": missed}
+        if missed:
+            p50, p95 = float(p50_v), float(p95_v)
+            labels["censored"] = censored  # true: the p95 is the window, a lower bound ("over window_ms")
+        else:
+            p50, p95 = float(watched["p50_ms"]), float(watched["p95_ms"])
+        ctx.row(key, p95, "ms", p50=p50, p95=p95, n=len(samples) + missed, labels=labels)
+        ctx.notes.append(GracefulSwap.now_publish_line(ctx, key, p95))
+        if p95 > bar or kept < runs or transient or censored:
+            over = "over " if censored else ""
+            ctx.notes.append(f"{key}: p95 {over}{p95:.0f} ms against {bar} ms ({missed}/{runs} runs missed the "
+                             f"window), drafts kept {kept}/{runs}, {transient} transient frames")
 
 
 BENCH = GracefulSwap()

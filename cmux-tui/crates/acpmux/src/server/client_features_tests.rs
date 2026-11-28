@@ -67,3 +67,14 @@ fn a_gated_method_names_its_features() {
     put_status.sort_unstable();
     assert_eq!(put_status.len(), 2);
 }
+
+#[test]
+fn new_presence_notifications_require_explicit_negotiation() {
+    let features = ClientFeatures::default();
+    let id = crate::hub::presence::PEER_FEATURE;
+    assert!(!features.lists(id));
+    features.note(&json!({"_meta": {"acpmux": {"features": []}}}));
+    assert!(!features.lists(id));
+    features.note(&json!({"_meta": {"acpmux": {"features": [id]}}}));
+    assert!(features.lists(id));
+}
