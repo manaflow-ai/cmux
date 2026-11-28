@@ -11,6 +11,11 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct BrowserCLIDialogTests {
+    /// The app's own window can gain focus during a long wait and become the
+    /// controller's active manager, so each request points it back at the test's.
+    private final class ActiveManager { var manager: TabManager? }
+    private let activeManager = ActiveManager()
+
     @Test(arguments: [true, false])
     func confirmCompletesWithCLIAnswer(accept: Bool) async throws {
         try await withPanel { panel, params in
@@ -53,6 +58,83 @@ struct BrowserCLIDialogTests {
             #expect(response["ok"] as? Bool == true)
             #expect(answers.count == 1)
             #expect(answers.first == .some(accept ? "answer" : nil))
+        }
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/25107: a click whose handler
+    /// opens `confirm()` blocks the page's script thread, so the click's own
+    /// script never returns. The click took effect, so it reports the dialog it
+    /// opened instead of a `js_error` and leaves it for `browser.dialog.accept`.
+    @Test func clickThatOpensAConfirmReportsTheDialogInsteadOfFailing() async throws {
+        try await withPanel { panel, params in
+            panel.webView.loadHTMLString(
+                "<button id=\"btn\" onclick=\"document.title = String(confirm('ok?'))\">ask</button>",
+                baseURL: nil
+            )
+            var click = params
+            click["selector"] = "#btn"
+            let clicked = try await request("browser.click", click)
+            #expect(clicked["ok"] as? Bool == true, "\(clicked)")
+            let result = try #require(clicked["result"] as? [String: Any])
+            #expect(result["attempts"] as? Int == 1)
+            let dialog = try #require(result["dialog"] as? [String: Any])
+            #expect(dialog["type"] as? String == "confirm")
+            #expect(dialog["message"] as? String == "ok?")
+            #expect(panel.pendingJavaScriptDialogs.count == 1)
+
+            // The dialog blocks every later element action until it is answered.
+            let blocked = try await request("browser.click", click)
+            #expect(blocked["ok"] as? Bool == false, "\(blocked)")
+            let error = try #require(blocked["error"] as? [String: Any])
+            #expect(error["code"] as? String == "dialog_pending")
+            let data = try #require(error["data"] as? [String: Any])
+            #expect((data["dialog"] as? [String: Any])?["type"] as? String == "confirm")
+            #expect(panel.pendingJavaScriptDialogs.count == 1)
+
+            let accepted = try await request("browser.dialog.accept", params)
+            #expect(accepted["ok"] as? Bool == true)
+            #expect(panel.pendingJavaScriptDialogs.isEmpty)
+            var eval = params
+            eval["script"] = "document.title"
+            let title = try await request("browser.eval", eval)
+            #expect(title["ok"] as? Bool == true, "\(title)")
+            #expect((title["result"] as? [String: Any])?["value"] as? String == "true")
+        }
+    }
+
+    /// A dialog that opens after the action's script returned blocks the
+    /// post-action snapshot instead. The response reports the dialog, not a
+    /// snapshot timeout. The page's own `getComputedStyle` opens it, so it comes
+    /// up during the snapshot on every run, with no timing involved.
+    @Test func dialogOpenedDuringThePostActionSnapshotIsReported() async throws {
+        try await withPanel { panel, params in
+            panel.webView.loadHTMLString(
+                """
+                <script>
+                const original = window.getComputedStyle;
+                window.getComputedStyle = function (element) {
+                  if (window.armed) { window.armed = false; document.title = String(confirm('later')); }
+                  return original(element);
+                };
+                </script>
+                <button id="btn" onclick="window.armed = true">ask</button>
+                """,
+                baseURL: nil
+            )
+            var click: [String: Any] = params
+            click["selector"] = "#btn"
+            click["snapshot_after"] = true
+            let clicked = try await request("browser.click", click)
+            #expect(clicked["ok"] as? Bool == true, "\(clicked)")
+            let result = try #require(clicked["result"] as? [String: Any])
+            let dialog = try #require(result["dialog"] as? [String: Any], "\(result)")
+            #expect(dialog["type"] as? String == "confirm")
+            #expect(dialog["message"] as? String == "later")
+            #expect(result["post_action_snapshot_error"] == nil, "\(result)")
+            #expect(panel.pendingJavaScriptDialogs.count == 1)
+
+            let accepted = try await request("browser.dialog.accept", params)
+            #expect(accepted["ok"] as? Bool == true)
         }
     }
 
@@ -222,6 +304,7 @@ struct BrowserCLIDialogTests {
         let workspace = try #require(manager.selectedWorkspace)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
         let panel = try #require(workspace.newBrowserSurface(inPane: pane, focus: false, creationPolicy: .restoration))
+        activeManager.manager = manager
         TerminalController.shared.setActiveTabManager(manager)
         _ = panel.webViewForAutomationCommand()
         try await body(panel, ["workspace_id": workspace.id.uuidString, "surface_id": panel.id.uuidString])
@@ -249,10 +332,11 @@ struct BrowserCLIDialogTests {
         )
     }
 
-    private func request(_ method: String, _ params: [String: String]) async throws -> [String: Any] {
+    private func request(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
         let data = try JSONSerialization.data(withJSONObject: ["id": 1, "method": method, "params": params])
         let line = String(decoding: data, as: UTF8.self)
         let controller = TerminalController.shared
+        if let manager = activeManager.manager { controller.setActiveTabManager(manager) }
         let response = await Task.detached {
             controller.handleSocketLine(line)
         }.value
