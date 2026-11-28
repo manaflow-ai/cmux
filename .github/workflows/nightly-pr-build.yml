@@ -242,7 +242,7 @@ jobs:
             echo "::notice title=nightly app compile::the fleet posts the $ARCH verdict as check run \"$REPORT_CHECK\" on ${SHA:0:12}"
             exit 0
           fi
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2 || true)"
           if [[ "$status" == 75 && -n "$step" ]] && grep -q 'is still queued after' "$log"; then
             # Not started within QUEUE_WAIT_S: the step would stay queued and build for nobody.
             "$client" cancel "$step" --reason "nightly pr build: not started within ${QUEUE_WAIT_S}s" || true
@@ -267,7 +267,7 @@ jobs:
         run: |
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
           log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" 2>/dev/null | head -1 | cut -d' ' -f2)"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" 2>/dev/null | head -1 | cut -d' ' -f2 || true)"
           if [[ -x "$client" && -n "$step" ]]; then
             "$client" cancel "$step" --reason "nightly pr build: job cancelled" || true
           fi
