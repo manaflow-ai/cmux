@@ -396,7 +396,8 @@ impl Hub {
 
     /// Rewrites a guarded receive's `session.json` to the chat it may be here, before the import,
     /// or refuses it: its folder (`cwd`, else its own) under a root, spelled canonically; its
-    /// family from this daemon's profile; no policy is `ask`, and under `web` its policy,
+    /// family from this daemon's profile; no policy is `ask` (the person's own move keeps none: this
+    /// daemon's default), and under `web` its policy,
     /// rules, mode and options asking; no preset, session env, store roots, argv or tags, and a remote origin (no
     /// preset args, no cmux MCP servers); a model only when the profile declares it; a Claude
     /// profile only when configured; and its agent store files exactly its session's. It keeps
@@ -443,11 +444,20 @@ impl Hub {
             meta.claude_profile =
                 meta.claude_profile.take().filter(|p| cfg.harnesses.contains_key(p));
         }
-        let policy = meta.permission_policy.get_or_insert_with(|| "ask".to_owned());
+        // A chat that names no policy runs on its daemon's default. The person's own move
+        // (`owner`) keeps that: it lands with none, so it runs here on this daemon's default, as a
+        // chat they start here with none does. Pinning `ask` refused every start of a moved chat
+        // whose harness cannot ask (`policy_unenforceable`: benchecho, chief), so it took its
+        // prompts into the inbox and never answered (offload round-trip probe, 2026-11-28 10:54Z:
+        // "inbox; threadId from:...", no turn in 90 s). Any other guarded receive asks.
+        if !guard.owner {
+            meta.permission_policy.get_or_insert_with(|| "ask".to_owned());
+        }
         // Under the Web's control everything must ask. A peer guard moves the person's chat
         // between their own machines, and a peer's prompts have no mode rule at dispatch, so it
         // keeps its policy, rules and mode (`hub/web_control.rs`).
         if guard.control == Control::Web {
+            let policy = meta.permission_policy.as_deref().unwrap_or("ask");
             if !person::asking_policy_value(Some(&json!(policy))) {
                 return Err(guard_error(
                     "policy",
@@ -576,6 +586,10 @@ mod retired_root_tests;
 #[cfg(test)]
 #[path = "transfer_guard_config_root_tests.rs"]
 mod config_root_tests;
+
+#[cfg(test)]
+#[path = "transfer_guard_policy_tests.rs"]
+mod policy_tests;
 
 #[cfg(test)]
 mod hub_move_tests {
