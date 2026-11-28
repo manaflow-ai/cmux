@@ -881,7 +881,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: |
           python3 tests/test_auto_journal_nightly_artifact.py
-          bun test scripts/cmux-next/auto-journal-nightly-recovery.test.ts scripts/cmux-next/auto-journey-socket.test.ts scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
+          bun test scripts/cmux-next/auto-journal-nightly-recovery.test.ts scripts/cmux-next/auto-journey-socket.test.ts scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/autocloud-sync-probe.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
       # The staging test account sweep's picker: age, state, activity and creator decide what goes (pure; no
       # network, no secret).
@@ -1478,6 +1478,12 @@ jobs:
       - name: Validate the trusted web complexity workflow
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
+
+      - name: Validate fixed-window hook context measurements
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_hook_context_window.py
+          python3 tests/test_hook_context_dedup_bound.py
 
       - name: Validate the web performance gate keeps measurement and validation apart
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2771,6 +2777,7 @@ jobs:
           python3 tests/test_ci_checkout_lean.py
           python3 tests/test_ci_sparse_checkout_imports.py
           python3 tests/test_ci_sparse_cargo_path_deps.py
+          python3 tests/test_web_cas_upload_rerun.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 

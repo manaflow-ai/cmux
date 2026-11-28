@@ -16,6 +16,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | bench | wraps (script) | what |
 |---|---|---|
+| localization-discovery | `localization-discovery.py` (anywhere, checkout source) | Swift source discovery with 2,000 excluded dependency directories: directory reads and wall time; compare `--arg algorithm=baseline` with `--arg algorithm=current`. |
 | coordinator-cpu | `chat-open.sh --coordinator-cpu` | Whole-renderer CPU on a 10,000-row chat with twenty ACP children updating at 1 Hz. Saves raw CPU intervals, daemon tick receipts, a JavaScript profile and a macOS sample. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
@@ -63,6 +64,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | chief-latency | `chief-latency.sh` (`Native/OptChat/optchat-chief/measure/chief_driver.py --scenario latency`, `chief_latency.py`) on a fleet Mac, real model through SR2 | A scratch Chief built at two refs, alternating rounds of 15 typical asks (trivial, memory, tool, long reply, one and two subagents, a view rebuild): input tokens of each turn's first request and of every request, first token (warm, cold), turn p50/p90, cold share, refused sends, and a before/after markdown table for a PR body. |
 | local-chat | `local-chat-first-reply.sh` (`local_chat_first_reply.py`) on a fleet Mac, a bench build at this checkout or `build=SHA`, real model through SR2 | Local chat select to first reply the way a person starts one (New chat, the composer's Send, a ready spare after a daemon restart), the hq `local-chat` probe's timed chat on a commit instead of the NIGHTLY: p50 of select_to_first_text_ms, its stages (before turn, turn, after turn) and turn marks (agent ready, to agent, first model). |
 | autocloud-repo-ready | `autocloud-repo-ready.sh` on any host with network (`--host anywhere`) | AutoCloud start's repo-ready time: a full `git clone` against the warm blobless mirror + alternates acpmux uses now (cmux#55715), cold and warm: seconds, MB from GitHub, speedup. |
+| machine-channel-exact-tree | `machine-channel-exact-tree.py` in a cmux checkout (git only, no GitHub calls) | Whether a build made before a merge can be that merge's machine channel build (goal cloud-fix-to-machine): over the newest N feat-cmux-next merges, which moved the v2 tree key, how far each such PR head was behind with how many key moves on base, whether its key matched the merge's, key moves per minute, and the chance a pre-merge build of B minutes sees none. |
 
 
 ## Dev loop
@@ -79,6 +81,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `launch-ready.sh` | Time from Dock launch to a usable window, measured from outside the app. | CMUX-629, CMUX-631 | 2026-11-15 | active |
 | `launch-ready.swift` | Swift probe that launches one app copy like the Dock and records every mark. | CMUX-629 | 2026-11-15 | active |
 | `launch-premain.sh` | What makes a launch reach `main` 600 to 1170 ms late: arms after a 60 s run, page cache, purge, another app, sampled (launch bench mode=premain). | CMUX-629 | 2026-11-17 | active |
+| `macos-first-exec.sh` | What the first exec of a newly written executable costs by size (first, second, after a hard link, a copy) and whether Developer Tools exempts it: rust-live's daemon swap runs a fresh debug cmux-tui twice. | dev-loop-ceiling | 2026-11-28 | active |
 | `launch-premain.swift` | Probe for launch-premain.sh: open or exec one launch, pageins, CPU and the executable's residency at `main`. | CMUX-629 | 2026-11-17 | active |
 | `launch-reboot.sh` | The first launch after a reboot, with and without a post-login pre-read of the app's binaries (row F, background-ready-copy): one phase per step, before (shutdown -r) and after (noread, read, residency). | row F | 2026-11-18 | active |
 | `launch-matrix.sh` | One launch harness for any .app (cold-start tables against Claude, Codex, T3 Code, Edge, Chrome, Safari, Slack, Helium): scenarios, reboot phases, growth (launch-matrix bench). | ask-37d682a340 | 2026-11-22 | active |
