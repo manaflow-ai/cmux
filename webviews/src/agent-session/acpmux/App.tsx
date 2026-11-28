@@ -18,6 +18,8 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { useShareNudge } from "./share/shareNudgeModel";
+import { hasPoster } from "./share/poster/posterModel";
+import { usePosterShortcut } from "./share/poster/posterShortcut";
 import { paneTipHost } from "./featureTipsModel";
 import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
 import { takeCapture } from "./composer/screenCapture";
@@ -1061,6 +1063,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [sandboxDraftMoved, setSandboxDraftMoved] = useState(false);
   /// The Share dialog, opened by the chat menu's Share… (share/ShareControl.tsx).
   const [shareOpen, setShareOpen] = useState(false);
+  /// Share poster…: the last finished turn as an image (share/poster/PosterDialog.tsx).
+  const [posterOpen, setPosterOpen] = useState(false);
+  // Its code loads on the first open (pane/PaneBody.tsx); from then on it stays mounted, so it closes as Share… does.
+  const [posterLoaded, setPosterLoaded] = useState(false);
+  if (posterOpen && !posterLoaded) setPosterLoaded(true);
   const [sandbox] = useState(
     () =>
       new SandboxTab(callNative, (text) => {
@@ -1501,6 +1508,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   if (shareChat !== snapshot.sessionId) {
     setShareChat(snapshot.sessionId);
     setShareOpen(false);
+    setPosterOpen(false);
   }
   // Updated by the client before React renders, so a late Trust save cannot replay into a new
   // route during that interval. The catalog generation changes only when the client changes.
@@ -6616,6 +6624,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   quickCwd.current = remoteChat ? undefined : (snapshot.summary?.cwd ?? projectDraft);
   useEffect(flushOpenInWindow, [snapshot.sessionId]);
+  // ⌥⌘S: Share poster… on the last finished turn (share/poster/posterShortcut.ts).
+  usePosterShortcut(
+    Boolean(snapshot.sessionId) && hasNativeHost() && !quick,
+    () => hasPoster(snapshot.rows),
+    () => setPosterOpen(true),
+  );
   useEscapeToDismiss(quick, () => {
     cancelOpenInWindow();
     void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined);
@@ -9204,6 +9218,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       runHeaderAction,
       saveDocumentNatively,
       setDisplayAnchor,
+      setPosterOpen,
       setReplaying,
       setShareOpen,
       setSteering,
@@ -11688,6 +11703,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     readLiveTree,
     shareOpen,
     setShareOpen,
+    posterOpen,
+    posterLoaded,
+    setPosterOpen,
     sessionInfo,
     readOnlySubagent,
     localCwd,

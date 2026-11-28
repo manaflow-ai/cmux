@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "poster.private" : {
+      "comment" : "Agent pane: Share Poster dialog, the line under the preview that says nothing leaves the Mac until the person copies or saves, and secrets are hidden",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing leaves this Mac until you copy or save it. Keys, tokens and paths outside the project are hidden."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يغادر شيء هذا الـ Mac حتى تنسخه أو تحفظه. تُخفى المفاتيح والرموز والمسارات خارج المشروع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ništa ne napušta ovaj Mac dok ga ne kopirate ili sačuvate. Ključevi, tokeni i putanje izvan projekta su skriveni."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Intet forlader denne Mac, før du kopierer eller gemmer det. Nøgler, tokens og stier uden for projektet skjules."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nichts verlässt diesen Mac, bevor du es kopierst oder sicherst. Schlüssel, Tokens und Pfade außerhalb des Projekts werden ausgeblendet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada sale de este Mac hasta que lo copies o lo guardes. Se ocultan las claves, los tokens y las rutas fuera del proyecto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rien ne quitte ce Mac tant que vous ne le copiez ou ne l’enregistrez pas. Les clés, jetons et chemins hors du projet sont masqués."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nulla lascia questo Mac finché non lo copi o lo salvi. Chiavi, token e percorsi fuori dal progetto sono nascosti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "コピーまたは保存するまで、このMacから何も送信されません。キー、トークン、プロジェクト外のパスは隠されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានអ្វីចេញពី Mac នេះទេ រហូតដល់អ្នកចម្លង ឬរក្សាទុកវា។ កូនសោ ថូខឹន និងផ្លូវនៅក្រៅគម្រោងត្រូវបានលាក់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "복사하거나 저장하기 전에는 아무것도 이 Mac을 떠나지 않습니다. 키, 토큰, 프로젝트 밖의 경로는 가려집니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingenting forlater denne Macen før du kopierer eller lagrer det. Nøkler, tokener og stier utenfor prosjektet skjules."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nic nie opuszcza tego Maca, dopóki tego nie skopiujesz lub nie zapiszesz. Klucze, tokeny i ścieżki spoza projektu są ukryte."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada sai deste Mac até você copiar ou salvar. Chaves, tokens e caminhos fora do projeto ficam ocultos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ничего не покидает этот Mac, пока вы не скопируете или не сохраните изображение. Ключи, токены и пути вне проекта скрыты."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีอะไรออกจาก Mac เครื่องนี้จนกว่าคุณจะคัดลอกหรือบันทึก คีย์ โทเค็น และพาธนอกโปรเจกต์จะถูกซ่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Siz kopyalayana veya kaydedene kadar hiçbir şey bu Mac'ten çıkmaz. Anahtarlar, belirteçler ve proje dışındaki yollar gizlenir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ніщо не залишає цей Mac, доки ви не скопіюєте чи не збережете зображення. Ключі, токени та шляхи поза проєктом приховано."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không có gì rời khỏi máy Mac này cho đến khi bạn sao chép hoặc lưu. Khóa, token và đường dẫn ngoài dự án được ẩn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在你复制或存储之前，什么都不会离开这台 Mac。密钥、令牌和项目外的路径会被隐藏。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在你拷貝或儲存之前，什麼都不會離開這台 Mac。金鑰、權杖和專案外的路徑會被隱藏。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

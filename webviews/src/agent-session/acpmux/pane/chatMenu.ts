@@ -38,6 +38,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { hasNativeHost } from "../native";
 import type { PaneNotices } from "../paneToasts";
 import { sessionReplay } from "../replay/replay.experiment";
+import { hasPoster } from "../share/poster/posterModel";
 import { shareRefused } from "../share/shareNudgeModel";
 import { steerQueueExperiment } from "../steerQueue/steerQueue.experiment";
 
@@ -77,6 +78,7 @@ export type ChatMenuDeps = {
   runHeaderAction: (id: string, cwd?: string, mode?: QuickActionMode) => void;
   saveDocumentNatively: SaveDocument;
   setDisplayAnchor: Dispatch<SetStateAction<HTMLElement | null>>;
+  setPosterOpen: Dispatch<SetStateAction<boolean>>;
   setReplaying: Dispatch<SetStateAction<string | undefined>>;
   setShareOpen: Dispatch<SetStateAction<boolean>>;
   setSteering: Dispatch<SetStateAction<boolean>>;
@@ -132,6 +134,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
     runHeaderAction,
     saveDocumentNatively,
     setDisplayAnchor,
+    setPosterOpen,
     setReplaying,
     setShareOpen,
     setSteering,
@@ -204,6 +207,11 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
   const share: ChatMenuItem | undefined =
     hasNativeHost() && !shareRefused(snapshot)
       ? { key: "share", label: t("share.menu"), icon: "action.share", onSelect: () => setShareOpen(true) }
+      : undefined;
+  // Share poster… beside Share…: only once a turn has finished (walks back to it, not the chat).
+  const poster: ChatMenuItem | undefined =
+    share && hasPoster(snapshot.rows)
+      ? { key: "poster", label: t("poster.menu"), icon: "action.share", onSelect: () => setPosterOpen(true) }
       : undefined;
   // Fork immediately; destination choices are a separate action and Option-click shortcut.
   const fork =
@@ -433,7 +441,7 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
     continueIn,
     resend,
     // Share… beside Copy (Leo, 2026-11-07: "put it in the dot dot dot area"): a started chat in the app.
-    [...(share ? [share] : []), ...(copy ? [copy] : [])],
+    [...(share ? [share] : []), ...(poster ? [poster] : []), ...(copy ? [copy] : [])],
     [
       {
         key: "moveRight",

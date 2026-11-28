@@ -16,10 +16,12 @@ import type { useCloudChatRecovery } from "../useCloudChatRecovery";
 import type { useSessionInfo } from "../session-info/useSessionInfo";
 import type { SaveDocument } from "../conversation/ArtifactPanel";
 import { BrowserSidebar } from "../browser/BrowserSidebar";
-import { Activity } from "react";
+import { Activity, lazy, Suspense } from "react";
 import { ChatViewParked } from "../pickerOpeners";
 import { LivePresenceStack, LiveTypingLine } from "../multiplayer/LivePresence";
 import { ShareDialogHost } from "../share/ShareControl";
+import { agentName } from "../agents";
+import { modelName } from "../summary/foldWorkflows";
 import { holdComposerPlace } from "../composer/composerHandover";
 import { hasNativeHost } from "../native";
 import { CloudEnvironmentEditor } from "../CloudEnvironmentEditor";
@@ -151,6 +153,11 @@ import type { Artifact } from "../conversation/artifactPreview";
 import type { BackgroundGroup } from "../backgroundTasks/backgroundTasks";
 import type { BackgroundFocus } from "../backgroundTasks/openBackgroundTasks";
 import type { WorkflowDetailRequest } from "../summary/foldWorkflows";
+
+// Share poster…'s dialog (its SVG layout, PNG export and CSS) loads on the first open, not with the pane.
+const PosterDialogHost = lazy(() =>
+  import("../share/poster/PosterDialog").then((module) => ({ default: module.PosterDialogHost })),
+);
 import type { BackgroundCommand } from "../session-info/processes";
 import type { ChatImage } from "../conversation/chatImages";
 import type { WorkflowSummary, WorkflowAgent } from "../summary/workflow";
@@ -363,6 +370,10 @@ export type PaneBodyDeps = NewTabShown &
     readLiveTree: () => Promise<unknown>;
     shareOpen: boolean;
     setShareOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    /// Share poster…'s dialog: `posterOpen` once true keeps it mounted (App.tsx `posterLoaded`).
+    posterOpen: boolean;
+    posterLoaded: boolean;
+    setPosterOpen: React.Dispatch<React.SetStateAction<boolean>>;
     sessionInfo: ReturnType<typeof useSessionInfo>;
     readOnlySubagent: boolean;
     /// The dock draws the composer and its quiet row (App.tsx `dockFoot`; bottomStack.css `data-foot`).
@@ -651,6 +662,9 @@ export function drawPaneBody({
   readLiveTree,
   shareOpen,
   setShareOpen,
+  posterOpen,
+  posterLoaded,
+  setPosterOpen,
   sessionInfo,
   readOnlySubagent,
   dockFoot,
@@ -1398,6 +1412,23 @@ export function drawPaneBody({
                         open={shareOpen}
                         onOpenChange={setShareOpen}
                       />
+                    )}
+                    {snapshot.sessionId && !showNewTab && hasNativeHost() && posterLoaded && (
+                      <Suspense fallback={null}>
+                        <PosterDialogHost
+                          key={`poster-${snapshot.sessionId}`}
+                          sessionId={snapshot.sessionId}
+                          title={chatName}
+                          rows={snapshot.rows}
+                          chat={{
+                            cwd: snapshot.summary?.cwd,
+                            harness: snapshot.summary?.harness ? agentName(snapshot.summary.harness) : undefined,
+                            model: snapshot.summary?.model ? modelName(snapshot.summary.model) : undefined,
+                          }}
+                          open={posterOpen}
+                          onOpenChange={setPosterOpen}
+                        />
+                      </Suspense>
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
                     {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
