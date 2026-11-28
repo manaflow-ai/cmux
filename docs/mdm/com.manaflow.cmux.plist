@@ -6906,6 +6906,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>glance</string>
+			<key>pfm_description</key>
+			<string>Glance draws three blocks with a line between them; Rules titles every section; Groups draws each block as a card.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.sessionInfo.layout</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>glance</string>
+				<string>rules</string>
+				<string>groups</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Session Info Layout</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>overlay</string>
 			<key>pfm_description</key>
 			<string>Push narrows the chat; Overlay covers it.</string>
@@ -7027,18 +7045,6 @@
 			<string>agentPane.display.sessionInfo.sections.connectors</string>
 			<key>pfm_title</key>
 			<string>Session Info: Connectors</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>The MCP servers and carried the chat has.</string>
-			<key>pfm_name</key>
-			<string>agentPane.display.sessionInfo.sections.carried</string>
-			<key>pfm_title</key>
-			<string>Session Info: Carried memory</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -13073,6 +13079,18 @@
 			<string>experiments.forum</string>
 			<key>pfm_title</key>
 			<string>Forum</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first.</string>
+			<key>pfm_name</key>
+			<string>experiments.feed</string>
+			<key>pfm_title</key>
+			<string>Feed</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

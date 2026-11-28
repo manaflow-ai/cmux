@@ -1370,6 +1370,7 @@
               "agentPane.display.rail.show",
               "agentPane.display.rail.control",
               "agentPane.display.sessionInfo.placement",
+              "agentPane.display.sessionInfo.layout",
               "agentPane.display.sessionInfo.sections.environment",
               "agentPane.display.sessionInfo.sections.context",
               "agentPane.display.sessionInfo.sections.subagents",
@@ -1379,7 +1380,6 @@
               "agentPane.display.sessionInfo.sections.changes",
               "agentPane.display.sessionInfo.sections.usage",
               "agentPane.display.sessionInfo.sections.connectors",
-              "agentPane.display.sessionInfo.sections.carried",
               "agentPane.display.environment.placement",
               "agentPane.display.layout.messages",
               "agentPane.display.layout.composer",
@@ -2686,6 +2686,7 @@
               "experiments.attachmentTypeIcons",
               "experiments.quietConnect",
               "experiments.forum",
+              "experiments.feed",
               "experiments.foldSummaryCounts",
               "experiments.cloudDiskBar",
               "experiments.browserProfileCard",
@@ -72233,6 +72234,172 @@
     },
     {
       "accepts" : [
+        "glance",
+        "rules",
+        "groups"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sessionInfoLayoutGlance",
+            "text" : "Glance"
+          },
+          "value" : "glance"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sessionInfoLayoutRules",
+            "text" : "Rules"
+          },
+          "value" : "rules"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sessionInfoLayoutGroups",
+            "text" : "Groups"
+          },
+          "value" : "groups"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "glance",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.sessionInfo.layout.help",
+        "text" : "Glance draws three blocks with a line between them; Rules titles every section; Groups draws each block as a card."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.sessionInfo.layout",
+      "keywords" : [
+        "agent",
+        "chat",
+        "session",
+        "info",
+        "inspector",
+        "panel",
+        "side",
+        "layout",
+        "cards",
+        "groups",
+        "claude"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "sessionInfo",
+        "layout"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.sessionInfo.layout"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.sessionInfo.layout",
+        "text" : "Session Info Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "push",
         "overlay",
         "inline"
@@ -73715,152 +73882,6 @@
       "title" : {
         "key" : "settings.agentPane.display.sessionInfo.sections.connectors",
         "text" : "Session Info: Connectors"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.agentChat",
-        "text" : "Agent Chat"
-      },
-      "help" : {
-        "key" : "settings.agentPane.display.sessionInfo.sections.carried.help",
-        "text" : "The MCP servers and carried the chat has."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agentPane.display.sessionInfo.sections.carried",
-      "keywords" : [
-        "agent",
-        "chat",
-        "acp",
-        "display",
-        "session",
-        "info",
-        "thread",
-        "details",
-        "section",
-        "show",
-        "hide",
-        "carried",
-        "memory",
-        "instructions"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "agentPane",
-        "display",
-        "sessionInfo",
-        "sections",
-        "carried"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:agentPane.display.sessionInfo.sections.carried"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agentPane.display.sessionInfo.sections.carried",
-        "text" : "Session Info: Carried memory"
       },
       "validation" : "portable"
     },
@@ -138925,6 +138946,143 @@
       "title" : {
         "key" : "settings.experiments.forum",
         "text" : "Forum"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.feed.help",
+        "text" : "Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.feed",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "feed",
+        "updates",
+        "inbox",
+        "notifications",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "feed"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.feed"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.feed",
+        "text" : "Feed"
       },
       "validation" : "portable"
     },

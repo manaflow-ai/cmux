@@ -407,6 +407,17 @@
       "title" : "Scroll Sent Prompts to Top",
       "type" : "boolean"
     },
+    "agentPane.display.sessionInfo.layout" : {
+      "default" : "glance",
+      "description" : "Glance draws three blocks with a line between them; Rules titles every section; Groups draws each block as a card.",
+      "enum" : [
+        "glance",
+        "rules",
+        "groups"
+      ],
+      "title" : "Session Info Layout",
+      "type" : "string"
+    },
     "agentPane.display.sessionInfo.placement" : {
       "default" : "overlay",
       "description" : "Push narrows the chat; Overlay covers it.",
@@ -417,12 +428,6 @@
       ],
       "title" : "Session Info",
       "type" : "string"
-    },
-    "agentPane.display.sessionInfo.sections.carried" : {
-      "default" : true,
-      "description" : "The MCP servers and carried the chat has.",
-      "title" : "Session Info: Carried memory",
-      "type" : "boolean"
     },
     "agentPane.display.sessionInfo.sections.changes" : {
       "default" : true,
@@ -4962,6 +4967,12 @@
       "default" : false,
       "description" : "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it.",
       "title" : "Expanded Edits Estimate",
+      "type" : "boolean"
+    },
+    "experiments.feed" : {
+      "default" : false,
+      "description" : "Read every update in one feed: agents that finished or wait on you, approvals, pull requests, CI and notifications, newest first.",
+      "title" : "Feed",
       "type" : "boolean"
     },
     "experiments.foldSummaryCounts" : {
