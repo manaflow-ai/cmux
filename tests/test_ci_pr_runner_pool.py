@@ -3175,10 +3175,14 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
         with self.assertRaisesRegex(ValueError, f"{MINI} 0 of 1 registered, {LIGHT} 0 of 0 registered"):
             ios_route(requested="owned", runners=[carrier("offline", MINI, IOS_SIM), carrier("online", MINI)])
-        # An unread or empty listing is not a dead pool: keep the first pin pool.
-        for runners in (None, []):
-            route, _ = ios_route(requested="owned", runners=runners)
-            self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+        # An unread listing (None) is not a dead pool: keep the first pin pool.
+        route, _ = ios_route(requested="owned", runners=None)
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+
+    def test_owned_refuses_when_the_listing_answers_with_no_runners(self):
+        # An empty listing is the API's answer, not a failed read: zero carriers registered.
+        with self.assertRaisesRegex(ValueError, f"{MINI} 0 of 0 registered, {LIGHT} 0 of 0 registered"):
+            ios_route(requested="owned", runners=[])
 
     def test_a_package_only_run_needs_no_simulator(self):
         self.assertEqual(ios_pool.sim_jobs("test-ios", "", "CmuxMobileShell"), 0)

@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod abi_hello;
 pub mod accept_errors;
 pub(crate) mod acp_key_auth;
 pub mod acpmux_mcp;
@@ -94,6 +95,7 @@ pub mod codex_desktop;
 pub mod codex_repo_gate;
 mod codex_signed_out;
 pub mod complete;
+pub mod compose_wake;
 pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
