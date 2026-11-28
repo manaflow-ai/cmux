@@ -69,9 +69,17 @@ async fn run(
     // allow-list, scrubs and the profile's env with its `${env:X}` and Keychain references
     // resolved, once the login values its final env plan takes are here. No session: the fork is
     // the agent's own, outside acpmux's sessions.
-    let mut cmd = crate::agent::harness_command_ready(profile_name, profile, cwd, None, None)
-        .await
-        .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+    let (mut cmd, scratch) =
+        crate::agent::harness_command_ready(profile_name, profile, cwd, None, None)
+            .await
+            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+    if scratch.is_some()
+        && !cmd.as_std().get_envs().any(|(name, value)| name == "OPENCODE_DB" && value.is_some())
+    {
+        return Err(RpcError::invalid_params(
+            "OpenCode 2 needs the original Copilot chat's database to fork. Fork from the open chat.",
+        ));
+    }
     // Nothing reads its stderr, so it never fills a pipe.
     cmd.stderr(std::process::Stdio::null());
     // As `agent.rs` spawns: never the daemon's OOM protection (`oom_rank.rs`).
@@ -96,6 +104,10 @@ async fn run(
             let line = lines.next_line().await.map_err(gone)?.ok_or_else(|| {
                 RpcError::internal(format!("{harness} exited before it answered {method}"))
             })?;
+            let line = crate::agent_credentials::redact_line(
+                line,
+                profile.env.get(crate::agent_credentials::COPILOT_TOKEN).map(String::as_str),
+            );
             let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
             // Notifications and the agent's own requests (none is answered: the fork asks nothing).
             if msg.get("method").is_some() || msg.get("id") != Some(&json!(rid)) {

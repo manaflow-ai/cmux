@@ -5,7 +5,8 @@ package import Foundation
 /// A chat upload stage's file operations, each run on `work`'s files lane, never on the caller's
 /// actor: a folder made, a file created, renamed or removed is a disk wait, long under agent disk
 /// load (cmux-next main-thread hangs). The local, Cloud and peer stagers share them.
-package enum AgentPaneStageFiles {
+package struct AgentPaneStageFiles {
+    package init() {}
     /// Makes `folder` (nil: none) owner-only, with its parents, and the empty owner-only `file`.
     package static func make(_ file: URL, in folder: URL?, work: BackgroundWork) async -> Bool {
         (try? await work.run(.userBlocking, mayBlock: .files, { () throws -> Void in
