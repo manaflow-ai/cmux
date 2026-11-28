@@ -52,8 +52,6 @@ public nonisolated enum PairInviteFrame: Sendable, Equatable {
 
     /// The socket's close code at expiry.
     public static let expiryCloseCode = 4408
-    /// The two subprotocols the watch socket is opened with.
-    public static func protocols(secret: String) -> [String] { ["cmux.pair-invite.v1", "watch.\(secret)"] }
 
     /// One text frame; nil for an unknown or malformed one (it is skipped).
     public static func decode(_ data: Data) -> PairInviteFrame? {
