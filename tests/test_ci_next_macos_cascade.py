@@ -2625,7 +2625,6 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "ios-internal-nightly.yml archive: runs-on[0]",
         "ios-internal-nightly.yml upload: runs-on[0]",
         "ios-review-gate.yml reviewer-path: runs-on[0]",
-        "ios-review-gate.yml asc-validate: runs-on[0]",
         "ios-streamed-validate.yml validate: runs-on[0]",
         "ios-testflight.yml upload: runs-on[0]",
         "machine-vault-e2e.yml e2e: runs-on[0]",
@@ -2634,6 +2633,10 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "resume-nightly-notarization.yml resume: runs-on[0]",
         "resume-nightly-notarization.yml verify-stapled: runs-on[0]",
         "cmux-next-perf-budgets.yml blacksmith-mac: runs-on[0]",
+        # Installs the published NIGHTLY into /Applications and has Sparkle replace and relaunch it: a disposable Mac.
+        "nightly-next-update-e2e.yml update: runs-on[0]",
+        # The hosted first-connect TTI legs: the probe's samples are defined on a hosted runner, not an owned Mac.
+        "ios-launch-tti-hosted.yml measure: runs-on[0]",
         "stable-next.yml sign: runs-on[0]",
         # Its one Blacksmith branch is a rescued run's (inputs.rescue == 'blacksmith', dispatched only while the
         # switch allows it, scripts/ci/app_ffi_rescue.py), and it reads only the slot its placement found live
