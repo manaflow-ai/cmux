@@ -1908,6 +1908,34 @@ class LookKitErrorTest(unittest.TestCase):
 
 
 
+class IsolatedHarnessTest(unittest.TestCase):
+    def test_runner_receives_the_apps_environment_and_preparation(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            prepared = object()
+            env = {"HOME": str(out / "home"), "CFFIXED_USER_HOME": str(out / "home")}
+            seen = {}
+            class Runner:
+                def __init__(self, *args):
+                    pass
+                def __call__(self, process, sock, actual_env, app, output, report):
+                    seen.update(env=actual_env, prepared=self.prepared)
+                    (output / "result.json").write_text('{"steps": []}')
+            kit = SimpleNamespace(Steps=Runner, RESULT="result.json", __file__=str(out / "nightly_steps.py"))
+            hv.run_kit_steps(kit, [], 123, "/tmp/copy.sock", out / "copy.app", out,
+                             env=env, prepared=prepared)
+            self.assertEqual(seen["env"], env)
+            self.assertIs(seen["prepared"], prepared)
+
+    def test_fake_harness_needs_a_kit_instead_of_silently_using_a_real_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "steps.json"
+            state.write_text(json.dumps({"fakeHarness": True, "steps": [{"shot": "chat"}]}))
+            with self.assertRaisesRegex(hv.Usage, "fakeHarness.*kit"):
+                hv.load_steps(str(state), None)
+
+
 class LaunchBound(unittest.TestCase):
     """side-instance.sh launch waits for the Mac's memory budget before it opens the copy (Air Blue,
     2026-11-23): its bound covers that wait, so the launcher's own "budget stayed full" error reaches the
