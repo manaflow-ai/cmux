@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import postcss from "postcss";
 import focusRingGate from "../scripts/postcss/focusRingGate.mjs";
+import splitHasLists from "../scripts/postcss/splitHasLists.mjs";
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { withoutComments } from "../scripts/agent-pane/paneCssComments.mjs";
 
@@ -25,17 +26,23 @@ const page = path.resolve(
   webviews,
   "../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
 );
+/** The most the chat copy's sheet (pane-copy.css) may be: its 177.5 KB on 2026-11-28 and about a tenth more, well
+ * under the 263 KB a tenth of the page sheet with its comments allowed. */
+const COPY_SHEET_BUDGET_BYTES = 200_000;
 /** The page's one sheet, linked beside it. */
 const sheet = path.join(path.dirname(page), "pane.css");
 const built = fs.existsSync(page);
 if (!built && process.env.CI) throw new Error(`agent-pane-styles: ${page} is not built`);
 if (!built) console.warn("agent-pane-styles: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
 
-/** A source sheet as the page ships it: the build runs the focus-ring gate over the joined sheets
- * (scripts/postcss/gate-css.mjs), so each `:focus-visible` carries it, then drops their comments
- * (scripts/agent-pane/paneCssComments.mjs). */
+/** A source sheet as the page ships it: the build runs gate-css.mjs over the joined sheets (the
+ * focus-ring gate, so each `:focus-visible` carries it, then splitHasLists, so a selector list with a
+ * `:has(...)` ships as one rule per selector, #59968), then drops their comments
+ * (scripts/agent-pane/paneCssComments.mjs). Same plugins, same order as gate-css.mjs. */
 const shipped = (file: string) =>
-  withoutComments(postcss([focusRingGate()]).process(fs.readFileSync(file, "utf8"), { from: undefined }).css);
+  withoutComments(
+    postcss([focusRingGate(), splitHasLists()]).process(fs.readFileSync(file, "utf8"), { from: undefined }).css,
+  );
 
 /** Trailing spaces are stripped from the page, and a sheet's own @import lines (the page inlines
  * the imported sheet before it), so compare without them. */
@@ -97,7 +104,27 @@ describe.skipIf(!built)("agent pane page", () => {
     const css = fs.readFileSync(sheet, "utf8");
     const copy = fs.readFileSync(path.join(path.dirname(page), "pane-copy.css"), "utf8");
     expect(copy).toBe(snapshotCss(css));
-    expect(copy.length).toBeLessThan(css.length / 10);
+    // In bytes, not as a share of pane.css: the share was measured against a sheet with its source comments, and
+    // paneCssComments.mjs now strips them (2.63 MB of sheet down to 1.74 MB, 2026-11-28) while the copy, minified
+    // by esbuild either way, is byte for byte the same (177,514 bytes from either sheet). A tenth of the sheet
+    // fell from 263 KB to 173 KB under an unchanged copy (cmux#64758's base red). A whole rewritten copy of the
+    // sheet, what this guards against, was 1.9 MB.
+    expect(Buffer.byteLength(copy)).toBeLessThan(COPY_SHEET_BUDGET_BYTES);
+    expect(copy.length).toBeLessThan(css.length / 5);
+  });
+
+  // A WebKit pane reloaded onto other web kept the pane.js it had cached under the same name and ran it under
+  // the new document: it imported chunks the new web does not have, and New Tab drew blank (cmux#64758). The
+  // script is named by its content, as the sheets are, in both places the page names it.
+  test("names its script by its content", () => {
+    const html = fs.readFileSync(page, "utf8");
+    const hash = createHash("sha256")
+      .update(fs.readFileSync(path.join(path.dirname(page), "pane.js")))
+      .digest("hex")
+      .slice(0, 16);
+    expect(html).toContain(`<link rel="preload" as="script" href="pane.js?h=${hash}" />`);
+    expect(html).toContain(`<script src="pane.js?h=${hash}"></script>`);
+    expect(html).not.toMatch(/["']pane\.js["']/);
   });
 
   // Source comments were a third of the sheet (638 KB of 1.96 MB), tokenized by every renderer before

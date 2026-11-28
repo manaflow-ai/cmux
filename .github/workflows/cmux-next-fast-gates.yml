@@ -22,7 +22,8 @@ name: cmux-next fast gates
 # status; a draft gets it when it is marked ready (a draft cannot merge, and a
 # merger that finds no status dispatches the gates). About two minutes on Linux.
 # A pull request that touches no gate input (resolve's route step) gets its
-# success status with no gates run.
+# success status with no gates run, on its own event and on each dispatch (the
+# panic ratchet's crates and baseline are gate inputs too).
 #
 # A dispatch also reruns the Rust panic ratchet (panic-ratchet) when the tip
 # lowered a rust-panic-baseline.json row of a crate the PR changes since its
@@ -33,8 +34,8 @@ name: cmux-next fast gates
 #
 # Pull request code never runs next to a write token: `resolve` names the head
 # and base and routes the change without running any code the pull request
-# changed (its route runs the router only when its blobs are the base's; a dispatch refuses a fork head
-# or another base before anything is fetched; its receipt steps, which hold
+# changed (its route runs the router only when its blobs are the base's, and a dispatch's the base's checkout; a dispatch
+# refuses a fork head or another base before anything is fetched; its receipt steps, which hold
 # statuses: write, run the base commit's verifier copied out of git), `fast-gates`
 # and `panic-ratchet` run the PR's code with contents: read only, and `post` writes
 # the status from resolve's outputs and those jobs' results, never from anything
@@ -147,6 +148,19 @@ jobs:
           set -euo pipefail
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          # One reused workspace per sparse list (rnd rc-454d007c): jobs with different lists took turns with one .git on this
+          # VM, so a job after a narrower one widened the tree first (median 6.4 s widening the guards' list to the fast gates',
+          # 1.8 s reusing the same list, 5.1 s fresh: bench run 46133992029, 4 runs each). Each list keeps its own workspace
+          # beside $GITHUB_WORKSPACE, moved in and out by a rename on the same file system (no copy); 4 lists at most are kept.
+          ws=$GITHUB_WORKSPACE; stash="$(dirname "$ws")/.pool-ws"
+          key=$(printf '%s' "${SPARSE:-}" | sha1sum | cut -c1-16)
+          have=$(cat "$ws/.git/cmux-pool-key" 2>/dev/null || true)
+          if [[ "$have" != "$key" ]] && { [[ "$have" =~ ^[0-9a-f]{16}$ ]] || [[ -d "$stash/$key" ]]; }; then
+            mkdir -p "$stash"; cd "$stash"
+            if [[ "$have" =~ ^[0-9a-f]{16}$ ]]; then rm -rf "${stash:?}/$have"; mv "$ws" "$stash/$have"; touch "$stash/$have"; else rm -rf "$ws"; fi
+            if [[ -d "$stash/$key" ]]; then mv "$stash/$key" "$ws"; else mkdir -p "$ws"; fi
+            ls -1t "$stash" | tail -n +5 | while read -r old; do rm -rf "${stash:?}/$old"; done
+          fi
           cd "$GITHUB_WORKSPACE"
           # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
           # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
@@ -187,7 +201,8 @@ jobs:
           # narrower job on this VM; rnd rc-c6f133b4).
           git -c checkout.workers=8 checkout -q -f --detach "$SHA"
           if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
-          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
+          [[ -z "${key:-}" ]] || echo "$key" > .git/cmux-pool-key
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse sparse_key=${key:-}"
 
       # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
       # on dispatch, which refuses a fork head, a closed pull request
@@ -231,7 +246,7 @@ jobs:
             # again (2026-10-31: 13 of 34 dispatches between 22:16Z and 22:19Z, #29724's among them).
             base=""
             if pr_fields="$(gh_read "repos/$GITHUB_REPOSITORY/pulls/$PR" \
-              --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha, .head.ref] | @tsv')"; then
+              --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha, .head.ref, ([.labels[].name] | join(","))] | @tsv')"; then
               :
             else
               status=$?
@@ -243,20 +258,22 @@ jobs:
                   query($owner: String!, $name: String!, $number: Int!, $branch: String!) {
                     repository(owner: $owner, name: $name) {
                       pullRequest(number: $number) {
-                        state headRefOid baseRefName headRefName headRepository { nameWithOwner }
+                        state headRefOid baseRefName headRefName headRepository { nameWithOwner } labels(first: 100) { nodes { name } }
                       }
                       ref(qualifiedName: $branch) { target { oid } }
                     }
                   }' \
                 --jq '.data.repository | [(.pullRequest.state // "" | ascii_downcase),
                   (.pullRequest.headRepository.nameWithOwner // ""), (.pullRequest.baseRefName // ""),
-                  (.pullRequest.headRefOid // ""), (.pullRequest.headRefName // ""), (.ref.target.oid // "")] | @tsv')" || exit $?
-              IFS=$'\t' read -r state head_repo base_ref head head_ref base extra <<<"$fields"
+                  (.pullRequest.headRefOid // ""), (.pullRequest.headRefName // ""), (.ref.target.oid // ""),
+                  ([.pullRequest.labels.nodes[]?.name] | join(","))] | @tsv')" || exit $?
+              IFS=$'\t' read -r state head_repo base_ref head head_ref base labels extra <<<"$fields"
               # The PR's merged/closed states read as merged/closed; only open goes on, as with REST.
-              pr_fields="$(printf '%s\t%s\t%s\t%s\t%s' "$state" "$head_repo" "$base_ref" "$head" "$head_ref")"
+              pr_fields="$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$state" "$head_repo" "$base_ref" "$head" "$head_ref" "$labels")"
               [[ -n "$base" && -z "$extra" ]] || { echo "::error::#$PR returned incomplete branch metadata from GitHub"; exit 1; }
             fi
-            IFS=$'\t' read -r state head_repo base_ref head head_ref extra <<<"$pr_fields"
+            # The labels come last: an empty last column reads as empty, not as a missing field.
+            IFS=$'\t' read -r state head_repo base_ref head head_ref labels extra <<<"$pr_fields"
             if [[ -n "$extra" || -z "$state" || -z "$head_repo" || -z "$base_ref" || -z "$head" || -z "$head_ref" ]]; then
               echo "::error::#$PR returned incomplete pull request metadata from GitHub"
               exit 1
@@ -277,6 +294,8 @@ jobs:
               base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
             fi
             post=true
+            # The dispatch's route step (fast_check_route.py) honours the full-ci label as a pull request event does.
+            printf 'labels=%s\n' "$labels" >> "$GITHUB_OUTPUT"
             # A lane's head: the land-time dispatch is where a lane receipt pays (78 of 100 fast-gates runs on
             # 2026-11-26 were dispatches; on feat-cmux-next the pull request event skips the gates). Its tree is the
             # receipt's key; a dispatch has no merge ref, so the merge tree stays empty and only a receipt on an
@@ -326,9 +345,10 @@ jobs:
           { echo "head_sha=$head"; echo "base=$base"; echo "post=$post"; } >> "$GITHUB_OUTPUT"
           echo "head $head, base $base"
 
-      # A lane dispatch's verifier comes out of git at the base (Verify the local test receipt): only its files.
-      - name: Checkout the base for the receipt verifier (lane dispatch)
-        if: ${{ github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' && !startsWith(runner.name, 'cmux-runner-pool-') }}
+      # A dispatch's router (Route the pull request) and a lane dispatch's verifier (Verify the local test receipt) come
+      # out of git at the base: only their files, never the pull request's.
+      - name: Checkout the base for the router and the receipt verifier (dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' && !startsWith(runner.name, 'cmux-runner-pool-') }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -343,9 +363,16 @@ jobs:
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
             /scripts/ci/gh_http.py
+            /.gitmodules
+            /.github/runners.json
+            /scripts/ci/fast_check_route.py
+            /scripts/ci/detect_linux_guard_changes.py
+            /scripts/ci/workflow_guard_groups.py
+            /scripts/ci/workload_entrypoints.py
+            /scripts/ci/fast-check-inputs.json
 
-      - name: "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"
-        if: ${{ github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' && startsWith(runner.name, 'cmux-runner-pool-') }}
+      - name: "Pool mirror: checkout the base for the router and the receipt verifier (dispatch)"
+        if: ${{ github.event_name == 'workflow_dispatch' && startsWith(runner.name, 'cmux-runner-pool-') }}
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -356,9 +383,16 @@ jobs:
 
       # Whether this pull request touches an input of any gate (scripts/ci/fast-check-inputs.json). One that touches
       # none skips the gates job before it takes a 16 vCPU runner, and post writes success at its base: every gate
-      # judges only what the change adds in its inputs, so it would have passed. A dispatch (a merger's fresh gate)
-      # skips this step and runs every gate; the push-time jobs each gate copies (push_cover in the map) run on the
-      # feat-cmux-next push, so a miss is a fix-forward on base.
+      # judges only what the change adds in its inputs, so it would have passed. The push-time jobs each gate copies
+      # (push_cover in the map) run on the feat-cmux-next push, so a miss is a fix-forward on base.
+      #
+      # A dispatch (a merger's fresh gate) routes too, on the pull request's files (one pulls/N/files read) against the
+      # base's router and map: the map at the tip names every gate that landed since, so a change that touches none of
+      # their inputs passes at any base. From 15:00Z to 16:15Z on 2026-11-28, 35 dispatches ran the whole gates job
+      # (237 runner-minutes), 6 of the 29 pull requests touched no input, and 8 runs were a second or third dispatch
+      # of one head whose earlier green went stale only because a check path moved. A routed-out head now posts its
+      # success again at each new base with no gates run. A failed read, 3,000 files (the API's cap) or more, or a
+      # checkout that is not the base leaves the output empty, and the gates run.
       #
       # A step here, not a job of its own: the fast-check-route job was a second runner and a second fetch of the
       # merge ref for every pull request event, about 3,600 a day at a 64 s median (2026-11-24 12-16Z timing records),
@@ -368,12 +402,37 @@ jobs:
       # empty, and the gates run.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
         continue-on-error: true
         env:
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS: ${{ github.event_name == 'pull_request' && join(github.event.pull_request.labels.*.name, ',') || steps.resolve.outputs.labels }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          BASE: ${{ steps.resolve.outputs.base }}
         run: |
           set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            # The base's router on the pull request's files, as `git diff --name-status --no-renames` lines.
+            [[ "$(git rev-parse HEAD 2>/dev/null || true)" == "$BASE" && -f scripts/ci/fast_check_route.py ]] \
+              || { echo "::notice title=fast check route::the base is not checked out, so every gate runs"; exit 0; }
+            files="$RUNNER_TEMP/fast-check-route-files.tsv"
+            changed="$RUNNER_TEMP/fast-check-route-changed.txt"
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | [.status, .filename, (.previous_filename // "")] | @tsv' > "$files"
+            count=$(wc -l < "$files")
+            if (( count == 0 || count >= 3000 )); then
+              echo "::notice title=fast check route::#$PR lists $count files, so every gate runs"
+              exit 0
+            fi
+            awk -F'\t' '$1 == "renamed" { print "D\t" $3; print "A\t" $2; next }
+              $1 == "added" || $1 == "copied" { print "A\t" $2; next }
+              $1 == "removed" { print "D\t" $2; next }
+              { print "M\t" $2 }' "$files" > "$changed"
+            python3 -I scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-fast-gates.yml \
+              --changed "$changed" --event pull_request --labels "$LABELS"
+            exit 0
+          fi
           for file in scripts/ci/fast_check_route.py scripts/ci/fast-check-inputs.json; do
             if [[ "$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")" ]]; then
               echo "::notice title=fast check route::the change touches $file, so every gate runs"
@@ -401,7 +460,7 @@ jobs:
       # the verifier adds only its own directory.
       - name: Verify the local test receipt
         id: receipt-verify
-        if: ${{ ((github.event_name == 'pull_request' && steps.route.outputs.fast_gates != 'false' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0'))) || (github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+        if: ${{ ((github.event_name == 'pull_request' && steps.route.outputs.fast_gates != 'false' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0'))) || (github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true' && steps.route.outputs.fast_gates != 'false')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
         continue-on-error: true
         timeout-minutes: 5  # OIDC 20 s + lookup 60 s + head-tree and base git reads 60 s each
         env:
@@ -542,6 +601,12 @@ jobs:
             /docs/mdm/
             /docs/ci/cmux-next-workflow-notes.md
             /docs/ci/nightly-workflow-notes.md
+            /docs/ci/cmux-next-workflow-notes/
+            /docs/ci/nightly-workflow-notes/
+            # tests/test_outbound_hosts.py reads the host list; the Bun cache keys hash these lockfiles.
+            /docs/privacy.md
+            /agent-chat/bun.lock
+            /backend/bun.lock
             /backend/apps/api/
             *.xcstrings
 
@@ -789,6 +854,17 @@ jobs:
           shared-key: cmux-tui-pr-clippy-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: false
 
+      # A cmux-runner-pool slot shows cargo every host thread (up to 96) under a 24 GiB memory.max, so
+      # clippy-driver/rustc on acpmux (lib test) got SIGKILLed (batch clippy job 141038960720, 2026-11-28).
+      # One cargo job per 3 GiB of the slot's memory, as cmux-tui-spec.yml clippy does (#65012).
+      - name: Cap cargo jobs at this runner's memory
+        shell: bash
+        run: |
+          s="$GITHUB_WORKSPACE/scripts/ci/cargo-mem-jobs.sh"
+          [[ -z "${CARGO_BUILD_JOBS:-}" && -f "$s" ]] || exit 0
+          jobs="$(bash "$s" 2>/dev/null || true)"
+          [[ -z "$jobs" ]] || { echo "CARGO_BUILD_JOBS=$jobs" >> "$GITHUB_ENV"; echo "CARGO_BUILD_JOBS=$jobs"; }
+
       - name: Rust panic ratchet on the merge, against the tip
         env:
           BASE: ${{ needs.resolve.outputs.base }}
@@ -798,6 +874,7 @@ jobs:
   # checks nothing out and reads nothing the gates jobs wrote. A skipped
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     name: post cmux-next/fast-gates
     needs: [resolve, fast-gates, panic-ratchet]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.

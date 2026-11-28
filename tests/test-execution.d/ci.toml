@@ -439,6 +439,10 @@ path = "tests/test_ci_hot_verify_mirror_seed.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_hot_verify_paths_cover_visual.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_hot_verify_posts_proof_record.py"
 lane = "linux-guard"
 
@@ -594,6 +598,11 @@ path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_bundle_time_fallback.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_nightly_bundle_time_fallback.py"
+
+[[test]]
 path = "tests/test_ci_nightly_cmux_tui_client_download.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins that the nightly's cmux-tui install steps fetch only NIGHTLY_COMPILE_ARCHS's slice and that install-cmux-tui-client.sh abandons a trickling download at the stall bound (run 42675465011); run python3 tests/test_ci_nightly_cmux_tui_client_download.py yourself after changing those scripts (about 15 s, no build; needs openssl and curl)."
@@ -617,6 +626,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_nightly_push_throttle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_nightly_source.py"
 lane = "linux-guard"
 
 [[test]]
@@ -995,6 +1008,10 @@ path = "tests/test_ci_reusable_job_name_lookups.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_reusable_route_key_passed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_reusable_workflow_permissions.py"
 lane = "linux-guard"
 
@@ -1076,6 +1093,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_rust_workspaces_land_head.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_same_head_job.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_same_head_job.py"
 
 [[test]]
 path = "tests/test_ci_same_repo_linux_owned_first.py"
@@ -1367,10 +1389,6 @@ path = "tests/test_ci_workflow_hashfiles_in_workspace.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_workflow_step_id_grep_guarded.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_workflow_job_bounds.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). The pre-push hook refuses a push that adds a job with no timeout-minutes or an unlisted job-level always() (prepush-gate.py JOB_BOUNDS_CHECK); run python3 tests/test_ci_workflow_job_bounds.py yourself after changing scripts/ci/workflow_job_bounds.py or .github/workflow-job-bounds.json (under a second, no build)."
@@ -1399,6 +1417,10 @@ lane = "linux-guard"
 path = "tests/test_ci_workflow_start_lint.py"
 lane = "manual"
 reason = "Unit tests of scripts/ci/workflow_start_lint.py, the lint cmux-next-guards.yml workflow-start-lint runs on every pull request that touches .github/; its end-to-end cases need actionlint (ACTIONLINT=PATH). Run python3 tests/test_ci_workflow_start_lint.py after changing the lint (seconds, no build)."
+
+[[test]]
+path = "tests/test_ci_workflow_step_id_grep_guarded.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_tailnet_oidc_pr_gate.py"
