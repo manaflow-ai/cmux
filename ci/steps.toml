@@ -1009,6 +1009,38 @@ flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
 bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts tests/vm-image-cmux-vm-github-auth.test.ts tests/vm-image-cmux-vm-ipv6-route.test.ts
 '''
 
+# The two web tests that pin the cloud images to their sources, on the pull request and its landing head (land_gate):
+# vm-image-manifest.test.ts holds the devbox source digest (devboxSourceManifest: the devbox template files, the
+# desktop installs, the bake script) to manifest.json or an awaiting-rebake.json entry, and vm-image-cmux-vm-lock
+# holds the cmux-rd pin to cmux-rd-host's crate version (pendingRelease). A landing head runs only nightly and
+# land_gate steps, and web-tests-affected (which selects both) is neither, so on 11-28 three changes landed with every
+# web check skipped and went red in the post-merge batch: #64653 (build-devbox-freestyle.ts) and #64833
+# (devbox/cmux-devbox-boot) moved the digest, #63946 bumped the crate without pendingRelease (fixed forward by #65143
+# and #65271). About 2 s after the install, and only when these inputs change. Leo: "Then fix it test-first in one PR."
+[step.vm-image-pins]
+job = "linux"
+land_gate = true
+timeout = 300
+title = "Cloud image pins follow their sources"
+about = "the devbox source digest matches the baked manifest or an awaiting-rebake entry, and the cmux-rd lock pin keeps up with cmux-rd-host's crate version"
+needs = ["bun"]
+inputs = [
+  "web/services/vms/images/devbox/**",
+  "web/services/vms/images/manifest.json",
+  "web/services/vms/images/awaiting-rebake.json",
+  "web/scripts/devbox-image-common.ts",
+  "web/scripts/build-devbox-freestyle.ts",
+  "images/cmux-vm/inputs.lock.json",
+  "cmux-tui/crates/cmux-rd-host/Cargo.toml",
+  "web/tests/vm-image-manifest.test.ts",
+  "web/tests/vm-image-cmux-vm-lock.test.ts",
+]
+run = '''
+cd web
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+bun test tests/vm-image-manifest.test.ts tests/vm-image-cmux-vm-lock.test.ts
+'''
+
 # ci-artifact-transport.yml's two halves. Its Python tests ran on every change to its list; its Worker half
 # (npm, node 24) only when workers/ci-artifacts changed, which is now this step's own input, so a change to
 # the Python side installs no node.
