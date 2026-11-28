@@ -74,6 +74,9 @@ pub struct CheckInput<'a> {
 /// One pane connection's policy state (the safe core of the C handle).
 #[derive(Default)]
 pub struct Pane {
+    /// A daemon observation updates options and sessions as one operation.
+    /// All C ABI reads and mutations take this gate before their inner locks.
+    operation: std::sync::Mutex<()>,
     sessions: PaneSessions,
     options: PermissionOptions,
 }
@@ -83,10 +86,13 @@ impl Pane {
         Self::default()
     }
 
+    /// Direct Rust access bypasses the operation gate. Hosts using these
+    /// handles must serialize combined session/options observations with checks.
     pub fn sessions(&self) -> &PaneSessions {
         &self.sessions
     }
 
+    /// Direct Rust access has the same serialization requirement as `sessions`.
     pub fn options(&self) -> &PermissionOptions {
         &self.options
     }
@@ -94,6 +100,7 @@ impl Pane {
     /// The full check of one page frame ([`check_frame`]) on this pane's
     /// state, as the reply JSON (see the module docs).
     pub fn check(&self, text: &str, input: &CheckInput<'_>) -> Value {
+        let _operation = self.operation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let state = FrameState {
             is_first: input.first,
             local_app_token: input.token,
@@ -113,6 +120,7 @@ impl Pane {
     /// (every rule then stays at its deny).
     pub fn observe(&self, text: &str, reply_to: Option<&str>, remote_wire: bool) {
         let Ok(Value::Object(object)) = serde_json::from_str::<Value>(text) else { return };
+        let _operation = self.operation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.options.observe(&object, reply_to);
         self.sessions.observe(&object);
         if remote_wire {
@@ -122,6 +130,7 @@ impl Pane {
 
     /// One JSON op on this pane (see [`call`] for the ops that need none).
     pub fn call(&self, op: &str, request: &Value) -> Result<Value, i32> {
+        let _operation = self.operation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let text = |key: &str| request.get(key).and_then(Value::as_str);
         match op {
             "add" => {
@@ -190,6 +199,9 @@ impl Pane {
 ///   "busy"|"starting"|"down", "restart": bool}`, what the pane's line says
 ///   while it waits and whether it offers Restart agent service (only when
 ///   down) ([`crate::service_wait`]).
+/// - `prompt_*`: the presentation and answer rules shared by the Swift and
+///   Rust hosts ([`crate::prompt`]); these never grant an option that was not
+///   offered exactly once.
 /// - `frame_rules` `{frame, steps, mode_fields?, question_keys?}`: `{"frame":
 ///   stripped|null, "initialize_keys": [..], "dropped": [..], "params":
 ///   cause|null, "answers": cause|null}` ([`frame_rules`]), the params and
@@ -231,6 +243,47 @@ pub fn call(op: &str, request: &Value) -> Result<Value, i32> {
             Ok(json!({"json": canonical_json(value)}))
         }
         "service_wait" => crate::service_wait::call(request).ok_or(ERR_INVALID),
+        "prompt_scrub" => {
+            let value = request.get("text").and_then(Value::as_str).ok_or(ERR_INVALID)?;
+            let prefix = request.get("prefix").and_then(Value::as_bool).unwrap_or(false);
+            Ok(json!({"text": crate::prompt::scrub(value, prefix)}))
+        }
+        "prompt_visible" => {
+            let value = text("text").ok_or(ERR_INVALID)?;
+            Ok(json!({"text": crate::prompt::visible(value)}))
+        }
+        "prompt_shown_command" => {
+            let value = crate::prompt::shown_command(request.get("value"));
+            Ok(json!({"command": value}))
+        }
+        "prompt_input_summary" => {
+            let input = request.get("input").and_then(Value::as_object).ok_or(ERR_INVALID)?;
+            Ok(json!({"summary": crate::prompt::input_summary(input)}))
+        }
+        "prompt_cut" => {
+            let value = text("text").ok_or(ERR_INVALID)?;
+            let limit = request.get("limit").and_then(Value::as_u64).ok_or(ERR_INVALID)?;
+            let limit = usize::try_from(limit).map_err(|_| ERR_INVALID)?;
+            Ok(json!({"text": crate::prompt::cut(value, limit)}))
+        }
+        "prompt_once_option" => {
+            let allow = request.get("allow").and_then(Value::as_bool).ok_or(ERR_INVALID)?;
+            let offered = request.get("offered").and_then(Value::as_array).ok_or(ERR_INVALID)?;
+            Ok(json!({"option": crate::prompt::once_option(allow, offered)}))
+        }
+        "prompt_always_option" => {
+            let offered = request.get("offered").and_then(Value::as_array).ok_or(ERR_INVALID)?;
+            Ok(json!({"option": crate::prompt::always_option(offered)}))
+        }
+        "prompt_option" => {
+            let allow = request.get("allow").and_then(Value::as_bool).ok_or(ERR_INVALID)?;
+            let offered = request.get("offered").and_then(Value::as_array).ok_or(ERR_INVALID)?;
+            Ok(json!({"option": crate::prompt::option(allow, offered)}))
+        }
+        "prompt_read" => {
+            let value = request.get("request").ok_or(ERR_INVALID)?;
+            Ok(crate::prompt::read(value).ok_or(ERR_INVALID)?)
+        }
         "session_routing" => crate::session_routing::call(request).ok_or(ERR_INVALID),
         "frame_rules" => frame_rules(request).ok_or(ERR_INVALID),
         // A pane's own op without a pane.
@@ -286,6 +339,7 @@ pub fn checked_json(checked: Checked) -> Value {
             "method": refused.method,
             "id": refused.request_id,
             "spend": spend,
+            "cause": refused.cause,
         }),
         Checked::Frame { frame, facts } => {
             json!({"frame": Value::Object(frame), "facts": facts.to_json()})

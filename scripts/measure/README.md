@@ -12,11 +12,33 @@ Details: [scripts/bench/README.md](../bench/README.md).
 
 This file indexes every entry in `scripts/measure/`. Registered benches wrap some of these scripts; the rest are listed below by area. Status is by last commit date as of 2026-11-16: `active` is touched in the last 30 days, `stale` is not.
 
+## NIGHTLY GUI probe transport
+
+`ext-rows-nightly.sh rows=agent_prompts cu_host=nightly` and
+`accounts-nightly-launch.py cu_host=nightly` explicitly use the fleet Mac's installed
+`/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux` for Computer Use. The direct
+Python probes accept `--cu-host nightly`; omission retains the existing PATH transport.
+The app being tested remains the isolated copy and every interaction is scoped to its PID.
+
+The shared transport reads `server status` for `cmux-app-nightly`, validates the returned
+session, PID and absolute socket, then runs `computer-use doctor` against that socket.
+Only exit zero permits MCP startup. MCP receives `CMUX_TUI_SOCKET` explicitly because its
+transport does not use global CLI flags. Probe app identity variables are removed only
+from this host client's child environment. A missing host CLI, unavailable daemon, failed
+doctor or denied tool ends the probe; no settings, permissions or services are changed,
+and there is no alternate driver. A fleet GUI label alone does not prove product Computer
+Use readiness. Receipts include the selected host executable, session, PID and socket.
+
+Regression detector: `python3.9 tests/test_accounts_nightly_transport.py` checks the real
+subprocess arguments/environment, launcher/parser compatibility and failure before probe
+actions, including doctor refusal and terminal MCP denial.
+
 ## Registered benches
 
 | bench | wraps (script) | what |
 |---|---|---|
 | localization-discovery | `localization-discovery.py` (anywhere, checkout source) | Swift source discovery with 2,000 excluded dependency directories: directory reads and wall time; compare `--arg algorithm=baseline` with `--arg algorithm=current`. |
+| local-summary | `local_summary_gate.py` (`local-summary-gate.sh` as a fleet Mac step) | Smallest installed on-device model (ollama, llama.cpp, mlx_lm) writing the sidebar's one-line session summary for 30 labeled, redacted sessions: warm/cold p95, first token, length, key-fact recall, unsupported status claims, against the deterministic baseline; verdict pass, fail or no-runtime (hq finding 2026-11-20-local-model-session-summary). |
 | coordinator-cpu | `chat-open.sh --coordinator-cpu` | Whole-renderer CPU on a 10,000-row chat with twenty ACP children updating at 1 Hz. Saves raw CPU intervals, daemon tick receipts, a JavaScript profile and a macOS sample. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |

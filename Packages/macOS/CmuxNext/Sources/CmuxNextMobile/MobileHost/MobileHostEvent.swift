@@ -15,6 +15,8 @@ public enum MobileHostEvent: Sendable, Equatable {
     case needAcpmux
     /// Fresh app-server carrier facts for one bounded Rust request.
     case needCloudLinks(request: UInt64)
+    /// Read the existing browser tab for one Open on iPhone request.
+    case needSiteData(MobileHostSiteDataRequest)
     /// A phone's link is up.
     case phoneUp(MobileHostPhoneLink)
     /// A phone's link moved to another path (`direct`, `relay`, `turn`).
@@ -69,6 +71,9 @@ public enum MobileHostEvent: Sendable, Equatable {
         case "need_cloud_links":
             guard let request = wire.request else { return nil }
             self = .needCloudLinks(request: request)
+        case "need_site_data":
+            guard let request = wire.request, let surface = wire.surface, let site = wire.site, let url = wire.url else { return nil }
+            self = .needSiteData(MobileHostSiteDataRequest(request: request, surface: surface, site: site, url: url))
         case "phone_up":
             guard let session = wire.sessionId, let phone = wire.phoneDeviceId else { return nil }
             self = .phoneUp(MobileHostPhoneLink(sessionID: session, phoneDeviceID: phone,
@@ -136,6 +141,8 @@ public enum MobileHostEvent: Sendable, Equatable {
         var bundleId: String?
         var kind: String?
         var request: UInt64?
+        var surface: UInt64?
+        var site: String?
         var tab: String?
         var url: String?
         var allow: Bool?
