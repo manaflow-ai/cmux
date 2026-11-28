@@ -32,6 +32,15 @@ extension CloudMachine {
         return CloudMachineRules().call("cloud_machine_edge", request, as: Reply.self)?.edge ?? nil
     }
 
+    /// How long a session waits before it dials this machine again by itself after its `attempt`th refusal in a row as
+    /// not up yet (0 for the first; `CloudMachineSession.showEnded`); nil: it waits for the person's Connect.
+    public func redialAfterNotUp(attempt: Int) -> Duration? {
+        struct Request: Encodable { var status: Status, attempt: Int }
+        struct Reply: Decodable { var afterMs: Int? }
+        let reply = CloudMachineRules().call("cloud_machine_redial_after_not_up", Request(status: status, attempt: attempt), as: Reply.self)
+        return reply?.afterMs.map { .milliseconds($0) }
+    }
+
     /// Whether a pending change holds back a connect from `origin` (`CloudMachineSession.connect`).
     public func holdsConnect(origin: CloudLinkOrigin, appLink: Bool) -> Bool {
         struct Request: Encodable { var machine: CloudMachine, origin: String, appLink: Bool }

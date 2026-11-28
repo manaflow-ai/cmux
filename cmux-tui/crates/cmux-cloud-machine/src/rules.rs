@@ -63,6 +63,24 @@ pub fn edge(
     None
 }
 
+/// The waits before a session dials a running machine again by itself after its link was refused
+/// as not up yet (`not_up`, the carrier's `parked_timeout`: the relay held the dial its whole 180 s
+/// and the machine's host never paired). Each wait is followed by a whole dial, so these six cover
+/// about twenty minutes; past them the machine shows its Connect, as before.
+pub const REDIAL_AFTER_NOT_UP_MS: [u64; 6] = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000];
+
+/// How long a session waits before it dials again by itself after its `attempt`th refusal in a row
+/// as not up yet (0 for the first), on a machine whose record reads `status`. A machine still
+/// booting or resuming registers its host late, or its host restarted: nothing else dials it again
+/// while it stays running (no record edge), so it stayed failed until a click (cmux#57192). None:
+/// the machine does not run (a pause or a delete has its own edge), or the redials ran out.
+pub fn redial_after_not_up(status: Status, attempt: u32) -> Option<u64> {
+    if status != Status::Running {
+        return None;
+    }
+    REDIAL_AFTER_NOT_UP_MS.get(attempt as usize).copied()
+}
+
 /// Who asked for a connect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
