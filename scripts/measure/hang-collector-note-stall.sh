@@ -27,7 +27,9 @@ cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 mkdir -p "$work/Sources" "$work/Tests/NoteStallBenchTests"
 cp -R "$pkg/Sources/CmuxNextCompat" "$pkg/Sources/CmuxNextHangReports" "$work/Sources/"
-cp "$pkg/Package.resolved" "$work/Package.resolved"
+# swift-atomics at the CmuxNext package's pin (its Package.resolved lists every package there; only this one is needed).
+atomics=$(awk '/"identity" : "swift-atomics"/ { f = 1 } f && /"version"/ { gsub(/[",]/, ""); print $3; exit }' "$pkg/Package.resolved")
+[ -n "$atomics" ] || { echo "no swift-atomics pin in $pkg/Package.resolved" >&2; exit 1; }
 cat > "$work/Package.swift" <<SWIFT
 // swift-tools-version: 6.2
 import PackageDescription
@@ -43,7 +45,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(path: "$root/Packages/Shared/CmuxEgress"),
-        .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
+        .package(url: "https://github.com/apple/swift-atomics.git", exact: "$atomics"),
     ],
     targets: [
         .target(name: "CmuxNextCompat", dependencies: [.product(name: "Atomics", package: "swift-atomics")],
