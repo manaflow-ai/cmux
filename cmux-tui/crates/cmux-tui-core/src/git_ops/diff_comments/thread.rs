@@ -29,8 +29,9 @@ use crate::resource::ResourceError;
 
 const OPERATION: &str = "diff.comments.thread";
 /// The daemon's own fields of a comment: a page save never sets them.
-pub(super) const THREAD_FIELDS: [&str; 5] =
-    ["replies", "resolved", "resolvedAt", "sentIn", "resolveSent"];
+/// `github` is where an imported thread came from (`github.rs`).
+pub(super) const THREAD_FIELDS: [&str; 6] =
+    ["replies", "resolved", "resolvedAt", "sentIn", "resolveSent", "github"];
 /// The most replies one thread keeps.
 pub(super) const MAX_REPLIES: usize = 200;
 /// The longest reply text, in bytes.

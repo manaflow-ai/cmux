@@ -442,6 +442,34 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_router_web_exact.py
 
+      - name: Validate advisory job names
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_advisory_job_names.py
+
+      - name: Validate motion frames dispatch
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_motion_frames_dispatch.py
+
+      - name: Validate pr router areas
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_router_areas.py
+
+      - name: Validate repo scripts run after checkout
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_repo_scripts_after_checkout.py
+
+      - name: Validate router ios fast skip
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_router_ios_fast_skip.py
+
+      - name: Validate app build manifest (#64429)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_app_build_manifest.py
+
+      - name: Validate same-head rerun rule for own-trigger jobs (#64236)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_same_head_job.py
+
       - name: Validate rust-workspaces disk headroom
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_workspaces_disk.py
@@ -2777,6 +2805,10 @@ jobs:
       - name: Validate every build-src worktree add prunes a stale registration first
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_build_src_worktree_prune.py
+
+      - name: Validate every workflow's inline python parses before Python 3.12
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_workflow_inline_python_f_strings.py
 
       - name: Validate the cmux NEXT Edge feed composer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
