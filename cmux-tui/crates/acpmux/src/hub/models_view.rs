@@ -185,8 +185,10 @@ fn drop_disabled(models: &mut Vec<Value>, disabled: &[String]) {
 ///   each release): every catalog model released after every model its menu names.
 /// - Any other harness (Codex, whose `model/list` is what this account runs): a catalog model
 ///   released after the newest one its menu names of the same family (`models[ref].family`,
-///   gpt-sol): an older Codex that lists GPT-6.1 Sol gets GPT-6.2 Sol, and a family the account
-///   runs none of (an API-only release) stays out. Codex takes any id (`session/set_model`).
+///   gpt-sol) and release line ([`release_line`]): an older Codex that lists GPT-6.1 Sol gets
+///   GPT-6.2 Sol, and a family the account runs none of (an API-only release) or a later-dated
+///   variant of a listed release (GPT-6.1 Sol Healthcare) stays out. Codex takes any id
+///   (`session/set_model`).
 ///
 /// Empty when no menu model has a known release date (and family, for the second).
 fn newer_than_menu(
@@ -208,10 +210,10 @@ fn newer_than_menu(
             .map(|m| m.id.clone())
             .collect();
     }
-    let mut newest = std::collections::BTreeMap::<String, String>::new();
+    let mut newest = std::collections::BTreeMap::<(String, String), String>::new();
     for model in listed() {
         if let (Some(family), Some(date)) = (family(model), released(model)) {
-            let slot = newest.entry(family).or_default();
+            let slot = newest.entry((family, release_line(&model.id))).or_default();
             if date > *slot {
                 *slot = date;
             }
@@ -223,10 +225,24 @@ fn newer_than_menu(
         .filter(|m| m.status.as_deref() != Some("deprecated") && !lists(reported, m))
         .filter(|m| {
             let (Some(family), Some(date)) = (family(m), released(m)) else { return false };
-            newest.get(&family).is_some_and(|newest| date > *newest)
+            newest.get(&(family, release_line(&m.id))).is_some_and(|newest| date > *newest)
         })
         .map(|m| m.id.clone())
         .collect()
+}
+
+/// A model id without its version: "gpt-6.1-sol" and "gpt-6.2-sol" are both "gpt-sol". A newer
+/// release continues a line the menu lists, so a variant the feed files under the same family and
+/// dates later is not one: "gpt-6.1-sol-healthcare" (models.dev, 2026-11-24, family gpt-sol) is
+/// line "gpt-sol-healthcare", and an older Codex that lists GPT-6.1 Sol does not get it leading
+/// its menu as the newest Sol.
+fn release_line(id: &str) -> String {
+    let id = id.rsplit('/').next().unwrap_or(id);
+    let parts: Vec<&str> = id
+        .split('-')
+        .filter(|part| !part.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        .collect();
+    parts.join("-")
 }
 
 /// Preserve the harness's own picker order independently of the catalog's metadata order.

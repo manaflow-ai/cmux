@@ -2,7 +2,7 @@
 //! `server/cloud_api.rs`) and the cmux CLI (`cmux cloud api`, which sends its request to the
 //! daemon): a machine's SCP route, domains, publications, the person's hand-offs and acpmux
 //! routes, previews and a machine's files and exec. The macOS app sent these from Swift
-//! (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
+//! (`CloudDaemon`, `CloudOwnerAPIClient`); the requests, their deadlines, the hand-off paging
 //! and every refusal's reading live here. Sandboxed Runs are the daemon's own ([`sandbox`]): a
 //! Cloud chat on a machine made for the task, never classic Cloud's Run API.
 //!
@@ -19,6 +19,7 @@
 //! refused before any request. `vm.scp_endpoint` is cmux-platform's
 //! `/v1/cloud/machines/{id}/ssh-endpoint` and `machine.setup_desktop` its
 //! `/v1/cloud/machines/{id}/desktop` (a `stack` call of either is refused before any request).
+//! `vm.agent_key_create` is the cmux VM API's agent key mint (`POST /v1/agent-keys`, [`vm_agent_key`]).
 //!
 //! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel and firewall calls
 //! ([`NOT_ON_THIS_CLOUD`]) have no cmux-platform route yet, so each answers a 501
@@ -45,6 +46,9 @@
 //!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
+//!
+//! `owner.slack` and `owner.slack_awake` are Settings' Slack page: the connection, its install
+//! link, a bot of the person's own and a Chief's Slack awake time (`slack.rs`).
 //!
 //! An answer is `Ok(body)` or a [`Failure`]; [`answer_line`] writes `{"ok": true, "body": B}` or
 //! `{"ok": false, "error": E}`, where `E.kind` is `timed_out` (with `path`), `transport`
@@ -82,7 +86,9 @@ mod owner;
 mod previews;
 pub mod sandbox;
 pub mod session;
+mod slack;
 mod turns;
+mod vm_agent_key;
 
 use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
@@ -163,6 +169,7 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
         call if chat::CALLS.contains(&call) => chat::run(request, call, args).await,
         "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
+        "vm.agent_key_create" => vm_agent_key::create(&http, args).await,
         "machine.setup_desktop" => machine::setup_desktop(&http, args).await,
         call if previews::PUBLICATION_CALLS.contains(&call) => {
             previews::publications(request, call, args).await
@@ -173,6 +180,8 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
             "{call} is the cmux daemon's own sandboxed Run; send it to the daemon"
         ))),
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
+        "owner.slack" => slack::slack(&http, args).await,
+        "owner.slack_awake" => slack::slack_awake(&http, args).await,
         "owner.turn_checkpoint" | "owner.turn_rewind" | "owner.turns" => {
             turns::run(&http, request.call.as_str(), args).await
         }
@@ -214,8 +223,9 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 49] = [
+pub const CALLS: [&str; 52] = [
     "vm.scp_endpoint",
+    "vm.agent_key_create",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
     "vm.tunnel_attach",
@@ -251,6 +261,8 @@ pub const CALLS: [&str; 49] = [
     "owner.github_complete",
     "owner.github_list",
     "owner.github_clone_token",
+    "owner.slack",
+    "owner.slack_awake",
     "owner.turn_checkpoint",
     "owner.turn_rewind",
     "owner.turns",

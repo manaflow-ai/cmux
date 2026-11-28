@@ -81,7 +81,9 @@ class LaunchTTIUITests: XCTestCase {
         row.tap()
         switch flow {
         case .chat:
-            XCTAssertTrue(waitForMark("chat_composer_ready", in: app), "the chat composer's mark\n\(app.debugDescription)")
+            let ready = waitForMark("chat_composer_ready", in: app)
+            if !ready { attachScreen(app, named: "chat-open-no-mark") }
+            XCTAssertTrue(ready, "the chat composer's mark\n\(app.debugDescription)")
         case .terminal:
             let field = app.textViews["terminal.composer.field"]
             XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal composer\n\(app.debugDescription)")
@@ -112,6 +114,24 @@ class LaunchTTIUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         return marks
+    }
+
+    /// A missed mark keeps what was on screen and the marks taken: the CI log cuts the
+    /// assertion's element tree short, the attachments are exported whole.
+    @MainActor
+    func attachScreen(_ app: XCUIApplication, named name: String) {
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "\(name)-tree"
+        tree.lifetime = .keepAlways
+        add(tree)
+        let marks = XCTAttachment(string: app.staticTexts["debug.launch-marks"].exists ? app.staticTexts["debug.launch-marks"].label : "no debug.launch-marks probe")
+        marks.name = "\(name)-marks"
+        marks.lifetime = .keepAlways
+        add(marks)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "\(name)-screen"
+        shot.lifetime = .keepAlways
+        add(shot)
     }
 
     // MARK: Marks

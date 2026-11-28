@@ -179,7 +179,7 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
       });
 
   for (const name of browsers.keys())
-    test(`${name}: in a tall pane the grown prompt uses the 30-line cap before 60%`, async () => {
+    test(`${name}: in a tall pane the grown prompt stops at Claude desktop's 384 px cap, bounded by 50%`, async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 900, height: 760 });
       try {
@@ -187,21 +187,19 @@ await requireBrowserLane("agent-pane-short-pane-composer.test.ts", async () => {
         const drawn = await measure(page);
         expect({ past: clamp(drawn.past) }).toEqual({ past: inside });
         expect(drawn.overflow).toEqual(flat);
-        // The cap: thirty body lines when that is shorter than 60% of the pane (Leo 2026-11-22: "look
-        // at how big claude code can grow"; it was twelve lines or 40%, after Lawrence called out an
-        // oversized growth, so 60% of the pane still bounds it).
-        const styles = await page.locator(".acpmux-composer-prompt").evaluate((node) => {
-          const computed = getComputedStyle(node);
-          // Custom properties retain calc() text. Measure their used length, rather than treating
-          // parseFloat("calc(...)") as a missing token and asserting against a fallback.
-          const control = document.createElement("div");
-          control.style.cssText = "position:absolute;visibility:hidden;height:var(--cmux-control-height,23px)";
-          node.append(control);
-          const controlHeight = control.getBoundingClientRect().height;
-          control.remove();
-          return { line: parseFloat(computed.lineHeight), control: controlHeight };
+        // The cap (markdownField.css --acpmux-md-max-height): Claude desktop's 384 px prompt, bounded by
+        // 50% of the pane (Leo 2026-11-24, comparing ours with Claude's: follow Claude's max). It
+        // replaced #51620's thirty lines or 60%, which reached about 55% of his pane.
+        const cap = await page.locator(".acpmux-composer-prompt").evaluate((node) => {
+          // Custom properties retain calc() text: measure the used length of the shell's token.
+          const probe = document.createElement("div");
+          probe.style.cssText = "position:absolute;visibility:hidden;height:var(--acpmux-composer-max-height,384px)";
+          node.append(probe);
+          const height = probe.getBoundingClientRect().height;
+          probe.remove();
+          return height;
         });
-        expect(drawn.prompt.cap).toBeCloseTo(Math.min(760 * 0.6, styles.line * 30 + styles.control), 0);
+        expect(drawn.prompt.cap).toBeCloseTo(Math.min(cap, 760 * 0.5), 0);
         expect(drawn.prompt.scrolls).toBe(true);
         expect(drawn.prompt.height).toBeGreaterThanOrEqual(drawn.prompt.cap - 0.5);
       } finally {

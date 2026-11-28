@@ -176,21 +176,30 @@ public struct TerminalTabPage: View {
                                             drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil)
                 let stage = cover ? TerminalLoadWatch.stage(model.connectionState, waited: coverOverdue ? TerminalLoadWatch.bound : .zero)
                     : .loading
+                // A saved copy (the Mac's screen text or the page's last still) stays up past the
+                // bound; the title pill says the Mac is offline and how old it is.
+                let hasSavedCopy = model.cardScreenText?.isEmpty == false || model.coldFrame != nil
                 Group {
                     if cover {
                         // Once attached the cover stays until the live rows are drawn, then
                         // goes in one frame: a cut, never a fade over live rows (R3-4). Its
                         // rows are laid out for the page as it is now (keyboard up or down).
-                        // Past its bound it draws no gray bars: words and Retry instead.
-                        TerminalConnectingView(topInset: insets.top, showsPlaceholder: stage == .loading,
+                        // The saved copy as rows is the surface itself (seeded); this draws the
+                        // Mac's screen text, else the page's last still, and keeps drawing it past
+                        // the bound (Leo, 2026-11-25: "be able to still like interact with the rest
+                        // of the app with that saved copy"). Only with no saved copy at all does
+                        // the page, past its bound, draw no gray bars: words and Retry instead.
+                        TerminalConnectingView(topInset: insets.top,
+                                               lastFrame: model.cardScreenText == nil ? model.coldFrame : nil,
+                                               showsPlaceholder: stage == .loading || hasSavedCopy,
                                                screenText: model.cardScreenText,
                                                rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
                             .placeholderBound("terminal.page.connecting", .milliseconds(2000))
-                        if stage == .stalled {
-                            TerminalLoadStalledPanel(state: model.connectionState) { retryAttach() }
+                        if stage == .stalled, !hasSavedCopy {
+                            TerminalLoadStalledPanel(state: model.connectionState, linkStatus: model.linkStatus?()) { retryAttach() }
                                 .padding(.top, insets.top)
                                 .padding(.bottom, insets.bottom + rowsLift)
                         }
@@ -331,6 +340,8 @@ struct TerminalCardScreenText: View {
     let text: String
     let topInset: CGFloat
     let width: CGFloat
+    /// The height the rows may fill: a page's room above its composer. Nil: a grid card's crop.
+    var visibleHeight: CGFloat? = nil
 
     var body: some View {
         let all = TerminalCardScreenLines.shown(text, capacity: .max)
@@ -340,7 +351,7 @@ struct TerminalCardScreenText: View {
         // Only the card's visible part counts: the last rows that fit, the prompt at the bottom (qa11).
         let lineHeight = UIFont.monospacedSystemFont(ofSize: size, weight: .regular).lineHeight
         let shown = TerminalCardScreenLines.shown(text, capacity: TerminalCardScreenLines.capacity(
-            visibleHeight: width * TerminalCardCrop.cardAspect, topInset: topInset, lineHeight: lineHeight))
+            visibleHeight: visibleHeight ?? width * TerminalCardCrop.cardAspect, topInset: topInset, lineHeight: lineHeight))
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(shown.enumerated()), id: \.offset) { _, line in
                 Text(String(line).isEmpty ? " " : String(line))

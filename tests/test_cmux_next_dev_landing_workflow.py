@@ -22,7 +22,7 @@ import dev_release_product_reuse as reuse  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-from cmux_next_step_text import step_run  # noqa: E402
+from cmux_next_step_text import inline_steps, step_run  # noqa: E402
 
 
 def runner(job) -> str:
@@ -36,7 +36,7 @@ def runner(job) -> str:
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.jobs = yaml.load((ROOT / ".github/workflows/cmux-next.yml").read_text(), Loader=yaml.BaseLoader)["jobs"]
+        cls.jobs = yaml.load(inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text()), Loader=yaml.BaseLoader)["jobs"]
 
     def test_only_feat_cmux_next_landings_run_it(self):
         condition = self.jobs["dev-landing-place"]["if"]
@@ -107,7 +107,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("run_attempt", job["if"])
         place_env = {s.get("id"): s for s in job["steps"]}["place"]["env"]
         self.assertEqual(place_env["NIGHTLY_LABEL"],
-                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+                         "${{ vars.CI_DEV_COMPILE_NIGHTLY_RUNNER || 'mac-nightly' }}")
         runs_on = self.jobs["cmux-scheme-compile"]["runs-on"]
         self.assertIn("needs.dev-daily-place.outputs.runs_on != '' && fromJSON(needs.dev-daily-place.outputs.runs_on)", runs_on)
         self.assertNotIn("github.run_attempt == 1 && needs.dev-daily-place", runs_on)

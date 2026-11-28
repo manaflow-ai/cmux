@@ -7,18 +7,7 @@ import CmuxNextDevices
 /// to studio-mini…", "Waiting for studio-mini to approve…", "Disconnected" with Reconnect) and the state's buttons, so the
 /// body below is only the picture, Fit-letterboxed on the pane's ground (the window material, never black), or a calm
 /// blank with one small mark. The strip's views are ``MacScreenStatusStripBar`` and ``MacScreenStatusStripBody``.
-extension MacScreenViewerStyle {
-    static var lookB: MacScreenViewerStyle {
-        var style = MacScreenViewerStyle.current
-        style.toolbarPlacement = .topBar
-        style.statusStrip = true
-        style.backdrop = .page
-        style.pictureCornerRadius = 0
-        style.pictureShadow = false
-        return style
-    }
-}
-
+///
 /// Look B's two views: the strip on top and the body over the screen area while a state has no picture. The pane makes
 /// them the first time a look with ``MacScreenViewerStyle/statusStrip`` is shown, so other looks pay nothing.
 @MainActor

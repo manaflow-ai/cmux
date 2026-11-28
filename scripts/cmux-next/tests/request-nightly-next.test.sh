@@ -89,6 +89,10 @@ if [[ "\$url" == https://gh-events.cmux.com/compile-checks/v1/* ]]; then
     down) printf 000; exit 7 ;;
     404) printf 404; exit 0 ;;
     429|503) printf "\$st"; exit 0 ;;
+    superseded:*)
+      printf '{"sha": "%s", "repo": "o/r", "recipe_version": 2, "configuration": "release-onone", "state": "superseded", "superseded_by": "%s"}\n' \
+        "\$c" "\${st#superseded:}" > "\${out:-/dev/stdout}"
+      printf 200; exit 0 ;;
   esac
   printf '{"sha": "%s", "repo": "o/r", "recipe_version": 2, "configuration": "release-onone", "state": "%s"}\n' "\$c" "\$st" > "\${out:-/dev/stdout}"
   printf 200; exit 0
@@ -327,6 +331,28 @@ for word in fail running; do
   grep -q "${covered:0:12}: not prechecked yet" <<<"$out" || fail "the $word covering tip must leave it pending:" "$out"
   run_id=$((run_id + 1))
 done
+# The controller names the covering check (hq#35798): it is read first, so a pending commit between
+# them no longer hides its pass. Shape of 2026-11-28: c6a61b31 read "no verdict" while 735222b6, four
+# first-parent commits on and listing it in Covers, had passed; the walk stopped at 08f09f55 (queued).
+echo running > "$TMP/precheck/$checked"
+git_q -C "$src" checkout -q --detach "$checked"
+echo after > "$src/cmux-tui/a"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "the covering push tip, checked and passed"
+covering=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" update-ref refs/heads/feat-cmux-next "$covering"
+git_q -C "$src" checkout -q --detach "$covered"
+echo "superseded:$covering" > "$TMP/precheck/$covered"
+RUN_ID=$run_id request --sha "$covered" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$covered" || fail "a superseded commit whose named covering check passed must be promoted past a pending commit:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "superseded by ${covering:0:12}" <<<"$out" || fail "the named covering check must be in the precheck reason:" "$out"
+run_id=$((run_id + 1))
+# A named check that is not after it on the branch is not read as covering it.
+echo "superseded:$head" > "$TMP/precheck/$covered"
+RUN_ID=$run_id request --sha "$covered" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$covered" || fail "a named check that is not a descendant must not cover it:" "$out" "$(cat "$TMP/gh.log")"
+run_id=$((run_id + 1))
+rm -f "$TMP/precheck/$checked" "$TMP/precheck/$covered"
 git_q -C "$src" update-ref -d refs/heads/feat-cmux-next
 git_q -C "$src" checkout -q --detach "$head"
 
@@ -419,9 +445,10 @@ branch() { # <commit>: feat-cmux-next's tip (the script's history, fetched or lo
   git_q -C "$src" update-ref refs/heads/feat-cmux-next "$1"
 }
 # No REST read. The one exception is the direct-push quarantine's single GraphQL read (its own budget, kept for the
-# whole tick in GH_TICK_CACHE), made only once a candidate is about to be requested.
+# whole tick in GH_TICK_CACHE), made only once a candidate is about to be requested. The other allowed read is
+# web_matrix_green's one commit-statuses read of the candidate (cmux-next/web-bundle-matrix, added by #61541).
 no_api() {
-  ! grep -v '^api graphql ' "$TMP/gh.log" | grep -q '^api' || fail "--tree-ready must read no GitHub REST API:" "$(cat "$TMP/gh.log")"
+  ! grep -v -e '^api graphql ' -e '^api repos/o/r/commits/[0-9a-f]*/statuses?per_page=100 --jq .*cmux-next/web-bundle-matrix' "$TMP/gh.log" | grep -q '^api' || fail "--tree-ready must read no GitHub REST API:" "$(cat "$TMP/gh.log")"
   (( $(grep -c '^api graphql ' "$TMP/gh.log") <= 1 )) || fail "the quarantine is read once a call:" "$(cat "$TMP/gh.log")"
 }
 branch "$other"
@@ -631,12 +658,12 @@ RUN_ID=11 request --sha "$other" --release-compile-green
 RUN_ID=11 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "already dispatched in this job" <<<"$out" \
   || fail "the backfill must dispatch at most once per job:" "$out" "$(cat "$TMP/gh.log")"
-# At most one backfill an hour: every tick and Release compile calls it from its own job, so the
-# per-job stamp alone let 51 dispatches through in 31 h (ci-min-per-pr-14).
+# At most one backfill per gap (25 min since #59970; an hour before): every tick and Release compile calls
+# it from its own job, so the per-job stamp alone let 51 dispatches through in 31 h (ci-min-per-pr-14).
 date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
 RUN_ID=13 request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && ! backfilled && grep -q "min ago (gap 60 min)" <<<"$out" \
-  || fail "no backfill within an hour of the last dispatch:" "$out" "$(cat "$TMP/gh.log")"
+[[ "$status" == 0 ]] && ! backfilled && grep -q "min ago (gap 25 min)" <<<"$out" \
+  || fail "no backfill within the gap of the last dispatch:" "$out" "$(cat "$TMP/gh.log")"
 date -u -d '-61 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
 RUN_ID=14 request --sha "$other" --release-compile-green
 [[ "$status" == 0 ]] && backfilled \

@@ -22,6 +22,29 @@ fn the_newest_picture_wins_and_replacements_are_counted() {
 }
 
 #[test]
+fn the_decode_rate_runs_from_the_first_decoded_frame() {
+    let mut stats = Stats {
+        frames: 0,
+        decoded: 1,
+        decode_errors: 0,
+        bytes: 0,
+        decode_ms: Vec::new(),
+        started_ns: 0,
+        first_frame_ms: None,
+        luma_variance: None,
+        first_decoded_ns: Some(2_000_000_000),
+        last_decoded_ns: 2_000_000_000,
+    };
+    assert_eq!(stats.decoded_fps(), None, "one frame has no rate");
+    // 31 frames over the 0.5 s after the first: 60 fps, whatever came before the first.
+    stats.decoded = 31;
+    stats.last_decoded_ns = 2_500_000_000;
+    assert_eq!(stats.decoded_fps(), Some(60.0));
+    stats.first_decoded_ns = None;
+    assert_eq!(stats.decoded_fps(), None);
+}
+
+#[test]
 fn a_waker_wakes_a_wait_and_drains() {
     let w = Waker::new().unwrap();
     w.wake();
@@ -57,4 +80,14 @@ fn ctrl_c_wakes_the_session_loop_and_marks_it_interrupted() {
     // SAFETY: a read into our buffer from our own non-blocking pipe.
     assert_eq!(unsafe { libc::read(w.fd(), buf.as_mut_ptr().cast(), 4) }, 1);
     INTERRUPT_FD.store(-1, Ordering::SeqCst);
+}
+
+#[test]
+fn luma_variance_is_zero_for_a_flat_picture() {
+    assert_eq!(luma_variance(&[16, 16, 16]), 0.0);
+}
+
+#[test]
+fn luma_variance_measures_the_y_plane() {
+    assert_eq!(luma_variance(&[0, 2, 4, 6]), 5.0);
 }

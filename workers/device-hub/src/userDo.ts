@@ -1325,7 +1325,14 @@ export class UserDO extends DurableObject<Env> {
       this.send(hostId, await this.sessionRequest(id, me, scope));
     }
     const s = this.session(id)!;
-    return json({ session: { id: s.id, state: s.state, scope: s.scope } });
+    return json({
+      session: {
+        id: s.id,
+        state: s.state,
+        scope: s.scope,
+        hubApproval: rank(perm) >= rank(scope) ? "permission" : "requested",
+      },
+    });
   }
 
   private async sessionRequest(id: string, viewer: DeviceRow, scope: Scope) {

@@ -28,6 +28,10 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
     func panePresenceDidChange(_ pane: PaneID, presence: PanePresence)
+    /// The pane's content kind for the frame-timing log (`terminal`, `browser`, `agent`, `page`, ...) and whether
+    /// its content has presented a picture (a terminal's surface drew, a page's window shows); nil: unknown. Read once
+    /// per pane per timed transition, at its first frame (`TransitionFrameLog`, `surface` and `blank_first_frame`).
+    func transitionSurface(for pane: PaneID) -> (kind: String, presented: Bool)?
 }
 
 extension LayoutPaneContentProvider {
@@ -35,6 +39,7 @@ extension LayoutPaneContentProvider {
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func retainContentView(_ view: NSView, for pane: PaneID, retired: Bool) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
+    public func transitionSurface(for pane: PaneID) -> (kind: String, presented: Bool)? { nil }
 }
 
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
@@ -299,6 +304,13 @@ final class LayoutViewContext {
             tearDown(entry.host)
             runClosingWork(of: pane)
         }
+    }
+
+    /// The panes `screen` took out of its layout that still show (``retire(_:from:until:)``): until the change that took
+    /// them out shows, or, when that change moves its panes, under the panes that take their room until the motion's end
+    /// (`PaneCommitMotion.keepsDeparted`). O(retired panes).
+    func retiredShown(of screen: ScreenID) -> [PaneID] {
+        retired.compactMap { pane, entry in entry.screen == screen && entry.shown ? pane : nil }
     }
 
     /// The layout change that took them out shows in this turn: the hosts `screen` kept shown for it

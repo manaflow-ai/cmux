@@ -53,6 +53,7 @@ headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
             "$crates/cmux-app-ffi/include/cmux_files_lister.h:CCmuxFilesListerFFI"
             "$crates/cmux-app-ffi/include/cmux_system_calendar.h:CCmuxSystemCalendarFFI"
             "$crates/cmux-app-ffi/include/cmux_settings.h:CCmuxSettingsFFI"
+            "$crates/cmux-app-ffi/include/cmux_updater.h:CCmuxUpdaterFFI"
             "$crates/cmux-app-ffi/include/cmux_home.h:CCmuxHomeFFI"
             "$crates/cmux-app-ffi/include/cmux_interactivity.h:CCmuxInteractivityFFI"
             "$crates/cmux-launch-shell/include/cmux_launch_shell.h:CCmuxLaunchShellFFI"
@@ -175,8 +176,23 @@ for target in "${targets[@]}"; do
   # --print native-static-libs: the system libraries and frameworks the static
   # library needs, which the dylib's own link names (the app's link did before).
   # Cargo replays the note from its cache when nothing rebuilds.
-  (cd "$crate_dir" && cargo rustc --lib --locked --release --target "$target" -- --print native-static-libs) 2>&1 \
-    | tee "$work/$target.cargo.log" >&2
+  build_slice() {
+    (cd "$crate_dir" && cargo rustc --lib --locked --release --target "$target" -- --print native-static-libs) 2>&1 \
+      | tee "$work/$target.cargo.log" >&2
+  }
+  if ! build_slice; then
+    # A kept directory is one per Mac, shared by every runner on it. Every app FFI release
+    # from 07:33Z to 10:53Z on 2026-11-27 failed there on four Macs with
+    # `error[E0463]: can't find crate for cmux_embed_macros` (runs 45966494059, 45978120624,
+    # 45983215588, 45985112967; no input or toolchain change since the green 45959223747),
+    # so the FFI pin sat 336 min behind. A release never fails for want of a warm cache:
+    # build cold in the job's own directory, as before the kept one.
+    [[ "$CARGO_TARGET_DIR" != "$out_root/cargo" ]] || exit 1
+    echo "warning: the build in the kept cargo target directory $CARGO_TARGET_DIR failed; building cold in $out_root/cargo" >&2
+    echo "::warning title=app FFI kept target::the build in $CARGO_TARGET_DIR failed for $target; this release builds cold" >&2
+    export CARGO_TARGET_DIR="$out_root/cargo"
+    build_slice
+  fi
   native="$(sed -n 's/^note: native-static-libs: //p' "$work/$target.cargo.log" | tail -n 1)"
   [[ -n "$native" ]] || { echo "error: cargo printed no native-static-libs for $target" >&2; exit 1; }
   # clang links libSystem itself (-lSystem, -lc and -lm are in it).

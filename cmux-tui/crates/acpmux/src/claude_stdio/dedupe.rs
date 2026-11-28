@@ -17,7 +17,9 @@
 //! - a `Read` of a file (same path, the same lines or fewer) whose content hash and stat are
 //!   what they were when this session last read it;
 //! - in the same turn, the same Bash command from a short read-only list whose every input
-//!   (`dedupe_shell.rs`) stats the same.
+//!   (`dedupe_shell.rs`) stats the same;
+//! - a `Grep` or `Glob` with the same input from the same directory, when no directory or file in
+//!   the tree it searches has moved since (`dedupe_search.rs`; RFD 0147 names Read, Grep and Glob).
 //!
 //! State resets on a compaction (`compact_boundary`), on `/clear`, after 5 minutes with no tool
 //! call (Claude Code may clear old tool results once its prompt cache has lapsed), and with the
@@ -39,8 +41,10 @@
 //! off whatever the file says. Fails open: any
 //! error, a fingerprint that takes over [`WORK_BOUND`], or a call it does not know passes through
 //! with no decision. Counted per turn on the prompt result's `_meta.harnessMagic.dedupe`, which
-//! the hub puts on `turn_result` (`readsStubbed`, `callsStubbed`, `estTokensSaved`).
+//! the hub puts on `turn_result` (`readsStubbed`, `callsStubbed`, `searchesStubbed`,
+//! `estTokensSaved`).
 
+use super::dedupe_search::{self, Search};
 use super::dedupe_shell::{self, Inputs};
 use super::*;
 use std::path::PathBuf;
@@ -49,7 +53,7 @@ use std::time::{Duration, Instant};
 /// The callback's id.
 pub(super) const DEDUPE_CALLBACK: &str = "acpmux-dedupe";
 /// The tools it is fired for.
-pub(super) const DEDUPE_MATCHER: &str = "Read|Bash";
+pub(super) const DEDUPE_MATCHER: &str = "Read|Bash|Grep|Glob";
 /// Claude Code's wait for the answer, in seconds. The answer comes in milliseconds; a fingerprint
 /// past [`WORK_BOUND`] answers nothing.
 pub(super) const DEDUPE_TIMEOUT_S: u64 = 30;
@@ -77,7 +81,7 @@ thread_local! {
 }
 
 /// Whether the feature is on now (the setting is read at most every 5 s).
-pub(super) fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     let env = std::env::var(KILL_ENV).ok();
     if env_off(env.as_deref()) {
         return false;
@@ -138,6 +142,7 @@ pub(super) fn env_off(value: Option<&str>) -> bool {
 pub(super) struct Counters {
     pub reads_stubbed: u64,
     pub calls_stubbed: u64,
+    pub searches_stubbed: u64,
     pub est_tokens_saved: u64,
     /// Of `reads_stubbed`, those answered from a prefetch attachment.
     pub reads_stubbed_prefetched: u64,
@@ -148,6 +153,7 @@ impl Counters {
         json!({
             "readsStubbed": self.reads_stubbed,
             "callsStubbed": self.calls_stubbed,
+            "searchesStubbed": self.searches_stubbed,
             "estTokensSaved": self.est_tokens_saved,
             "readsStubbedPrefetched": self.reads_stubbed_prefetched,
         })
@@ -166,6 +172,12 @@ pub(super) enum Call {
         cwd: String,
         command: String,
         inputs: Inputs,
+    },
+    /// A `Grep` or `Glob`; `key`: its whole input, keys sorted.
+    Search {
+        cwd: String,
+        key: String,
+        search: Search,
     },
 }
 
@@ -204,6 +216,16 @@ impl Call {
                 let inputs = dedupe_shell::inputs(&command, Path::new(&cwd))?;
                 Some(Call::Shell { cwd, command, inputs })
             }
+            "Grep" | "Glob" => {
+                let cwd = input.get("cwd")?.as_str()?.to_owned();
+                if !Path::new(&cwd).is_absolute() {
+                    return None;
+                }
+                let search = dedupe_search::search(tool, args, Path::new(&cwd))?;
+                let sorted: std::collections::BTreeMap<_, _> = args.iter().collect();
+                let key = format!("{tool} {}", serde_json::to_string(&sorted).ok()?);
+                Some(Call::Search { cwd, key, search })
+            }
             _ => None,
         }
     }
@@ -213,6 +235,9 @@ impl Call {
         match self {
             Call::Read { path, .. } => file_fingerprint(path),
             Call::Shell { inputs, .. } => dedupe_shell::fingerprint(inputs),
+            Call::Search { search, .. } => {
+                dedupe_search::fingerprint(search, Instant::now() + WORK_BOUND)
+            }
         }
     }
 }
@@ -312,6 +337,9 @@ fn stamp_part(call: &Call, fingerprint: &str) -> Option<String> {
         Call::Shell { inputs, .. } => {
             (dedupe_shell::fingerprint(inputs).as_deref() == Some(fingerprint)).then(String::new)
         }
+        Call::Search { .. } => {
+            (call.fingerprint().as_deref() == Some(fingerprint)).then(String::new)
+        }
     }
 }
 
@@ -346,6 +374,9 @@ struct State {
     pending: HashMap<String, Pending>,
     reads: HashMap<(String, PathBuf), Vec<Seen>>,
     shells: HashMap<(String, String, String), Seen>,
+    /// Keyed (agent, cwd, input); kept across turns like a Read, as the fingerprint covers the
+    /// whole tree.
+    searches: HashMap<(String, String, String), Seen>,
     counters: Counters,
 }
 
@@ -354,6 +385,7 @@ impl State {
         self.pending.clear();
         self.reads.clear();
         self.shells.clear();
+        self.searches.clear();
         self.epoch += 1;
     }
 }
@@ -407,6 +439,14 @@ impl Dedupe {
                     r.stubbed = true;
                     (n - r.at, r.chars, false)
                 }),
+            Call::Search { cwd, key, .. } => s
+                .searches
+                .get_mut(&(agent.to_owned(), cwd.clone(), key.clone()))
+                .filter(|r| !r.stubbed && r.fingerprint == fingerprint)
+                .map(|r| {
+                    r.stubbed = true;
+                    (n - r.at, r.chars, false)
+                }),
         };
         if let Some((ago, chars, prefetched)) = found {
             let stub = if prefetched { prefetch_stub() } else { stub(&call, ago) };
@@ -417,6 +457,7 @@ impl Dedupe {
             match call {
                 Call::Read { .. } => s.counters.reads_stubbed += 1,
                 Call::Shell { .. } => s.counters.calls_stubbed += 1,
+                Call::Search { .. } => s.counters.searches_stubbed += 1,
             }
             s.counters.est_tokens_saved += saved;
             return Some(stub);
@@ -448,10 +489,12 @@ impl Dedupe {
         if s.epoch != p.epoch {
             return;
         }
-        let total: usize = s.reads.values().map(Vec::len).sum::<usize>() + s.shells.len();
+        let total: usize =
+            s.reads.values().map(Vec::len).sum::<usize>() + s.shells.len() + s.searches.len();
         if total >= MAX_RECORDS {
             s.reads.clear();
             s.shells.clear();
+            s.searches.clear();
         }
         let chars = text.chars().count();
         match p.call {
@@ -485,6 +528,20 @@ impl Dedupe {
                     },
                 );
             }
+            Call::Search { cwd, key, .. } => {
+                s.searches.insert(
+                    (p.agent, cwd, key),
+                    Seen {
+                        fingerprint: p.fingerprint,
+                        lines: (0, 0),
+                        at: p.at,
+                        turn: p.turn,
+                        chars,
+                        stubbed: false,
+                        prefetched: false,
+                    },
+                );
+            }
         }
     }
 
@@ -498,10 +555,12 @@ impl Dedupe {
         }
         // The idle clock runs from what entered the context last.
         s.last_call = Some(now);
-        let total: usize = s.reads.values().map(Vec::len).sum::<usize>() + s.shells.len();
+        let total: usize =
+            s.reads.values().map(Vec::len).sum::<usize>() + s.shells.len() + s.searches.len();
         if total + files.len() >= MAX_RECORDS {
             s.reads.clear();
             s.shells.clear();
+            s.searches.clear();
         }
         let (at, turn) = (s.calls, s.turn);
         for (a, fingerprint) in files {
@@ -582,6 +641,12 @@ pub(super) fn stub(call: &Call, ago: u64) -> String {
             "[dedupe] `{command}` ran {ago} with the same inputs (no file or ref it reads \
              changed), so its output is the same; it is still in your context. (Not run again. \
              Run it again and it runs.)"
+        ),
+        Call::Search { search, .. } => format!(
+            "[dedupe] the same {} ran {ago} and no file or directory it searches changed since, \
+             so its answer is the same; it is still in your context. (Not run again. If that \
+             result is no longer in your context, call it again and it runs.)",
+            search.tool.name()
         ),
     }
 }

@@ -1,6 +1,8 @@
+import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudPlace
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
@@ -15,7 +17,7 @@ final class CloudUploads {
     nonisolated static var pastes: URL? { AgentPaneCloudAttachments.pastes }
 
     /// Where one tab's upload goes: the chat's session, its machine and its work root.
-    private struct Target {
+    struct Target {
         var session: String
         var machine: CloudMachineSession
         var remoteRoot: String
@@ -56,7 +58,8 @@ final class CloudUploads {
         }
     }
 
-    private static func target(tab: String, services: AppServices) -> Target? {
+    /// Where chat tab `tab`'s files go on its Cloud machine (also Sources > Add Folder, ``addFolder(tab:session:services:)``).
+    static func target(tab: String, services: AppServices) -> Target? {
         guard !services.machines.isFeatureDisabled(.cloud), let binary = services.cloud.move.cli, pastes != nil else { return nil }
         for chat in services.cloud.movedChats.all() where chat.broughtBack == nil {
             guard let machine = services.machines.session(chat.machineID), machine.daemon.connection != nil,
@@ -79,11 +82,11 @@ final class CloudUploads {
             return AgentPaneReply.failure(code: "link_error", message: CloudUploadStrings.failed)
         }
         let folder = pastes.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
         let paths: [String]
         do {
             paths = try await Task.detached { try AgentPaneCloudAttachments.write(files, in: folder) }.value
         } catch {
+            await AgentPaneStageFiles.remove(folder, work: services.work)
             // The error's domain and code only: its description can name the file.
             let failure = error as NSError
             services.cloud.logger.error("cloud upload: could not write the pasted files: \(failure.domain, privacy: .public) \(failure.code)")
@@ -95,6 +98,7 @@ final class CloudUploads {
         } catch {
             answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
         }
+        await AgentPaneStageFiles.remove(folder, work: services.work)
         return reply(answer, names: files.map(\.name), services: services)
     }
 
@@ -123,18 +127,10 @@ final class CloudUploads {
             } else { target = found }
             if let refusal = Self.beginRefusal(name: name, size: size, manifest: batchToken == nil ? manifest : nil) { return refusal }
             guard let pastes = Self.pastes else { return failed }
-            let begun = stages.begin(name: name, size: size, batchToken: batchToken, manifest: manifest, target: target, work: services.work) { token in
-                let folder = pastes.appendingPathComponent("staged-" + token, isDirectory: true)
-                let file = folder.appendingPathComponent(name, isDirectory: false)
-                do {
-                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                    guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
-                } catch {
-                    try? FileManager.default.removeItem(at: folder)
-                    return nil
-                }
-                return (file, folder)
-            }
+            let folder = pastes.appendingPathComponent("staged-" + UUID().uuidString.lowercased(), isDirectory: true), file = folder.appendingPathComponent(name, isDirectory: false)
+            guard await AgentPaneStageFiles.make(file, in: folder, work: services.work) else { await AgentPaneStageFiles.remove(folder, work: services.work); return failed }
+            let begun = stages.begin(name: name, size: size, batchToken: batchToken, manifest: manifest, target: target, work: services.work) { _ in (file, folder) }
+            if begun == nil { await AgentPaneStageFiles.remove(folder, work: services.work) }
             guard let begun else { return failed }
             var response: [String: Any] = ["token": begun.token, "size": size, "chunkSize": AgentPaneStagedUploads<Target>.chunkBytes]
             if let batch = begun.batchToken { response["batchToken"] = batch }
@@ -181,5 +177,65 @@ enum CloudUploadStrings {
     static var bundle: Bundle { .module.inAppLanguage }
     static var failed: String {
         String(localized: "cloud.upload.failed", defaultValue: "Couldn't send the file to the Cloud machine.", table: "Cloud", bundle: .module.inAppLanguage)
+    }
+}
+
+/// Sources > Add Folder on a running Cloud chat (`cloud.folder.add`, setting `cloud.addFolderLive`,
+/// on by default). Leo, 2026-11-25: "mostly just the one you selected, right? then you can add more
+/// folders and files/select more as you go potentially". The person picks a Mac folder; one Rust
+/// call (`cmux link access grant --attach`) refuses what may never go (outside the home folder, dot
+/// and credential folders, ~/Library), copies it read-only to the chat's machine, skipping secret
+/// files, and puts the copy among the chat's folders there (`chat-folder-add`, acpmux
+/// `_acpmux/set_directories`, between turns). The chat draws the line ("Added ~/x as /vm/path")
+/// from acpmux's record; a failure comes back as the reply's reason, which the page shows in the
+/// chat, and nothing is added.
+extension CloudUploads {
+    static func addFolderIsOn(_ services: AppServices) -> Bool {
+        CloudNewWorkspaceSetting().addFolderLive(in: services.settings?.snapshot.root ?? .object([:]))
+    }
+
+    /// The person's Add Folder click on chat tab `tab` showing `session`: `{applied, path, from}`,
+    /// `applied` "cancelled" when no folder was picked.
+    static func addFolder(tab: String, session: String, services: AppServices) async throws -> [String: Any] {
+        guard addFolderIsOn(services) else { throw addFolderFailure(addFolderOff) }
+        guard let target = target(tab: tab, services: services), target.session == session else {
+            throw addFolderFailure(addFolderUnavailable)
+        }
+        guard let folder = await NewTabPage.chooseFolder(in: NSApp.keyWindow) else { return ["applied": "cancelled"] }
+        let started = ContinuousClock.now
+        guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath else { throw addFolderFailure(addFolderUnavailable) }
+        let answer: CloudAccessCLI.Answer
+        do {
+            answer = try await CloudAccessCLI(binary: target.binary).grantAttached(
+                socket: socket, machine: target.machine.machineID, session: session, remoteRoot: target.remoteRoot, folder: folder.path)
+        } catch {
+            answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
+        }
+        let logger = services.cloud.logger
+        guard answer.ok, let path = answer.attachedPath else {
+            logger.error("cloud folder add: session \(session, privacy: .public) failed \(answer.errorCode ?? "", privacy: .public)")
+            // The CLI's reason names what was refused and why ("… cannot be shared: credential folders are never shared").
+            throw addFolderFailure(answer.error ?? addFolderFailed)
+        }
+        let applied = answer.attachedApplied ?? "now"
+        let took = started.duration(to: .now).components
+        let ms = Int(took.seconds) * 1000 + Int(took.attoseconds / 1_000_000_000_000_000)
+        logger.info("cloud folder add: session \(session, privacy: .public) applied \(applied, privacy: .public) in \(ms) ms")
+        return ["applied": applied, "path": path, "from": folder.path]
+    }
+
+    private static func addFolderFailure(_ message: String) -> NSError {
+        NSError(domain: "cloud.folder.add", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+
+    // Add Folder's failure texts, shown in the chat.
+    private static var addFolderOff: String {
+        String(localized: "cloud.folderAdd.off", defaultValue: "Adding folders to Cloud chats is turned off in Settings.", table: "Cloud", bundle: .module.inAppLanguage)
+    }
+    private static var addFolderUnavailable: String {
+        String(localized: "cloud.folderAdd.unavailable", defaultValue: "This chat's Cloud machine isn't connected.", table: "Cloud", bundle: .module.inAppLanguage)
+    }
+    private static var addFolderFailed: String {
+        String(localized: "cloud.folderAdd.failed", defaultValue: "The folder couldn't be added.", table: "Cloud", bundle: .module.inAppLanguage)
     }
 }

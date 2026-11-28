@@ -63,6 +63,27 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(s['mbps_mean'], 8.0)
         self.assertEqual(s['stage_ledger'], LEDGER)
 
+    def test_passive_100ms_rows_read_time_to_rate_below_a_second(self):
+        # 125_000 bytes in 100 ms is 10 Mbit/s; 200_000 is 16. Target first at the line at 0.4 s, received at 0.5 s.
+        rows = [[100, 125_000, None], [200, 125_000, 900], [300, 125_000, 8000], [400, 125_000, 15_000],
+                [500, 200_000, 16_000], [600, 200_000, 15_500], [700, 200_000, 18_000]]
+        s = rdnl.summarize_passive({'series': [], 'series_100ms': rows, 'ended': None})
+        self.assertEqual((s['target_s_to_15mbps_100ms'], s['received_s_to_15mbps_100ms'], s['s_to_15mbps_100ms']),
+                         (0.4, 0.5, 0.5))
+        self.assertEqual(s['min_target_kbps_after_15mbps'], 15_500)
+        self.assertEqual((s['floor_rows'], s['fine_rows']), (1, 7))
+
+    def test_passive_100ms_rows_absent_or_never_at_the_line(self):
+        self.assertNotIn('s_to_15mbps_100ms', rdnl.summarize_passive({'series': [], 'ended': None}))
+        self.assertEqual(rdnl.fine_rate([[100, 'x']]), {})
+        s = rdnl.fine_rate([[100, 10_000, 1000], [200, 10_000, 2000]])
+        self.assertIsNone(s['s_to_15mbps_100ms'])
+        self.assertIsNone(s['min_target_kbps_after_15mbps'])
+        self.assertEqual(s['floor_rows'], 1)
+
+    def test_host_sends_stats_every_100ms(self):
+        self.assertEqual(rdnl.HOST_STATS_ARGS, ['--stats-ms', '100'])
+
     def test_passive_without_ledger_or_report(self):
         self.assertIsNone(rdnl.summarize_passive({'series': [], 'ended': None})['stage_ledger'])
         self.assertFalse(rdnl.summarize_passive(None)['ok'])

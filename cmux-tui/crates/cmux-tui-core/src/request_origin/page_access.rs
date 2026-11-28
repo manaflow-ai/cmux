@@ -457,6 +457,7 @@ const fn access(operation: Op) -> Access {
         | Op::CloudVmProvisionApi
         | Op::CloudVmPublicationApiKeys
         | Op::CloudVmRevokePublicationApiKey
+        | Op::CloudVmAgentKeyCreate
         | Op::CloudRunsCreate
         | Op::CloudRunsStart
         | Op::CloudRunsWait
@@ -477,6 +478,8 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerGithubComplete
         | Op::CloudOwnerGithubList
         | Op::CloudOwnerGithubCloneToken
+        | Op::CloudOwnerSlack
+        | Op::CloudOwnerSlackAwake
         | Op::CloudOwnerTurnCheckpoint
         | Op::CloudOwnerTurnRewind
         | Op::CloudOwnerTurns

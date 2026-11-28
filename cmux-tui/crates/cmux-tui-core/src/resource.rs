@@ -646,6 +646,8 @@ pub enum ResourceOperation {
     CloudVmPublicationApiKeys,
     #[serde(rename = "cloud.vm.revoke_publication_api_key")]
     CloudVmRevokePublicationApiKey,
+    #[serde(rename = "cloud.vm.agent_key_create")]
+    CloudVmAgentKeyCreate,
     #[serde(rename = "cloud.runs.create")]
     CloudRunsCreate,
     #[serde(rename = "cloud.runs.start")]
@@ -686,6 +688,10 @@ pub enum ResourceOperation {
     CloudOwnerGithubList,
     #[serde(rename = "cloud.owner.github_clone_token")]
     CloudOwnerGithubCloneToken,
+    #[serde(rename = "cloud.owner.slack")]
+    CloudOwnerSlack,
+    #[serde(rename = "cloud.owner.slack_awake")]
+    CloudOwnerSlackAwake,
     #[serde(rename = "cloud.owner.turn_checkpoint")]
     CloudOwnerTurnCheckpoint,
     #[serde(rename = "cloud.owner.turn_rewind")]

@@ -25,7 +25,15 @@ export type Environment = {
   downSince?: number;
   /// Its owner enrolled it in AutoCloud (RFD 0172): AutoCloud's Mac tier, listed after this Mac.
   autoCloud?: MachineAutoCloud;
+  /// What acpmux says the peer is for (`_acpmux/status` `peers[].group`, one parent agent session
+  /// per VM, #54094): `own` a machine of the person's, listed inline in a new chat's picker, or
+  /// `agent` one of the agent machines, behind the picker's Agent machines list. Absent from an
+  /// older daemon: the name decides then (environmentSections).
+  group?: PeerGroup;
 };
+
+/// A peer's group as acpmux says it (`peers[].group`).
+export type PeerGroup = "own" | "agent";
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
 /// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
@@ -83,6 +91,19 @@ export function peerKindsFromStatus(status: unknown): Record<string, "ssh" | "cl
   return kinds;
 }
 
+/// Each peer's group from `_acpmux/status` (`peers[].group`, #54094): `own` or `agent`. A peer with
+/// no group, or another word, is left out, so the name decides (environmentSections).
+export function peerGroupsFromStatus(status: unknown): Record<string, PeerGroup> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  const groups: Record<string, PeerGroup> = {};
+  for (const peer of peers) {
+    const { name, group } = (peer ?? {}) as { name?: unknown; group?: unknown };
+    if (typeof name === "string" && name && (group === "own" || group === "agent")) groups[name] = group;
+  }
+  return groups;
+}
+
 /// Each peer's `connected` flag from `_acpmux/status` (the relay keeps it only as a JSON boolean;
 /// AcpmuxPaneMethods.replyShapes). A peer with no flag, or one that is not a boolean, is left out.
 export function peerConnectedFromStatus(status: unknown): Record<string, boolean> {
@@ -94,6 +115,20 @@ export function peerConnectedFromStatus(status: unknown): Record<string, boolean
     if (typeof name === "string" && name && typeof flag === "boolean") connected[name] = flag;
   }
   return connected;
+}
+
+/// The registry of each Cloud VM's current peer lease, as reported by this Mac's daemon.
+export function peerCloudRegistriesFromStatus(status: unknown): Record<string, string> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  return Object.fromEntries(
+    peers.flatMap((peer) => {
+      const { name, cloudRegistryId } = (peer ?? {}) as { name?: unknown; cloudRegistryId?: unknown };
+      return typeof name === "string" && name && typeof cloudRegistryId === "string" && cloudRegistryId
+        ? [[name, cloudRegistryId]]
+        : [];
+    }),
+  );
 }
 
 /// Each connected peer's `agentLogin` flag from `_acpmux/status` (it listed `agent_login` at its
@@ -237,6 +272,9 @@ export function environmentSections(environments: readonly Environment[]): Map<s
       if (environment.kind === "local") return [environment.id, "local"];
       if (environment.kind === "cloud") return [environment.id, "fleet"];
       if (environment.autoCloud) return [environment.id, "autocloud"];
+      // acpmux's own word wins over the name: an agent machine is the fleet's, a peer it calls own the person's.
+      if (environment.group === "agent") return [environment.id, "fleet"];
+      if (environment.group === "own") return [environment.id, "mine"];
       const stem = stemOf(environment);
       return [environment.id, stem && (stems.get(stem) ?? 0) >= POOL_MIN ? "fleet" : "mine"];
     }),

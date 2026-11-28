@@ -12,6 +12,8 @@ public struct SavedTaskDraft: Codable, Hashable, Sendable, Identifiable {
     public var files: [SavedTaskFile]
     public var picks: [TaskAgentPick]
     public var macID: String?
+    /// The Cloud machine it runs on, or nil for a Mac.
+    public var cloudID: String?
     public var directory: String?
     public var name: String
     public var launch: TaskLaunch
@@ -29,13 +31,14 @@ public struct SavedTaskDraft: Codable, Hashable, Sendable, Identifiable {
         files = draft.files.map { SavedTaskFile(id: $0.id, name: $0.name) }
         picks = draft.picks
         macID = draft.macID
+        cloudID = draft.cloudID
         directory = draft.directory
         name = draft.name
         launch = draft.launch
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, updatedAt, prompt, imageIDs, files, picks, macID, directory, name, launch
+        case id, updatedAt, prompt, imageIDs, files, picks, macID, cloudID, directory, name, launch
     }
 
     /// A draft written before files and the launch choice were kept reads with none and a chat.
@@ -48,6 +51,7 @@ public struct SavedTaskDraft: Codable, Hashable, Sendable, Identifiable {
         files = try c.decodeIfPresent([SavedTaskFile].self, forKey: .files) ?? []
         picks = try c.decodeIfPresent([TaskAgentPick].self, forKey: .picks) ?? []
         macID = try c.decodeIfPresent(String.self, forKey: .macID)
+        cloudID = try c.decodeIfPresent(String.self, forKey: .cloudID)
         directory = try c.decodeIfPresent(String.self, forKey: .directory)
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         launch = try c.decodeIfPresent(TaskLaunch.self, forKey: .launch) ?? .chat
@@ -187,7 +191,7 @@ public final class TaskDraftStore {
             }
         }
         return TaskDraft(id: entry.id, prompt: entry.prompt, images: images, files: files, picks: entry.picks, macID: entry.macID,
-                         directory: entry.directory, name: entry.name, launch: entry.launch)
+                         cloudID: entry.cloudID, directory: entry.directory, name: entry.name, launch: entry.launch)
     }
 
     /// Writes the index and the photos not yet on disk, then removes the photo files no draft

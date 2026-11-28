@@ -21,7 +21,7 @@ final class WorkspaceOpenTopLeftUITests: XCTestCase {
         defer { app.terminate() }
 
         let terminal = app.textViews["terminal.composer.field"].firstMatch
-        let claude = app.buttons["Reply to Claude"].firstMatch
+        let claude = app.buttons["agentChat.composer.collapsed"].firstMatch
 
         expect(terminal, "exists == true AND hittable == true", timeout: 20, "first open: the zsh tab (top-left pane) is on screen")
         XCTAssertFalse(claude.exists && claude.isHittable, "first open: not the Mac's focused Claude tab")

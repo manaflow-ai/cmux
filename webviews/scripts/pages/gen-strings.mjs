@@ -361,17 +361,6 @@ export const PAGES = {
       },
     ],
   },
-  // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
-  // the section's `machines.` keys and the check steps its status mark names (`addMachine.step.`).
-  machines: {
-    out: "webviews/src/pages/machines/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("machines.") || key.startsWith("addMachine.step.")),
-      },
-    ],
-  },
   // The Artifacts page (cmux-page://cmux.artifacts/); its table lives next to it.
   artifacts: {
     out: "webviews/src/pages/artifacts/generated/strings.json",
@@ -424,7 +413,10 @@ export const PAGES = {
   // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
   "home-channels": {
     out: "webviews/src/pages/home-channels/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/pages/home-channels/Localizable.xcstrings" },
+      { file: "webviews/src/pages/home-channels/transcript/Localizable.xcstrings.d" },
+    ],
   },
   // Home's Set Up cmux card (setup-card), with the Swift keys it replaces; its table lives next to it.
   "setup-card": {

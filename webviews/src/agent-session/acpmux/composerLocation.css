@@ -1833,6 +1833,14 @@
   --acpmux-shell-inset-bottom: calc(var(--acpmux-prompt-inset) - var(--acpmux-prompt-drop));
   --acpmux-shell-inset-left: var(--acpmux-composer-lead-gap);
 }
+/* A subagent's relay composer draws no + (Composer.tsx `useRelayProps`), so its text starts where +'s
+   glyph would: under the subagent's mark in the header over it, which is centred in +'s box. With
+   the plain lead gap the text stood on the box's edge. */
+.acpmux-composer[data-composer-relay] .acpmux-composer-box[data-composer-grid] {
+  --acpmux-composer-lead-gap: calc(
+    var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-glyph)) / 2
+  );
+}
 /* Under the attachments' band the prompt starts one gap down, as in the other look
    (composerAttachments.css), at this look's specificity. Shell mode takes the band there, through
    the one inset it draws from, for this look too. */
@@ -2079,10 +2087,31 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
+/* The warning is the row's status, never the row: the machine's name keeps its room and a long
+   warning ("High load: 15/4 cores busy") shortens with an ellipsis instead of squeezing the name out. */
+.acpmux-env-row:has(> .acpmux-env-state[data-warning="true"]) > .acpmux-location-name { flex: 1 0 auto; max-width: 60%; }
+.acpmux-env-row .acpmux-env-state[data-warning="true"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* A machine list's Unavailable row (Leo, 2026-11-09: "drop retired and unreachable machines from the
    list, or group them at the bottom"): muted like the machines it holds, its chevron turning down
    while the group is open, as a Mac outline's disclosure does. */
 .acpmux-env-row.acpmux-env-unavailable { color: var(--agent-muted); }
+/* Cloud rows of the list kept from the last launch (EnvironmentPicker `lastSeenLook`): dimmed under
+   their "Last seen" caption (the row's data-section heading), or a notice with Retry over the list. */
+/* The row's children, not the row: its "Last seen" caption (a data-section heading) stays readable. */
+.acpmux-env-row[data-last-seen="dimmed-header"] > * { opacity: .55; }
+.acpmux-env-popover .acpmux-env-last-seen-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.acpmux-env-last-seen-text { flex: 1; min-width: 0; white-space: normal; line-height: 1.3; }
+.acpmux-env-last-seen-retry { flex: none; font-size: var(--text-caption); }
 .acpmux-env-unavailable-chevron { transition: transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out); }
 .acpmux-env-unavailable[data-expanded] .acpmux-env-unavailable-chevron { transform: rotate(90deg); }
 /* A new chat's extra folders (ExtraFolderList.tsx), under the folder menu's list: a quiet heading,
@@ -2265,3 +2294,7 @@
 .acpmux-env-popover .acpmux-env-back:hover { color: var(--agent-text); background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
 .acpmux-env-popover .acpmux-env-back-chevron { display: inline-flex; rotate: 180deg; }
 .acpmux-env-popover .acpmux-env-back-chevron:dir(rtl) { rotate: 0deg; }
+/* The agent machines' row while their list is open to the side: highlighted, as a Mac menu's open submenu row. */
+.acpmux-env-popover .acpmux-menu-item:has(> [data-action="agentMachines"][data-expanded]) {
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+}

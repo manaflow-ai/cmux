@@ -110,7 +110,7 @@ export default agentPaneEntry({
       documentAttributes: { "woken-gap": "turn" },
     },
     tail: {
-      note: "Alternative: the tool row takes the hidden notice's place, 8 under the footer as a status line there sits. It reads as the ended turn's tail.",
+      note: "Alternative: the tool row takes the hidden notice's place, flush under the footer as a status line there sits. It reads as the ended turn's tail.",
       snapshot: chat([]),
       recording,
       documentAttributes: { "woken-gap": "tail" },
@@ -137,7 +137,7 @@ export default agentPaneEntry({
       recording,
     },
     "footer-working-8": {
-      note: "Alternative: the footer gap (8), as a status line under a footer row and the footer under its reply. ~22 from the icons to the words.",
+      note: "Alternative: the footer gap (8), as the footer sits under its reply. ~22 from the icons to the words.",
       snapshot: chat([]),
       recording,
       documentAttributes: { "footer-working-gap": "footer" },

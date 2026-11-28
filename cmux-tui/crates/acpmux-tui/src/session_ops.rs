@@ -284,7 +284,11 @@ impl App {
             self.status = e;
             return;
         }
-        let mut meta = json!({"harness": agent, "policy": POLICIES[form.policy]});
+        let Some(policy) = POLICIES.get(form.policy) else {
+            self.report_error("select a valid session policy".into());
+            return;
+        };
+        let mut meta = json!({"harness": agent, "policy": policy});
         if !form_name.is_empty() {
             meta.set("name", json!(form_name));
         }
@@ -356,8 +360,11 @@ impl App {
             .flatten()
             .filter_map(|h| {
                 let id = h.get("harness")?.as_str()?.to_owned();
+                // The agent's name beside its id ("claude-sr · Claude Code"), as the GUI names it.
                 let label = if id.split('/').next_back() == Some("deepseek") {
                     format!("{id} · DeepSeek Harness")
+                } else if let Some(name) = crate::agent_names::known(&id) {
+                    format!("{id} · {name}")
                 } else {
                     id.clone()
                 };
@@ -526,7 +533,11 @@ impl App {
         );
         // Land on the current harness's first model when no exact model matched.
         if current_model.is_none() {
-            p.cursor = p.visible.iter().position(|&i| !p.rows[i].header).unwrap_or(0);
+            p.cursor = p
+                .visible
+                .iter()
+                .position(|&i| p.rows.get(i).is_some_and(|row| !row.header))
+                .unwrap_or(0);
         }
         self.overlay = Overlay::Picker(p);
         self.status = DEFAULT_STATUS.into();
@@ -799,11 +810,12 @@ impl App {
                     None => (None, group.clone()),
                 };
                 if live.is_none() && self.on_draft() {
-                    let d = self.draft_mut().unwrap();
-                    d.peer = peer;
-                    d.harness = agent;
-                    d.model = if value == "default" { None } else { Some(value.clone()) };
-                    self.status = format!("draft: {group} · {value}");
+                    if let Some(d) = self.draft_mut() {
+                        d.peer = peer;
+                        d.harness = agent;
+                        d.model = if value == "default" { None } else { Some(value.clone()) };
+                        self.status = format!("draft: {group} · {value}");
+                    }
                 } else if let Some(id) = live {
                     if same_harness {
                         // The chat's level holds across the switch (`picks_hold.rs`).

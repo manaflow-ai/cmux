@@ -512,6 +512,22 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-24: "the extra spacing after thinking added more layout shifts". A thought streams, then the
+  // reply streams under it: nothing drawn over the reply moves when the thought ends or the reply starts.
+  "think-then-answer": () => {
+    const b = sim("think-then-answer", "A thought streamed in deltas, then the reply streamed under it, twice.");
+    b.prompt("Why does the retry path double the wait?");
+    b.think("Weighing the retry path and what the jitter does to the wait between attempts.", { chunks: 8 });
+    b.say("The jitter is added after the backoff doubles, so the wait grows twice per attempt.", { chunks: 8 });
+    b.turnEnd();
+    b.prompt("And the fix?", 4_000);
+    b.think("The jitter should be drawn once per attempt, before the doubling.", { chunks: 6 });
+    b.tool("bun test retry", { ms: 600 });
+    b.think("The test passes with the jitter drawn first.", { chunks: 4 });
+    b.say("Draw the jitter before doubling; the retry test passes.", { chunks: 6 });
+    return b.turnEnd().build();
+  },
+
   "thought-only-turn": () => {
     const b = sim(
       "thought-only-turn",

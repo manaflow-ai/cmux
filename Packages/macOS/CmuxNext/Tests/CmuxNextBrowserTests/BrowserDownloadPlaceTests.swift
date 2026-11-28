@@ -80,4 +80,56 @@ import Testing
         defer { placement.discard() }
         #expect(placement.finalURL == chosen)
     }
+
+    /// The write that asks for the folder's access runs off the main thread
+    /// too: an absent name's `lstat` never asked, and WebKit then asked on the
+    /// main thread (its sandbox extension for the file), freezing the app.
+    @Test func theFolderWriteIsCheckedOffTheMainThread() async throws {
+        let onMain = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+        let placement = try await BrowserDownloadPolicy.place(
+            chosen: nil, suggestedFilename: "login.bin", directory: directory,
+            reservations: BrowserDownloadReservations(),
+            probe: { _ in .absent },
+            mayWrite: { _ in
+                onMain.withLock { $0.append(Thread.isMainThread) }
+                return true
+            }
+        ).get()
+        defer { placement.discard() }
+        #expect(onMain.withLock { $0 } == [false])
+    }
+
+    @Test func aFolderThatRefusesWritesFailsBeforeAnyName() async {
+        let looks = OSAllocatedUnfairLock(initialState: 0)
+        let placed = await BrowserDownloadPolicy.place(
+            chosen: nil, suggestedFilename: "login.bin", directory: directory,
+            reservations: BrowserDownloadReservations(),
+            probe: { _ in
+                looks.withLock { $0 += 1 }
+                return .absent
+            },
+            mayWrite: { _ in false }
+        )
+        guard case .failure(let failure) = placed else {
+            Issue.record("a folder refusing writes placed \(placed)")
+            return
+        }
+        #expect(failure == .folderDenied)
+        #expect(looks.withLock { $0 } == 0)
+    }
+
+    @Test func mayWriteLeavesNoFileAndReadsARefusal() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-maywrite-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        #expect(DownloadDestination.mayWrite(in: folder))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).isEmpty)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        #expect(!DownloadDestination.mayWrite(in: folder))
+        // A missing folder is the download's own failure, not a refusal.
+        #expect(DownloadDestination.mayWrite(in: folder.appending(path: "missing")))
+    }
 }

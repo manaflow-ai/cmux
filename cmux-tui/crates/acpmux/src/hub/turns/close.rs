@@ -5,11 +5,17 @@ use super::*;
 impl Hub {
     /// Writes the close's record (`close_why.rs`): `mux/closed` in its log, `close` on its meta,
     /// and one INFO line. A chat already closed keeps the record of its first close.
-    pub(super) fn record_close(&self, session: &Arc<Session>, purge: bool, why: CloseWhy) {
+    /// Returns the record it wrote, None for a chat already closed.
+    pub(super) fn record_close(
+        &self,
+        session: &Arc<Session>,
+        purge: bool,
+        why: CloseWhy,
+    ) -> Option<CloseRecord> {
         let record = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             if m.status == SessionStatus::Closed {
-                return;
+                return None;
             }
             let record = CloseRecord::new(why, &m, now_ms());
             m.close = Some(record.clone());
@@ -28,6 +34,7 @@ impl Hub {
             "closed"
         );
         self.append(session, "mux", "closed", serde_json::to_value(&record).unwrap_or_default());
+        Some(record)
     }
 
     /// Stop the child. The log stays. `purge` also deletes the log.
@@ -151,12 +158,36 @@ impl Hub {
         self.orphan_tasks_of(session, purge);
         // Who closed it, why, and whether its work was done: one record in its log and on its
         // meta, before the status (a lane's tags are still on it: `lane_retire` runs after).
-        self.record_close(session, purge, why);
+        let record = self.record_close(session, purge, why);
         self.set_status(session, NotWaiting::Closed);
+        // Its exit record goes to the session that started it (`exit_notify.rs`): read before
+        // `lane_retire` drops the link that names the parent. A chat an import replaces did not
+        // end.
+        if let Some(record) = record
+            && !session.replaced.load(Ordering::SeqCst)
+        {
+            self.exit_record_soon(session, record);
+        }
         // Its inbox's timer stops and its senders are answered (`inbox.rs`).
         self.inbox_closed(session);
         // A lane link either end of which closes is retired (`lane_reports.rs`).
         self.lane_retire(&session.id);
+        #[cfg(unix)]
+        if let Ok(_spawn) = session.spawn_lock.try_lock() {
+            crate::agent::copilot_auth::remove_session(&session.id);
+        } else {
+            // A starting agent ends on the stop count and releases its launch directory.
+            crate::agent::copilot_auth::remove_legacy_session(&session.id);
+        }
+        {
+            let mut credential = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+            if credential
+                .as_ref()
+                .is_some_and(|c| c.family() == crate::agent_credentials::Family::Copilot)
+            {
+                *credential = None;
+            }
+        }
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         // A stop frees its temporary folder (`closed_tmp.rs`); a purge removes it below.
@@ -274,6 +305,7 @@ impl Hub {
                 }),
                 remote: None,
                 update_line: Default::default(),
+                event_params: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
                 peer_batch: false,
@@ -291,6 +323,15 @@ impl Hub {
 
     /// Stop the child but keep the session resumable.
     pub async fn detach_child(&self, session: &Arc<Session>) {
+        self.detach_child_inner(session, true).await;
+    }
+
+    /// Recovery may terminate only the host whose work it checked on its live link.
+    pub(in crate::hub) async fn detach_claude_recovery_child(&self, session: &Arc<Session>) {
+        self.detach_child_inner(session, false).await;
+    }
+
+    async fn detach_child_inner(&self, session: &Arc<Session>, force_end_host: bool) {
         // A shutdown that hands this agent to the next daemon began: the agent, its turn and its
         // permission prompts are that daemon's (`shutdown.rs`). Read under the child lock, held
         // until the agent is gone: the shutdown takes it only after it began, so it finds either
@@ -310,9 +351,11 @@ impl Hub {
             // nonce, within a bound too, and what waited on the agent is answered (no exit is
             // read for it). Under the child lock, so no new agent starts beside it.
             if child.host_unended() {
-                tracing::warn!(session = %session.id, "its agent's host did not end it in time; the host is ended");
                 child.fail_pending().await;
-                self.end_unadopted_host(session).await;
+                if force_end_host {
+                    tracing::warn!(session = %session.id, "its agent's host did not end it in time; ending it by its record");
+                    self.end_unadopted_host(session).await;
+                }
             }
         }
         session.detaching.store(false, Ordering::SeqCst);

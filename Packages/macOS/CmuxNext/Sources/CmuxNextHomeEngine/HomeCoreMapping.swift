@@ -18,55 +18,13 @@ public nonisolated enum HomeCoreMapping {
         return dates.date(from: text)
     }
 
-    /// The local mux is the chief (N1: "Chief").
+    /// The local mux is the chief (N1: "Chief"); `mapping.participant`.
     public static func participant(_ participant: ConversationParticipant) -> Participant {
-        let isChief = participant.kind == .agent && participant.agentClass == "mux"
-        return Participant(id: ParticipantID(participant.id), kind: participant.kind == .agent ? .agent : .human,
-                           displayName: isChief ? HomeStrings.chiefName : participant.displayName,
-                           agentClass: participant.kind == .agent ? (isChief ? .chief : .agent) : nil)
-    }
-
-    static func part(_ part: ConversationPart, messageID: String = "", index: Int = 0) -> MessagePart {
-        switch part {
-        case .text(let text, let runs):
-            let mentions = runs.compactMap { run in
-                run.mention.map { Mention(start: run.start, length: run.length, participant: ParticipantID($0)) }
-            }
-            return .text(text, mentions: mentions)
-        case .work(let session, let host, let status, let preview):
-            return .work(WorkRef(session: session, host: host, title: session,
-                                 status: WorkRef.Status(rawValue: status) ?? .running, preview: preview))
-        case .attachment(let attachment):
-            return .attachment(Self.ref(attachment))
-        case .unknown("question", let payload):
-            // The owner's question part (spec/commands.md `Question`).
-            guard let data = try? JSONEncoder().encode(payload), let json = try? AgentQuestionJSON(data: data),
-                  let question = AgentQuestion(conversationPart: json, messageID: messageID, partIndex: index)
-            else { return .text("question") }
-            return .question(question)
-        case .unknown("widget", let payload):
-            // Chat widgets are gone; a message an older build stored with one shows its fallback text.
-            if let fallback = payload["fallback"]?.stringValue, !fallback.isEmpty { return .text(fallback) }
-            return .text(part.plainText)
-        case .linkPreview(let link):
-            return .linkPreview(LinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
-                AttachmentDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)
-            }))
-        case .unknown:
-            // ConversationPart.plainText: the part's link when it has one, else its type.
-            return .text(part.plainText)
-        }
-    }
-
-    /// The owner's attachment part as a Home attachment ref (same fields).
-    static func ref(_ attachment: ConversationAttachment) -> AttachmentRef {
-        let derived = { (image: ConversationDerivedImage) in
-            AttachmentDerivedImage(hash: image.hash, mimeType: image.mimeType, byteCount: image.byteCount)
-        }
-        return AttachmentRef(hash: attachment.hash, name: attachment.name, mimeType: attachment.mimeType,
-                             byteCount: attachment.byteCount, width: attachment.width, height: attachment.height,
-                             durationMs: attachment.durationMs, poster: attachment.poster.map(derived),
-                             preview: attachment.preview.map(derived))
+        struct Request: Encodable { let participant: ConversationParticipant; let chiefName: String }
+        struct Reply: Decodable { let participant: Participant }
+        return HomeCoreMapping.mappingRule("participant", Request(participant: participant, chiefName: HomeStrings.chiefName),
+                                            fallback: Reply(participant: Participant(id: ParticipantID(participant.id), kind: .human,
+                                                                                     displayName: participant.displayName))).participant
     }
 
     /// A Home attachment ref as the owner's attachment part.
@@ -79,78 +37,54 @@ public nonisolated enum HomeCoreMapping {
                                       poster: ref.poster.map(derived), preview: ref.preview.map(derived))
     }
 
-    /// The ref an owner stored for an upload: the owner keeps the first
+    /// The ref an owner stored for an upload (`mapping.refStoredAs`): the owner keeps the first
     /// record of a hash, so its type, size and derived images win.
     static func ref(_ ref: AttachmentRef, storedAs stored: StoredConversationAttachment) -> AttachmentRef {
-        var ref = ref
-        ref.mimeType = stored.mimeType
-        ref.byteCount = stored.byteCount
-        let derived = { (image: ConversationDerivedImage) in
-            AttachmentDerivedImage(hash: image.hash, mimeType: image.mimeType, byteCount: image.byteCount)
+        struct Request: Encodable {
+            let ref: AttachmentRef
+            let stored: HomeCoreMapping.WireStored
         }
-        ref.poster = stored.poster.map(derived)
-        ref.preview = stored.preview.map(derived)
-        return ref
+        struct Reply: Decodable { let ref: AttachmentRef }
+        return HomeCoreMapping.mappingRule("refStoredAs", Request(ref: ref, stored: .init(stored)), fallback: Reply(ref: ref)).ref
     }
 
-    static func reaction(_ reaction: ConversationReaction) -> Reaction {
-        let kind: Reaction.Kind = switch reaction.kind {
-        case .tapback(let value): Reaction.Tapback(rawValue: value).map(Reaction.Kind.tapback) ?? .emoji(value)
-        case .emoji(let value): .emoji(value)
+    /// `mapping.message` (`identity`: a cloud owner's row, its account's id as Home's).
+    static func message(_ message: ConversationMessage, identity: CloudIdentity? = nil) -> Message {
+        struct Request: Encodable {
+            let message: ConversationMessage
+            let identity: HomeCoreMapping.Identity?
         }
-        return Reaction(author: ParticipantID(reaction.author), partIndex: reaction.partIndex, kind: kind)
+        struct Reply: Decodable { let message: HomeCoreMapping.MessageRow }
+        return HomeCoreMapping.mappingRule("message", Request(message: message, identity: identity.map(HomeCoreMapping.Identity.init)),
+                                            fallback: Reply?.none)?.message.message
+            ?? HomeCoreMapping.plainMessage(message, identity: identity)
     }
 
-    static func message(_ message: ConversationMessage) -> Message {
-        var mapped = Message(id: MessageID(message.id), conversation: ConversationID(message.conversation), seq: message.seq,
-                clientMessageID: IdempotencyKey(message.clientMsgID), author: ParticipantID(message.author),
-                parts: message.parts.enumerated().map { part($1, messageID: message.id, index: $0) }, createdAt: date(message.createdAt) ?? .distantPast,
-                editedAt: date(message.editedAt), retractedAt: date(message.retractedAt),
-                reactions: message.reactions.map(reaction),
-                replyTo: message.replyTo.map { PartRef(message: MessageID($0.messageID), partIndex: $0.partIndex) },
-                // A message from before threads marked its thread as a reply to the root.
-                threadRoot: (message.threadRoot ?? message.replyTo?.messageID).map { MessageID($0) })
-        mapped.thread = thread(message.thread)
-        return mapped
-    }
-
-    /// A root's thread object (conversation-thread-objects-v1).
-    static func thread(_ wire: ConversationThreadObject?) -> ThreadInfo? {
-        guard let wire else { return nil }
-        return ThreadInfo(title: wire.title, owner: wire.owner.map { ParticipantID($0) }, resolvedAtSeq: wire.resolved?.seq,
-                          resolvedBy: wire.resolved.map { ParticipantID($0.by) })
-    }
-
+    /// A local head (`mapping.summary`).
     static func summary(_ summary: CmuxNextDaemon.ConversationSummary) -> CmuxHomeCore.ConversationSummary {
-        CmuxHomeCore.ConversationSummary(
-            id: ConversationID(summary.id), owner: summary.owner == "cloud" ? .cloud : .local, title: summary.title,
-            participants: summary.participants.map(participant), lastSeq: summary.lastSeq, rev: summary.rev,
-            createdAt: date(summary.createdAt) ?? .distantPast, updatedAt: date(summary.updatedAt) ?? .distantPast,
-            lastMessage: summary.lastMessage.map(message),
-            readCursors: Dictionary(uniqueKeysWithValues: summary.readCursors.map { (ParticipantID($0.key), $0.value) }))
+        struct Request: Encodable { let summary: CmuxNextDaemon.ConversationSummary; let chiefName: String }
+        struct Reply: Decodable { let summary: HomeCoreMapping.SummaryRow }
+        return HomeCoreMapping.mappingRule("summary", Request(summary: summary, chiefName: HomeStrings.chiefName),
+                                            fallback: Reply?.none)?.summary.summary
+            ?? HomeCoreMapping.plainSummary(summary, owner: summary.owner == "cloud" ? .cloud : .local)
     }
 
-    /// The parts an op sends. The local owner stores text, work, attachment
-    /// (`local-attachments-v1`) and link preview parts; other kinds go as text.
+    /// The parts an op sends (`mapping.parts`). The local owner stores text, work, attachment
+    /// (`local-attachments-v1`) and link preview parts; other kinds go as their text.
     static func parts(_ parts: [MessagePart]) -> [ConversationPart] {
+        struct Request: Encodable { let parts: [MessagePart]; let plainTexts: [String?] }
+        struct Reply: Decodable { let parts: [ConversationPart] }
+        return HomeCoreMapping.mappingRule("parts", Request(parts: parts, plainTexts: plainTexts(parts)),
+                                            fallback: Reply(parts: parts.map { .text($0.plainText, runs: []) })).parts
+    }
+
+    /// The text an approval, location or question part goes as (Swift's `plainText`; the rules
+    /// have no question transcript).
+    static func plainTexts(_ parts: [MessagePart]) -> [String?] {
         parts.map { part in
             switch part {
-            case .text(let text, let mentions):
-                return .text(text, runs: mentions.map {
-                    ConversationTextRun(start: $0.start, length: $0.length, mention: $0.participant.rawValue)
-                })
-            case .work(let work):
-                return .work(session: work.session, host: work.host, status: work.status.rawValue, preview: work.preview)
-            case .attachment(let ref):
-                return .attachment(Self.attachment(ref))
-            case .linkPreview(let link):
-                return .linkPreview(ConversationLinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
-                    ConversationDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)
-                }))
-            case .approval, .location, .question:
-                // The local owner has no approval or location parts;
-                // a person never sends a question (agents post them).
-                return .text(part.plainText, runs: [])
+            case .approval, .location, .question: part.plainText
+            case .text, .work, .attachment, .linkPreview: nil
             }
         }
     }

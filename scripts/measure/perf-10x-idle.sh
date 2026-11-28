@@ -10,7 +10,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-10x-idle.sh --ref SHA [--arg=counts=1,10,50] [--arg=measure=60] \
 #     [--arg=agents=20,100] [--arg=purge=1] [--arg=release=MINUTES] [--arg=attribute=1] [--arg=infinite=10,100]
-#     [--arg=chat_renderer_crash=1] [--arg=vmmap=tui-daemon,app] [--arg=app=nightly|https://...dmg]
+#     [--arg=chat_renderer_crash=1] [--arg=vmmap=tui-daemon,app] [--arg=app=nightly|https://...dmg] [--arg=adblock=off]
 # app=nightly: measure the newest published NIGHTLY (nightly-next appcast DMG) instead of building this checkout;
 # app=URL: that DMG. Nothing is built, so a run starts in minutes and measures what people run.
 # agents: also measure that many idle agent chats (one workspace each, on the
@@ -38,6 +38,9 @@
 # --vmmap-kinds): where its footprint is, MALLOC against frameworks and stacks.
 # settings=JSON: cmux settings the app launches with (bench_memory.py --config), e.g.
 # settings={"appearance":{"wallpaperLighting":true}} for a before/after of one setting on the same build.
+# adblock=off: browser.builtInAdBlocker false on top of settings= (merged, either order), for a controller that
+# refuses JSON in an arg. print_settings=1: print the --config JSON the app would launch with, then exit.
+# (an A/B of the built-in uBlock Origin's writes; the app's default is unchanged).
 # axes=AXIS,AXIS (chat-hidden, chat-visible, terminal-hidden, terminal-visible, page-hidden, page-visible;
 # axes=all for the first four, axes=pages for the two page axes): what one
 # more idle item costs, per process (bench_memory.py --axis, one fresh app each): idle CPU %, footprint, RSS,
@@ -64,6 +67,7 @@ measure=60
 agents=""
 infinite="" days=3 soak="" soak_every=10 soak_agents=3
 axes="" items="1,10,100" visible_items="1,4,10" settled=90
+settings_json="" adblock_off="" print_settings=""
 published_app="" reload_config=() purge=() release=() attribute=() crash_env=() vmmap=() settings=()
 for arg in "$@"; do
   case "$arg" in
@@ -83,7 +87,9 @@ for arg in "$@"; do
     attribute=*) attribute=(--attribute --attribute-kinds "${arg#attribute=}") ;;
     chat_renderer_crash=1) crash_env=(CMUX_BENCH_CHAT_RENDERER_CRASH=1) ;;
     vmmap=*) vmmap=(--vmmap-kinds "${arg#vmmap=}") ;;
-    settings=*) settings=(--config "${arg#settings=}") ;;
+    settings=*) settings_json="${arg#settings=}" ;;
+    adblock=off) adblock_off=1 ;;
+    print_settings=1) print_settings=1 ;;
     axes=all) axes="chat-hidden,chat-visible,terminal-hidden,terminal-visible" ;;
     axes=pages) axes="page-hidden,page-visible" ;;
     axes=*) axes="${arg#axes=}" ;;
@@ -93,6 +99,14 @@ for arg in "$@"; do
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
+if [[ -n "$adblock_off" ]]; then
+  settings_json="$(python3 -I -c 'import json, sys
+c = json.loads(sys.argv[1] or "{}")
+c.setdefault("browser", {})["builtInAdBlocker"] = False
+print(json.dumps(c, separators=(",", ":")))' "$settings_json")"
+fi
+[[ -n "$settings_json" ]] && settings=(--config "$settings_json")
+if [[ -n "$print_settings" ]]; then echo "${settings_json:-{\}}"; exit 0; fi
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 work="$root/.build/perf-idle"
@@ -263,6 +277,13 @@ for s in data.get("samples", []):
               f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} logical_write_mb_per_h={e.get('logical_write_mb_per_h')}")
     if s.get("gpu"):
         print(f"PERF-IDLE-GPU app-agents {s['label']} {json.dumps(s['gpu'])}")
+    # Each process that wrote in the window, by pid: which of a kind's processes (two acpmux daemons and a host
+    # share kind acpmux-daemon) holds the bytes, when no file's mtime moved to name it (goal idle-gpu-disk).
+    for p in s.get("processes", []):
+        if (p.get("disk_write_mb_per_h") or 0) >= 0.1 or (p.get("logical_write_mb_per_h") or 0) >= 0.1:
+            print(f"PERF-IDLE-WRITER app-agents {s['label']} kind={p['kind']} pid={p['pid']} "
+                  f"disk_write_mb_per_h={p.get('disk_write_mb_per_h')} logical_write_mb_per_h={p.get('logical_write_mb_per_h')} "
+                  f"command={json.dumps(p.get('command', ''))}")
     if s.get("files_written"):
         print(f"PERF-IDLE-FILES app-agents {s['label']} {json.dumps(s['files_written'])}")
     if "chat_renderers" in s:

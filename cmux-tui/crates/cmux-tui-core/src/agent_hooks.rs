@@ -367,7 +367,8 @@ pub fn stamp_agent_hook_observed_now(ingress: &mut JournalIngress) {
     }
 }
 
-pub(crate) fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
+/// Stamp the original observation time when a plugin replays an unconfirmed handoff.
+pub fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
     if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
         normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
     }

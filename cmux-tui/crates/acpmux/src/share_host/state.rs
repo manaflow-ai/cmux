@@ -67,13 +67,42 @@ struct HubScreen {
     /// The hub's `macScreenShared`: the screen host turned sharing on (a Linux one does as it
     /// joins).
     shared: bool,
+    /// The hub's `lastSeenAt`, else `createdAt`: which of two equal records is newer.
+    seen: Option<f64>,
 }
 
-/// The name a hub record and a mesh host have in common: the first DNS label, lowercased (the
-/// mesh lists `pairing::machine_name`, the host label; a screen host registers the join's name or
-/// the kernel host name).
+impl HubScreen {
+    /// Whether `self` is the better record of one machine: the app's own rule
+    /// (`cmux_cloud_config::device_list`'s `better`): online, then sharing, then seen last. So
+    /// `peers` and `macScreen.open --device <name>` name the same record.
+    fn better(&self, other: &Self) -> bool {
+        let rank = |s: &Self| (s.online, s.shared);
+        if rank(self) != rank(other) {
+            return rank(self) > rank(other);
+        }
+        self.seen.unwrap_or(f64::MIN) > other.seen.unwrap_or(f64::MIN)
+    }
+}
+
+/// The name a hub record and a mesh host have in common: the first DNS label, lowercased, each run
+/// of anything but a letter or digit one `-` (the mesh lists `pairing::machine_name`, the host
+/// label; a screen host registers the join's name, the kernel host name, or a Mac's computer
+/// name). A Mac's screen host registered as "Studio One" while the mesh lists it as `studio-one`,
+/// so the viewer read it as `no-screen-host` with its share host online and sharing (2026-11-27).
 fn host_key(name: &str) -> String {
-    name.trim().split('.').next().unwrap_or_default().to_ascii_lowercase()
+    let label = name.trim().split('.').next().unwrap_or_default().to_ascii_lowercase();
+    let mut key = String::with_capacity(label.len());
+    for c in label.chars() {
+        if c.is_alphanumeric() {
+            key.push(c);
+        } else if !key.is_empty() && !key.ends_with('-') {
+            key.push('-');
+        }
+    }
+    while key.ends_with('-') {
+        key.pop();
+    }
+    key
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -200,6 +229,9 @@ impl Shared {
                         platform: platform.clone(),
                         online: flag("online").unwrap_or(false),
                         shared: flag("macScreenShared").unwrap_or(false),
+                        seen: ["lastSeenAt", "createdAt"]
+                            .iter()
+                            .find_map(|k| device.get(*k).and_then(Value::as_f64)),
                     });
                 }
                 map.insert(id, platform);
@@ -211,8 +243,8 @@ impl Shared {
 
     /// What the device hub says of the screen of machine `host` (a mesh host, `peers`'
     /// `deviceHub`): `{"listed": false}` when no record has its name, else the platform and
-    /// whether its screen host shares (a record online first, then one sharing). None before
-    /// the hub's device list was read: nothing is known.
+    /// whether its screen host shares (a record online first, then one sharing, then the one
+    /// seen last, as the app picks). None before the hub's device list was read: nothing is known.
     pub(crate) fn device_hub_of(&self, host: &str) -> Option<Value> {
         let screens = lock(&self.screens);
         let key = host_key(host);
@@ -220,7 +252,10 @@ impl Shared {
             .as_ref()?
             .iter()
             .filter(|s| !key.is_empty() && host_key(&s.name) == key)
-            .max_by_key(|s| (s.online, s.shared));
+            .fold(None::<&HubScreen>, |best, s| match best {
+                Some(b) if !s.better(b) => Some(b),
+                _ => Some(s),
+            });
         Some(match best {
             Some(s) => json!({"listed": true, "id": s.id, "platform": s.platform,
                 "online": s.online, "screenShared": s.shared}),
@@ -300,7 +335,15 @@ pub(crate) fn status_now() -> Value {
             not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
         }
     };
-    refreshed(status, || super::joined().is_ok())
+    let mut status = refreshed(status, || super::joined().is_ok());
+    // The helper's own grant reading holds whether or not this machine joined yet, so `cmux
+    // remote-host grants` reads the helper's grants, not the app's, before the host runs.
+    if let Some(fields) = status.as_object_mut() {
+        fields
+            .entry("helper")
+            .or_insert_with(|| super::helper::status_json(&crate::config::home()));
+    }
+    status
 }
 
 /// `status`, or, when it says the host does not run for want of a join and the machine is joined

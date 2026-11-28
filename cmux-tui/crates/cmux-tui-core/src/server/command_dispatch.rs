@@ -66,6 +66,9 @@ fn dispatch_command(
         cmd @ (Command::UrlOpenSubscribe { .. }
         | Command::UrlOpenClaim { .. }
         | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
+        Command::OfferLinkToPhone { terminal_id, url } => {
+            phone_link::offer(mux, client, &terminal_id, &url)
+        }
         cmd @ (Command::TerminalClipboardSubscribe { .. }
         | Command::TerminalClipboardReply { .. }) => {
             clipboard_read::handle(mux, client, cmd, writer)
@@ -113,7 +116,7 @@ fn dispatch_command(
         command @ (Command::SetTerminalCommandHistory(_)
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
-        Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::ServerStats { include, .. } => cmd_server::server_stats(mux, client, include),
         Command::ProcessCensus => cmd_server::process_census(mux, client),
         Command::LiveAuto { op, worktree } => {
             if !mux.control_clients.is_unix(client) {
@@ -143,8 +146,8 @@ fn dispatch_command(
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
             device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
         }
-        Command::Identify { machine_metadata, revisions } => {
-            cmd_server::identify(mux, machine_metadata, revisions)
+        Command::Identify { machine_metadata, revisions, .. } => {
+            identify_reply::identify(mux, machine_metadata, revisions)
         }
         Command::ShutdownDaemon {
             pid,

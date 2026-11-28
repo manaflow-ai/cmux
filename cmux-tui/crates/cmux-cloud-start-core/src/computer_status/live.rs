@@ -6,6 +6,10 @@
 //! `hybrid_show::Start`) and, when it has one, the chat's cloud machine as the server lists it
 //! (`CloudMachine`: `status`, `pause_reason`, `paused_by`, `spend_cap_pause_at`, `size`,
 //! `error`). [`facts`] maps them; [`super::status`] then answers the one status. Pure.
+//!
+//! A move's stamps are on the app's monotonic clock (`CloudPlaceFlows.nowMs`, uptime), the page's
+//! clock is Unix ms: with the app's `clock` (both readings, taken together) [`facts`] puts them on
+//! Unix ms, in whole seconds, so a header re-read that only moved the clocks writes the same bytes.
 
 use serde::Deserialize;
 
@@ -60,6 +64,23 @@ pub struct Machine {
     pub error: Option<MachineError>,
 }
 
+/// The app's two clocks, read together when it asks: its monotonic one (what a move is stamped
+/// with) and Unix ms (what the page ticks with).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Clock {
+    pub mono_ms: u64,
+    pub wall_ms: u64,
+}
+
+impl Clock {
+    /// `mono` (a move's stamp) on Unix ms, down to the whole second.
+    pub fn wall(&self, mono: u64) -> u64 {
+        let wall = self.wall_ms.saturating_sub(self.mono_ms.saturating_sub(mono));
+        wall - wall % 1000
+    }
+}
+
 /// What the app holds for one chat's header.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,6 +101,9 @@ pub struct Live {
     pub size: Size,
     #[serde(default)]
     pub sleep: Sleep,
+    /// None: the move's stamps pass through as they are.
+    #[serde(default)]
+    pub clock: Option<Clock>,
 }
 
 /// Why Auto moved it, in the person's terms; None for a reason the Why row does not say (Auto
@@ -93,17 +117,22 @@ fn auto_reason(reason: AutoReason) -> Option<Reason> {
     }
 }
 
-fn why_of(view: &MoveView) -> Option<Why> {
+/// A move's stamp on the page's clock when the app sent its clocks.
+fn stamp(clock: Option<Clock>, mono: u64) -> u64 {
+    clock.map_or(mono, |clock| clock.wall(mono))
+}
+
+fn why_of(view: &MoveView, clock: Option<Clock>) -> Option<Why> {
     let reason = match view.trigger {
         Trigger::Person | Trigger::Evacuate => Some(Reason::PersonMoved),
         Trigger::Auto(reason) => auto_reason(reason),
     }?;
-    Some(Why { at_ms: view.started_ms, reason, command: None })
+    Some(Why { at_ms: stamp(clock, view.started_ms), reason, command: None })
 }
 
 /// A move still running, or one that stopped; None once it is live or cancelled (the chat is
 /// settled where it is).
-fn move_of(view: &MoveView) -> Option<MoveFacts> {
+fn move_of(view: &MoveView, clock: Option<Clock>) -> Option<MoveFacts> {
     let direction = match view.direction {
         place::Direction::ToCloud => Direction::ToCloud,
         place::Direction::ToLocal => Direction::ToMac,
@@ -111,13 +140,13 @@ fn move_of(view: &MoveView) -> Option<MoveFacts> {
     match view.state.as_str() {
         "moving" => Some(MoveFacts {
             direction,
-            since_ms: Some(view.started_ms),
+            since_ms: Some(stamp(clock, view.started_ms)),
             cancellable: view.can_cancel,
             failure: None,
         }),
         "failed" => Some(MoveFacts {
             direction,
-            since_ms: Some(view.started_ms.saturating_add(view.elapsed_ms)),
+            since_ms: Some(stamp(clock, view.started_ms.saturating_add(view.elapsed_ms))),
             cancellable: false,
             failure: Some(failure_of(view.reason.as_deref())),
         }),
@@ -161,12 +190,12 @@ pub fn facts(live: &Live) -> Facts {
         session_id: live.session.clone(),
         home,
         hybrid: live.start.clone(),
-        move_: live.move_.as_ref().and_then(move_of),
+        move_: live.move_.as_ref().and_then(|view| move_of(view, live.clock)),
         reconnecting_since_ms: live.reconnecting_since_ms,
         machine: live.machine.as_ref().map(machine_of),
         refusal,
         size: live.size,
         sleep: live.sleep,
-        why: live.move_.as_ref().and_then(why_of),
+        why: live.move_.as_ref().and_then(|view| why_of(view, live.clock)),
     }
 }
