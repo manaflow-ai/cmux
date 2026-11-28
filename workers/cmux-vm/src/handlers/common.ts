@@ -9,6 +9,7 @@
  */
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Either, Option } from "effect";
+import { afterResponse } from "../db/sql.ts";
 import { AuditStore } from "../db/stores.ts";
 import { auditActorOf, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
@@ -144,9 +145,14 @@ export const audited = <A, E, R>(
       Effect.gen(function* () {
         const at = new Date(yield* Clock.currentTimeMillis);
         const entry = { tenantId: principal.tenantId, ...auditActorOf(principal), action, cmuxId, outcome, at };
-        yield* store.append(entry).pipe(
-          Effect.catchAll(() =>
-            Effect.sync(() => console.error(JSON.stringify({ event: "cmux_vm_audit_fallback", ...entry, at: at.toISOString() }))),
+        // The row is written after the answer (on the Worker), not before it:
+        // the caller never waited on it, and the INSERT was a serial database
+        // round trip on every mutation's response path (a VM resume included).
+        yield* afterResponse(
+          store.append(entry).pipe(
+            Effect.catchAll(() =>
+              Effect.sync(() => console.error(JSON.stringify({ event: "cmux_vm_audit_fallback", ...entry, at: at.toISOString() }))),
+            ),
           ),
         );
       });
