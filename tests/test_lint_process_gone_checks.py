@@ -10,78 +10,63 @@ with a reason, is the only escape. A file that cannot load the helper carries a 
 copy must match the helper.
 
 Runs under plain python3: `python3 -I tests/test_lint_process_gone_checks.py`.
+It runs itself again under a real Python 3.9 (UnderPython39), which the vendored files say they support.
 """
 
 from __future__ import annotations
 
 import ast
-import builtins
+import hashlib
 import importlib.util
 import os
-import signal
+import shutil
 import subprocess
 import sys
-import time
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
-assert SPEC is not None and SPEC.loader is not None
-process_gone = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(process_gone)
-died, running, group_died = process_gone.died, process_gone.running, process_gone.group_died
+TESTS = ROOT / "tests"
+
+
+def _load(name):
+    """tests/NAME.py, loaded by path (`python3 -I` puts no script folder on sys.path), once per process."""
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, TESTS / ("%s.py" % name))
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+# Vendored from leo-workspace (tools/), byte for byte, at the commit tests/process_gone.pin names: the helper, the
+# lint and its resolver, and the cases every repo runs. Change them there, then copy them and the pin here.
+VENDORED = ("process_identity.py", "process_gone.py", "ast_names.py", "process_gone_lint.py", "process_gone_cases.py")
+SKIPPED = {"tests/%s" % f for f in VENDORED}  # the helpers read signal 0 right; the cases hold the forms on purpose
+PIN = TESTS / "process_gone.pin"
+find_source = _load("process_gone_lint").find_source
+cases = _load("process_gone_cases")
+TheScannerFindsTheForms, TheHelpers = cases.TheScannerFindsTheForms, cases.TheHelpers  # they run here too
 
 # "path::function": why its raw signal-0 probe is right as it is.
-ALLOWED: dict = {}
-# A file that cannot load tests/process_gone.py (it runs from a scratch copy) carries a copy of these helper
-# functions instead. Their probes are the helper's, and each must match the helper's own, so a change to one fails here
-# until the other follows.
-COPIES = {
-    "cmux-tui/crates/acpmux/tests/fake_claude_auto.py": ("_state", "_exited"),
+ALLOWED: dict = {
+    "scripts/perf-bench/tests/test_session_real.py::test_the_agents_command_ends_the_cli_types_into_the_shell_and_gives_exit_0":
+        "no probe: it saves os.kill in a tuple to put it back after replacing it with a recorder, and never calls it",
+    "tests/test_cmux_next_prepush_gate.py::test_a_hook_stopped_by_a_signal_during_a_check_never_says_it_passed":
+        "no probe: os.kill(pid, signum) sends the loop's signal.SIGTERM or signal.SIGINT to a running hook",
+    "tests/test_verify_cmux_tui_hosted.py::signal_case":
+        "no probe: os.kill/os.killpg(pid, signum) send the case's signal, which every caller names as signal.SIGINT, "
+        "signal.SIGTERM or signal.SIGHUP",
 }
-HELPER = "tests/process_gone.py"
+# A file that cannot load tests/process_gone.py (it runs from a scratch copy) carries a copy of these functions of
+# tests/process_identity.py, which process_gone answers with. Each must match IDENTITY's own, so a change to one fails
+# here until the other follows.
+COPIES = {
+    "cmux-tui/crates/acpmux/tests/fake_claude_auto.py": ("exists", "_proc_ticks", "status"),
+}
+IDENTITY = "tests/process_identity.py"
 THIS = "tests/test_lint_process_gone_checks.py"
-
-
-def _signal_zero(node):
-    """True for os.kill(X, 0) or os.killpg(X, 0)."""
-    return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("kill", "killpg")
-            and isinstance(node.func.value, ast.Name) and node.func.value.id == "os" and len(node.args) == 2
-            and isinstance(node.args[1], ast.Constant) and node.args[1].value == 0)
-
-
-def _signal_zero_by_reference(node):
-    """True for assertRaises(..., os.kill, X, 0): signal 0 sent through a callable."""
-    return (isinstance(node, ast.Call) and len(node.args) >= 4 and isinstance(node.args[1], ast.Attribute)
-            and node.args[1].attr in ("kill", "killpg") and isinstance(node.args[1].value, ast.Name)
-            and node.args[1].value.id == "os" and isinstance(node.args[3], ast.Constant) and node.args[3].value == 0)
-
-
-def find_source(source, name="<test>"):
-    """(function, line) for every raw signal-0 probe in SOURCE: os.kill(X, 0) or os.killpg(X, 0), in any form, in or
-    out of a loop. A loop is not proof of a wait (one with one pass, or no sleep, checks once), so every probe is
-    flagged; the test uses process_gone's died(), running() or group_died() instead."""
-    if "kill" not in source:
-        return []
-    try:
-        tree = ast.parse(source, name)
-    except SyntaxError:
-        return []
-    hits = []
-
-    def visit(node, owner):
-        for child in ast.iter_child_nodes(node):
-            func = owner
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and owner is None:
-                func = child.name
-            if _signal_zero(child) or _signal_zero_by_reference(child):
-                hits.append((func or "<module>", child.lineno))
-            visit(child, func)
-
-    visit(tree, None)
-    return hits
 
 
 SKIP_DIRS = {".git", "node_modules", "vendor", "ghostty", "ghostty-next", "homebrew-cmux", "build", ".build",
@@ -105,16 +90,16 @@ def is_test_file(rel):
 def scan(root=ROOT):
     found = {}
     for rel in python_files(root):
-        if rel in (HELPER, THIS) or not is_test_file(rel):
-            continue  # the helper is where signal 0 is read right; this file holds the forms on purpose
+        if rel in SKIPPED or rel == THIS or not is_test_file(rel):
+            continue  # the vendored helpers and cases; this file
         try:
             source = (root / rel).read_text(encoding="utf-8", errors="replace")
         except OSError:  # a sparse checkout leaves tracked files out
             continue
-        for func, line in find_source(source, rel):
+        for func, line, kind in find_source(source, rel):
             if func in COPIES.get(rel, ()):
                 continue  # a copy of the helper, held to it by copy_drift()
-            found.setdefault("%s::%s" % (rel, func), []).append(line)
+            found.setdefault("%s::%s" % (rel, func), []).append(line if kind == "signal 0" else "%s (%s)" % (line, kind))
     return found
 
 
@@ -132,7 +117,7 @@ def _functions(source, name):
 
 def copy_drift(root=ROOT, copies=None):
     """["path::function"] for each copied helper function that is missing from its copy or differs from the helper."""
-    helper = _functions((root / HELPER).read_text(encoding="utf-8"), HELPER)
+    helper = _functions((root / IDENTITY).read_text(encoding="utf-8"), IDENTITY)
     drift = []
     for rel, names in sorted((COPIES if copies is None else copies).items()):
         copy = _functions((root / rel).read_text(encoding="utf-8"), rel)
@@ -142,7 +127,7 @@ def copy_drift(root=ROOT, copies=None):
 
 class NoRawSignalZeroProbe(unittest.TestCase):
     def test_every_copy_of_the_helper_matches_it(self):
-        self.assertEqual(copy_drift(), [], "a copy of tests/process_gone.py differs from it: change both together")
+        self.assertEqual(copy_drift(), [], "a copy of tests/process_identity.py differs from it: change both together")
 
     def test_no_test_probes_a_process_with_signal_zero(self):
         new = sorted("%s (line %s)" % (k, ", ".join(map(str, v))) for k, v in scan().items() if k not in ALLOWED)
@@ -158,10 +143,7 @@ class NoRawSignalZeroProbe(unittest.TestCase):
                 self.assertGreater(len(why), 10)
 
 
-class TheScannerFindsTheForms(unittest.TestCase):
-    def hits(self, src):
-        return [f for f, _ in find_source(src)]
-
+class ThisRepoScan(unittest.TestCase):
     def test_a_tree_with_a_probe_in_a_test_file_is_red(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
@@ -172,133 +154,80 @@ class TheScannerFindsTheForms(unittest.TestCase):
 
     def test_a_copy_that_drifts_from_the_helper_is_red(self):
         import tempfile
-        helper = "import os\ndef _exited(pid):\n    \"\"\"doc\"\"\"\n    os.kill(pid, 0)\n    return True\n"
+        helper = "import os\ndef status(pid):\n    \"\"\"doc\"\"\"\n    os.kill(pid, 0)\n    return 'dead'\n"
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "tests").mkdir()
-            (Path(d) / HELPER).write_text(helper)
+            (Path(d) / IDENTITY).write_text(helper)
             (Path(d) / "tests" / "fake.py").write_text(helper.replace('"""doc"""', '"""other doc"""'))
-            copies = {"tests/fake.py": ("_exited",)}
+            copies = {"tests/fake.py": ("status",)}
             self.assertEqual(copy_drift(Path(d), copies), [])  # the same code under another docstring
-            (Path(d) / HELPER).write_text(helper.replace("return True", "return False"))
-            self.assertEqual(copy_drift(Path(d), copies), ["tests/fake.py::_exited"])  # the helper changed alone
+            (Path(d) / IDENTITY).write_text(helper.replace("return 'dead'", "return 'alive'"))
+            self.assertEqual(copy_drift(Path(d), copies), ["tests/fake.py::status"])  # the helper changed alone
             (Path(d) / "tests" / "fake.py").write_text("import os\n")
-            self.assertEqual(copy_drift(Path(d), copies), ["tests/fake.py::_exited"])  # the copy was dropped
+            self.assertEqual(copy_drift(Path(d), copies), ["tests/fake.py::status"])  # the copy was dropped
 
-    def test_every_signal_zero_probe_is_found(self):
-        src = ("import os, time\nclass T:\n"
-               "    def test_a(self):\n        with self.assertRaises(ProcessLookupError):\n            os.kill(p, 0)\n"
-               "    def test_b(self):\n        time.sleep(0.5)\n"
-               "        with self.assertRaises(ProcessLookupError, msg='x'):\n            os.killpg(g, 0)\n"
-               "    def test_c(self):\n        self.assertRaises(ProcessLookupError, os.kill, p, 0)\n"
-               "    def test_d(self):\n        os.kill(p, 0)  # 'it still runs'\n"
-               "def alive(p):\n    try:\n        os.kill(p, 0)\n    except OSError:\n        return False\n"
-               "    return True\n")
-        self.assertEqual(self.hits(src), ["test_a", "test_b", "test_c", "test_d", "alive"])
-
-    def test_a_probe_inside_a_loop_is_found_too(self):
-        # review of #4363 (F1): a loop with one pass, or none that sleeps, still checks once
-        src = ("import os, time\nclass T:\n"
-               "    def test_a(self):\n        with self.assertRaises(ProcessLookupError):\n"
-               "            for _ in range(1):\n                os.kill(p, 0)\n"
-               "    def test_b(self):\n        for _ in range(50):\n            try:\n                os.kill(p, 0)\n"
-               "            except ProcessLookupError:\n                break\n            time.sleep(0.1)\n")
-        self.assertEqual(self.hits(src), ["test_a", "test_b"])
-
-    def test_a_real_signal_and_the_helpers_are_not_flagged(self):
-        src = ("import os, signal\nclass T:\n"
-               "    def test_a(self):\n        os.kill(p, 9)\n        os.killpg(g, signal.SIGKILL)\n"
-               "        self.assertTrue(died(p))\n        self.assertTrue(running(q))\n")
-        self.assertEqual(self.hits(src), [])
+    def test_the_vendored_files_are_the_pinned_copy(self):
+        pin = dict(kv.split("=", 1) for kv in PIN.read_text().split())
+        self.assertRegex(pin.get("leo-workspace", ""), r"^[0-9a-f]{40}$")
+        for f in VENDORED:
+            with self.subTest(file=f):
+                got = hashlib.sha256((TESTS / f).read_bytes()).hexdigest()
+                self.assertEqual(got, pin.get(f), "tests/%s was edited here: change it in leo-workspace tools/%s, "
+                                 "then copy it and its commit and sha256 into tests/process_gone.pin" % (f, f))
 
 
-def zombie_child():
-    """A SIGKILLed child of this process that nothing has reaped: a zombie until proc.wait()."""
-    proc = subprocess.Popen(["sleep", "60"])
-    os.kill(proc.pid, signal.SIGKILL)
-    return proc
+# The vendored files say they run on Python 3.9, a Mac's /usr/bin/python3. A name 3.9 lacks (ast.MatchAs) parses
+# fine and raises AttributeError only when the line runs: cmux#41409's copy of ast_names read ast.MatchAs for every
+# node, so find_source() failed on 3.9 before it scanned anything, and nothing here ran it there. So this file runs
+# itself again under a real 3.9, found the way leo-workspace's tools/py39_check.py finds one: $PY39, python3.9 or
+# /usr/bin/python3 when either is 3.9, else uv's managed 3.9 (uv from pip when missing).
+PY39 = (3, 9)
 
 
-def zombie_not_ours():
-    """(holder, pid): a zombie whose parent, HOLDER, never reaps it; not this process's child."""
-    holder = subprocess.Popen([sys.executable, "-c",
-                               "import os, signal, sys, time\npid = os.fork()\n"
-                               "if pid == 0:\n    time.sleep(60)\n    os._exit(0)\n"
-                               "os.kill(pid, signal.SIGKILL)\nprint(pid, flush=True)\ntime.sleep(60)\n"],
-                              stdout=subprocess.PIPE, text=True)
-    return holder, int(holder.stdout.readline())
+def _version(python):
+    try:
+        out = subprocess.run([python, "-I", "-c", "import sys; print(*sys.version_info[:2])"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return tuple(int(x) for x in out.stdout.split()) if out.returncode == 0 else None
 
 
-
-class AsOnMacOS:
-    """No pidfd and no /proc, as on macOS: died() has to tell a zombie by other means."""
-
-    def __enter__(self):
-        real_open = builtins.open
-
-        def no_proc(path, *args, **kwargs):
-            if str(path).startswith("/proc/"):
-                raise FileNotFoundError(2, "No such file or directory", str(path))
-            return real_open(path, *args, **kwargs)
-        real_isdir = os.path.isdir
-        self.patches = [mock.patch.object(process_gone.os, "pidfd_open", side_effect=AttributeError, create=True),
-                        mock.patch("builtins.open", no_proc),
-                        mock.patch.object(process_gone.os.path, "isdir",
-                                          lambda p: False if str(p).startswith("/proc") else real_isdir(p))]
-        for p in self.patches:
-            p.start()
-        return self
-
-    def __exit__(self, *exc):
-        for p in reversed(self.patches):
-            p.stop()
+def _uv():
+    if shutil.which("uv"):
+        return ["uv"]
+    probe = [sys.executable, "-m", "uv"]
+    if subprocess.run(probe + ["--version"], capture_output=True).returncode != 0:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--user", "--break-system-packages", "uv"],
+                       capture_output=True, timeout=300)
+    return probe if subprocess.run(probe + ["--version"], capture_output=True).returncode == 0 else None
 
 
-class TheHelpers(unittest.TestCase):
-    def test_a_killed_child_not_reaped_yet_counts_as_died_and_a_live_one_does_not(self):
-        live = subprocess.Popen(["sleep", "60"])
-        proc = zombie_child()
-        try:
-            self.assertFalse(died(live.pid, within=0.3))
-            self.assertTrue(running(live.pid))
-            self.assertTrue(died(proc.pid))  # a zombie until the wait below reaps it
-            self.assertFalse(running(proc.pid))
-            self.assertIsNone(os.kill(proc.pid, 0))  # where the raw probe was wrong: signal 0 still reaches it
-        finally:
-            for p in (live, proc):
-                p.kill()
-                p.wait()
-        self.assertTrue(died(proc.pid))  # reaped: gone
+def python39():
+    """The path of a Python 3.9, or None."""
+    for cand in (os.environ.get("PY39"), shutil.which("python3.9"), "/usr/bin/python3"):
+        if cand and _version(cand) == PY39:
+            return cand
+    uv = _uv()
+    if not uv:
+        return None
+    found = subprocess.run(uv + ["python", "find", "3.9"], capture_output=True, text=True, timeout=120)
+    if found.returncode != 0:
+        subprocess.run(uv + ["python", "install", "3.9"], capture_output=True, timeout=600)
+        found = subprocess.run(uv + ["python", "find", "3.9"], capture_output=True, text=True, timeout=120)
+    path = found.stdout.strip().splitlines()[-1] if found.returncode == 0 and found.stdout.strip() else None
+    return path if path and _version(path) == PY39 else None
 
-    def test_without_a_pidfd_or_proc_a_zombie_still_counts_as_died(self):
-        # review of #4363 (F2): on macOS died() polled signal 0, which a zombie answers, for the whole 10 s
-        live = subprocess.Popen(["sleep", "60"])
-        proc = zombie_child()
-        holder, orphan = zombie_not_ours()
-        try:
-            with AsOnMacOS():
-                began = time.monotonic()
-                self.assertTrue(died(proc.pid, within=5), "our own unreaped child")
-                self.assertTrue(died(orphan, within=5), "another process's unreaped child")
-                self.assertLess(time.monotonic() - began, 4)  # found, not timed out
-                self.assertFalse(died(live.pid, within=0.3))
-                self.assertTrue(running(live.pid))
-                self.assertFalse(running(orphan))
-        finally:
-            for p in (live, proc, holder):
-                p.kill()
-                p.wait()
-            holder.stdout.close()
 
-    def test_a_group_is_gone_once_its_members_are_reaped(self):
-        proc = subprocess.Popen(["sleep", "60"], start_new_session=True)
-        try:
-            self.assertFalse(group_died(proc.pid, within=0.3))
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
-            self.assertTrue(group_died(proc.pid))
-        finally:
-            proc.kill()
-            proc.wait()
+class UnderPython39(unittest.TestCase):
+    @unittest.skipIf(sys.version_info[:2] == PY39, "this run is the 3.9 run")
+    def test_the_vendored_files_and_these_tests_pass_under_python_3_9(self):
+        python = python39()
+        self.assertIsNotNone(python, "no Python 3.9 found or installable (set PY39, or install uv); refusing to pass "
+                                     "the vendored files unchecked on the Python they say they support")
+        out = subprocess.run([python, "-I", str(Path(__file__).resolve())], capture_output=True, text=True,
+                             timeout=1800, cwd=ROOT)
+        self.assertEqual(out.returncode, 0, "under %s:\n%s" % (python, (out.stdout + out.stderr)[-6000:]))
 
 
 if __name__ == "__main__":
