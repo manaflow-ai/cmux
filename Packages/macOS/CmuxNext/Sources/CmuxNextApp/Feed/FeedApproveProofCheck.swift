@@ -1,4 +1,3 @@
-import CmuxFeedPushCore
 import CryptoKit
 import Foundation
 import CmuxNextFeedClient
@@ -114,20 +113,20 @@ enum FeedApproveProofCheck {
         guard let publicKey = try? P256.Signing.PublicKey(x963Representation: key.publicKey) else {
             return .failure(.badKey)
         }
-        let message = FeedApproveProofMessage(
+        guard let message = FeedPushRules().approveMessage(
             environment: context.environment, user: context.user, phoneInstall: proof.install,
             macInstall: context.macInstall, item: item, shownSHA256: shownSHA256,
             decision: decision.outcome.rawValue, scope: decision.scope?.rawValue ?? "once",
-            timestampMs: proof.timestampMs)
-        guard let raw = base64URL(proof.signature),
+            timestampMs: proof.timestampMs),
+              let raw = base64URL(proof.signature),
               let signature = try? P256.Signing.ECDSASignature(rawRepresentation: raw),
-              publicKey.isValidSignature(signature, for: message.bytes) else { return .failure(.badSignature) }
+              publicKey.isValidSignature(signature, for: message) else { return .failure(.badSignature) }
         return .success(())
     }
 
-    /// The sha256 the phone signs for the action this Mac posted.
+    /// The sha256 the phone signs for the action this Mac posted; empty (no match) without Rust.
     static func shownSHA256(action: [String: Any]) -> String {
-        FeedApproveShownText(action: action).sha256
+        FeedPushRules().shownSHA256(action: action) ?? ""
     }
 
     private static func isBoolean(_ number: NSNumber) -> Bool { CFGetTypeID(number) == CFBooleanGetTypeID() }

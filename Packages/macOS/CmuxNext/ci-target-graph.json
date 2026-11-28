@@ -9,7 +9,6 @@
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
     "CmuxChiefList": "Packages/Shared/CmuxChiefList",
     "CmuxEgress": "Packages/Shared/CmuxEgress",
-    "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
@@ -451,7 +450,6 @@
         "CmuxAgentQuestion",
         "CmuxAppAttest",
         "CmuxEgress",
-        "CmuxFeedPushCore",
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxVisibleRows"
@@ -1411,6 +1409,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
