@@ -858,10 +858,9 @@ async fn a_cold_ik_connect_that_fails_past_the_carrier_falls_back_to_xx() {
     let sent = Sent::default();
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
     let inner = group(&daemon, session, &sent).await;
-    let links =
-        cmux_remote::provider::lane_bindings(LanePolicy::Isolated, inner.capabilities()).len();
-    let ending = Arc::new(EndingFirst { inner, ended: StdMutex::new(links) });
+    // One ended link fails the whole IK attempt; its other links are dropped, opened or not.
+    let ending = Arc::new(EndingFirst { inner, ended: StdMutex::new(1) });
     cold_connect_time(&mut daemon, ending.clone(), true).await;
-    assert_eq!(*ending.ended.lock().unwrap(), 0, "the IK attempt's links all ended");
+    assert_eq!(*ending.ended.lock().unwrap(), 0, "the IK attempt's first link ended");
     daemon.server.shutdown().await.unwrap();
 }
