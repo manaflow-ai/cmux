@@ -162,6 +162,9 @@ class ByProcess(unittest.TestCase):
         self.assertEqual(rivals.renderer_pages(pages, commands), {932: "agent (hidden)", 933: "agent/new-tab",
                                                                     98136: "browser-tab + home"})
         self.assertEqual(rivals.renderer_pages([], commands), {})
+        extension = {940: "cmux Helper (Renderer) --type=renderer --extension-process --renderer-client-id=9"}
+        self.assertEqual(rivals.renderer_pages([], extension), {940: "(extension)"})
+        self.assertEqual(rivals.renderer_pages([], {}, [{"pid": 941, "extension": True}]), {941: "(extension)"})
 
     def test_renderer_pages_reads_renderers_list_helpers(self):
         # renderers.list (Release too) names each helper's client and each page's owner; it wins over ps args

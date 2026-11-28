@@ -235,6 +235,13 @@ def renderer_pages(pages: list[dict], commands: dict, helpers: list | None = Non
         for client in page.get("renderer_clients") or []:
             if int(client) in by_client:
                 names.setdefault(by_client[int(client)], set()).add(role)
+    # An extension's renderer hosts no page the app lists (the built-in uBlock Origin's background page): name it, so
+    # a pageless renderer born mid-soak reads as an extension or as Chromium's spare (RFD 0062).
+    extensions = {int(h["pid"]) for h in helpers or [] if isinstance(h, dict) and h.get("extension")
+                  and isinstance(h.get("pid"), (int, float))}
+    extensions |= {pid for pid, cmd in commands.items() if "--extension-process" in (cmd or "")}
+    for pid in extensions:
+        names.setdefault(pid, set()).add("(extension)")
     return {pid: " + ".join(sorted(roles)) for pid, roles in names.items()}
 
 
@@ -608,10 +615,15 @@ class Run:
                 pages = listed.get("pages")
                 named = renderer_pages(pages, app.instance.pids(), listed.get("helpers")) if isinstance(pages, list) else {}
                 failed = None if isinstance(pages, list) else f"(no reply: {str(listed.get('first_error') or listed.get('error'))[:60]})"
+                spare = None
                 for pid in unnamed:  # a renderer with no page yet (a spare, or one still loading) is asked again, 3 times
                     series[pid]["asked"] += 1
                     if named.get(pid) or series[pid]["asked"] >= 3:
-                        series[pid]["page"] = named.get(pid) or failed or "(no page)"
+                        if not named.get(pid) and not failed and spare is None:
+                            # The app's spare web window (CEFSpareWindow) when the bench build answers debug.cef.
+                            spare = str(rpc(app.socket, "debug.cef").get("spare_window") or "")
+                        series[pid]["page"] = named.get(pid) or failed or \
+                            (f"(no page; spare window {spare})" if spare else "(no page)")
             groups.append(by_group(memory["kinds"], window["kinds"]))
             if last_round:
                 last_window, detail_memory = window, memory
