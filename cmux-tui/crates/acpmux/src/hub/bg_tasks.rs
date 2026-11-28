@@ -253,11 +253,20 @@ impl Hub {
             bg_run::request_stop(&dir, &id, &spec.generation);
             return Err(RpcError::invalid_params("the chat stopped; its task was stopped"));
         }
-        let record = bg_run::read_record(&dir, &id)
-            .ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
-        // Every task is watched: its end reaches the process registry's clients, and with
-        // `notify` its chat (`bg_notify.rs`).
-        self.bg_watch(&dir, &record);
+        let record = bg_run::read_record(&dir, &id);
+        // Every task is watched, from its lock alone when its record cannot be read now (the
+        // runner runs it all the same): its end reaches the process registry's clients, and with
+        // `notify` its chat (`bg_notify.rs`). A listing gives such a task its row
+        // (`bg_registry.rs` `bg_reconcile`).
+        let watched = record.clone().unwrap_or_else(|| Record {
+            id: id.clone(),
+            session_id: session.id.clone(),
+            generation: spec.generation.clone(),
+            ..Record::default()
+        });
+        self.bg_watch(&dir, &watched);
+        let record =
+            record.ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
         self.bg_publish(session, &dir, &record);
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
@@ -324,6 +333,17 @@ impl Hub {
             .iter()
             .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
             .map(|t| (t.record.id.clone(), t.record.cwd.clone()))
+            .collect()
+    }
+
+    /// The chat's running tasks' records, for what a move would interrupt (`move_interrupts.rs`).
+    pub(super) fn bg_running_records(&self, session: &Session) -> Vec<Record> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .map(|t| t.record.clone())
             .collect()
     }
 

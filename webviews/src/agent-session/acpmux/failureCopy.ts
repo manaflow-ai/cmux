@@ -22,6 +22,7 @@ export type FailureKind =
   | "usage-limit"
   | "account-disabled"
   | "rate-limited"
+  | "gateway-stalled"
   | "unreachable"
   | "invalid-key"
   | "subscription-login"
@@ -127,6 +128,14 @@ const RATE_WORDS = /rate.?limit|usage limit|quota|service unavailable/i;
 function saysRateLimited(message: string): boolean {
   return isUpstreamCapacity(message) || isUpstreamAccountLimit(message) || RATE_WORDS.test(message);
 }
+
+/// The sr2 gateway answered its own first-byte deadline before it ever called the model (subrouter
+/// `first_byte_deadline.go`: "subrouter gateway had no response within 1m0s (before the upstream
+/// call); retry"). It is a 503 `overloaded_error`, so it read as a rate limit, and the card said
+/// "rate limited or out of capacity" while the model and the account were fine and the gateway
+/// itself was stuck (cmux#57823: GUI chats "rate limited" while terminal sr2 worked; the gateway's
+/// failover moves were queued behind one lock). The time it waited is the capture.
+const GATEWAY_STALLED = /gateway had no response within (\d[\dhms.]*)\s*\(before the upstream call\)/i;
 const UNREACHABLE =
   /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|fetch failed|socket hang up|connection (?:refused|reset|closed|error)|could not (?:connect|resolve)|network (?:error|is unreachable)|\bunreachable\b|timed out/i;
 /// The connection-drop words acpmux retries by itself (`hub/turn_errors.rs` `says_connection_dropped`)
@@ -345,6 +354,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (!ROUTER_CODE.test(message) && ACCOUNT_DISABLED.test(message)) return "account-disabled";
   if (!ROUTER_CODE.test(message) && USAGE_LIMIT.test(message)) return "usage-limit";
   if (cloudSignIn(message)) return "cloud-auth-expired";
+  // Before capacity: the gateway's own deadline is a 503 `overloaded_error`, but no model refused it.
+  if (GATEWAY_STALLED.test(message)) return "gateway-stalled";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (/model[_ ]not[_ ]found/i.test(message) || MODEL_ACCESS.test(message)) return "model-not-found";
   if (saysRateLimited(message)) return "rate-limited";
@@ -492,6 +503,10 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return resets === undefined
         ? t("turn.failure.rateLimited", { harness })
         : t("turn.failure.usageLimitResets", { harness, time: resetTime(resets, currentLanguage()) });
+    }
+    case "gateway-stalled": {
+      const time = message ? GATEWAY_STALLED.exec(message)?.[1] : undefined;
+      return t("turn.failure.gatewayStalled", { harness, time: time ?? "60s" });
     }
     case "unreachable":
       return via ? t("turn.failure.unreachableVia", { harness, via }) : t("turn.failure.unreachable", { harness });
