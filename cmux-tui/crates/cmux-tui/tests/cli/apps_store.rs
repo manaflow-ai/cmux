@@ -147,6 +147,9 @@ impl Apps {
 impl Drop for Apps {
     fn drop(&mut self) {
         let _ = self.command("stop").arg("--end-terminals").output();
+        // A failed stop leaves the server (and its agents) running; once the
+        // home is gone nothing can reach them (cmux#64121).
+        super::end_processes_of_home(&self.dir);
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
