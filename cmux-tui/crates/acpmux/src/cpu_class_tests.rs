@@ -1,0 +1,232 @@
+use super::*;
+use crate::config::HarnessKind;
+
+/// `sr2 claude` is the case that starved (module docs, item 2).
+#[test]
+fn a_claude_launcher_is_normal_whatever_the_default_and_claude_itself_takes_the_default() {
+    let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
+    for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
+        assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
+    }
+    for agent in [
+        "claude",
+        "/opt/homebrew/bin/claude",
+        "/x/bin/claude.exe",
+        "/Users/me/.local/share/claude/versions/2.1.34",
+        "/Users/me/.claude/local/node_modules/.bin/cli",
+        "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+    ] {
+        assert_eq!(default(HarnessKind::ClaudeStdio, agent), DEFAULT, "{agent}");
+    }
+    // An empty argv runs `claude`.
+    assert_eq!(default_for(HarnessKind::ClaudeStdio, &[]), DEFAULT);
+    // Another protocol keeps the default: no case of a relay is known there.
+    assert_eq!(default(HarnessKind::Acp, "/Users/me/.local/bin/codex"), DEFAULT);
+    assert_eq!(default(HarnessKind::Acp, "sr2"), DEFAULT);
+}
+
+/// 2026-11-15: Codex's app-server at background class failed its own TLS (`UnknownIssuer`)
+/// and answered a turn in 167 s, against 3.4 s at normal class (module docs, item 2).
+#[test]
+fn a_codex_app_server_defaults_to_normal() {
+    let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    for launch in [
+        argv(&["/Users/me/.local/bin/codex", "app-server"]),
+        argv(&[
+            "codex",
+            "-c",
+            "agents.max_depth=16",
+            "-c",
+            "tools.update_plan.enabled=false",
+            "app-server",
+        ]),
+    ] {
+        assert_eq!(default_for(HarnessKind::Acp, &launch), CpuClass::Normal, "{launch:?}");
+    }
+    // Other Codex commands, and the profile's own `cpuClass`, still decide as before.
+    assert_eq!(default_for(HarnessKind::Acp, &argv(&["codex", "app-server", "proxy"])), DEFAULT);
+    let bg = CpuClass::resolve(Some("background"), None, None, CpuClass::Normal);
+    assert_eq!(bg, CpuClass::Background);
+}
+
+#[test]
+fn the_first_valid_source_names_the_class_else_the_default() {
+    let bg = Some(CpuClass::Background);
+    let normal = Some(CpuClass::Normal);
+    let resolve = |profile, daemon, config| CpuClass::resolve(profile, daemon, config, DEFAULT);
+    assert_eq!(resolve(None, None, None), CpuClass::Normal);
+    assert_eq!(resolve(None, None, normal), CpuClass::Normal);
+    // The daemon's env overrides config; the profile overrides both.
+    assert_eq!(resolve(None, Some("normal".into()), bg), CpuClass::Normal);
+    assert_eq!(resolve(Some("background"), Some("normal".into()), None), CpuClass::Background);
+    assert_eq!(resolve(Some(" Normal "), None, bg), CpuClass::Normal);
+    // A value that names no class is skipped.
+    assert_eq!(resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
+    assert_eq!(resolve(Some(""), None, None), CpuClass::Normal);
+    // What the harness defaults to comes last: any named class wins over it.
+    let launcher = |profile, config| CpuClass::resolve(profile, None, config, CpuClass::Normal);
+    assert_eq!(launcher(None, None), CpuClass::Normal);
+    assert_eq!(launcher(Some("background"), None), CpuClass::Background);
+    assert_eq!(launcher(None, bg), CpuClass::Background);
+}
+
+/// The 2026-11-04 stall: `sr2 claude` waits on its `claude`, which does the work. A launcher
+/// that only waits must not read as a harness that does nothing.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_launchers_harness_state_counts_the_work_of_the_agent_it_started() {
+    use std::io::BufRead;
+    // The launcher (`sh`, kept by the `; :` after its one command) waits on its agent, which
+    // spends CPU, says so, then waits on its input.
+    let agent = "i=0; while [ $i -lt 100000 ]; do i=$((i+1)); done; echo worked; cat";
+    let mut launcher = std::process::Command::new("/bin/sh")
+        .args(["-c", &format!("/bin/sh -c '{agent}'; :")])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn the launcher");
+    let mut said = String::new();
+    let stdout = launcher.stdout.take().expect("its stdout");
+    std::io::BufReader::new(stdout).read_line(&mut said).expect("the agent's line");
+    assert_eq!(said.trim(), "worked");
+    let state = harness_state(launcher.id()).expect("read the launcher");
+    drop(launcher.stdin.take());
+    let _ = launcher.kill();
+    let _ = launcher.wait();
+    // The launcher alone used a few ms; its agent's loop took far more.
+    assert!(state.cpu_ms >= 100, "the agent's CPU time counts: {state:?}");
+    // The error names the launcher and the agent it started, with the agent's own work.
+    // Named by the kernel (macOS's `/bin/sh` runs as `bash`, so no fixed name is asserted).
+    assert!(!state.name.is_empty(), "the launcher's name: {state:?}");
+    let agent = state.first_child.as_ref().expect("the agent the launcher started");
+    assert!(!agent.name.is_empty(), "the agent's name: {state:?}");
+    assert_ne!(agent.pid, state.pid);
+    assert!(agent.cpu_ms >= 50, "the agent's own CPU time: {state:?}");
+    let said = state.to_string();
+    let named = format!("; the first process it started is {} (pid {}), ", agent.name, agent.pid);
+    assert!(said.contains(&named), "{said}");
+}
+
+/// #36028: a start's error says which process it read and what its launcher started, so a
+/// launcher that never started its agent reads apart from an agent that is slow.
+#[test]
+fn a_deadline_clause_names_the_launcher_and_the_agent_it_started() {
+    let launcher = HarnessState {
+        pid: 9104,
+        priority: 20,
+        background: false,
+        ran_secs: 87,
+        cpu_ms: 140,
+        threads: 20,
+        threads_running: 0,
+        processes: 2,
+        pageins: 1800,
+        name: "sr2".to_owned(),
+        first_child: Some(ChildSeen {
+            pid: 9120,
+            name: "claude".to_owned(),
+            cpu_ms: 40,
+            pageins: 1700,
+        }),
+    };
+    assert_eq!(
+        launcher.to_string(),
+        "its agent process (pid 9104, sr2, 2 processes in all) is alive at normal CPU class \
+             (priority 20), ran 87 s, used 0.1 s of CPU, 0 of 20 threads running, 1800 page-ins; \
+             the first process it started is claude (pid 9120), which used 0.0 s of CPU and 1700 \
+             page-ins"
+    );
+    let alone = HarnessState { first_child: None, processes: 1, ..launcher.clone() };
+    assert!(alone.to_string().ends_with("; it has started no process"), "{alone}");
+    // A platform that names no process adds nothing.
+    let unnamed = HarnessState { name: String::new(), ..alone };
+    assert!(unnamed.to_string().ends_with(" page-ins"), "{unnamed}");
+}
+
+#[test]
+fn a_page_in_or_a_process_change_is_work_and_waiting_alone_is_not() {
+    let idle = HarnessState {
+        pid: 1,
+        priority: 31,
+        background: false,
+        ran_secs: 60,
+        cpu_ms: 100,
+        threads: 12,
+        threads_running: 0,
+        processes: 2,
+        pageins: 500,
+        name: String::new(),
+        first_child: None,
+    };
+    let w = WORK_WINDOW;
+    assert!(!idle.worked_since(&idle, w));
+    assert!(HarnessState { pageins: 501, ..idle.clone() }.worked_since(&idle, w));
+    assert!(HarnessState { processes: 3, ..idle.clone() }.worked_since(&idle, w));
+    assert!(HarnessState { cpu_ms: 100 + WORK_CPU_MS, ..idle.clone() }.worked_since(&idle, w));
+    // #36028: an idle launcher's runtime ticks (0.6 ms per 10 s for `sr2`) are not work.
+    assert!(!HarnessState { cpu_ms: 101, ..idle.clone() }.worked_since(&idle, w));
+    assert!(HarnessState { threads_running: 1, ..idle.clone() }.worked_since(&idle, w));
+    // The bar is a rate: a read 1 s on asks for a whole window's budget, a read 30 s on (a
+    // skipped tick) for three.
+    let second = std::time::Duration::from_secs(1);
+    assert!(!HarnessState { cpu_ms: 104, ..idle.clone() }.worked_since(&idle, second));
+    assert!(HarnessState { cpu_ms: 105, ..idle.clone() }.worked_since(&idle, second));
+    let late = std::time::Duration::from_secs(30);
+    assert!(!HarnessState { cpu_ms: 114, ..idle.clone() }.worked_since(&idle, late));
+    assert!(HarnessState { cpu_ms: 115, ..idle.clone() }.worked_since(&idle, late));
+}
+
+/// no-hangs: Linux read no harness state, so `StartWatch` never judged a start there. A
+/// process that sleeps reads as alive and idle, one that spins as working, and the tree
+/// counts the process it started.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_harness_state_reads_the_process_tree_and_tells_work_from_idle() {
+    let mut sleeper =
+        std::process::Command::new("sh").args(["-c", "sleep 30 & wait"]).spawn().expect("spawn sh");
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let a = harness_state(sleeper.id()).expect("read the sleeper");
+    assert_eq!(a.processes, 2, "{a:?}");
+    assert_eq!(a.first_child.as_ref().map(|c| c.name.as_str()), Some("sleep"), "{a:?}");
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let b = harness_state(sleeper.id()).expect("read the sleeper again");
+    assert!(!b.worked_since(&a, WORK_WINDOW), "a sleeping tree counted as work: {a:?} {b:?}");
+    let _ = sleeper.kill();
+    let _ = sleeper.wait();
+
+    let mut spinner = std::process::Command::new("sh")
+        .args(["-c", "while :; do :; done"])
+        .spawn()
+        .expect("spawn sh");
+    let a = harness_state(spinner.id()).expect("read the spinner");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let b = harness_state(spinner.id()).expect("read the spinner again");
+    let _ = spinner.kill();
+    let _ = spinner.wait();
+    assert!(b.cpu_ms > a.cpu_ms, "{a:?} {b:?}");
+    assert!(b.worked_since(&a, WORK_WINDOW), "{a:?} {b:?}");
+}
+
+/// A person's turn takes a background harness out of background class and its end puts it
+/// back (module docs, item 6); a process it starts during the turn is not at background class.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_persons_turn_lifts_a_background_harness_and_its_end_lowers_it_again() {
+    let mut harness = std::process::Command::new("sleep").arg("30").spawn().expect("spawn sleep");
+    let pid = harness.id();
+    assert!(CpuClass::Background.enter(pid));
+    assert!(harness_state(pid).expect("read it").background);
+    assert!(person_turn(pid, true));
+    let lifted = harness_state(pid).expect("read it lifted");
+    assert!(!lifted.background, "{lifted:?}");
+    assert!(person_turn(pid, false));
+    assert!(harness_state(pid).expect("read it after").background);
+    let _ = harness.kill();
+    let _ = harness.wait();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_harness_cpu_ticks_reads_one_process_record() {
+    assert!(harness_cpu_ticks(std::process::id()).is_some());
+}
