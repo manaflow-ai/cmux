@@ -76,7 +76,14 @@ test("the user bubble's rim is off in Plain, Lens and Spectrum glass", () => {
     }
   }
   const bubble = rules(css).filter(({ selector }) => /(^|\s)\.cv-user__bubble$/.test(selector));
-  const selected = bubble.filter(({ selector }) => !selector.includes("data-message-surfaces"));
+  // The plain prompt look (#46848, data-transcript-user="plain") draws no glass at all: it is its own
+  // surface, checked below, not a second copy of the glass bubble's rim.
+  const plain = bubble.filter(({ selector }) => selector.includes('[data-transcript-user="plain"]'));
+  const selected = bubble.filter(
+    ({ selector }) => !selector.includes("data-message-surfaces") && !plain.some((rule) => rule.selector === selector),
+  );
+  expect(plain.flatMap(({ body }) => declared(body, "--glass-rim"))).toEqual(["0"]);
+  expect(plain.flatMap(({ body }) => declared(body, "--glass-edge"))).toEqual(["transparent"]);
   expect(selected.flatMap(({ body }) => declared(body, "--glass-rim"))).toEqual(["0"]);
   // Clear unless a look names a hairline (--cv-user-bubble-edge, style-tokens.json): the default
   // stays transparent, and a look's edge is the only rim the bubble can get.
