@@ -43,7 +43,6 @@ const view = createRoot(root);
         <div className="acpmux-permission acpmux-asks-stack">
           <PermissionPanel
             state={state}
-            working
             onRespond={() => {}}
             onRetry={() => {}}
             onRevoke={() => {}}

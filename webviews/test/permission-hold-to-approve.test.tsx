@@ -206,7 +206,6 @@ test("the grouped panel: under hold its Allow answers only after the hold, Deny 
       root.render(
         <PermissionPanel
           state={panelState("git push --force")}
-          working
           hold={{ scope, durationMs: HOLD_MS }}
           onRespond={(_group, _revision, decision) => sent.push(decision)}
           onRetry={() => undefined}
@@ -291,7 +290,6 @@ test("F1: the panel's hold ends when its group's revision changes", async () => 
       root.render(
         <PermissionPanel
           state={state}
-          working
           hold={{ scope: "all", durationMs: HOLD_MS }}
           onRespond={(group, at, decision) => sent.push(`${group}@${at}:${decision}`)}
           onRetry={() => undefined}
