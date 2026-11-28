@@ -12,6 +12,8 @@
 # published NEXT nightly was built from, through the deployed Worker: pair over webrtc and
 # wireguard, attach (daemon identify), stream (echo bytes each way) and reconnect (a held link
 # redials and answers after the Mac host restarts). The table is the job summary; a FAIL is red.
+# extra_mac adds a third Mac host column built at any commit, so a fix stack (e.g. #63575) is
+# proven against the phones already in the field before it ships.
 #
 # When: after every mobile Worker deploy (mobile-worker-dev-deploy.yml calls it with staging,
 # mobile-worker-prod-deploy.yml with prod), on every feat-cmux-next push that changes the link or
@@ -29,6 +31,10 @@ on:
         description: staging, prod or both
         type: string
         default: both
+      extra_mac:
+        description: Also a Mac host built at this commit or ref (a fix stack under test), column "extra"
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       api:
@@ -36,6 +42,10 @@ on:
         type: choice
         options: [both, staging, prod]
         default: both
+      extra_mac:
+        description: Also a Mac host built at this commit or ref (a fix stack under test), column "extra"
+        type: string
+        default: ""
   push:
     branches: [feat-cmux-next]
     paths:
@@ -129,6 +139,14 @@ jobs:
           path: .old-phones/mac-nightly
           persist-credentials: false
 
+      - name: The extra Mac host
+        if: ${{ inputs.extra_mac != '' }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.extra_mac }}
+          path: .old-phones/mac-extra
+          persist-credentials: false
+
       - name: Phone build 1
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -162,7 +180,9 @@ jobs:
           git config --global --add safe.directory '*'
           [[ -n "$STACK_EMAIL" && -n "$STACK_PASSWORD" ]] || { echo "::error::CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD missing for the $API API"; exit 1; }
           # shellcheck disable=SC2086 # PHONES is space-separated SHA:CREATED words
-          scripts/ci/mobile-old-phones.sh "$API" "$OUT" head=. nightly=.old-phones/mac-nightly -- $PHONES || echo "::warning::a Mac host did not come up (see logs)"
+          macs=(head=. nightly=.old-phones/mac-nightly)
+          [[ ! -d .old-phones/mac-extra ]] || macs+=(extra=.old-phones/mac-extra)
+          scripts/ci/mobile-old-phones.sh "$API" "$OUT" "${macs[@]}" -- $PHONES || echo "::warning::a Mac host did not come up (see logs)"
           python3 -I scripts/ci/mobile_old_phones.py verdict --dir "$OUT"
 
       - name: Upload the dial logs
