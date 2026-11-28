@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 export interface VirtualRange {
@@ -158,15 +159,22 @@ export function useVirtualTurns(count: number, enabled = true) {
     const scroll = root?.closest<HTMLElement>("#messages, .gallery-transcript");
     if (!scroll) return;
     scrollRef.current = scroll;
-    const update = () => {
+    const readViewport = () => {
       const currentCount = countRef.current;
       anchorIndex.current = virtualFirstVisibleIndex(currentCount, heights.current, scroll.scrollTop, estimate.current);
       anchorCount.current = currentCount;
       anchorGeneration.current = measurementGeneration.current;
       anchorInvalidated.current = false;
-      setViewport({ top: scroll.scrollTop, height: scroll.clientHeight || 900 });
+      return { top: scroll.scrollTop, height: scroll.clientHeight || 900 };
     };
-    update();
+    const update = () => {
+      const nextViewport = readViewport();
+      // Scroll and ResizeObserver callbacks run outside React's commit. Commit
+      // the new range before the browser can paint the old rows at the new
+      // scroll position or viewport size.
+      flushSync(() => setViewport(nextViewport));
+    };
+    setViewport(readViewport());
     scroll.addEventListener("scroll", update, { passive: true });
     const resize = new ResizeObserver(update);
     resize.observe(scroll);
