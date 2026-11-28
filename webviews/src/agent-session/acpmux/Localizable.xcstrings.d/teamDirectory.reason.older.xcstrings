@@ -2,133 +2,133 @@
   "sourceLanguage" : "en",
   "strings" : {
     "teamDirectory.reason.older" : {
-      "comment" : "Agent pane: team directory with an older acpmux",
+      "comment" : "Agent pane: team directory with an older cmux",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This Mac's acpmux predates the team directory."
+            "value" : "This Mac's cmux predates the team directory."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux على هذا الـ Mac أقدم من دليل الفريق."
+            "value" : "cmux على هذا الـ Mac أقدم من دليل الفريق."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux na ovom Macu je stariji od imenika tima."
+            "value" : "cmux na ovom Macu je stariji od imenika tima."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Denne Macs acpmux er ældre end teamkataloget."
+            "value" : "Denne Macs cmux er ældre end teamkataloget."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Das acpmux dieses Macs ist älter als das Teamverzeichnis."
+            "value" : "Das cmux dieses Macs ist älter als das Teamverzeichnis."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El acpmux de este Mac es anterior al directorio del equipo."
+            "value" : "El cmux de este Mac es anterior al directorio del equipo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'acpmux de ce Mac est antérieur à l'annuaire de l'équipe."
+            "value" : "L'cmux de ce Mac est antérieur à l'annuaire de l'équipe."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'acpmux di questo Mac è precedente alla directory del team."
+            "value" : "L'cmux di questo Mac è precedente alla directory del team."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この Mac の acpmux はチームディレクトリより古いバージョンです。"
+            "value" : "この Mac の cmux はチームディレクトリより古いバージョンです。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux របស់ Mac នេះចាស់ជាងបញ្ជីក្រុម។"
+            "value" : "cmux របស់ Mac នេះចាស់ជាងបញ្ជីក្រុម។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이 Mac의 acpmux는 팀 디렉터리 이전 버전입니다."
+            "value" : "이 Mac의 cmux는 팀 디렉터리 이전 버전입니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Denne Macens acpmux er eldre enn teamkatalogen."
+            "value" : "Denne Macens cmux er eldre enn teamkatalogen."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux tego Maca jest starszy niż katalog zespołu."
+            "value" : "cmux tego Maca jest starszy niż katalog zespołu."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O acpmux deste Mac é anterior ao diretório da equipe."
+            "value" : "O cmux deste Mac é anterior ao diretório da equipe."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux этого Mac старше каталога команды."
+            "value" : "cmux этого Mac старше каталога команды."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux ของ Mac เครื่องนี้เก่ากว่าไดเรกทอรีของทีม"
+            "value" : "cmux ของ Mac เครื่องนี้เก่ากว่าไดเรกทอรีของทีม"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bu Mac'in acpmux'u ekip dizininden eski."
+            "value" : "Bu Mac'in cmux'u ekip dizininden eski."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux цього Mac старіший за каталог команди."
+            "value" : "cmux цього Mac старіший за каталог команди."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "acpmux của máy Mac này cũ hơn danh bạ nhóm."
+            "value" : "cmux của máy Mac này cũ hơn danh bạ nhóm."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此 Mac 的 acpmux 早于团队目录。"
+            "value" : "此 Mac 的 cmux 早于团队目录。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此 Mac 的 acpmux 早於團隊目錄。"
+            "value" : "此 Mac 的 cmux 早於團隊目錄。"
           }
         }
       }

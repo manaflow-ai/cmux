@@ -130,7 +130,8 @@ import UIKit
         let svg = try String(contentsOf: svgURL, encoding: .utf8)
         for (weight, radius) in Self.radii {
             let expected = segments.flatMap { Self.capsule($0.0, $0.1, radius: radius) }
-            let group = try #require(svg.firstMatch(of: try Regex(#"<g id="\#(weight)"[^>]*>\s*<path d="([^"]+)""#)),
+            let pattern = try Regex(#"<g id="\#(weight)"[^>]*>\s*<path d="([^"]+)""#)
+            let group = try #require(svg.firstMatch(of: pattern),
                                      "no \(weight) in \(svgURL.lastPathComponent)")
             let d = try #require(group.output[1].substring)
             let drawn = d.matches(of: /-?\d*\.?\d+/).compactMap { Double($0.output) }
