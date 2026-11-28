@@ -60,6 +60,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_sessions_list_claude_transcript_scan.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_vm_open_device_target.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]

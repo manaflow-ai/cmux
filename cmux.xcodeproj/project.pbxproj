@@ -718,6 +718,7 @@
 		97CEF52570A6C3AFB83E1A7C /* ClaudeStopFailureStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEAB02E73CAA231F5E266CF7 /* ClaudeStopFailureStatusTests.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
 		3064F30D440A86FA4F6007B1 /* ClaudeTranscriptlessRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB0DDF5F330E26DA03118A56 /* ClaudeTranscriptlessRestoreTests.swift */; };
+		2654183CE243B95D54966670 /* ClaudeTranscriptProjectScanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC6DA0F962D32368DBBB3814 /* ClaudeTranscriptProjectScanTests.swift */; };
 		C1175700000000000000003A /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000021 /* ClaudeWrapperResumeEnvironmentTests.swift */; };
 		A0DD6EEA0656443ED94D975D /* CLIAgentHibernationTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B6FD335AD1A538E8DBB23D /* CLIAgentHibernationTargetTests.swift */; };
 		CEF7E11D65E68B00B648617F /* CLIAgentMessageCommandTests+Kiro.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C4EC34292AE45663229DB16 /* CLIAgentMessageCommandTests+Kiro.swift */; };
@@ -5592,6 +5593,7 @@
 		DEAB02E73CAA231F5E266CF7 /* ClaudeStopFailureStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeStopFailureStatusTests.swift"; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
 		BB0DDF5F330E26DA03118A56 /* ClaudeTranscriptlessRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeTranscriptlessRestoreTests.swift"; sourceTree = "<group>"; };
+		AC6DA0F962D32368DBBB3814 /* ClaudeTranscriptProjectScanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeTranscriptProjectScanTests.swift"; sourceTree = "<group>"; };
 		C11757000000000000000021 /* ClaudeWrapperResumeEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWrapperResumeEnvironmentTests.swift; sourceTree = "<group>"; };
 		A2B6FD335AD1A538E8DBB23D /* CLIAgentHibernationTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIAgentHibernationTargetTests.swift"; sourceTree = "<group>"; };
 		8C4EC34292AE45663229DB16 /* CLIAgentMessageCommandTests+Kiro.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIAgentMessageCommandTests+Kiro.swift"; sourceTree = "<group>"; };
@@ -14357,6 +14359,7 @@
 				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
 				2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */,
 				C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */,
+				AC6DA0F962D32368DBBB3814 /* ClaudeTranscriptProjectScanTests.swift */,
 				C6BD7F10185DA1F7C53B33A3 /* RemoteTmuxHostSocketNameTests.swift */,
 				9A7B328A8031722C38545CA7 /* SafariCookieImportTests.swift */,
 			);
@@ -18595,6 +18598,7 @@
 				66765A4053FB6BD40F7EB569 /* ClaudeRelaunchRestoresEveryWorkspaceTests.swift in Sources */,
 				97CEF52570A6C3AFB83E1A7C /* ClaudeStopFailureStatusTests.swift in Sources */,
 				3064F30D440A86FA4F6007B1 /* ClaudeTranscriptlessRestoreTests.swift in Sources */,
+				2654183CE243B95D54966670 /* ClaudeTranscriptProjectScanTests.swift in Sources */,
 				A0DD6EEA0656443ED94D975D /* CLIAgentHibernationTargetTests.swift in Sources */,
 				9758A0000000000000000004 /* CLIAmpLifecycleIntegrationTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
