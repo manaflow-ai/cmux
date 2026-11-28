@@ -716,7 +716,8 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
 /// Leo, 2026-11-27: "honestly non-user messages shouldnt appear in the scroll rail anymore."
 #[test]
 fn the_prompt_index_marks_prompts_the_person_did_not_type() {
-    let person = json!({"text": "fix the rail", "_meta": {"origin": {"actor": "person", "verified": true}}});
+    let person =
+        json!({"text": "fix the rail", "_meta": {"origin": {"actor": "person", "verified": true}}});
     let notice = json!({
         "text": "[notice from glaeda-land · WARN] glaeda land: https://github.com/x",
         "_meta": {"provenance": {"kind": "notice", "to": "c"}},
