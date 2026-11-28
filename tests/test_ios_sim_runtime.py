@@ -248,6 +248,26 @@ class IOSSimRuntimeTest(unittest.TestCase):
                      if NEWEST_PICK.search(path.read_text())]
         self.assertEqual(offenders, [])
 
+    def test_fallback_skips_the_two_display_phone(self):
+        # The iOS 27.2 runtime lists iPhone Duo last; its screenshots refuse without --display (run 46172092415).
+        phones = ("iPhone 18 Pro", "iPhone 18", "iPhone Duo")
+        p = run({"runtimes": [runtime("27.2", "24C5", phones=phones)]}, "24C5")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.split()[1], "com.apple.CoreSimulator.SimDeviceType.iPhone-18")
+
+    def test_two_display_phone_is_the_fallback_only_when_alone(self):
+        p = run({"runtimes": [runtime("27.2", "24C5", phones=("iPad Pro", "iPhone Duo"))]}, "24C5")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout.split()[1], "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo")
+
+    def test_step_script_names_the_primary_display_for_screens_and_recordings(self):
+        text = SCRIPT.read_text()
+        self.assertIn("(primary)", text)
+        # Every screenshot and recording goes through the wrapper, or passes sim_display itself.
+        for line in text.splitlines():
+            if "xcrun simctl" in line and ("screenshot" in line or "recordVideo" in line):
+                self.assertTrue("sim_display" in line or "--display" in line or "$probe" in line, line)
+
     def test_step_script_selects_through_the_helper(self):
         text = SCRIPT.read_text()
         self.assertIn("python3 -I scripts/ci/ios_sim_runtime.py", text)
