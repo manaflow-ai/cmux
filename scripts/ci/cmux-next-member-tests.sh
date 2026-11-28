@@ -23,7 +23,23 @@ if [[ -n "$only_test" ]]; then
   # The gate's own target only, so the gate's saved target covers it and a red here is a red there.
   [[ " ${args[*]} " == *" --test $only_test "* ]] || { echo "::error::$member's gate targets (${args[*]}) have no --test $only_test"; exit 2; }
   [[ "$filter" == *cmux_next_* ]] || { echo "::error::filter $filter selects tests the gate does not run (it holds no cmux_next_)"; exit 2; }
-  args=("${args[0]}" "${args[1]}" --test "$only_test")
+  # Select the gate's packages, not the member's alone: cargo resolves features over the packages one command names,
+  # and `-p cmux-tui` alone gives proc-macro2 (span-locations), syn, num-traits and 29 more crates other features
+  # than the gate's 10-package command, other hashes, so a "hit" on the gate's saved target still rebuilt 384 crates:
+  # cmux-next-idle-wakeups' cargo test took 1665-2329 s on 46 landing heads in 6 h (2026-11-28 05-11Z, 1,768
+  # runner-min, about 7,000 a day; jobs 140885307870, 140948193539). `--test NAME` builds and runs that target of
+  # whichever selected package declares it (cmux-tui alone has `it`), so the tests run are the same.
+  read -r -a gate <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+  selected=()
+  for ((i = 0; i < ${#gate[@]}; i++)); do
+    case "${gate[i]}" in
+      -p) selected+=(-p "${gate[i + 1]}"); i=$((i + 1)) ;;
+      --workspace) selected+=(--workspace) ;;
+    esac
+  done
+  [[ " ${selected[*]} " == *" ${args[1]} "* || " ${selected[*]} " == *" --workspace "* ]] \
+    || selected=("${args[0]}" "${args[1]}")
+  args=("${selected[@]}" --test "$only_test")
 fi
 channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
