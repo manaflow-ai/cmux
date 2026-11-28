@@ -630,8 +630,9 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-iphone-clips.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-perf-bench.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-split-table.yml": _GATEWAY_ONLY,
-    ".github/workflows/cmux-next-web-perf.yml": _GATEWAY_ONLY,  # stress-measure (was cmux-next-stress-bench.yml, #61915)
+    ".github/workflows/cmux-next-stress-bench.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-tab-switch.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-web-perf.yml": _GATEWAY_ONLY,  # stress-measure (#61915)
     ".github/workflows/fleet-compile-check.yml": _GATEWAY_ONLY,
     ".github/workflows/ios-base-bisect.yml": _GATEWAY_ONLY,
     ".github/workflows/screen-stream-eval.yml": _GATEWAY_ONLY,
@@ -698,10 +699,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next only; its bench job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
         "so a re-run would not move it; a dispatched perf bench whose numbers mean owned hardware; a person "
         "re-runs it",
-    ".github/workflows/cmux-next-web-perf.yml":
-        "feat-cmux-next only; its stress-measure job (the stress bench, merged in from cmux-next-stress-bench.yml "
-        "by cmux#61915) names the literal glaeda-gateway-xcode-26.6 label on every attempt, so a re-run would not "
-        "move it; a stress bench whose numbers mean owned hardware; a person re-runs it",
+    ".github/workflows/cmux-next-stress-bench.yml":
+        "feat-cmux-next only; its measure job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
+        "so a re-run would not move it; a dispatched stress bench whose numbers mean owned hardware; a person "
+        "re-runs it",
     ".github/workflows/cmux-next-tab-switch.yml":
         "feat-cmux-next only; its frames job names the literal glaeda-gateway-xcode-26.6 label on every attempt, "
         "so a re-run would not move it; a tab-switch frame bench whose numbers mean owned hardware; the next push "

@@ -30,6 +30,7 @@ jobs:
   sweep:
     name: sweep stale cmux/ui-proof pending
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
+    # The step holds the CI pool tokens (secrets), so the job leads with the one-job secret JIT label.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 5
     permissions:
@@ -47,27 +48,27 @@ jobs:
             scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      # The floor script lives on main, not feat-cmux-next: read it from this run's own commit.
+      # The floor script lives on this branch (main), not in feat-cmux-next's sparse checkout above.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          path: main-ci
+          path: floor
           sparse-checkout: |
             scripts/ci/job_token_floor.py
+            scripts/ci/app_spend_mark.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor this hourly sweep sends
-      # nothing on it and the next tick looks again (scripts/ci/job_token_floor.py; GET /rate_limit is free).
+      # The repository GITHUB_TOKEN hour is shared by every workflow; under its floor the sweep reads on the CI pool
+      # tokens alone (scripts/ci/job_token_floor.py; GET /rate_limit is free).
       - name: Read the GITHUB_TOKEN floor
         id: job-floor
         continue-on-error: true
         timeout-minutes: 1
         env:
           JOB_TOKEN: ${{ github.token }}
-        run: python3 main-ci/scripts/ci/job_token_floor.py ui-proof-stale-sweep/sweep
+        run: python3 -I floor/scripts/ci/job_token_floor.py ui-proof-stale-sweep/sweep
       - name: Turn stale pending into failure
-        if: steps.job-floor.outputs.held != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.job-floor.outputs.held != 'true' && github.token || '' }}
           TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
