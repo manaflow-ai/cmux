@@ -8,6 +8,7 @@
                   a long Codex exec in acpmux's log (27,564 updates for 223 calls, about 5 KB each)
   "subagents: K"  a turn that starts K subagents (subagent_spawned), each with a thought, eight
                   tool calls with output and a reply of its own, then ends them all (completed)
+  "coordinator ticks"  twenty running child sessions, each sending one titled tool update per second for two minutes
   "rows: N"       a turn of N transcript rows (a tool call and a short reply, in turn): seeds a 100k-row chat in
                   ten prompts (tab_switch_frames.py chat-100k)
   "live: S C L"   a reply streaming C text chunks a second and a tool call growing by L output lines a second,
@@ -77,6 +78,30 @@ def subagents(sid, count):
         fake.update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": f"{sid}-sub-{k}",
                           "state": "completed"})
     text(sid, "Every subagent reported; the findings are above.")
+
+
+def coordinator_ticks(rid, sid):
+    children = [f"{sid}-cpu-{i}" for i in range(20)]
+    for i, child in enumerate(children):
+        fake.update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": child,
+                          "name": f"Worker {i}", "task": f"Check part {i}", "capabilities": {}})
+        fake.update(child, {"sessionUpdate": "tool_call", "toolCallId": "check", "title": "Starting check",
+                            "kind": "execute", "status": "in_progress"})
+    stop = "end_turn"
+    started = time.monotonic()
+    for tick in range(120):
+        if sid in fake.cancelled:
+            fake.cancelled.discard(sid)
+            stop = "cancelled"
+            break
+        for child in children:
+            fake.update(child, {"sessionUpdate": "tool_call_update", "toolCallId": "check",
+                                "title": f"Checking part, tick {tick}", "status": "in_progress"})
+        time.sleep(max(0, started + tick + 1 - time.monotonic()))
+    for child in children:
+        fake.update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": child,
+                          "state": "completed"})
+    fake.send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": stop}})
 
 
 def edit(sid, folder):
@@ -159,6 +184,9 @@ def handle_prompt(rid, params):
     # prompt or the context it adds to a first turn. Joining every block hid "subagents: 5" behind the sender line,
     # so each seeded subagent chat spawned none (2026-11-16).
     said = fake.prompt_text(params).strip()
+    if said == "coordinator ticks":
+        coordinator_ticks(rid, sid)
+        return
     if said.startswith("live:"):
         words = [float(v) for v in said[5:].split()] + [60.0, 60.0, 0.0]
         live(rid, sid, words[0], words[1], words[2])

@@ -67,7 +67,7 @@ fn github(authority: &str) -> bool {
 /// Reads the token file: a regular file of this user, not a symlink, with
 /// no group or other bits, one line of printable ASCII. Errors name the
 /// rule broken, never the content.
-fn read_token(path: &Path) -> Result<Option<String>, String> {
+pub(crate) fn read_token(path: &Path) -> Result<Option<String>, String> {
     let file = match std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)

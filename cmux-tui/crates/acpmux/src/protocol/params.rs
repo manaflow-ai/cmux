@@ -76,6 +76,7 @@ impl JsonSchema for AcpmuxRequestMeta {
 
 /// [`AcpmuxRequestMeta`]'s keys.
 pub const ACPMUX_REQUEST_META: &[&str] = &[
+    "abi",
     "adopt",
     "agentSessionId",
     "answeredBy",
@@ -85,6 +86,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "author",
     "autoPlace",
     "beforePromptId",
+    "build",
     "callerKind",
     "callerProtocol",
     "callerSession",
@@ -190,9 +192,9 @@ keyed! {
     /// `_acpmux/agent_login/cancel`.
     AgentLoginCancelParams: ["loginId", "sessionId"];
     /// `_acpmux/agent_login/finish`.
-    AgentLoginFinishParams: ["loginId", "code", "sessionId"];
+    AgentLoginFinishParams: ["loginId", "code", "sessionId", "recoverySession"];
     /// `_acpmux/agent_login/start`.
-    AgentLoginStartParams: ["agent", "sessionId"];
+    AgentLoginStartParams: ["agent", "sessionId", "reuseExisting", "recoverySession"];
     /// `_acpmux/agent_pair_resume`.
     AgentPairResumeParams: ["sessionId", "peerSessionId"];
     /// `_acpmux/app_reply`.
@@ -226,9 +228,9 @@ keyed! {
     /// `_acpmux/chat/route.set`.
     ChatRouteSetParams: ["sessionId", "routeId", "when"];
     /// `_acpmux/draft_get`.
-    DraftGetParams: ["sessionId"];
+    DraftGetParams: ["sessionId", "attachments"];
     /// `_acpmux/draft_set`.
-    DraftSetParams: ["sessionId", "text"];
+    DraftSetParams: ["sessionId", "text", "attachments"];
     /// `_acpmux/forum/rules`.
     ForumRulesParams: [];
     /// `_acpmux/handoff_discard`.

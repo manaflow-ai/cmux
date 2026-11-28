@@ -137,6 +137,32 @@ FILES = {
     "packages/a/index.js": 'import "@fx/b";\n',
     "packages/b/package.json": '{"name": "@fx/b"}\n',
     "packages/b/index.js": "export const b = 1;\n",
+    # A test that declares its reads: its git log and root walk are covered by the declared folder and glob.
+    "tests/test_m.py": """
+        # guard-inputs: specs/ templates/*.tmpl
+        import subprocess
+        from pathlib import Path
+        import tool_m
+        ROOT = Path(__file__).resolve().parents[1]
+        subprocess.run(["git", "log", "-1"], check=True)
+        print(sorted(ROOT.rglob("*.yml")))
+    """,
+    "tests/tool_m.py": "Z = 1\n",
+    "specs/one.yml": "a: 1\n",
+    "templates/a.tmpl": "x\n",
+    "templates/deep/b.tmpl": "x\n",
+    # A declared test that runs a script it names: the script and the script's own imports are still its inputs.
+    "tests/test_n.py": """
+        # guard-inputs: specs/
+        import subprocess, sys
+        SCRIPT = "scripts/run_me.py"
+        subprocess.run([sys.executable, SCRIPT], check=True)
+    """,
+    # A declaration of everything stays whole; an undeclared constant __import__ names its module, not every stem.
+    "tests/test_o.py": "# guard-inputs: **\nimport subprocess\nsubprocess.run(['git', 'log'])\n",
+    "tests/test_p.py": "mod = __import__('tool_m')\n",
+    # A declaration cannot stand for a tool it starts: the trace sees only this process's reads.
+    "tests/test_q.py": "# guard-inputs: specs/\nimport subprocess\nsubprocess.run(['make', 'check'])\n",
     "unrelated.txt": "x\n",
 }
 
@@ -156,6 +182,11 @@ STEPS = [
     ("K", "python3 tests/test_k.py", None),
     ("L", "python3 tests/test_l.py", None),
     ("N", "node --test tests/test_nested.test.mjs", None),
+    ("M", "python3 tests/test_m.py", None),
+    ("Nd", "python3 tests/test_n.py", None),
+    ("O", "python3 tests/test_o.py", None),
+    ("P", "python3 tests/test_p.py", None),
+    ("Q", "python3 tests/test_q.py", None),
 ]
 RUNTIME = ["runtime_joinpath", "runtime_fstring", "runtime_concat"]
 TOOLS = ["tool_variable", "tool_shell", "tool_prefix", "tool_module"]
@@ -184,7 +215,7 @@ class GuardStepInputs(unittest.TestCase):
         return set(g.select(self.tree, STEPS, sorted(changed)))
 
     def test_an_unrelated_change_runs_only_the_steps_whose_inputs_cannot_be_read(self):
-        self.assertEqual(self.picked("unrelated.txt"), {"B", "F", "G", "H", "K", "piped"})
+        self.assertEqual(self.picked("unrelated.txt"), {"B", "F", "G", "H", "K", "O", "Q", "piped"})
 
     def test_a_path_built_on_the_root_at_runtime_or_a_tool_run_reads_the_whole_tree(self):
         self.assertIn("names at runtime", g.step_inputs(self.tree, STEPS[9][1], None, frozenset()).whole)
@@ -227,6 +258,37 @@ class GuardStepInputs(unittest.TestCase):
         self.assertIn("D", self.picked("scripts/ci/data_only.py"))
         self.assertNotIn("D", self.picked("scripts/ci/data_dep.py"))
         self.assertNotIn("D", self.picked("tests/test_b.py"))  # named in a docstring only
+
+    def test_a_declared_source_reads_its_declared_folders_and_globs_and_its_imports(self):
+        inputs = g.step_inputs(self.tree, "python3 tests/test_m.py", None, frozenset())
+        self.assertEqual(inputs.whole, "")
+        self.assertTrue(inputs.declared)
+        self.assertIn("M", self.picked("specs/two.yml"))  # a new file in a declared folder
+        self.assertIn("M", self.picked("templates/c.tmpl"))
+        self.assertNotIn("M", self.picked("templates/deep/b.tmpl"))  # `*` does not cross a folder
+        self.assertIn("M", self.picked("tests/tool_m.py"))  # imports are still followed
+        self.assertNotIn("M", self.picked("unrelated.txt"))
+
+    def test_a_declared_source_still_follows_a_script_it_runs(self):
+        self.assertIn("Nd", self.picked("scripts/run_me.py"))
+        self.assertIn("Nd", self.picked("scripts/deep.py"))
+        self.assertNotIn("Nd", self.picked("unrelated.txt"))
+
+    def test_declaring_everything_stays_whole(self):
+        self.assertTrue(g.step_inputs(self.tree, "python3 tests/test_o.py", None, frozenset()).whole)
+
+    def test_a_declaration_does_not_cover_a_tool_the_source_starts(self):
+        self.assertIn("starts 'make'", g.step_inputs(self.tree, "python3 tests/test_q.py", None, frozenset()).whole)
+
+    def test_a_constant_dynamic_import_names_that_module(self):
+        self.assertEqual(g.step_inputs(self.tree, "python3 tests/test_p.py", None, frozenset()).whole, "")
+        self.assertIn("P", self.picked("tests/tool_m.py"))
+
+    def test_glob_patterns_follow_github_paths_rules(self):
+        self.assertTrue(g.glob_regex("a/**/b.py").fullmatch("a/b.py"))
+        self.assertTrue(g.glob_regex("a/**/b.py").fullmatch("a/x/y/b.py"))
+        self.assertFalse(g.glob_regex("a/*.py").fullmatch("a/x/b.py"))
+        self.assertTrue(g.glob_regex("a/?.py").fullmatch("a/b.py"))
 
     def test_a_temporary_folder_walk_is_not_a_tree_walk(self):
         inputs = g.step_inputs(self.tree, STEPS[4][1], None, frozenset())

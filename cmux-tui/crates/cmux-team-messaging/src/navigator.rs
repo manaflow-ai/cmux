@@ -6,7 +6,7 @@
 //! permission. Spaces follow the team's own order (`team.spaces`, its customization), then title.
 //! Nothing here does I/O; the host passes the records in.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -73,9 +73,19 @@ pub struct SpaceRow {
     /// Open threads.
     pub open: u32,
     pub grants: Grants,
+    /// The first [`LIVE_PREVIEW`] live people by name; `people_live` counts all of them.
     pub people: Vec<LiveRow>,
+    /// The first [`LIVE_PREVIEW`] live agents by name; `agents_live` counts all of them.
     pub agents: Vec<LiveRow>,
+    pub people_live: u32,
+    pub agents_live: u32,
 }
+
+/// Live rows a space row carries per kind. The sidebar shows a few faces and a count, so the
+/// answer stays the same size however many are live: at 1000 people and 1000 agents in 200
+/// spaces, every live row made a 1.56 MB answer. The whole list is the picker's and Session
+/// Info's.
+pub const LIVE_PREVIEW: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -126,8 +136,17 @@ fn readable<'a>(viewer: &Principal, team: &Team, cx: &NavContext<'a>) -> Vec<(&'
         .collect()
 }
 
-fn unread_in(space: &Space, cx: &NavContext<'_>) -> u32 {
-    cx.threads.iter().filter(|t| t.space_id == space.id).filter_map(|t| cx.unread.get(&t.id)).sum()
+/// Per space id: the viewer's unread count and open threads, from one pass over the threads.
+fn thread_counts<'a>(cx: &NavContext<'a>) -> HashMap<&'a str, (u32, u32)> {
+    let mut counts: HashMap<&str, (u32, u32)> = HashMap::new();
+    for t in cx.threads {
+        let c = counts.entry(t.space_id.as_str()).or_default();
+        c.0 += cx.unread.get(&t.id).copied().unwrap_or(0);
+        if t.state == ThreadState::Open {
+            c.1 += 1;
+        }
+    }
+    counts
 }
 
 /// The sidebar as `viewer` may see it, or `None` for a bridge author, a malformed principal or a
@@ -138,29 +157,44 @@ pub fn navigator(viewer: &Principal, cx: &NavContext<'_>) -> Option<Navigator> {
     }
     let teams = teams_of(viewer, cx);
     let current = teams.iter().find(|t| t.id == cx.current_team_id).copied()?;
+    let counts = thread_counts(cx);
+    let count = |s: &Space| counts.get(s.id.as_str()).copied().unwrap_or_default();
     let team_rows = teams
         .iter()
         .map(|t| TeamRow {
             id: t.id.clone(),
             name: t.name.clone(),
             current: t.id == current.id,
-            unread: readable(viewer, t, cx).iter().map(|(s, _)| unread_in(s, cx)).sum(),
+            unread: readable(viewer, t, cx).iter().map(|(s, _)| count(s).0).sum(),
         })
         .collect();
 
-    let mut spaces = readable(viewer, current, cx);
-    let order = |s: &Space| current.spaces.iter().position(|id| *id == s.id).unwrap_or(usize::MAX);
-    spaces.sort_by(|(a, _), (b, _)| {
-        (order(a), a.title.to_lowercase(), &a.id).cmp(&(order(b), b.title.to_lowercase(), &b.id))
-    });
-    let bridged: Vec<&str> =
+    let position: HashMap<&str, usize> =
+        current.spaces.iter().enumerate().rev().map(|(i, id)| (id.as_str(), i)).collect();
+    let mut spaces: Vec<((usize, String), &Space, Grants)> = readable(viewer, current, cx)
+        .into_iter()
+        .map(|(s, g)| {
+            let order = position.get(s.id.as_str()).copied().unwrap_or(usize::MAX);
+            ((order, s.title.to_lowercase()), s, g)
+        })
+        .collect();
+    spaces.sort_by(|(ka, a, _), (kb, b, _)| (ka, &a.id).cmp(&(kb, &b.id)));
+    let bridged: HashSet<&str> =
         cx.principals.iter().filter(|p| p.via.is_some()).map(|p| p.id.as_str()).collect();
     let space_rows = spaces
         .into_iter()
-        .map(|(s, grants)| {
+        .map(|(_, s, grants)| {
+            let live = cx.here.get(&s.id).map_or(&[][..], Vec::as_slice);
+            // Member sets pay off only past a few lookups; a small space scans its list.
+            let members: Option<HashSet<&str>> = (live.len() > 4 && s.members.len() > 8)
+                .then(|| s.members.iter().map(String::as_str).collect());
+            let is_member = |id: &str| match &members {
+                Some(m) => m.contains(id),
+                None => s.is_member(id),
+            };
             let (mut people, mut agents) = (Vec::new(), Vec::new());
-            for h in cx.here.get(&s.id).into_iter().flatten() {
-                if !s.is_member(&h.principal_id) || bridged.contains(&h.principal_id.as_str()) {
+            for h in live {
+                if !is_member(&h.principal_id) || bridged.contains(h.principal_id.as_str()) {
                     continue;
                 }
                 let row = LiveRow {
@@ -174,26 +208,41 @@ pub fn navigator(viewer: &Principal, cx: &NavContext<'_>) -> Option<Navigator> {
                     PrincipalKind::Agent => agents.push(row),
                 }
             }
-            let by_name = |r: &LiveRow| (r.name.to_lowercase(), r.principal_id.clone());
-            people.sort_by_key(by_name);
-            agents.sort_by_key(by_name);
+            let (people_live, agents_live) = (people.len() as u32, agents.len() as u32);
+            first_by_name(&mut people, LIVE_PREVIEW);
+            first_by_name(&mut agents, LIVE_PREVIEW);
+            let (unread, open) = count(s);
             SpaceRow {
                 id: s.id.clone(),
                 title: s.title.clone(),
                 kind: s.kind,
-                unread: unread_in(s, cx),
-                open: cx
-                    .threads
-                    .iter()
-                    .filter(|t| t.space_id == s.id && t.state == ThreadState::Open)
-                    .count() as u32,
+                unread,
+                open,
                 grants,
                 people,
                 agents,
+                people_live,
+                agents_live,
             }
         })
         .collect();
     Some(Navigator { teams: team_rows, spaces: space_rows })
+}
+
+/// Keep the first `n` live rows by lowercased name, then id, in that order; each key built once,
+/// and only the kept rows sorted.
+fn first_by_name(rows: &mut Vec<LiveRow>, n: usize) {
+    let mut keyed: Vec<(String, LiveRow)> =
+        rows.drain(..).map(|r| (r.name.to_lowercase(), r)).collect();
+    let by = |(ka, a): &(String, LiveRow), (kb, b): &(String, LiveRow)| {
+        (ka, &a.principal_id).cmp(&(kb, &b.principal_id))
+    };
+    if keyed.len() > n {
+        keyed.select_nth_unstable_by(n, by);
+        keyed.truncate(n);
+    }
+    keyed.sort_by(by);
+    rows.extend(keyed.into_iter().map(|(_, r)| r));
 }
 
 /// Search the current team for `query`: people, agents, threads, RFDs, sessions and spaces, each
@@ -206,7 +255,8 @@ pub fn search(viewer: &Principal, query: &str, cx: &NavContext<'_>) -> Vec<Hit> 
         return Vec::new();
     };
     let spaces = readable(viewer, team, cx);
-    let space_of = |id: &str| spaces.iter().find(|(s, _)| s.id == id).map(|(s, _)| *s);
+    let by_space: HashMap<&str, &Space> = spaces.iter().map(|(s, _)| (s.id.as_str(), *s)).collect();
+    let space_of = |id: &str| by_space.get(id).copied();
     let by_id: BTreeMap<&str, &Principal> =
         cx.principals.iter().map(|p| (p.id.as_str(), p)).collect();
     let mut hits: Vec<(u8, Hit)> = Vec::new();
@@ -289,14 +339,9 @@ pub fn search(viewer: &Principal, query: &str, cx: &NavContext<'_>) -> Vec<Hit> 
         ));
     }
 
-    hits.sort_by(|(sa, a), (sb, b)| {
-        (*sa, a.kind, a.label.to_lowercase(), &a.id).cmp(&(
-            *sb,
-            b.kind,
-            b.label.to_lowercase(),
-            &b.id,
-        ))
-    });
-    hits.truncate(SEARCH_LIMIT);
-    hits.into_iter().map(|(_, h)| h).collect()
+    let mut keyed: Vec<((u8, HitKind, String), Hit)> =
+        hits.into_iter().map(|(sc, h)| ((sc, h.kind, h.label.to_lowercase()), h)).collect();
+    keyed.sort_by(|(ka, a), (kb, b)| (ka, &a.id).cmp(&(kb, &b.id)));
+    keyed.truncate(SEARCH_LIMIT);
+    keyed.into_iter().map(|(_, h)| h).collect()
 }

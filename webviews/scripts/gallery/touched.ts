@@ -34,6 +34,9 @@ const EVERYTHING = [
   // What derives that list (galleryHost.ts runs bundle.mjs --css-inputs-only with these plugins).
   /^webviews\/scripts\/agent-pane\/(bundle|tailwindCompile|jsonParsePlugin|katexStylePlugin)\.mjs$/,
   /^webviews\/vite\.config(\.gallery)?\.ts$/,
+  // Every webviews build loads postcss.config.mjs and its plugins (scripts/postcss/): they rewrite every sheet.
+  /^webviews\/postcss\.config\.mjs$/,
+  /^webviews\/scripts\/postcss\//,
   /^webviews\/package\.json$/,
   /^bun\.lock$/,
   /^scripts\/gallery-matrix\//,
@@ -251,14 +254,32 @@ export function touchedEntries(
   return { all: broad.length > 0, entries: Object.keys(reasons).sort(), reasons, ranked };
 }
 
-/** The entries under src/ with the file each one comes from. */
-export async function loadEntryRoots(): Promise<EntryRoots[]> {
-  return Promise.all(
-    galleryFiles().map(async (file) => {
-      const { default: entry } = (await import(file)) as { default: { id: string; host: string; covers: string[] } };
-      return { id: entry.id, host: entry.host, file, covers: entry.covers };
+/** A gallery file the ranker could not import (a parse error, a missing import), and why. */
+export type UnloadedEntry = { file: string; error: string };
+
+/** The entries under src/ with the file each one comes from, and the gallery files that do not load. One broken
+ * gallery file used to reject the whole run ("has already been declared" in ClaudeConnectRow.gallery.tsx, a missing
+ * SignInButton import in SetupCard), so no push on that tree got a preview of any other entry; it is skipped and
+ * named instead. */
+export async function loadEntryRoots(
+  files: string[] = galleryFiles(),
+  load: (file: string) => Promise<unknown> = (file) => import(file),
+): Promise<{ entries: EntryRoots[]; unloaded: UnloadedEntry[] }> {
+  const settled = await Promise.allSettled(
+    files.map(async (file) => {
+      const { default: entry } = (await load(file)) as { default: { id: string; host: string; covers: string[] } };
+      return { id: entry.id, host: entry.host, file, covers: entry.covers ?? [] };
     }),
   );
+  const entries: EntryRoots[] = [];
+  const unloaded: UnloadedEntry[] = [];
+  settled.forEach((result, index) => {
+    if (result.status === "fulfilled") entries.push(result.value);
+    else unloaded.push({ file: files[index]!, error: String(result.reason?.message ?? result.reason).slice(0, 300) });
+  });
+  if (!entries.length && unloaded.length)
+    throw new Error(`no gallery file loads: ${unloaded[0]!.file}: ${unloaded[0]!.error}`);
+  return { entries, unloaded };
 }
 
 if (import.meta.main) {
@@ -269,7 +290,9 @@ if (import.meta.main) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const result = touchedEntries(await loadEntryRoots(), changed);
+  const { entries, unloaded } = await loadEntryRoots();
+  const result = { ...touchedEntries(entries, changed), ...(unloaded.length ? { unloaded } : {}) };
+  for (const { file, error } of unloaded) console.error(`gallery: ${path.relative(SRC, file)} does not load: ${error}`);
   const json = `${JSON.stringify(result, null, 2)}\n`;
   if (values.out) fs.writeFileSync(values.out, json);
   else process.stdout.write(json);

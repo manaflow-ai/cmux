@@ -419,12 +419,31 @@
         ],
         "suggested_inputs_more": 677
       },
+      "app-store-shelf-pr": {
+        "why": "runs on every pull request head on purpose: a head that reaches no shelf input ends after a checkout and a diff, so a skipped land tier cannot let a shelf break merge (cmux#46903)",
+        "suggested_inputs": [
+          "first-party-apps/",
+          "scripts/ci/app-store-shelf-check.sh",
+          "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs"
+        ]
+      },
       "ios-placeholder-bounds": {
-        "why": "runs on every pull request on purpose: land-judge's required list is to name its check run, so it records a pass on every head; seconds of stdlib Python",
+        "why": "its check run reports on every head for land-judge's required list: it runs when the diff reaches its suggested_inputs (or this workflow), read by workflow-start-lint's route step, and reports skipped (a pass) otherwise; seconds of stdlib Python",
         "suggested_inputs": [
           "cmux-next-ios/",
           "scripts/ci/ios_placeholder_bounds.py",
           "tests/test_ios_placeholder_bounds.py"
+        ]
+      },
+      "spec-checks": {
+        "why": "runs on every pull request head and push whose diff reaches scripts/ci/spec_checks.py INPUTS (or this workflow), read by workflow-start-lint's route step, and reports skipped (a pass) otherwise; the job audits INPUTS against the files its checks open; about 35 s of stdlib Python",
+        "suggested_inputs": [
+          "cmux-tui/spec/",
+          "cmux-tui/bindings/",
+          "cmux-tui/crates/cmux-tui-core/src/",
+          "cmux-tui/crates/cmux-tui/src/",
+          "scripts/ci/spec_checks.py",
+          "tests/test_ci_spec_checks.py"
         ]
       },
       "nightly-guards": {
@@ -593,6 +612,8 @@
           "Packages/macOS/CmuxNext/Sources/",
           "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift",
+          "cmux-tui/spec/gui-capabilities.json",
+          "scripts/cmux-next/gen-daemon-capabilities.py",
           "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
@@ -1069,14 +1090,11 @@
         "why": "routed by its workflow's own job (needs.base-only.outputs.base_only in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
         "suggested_inputs": [
           "Packages/Shared/CmuxAgentBrands/Sources/CmuxAgentBrands/AgentBrandCatalog+Generated.swift",
-          "Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/CtlWireModels.swift",
-          "Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift",
           "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/CmuxSpinnerPeriod.swift",
           "Packages/macOS/CmuxNext/",
           "Packages/macOS/CmuxNext/Sources/",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Tree/ProtectedFolderEntry.generated.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/",
-          "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift",
           "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/TypeScale.generated.swift",
@@ -1171,6 +1189,13 @@
           "scripts/ci/pr_router.py",
           "scripts/ci/workflow_paths_cover_inputs.py",
           "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
+        ]
+      },
+      "web-pipeline": {
+        "why": "Routed by the pr-pipeline step table web-browser inputs; job_inputs does not yet classify table_jobs callers.",
+        "suggested_inputs": [
+          "ci/steps.toml",
+          ".github/workflows/pr-pipeline.yml"
         ]
       }
     }

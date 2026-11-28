@@ -308,6 +308,10 @@ async function measure(
   const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
+    // The shipped chat sheds motion under sustained load (frameBudget.ts); its WebDriver opt-out exists so
+    // unrelated suites see stable motion. This bench measures typing under that load, so run what ships,
+    // as send-pop-frames / send-paint-probe / send-motion-pass do.
+    await page.addInitScript(() => Object.assign(window, { cmuxFrameBudget: "on" }));
     if (mode.startsWith("L") || engine === "webkit") {
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
@@ -566,6 +570,14 @@ async function measure(
       to_frame_p50: typing.to_frame?.p50_ms,
       to_frame_p95: typing.to_frame?.p95_ms,
       to_frame_max: typing.to_frame?.max_ms,
+      // Key to its painted frame (perf.ts's post-paint mark, what the perf watch's composer.key_paint judges), the
+      // frames the keys dropped against the measured frame interval, and the longest prompt a key landed in.
+      to_paint_p50: typing.to_paint?.p50_ms,
+      to_paint_p95: typing.to_paint?.p95_ms,
+      to_paint_p99: typing.to_paint?.p99_ms,
+      dropped_frames: typing.dropped_frames,
+      frame_interval_ms: typing.frame_interval_ms,
+      prompt_chars: typing.max_chars,
       longest_task_ms: Math.round(Math.max(0, ...long.map((task) => task.ms)) * 10) / 10,
       long_tasks: long.length,
       composer_per_stream_event: composerPerEvent,

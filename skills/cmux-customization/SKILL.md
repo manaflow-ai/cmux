@@ -314,8 +314,8 @@ The same settings by hand, in `~/.config/cmux/cmux-next.json` (or a theme file):
 ## Make a view
 
 When someone asks for a view of their own (a sidebar section, a Session Info
-section, "a view of the PRs from the last 24h"), write the customize app in
-`~/.config/cmux/customize`: `cmux-app.json` (id `local/customize`, manifest v2)
+section, "a view of the PRs from the last 24h"), run `cmux customize paths` and write the customize app
+in the folder labeled `views`: `cmux-app.json` (id `local/customize`, manifest v2)
 and `main.js`, a classic script that uses the scene globals (`VStack`, `Row`,
 `ForEach`, `EmptyState`, ...) and ends with
 `globalThis.__cmuxAppExports = { ... }`. cmux watches the folder: every save

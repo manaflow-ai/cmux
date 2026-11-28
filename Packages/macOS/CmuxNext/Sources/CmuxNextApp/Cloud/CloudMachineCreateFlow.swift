@@ -60,8 +60,8 @@ struct CloudMachineCreateFlow {
         /// The person declined the confirmation; nothing was created.
         case declined
         /// The approval was answered, and the backend still held the create
-        /// after every retry; the request stays in the feed.
-        case stillPending(request: String)
+        /// after every retry; the request stays in the feed. `lastRunError`: why the backend's approved run went back to pending.
+        case stillPending(request: String, lastRunError: String? = nil)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
         /// The plan cannot create a machine; nothing was created. A person's create then shows the cap card
@@ -137,7 +137,7 @@ struct CloudMachineCreateFlow {
         let ensure = self.beside, origin = now()
         let nowMs = { [now] in Int((now() - origin) / .milliseconds(1)) }
         async let besideDone: Void = ensure()
-        var approval = CloudLaunchApproval(), answer: JSONValue?, carried: JSONValue?
+        var approval = CloudLaunchApproval(), answer: JSONValue?, carried: JSONValue?, lastRunError: String?
         var effects = approval.next(.start(confirmed: confirmed, earlier: earlier, patienceMs: Int(patience / .milliseconds(1)), nowMs: nowMs())) ?? []
         while !effects.isEmpty {
             let event: CloudLaunchApproval.Event
@@ -146,7 +146,7 @@ struct CloudMachineCreateFlow {
                 do {
                     answer = try await run(op, args, key, .user); event = .answered
                 } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
-                    event = .pending(request: failure.approvalRequest, nowMs: nowMs())
+                    lastRunError = failure.lastRunError ?? lastRunError; event = .pending(request: failure.approvalRequest, nowMs: nowMs())
                 }
             case .done:
                 await besideDone
@@ -180,7 +180,7 @@ struct CloudMachineCreateFlow {
             case .pause(let attempt): try await pause(attempt); event = .paused
             case .declined: throw Failure.declined
             case .noApprovalRequest: throw Failure.noApprovalRequest
-            case .stillPending(let request): throw Failure.stillPending(request: request)
+            case .stillPending(let request): throw Failure.stillPending(request: request, lastRunError: lastRunError)
             }
             guard let next = approval.next(event) else { throw Self.rulesUnavailable }
             effects = next
@@ -209,7 +209,7 @@ extension CloudMachineCreateFlow.Failure: CustomStringConvertible, LocalizedErro
     nonisolated var description: String {
         switch self {
         case .declined: "declined"
-        case .stillPending: CloudStrings.createStillPending
+        case .stillPending(_, let why): why.map { "\(CloudStrings.createStillPending) (\($0))" } ?? CloudStrings.createStillPending
         case .noApprovalRequest: CloudStrings.createApproveInFeed
         case .upgradeRequired: CloudStrings.upgradeRequired
         }

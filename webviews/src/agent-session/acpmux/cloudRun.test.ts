@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { inlineToken, promptBlocks, type ComposerAttachment } from "./attachments";
 import { setCloudPlanForTest } from "./cloudMachines";
 import type { AcpmuxHostConfig } from "./direct";
+import { cloudSendAgent } from "./cloudModePick";
 import {
   cloudFolderGrants,
   cloudPageRefusal,
@@ -36,6 +37,18 @@ test("sign-in recovery can be reused after its card resets", async () => {
   retry.reset();
   await expect(retry()).resolves.toBe(true);
   expect(starts).toBe(2);
+});
+
+test("an explicit Cloud Gemini pick stays on Cloud even when a local first turn is possible", async () => {
+  const cloudStart = { task: "fix it", cwd: "/Users/me/paint" };
+  const cloudPick = cloudSendAgent("gemini", "gemini", "gemini-3.1-pro-preview", true);
+  const localPick = cloudSendAgent("claude", "claude", "sonnet");
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    if (params.cloudOnly !== true) throw { code: "run_on_this_mac" };
+    expect(params).toMatchObject({ harness: "gemini", model: "gemini-3.1-pro-preview", cloudOnly: true });
+  };
+  expect(cloudRunsHere(await startCloudChat(call, { ...cloudStart, ...localPick }))).toBe(true);
+  expect(await startCloudChat(call, { ...cloudStart, ...cloudPick })).toEqual({ ok: true });
 });
 
 test("a reset while a sign-in is out leaves the next card its own retry", async () => {

@@ -114,6 +114,13 @@ export function attachedRows(rows: readonly ScreenRow[]): ScreenRow[] {
   return rows.filter((row) => row.type === "ask");
 }
 
+/// The rows a draft that uses a skill or command offers (the field draws it blue): its Ask rows
+/// (Lucas 2026-11-26), and the chat `/resume <ref>` names. The draft is for an agent: a file, an
+/// address, a web search, a tab or a shell command would read the command as text.
+export function commandRows(rows: readonly ScreenRow[]): ScreenRow[] {
+  return rows.filter((row) => row.type === "ask" || row.type === "resume");
+}
+
 /// The agent the Ask row names.
 export type ScreenAsk = { harness: string; agent: string; model?: string };
 
@@ -489,9 +496,10 @@ export function inlineCompletion(text: string, rows: readonly ScreenRow[]): stri
   return completion;
 }
 
-/// Whether Return on `text` with no row is an address (it never becomes a prompt).
-export function isAddress(text: string, home?: string): boolean {
-  return classifyNewTabInput(text, home ? { home } : {}).kind === "url";
+/// Whether Return on `text` with no row is an address (it never becomes a prompt). A `/name` that
+/// names one of the agent's `commands` is a prompt (newTabIntent.ts `commands`).
+export function isAddress(text: string, home?: string, commands?: ReadonlySet<string>): boolean {
+  return classifyNewTabInput(text, { ...(home ? { home } : {}), ...(commands ? { commands } : {}) }).kind === "url";
 }
 
 /// Whether `text` is refused outright (an old pairing link): it never becomes a prompt, a search

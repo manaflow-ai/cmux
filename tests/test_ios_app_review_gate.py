@@ -1356,6 +1356,7 @@ class GateWorkflowTests(unittest.TestCase):
 
         doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
         on = doc.get("on", doc.get(True))
+        self.assertEqual(on["push"]["paths"], on["pull_request"]["paths"])
         for event in ("push", "pull_request"):
             patterns = on[event]["paths"]
             with self.subTest(event=event):
@@ -1396,16 +1397,19 @@ class GateWorkflowTests(unittest.TestCase):
 
         doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())
         on = doc.get("on", doc.get(True))
-        # A push runs the workflow; a feat-cmux-next pull request runs its tests as the ios-kit table step.
+        # A feat-cmux-next pull request and the post-merge batch (suite pr-pipeline-ios, `ci/run route` over the
+        # window's paths) both run the kit's tests as the ios-kit table step; the workflow's push names only itself.
+        self.assertEqual(on["push"]["paths"], [".github/workflows/cmux-next-ios-kit.yml"])
         kit = ci_steps.load().steps["ios-kit"]
-        matchers = {"push": lambda path: github_paths_match(on["push"]["paths"], path),
-                    "pull_request": lambda path: ci_steps.routed(kit, [path])}
+        matchers = {"table step": lambda path: ci_steps.routed(kit, [path])}
         for event, matches in matchers.items():
             with self.subTest(event=event):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
                              "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift",
-                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
+                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md",
+                             "Packages/Shared/CmuxTerminalStream/Sources/Resources/fixture.json",
+                             "Packages/iOS/CmuxMobileShellModel/Sources/Resources/help.md"):
                     self.assertFalse(matches(path), path)
                 for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
                              "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",
@@ -1413,7 +1417,6 @@ class GateWorkflowTests(unittest.TestCase):
                              "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/Resources/x.md",
                              "Packages/iOS/CmuxConversation/Sources/X.swift"):
                     self.assertTrue(matches(path), path)
-        self.assertTrue(matchers["push"](".github/workflows/cmux-next-ios-kit.yml"))
 
 
 def github_paths_match(patterns: list[str], path: str) -> bool:
