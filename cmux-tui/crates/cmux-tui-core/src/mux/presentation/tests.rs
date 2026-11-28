@@ -264,7 +264,7 @@ fn cmux_next_pinned_tabs_sort_first_and_survive_restart() {
     assert_eq!(durable.pinned_tabs.len(), 1);
     assert!(durable.pinned_tabs.contains(pinned_tab_id.as_str()));
     let decorations = mux.tree_decorations();
-    let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+    let tree = mux.with_state(|state| crate::tree_wire::workspaces_json(state, &decorations));
     let tabs = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap().clone();
     assert_eq!(tabs[0]["pinned"], true);
     assert_eq!(tabs[1]["pinned"], false);
@@ -370,7 +370,7 @@ fn cmux_next_git_head_reads_branches_worktrees_and_detached_heads() {
 fn tab_json(mux: &Mux, surface: SurfaceId) -> Value {
     let decorations = mux.tree_decorations();
     mux.with_state(|state| {
-        crate::server::tree_entity_json(state, &decorations, TreeDeltaKind::TabChanged, surface)
+        crate::tree_wire::tree_entity_json(state, &decorations, TreeDeltaKind::TabChanged, surface)
     })
     .expect("tab is present in the tree")
 }
@@ -477,7 +477,7 @@ fn cmux_next_tab_notification_ack_is_explicit_and_durable() {
         .unwrap();
     assert!(mux.terminal_notification(&terminal).is_some_and(|marker| marker.unread));
     let decorations = mux.tree_decorations();
-    let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+    let tree = mux.with_state(|state| crate::tree_wire::workspaces_json(state, &decorations));
     assert_eq!(tree["workspaces"][0]["unread_count"], 1);
     assert_eq!(durable_unread(&mux), vec![true]);
 
@@ -527,7 +527,7 @@ fn cmux_next_workspace_group_move_replays_by_mutation_id() {
         mux.move_workspace_to_group(None, Some(&a), None, None, None, None, &mutation).is_err()
     );
     let decorations = mux.tree_decorations();
-    let tree = mux.with_state(|state| crate::server::workspaces_json(state, &decorations));
+    let tree = mux.with_state(|state| crate::tree_wire::workspaces_json(state, &decorations));
     assert_eq!(tree["groups"][0]["id"], "g");
     assert_eq!(tree["workspaces"][0]["group"], "g");
     assert!(tree["workspaces"][1]["group"].is_null());

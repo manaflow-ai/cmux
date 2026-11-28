@@ -2283,6 +2283,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_interrupts",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_history",
       "params": true,
       "result": true
@@ -3547,6 +3553,7 @@
         "chunkDeltas": true,
         "class": true,
         "cliHost": true,
+        "cloudRegistryId": true,
         "compression": true,
         "context": true,
         "createKey": true,
