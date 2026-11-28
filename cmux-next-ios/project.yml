@@ -244,6 +244,17 @@ targets:
       - target: CmuxMobileNotificationContent
       # Opens sealed pushes (verify/notifications-trust.md).
       - target: CmuxMobileNotificationService
+    # The linker order file (ORDER_FILE below) from the two static libraries as Xcode
+    # copies them out of their xcframeworks for the platform being built.
+    preBuildScripts:
+      - name: Link order (Rust and Ghostty first)
+        script: exec "$SRCROOT/scripts/link-order.sh"
+        inputFiles:
+          - $(BUILT_PRODUCTS_DIR)/CmuxMobileLinkFFIFFI.framework/CmuxMobileLinkFFIFFI
+          - $(BUILT_PRODUCTS_DIR)/libghostty-internal.a
+          - $(SRCROOT)/scripts/link-order.sh
+        outputFiles:
+          - $(DERIVED_FILE_DIR)/cmux-link-order.txt
     # UI tests run with `xcodebuild test -scheme CmuxMobileApp` on one simulator (verify/parity/pq_tabs.py).
     scheme:
       testTargets:
@@ -286,6 +297,11 @@ targets:
         CMUX_MOBILE_APPLE_SIGN_IN: "NO"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+        # The Rust library's and libghostty's symbols first in every section of the
+        # executable (scripts/link-order.sh, the "Link order" phase below), so a change
+        # to Swift alone leaves their bytes where they were and an update that changes
+        # only Swift shares them with the build before.
+        ORDER_FILE: $(DERIVED_FILE_DIR)/cmux-link-order.txt
       configs:
         # Debug also runs on an iPad mini simulator: its window stands in for an
         # unfolded foldable iPhone's (cmuxterm-hq docs/design/ios-foldable.md).
