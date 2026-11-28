@@ -1263,10 +1263,12 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 avatar_url: frame.get("avatar_url").and_then(Value::as_str).map(str::to_owned),
             };
             let directory = mux.session_state_directory();
-            let (name, account) = (ask.name.clone(), ask.account.clone().unwrap_or_default());
+            let name = ask.name.clone();
             let asked = shares(mux).ask_access(directory.as_deref(), ask);
-            if let Ok((_, Some((session, surface)))) = &asked {
-                tell_owner_of_request(mux, session, *surface, &name, &account);
+            if let Ok((answer, Some((session, surface)))) = &asked {
+                // The account as recorded (trimmed, lowercased), as the Share dialog lists it.
+                let account = answer["account"].as_str().unwrap_or_default();
+                tell_owner_of_request(mux, session, *surface, &name, account);
             }
             let request_id = frame.get("request_id").unwrap_or(&Value::Null);
             let attempt_id = frame.get("attempt_id").unwrap_or(&Value::Null);
