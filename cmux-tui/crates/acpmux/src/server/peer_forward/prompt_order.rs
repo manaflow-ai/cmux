@@ -22,17 +22,23 @@ use tokio::sync::{Mutex as TurnLock, OwnedMutexGuard};
 /// A chat's turn, held by the prompt that goes next.
 pub(super) type Turn = OwnedMutexGuard<()>;
 
-/// Each chat's turn lock while a prompt holds or waits for it, by peer and chat. An entry whose
-/// lock nobody holds any more is dropped on the next look-up.
-static TURNS: LazyLock<StdMutex<HashMap<(String, String), Weak<TurnLock<()>>>>> =
+/// Each chat's turn lock while a prompt holds or waits for it, by hub (its address: a test runs
+/// many in one process), peer and chat. An entry whose lock nobody holds any more is dropped on
+/// the next look-up.
+type Key = (usize, String, String);
+static TURNS: LazyLock<StdMutex<HashMap<Key, Weak<TurnLock<()>>>>> =
     LazyLock::new(Default::default);
 
 /// Waits for chat `session` on peer `peer`'s turn, behind every prompt for it that came before.
-pub(super) async fn turn(peer: &str, session: &str) -> Turn {
+pub(super) async fn turn(hub: &Arc<Hub>, peer: &str, session: &str) -> Turn {
+    #[cfg(test)]
+    if UNORDERED.with(std::cell::Cell::get) {
+        return Arc::new(TurnLock::new(())).lock_owned().await;
+    }
     let lock = {
         let mut turns = TURNS.lock_or_recover();
         turns.retain(|_, lock| lock.strong_count() > 0);
-        let key = (peer.to_owned(), session.to_owned());
+        let key = (Arc::as_ptr(hub) as usize, peer.to_owned(), session.to_owned());
         match turns.get(&key).and_then(Weak::upgrade) {
             Some(lock) => lock,
             None => {
@@ -66,7 +72,14 @@ pub(super) async fn until_on_wire<F: std::future::Future>(
 }
 
 #[cfg(test)]
-pub(super) fn chats_with_a_turn_for_tests() -> usize {
-    let turns = TURNS.lock_or_recover();
-    turns.values().filter(|lock| lock.strong_count() > 0).count()
+thread_local! {
+    /// The order off on this thread, for a before/after number from one build.
+    static UNORDERED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Turns the per-chat order off (`true`) or back on for prompts sent from this thread (a paused
+/// test's runtime runs every task on it), so one test binary measures before and after.
+#[cfg(test)]
+pub(super) fn unordered_for_tests(on: bool) {
+    UNORDERED.with(|u| u.set(on));
 }

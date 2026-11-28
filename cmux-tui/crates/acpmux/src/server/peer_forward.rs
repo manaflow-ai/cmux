@@ -5,6 +5,7 @@
 use super::*;
 
 mod link_wait;
+mod prompt_order;
 pub(super) use link_wait::{PROMPT_LINK_WAIT, await_link};
 
 use link_wait::*;
@@ -424,7 +425,13 @@ async fn gated(
         return forward_inner(hub, conn, m, params, None).await.transpose();
     };
     let mut hold = None;
+    // This chat's turn: prompts for it leave in the order they came, through a cut too
+    // (`peer_forward/prompt_order.rs`).
+    let mut turn = Some(prompt_order::turn(hub, &peer.name, &id).await);
     'held: loop {
+        if turn.is_none() {
+            turn = Some(prompt_order::turn(hub, &peer.name, &id).await);
+        }
         match wait_for_prompt_link(hub, conn, &peer, params, &mut hold).await {
             Ok(Some(queued)) => return Some(Ok(queued)),
             Ok(None) => {}
@@ -438,7 +445,10 @@ async fn gated(
                 Err(e) if holds_again(conn, &peer, hold.as_ref(), &e) => continue 'held,
                 Err(e) => return Some(Err(e)),
             };
-            let reply = forward_inner(hub, conn, m, params, link).await.transpose();
+            let reply =
+                prompt_order::until_on_wire(&mut turn, forward_inner(hub, conn, m, params, link))
+                    .await
+                    .transpose();
             let moved = link.is_some_and(|l| (peer.generation, peer.link_epoch()) != l);
             if tries < 4 && moved && matches!(&reply, Some(Err(e)) if unsent(e)) && peer.ready() {
                 continue;

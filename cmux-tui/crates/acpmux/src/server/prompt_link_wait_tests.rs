@@ -375,7 +375,7 @@ async fn prompts_sent_during_one_cut_reach_the_chat_in_the_order_sent() {
 
 /// The duress number for the ordering: 20 runs of 8 prompts through a 3 s cut, each run's gap
 /// between sends and its cut seeded-jittered: how many runs reached the chat out of order.
-/// Asserts nothing, so the build before the change runs it too.
+/// Asserts nothing: it prints the order off (before) and on (after), from one build.
 #[tokio::test(start_paused = true)]
 async fn duress_table_prompt_order_through_a_cut() {
     let mut seed: u64 = 0x0dde_0001;
@@ -385,15 +385,21 @@ async fn duress_table_prompt_order_through_a_cut() {
         seed ^= seed << 17;
         seed
     };
-    let mut out_of_order = 0;
     let runs = 20;
-    for _ in 0..runs {
-        let gap = Duration::from_millis(1 + next() % 60);
-        let cut = Duration::from_secs(3) + Duration::from_millis(next() % 250);
-        let taken = order_through_a_cut(Origin::Local, 8, gap, cut).await;
-        out_of_order += usize::from(taken != in_sent_order(8));
+    let mut rows = String::new();
+    for (label, unordered) in
+        [("before (each prompt wakes on its own)", true), ("after (the chat's turn)", false)]
+    {
+        super::prompt_order::unordered_for_tests(unordered);
+        let mut out_of_order = 0;
+        for _ in 0..runs {
+            let gap = Duration::from_millis(1 + next() % 60);
+            let cut = Duration::from_secs(3) + Duration::from_millis(next() % 250);
+            let taken = order_through_a_cut(Origin::Local, 8, gap, cut).await;
+            out_of_order += usize::from(taken != in_sent_order(8));
+        }
+        rows += &format!("| {label} | 8 | {runs} | {out_of_order}/{runs} |\n");
     }
-    println!(
-        "| prompts per cut | runs | out of order |\n|---|---|---|\n| 8 | {runs} | {out_of_order}/{runs} |"
-    );
+    super::prompt_order::unordered_for_tests(false);
+    println!("| build | prompts per cut | runs | out of order |\n|---|---|---|---|\n{rows}");
 }
