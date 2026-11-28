@@ -337,7 +337,7 @@ class Client:
         except asyncio.CancelledError:
             cancel_event.set()
             try:
-                await asyncio.shield(future)
+                await _await_cleanup(future)
             except BaseException:
                 # Drain the worker result. The request cancellation exception
                 # is intentionally hidden by the caller's asyncio cancellation.

@@ -4213,6 +4213,55 @@ class ResourceApiTests(unittest.TestCase):
         ]
         self.assertEqual(leaked, [])
 
+    def test_aio_repeated_cancellation_drains_request_before_returning(self) -> None:
+        request_seen = threading.Event()
+        cancel_seen = threading.Event()
+        release_cancel = threading.Event()
+        observed = []
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            observed.append(next(requests))
+            request_seen.set()
+            canceled = next(requests)
+            observed.append(canceled)
+            cancel_seen.set()
+            if not release_cancel.wait(2):
+                raise AssertionError("cancel acknowledgment was not released")
+            ok(connection, canceled, {"canceled": True})
+            ping = next(requests)
+            observed.append(ping)
+            ok(connection, ping, {
+                "alive": True,
+                "cursor": {"generation": "generation-a", "revision": "1"},
+            })
+
+        async def exercise(path):
+            async with cmux.aio.Client(path) as client:
+                terminal = client.session(SESSION).terminal(TERMINAL)
+                task = asyncio.create_task(
+                    terminal.wait(cmux.TerminalWaitOptions("never"))
+                )
+                try:
+                    self.assertTrue(await asyncio.to_thread(request_seen.wait, 1))
+                    task.cancel()
+                    self.assertTrue(await asyncio.to_thread(cancel_seen.wait, 1))
+                    task.cancel()
+                    await asyncio.sleep(0)
+                    self.assertFalse(task.done(), "request worker was not drained")
+                finally:
+                    release_cancel.set()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                self.assertTrue((await client.session(SESSION).ping()).alive)
+
+        with UnixJsonServer(handler) as server:
+            asyncio.run(exercise(server.path))
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["terminal.wait", "request.cancel", "session.ping"],
+        )
+
     def test_aio_close_callers_join_one_cleanup(self) -> None:
         async def exercise() -> None:
             client = object.__new__(cmux.aio.Client)
