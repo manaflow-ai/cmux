@@ -46,6 +46,8 @@ export function plainAttach(
     attending?: boolean;
     local: boolean;
     maxBytes: number;
+    /// The most records the page holds (400 when unset, every attach's count before the first page).
+    limit?: number;
     afterSeq?: number;
   },
 ): PlainAttach {
@@ -62,7 +64,7 @@ export function plainAttach(
     // ones after the cursor.
     ...(options.settled && !forward ? { settled: true } : {}),
     ...(forward ? { afterSeq: options.afterSeq } : {}),
-    limit: 400,
+    limit: options.limit ?? 400,
     // The most opening a chat downloads, however large its tool output (a remote session's open).
     maxBytes: options.maxBytes,
     // At most 8 kinds: a remote cmux-tui before cx-kpd0v refuses more. Session offers come with
