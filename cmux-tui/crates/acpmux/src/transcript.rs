@@ -104,6 +104,9 @@ pub struct Transcript {
     /// lands as its turn ends is run as the next prompt and logged again with the
     /// same promptId and no `steer` (`hub/steer_end.rs`); that record replaces its row.
     waiting_steers: Vec<(String, usize)>,
+    /// The row the next `turn_started` belongs to when it is not the last user row: a re-run
+    /// steer's, which stays where it was sent.
+    starts_turn: Option<usize>,
     /// Item indices removed since the TUI last read them, in order, so it can move
     /// state it keys by index (folds) with the rows that stay.
     pub removed_items: Vec<usize>,
@@ -271,6 +274,11 @@ impl Transcript {
                 *i -= 1;
             }
         }
+        self.starts_turn = self.starts_turn.and_then(|s| match s.cmp(&pos) {
+            std::cmp::Ordering::Equal => None,
+            std::cmp::Ordering::Greater => Some(s - 1),
+            std::cmp::Ordering::Less => Some(s),
+        });
         item
     }
 
@@ -585,9 +593,23 @@ impl Transcript {
                     && let Some(w) = self.waiting_steers.iter().position(|(id, _)| id == prompt_id)
                 {
                     // A steer the turn ended before reading, now run as this prompt: its row
-                    // gives way. Only its own: another steer's re-run may still be queued.
+                    // stays where it was sent and becomes the prompt (RFD 0215 rule 1, as
+                    // `rows/fold.rs` keeps it: nothing already shown moves). Only its own:
+                    // another steer's re-run may still be queued. A docked echo of it goes.
                     let (_, pos) = self.waiting_steers.remove(w);
-                    self.remove_user_item(pos);
+                    self.invalidate_layout(pos);
+                    if let Some(Item::User { steer, .. }) = self.items.get_mut(pos) {
+                        *steer = false;
+                    }
+                    if let Some(q) = self.docked(&text, prompt_id) {
+                        self.queue.remove(q);
+                    }
+                    self.take_optimistic(&text);
+                    if at > 0 {
+                        self.user_at.insert(pos, at);
+                    }
+                    self.starts_turn = Some(pos);
+                    return;
                 }
                 // A queued prompt leaves the dock when it is delivered and takes its place at
                 // the delivery point, the end of `items`: nothing already shown moves. It is
@@ -632,7 +654,12 @@ impl Transcript {
                 }
             }
             "turn_started" => {
-                if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. })) {
+                // A re-run steer starts its turn from its own row, wherever it sits.
+                let idx = self
+                    .starts_turn
+                    .take()
+                    .or_else(|| self.items.iter().rposition(|i| matches!(i, Item::User { .. })));
+                if let Some(idx) = idx {
                     self.turn_times.push((idx, at, None));
                 }
             }

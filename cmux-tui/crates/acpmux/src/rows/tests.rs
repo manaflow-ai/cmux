@@ -564,3 +564,72 @@ fn a_stop_hook_block_is_a_notice_row_between_the_two_replies() {
     assert_eq!(rows[2].text, "2 tests still fail.");
     assert!(!rows[1].head.streaming, "the hook ends the reply before it");
 }
+
+/// The prompts a TUI or CLI transcript (`crate::transcript::Transcript`) draws, in its order.
+fn transcript_prompts(log: &[EventRecord]) -> Vec<String> {
+    let mut t = crate::transcript::Transcript::default();
+    for rec in log {
+        t.apply_event(&serde_json::to_value(rec).expect("a record is JSON"));
+    }
+    t.items
+        .iter()
+        .filter_map(|i| match i {
+            crate::transcript::Item::User { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The prompts the row table draws, in its order.
+fn row_prompts(log: &[EventRecord]) -> Vec<String> {
+    RowTable::fold(log)
+        .rows()
+        .iter()
+        .filter(|r| r.head.kind == RowKind::Prompt && !r.head.hidden)
+        .map(|r| r.text.clone())
+        .collect()
+}
+
+/// RFD 0215 rule 4: the TUI and CLI reducer draws prompts where the row table does. A steer the
+/// turn ended before reading, then run as the next prompt, stays where it was sent in both.
+#[test]
+fn th6_a_re_run_steer_stays_where_it_was_sent_in_the_tui_as_in_the_rows() {
+    let log = [
+        mux(1, "user_message", json!({"promptId": "p1", "turnId": "t1", "text": "first"})),
+        mux(2, "turn_started", json!({"promptId": "p1", "turnId": "t1"})),
+        chunk(3, "working", None, None),
+        mux(4, "user_message", json!({"promptId": "p2", "steer": true, "text": "also this"})),
+        mux(5, "queued", json!({"promptId": "p3", "text": "later"})),
+        mux(6, "turn_result", json!({"turnId": "t1", "status": "completed"})),
+        mux(7, "user_message", json!({"promptId": "p3", "turnId": "t3", "text": "later"})),
+        mux(8, "turn_started", json!({"promptId": "p3", "turnId": "t3"})),
+        mux(9, "turn_result", json!({"turnId": "t3", "status": "completed"})),
+        mux(10, "user_message", json!({"promptId": "p2", "turnId": "t2", "text": "also this"})),
+        chunk(11, "doing it", None, None),
+    ];
+    assert_eq!(row_prompts(&log), ["first", "also this", "later"]);
+    assert_eq!(transcript_prompts(&log), row_prompts(&log));
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+
+    /// TH6 (RFD 0215 rule 4): over random logs where each prompt has its own id, the TUI and
+    /// CLI reducer draws the prompts in the row table's order.
+    #[test]
+    fn th6_the_tui_draws_prompts_in_the_row_order(ops in proptest::collection::vec(op(), 0..120)) {
+        let log: Vec<EventRecord> = ops
+            .iter()
+            .enumerate()
+            .map(|(n, op)| {
+                let seq = n as u64 + 1;
+                let mut rec = record(seq, op);
+                if rec.kind == "user_message" {
+                    rec.msg["promptId"] = json!(format!("p{seq}"));
+                }
+                rec
+            })
+            .collect();
+        prop_assert_eq!(transcript_prompts(&log), row_prompts(&log));
+    }
+}
