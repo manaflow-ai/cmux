@@ -55,7 +55,7 @@ jobs:
   # simulator), then fall back to Blacksmith on retries. The markers let the
   # pool charge this run's simulator while it holds one.
   runner:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
@@ -169,7 +169,7 @@ jobs:
   # skips them: they measured 6.5-11 runner-minutes a run on changes that cannot reach them.
   # Every other event (push, nightly, dispatch) runs everything.
   scope:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
     outputs:
@@ -193,7 +193,8 @@ jobs:
           # A pull request's checkout is the merge commit: HEAD^1 is the base, so the diff is the change.
           if [ "$EVENT" = pull_request ] && files="$(git diff --name-only HEAD^1 HEAD 2>/dev/null)" && [ -n "$files" ]; then
             # Anything the workflow's path filter admits that is not the phone's Swift (CmuxMobileKit/) can reach the Rust workspace.
-            if ! printf '%s\n' "$files" | grep -qvE '^cmux-next-ios/CmuxMobileKit/'; then
+            # A herestring, not printf | grep -q: under pipefail grep's early exit fails printf on a long list.
+            if ! grep -qvE '^cmux-next-ios/CmuxMobileKit/' <<<"$files"; then
               protocol=false
             fi
           fi
@@ -202,7 +203,7 @@ jobs:
 
   protocol:
     needs: [scope]
-    if: ${{ !cancelled() && needs.scope.outputs.protocol != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ !cancelled() && needs.scope.outputs.protocol != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     name: protocol cells (Linux)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
@@ -267,7 +268,7 @@ jobs:
           retention-days: 3
 
   ios:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     needs: [runner]
     name: phone cells (iOS simulator)
     # An owned simulator mini from the runner job, Blacksmith macOS 26 on a re-run or a fork.
@@ -425,7 +426,7 @@ jobs:
   report:
     name: matrix report
     needs: [protocol, ios]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled()) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled()) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:

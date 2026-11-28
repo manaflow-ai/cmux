@@ -50,13 +50,13 @@ export function useWorkflowTranscript(
   });
   const rows = useMemo((): AcpmuxRow[] | undefined => {
     if (!enabled || !request || request.sessionId !== sessionId || !id) return undefined;
+    // No loading words while the first page is read (Leo, 2026-11-27: "unnecesssary message"); only
+    // a failure that lasts, or a short history, says so.
     const notice = stillTrying
       ? t("workflow.stillLoadingTranscript")
-      : (!reader || reader.loading || reader.failed) && !reader?.rows.length
-        ? t("replay.loading")
-        : reader?.truncated
-          ? t("workflow.historyLimited")
-          : undefined;
+      : reader?.truncated
+        ? t("workflow.historyLimited")
+        : undefined;
     // The agent's rows as a chat's, with no line naming the chat it came from (Leo, 2026-11-22).
     return [
       ...(reader?.rows ?? []),

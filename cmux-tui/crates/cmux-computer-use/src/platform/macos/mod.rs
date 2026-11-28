@@ -14,10 +14,12 @@ mod ax;
 mod capture;
 mod cgwindows;
 mod displays;
+mod idle;
 mod input;
 mod key_focus;
 mod keymap;
 mod menus;
+pub mod overlay;
 mod readback;
 mod roles;
 mod sys;
@@ -34,6 +36,9 @@ use crate::desktop::*;
 use crate::keys::KeyCombo;
 use ax::{Ax, ElementCache};
 use cgwindows::CgWindow;
+
+pub use idle::person_activity;
+pub use overlay::{cursor_overlay, run_with_app};
 
 pub struct MacDesktop {
     host: Option<Arc<dyn HostServices>>,
@@ -90,12 +95,28 @@ impl MacDesktop {
         title: &str,
         resolve: &dyn Fn(&str) -> Option<Vec<String>>,
     ) -> roles::ItemCheck {
+        if self.guard().is_none() {
+            return roles::ItemCheck::Allowed;
+        }
+        self.menu_item_check_in(ax::menu_context(item).as_ref(), title, resolve)
+    }
+
+    /// [`Self::menu_item_check_with`] with the item's place in the menus
+    /// already read (None: it could not be). No AX read: usable inside a
+    /// key-in-app scope, to hold an item's new title to the deny list with
+    /// the place read before the scope opened.
+    fn menu_item_check_in(
+        &self,
+        place: Option<&ax::MenuContext>,
+        title: &str,
+        resolve: &dyn Fn(&str) -> Option<Vec<String>>,
+    ) -> roles::ItemCheck {
         let Some(guard) = self.guard() else { return roles::ItemCheck::Allowed };
         // Without its place in the menus (its own chain could not be read)
         // the item is still checked by name (protected apps count with
         // nothing denied); while something is denied it is blocked: an item
         // above it cannot be read.
-        let Some((top_index, depth, siblings)) = ax::menu_context(item) else {
+        let Some((top_index, depth, siblings)) = place else {
             if guard.denies_any() {
                 return roles::ItemCheck::Unplaced;
             }
@@ -112,8 +133,14 @@ impl MacDesktop {
         // inference from them; the launch-list rule applies while something
         // is denied (fail closed).
         let launch = siblings.is_none().then(|| guard.denies_any());
-        let siblings = siblings.unwrap_or_default();
-        let ctx = roles::MenuItemContext { title, top_index, depth, siblings: &siblings, launch };
+        let siblings: &[String] = siblings.as_deref().unwrap_or_default();
+        let ctx = roles::MenuItemContext {
+            title,
+            top_index: *top_index,
+            depth: *depth,
+            siblings,
+            launch,
+        };
         roles::menu_item_check(&*guard, &ctx, resolve)
     }
 

@@ -19,6 +19,7 @@ fn syntaxes() -> &'static SyntaxSet {
     S.get_or_init(SyntaxSet::load_defaults_newlines)
 }
 
+#[allow(clippy::expect_used, reason = "syntect loads a built-in non-empty theme set")]
 fn theme(name: &str) -> &'static Theme {
     static T: OnceLock<ThemeSet> = OnceLock::new();
     let set = T.get_or_init(ThemeSet::load_defaults);

@@ -46,6 +46,39 @@ class Rows(unittest.TestCase):
         self.assertEqual(rows["terminal.throughput.ratio"]["p95"], 0.5)
         self.assertTrue(all(r["budget"] is None for r in rows.values()), "reporting only")
 
+    def test_the_redraw_block_is_whole_grid_frames(self):
+        a = tput.redraw_payload_block()
+        self.assertEqual(a, tput.redraw_payload_block())
+        frames = tput.redraw_frames(frames=4)
+        self.assertGreaterEqual(len(a), 1 << 20)
+        self.assertTrue(a.startswith(frames[0]))
+        for f in frames:
+            text = f.decode()
+            self.assertTrue(text.startswith("\x1b[H"))
+            self.assertNotIn("\n", text)  # nothing scrolls
+            self.assertEqual(text.count(" "), tput.REDRAW_COLS * tput.REDRAW_ROWS)  # every cell, every frame
+            for y in range(1, tput.REDRAW_ROWS + 1):
+                self.assertIn(f"\x1b[{y};1H", text)
+        self.assertNotEqual(frames[1], frames[2])  # the animation moves
+
+    def test_the_fire_reaches_the_top_half(self):
+        text = tput.redraw_frames(frames=2)[1].decode()
+        upper = text.split(f"\x1b[{tput.REDRAW_ROWS // 2};1H")[0]
+        hot = {f"\x1b[48;5;{c}m" for c in tput.FIRE_PALETTE[4:]}
+        self.assertTrue(any(h in upper for h in hot))
+
+    def test_the_redraw_arm_has_frame_rows(self):
+        prefix = tput.ROW_PREFIX["redraw"]
+        fb = tput.mean_frame_bytes()
+        self.assertGreater(fb, tput.REDRAW_COLS * tput.REDRAW_ROWS)
+        rows = tput.report_rows(100.0, 200.0, None, prefix) + tput.fps_rows(100.0, 200.0, fb, prefix)
+        names = [r["name"] for r in rows]
+        self.assertEqual(names, ["terminal.throughput_redraw.next_mb_s", "terminal.throughput_redraw.ghostty_mb_s",
+                                 "terminal.throughput_redraw.ratio", "terminal.throughput_redraw.next_fps",
+                                 "terminal.throughput_redraw.ghostty_fps"])
+        self.assertAlmostEqual(rows[3]["p50"], round(100.0 * tput.MB / fb, 1))
+        self.assertEqual(tput.fps_rows(None, 200.0, fb, prefix)[0]["name"], "terminal.throughput_redraw.ghostty_fps")
+
     def test_the_sgr_arm_has_its_own_row_names(self):
         names = [r["name"] for r in tput.report_rows(150.0, 300.0, None, tput.ROW_PREFIX["sgr"])]
         self.assertEqual(names, ["terminal.throughput_sgr.next_mb_s", "terminal.throughput_sgr.ghostty_mb_s",
@@ -53,6 +86,31 @@ class Rows(unittest.TestCase):
 
     def test_no_ratio_without_ghostty(self):
         self.assertEqual([r["name"] for r in tput.report_rows(150.0, None)], ["terminal.throughput.next_mb_s"])
+
+    def test_paired_ratio_is_the_median_of_per_pair_ratios_with_their_spread(self):
+        nxt = [{"run": 1, "mb_s": 50.0}, {"run": 2, "mb_s": 80.0}, {"run": 3, "mb_s": 90.0}, {"run": 4, "mb_s": 40.0}]
+        gh = [{"run": 1, "mb_s": 100.0}, {"run": 2, "mb_s": 100.0}, {"run": 3, "mb_s": 120.0}, {"run": 4, "mb_s": 50.0}]
+        pairs = tput.pair_stats(nxt, gh)
+        self.assertEqual([p["ratio"] for p in pairs["pairs"]], [0.5, 0.8, 0.75, 0.8])
+        self.assertEqual((pairs["median"], pairs["n"], pairs["min"], pairs["max"]), (0.775, 4, 0.5, 0.8))
+        self.assertEqual(pairs["spread_pct"], 38.7)
+        rows = {r["name"]: r for r in tput.report_rows(65.0, 100.0, None, "terminal.throughput", pairs)}
+        self.assertEqual(rows["terminal.throughput.ratio"]["p50"], 0.775, "not 65/100: the pair median")
+        self.assertEqual(rows["terminal.throughput.pair_spread_pct"]["p50"], 38.7)
+        self.assertEqual(rows["terminal.throughput.pair_spread_pct"]["unit"], "%")
+
+    def test_a_traced_pair_is_left_out_while_two_others_remain(self):
+        nxt = [{"run": 1, "mb_s": 10.0}, {"run": 2, "mb_s": 80.0}, {"run": 3, "mb_s": 90.0}]
+        gh = [{"run": 1, "mb_s": 100.0}, {"run": 2, "mb_s": 100.0}, {"run": 3, "mb_s": 100.0}]
+        pairs = tput.pair_stats(nxt, gh, traced=True)
+        self.assertEqual((pairs["median"], pairs["n"]), (0.85, 2))
+        self.assertTrue(pairs["pairs"][0]["traced"])
+        self.assertEqual(tput.pair_stats(nxt[:2], gh[:2], traced=True)["n"], 2, "too few: the traced pair counts")
+
+    def test_a_pair_needs_both_rates(self):
+        self.assertIsNone(tput.pair_stats([{"run": 1, "mb_s": 50.0}], [{"run": 1, "error": "no result"}]))
+        self.assertEqual(tput.pair_stats([{"run": 1, "mb_s": 50.0}, {"run": 2, "mb_s": 60.0}],
+                                         [{"run": 2, "mb_s": 100.0}])["pairs"], [{"run": 2, "ratio": 0.6, "traced": False}])
 
     def test_median_of_runs_skips_failed_ones(self):
         self.assertEqual(tput.summarize([{"mb_s": 10.0}, {"error": "no result"}, {"mb_s": 30.0}, {"mb_s": 20.0}]), 20.0)

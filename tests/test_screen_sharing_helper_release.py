@@ -46,6 +46,13 @@ class Release(unittest.TestCase):
         self.addCleanup(os.environ.pop, "CMUX_CODESIGN_TOOL", None)
         self.zip = self.tmp / "helper.zip"
         self.zip.write_bytes(b"zip bytes")
+        # An iconutil that writes the iconset's PNGs, in name order, as the .icns: `-c icns SET -o OUT`.
+        self.iconutil = self.tmp / "iconutil"
+        self.iconutil.write_text('#!/bin/sh\nset -e\n[ "$1" = -c ] && [ "$2" = icns ] && [ "$4" = -o ]\n'
+                                 'cat "$3"/*.png > "$5"\n')
+        self.iconutil.chmod(0o755)
+        os.environ["CMUX_ICONUTIL_TOOL"] = str(self.iconutil)
+        self.addCleanup(os.environ.pop, "CMUX_ICONUTIL_TOOL", None)
 
     def make_helper(self, name):
         self.helper = self.tmp / name
@@ -168,6 +175,29 @@ class Release(unittest.TestCase):
         with open(app / "Contents/Info.plist", "rb") as f:
             info = plistlib.load(f)
         self.assertEqual((info["CFBundleIdentifier"], info["CFBundleName"]), ("com.cmuxterm.app.nightly", "cmux NIGHTLY"))
+
+    def test_stub_app_carries_the_nightlys_icon(self):
+        """Austin: the try helper showed the generic blank icon; the stub must name an icns the bundle script copies."""
+        code, out, err = self.run_main("stub-app", str(self.tmp / "stub"))
+        self.assertEqual(code, 0, err)
+        app = Path(out.strip())
+        with open(app / "Contents/Info.plist", "rb") as f:
+            info = plistlib.load(f)
+        self.assertEqual(info["CFBundleIconFile"], "AppIcon-Nightly")
+        icon_set = ROOT / "Assets.xcassets/AppIcon-Nightly.appiconset"
+        names = sorted(f"icon_{n}x{n}{s}.png" for n in (16, 32, 128, 256, 512) for s in ("", "@2x"))
+        by_name = {f"icon_{n}x{n}{s}.png": icon_set / f"{n}{s}.png" for n in (16, 32, 128, 256, 512) for s in ("", "@2x")}
+        expected = b"".join(by_name[name].read_bytes() for name in names)
+        self.assertEqual((app / "Contents/Resources/AppIcon-Nightly.icns").read_bytes(), expected)
+        self.assertEqual(sorted(p.name for p in (app / "Contents/Resources").iterdir()), ["AppIcon-Nightly.icns"])
+
+    def test_stub_app_refuses_an_icon_set_missing_a_size(self):
+        icons = self.tmp / "icons"
+        shutil.copytree(ROOT / "Assets.xcassets/AppIcon-Nightly.appiconset", icons)
+        (icons / "512@2x.png").unlink()
+        code, _, err = self.run_main("stub-app", str(self.tmp / "stub"), "--icon-set", str(icons))
+        self.assertEqual(code, 1)
+        self.assertIn("512@2x.png", err)
 
     def test_the_cli_and_ci_name_the_same_zip(self):
         helper_rs = (ROOT / "cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/helper.rs").read_text()

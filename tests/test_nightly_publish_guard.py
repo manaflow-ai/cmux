@@ -349,7 +349,7 @@ class WorkflowTests(unittest.TestCase):
         shelf_workflow = (ROOT / ".github/workflows/app-store-shelf.yml").read_text()
         self.assertIn("bash scripts/ci/app-store-shelf-check.sh", shelf_workflow)
         script = (ROOT / "scripts/ci/app-store-shelf-check.sh").read_text()
-        for test in ("every_shipped_store_listing_installs_and_has_something_to_open",
+        for test in ("every_shipped_store_listing_has_an_open_target_or_working_setting_switch",
                      "a_command_only_store_listing_has_nothing_to_open_after_install"):
             self.assertIn(test, script)
 

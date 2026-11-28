@@ -23,6 +23,7 @@ SOURCED_BY = [
     "scripts/cmux-next/web-overlay.sh",
     "scripts/cmux-next/build-web-bundles.sh",
     "scripts/build-webviews-app.sh",
+    "scripts/cmux-next/build-agent-pane-web.sh",
 ]
 CASES = {
     "--preload /h/p.js": "--preload=/h/p.js",
@@ -81,6 +82,22 @@ class BunOptionsJoinTests(unittest.TestCase):
             after = subprocess.run(["sh", "-c", f'. "{LIB}"; bun install'], capture_output=True, text=True, env=env,
                                    timeout=30)
             self.assertEqual((after.returncode, after.stdout.strip()), (0, "installed"), after.stderr)
+
+    def test_bun_gets_the_first_writable_temp_dir(self):
+        # Hetzner slots (runs 46053948772, 46063462029): bun exits "EACCES accessing temporary directory" when the
+        # system temp dir is not writable; the lib hands it the first writable candidate and keeps a set one.
+        with tempfile.TemporaryDirectory(prefix="bun-tmpdir-pick-") as tmp:
+            blocked = Path(tmp) / "blocked"
+            blocked.write_text("")  # a file: mkdir under it fails, as an unwritable RUNNER_TEMP does
+            for shell in self.shells():
+                def pick(**extra):
+                    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, **extra}
+                    return subprocess.run([shell, "-c", f'set -eu; . "{LIB}"; printf "%s" "${{BUN_TMPDIR-unset}}"'],
+                                          capture_output=True, text=True, env=env, timeout=30, check=True).stdout
+                with self.subTest(shell=shell):
+                    self.assertEqual(pick(RUNNER_TEMP=tmp), f"{tmp}/bun-tmp")
+                    self.assertEqual(pick(RUNNER_TEMP=str(blocked), TMPDIR=tmp), f"{tmp}/bun-tmp")
+                    self.assertEqual(pick(RUNNER_TEMP=tmp, BUN_TMPDIR="/set/by/caller"), "/set/by/caller")
 
     def test_the_install_scripts_source_it_before_any_bun_call(self):
         for rel in SOURCED_BY:

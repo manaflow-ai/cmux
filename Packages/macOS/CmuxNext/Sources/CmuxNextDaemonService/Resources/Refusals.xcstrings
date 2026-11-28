@@ -36062,6 +36062,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.agentRemoteStart.personalConnectionOnTeamVm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personal connections run only on your own Cloud machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعمل الاتصالات الشخصية على جهاز Cloud الخاص بك فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lične veze rade samo na vašem vlastitom Cloud računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personlige forbindelser kører kun på din egen Cloud-maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persönliche Verbindungen laufen nur auf deiner eigenen Cloud-Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las conexiones personales solo funcionan en tu propia máquina de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les connexions personnelles fonctionnent uniquement sur votre propre machine Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le connessioni personali funzionano solo sulla tua macchina Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個人用接続は自分の Cloud マシンでのみ使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការតភ្ជាប់ផ្ទាល់ខ្លួនដំណើរការតែលើម៉ាស៊ីន Cloud របស់អ្នកប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개인 연결은 자신의 Cloud 머신에서만 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personlige tilkoblinger virker bare på din egen Cloud-maskin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenia osobiste działają tylko na Twojej maszynie Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexões pessoais só funcionam na sua própria máquina na Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Личные подключения работают только на вашей машине Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อส่วนบุคคลใช้ได้เฉพาะบนเครื่อง Cloud ของคุณเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kişisel bağlantılar yalnızca kendi Cloud makinenizde çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Особисті підключення працюють лише на вашій власній машині Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối cá nhân chỉ chạy trên máy Cloud của chính bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个人连接仅能在你自己的 Cloud 机器上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個人連線只能在你自己的 Cloud 機器上運行。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -148,6 +148,19 @@ export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgres
   readonly idempotencyKey: string;
 }> {}
 
+/**
+ * The create opted into waiting and found no address or capacity: its row is
+ * waiting (services/vms/createWait.ts) and a same-key retry after
+ * `retryAfterSeconds` starts it once room frees, until `deadline`.
+ */
+export class VmCreateWaitingError extends Data.TaggedError("VmCreateWaitingError")<{
+  readonly idempotencyKey: string;
+  readonly state: "waiting_for_address" | "waiting_for_fleet" | "waiting_for_capacity";
+  readonly since: number;
+  readonly deadline: number;
+  readonly retryAfterSeconds: number;
+}> {}
+
 export class VmCreateFailedError extends Data.TaggedError("VmCreateFailedError")<{
   readonly idempotencyKey: string;
   readonly code: string | null;
@@ -333,6 +346,7 @@ export type VmWorkflowError =
   | VmFirewallRuleLimitError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
+  | VmCreateWaitingError
   | VmCreateFailedError
   | VmCreateDisabledError
   | VmAccountDeletionInProgressError
@@ -496,6 +510,7 @@ const vmWorkflowErrorTagRecord = {
   VmFirewallRuleLimitError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
+  VmCreateWaitingError: true,
   VmCreateFailedError: true,
   VmCreateDisabledError: true,
   VmAccountDeletionInProgressError: true,
