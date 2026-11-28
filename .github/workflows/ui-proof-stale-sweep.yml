@@ -28,6 +28,9 @@ concurrency:
 
 jobs:
   sweep:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: sweep stale cmux/ui-proof pending
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
     # The step holds the CI pool tokens (secrets), so the job leads with the one-job secret JIT label.
@@ -36,8 +39,6 @@ jobs:
     env:
       GH_HTTP_DEADLINE_S: "240"  # timeout-minutes less 60 s: gh_http never waits past the job (feat-cmux-next scripts/ci/gh_http.py)
     permissions:
-      # actions: write re-runs the gate job of a PR whose look posted a record the gate never read.
-      actions: write
       contents: read
       pull-requests: read
       statuses: write
@@ -46,6 +47,7 @@ jobs:
         with:
           ref: feat-cmux-next
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/ui_proof_verdict.py
             scripts/ci/proof_record.py
             scripts/ci/gh_http.py
@@ -57,6 +59,7 @@ jobs:
         with:
           path: floor
           sparse-checkout: |
+            /.gitmodules
             scripts/ci/job_token_floor.py
             scripts/ci/app_spend_mark.py
           sparse-checkout-cone-mode: false

@@ -231,7 +231,11 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: page, isRemoteWorkspace: false)
         panel.webView.frame = hostWindow.contentView?.bounds ?? .zero
         hostWindow.contentView?.addSubview(panel.webView)
-        waitUntil("load of \(page.lastPathComponent)") {
+        // The suite's first load also waits for the WebContent process to
+        // launch: 3.4 s on a CI host (main run 46132489693), which left the
+        // load past a 5 s bound. A warm load takes about 0.5 s. 10 s matches
+        // BrowserPanelWebViewLifecycleTests' initial-load wait for the same race.
+        waitUntil("load of \(page.lastPathComponent)", timeout: 10) {
             panel.webView.url?.standardizedFileURL == page.standardizedFileURL
                 && !panel.webView.isLoading
                 && !panel.isLoading
