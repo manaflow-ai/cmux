@@ -1,4 +1,7 @@
 name: ios fast verdict dispatch
+# One title per PR and head: the parallel-run detector keys a dispatch run by its title, so a recovery sweep over many
+# PRs reads as distinct targets, while the same PR dispatched again still groups.
+run-name: ios fast verdict dispatch PR ${{ inputs.pr }} at ${{ inputs.sha }}
 
 # The supported recovery for a `cmux/ios-fast` pending whose answering run died (the class: a status left pending
 # forever when its publisher crashed). pr-router.yml's route posts the pending and its ios-fast-status job answers
@@ -38,6 +41,9 @@ concurrency:
 
 jobs:
   resolve:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: resolve the merge commit
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -89,6 +95,9 @@ jobs:
       statuses: read
 
   ios-fast-status:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: ios fast verdict status
     needs: [resolve, pipeline]
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}
