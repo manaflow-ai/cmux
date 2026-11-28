@@ -86,8 +86,8 @@ struct ChatTailDiskTests {
         }
     }
 
-    /// Bounded as memory is: the most recent ``AgentPaneTailCache/chats`` chats, and a file over the
-    /// byte bound (or no tail at all) is read as none and removed.
+    /// Bounded by a count of files (here three, the newest kept), and a file over the per-file byte
+    /// bound (or no tail at all) is read as none and removed.
     @Test func theDiskIsBounded() async throws {
         let directory = Self.folder()
         defer { try? FileManager.default.removeItem(at: directory) }
