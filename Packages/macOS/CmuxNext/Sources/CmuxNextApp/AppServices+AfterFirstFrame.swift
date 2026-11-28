@@ -61,7 +61,7 @@ extension AppServices {
             }
         }
         memoryPressure.refresh()
-        if let previous = crashRecovery.recovery.previous, previous.wasLikelyOOM {
+        if crashRecovery.recovery.likelyOOM, let previous = crashRecovery.recovery.previous {
             Task.detached(priority: .utility) {
                 let current = MemoryPressureSnapshot.current()
                 let priorFootprint = previous.context?.footprintMegabytes ?? current.footprintMegabytes
