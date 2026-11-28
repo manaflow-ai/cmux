@@ -594,7 +594,7 @@ async fn a_pooled_sessions_server_ends_with_it_not_after_the_idle_window() {
     rpc(&g, "spare-a", call(1)).await;
     let pid = g.server_pid("spare-a").await.unwrap();
     assert!(launch_path(home.path(), "spare-a").exists());
-    pooled_ended_on(Some(&g), home.path(), "spare-a", false);
+    pooled_ended_on(Some(&*g), home.path(), "spare-a", false);
     until("the ended pooled session's server ends", async || gone(pid)).await;
     assert_eq!(g.running(), 0, "{} chats hold a server", g.running());
     assert!(!g.chats.lock().unwrap().contains_key("spare-a"), "the gateway still holds the chat");
@@ -611,7 +611,7 @@ async fn a_claimed_pooled_sessions_end_stops_its_server_and_keeps_the_chat() {
     g.keep("spare-b", launch(home.path())).unwrap();
     rpc(&g, "spare-b", call(1)).await;
     let pid = g.server_pid("spare-b").await.unwrap();
-    pooled_ended_on(Some(&g), home.path(), "spare-b", true);
+    pooled_ended_on(Some(&*g), home.path(), "spare-b", true);
     until("the claimed pooled session's server ends", async || gone(pid)).await;
     assert!(launch_path(home.path(), "spare-b").exists(), "the chat's launch went");
     rpc(&g, "spare-b", call(2)).await;
