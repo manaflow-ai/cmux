@@ -5,11 +5,14 @@
 //! Pure: the app reports the facts and applies the result. It reaches the rules through the app
 //! FFI's JSON channel (cmux-layout-reducer-ffi `cmux_layout_reducer_json`, ops in [`ops`]).
 //!
+//! - [`agent_url`]: the pages an agent-driven tab never loads, shows or scripts
+//!   (`AgentURLPolicy`).
 //! - [`address`]: rules for a typed address: the IANA top-level domains, the mistyped
 //!   top-level domain fix (`HostTypoFixup`) and which failures of an https upgrade load the address
 //!   over http (`HTTPSUpgradeFallback`).
 //! - [`calculator`]: the omnibox calculator row's arithmetic and its answer text
 //!   (`OmniboxCalculator`).
+//! - [`download_policy`]: Chrome's automatic downloads rule, per site (`AutomaticDownloadPolicy`).
 //! - [`input`]: the browser automation's input rules: a driver key's AppKit key event
 //!   (`KeyStroke`, `DOMKeyCodes`) and a driver mouse call's event type (`MouseEventPlan`).
 //! - [`load_waits`], [`cookie_backups`], [`cookies`], [`tab_watcher`]: the browser automation's
@@ -31,12 +34,18 @@
 //!   `BrowserPopupRequest`).
 //! - [`tab_state`]: the tab state machine, the reducer from an engine's navigation events to
 //!   the state the chrome renders (`BrowserTabStateMachine`).
+//! - [`password_fill`]: when a tab fills saved passwords, and what it sends Chromium's switch
+//!   (`PasswordFillPolicy`, `PasswordFillState`).
+//! - [`url_filter`]: an organization's URL blocklist and allowlist in Chrome's filter format
+//!   (`BrowserURLFilter`, `BrowserURLFilterRule`).
 
 pub mod address;
+pub mod agent_url;
 pub mod automation_ops;
 pub mod calculator;
 pub mod cookie_backups;
 pub mod cookies;
+pub mod download_policy;
 pub mod driver;
 pub mod frames;
 pub mod input;
@@ -45,12 +54,16 @@ pub mod links;
 pub mod load_waits;
 pub mod ops;
 pub mod page_events;
+pub mod password_fill;
 pub mod restored_history;
 pub mod tab_state;
 pub mod tab_watcher;
+pub mod url_filter;
 
 #[cfg(test)]
 mod address_tests;
+#[cfg(test)]
+mod agent_url_tests;
 #[cfg(test)]
 mod automation_tests;
 #[cfg(test)]
@@ -59,6 +72,8 @@ mod calculator_tests;
 mod cookie_backups_tests;
 #[cfg(test)]
 mod cookies_tests;
+#[cfg(test)]
+mod download_policy_tests;
 #[cfg(test)]
 mod driver_tests;
 #[cfg(test)]
@@ -74,8 +89,12 @@ mod load_waits_tests;
 #[cfg(test)]
 mod page_events_tests;
 #[cfg(test)]
+mod password_fill_tests;
+#[cfg(test)]
 mod restored_history_tests;
 #[cfg(test)]
 mod tab_state_tests;
 #[cfg(test)]
 mod tab_watcher_tests;
+#[cfg(test)]
+mod url_filter_tests;

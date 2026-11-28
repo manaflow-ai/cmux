@@ -17,6 +17,10 @@ Untimed records are retained only when followed by an eligible timestamp and not
 preceded by a future timestamp. Trailing/ambiguous untimed records are omitted and
 counted, including compaction markers. Such reports are exploratory, not proof of
 conservation. Malformed JSON/timestamps abort measurement with counts, never text.
+Explicit --valid-file-subset instead excludes ENTIRE invalid transcripts, even
+those with no parsed in-window record. Its subset-exploratory result preserves
+full-input diagnostics and excluded file IDs/bytes; it cannot establish fleet
+coverage or zero loss. Excluded files' true window membership is unknown.
 
 Each file is read only to its initially observed byte length. A frozen snapshot is
 immutable by this tool (existing output directories are refused); later appends
@@ -38,6 +42,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+
+INVALID_DIAGNOSTICS = ("malformed_json", "non_object_records",
+                       "malformed_timestamps", "incomplete_records")
+
+
+def invalid_count(diagnostics):
+    return sum(diagnostics.get(key, 0) for key in INVALID_DIAGNOSTICS)
 
 
 def sha256(data):
@@ -108,7 +119,7 @@ def write_json(path, value):
     path.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
-def capture(transcripts, output, start, end):
+def capture(transcripts, output, start, end, valid_file_subset=False):
     manifest, totals = [], Counter()
     paths = sorted(transcripts.rglob("*.jsonl"))
     for path in paths:
@@ -124,6 +135,9 @@ def capture(transcripts, output, start, end):
         file_id = sha256(str(path.relative_to(transcripts)).encode())
         row = {"id": file_id, "captured_bytes": len(data), "captured_sha256": sha256(data),
                "selected": selected, "diagnostics": diagnostics}
+        if valid_file_subset and invalid_count(diagnostics):
+            row.update(selected=False, excluded_invalid=True, window_candidate_selected=selected)
+            selected = False
         if selected:
             name = file_id + ".jsonl"
             (output / "transcripts" / name).write_bytes(content)
@@ -132,7 +146,25 @@ def capture(transcripts, output, start, end):
     return manifest, dict(totals)
 
 
-def measure(workspace, transcripts, output, end, hours):
+def coverage(manifest, measured):
+    excluded = [row for row in manifest if row.get("excluded_invalid")]
+    selected = [row for row in manifest if row["selected"]] if measured else []
+    return {
+        "source_files": len(manifest),
+        "source_captured_bytes": sum(row["captured_bytes"] for row in manifest),
+        "excluded_files": len(excluded),
+        "excluded_captured_bytes": sum(row["captured_bytes"] for row in excluded),
+        "excluded": [{key: row[key] for key in (
+            "id", "captured_bytes", "captured_sha256", "diagnostics", "window_candidate_selected")}
+            for row in excluded],
+        "measured_files": len(selected),
+        "measured_captured_bytes": sum(row["captured_bytes"] for row in selected),
+        "measured_frozen_bytes": sum(row["bytes"] for row in selected),
+        "scope": "file/byte coverage only; excluded files' true window membership is unknown",
+    }
+
+
+def measure(workspace, transcripts, output, end, hours, valid_file_subset=False):
     start = end - hours * 3600
     meter_path = workspace / "tools/hook_context_bytes.py"
     meter_hash = sha256(meter_path.read_bytes())
@@ -145,8 +177,9 @@ def measure(workspace, transcripts, output, end, hours):
         raise ValueError("output must be outside transcripts")
     output.mkdir(mode=0o700, parents=False, exist_ok=False)
     (output / "transcripts").mkdir(mode=0o700)
-    manifest, diagnostics = capture(transcripts, output, start, end)
+    manifest, diagnostics = capture(transcripts, output, start, end, valid_file_subset)
     write_json(output / "manifest.json", manifest)
+    refused = bool(invalid_count(diagnostics)) and not valid_file_subset
     receipt = {
         "schema": "hook-context-window/v1",
         "window_start": datetime.fromtimestamp(start, timezone.utc).isoformat(),
@@ -158,12 +191,12 @@ def measure(workspace, transcripts, output, end, hours):
         "wrapper_sha256": sha256(Path(__file__).read_bytes()),
         "manifest_sha256": sha256((output / "manifest.json").read_bytes()),
         "diagnostics": diagnostics,
+        "input_policy": "valid-file-subset" if valid_file_subset else "strict",
+        "coverage": coverage(manifest, measured=not refused),
         "conservation_claim": False,
     }
-    invalid = sum(diagnostics.get(k, 0) for k in (
-        "malformed_json", "non_object_records", "malformed_timestamps", "incomplete_records"))
-    if invalid or not any(x["selected"] for x in manifest):
-        receipt["status"] = "invalid-input" if invalid else "empty-window"
+    if refused or not any(x["selected"] for x in manifest):
+        receipt["status"] = "invalid-input" if refused else "empty-window"
         write_json(output / "receipt.json", receipt)
         return receipt, 2
     sys.path.insert(0, str(workspace / "tools"))
@@ -177,7 +210,7 @@ def measure(workspace, transcripts, output, end, hours):
         raise ValueError("meter changed during measurement")
     # Loss counters cover full prefixes; unknown hook bytes and ambiguous boundaries
     # prevent treating a zero loss count as a general conservation proof.
-    receipt.update(status="exploratory", reports=reports)
+    receipt.update(status="subset-exploratory" if valid_file_subset else "exploratory", reports=reports)
     write_json(output / "receipt.json", receipt)
     return receipt, 0
 
@@ -189,6 +222,8 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--end", required=True)
     parser.add_argument("--hours", required=True, type=float)
+    parser.add_argument("--valid-file-subset", action="store_true",
+                        help="exclude entire invalid transcripts; report exploratory subset coverage")
     args = parser.parse_args()
     if not math.isfinite(args.hours) or args.hours <= 0:
         parser.error("hours must be finite and positive")
@@ -196,7 +231,7 @@ def main():
         parser.error("transcripts must be a directory")
     try:
         receipt, code = measure(args.workspace.resolve(), args.transcripts.resolve(),
-                                args.output.resolve(), timestamp(args.end), args.hours)
+                                args.output.resolve(), timestamp(args.end), args.hours, args.valid_file_subset)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         # Do not echo input paths, transcript content, or subprocess output.
         print(json.dumps({"status": "error", "error_type": type(exc).__name__}), file=sys.stderr)
