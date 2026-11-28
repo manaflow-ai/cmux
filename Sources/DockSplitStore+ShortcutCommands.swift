@@ -509,17 +509,21 @@ extension DockSplitStore {
     }
 
     private func useDockSelectionForFind() -> Bool {
-        guard let terminal = focusedDockTerminalPanel else {
+        if let terminal = focusedDockTerminalPanel {
+            if terminal.searchState == nil {
+                terminal.searchState = TerminalSurface.SearchState()
+            }
+            NotificationCenter.default.post(
+                name: .ghosttySearchFocus,
+                object: terminal.surface
+            )
+            _ = terminal.performBindingAction("search_selection")
+            return true
+        }
+        guard let browser = focusedDockBrowserPanel else {
             return false
         }
-        if terminal.searchState == nil {
-            terminal.searchState = TerminalSurface.SearchState()
-        }
-        NotificationCenter.default.post(
-            name: .ghosttySearchFocus,
-            object: terminal.surface
-        )
-        _ = terminal.performBindingAction("search_selection")
+        browser.useSelectionForFindOrBeep()
         return true
     }
 

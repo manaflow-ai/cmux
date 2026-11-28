@@ -26,4 +26,5 @@ enum BrowserAction {
     case findNext
     case findPrevious
     case hideFind
+    case useSelectionForFind
 }

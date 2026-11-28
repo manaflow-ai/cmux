@@ -527,6 +527,101 @@ struct SurfaceSelectionTests {
         #expect(await panel.readSurfaceSelection() == .unavailable)
     }
 
+    @Test func browserUseSelectionForFindSeedsTheFindBarFromThePageSelection() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let contentRect = NSRect(x: 0, y: 0, width: 640, height: 480)
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let hostView = NSView(frame: contentRect)
+        panel.webView.frame = hostView.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        hostView.addSubview(panel.webView)
+        window.contentView = hostView
+        window.orderFrontRegardless()
+        window.displayIfNeeded()
+        #expect(window.makeFirstResponder(panel.webView))
+        defer {
+            panel.close()
+            window.orderOut(nil)
+            window.close()
+        }
+        let loader = SurfaceSelectionNavigationLoader()
+        try await loader.load(
+            """
+            <!doctype html>
+            <html><body>
+              <p id="passage">before needle words after</p>
+              <p id="other">before second phrase after</p>
+              <p id="third">before third target after</p>
+            </body></html>
+            """,
+            baseURL: URL(fileURLWithPath: "/tmp/cmux-use-selection-for-find/document.html"),
+            in: panel.webView
+        )
+
+        // No page selection: nothing to adopt, so the find bar stays closed.
+        #expect(await panel.useSelectionForFind() == false)
+        #expect(panel.searchState == nil)
+
+        let firstSelection = try await selectText("needle words", inElement: "passage", of: panel.webView)
+        #expect(firstSelection == "needle words")
+        #expect(await panel.useSelectionForFind())
+        #expect(panel.searchState?.needle == "needle words")
+
+        // With the bar already open, a new selection replaces the needle.
+        // Find wraps its matches in <mark> elements, which replaces the text
+        // node that held the first selection, so select in a paragraph the
+        // first search leaves alone.
+        let secondSelection = try await selectText("second phrase", inElement: "other", of: panel.webView)
+        #expect(secondSelection == "second phrase")
+        #expect(await panel.useSelectionForFind())
+        #expect(panel.searchState?.needle == "second phrase")
+
+        // The selection read suspends. A query typed into the bar while the
+        // read is in flight wins, and the stale selection is dropped.
+        let thirdSelection = try await selectText("third target", inElement: "third", of: panel.webView)
+        #expect(thirdSelection == "third target")
+        let inFlight = Task { @MainActor in await panel.useSelectionForFind() }
+        await Task.yield()
+        panel.searchState?.needle = "typed"
+        #expect(await inFlight.value == false)
+        #expect(panel.searchState?.needle == "typed")
+    }
+
+    private func selectText(
+        _ text: String,
+        inElement elementID: String,
+        of webView: WKWebView
+    ) async throws -> String? {
+        try await webView.callAsyncJavaScript(
+            """
+            return await new Promise((resolve) => {
+              const node = document.getElementById(elementID).firstChild;
+              const start = node.textContent.indexOf(text);
+              const range = document.createRange();
+              range.setStart(node, start);
+              range.setEnd(node, start + text.length);
+              const selection = window.getSelection();
+              selection.removeAllRanges();
+              document.addEventListener(
+                'selectionchange',
+                () => resolve(selection.toString()),
+                { once: true, capture: true }
+              );
+              selection.addRange(range);
+            });
+            """,
+            arguments: ["elementID": elementID, "text": text],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+    }
+
     private func snapshot(
         from result: SurfaceSelectionReadResult
     ) throws -> SurfaceSelectionSnapshot {
