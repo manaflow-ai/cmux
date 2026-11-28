@@ -378,10 +378,6 @@ test("a copy pasted into another composer brings the text and the attachments ba
   // private): the text comes back from the copy kept here (review at f90c7e8c).
   void written;
   await pasteBack("", [screenshot("Screenshot.png"), screenshot("Second.png")], copiedID);
-  await new Promise((r) => setTimeout(r, 500));
-  console.log("DBG attachments", JSON.stringify((second.current!.wakeState().attachments ?? []).map((c) => ({ id: c.id, name: c.name, kind: c.kind }))));
-  console.log("DBG field", field().innerHTML.slice(0, 1500));
-  console.log("DBG strip", host.querySelector(".acpmux-attachments")?.outerHTML.slice(0, 800));
   await until(() => (second.current!.wakeState().attachments ?? []).length === 2, "the pasted attachments");
   await until(() => field().querySelectorAll("[data-inline-attachment]").length === 2, "both in the text");
   const value = markdownField().value();

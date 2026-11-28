@@ -505,7 +505,9 @@ test("popover arm: the ask opens a Needs you popover once, its Connect names the
     expect(popup()!.textContent).toContain("Needs you");
     expect(popup()!.textContent).toContain("manaflow-ai");
     expect(popup()!.contains(dom.window.document.activeElement)).toBe(false);
-    const connectButton = [...popup()!.querySelectorAll("button")].find((b) => b.textContent === "Sign in with GitHub")!;
+    const connectButton = [...popup()!.querySelectorAll("button")].find(
+      (b) => b.textContent === "Sign in with GitHub",
+    )!;
     await act(async () => connectButton.click());
     expect(orgs).toEqual(["manaflow-ai"]);
     expect(popup()!.textContent).toContain("Finish on GitHub");
