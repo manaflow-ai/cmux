@@ -572,6 +572,54 @@ jobs:
           rm -rf "$dir/binaries"
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
 
+  # MACHINE_CHANNEL_ROLL: a feat-cmux-next build the channel now names asks for the Cloud VM image roll, so the
+  # image follows the machine build and not only cmux-tui-artifacts.yml's publish (its one roll request). On
+  # 2026-11-28 the artifacts channel sat at 02b3b98c (11-27 23:02Z) while every window run coalesced or was
+  # cancelled; no roll was requested after 09:00Z (a6ee5dc9), and production's image fell 245 min behind main
+  # (bound 180) though this workflow had pointed the channel at e066eab5 by 11:32Z. The roll pins such a commit
+  # from its machine/ files (images/cmux-vm/pin-cmux-tui.ts MACHINE_BUILD), drops a request whose binaries match
+  # the pin, and keeps one pending roll (a newer request replaces it), so a request per point costs nothing extra.
+  request-image-roll:
+    name: request the Cloud VM image roll for this machine build
+    needs: [point-linux]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && needs.point-linux.result == 'success' }}
+    runs-on: cmux-linux
+    timeout-minutes: 5
+    # No actions: write here: pr-router.yml calls this workflow with actions: read, and GitHub rejects a callee
+    # that asks for more (scripts/ci/check_reusable_workflow_permissions.py). The dispatch rides the cmux-bot App.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Repair a reused self-hosted checkout
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
+          fi
+
+      # The job's own token cannot dispatch (contents: read only), so the App token is the dispatch's.
+      - name: Mint the dispatch's App token
+        id: cmux-bot-token
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+
+      - name: Dispatch the image roll
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_BUDGET_WAIT_MAX_SECONDS: 180
+        run: bash scripts/ci/gh_budget_wait.sh workflow run cloud-vm-image-roll.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f commit="$GITHUB_SHA"
+
   # The Cloud machine channel's journey verdict, minutes after point-x86_64 moves it, and its rollback to the
   # last proven build: .github/workflows/cloud-machine-channel-journey.yml (a baseline while this commit builds,
   # the verdict once the channel names it, then the settle). Its own file keeps the journey's leaked-machine age
