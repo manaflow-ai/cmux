@@ -427,6 +427,10 @@ pub enum Command {
     /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
     #[command(name = "sub-fork-job", hide = true)]
     SubForkJob,
+    /// A run-elsewhere task's runner for a Cloud or AutoCloud machine: writes the run's script
+    /// there and runs it, both over the hub carrier (`cli/run_elsewhere_carrier.rs`).
+    #[command(name = "run-elsewhere-carrier", hide = true)]
+    RunElsewhereCarrier(crate::cli::run_elsewhere_carrier::RunElsewhereCarrierArgs),
     /// Run a heavy build or test on a fork of this Cloud machine (RFD 0144 piece 3,
     /// `placement/run_vm.rs`): its output streams here, its file changes come back. Runs here
     /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.

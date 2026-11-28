@@ -3,6 +3,8 @@
 //! or `{"ok":false,"error":...,"error_code":...}` with exit 1; bad usage exits 64. The app runs
 //! the process (its stdin carries any credential, never argv) and hands the output here.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -81,6 +83,10 @@ pub struct Answer {
     /// `link seed push`: how the folder reached the machine (copied, not cloned) and what stayed on
     /// this Mac, for the done toast; none when it cloned and left nothing ([`super::landed::read`]).
     pub landed: Option<super::landed::Landed>,
+    /// Where the run's time went, flat, in whole ms ([`phases`]): `link agent move`'s `phases` and
+    /// its `frozen_sync_phases` spans, `link seed pull`'s and `link seed push`'s `sync_phases` spans.
+    /// The app hands them to the place reducer for the step the run was (`Event::Phases`).
+    pub phases: BTreeMap<String, u64>,
 }
 
 impl Answer {
@@ -182,8 +188,36 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         size_locked: object.get("size_locked").filter(|size| size.is_object()).cloned(),
         machine_title: string(&object, "machine_title"),
         landed: super::landed::read(&object),
+        phases: phases(&object),
     };
     (answer, Some(object))
+}
+
+/// An answer line's time split, flat: its `phases` (`{name: ms}`, `link agent move`'s steps) and the
+/// spans (`{"spans": {name: {"ms": N, "n": N}}}`, cmux-tui `link/spans.rs`) of its `frozen_sync_phases`
+/// and `sync_phases`, each span by its own name (`pull.read_here`, `git cat-file`, `rpc fs.read`). The
+/// probe reads them off the place view to say which part of a slow step was slow (2026-11-27: Bring
+/// Back's `carry` read 2684-6071 ms on production with nothing below it). A name in two maps sums.
+pub fn phases(object: &Map<String, Value>) -> BTreeMap<String, u64> {
+    let mut out = BTreeMap::new();
+    let mut add = |name: &str, ms: Option<u64>| {
+        if let Some(ms) = ms {
+            *out.entry(name.to_owned()).or_insert(0) += ms;
+        }
+    };
+    if let Some(Value::Object(steps)) = object.get("phases") {
+        for (name, ms) in steps {
+            add(name, ms.as_u64());
+        }
+    }
+    for key in ["frozen_sync_phases", "sync_phases"] {
+        if let Some(Value::Object(spans)) = object.get(key).and_then(|split| split.get("spans")) {
+            for (name, span) in spans {
+                add(name, span.get("ms").and_then(Value::as_u64));
+            }
+        }
+    }
+    out
 }
 
 /// A first-pass copy's `left_on_mac` count, at the line's top or in its `copy` summary; None when nothing was left.

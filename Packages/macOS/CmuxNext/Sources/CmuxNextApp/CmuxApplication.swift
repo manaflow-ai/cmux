@@ -43,6 +43,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     private var handlingSendEvent = false, sawKeyDown = false
     /// A click on the full-screen titlebar band that lands on a button of the window under it.
     private let fullScreenTitlebarPresses = FullScreenTitlebarPress()
+    /// Brings macOS's developer-tools installer in front of cmux when a terminal command starts it (first-run row 17).
+    private let installerFront = SystemInstallerFront()
     /// Set in `CmuxNextApp.main` before `run()`; an update relaunch's startup turns it
     /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false

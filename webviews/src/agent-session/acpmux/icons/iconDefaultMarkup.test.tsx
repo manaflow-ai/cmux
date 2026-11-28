@@ -17,6 +17,8 @@ import { IconsProvider } from "./IconsContext";
 import { bundledIconPack, customIconPack } from "./iconPack";
 import type { IconAccent, IconPack } from "./types";
 
+// A deliberate redraw refreshes this snapshot in the same PR (UPDATE_ICON_MARKUP=1). It went stale once,
+// when #53245 (cloud) and #53295 (one line weight, 32 icons) redrew without it, and stayed a base red.
 const snapshotPath = fileURLToPath(new URL("./iconDefaultMarkup.snapshot.json", import.meta.url));
 
 const contexts: [string, IconPack, IconAccent][] = [

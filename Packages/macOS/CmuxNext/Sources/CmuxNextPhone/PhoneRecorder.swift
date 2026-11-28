@@ -11,7 +11,8 @@ public actor PhoneRecorder {
     private let uptime: @Sendable () -> Duration
     private let makeID: @Sendable () -> String
 
-    private var current: (recording: PhoneRecording, started: Duration,
+    /// `cmux-phone-core`'s recorder state, and the video and log processes it started.
+    private var current: (recorder: PhoneRecorderWire, folder: URL,
                           video: any PhoneRunningCommand, log: (any PhoneRunningCommand)?)?
 
     /// - Parameters:
@@ -29,95 +30,111 @@ public actor PhoneRecorder {
     }
 
     /// The running recording, if any.
-    public var active: PhoneRecording? { current?.recording }
+    public var active: PhoneRecording? { current.map { $0.recorder.recording.recording(in: $0.folder) } }
 
     @discardableResult
     public func start(_ device: PhoneDevice) async throws -> PhoneRecording {
-        guard current == nil else { throw PhoneError.alreadyRecording }
+        let plan = try rules(Plan.self, "recorder_start", ["recorder": PhoneRules.field(current?.recorder), "id": device.id.description,
+                                                           "capabilities": backend.capabilities(for: device).rawValue])
         let id = makeID()
         let folder = root.appendingPathComponent(id, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let video = "screen." + backend.videoExtension(for: device.id)
-        let videoProcess = try await backend.startVideo(device.id, to: folder.appendingPathComponent(video))
-        let wantsLog = backend.capabilities(for: device).contains(.deviceLog)
-        let log = wantsLog ? try? await backend.startLog(device.id, to: folder.appendingPathComponent("device-log.ndjson")) : nil
-        let recording = PhoneRecording(id: id, device: device, startedAt: now(), video: video,
-                                       log: log == nil ? nil : "device-log.ndjson", folder: folder)
-        current = (recording, uptime(), videoProcess, log)
-        return recording
+        let videoProcess = try await backend.startVideo(device.id, to: folder.appendingPathComponent(plan.video))
+        var logProcess: (any PhoneRunningCommand)?
+        if let log = plan.log { logProcess = try? await backend.startLog(device.id, to: folder.appendingPathComponent(log)) }
+        var begin: [String: Any] = ["id": id, "device": PhoneRules.field(PhoneDeviceReply(device)), "started_at": now().formatted(.iso8601),
+                                    "video": plan.video, "uptime_nanos": nanos(uptime())]
+        if logProcess != nil, let log = plan.log { begin["log"] = log }
+        let recorder = try PhoneRules.decode(PhoneRecorderWire.self, "recorder", "recorder_begin", begin, what: "the recorder")
+        current = (recorder, folder, videoProcess, logProcess)
+        return recorder.recording.recording(in: folder)
     }
 
     /// Logs an input sent to the recorded phone; ignored when not recording
     /// or for another phone.
     public func note(_ input: PhoneInput, on id: PhoneDeviceID) {
-        guard var running = current, running.recording.device.id == id else { return }
-        running.recording.events.append(PhoneRecordingEvent(at: seconds(since: running.started), input: input))
-        current = running
+        guard let running = current,
+              let next = try? rules(Noted.self, "recorder_note", ["recorder": PhoneRules.field(running.recorder), "input": input.wire,
+                                                                  "device_id": id.description, "uptime_nanos": nanos(uptime())]),
+              next.noted, let recorder = next.recorder else { return }
+        current?.recorder = recorder
     }
 
     /// Stops the video and the log (both finalize on SIGINT), takes a poster
     /// frame, writes the notes and the manifest, and returns the recording.
     public func stop(notes: String = "") async throws -> PhoneRecording {
+        let stopped = try rules(Stopped.self, "recorder_stop", ["recorder": PhoneRules.field(current?.recorder), "notes": notes,
+                                                                "uptime_nanos": nanos(uptime())])
         guard let running = current else { throw PhoneError.notRecording }
         current = nil
-        var recording = running.recording
-        recording.duration = seconds(since: running.started)
-        recording.notes = notes
         await running.video.interrupt()
         await running.log?.interrupt()
         _ = await running.video.waitForExit(deadline: .seconds(15))
         _ = await running.log?.waitForExit(deadline: .seconds(5))
-        let poster = recording.folder.appendingPathComponent("poster.png")
-        if (try? await backend.screenshot(recording.device.id, to: poster)) != nil,
-           FileManager.default.fileExists(atPath: poster.path) {
-            recording.poster = "poster.png"
-        }
-        try write(recording)
-        return recording
+        let poster = running.folder.appendingPathComponent(stopped.poster)
+        let saved = (try? await backend.screenshot(stopped.recording.device.id, to: poster)) != nil
+            && FileManager.default.fileExists(atPath: poster.path)
+        let files = try rules(Files.self, "recording_files", ["recording": PhoneRules.field(stopped.recording), "poster": saved])
+        try Data(files.manifest.utf8).write(to: running.folder.appendingPathComponent("manifest.json"), options: .atomic)
+        try Data(files.eventsJsonl.utf8).write(to: running.folder.appendingPathComponent("events.jsonl"), options: .atomic)
+        try Data(files.notesMd.utf8).write(to: running.folder.appendingPathComponent("notes.md"), options: .atomic)
+        return files.recording.recording(in: running.folder)
     }
 
     /// Reads a recording folder written by ``stop(notes:)``.
     public static func load(_ folder: URL) throws -> PhoneRecording {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        if let key = CodingUserInfoKey.phoneRecordingFolder { decoder.userInfo[key] = folder }
-        return try decoder.decode(PhoneRecording.self, from: Data(contentsOf: folder.appendingPathComponent("manifest.json")))
+        let manifest = try Data(contentsOf: folder.appendingPathComponent("manifest.json"))
+        return try PhoneRules.decode(PhoneRecordingWire.self, "recording", "recording_read", ["manifest": PhoneRules.text(manifest)],
+                                     what: "the recording manifest").recording(in: folder)
     }
 
-    /// `20261019-174203-1a2b`: sorts by time, unique enough for one Mac.
+    /// `20261019-174203-1a2b`: sorts by time, unique enough for one Mac (`cmux-phone-core`'s `recording_id`).
     public static let timestampID: @Sendable () -> String = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return formatter.string(from: Date()) + "-" + UUID().uuidString.prefix(4).lowercased()
+        let parts = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day, .hour, .minute, .second], from: Date())
+        let time = [parts.year, parts.month, parts.day, parts.hour, parts.minute, parts.second].map { $0 ?? 0 }
+        let uuid = UUID().uuidString
+        return (try? PhoneRules.decode(String.self, "id", "recording_id", ["time": time, "uuid": uuid], what: "the recording id")) ?? uuid
     }
 
-    private func seconds(since start: Duration) -> Double {
-        let elapsed = uptime() - start
-        let (whole, atto) = elapsed.components
-        return (Double(whole) + Double(atto) / 1e18).rounded(toPlaces: 3)
+    private func nanos(_ duration: Duration) -> Int64 {
+        let (seconds, atto) = duration.components
+        return seconds &* 1_000_000_000 &+ atto / 1_000_000_000
     }
 
-    private func write(_ recording: PhoneRecording) throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(recording).write(to: recording.folder.appendingPathComponent("manifest.json"), options: .atomic)
-        let lineEncoder = JSONEncoder()
-        lineEncoder.outputFormatting = [.sortedKeys]
-        var lines = Data()
-        for event in recording.events {
-            lines.append(try lineEncoder.encode(event))
-            lines.append(0x0A)
+    /// One recorder op; `already_recording` and `not_recording` throw their ``PhoneError``.
+    private func rules<T: Decodable>(_ type: T.Type, _ op: String, _ fields: [String: Any]) throws -> T {
+        do {
+            return try PhoneRules.reply(T.self, op, fields, what: "the recorder")
+        } catch let refusal as PhoneRules.Refusal {
+            throw refusal.kind == "already_recording" ? PhoneError.alreadyRecording : PhoneError.notRecording
         }
-        try lines.write(to: recording.folder.appendingPathComponent("events.jsonl"), options: .atomic)
-        try Data(recording.notes.utf8).write(to: recording.folder.appendingPathComponent("notes.md"), options: .atomic)
     }
-}
 
-extension Double {
-    fileprivate func rounded(toPlaces places: Int) -> Double {
-        let scale = pow(10, Double(places))
-        return (self * scale).rounded() / scale
+    private struct Plan: Decodable {
+        let video: String
+        let log: String?
+    }
+
+    private struct Noted: Decodable {
+        let recorder: PhoneRecorderWire?
+        let noted: Bool
+    }
+
+    private struct Stopped: Decodable {
+        let recording: PhoneRecordingWire
+        let poster: String
+    }
+
+    private struct Files: Decodable {
+        let recording: PhoneRecordingWire
+        let manifest: String
+        let eventsJsonl: String
+        let notesMd: String
+
+        enum CodingKeys: String, CodingKey {
+            case recording, manifest
+            case eventsJsonl = "events_jsonl"
+            case notesMd = "notes_md"
+        }
     }
 }

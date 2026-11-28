@@ -91,6 +91,8 @@ import {
   sendRiseMs,
 } from "./conversation/followChase";
 import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/frameBudget";
+import { chatRenderPipeline } from "./chatRenderPipeline.experiment";
+import { settledBefore } from "./conversation/settledRowSkip";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -197,7 +199,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay, sendPopEnabled, useSendScrollsToTop } from "./chatDisplay";
+import { useChatDisplay, useChatRenderPipeline, sendPopEnabled, useSendScrollsToTop } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
@@ -1232,6 +1234,10 @@ function TranscriptView({
   /// The follow motion's arm (followMotion.experiment.ts), read once per transcript. Every arm but
   /// `eased` (followGlide, the view before) chases each move of the rows in view (followChase.ts).
   const [followArm] = useState(() => experimentArm(followMotion));
+  /// The chat render pipeline's arm (chatRenderPipeline.experiment.ts), read once per transcript, or
+  /// its setting (`experiments.chat_render_pipeline`): `off` (the default) changes no row.
+  const [pipelineArm] = useState(() => experimentArm(chatRenderPipeline));
+  const skipSettledRows = useChatRenderPipeline() || pipelineArm === "on";
   /// Jump up's arm (jumpUp.experiment.ts), read once per transcript: `off` (the default) draws no
   /// Jump up and keeps no place for it on a scroll.
   const [jumpUpOn] = useState(() => experimentArm(jumpUpButton) === "on");
@@ -2522,7 +2528,15 @@ function TranscriptView({
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
     // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
     const liveBefore = previous.at(-1)?.below ? rowFrameKey(previous.at(-1)!) : undefined;
-    for (let index = from; index < rows.length; index += 1) {
+    // A page of older history keeps every row already there as the same objects below it: those
+    // were all known last time, so only the changed span between the kept head and the kept tail
+    // is read. Walking every loaded row (a frame key and a drawn-key lookup each) on each page a
+    // fling brought cost O(loaded history) in the page's frame (Leo 2026-11-19: "we need to be able
+    // to have infinite chats, infinitely long chats").
+    let to = rows.length;
+    for (let kept = previous.length; to > from && kept > from && rows[to - 1] === previous[kept - 1]; kept -= 1)
+      to -= 1;
+    for (let index = from; index < to; index += 1) {
       const row = rows[index]!;
       const key = rowFrameKey(row);
       // A row that takes over a frame on screen (OrderedRows `adoptFrames`) is drawn all the same.
@@ -3134,6 +3148,16 @@ function TranscriptView({
         }
       }
       if (sameIds) return;
+      // A page of older history above (or rows inserted between): every previous row is still here,
+      // the same objects in its kept head and kept tail, so no id left. Without this a prepend built
+      // a set of every loaded row's id and swept the cache against it on each page of a fling.
+      let tailKept = 0;
+      while (
+        tailKept < previous.length - start &&
+        rows[rows.length - 1 - tailKept] === previous[previous.length - 1 - tailKept]
+      )
+        tailKept += 1;
+      if (start + tailKept >= previous.length) return;
     }
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
@@ -7851,7 +7875,10 @@ function TranscriptView({
   // leave nothing behind. A row's own mount effect runs before the sweep, so it reads the length as
   // of the last commit; when this commit changed it, the sweep that follows writes every row anyway.
   const setSizeRef = useRef(setSize);
+  const rowsSettledBefore = useMemo(() => settledBefore(rows, skipSettledRows), [rows, skipSettledRows]);
   const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
+    skipSettledRows,
+    settledBefore: rowsSettledBefore,
     rows,
     mountedRanges,
     geometry: layout.geometry,

@@ -721,7 +721,7 @@ test("a start connecting GitHub would fix offers Connect GitHub beside Retry, an
     );
   });
   const connect = container.querySelector<HTMLButtonElement>('[data-action="connect-github"]');
-  expect(connect?.textContent).toBe("Connect GitHub");
+  expect(connect?.textContent).toBe("Sign in with GitHub");
   expect(connect?.getAttribute("data-role")).toBe("default");
   await act(async () => connect?.click());
   expect(calls).toEqual(["github.connect"]);

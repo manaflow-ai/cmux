@@ -5,7 +5,9 @@ use crate::session_identity::SessionReceipt;
 use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
+mod changes;
 mod resolve;
+pub(super) use changes::CHANGES_PER_HOLD;
 pub(super) use resolve::{RemoteName, remote_closed, remote_match};
 #[cfg(test)]
 pub(super) use resolve::{names_remote, remote_segment};
@@ -1224,111 +1226,22 @@ impl Hub {
                         });
                         return;
                     }
-                    let mut summary = Self::remote_summary(&peer, session);
-                    let Some(receipt) = session_receipt(&summary) else { return };
-                    let id = receipt.qualified_id();
-                    let announced;
-                    // The row is built (its tools kept, its text written) from the row last
-                    // published, before the locks: under them only a check that it is still the
-                    // row there, else built again from the one there. Built under the locks, every
-                    // peer's notices waited on each row's text (a round of 2000 sessions' turns).
-                    let base = self
-                        .remote_sessions
-                        .read()
-                        .find_mux(&peer, &mux_id)
-                        .map(|(_, r)| Arc::clone(r));
-                    // The tools a row takes from `base` are not its own: one built again starts
-                    // from the summary as it came.
-                    let previous = base.as_ref().map(|r| &r.summary);
-                    let mut plain = (summary.get("tools").is_none()
-                        && previous.is_some_and(|p| p.has_tools()))
-                    .then(|| summary.clone());
-                    summary = Self::retain_summary_tools(summary, previous);
-                    let mut row = PeerRow::new(&summary);
+                    // Built before the locks, put in the table under them, announced after
+                    // (`peers/changes.rs`); a shard puts a run of them under one hold.
+                    let Some(mut change) =
+                        self.session_change_build(&peer, generation, mux_id, session, kind, seq)
+                    else {
+                        return;
+                    };
                     {
                         #[cfg(test)]
                         self.pause_after_peer_session_projection_for_test();
                         let mut map = self.remote_sessions.write();
-                        let Some(current) =
-                            self.peers.get(&peer).filter(|p| p.generation == generation)
-                        else {
+                        if !self.session_change_apply(&mut map, &mut change) {
                             return;
-                        };
-                        current.purge_tombstones.changed(&mux_id);
-                        let old_id = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
-                        // Under the same key the row is replaced in place by the insert below
-                        // (`RemoteRows::insert_shared`), so it is not taken out first.
-                        let previous = match &old_id {
-                            Some(key) if *key == id => map.get(key).cloned(),
-                            Some(key) => map.take(key),
-                            None => None,
-                        };
-                        if previous.as_ref().map(Arc::as_ptr) != base.as_ref().map(Arc::as_ptr) {
-                            // A writer came between the check and the lock: built here, as before.
-                            summary = Self::retain_summary_tools(
-                                plain.take().unwrap_or(summary),
-                                previous.as_ref().map(|r| &r.summary),
-                            );
-                            row = PeerRow::new(&summary);
                         }
-                        // The table's row and the announcement share its text.
-                        announced = row.clone();
-                        map.insert(
-                            id.clone(),
-                            RemoteSession {
-                                peer: peer.clone(),
-                                // The chart it had stays in the copy kept, never in the notice.
-                                summary: row
-                                    .keeping_time_breakdown(previous.as_ref().map(|r| &r.summary)),
-                                receipt,
-                            },
-                        );
-                        let created = summary.get("createdAt").and_then(Value::as_u64);
-                        if self.peer_snapshots.allows(generation) {
-                            self.peer_snapshots.listed(
-                                &peer,
-                                vec![(mux_id.clone(), created)],
-                                false,
-                            );
-                        }
-                        current
-                            .remote_purge_fences
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .remove(&mux_id);
-                        current
-                            .remote_rows_epoch
-                            .fetch_add(1, std::sync::atomic::Ordering::Release);
                     }
-                    // An ask decided there before the session was listed here never comes back.
-                    if matches!(kind.as_str(), "permission_decision" | "permission_resolved") {
-                        self.held_peer_asks.forget(&peer, &mux_id, None);
-                    }
-                    self.save_peer_cache(&peer, generation, false);
-                    let _ = self.events.send_remote(HubEvent {
-                        session_id: mux_id,
-                        record: Arc::new(EventRecord {
-                            seq,
-                            at: now_ms(),
-                            dir: "peer".into(),
-                            kind,
-                            msg: Value::Null,
-                            host_seq: None,
-                        }),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary: announced }),
-                        update_line: Default::default(),
-                        event_params: Default::default(),
-                        row: Default::default(),
-                        list_seq: 0,
-                        peer_batch: false,
-                    });
-                    // The rest of its live asks that came before the session was listed, after
-                    // the row.
-                    self.release_held_peer_asks(&peer, generation);
-                    // A row that closed can put the peer's closed rows past the bound.
-                    if summary.get("status").and_then(Value::as_str) == Some("closed") {
-                        self.trim_closed_peer_rows(&peer, generation);
-                    }
+                    self.session_change_announce(change);
                 }
                 // A channel this daemon opened on the peer: its bytes and its end
                 // (`server/channels.rs`).
@@ -1935,6 +1848,10 @@ pub(super) fn listed_remote_text(
 #[cfg(test)]
 #[path = "peers_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "peer_changes_tests.rs"]
+mod peer_changes_tests;
 
 #[cfg(test)]
 #[path = "restart_notice_tests.rs"]
