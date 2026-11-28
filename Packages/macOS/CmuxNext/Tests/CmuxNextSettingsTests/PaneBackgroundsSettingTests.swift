@@ -8,20 +8,25 @@ import Testing
 /// the window by default, one per pane when asked; agents may set it (looks only) and the window
 /// takes it live.
 @MainActor @Suite(.serialized) struct PaneBackgroundsSettingTests {
+    private static func read(_ root: JSONValue) -> (PaneBackgroundMode, SettingsDiagnostic?) {
+        let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
+        return (snapshot.paneBackgrounds, snapshot.diagnostics.first { $0.path == "appearance.paneBackgrounds" })
+    }
+
     @Test func itIsSharedByDefault() {
-        let (mode, diagnostic) = PaneBackgroundsSetting.parse(.object([:]))
+        let (mode, diagnostic) = Self.read(.object([:]))
         #expect(mode == .shared)
         #expect(diagnostic == nil)
     }
 
     @Test func perPaneParses() {
-        let (mode, diagnostic) = PaneBackgroundsSetting.parse(.object(["appearance": .object(["paneBackgrounds": .string("perPane")])]))
+        let (mode, diagnostic) = Self.read(.object(["appearance": .object(["paneBackgrounds": .string("perPane")])]))
         #expect(mode == .perPane)
         #expect(diagnostic == nil)
     }
 
     @Test func aBadValueIsSharedWithADiagnostic() {
-        let (mode, diagnostic) = PaneBackgroundsSetting.parse(.object(["appearance": .object(["paneBackgrounds": .string("each")])]))
+        let (mode, diagnostic) = Self.read(.object(["appearance": .object(["paneBackgrounds": .string("each")])]))
         #expect(mode == .shared)
         #expect(diagnostic?.path == "appearance.paneBackgrounds")
     }
