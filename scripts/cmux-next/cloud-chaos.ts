@@ -921,6 +921,16 @@ export const HISTORY_SHOWN_MS = 60_000;
 type TurnState = { started: number; running: boolean; status: string; detail: string };
 
 /**
+ * The turn's state as the client sees it: running once the client has streamed step `third` and not yet the last
+ * step, so the fault can be injected without a remote history read. `null` means the client's view does not decide it
+ * (too early, or the output already ended) and history must.
+ */
+export function streamingState(reached: number, third: number, n: number): TurnState | null {
+  if (reached < third || reached >= n) return null;
+  return { started: 1, running: true, status: `running (the client at step ${reached})`, detail: "" };
+}
+
+/**
  * Reads history until the sent turn shows or `budgetMs` passes. One remote read is not an answer: in run 46048495695
  * (drop 60 s) a single read failed while the client was already streaming the turn (step 99), and the catch counted
  * that as 0 turns, "never showed in the chat's history". `error` is the last failed read when no read showed it.
@@ -937,6 +947,24 @@ export async function turnShown(read: () => Promise<TurnState>, budgetMs: number
       error = (e as Error)?.message ?? String(e);
     }
     if (Date.now() + pauseMs >= until) return { state, error };
+    await sleep(pauseMs);
+  }
+}
+
+/**
+ * A guest command that is safe to run twice (it only writes files of its own), retried while the exec route refuses it
+ * (vm_unavailable, a 502/503/504 from the API) and within `budgetMs`. Run 46116359583: the platform answered the
+ * counting-files write for "session host restart" with 502 vm_unavailable (the provider's exec failed; its message says
+ * "retry") on a running machine whose carrier was fine, and the leg failed at 0 ms; the next leg's write went through.
+ * Any other answer, a good one or a command's own failure, comes back at once.
+ */
+export const EXEC_REFUSED = /\bvm_unavailable\b|\bvm_busy\b|\b50[234] [A-Za-z]/;
+export async function idempotentExec(exec: ChaosExec, command: string, timeoutMs: number, budgetMs: number, pauseMs = 2_000): Promise<{ code: number; stdout: string; stderr: string; tries: number }> {
+  let tries = 0;
+  for (const until = Date.now() + budgetMs; ;) {
+    tries++;
+    const r = await exec(command, timeoutMs).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+    if (r.code === 0 || !EXEC_REFUSED.test(`${r.stdout}${r.stderr}`) || Date.now() + pauseMs >= until) return { ...r, tries };
     await sleep(pauseMs);
   }
 }
@@ -1231,10 +1259,10 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         out.push(failed(f.name, `the counting files have no folder: the chat's folder could not be read (${facts.text})`));
         continue;
       }
-      const wrote = await ctx.exec(`${ctx.guest}${countingFilesCommand(facts.cwd, tag)}`, 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+      const wrote = await idempotentExec(ctx.exec, `${ctx.guest}${countingFilesCommand(facts.cwd, tag)}`, 60_000, 60_000);
       const dir = /@@dir (\S+)/.exec(wrote.stdout)?.[1];
       if (!dir) {
-        out.push(failed(f.name, `the counting files could not be written in ${facts.cwd}: ${(wrote.stdout + wrote.stderr).trim().slice(-200)}`));
+        out.push(failed(f.name, `the counting files could not be written in ${facts.cwd} (${wrote.tries} ${wrote.tries === 1 ? "try" : "tries"}): ${(wrote.stdout + wrote.stderr).trim().slice(-200)}`));
         continue;
       }
       const seq = new SeqTerminal(chat.dial, SEQ_LINES, `/tmp/cmux-chaos-seq-${tag}.txt`);
@@ -1253,10 +1281,16 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         reached = chat.reached(tag, from);
         if (reached >= third) break;
       }
-      const shown = await turnShown(() => turnState(ctx, marker, chat.session), HISTORY_SHOWN_MS);
+      // A client streaming step `third` already proves the turn started and runs, so the fault goes in now. Reading
+      // history first is a remote exec that can outlast the rest of the ~20 s turn (run 46116359583, relay cut: the
+      // read took over 10 s on a slow exec route and the fault landed after step 100). History is read only when the
+      // client has not seen the turn mid-way, where it decides whether the turn exists at all.
+      reached = chat.reached(tag, from);
+      const seen = streamingState(reached, third, COUNT_STEPS);
+      const shown = seen ? { state: seen, error: "" } : await turnShown(() => turnState(ctx, marker, chat.session), HISTORY_SHOWN_MS);
       const state = shown.state;
       // History is a remote read: output may have finished while it was in flight.
-      reached = chat.reached(tag, from);
+      if (!seen) reached = chat.reached(tag, from);
       if (state.started === 0) {
         out.push(failed(f.name, shown.error
           ? `the chat's history could not be read within ${HISTORY_SHOWN_MS / 1000} s, so the fault was not injected (the client saw step ${reached}; last read: ${shown.error})`
@@ -1463,8 +1497,10 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
   if (!client.length) return { ok: false, text: "the client received no events for the turn" };
   if (reached === 0) return { ok: false, text: "the turn produced no counting steps" };
   const injection = input.injection;
+  let missedArm = "";
   if (injection && (!injection.running || injection.step < Math.ceil(input.n / 3) || injection.step >= input.n)) {
-    problems.push(`the fault was not armed during counting output (step ${injection.step} of ${input.n}, running=${injection.running})`);
+    // A fault that missed the turn is the probe's miss, not lost output: it is named apart so a red reads for what it is.
+    missedArm = `probe miss: the fault was not armed during counting output (step ${injection.step} of ${input.n}, running=${injection.running})`;
   }
   // The machine's journal.
   const bySeq = new Map<number, SeqEvent>();
@@ -1531,10 +1567,11 @@ export function judgeLoss(input: { n: number; journal: SeqEvent[]; client: SeqEv
   };
   steps(journal, "the journal");
   steps(client, "the client");
-  if (problems.length) return { ok: false, text: `lost or doubled output: ${problems.join("; ")}` };
+  const miss = missedArm ? `${missedArm}; ` : "";
+  if (problems.length) return { ok: false, text: `${miss}lost or doubled output: ${problems.join("; ")}` };
   const back = input.reconnects?.length ? `, ${input.reconnects.length} reconnect(s) each resumed at the next seq` : "";
   const covered = input.interrupted ? `steps 1..${n} of ${input.n} (the turn was cut short)` : `all ${n} steps`;
-  return { ok: true, text: `no lost output: seq ${client[0].seq}..${cLast} contiguous, ${covered} once on both sides${back}` };
+  return { ok: !missedArm, text: `${miss}no lost output: seq ${client[0].seq}..${cLast} contiguous, ${covered} once on both sides${back}` };
 }
 
 /** One `terminal.output_read` answer: the offset asked for and what came back. */

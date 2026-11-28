@@ -2000,6 +2000,57 @@
     }
    ]
   },
+  "FloatingPane": {
+   "kind": "object",
+   "fields": {
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "floating-panes-v1: the pane, still a leaf of the screen's layout; x, y, w and h are its frame as fractions of the screen's pane area."
+    },
+    "x": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The left edge, 0 to 1."
+    },
+    "y": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The top edge, 0 to 1."
+    },
+    "w": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The width, 0 to 1."
+    },
+    "h": {
+     "type": {
+      "kind": "scalar",
+      "name": "float64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The height, 0 to 1."
+    }
+   },
+   "additional_properties": false
+  },
   "Screen": {
    "kind": "object",
    "fields": {
@@ -2177,8 +2228,11 @@
     },
     "floating": {
      "type": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "FloatingPane"
+      }
      },
      "presence": "optional",
      "nullable": false,

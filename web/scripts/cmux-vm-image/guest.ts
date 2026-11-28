@@ -21,6 +21,12 @@ const HOME_PREFIX = 'export HOME="${HOME:-$(getent passwd $(id -u) | cut -d: -f6
 export const STEP_TIMEOUT_MS = 300_000;
 
 /**
+ * What a step's error adds when the step ran out of time (status 124 from the guest's `timeout` or the exec cap, 137
+ * after its kill), so bake.ts can tell a stalled builder (isStallError) from a step that failed on its own.
+ */
+export const timedOutSuffix = (code: number) => (code === 124 || code === 137 ? ` (status ${code}, timed out)` : "");
+
+/**
  * FREESTYLE_API_KEY, or FREESTYLE_API_KEY_FILE (a path; the key is read here and never
  * printed), so an operator passes the key by path instead of through a shell variable.
  */
@@ -231,6 +237,44 @@ export async function ioProbe(vm: Vm, timeoutMs = 30_000): Promise<string> {
   }
 }
 
+/**
+ * What the guest is stuck on, in one line, after a step hit its time cap (status 124) or the client's TimeoutError.
+ * Rolls 46107492079 (clean, then a TimeoutError after acpmux-harness-checks) and 46114210062 (drop-cache-warm-bind-path:
+ * `sync && drop_caches && cat`, 301 s) hung on the final builder while IO_PROBE read it idle (vmstat b=0 wa=0, empty
+ * psi), which an IO stall would not show and a process sleeping on a dead FUSE daemon or a lock would. So: FUSE mounts
+ * and their waiting requests, dirty and writeback memory (what `sync` waits for), every user process's state and
+ * wait channel, and the kernel stack of each one not parked in an ordinary idle wait. Bounded at 20 s in the guest.
+ */
+export const HANG_SNAPSHOT_COMMAND = [
+  `echo "fuse_mounts $(grep -E ' fuse(\\.|blk| )' /proc/mounts 2>/dev/null | awk '{print $3 ":" $2}' | tr '\\n' ' ')"`,
+  `echo "fuse_waiting $(for c in /sys/fs/fuse/connections/*; do [ -r "$c/waiting" ] && printf '%s=%s ' "\${c##*/}" "$(cat "$c/waiting")"; done)"`,
+  `echo "mem $(grep -E '^(Dirty|Writeback):' /proc/meminfo 2>/dev/null | tr -s ' ' | tr '\\n' ' ')"`,
+  `ps -eo pid=,ppid=,stat=,wchan:32=,etime=,args= 2>/dev/null | awk '$2 != 2 && $1 != 2 { $0 = substr($0, 1, 200); print "ps " $0 }' | head -n 80`,
+  `for d in /proc/[0-9]*; do p=\${d##*/}; w=$(cat "$d/wchan" 2>/dev/null); case "$w" in ""|0|do_epoll_wait|ep_poll|do_select|do_sys_poll|hrtimer_nanosleep|do_wait|kernel_wait4|pipe_read|futex_wait_queue|unix_stream_read_generic|do_sigtimedwait|wait_woken|inet_csk_accept|sigsuspend|__skb_wait_for_more_packets|worker_thread|kthreadd|smpboot_thread_fn|rescuer_thread) continue;; esac; [ "$(awk '{print $4}' "$d/stat" 2>/dev/null)" = 2 ] && continue; echo "stack $p $(tr '\\0' ' ' < "$d/cmdline" 2>/dev/null | cut -c1-120) :: $(head -n 12 "$d/stack" 2>/dev/null | awk '{print $2}' | tr '\\n' ' ')"; done 2>/dev/null | head -n 20`,
+].join("; ");
+
+/** At most this many hang snapshots per log: the first hang is the one that tells. */
+export const HANG_SNAPSHOT_LIMIT = 2;
+
+/** HANG_SNAPSHOT_COMMAND's output, lines joined by " | "; an error or timeout comes back as text, never thrown. */
+export async function hangSnapshot(vm: Vm, timeoutMs = 25_000): Promise<string> {
+  try {
+    const r = await run(vm, `timeout -k 2 20 sh -c ${sq(HANG_SNAPSHOT_COMMAND)}`, timeoutMs);
+    const out = r.stdout.trim().split("\n").filter(Boolean).join(" | ");
+    return `${out || "no output"} (status=${r.code} ${(r.ms / 1000).toFixed(1)}s)`;
+  } catch (error) {
+    return `snapshot failed: ${String(error).slice(0, 200)}`;
+  }
+}
+
+function sq(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+function isClientTimeout(error: unknown): boolean {
+  return (error as { name?: unknown } | null)?.name === "TimeoutError" || /\bTimeoutError\b/.test(String(error));
+}
+
 export async function run(vm: Vm, command: string, timeoutMs = STEP_TIMEOUT_MS, user = "root"): Promise<ExecResult> {
   const t0 = Date.now();
   const r = await vm.exec({ command: `${HOME_PREFIX} && ${command}`, env: BUILD_ENV, timeoutMs, linuxUser: user });
@@ -262,6 +306,7 @@ export async function runHeld(
 export class StepLog {
   readonly steps: Array<{ label: string; secs: number }> = [];
   private ioProbes = 0;
+  private hangSnapshots = 0;
   constructor(readonly logFile: string) {
     mkdirSync(path.dirname(logFile), { recursive: true });
   }
@@ -276,6 +321,13 @@ export class StepLog {
     this.log(`IO_PROBE [${label}] ${why} :: ${await ioProbe(vm)}`);
   }
 
+  /** Logs `HANG_SNAPSHOT [label] why :: ...` (HANG_SNAPSHOT_COMMAND), up to HANG_SNAPSHOT_LIMIT per log. */
+  async logHangSnapshot(vm: Vm, label: string, why: string): Promise<void> {
+    if (this.hangSnapshots >= HANG_SNAPSHOT_LIMIT) return;
+    this.hangSnapshots++;
+    this.log(`HANG_SNAPSHOT [${label}] ${why} :: ${await hangSnapshot(vm)}`);
+  }
+
   async step(vm: Vm, label: string, command: string, timeoutMs = STEP_TIMEOUT_MS): Promise<string> {
     // The guest runs it with /bin/sh (dash): refuse here, in a second, what would fail there after the layers before it.
     const shellCheck = guestShellProblems(command);
@@ -284,14 +336,22 @@ export class StepLog {
       this.log(`STEP FAILED [${label}] before it ran: the guest's /bin/sh refuses it:\n${shellCheck.refused.join("\n")}`);
       throw new Error(`step ${label} failed: not /bin/sh`);
     }
-    const r = await run(vm, command, timeoutMs);
+    const t0 = Date.now();
+    let r: ExecResult;
+    try {
+      r = await run(vm, command, timeoutMs);
+    } catch (error) {
+      if (isClientTimeout(error)) await this.logHangSnapshot(vm, label, `after the client's TimeoutError at ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      throw error;
+    }
     const secs = r.ms / 1000;
     this.steps.push({ label, secs });
+    if (r.code === 124) await this.logHangSnapshot(vm, label, `after status=124 ${secs.toFixed(1)}s`);
     appendFileSync(this.logFile, `--- [${label}] status=${r.code} ${secs.toFixed(1)}s\n${r.stdout}\n--- stderr\n${r.stderr.slice(-3000)}\n`);
     if (r.code !== 0 || secs >= SLOW_STEP_PROBE_SECS) await this.logIoProbe(vm, label, `after status=${r.code} ${secs.toFixed(1)}s`);
     if (r.code !== 0) {
       this.log(`STEP FAILED [${label}] status=${r.code} (${secs.toFixed(1)}s)\nstdout: ${r.stdout.slice(-3000)}\nstderr: ${r.stderr.slice(-3000)}`);
-      throw new Error(`step ${label} failed`);
+      throw new Error(`step ${label} failed${timedOutSuffix(r.code)}`);
     }
     this.log(`ok [${label}] ${secs.toFixed(1)}s :: ${r.stdout.trim().split("\n").slice(-3).join(" | ")}`);
     return r.stdout;
@@ -366,7 +426,7 @@ export class StepLog {
         if (code !== 0) {
           const why = code === 124 || code === 137 ? ` (its ${budgetSecs} s budget ran out)` : "";
           this.log(`STEP FAILED [${label}] status=${code}${why} (${secs.toFixed(1)}s)\nstdout: ${stdout.slice(-3000)}\nstderr: ${stderr.slice(-3000)}`);
-          throw new Error(`step ${label} failed`);
+          throw new Error(`step ${label} failed${timedOutSuffix(code)}`);
         }
         if (secs * 1000 > options.budgetMs / 2) this.log(`SLOW_STEP [${label}] ${secs.toFixed(1)}s of its ${budgetSecs}s budget`);
         this.log(`ok [${label}] ${secs.toFixed(1)}s :: ${stdout.trim().split("\n").slice(-3).join(" | ")}`);
@@ -377,7 +437,7 @@ export class StepLog {
         // provider's, and go to the caller as that error (inventory.ts retries a cut or timed-out connection).
         if (pollError !== undefined) throw pollError;
         this.log(`STEP FAILED [${label}] no status after ${((now() - t0) / 1000).toFixed(1)}s (budget ${budgetSecs}s)`);
-        throw new Error(`step ${label} failed: no status`);
+        throw new Error(`step ${label} failed: no status (timed out)`);
       }
     }
   }
