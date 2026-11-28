@@ -2195,7 +2195,9 @@ jobs:
     # its name's "cmux_next_ daemon tests" prefix, so older runs' names with
     # a runner suffix still count. Leo, 2026-10-27: "ok do NOT label stuff as
     # os=linux...": the name, steps and marker name no runner OS.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # A rerun leaves the pool that failed it: 2026-11-28 run 46107444639 failed this job on hetzner-2
+    # (cargo registry EACCES), and with no retry runner a promote waits on that one pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     # 60 was the green run's whole length: job 137409209815 (7d439038, 2026-11-23,
     # cmux-runner-pool) took 59:56: setup 11 min (runner 2:20, checkout 2,
     # supersede check 1:40, Zig packages 2:16), the test compile 22:40 on a
