@@ -9,7 +9,7 @@
 //   bun bench/cloud-event-burst.bench.ts [machines] [runs] [eventsPerFrame]   (default 200 5 50)
 /// <reference types="bun" />
 import { MockCloudProvider } from "../src/pages/cloud/mockProvider";
-import type { CloudMachine } from "../src/pages/cloud/model";
+import type { CloudMachine } from "../src/pages/cloud/ops";
 import { CloudStore } from "../src/pages/cloud/store";
 
 const [machinesArg, runsArg, perFrameArg] = process.argv.slice(2).map(Number);
@@ -89,7 +89,7 @@ async function run(): Promise<{ draws: number; writes: number; ms: number }> {
   return { draws, writes: storage.writes, ms };
 }
 
-const results = [];
+const results: Awaited<ReturnType<typeof run>>[] = [];
 for (let i = 0; i < RUNS; i++) results.push(await run());
 const stat = (key: "draws" | "writes" | "ms") => {
   const values = results.map((result) => result[key]).sort((a, b) => a - b);
