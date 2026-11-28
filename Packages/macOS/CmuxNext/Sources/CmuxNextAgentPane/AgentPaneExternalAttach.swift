@@ -37,8 +37,22 @@ public final class AgentPaneExternalAttach {
     private var attempts = 0
     public nonisolated static let openingLimit: Duration = .seconds(10)
     private let now: () -> ContinuousClock.Instant
+    private let sleep: @Sendable (Duration) async throws -> Void
 
-    public init() { now = { .now } }
+    /// How the App sends stranded files again (`ExternalOpenController.attachToChat(_:from:)`), so they
+    /// take the whole route again: a chat made since then takes them, else a new one opens. Without it
+    /// they wait for the next files. Before, the open door's image on a cold launch whose new chat was
+    /// not made reached the composer only with the next door's file (screenshot-into-chat "late",
+    /// "held: 1 stranded" on cmux23 and cmux27 with Nightly 59518be6c8a5, ok on cmux19).
+    public var retry: (@MainActor (_ urls: [URL], _ claimed: String?) -> Void)?
+    /// The waits before each retry of stranded files, ``retry``. They add up to 7.5 s, under the 15 s a
+    /// person waits for an image to show. Files stranded after the last one wait for the next files.
+    // timeout: only how long stranded files wait before they go again on their own; the next files still take them at once
+    public nonisolated static let retryDelays: [Duration] = [.milliseconds(500), .seconds(1), .seconds(2), .seconds(4)]
+    private var retries = 0, retrying = false
+    private var retryTask: Task<Void, Never>?
+
+    public init() { now = { .now }; sleep = { try await Task.sleep(for: $0) } }
 
     /// The files of routes the App parked before they reached this route, and why the oldest waits
     /// (no window, no pane, Home shown): `chat.composer.get`'s `waiting.parked` and `parked_why`.
@@ -53,7 +67,11 @@ public final class AgentPaneExternalAttach {
     }
 
     /// A test's clock, for files that waited past ``openingLimit``.
-    init(now: @escaping () -> ContinuousClock.Instant) { self.now = now }
+    init(now: @escaping () -> ContinuousClock.Instant,
+         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.now = now
+        self.sleep = sleep
+    }
 
     /// Puts `urls` into `target`'s composer, or, with no target, a new chat's: `openChat` opens one
     /// and calls back with its page once it is made (nil when it is not), answering false when it
@@ -63,6 +81,8 @@ public final class AgentPaneExternalAttach {
                        openChat: (@escaping @MainActor (AgentPaneView?) -> Void) -> Bool,
                        show: @escaping @MainActor (AgentPaneView) -> Void) {
         guard !urls.isEmpty else { return }
+        // Files a person sent get the retries anew; a retry's own attach keeps counting them.
+        if !retrying { retries = 0 }
         if let waiting = opening {
             if now() - waiting.since < Self.openingLimit {
                 opening = (waiting.urls + urls, waiting.claimed ?? claimed, waiting.since, waiting.attempt)
@@ -74,6 +94,8 @@ public final class AgentPaneExternalAttach {
         }
         let kept = stranded
         stranded = nil
+        retryTask?.cancel()
+        retryTask = nil
         let urls = (kept?.urls ?? []) + urls, claimed = kept?.claimed ?? claimed
         if let target { return deliver(urls, claimed: claimed, to: target, show: show) }
         attempts += 1
@@ -98,6 +120,27 @@ public final class AgentPaneExternalAttach {
 
     private func strand(_ urls: [URL], claimed: String?) {
         stranded = ((stranded?.urls ?? []) + urls, stranded?.claimed ?? claimed)
+        retryStranded()
+    }
+
+    /// Sends the stranded files again through ``retry`` after the next of ``retryDelays``, once
+    /// at a time. Files that go with later ones first cancel it.
+    private func retryStranded() {
+        guard retry != nil, retryTask == nil, retries < Self.retryDelays.count else { return }
+        let delay = Self.retryDelays[retries]
+        retries += 1
+        // task-owner: this route; one wait at a time, cancelled when later files carry the stranded ones
+        retryTask = Task { [weak self, sleep] in
+            try? await sleep(delay)
+            guard let self, !Task.isCancelled else { return }
+            retryTask = nil
+            guard let kept = stranded, let retry else { return }
+            stranded = nil
+            Self.logger.info("external attach: \(kept.urls.count, privacy: .public) stranded file(s) go again (retry \(self.retries, privacy: .public) of \(Self.retryDelays.count, privacy: .public))")
+            retrying = true
+            defer { retrying = false }
+            retry(kept.urls, kept.claimed)
+        }
     }
 
     /// Whether files wait for a new chat (``attach(_:claimed:target:openChat:show:)``).

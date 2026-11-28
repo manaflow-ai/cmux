@@ -269,6 +269,34 @@ struct AgentPaneAttachExternalTests {
         refused.attach([a], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
         #expect(!refused.waitsForChat && refused.waitingFiles == [a])
     }
+    /// Files whose new chat was not made go again on their own (``AgentPaneExternalAttach/retry``),
+    /// not only with the next door's file: the open door's image on a cold launch was "late" on cmux23
+    /// and cmux27 (held: 1 stranded). After ``AgentPaneExternalAttach/retryDelays`` they wait for the next.
+    @Test func strandedFilesGoAgainOnTheirOwnUntilTheRetriesEnd() async {
+        let route = AgentPaneExternalAttach(now: { .now }, sleep: { _ in })
+        var sent: [[URL]] = []
+        route.retry = { urls, claimed in
+            sent.append(urls)
+            route.attach(urls, claimed: claimed, target: nil, openChat: { made in made(nil); return true }, show: { _ in })
+        }
+        let a = URL(fileURLWithPath: "/tmp/shot-open.png")
+        route.attach([a], claimed: nil, target: nil, openChat: { made in made(nil); return true }, show: { _ in })
+        for _ in 0..<50 where sent.count < AgentPaneExternalAttach.retryDelays.count { await Task.yield() }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(sent == Array(repeating: [a], count: AgentPaneExternalAttach.retryDelays.count))
+        #expect(route.waitingFiles == [a] && !route.waitsForChat)
+
+        // A chat made on the retry takes them.
+        let made = AgentPaneExternalAttach(now: { .now }, sleep: { _ in })
+        var tries = 0
+        made.retry = { urls, claimed in
+            made.attach(urls, claimed: claimed, target: nil, openChat: { _ in tries += 1; return true }, show: { _ in })
+        }
+        made.attach([a], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
+        for _ in 0..<50 where tries == 0 { await Task.yield() }
+        #expect(tries == 1 && made.waitsForChat && made.waitingFiles == [a])
+    }
+
     /// A file that has not reached a composer reads back where it waits: parked in the App before
     /// this route (and why), in a new chat whose tab has not answered (and for how long), or stranded.
     @Test func theReadbackSaysWhereAFileWaits() async {
