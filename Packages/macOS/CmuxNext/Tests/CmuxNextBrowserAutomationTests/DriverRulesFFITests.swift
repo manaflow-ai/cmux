@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextBrowserAutomation
+import CmuxNextBrowserCore
 
 /// The driver's rules answered by Rust (cmux-browser-rules `driver.rs`) keep the texts and
 /// meanings the Swift copy had.

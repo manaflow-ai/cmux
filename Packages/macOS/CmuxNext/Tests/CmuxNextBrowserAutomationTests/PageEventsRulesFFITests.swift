@@ -2,6 +2,7 @@ import Security
 import Foundation
 import Testing
 @testable import CmuxNextBrowserAutomation
+import CmuxNextBrowserCore
 
 /// The console, dialog and cookie backup key rules answered by Rust (cmux-browser-rules
 /// `page_events.rs`) keep the events, texts and meanings the Swift copy had.
