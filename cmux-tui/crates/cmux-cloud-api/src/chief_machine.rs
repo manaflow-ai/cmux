@@ -531,7 +531,17 @@ async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<
     let mut waited = Duration::ZERO;
     let mut started = false;
     loop {
-        let got = cloud.read("cloud.machine.get", json!({ "machine": id })).await?;
+        // A read the Cloud says to send again (staging's 503 when a Durable Object resets for its
+        // CPU limit, cloud-chief-start run 46146310295 twice) is one more poll, not a failed start.
+        let got = match cloud.read("cloud.machine.get", json!({ "machine": id })).await {
+            Ok(got) => got,
+            Err(failure) if super::turns::retryable(&failure) && waited < MACHINE_WAIT => {
+                cloud.pause(POLL).await;
+                waited += POLL;
+                continue;
+            }
+            Err(failure) => return Err(failure),
+        };
         let row = got.get("machine").cloned().unwrap_or(got);
         let status = row.get("status").and_then(Value::as_str).unwrap_or_default();
         match status {

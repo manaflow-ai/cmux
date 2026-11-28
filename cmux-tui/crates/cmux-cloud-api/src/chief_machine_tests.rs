@@ -29,6 +29,8 @@ struct Fake {
     turn_answer: RefCell<Option<(i64, String, String)>>,
     /// How many `cloud.machine.create` answers are lost (`timed_out`) after the machine was made.
     lost_creates: RefCell<usize>,
+    /// Refusals `cloud.machine.get` answers first, in order, before it reads the machine.
+    failed_gets: RefCell<VecDeque<Failure>>,
 }
 
 impl Fake {
@@ -81,6 +83,9 @@ impl Cloud for Fake {
         self.calls.borrow_mut().push(op.to_owned());
         match op {
             "cloud.machine.get" => {
+                if let Some(failure) = self.failed_gets.borrow_mut().pop_front() {
+                    return Err(failure);
+                }
                 let status = self.status.borrow_mut().pop().unwrap_or("running");
                 let id = self.machines.borrow().values().next().unwrap()["id"].clone();
                 Ok(
@@ -202,6 +207,43 @@ async fn a_create_whose_answer_is_lost_is_sent_again_under_its_key() {
     assert_eq!(answer["stage"], "done");
     assert_eq!(fake.count("cloud.machine.create chief-machine-k1-create"), 3);
     assert_eq!(fake.machines.borrow().len(), 1);
+}
+
+/// Staging's 503 when a Durable Object resets for its CPU limit (cloud-chief-start run
+/// 46146310295, attempts 1 and 2): the flat tagged body says to send it again.
+fn do_reset() -> Failure {
+    worker_error(
+        503,
+        Some(&json!({ "_tag": "Unavailable", "code": "cloud.unavailable",
+                       "message": "durable object reset: exceeded CPU time limit",
+                       "retryable": true })),
+    )
+}
+
+#[tokio::test]
+async fn a_machine_read_the_cloud_says_to_retry_is_polled_again() {
+    let fake = Fake::default();
+    fake.probes(vec![done()]);
+    *fake.failed_gets.borrow_mut() = vec![do_reset(), do_reset()].into();
+    let answer = run(&fake, &start(false)).await.unwrap();
+    assert_eq!(answer["stage"], "done");
+    assert!(fake.count("cloud.machine.get") >= 3);
+    assert_eq!(fake.machines.borrow().len(), 1);
+}
+
+#[tokio::test]
+async fn a_final_machine_read_refusal_still_fails_the_start() {
+    let fake = Fake::default();
+    fake.probes(vec![done()]);
+    let final_503 = worker_error(
+        503,
+        Some(&json!({ "_tag": "Unavailable", "code": "cloud.unavailable",
+                       "message": "gone for good", "retryable": false })),
+    );
+    *fake.failed_gets.borrow_mut() = vec![final_503].into();
+    let failure = run(&fake, &start(false)).await.unwrap_err();
+    assert!(failure.to_string().contains("gone for good"), "{failure}");
+    assert_eq!(fake.count("cloud.machine.get"), 1);
 }
 
 #[tokio::test]
