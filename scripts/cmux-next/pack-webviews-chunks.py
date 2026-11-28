@@ -5,6 +5,10 @@
 
 The markdown, diff and editor pages share one build, `Resources/markdown-viewer/webviews-app`;
 its `chunks/` folder (about 13 MB of JavaScript in about 470 files) is what their entries import.
+The agent pane's `chunks/` (`CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane`,
+about 4.6 MB: KaTeX, emoji data, the editors, the new-tab screen) are code `pane.js` imports when
+used, never at first paint; the same phase packs them, and acpmux's disk read of the pane
+(app_assets.rs) and its handler (AgentPaneSchemeHandler) inflate them as the pages' readers do.
 The app build ("Pack webviews-app chunks" phase of the cmux-next target) replaces each chunk with
 `<name>.deflate` (raw DEFLATE, level 9: the format pack-pages.mjs gives the pages' `__shared`
 scripts) in the built app, when that takes fewer 4 KiB disk blocks. Every reader inflates the
@@ -88,7 +92,7 @@ def pack_folder(app: Path) -> list[tuple[str, int, int]]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("app", type=Path, help="the built app's markdown-viewer/webviews-app folder")
+    parser.add_argument("app", type=Path, help="the built app's markdown-viewer/webviews-app or agent-pane folder")
     args = parser.parse_args(argv)
     if not args.app.is_dir():
         print(f"pack-webviews-chunks: no {args.app}; nothing to pack")
