@@ -192,6 +192,7 @@ fn a_record_of_another_session_plans_the_plain_shell_at_the_default_frame() {
     // #62017: stage 0 never opens a window for the plain shell (no opaque
     // cover); the reason and default frame still say why.
     assert_eq!(
+        // Another session's record makes no window at stage 0 (#62017: never the plain shell's cover).
         (p.reason, p.shows_window, p.uses_default_frame, p.shows_bare),
         (11, false, true, false)
     );
