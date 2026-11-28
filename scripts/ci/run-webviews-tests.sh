@@ -525,6 +525,20 @@ echo "running $count webviews test files${shard_note}, $pool_note ($serial dev s
 : > "$results/summary"
 : > "$results/not-run"
 : > "$results/ran-none"
+# prep_limit DEFAULT: the seconds a once-per-run preparation (the warm below, the gallery build) may take. Under
+# CMUX_WEB_TEST_STOP_AT it takes at most half of what is left, so the files it prepares for always get the other half:
+# react-apps-base-check's first replay is guaranteed one file's time (webviews_test_results.py
+# --first-replay-stop-at), and on a cold 8 vCPU Freestyle runner the warm ran 310 s to an OOM kill and the gallery
+# build the remaining 587 s, so all 34 of its head-red files were "NOT RUN ... past CMUX_WEB_TEST_STOP_AT" and the
+# job ran into its 55 minutes with no base verdict (cmux#65070, job 141117153828).
+prep_limit() {
+  local limit=$1 left
+  if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
+    left=$(( (CMUX_WEB_TEST_STOP_AT - $(date +%s)) / 2 ))
+    if [ "$left" -lt "$limit" ]; then limit=$left; fi
+  fi
+  echo "$limit"
+}
 # warm_transforms: once per run, before the first browser or dev server file, compile the agent pane's
 # modules into the run's React Compiler cache (webviews/scripts/warm-react-compiler-cache.mjs, about
 # 35 s), so the files that start together read it instead of each compiling App.tsx at once. A base
@@ -534,12 +548,9 @@ warm_transforms() {
   : > "$results/transforms-warmed"
   [ -f scripts/warm-react-compiler-cache.mjs ] || return 0
   { [ -s "$results/browser" ] || [ -s "$results/serial" ]; } || return 0
-  local limit=300
-  if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
-    limit=$((CMUX_WEB_TEST_STOP_AT - $(date +%s)))
-    if [ "$limit" -lt 1 ]; then return 0; fi
-    if [ "$limit" -gt 300 ]; then limit=300; fi
-  fi
+  local limit
+  limit="$(prep_limit 300)"
+  if [ "$limit" -lt 1 ]; then return 0; fi
   if run_with_timeout "$limit" bun scripts/warm-react-compiler-cache.mjs > "$results/warm-transforms.log" 2>&1 < /dev/null; then
     grep '^warm-react-compiler-cache:' "$results/warm-transforms.log" || true
   else
@@ -563,11 +574,8 @@ gallery_stages() {
     : > "$results/gallery-tried"
     if grep -q '"gallery:build"' package.json 2> /dev/null && [ -f test/support/galleryStageServer.ts ] &&
       xargs -0 grep -lE -- "$gallery_stage_files" < "$results/files" > /dev/null 2>&1; then
-      local limit=600
-      if [[ "${CMUX_WEB_TEST_STOP_AT:-}" =~ ^[1-9][0-9]*$ ]]; then
-        limit=$((CMUX_WEB_TEST_STOP_AT - $(date +%s)))
-        if [ "$limit" -gt 600 ]; then limit=600; fi
-      fi
+      local limit
+      limit="$(prep_limit 600)"
       local started=$SECONDS
       if [ "$limit" -ge 1 ] && CMUX_GALLERY_STAGE_CSS=dev CMUX_GALLERY_OUT_DIR="$build" run_with_timeout "$limit" bun run gallery:build > "$results/gallery-build.log" 2>&1 < /dev/null &&
         [ -f "$build/frame.html" ]; then

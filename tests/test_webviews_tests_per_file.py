@@ -150,7 +150,7 @@ def path_without_timeout(temp):
 
 class PerFileRunner(unittest.TestCase):
     def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=(),
-                   uname=None, no_bun=False):
+                   uname=None, no_bun=False, fake_bun=FAKE_BUN):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -164,7 +164,7 @@ class PerFileRunner(unittest.TestCase):
         bin_dir = temp / "bin"
         bin_dir.mkdir()
         if not no_bun:
-            (bin_dir / "bun").write_text(FAKE_BUN, encoding="utf-8")
+            (bin_dir / "bun").write_text(fake_bun, encoding="utf-8")
             (bin_dir / "bun").chmod(0o755)
         if uname is not None:
             # The host the runner believes it is on (`uname -s`), whatever runs this test.
@@ -1025,6 +1025,40 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, sorted(f"./{name}" for name in files))
         self.assertEqual(self.peaks(), (1, 1), result.stdout)
+
+    def test_the_warm_and_gallery_build_leave_half_the_stop_budget_to_the_files(self):
+        """cmux#65070, job 141117153828: react-apps-base-check's first replay had 900 s to CMUX_WEB_TEST_STOP_AT, the
+        React Compiler warm ran 310 s to an OOM kill and the gallery build the other 587 s, and all 34 head-red files
+        were NOT RUN past the stop. Each preparation now takes at most half of what is left, so the files still run."""
+        # The two preparations hang until their limit; the test files themselves pass at once.
+        hang_prep = FAKE_BUN.replace('[ "$1" = test ] || exit 9',
+                                     'case "$1" in scripts/warm-react-compiler-cache.mjs|run) sleep 60; exit 1 ;; esac\n'
+                                     '[ "$1" = test ] || exit 9', 1)
+        contents = {"test/gallery-browser.test.ts": 'import { chromium } from "playwright";\n// accentGlassInvariants\n',
+                    "package.json": '{"scripts": {"gallery:build": "vite build"}}\n',
+                    "scripts/warm-react-compiler-cache.mjs": "", "test/support/galleryStageServer.ts": ""}
+        stop_at = int(time.time()) + 12
+        result, elapsed, calls = self.run_runner(
+            list(contents), contents=contents, fake_bun=hang_prep,
+            extra_env={"CMUX_WEB_TEST_STOP_AT": str(stop_at), "CMUX_WEB_TEST_JOBS": "1"})
+        output = result.stdout + result.stderr
+        self.assertIn("warm-react-compiler-cache failed", output)
+        self.assertIn("gallery-build failed or timed out", output)
+        self.assertNotIn("NOT RUN", output)
+        self.assertIn("./test/gallery-browser.test.ts", calls, output)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertLess(elapsed, 30, output)
+
+    def test_base_check_replays_the_base_at_the_head_shards_widths(self):
+        """One file at a time, 34 head-red files could not finish in react-apps-base-check's 55 minutes (job
+        141117153828); its base replay runs at react-apps-base-early's widths."""
+        text = WORKFLOW.read_text(encoding="utf-8")
+        compare = text.split("      - name: Run base reds and compare\n", 1)[1].split("        run: |\n", 1)[0]
+        early = text.split("      - name: Run the base reds\n", 1)[1].split("        run: |\n", 1)[0]
+        for name in ("CMUX_WEB_TEST_JOBS", "CMUX_WEB_TEST_DEV_JOBS", "CMUX_WEB_TEST_SIZED_FOR_VCPU"):
+            width = [line.strip() for line in early.splitlines() if line.strip().startswith(name + ":")]
+            self.assertEqual(len(width), 1, name)
+            self.assertIn(width[0], compare, name)
 
     def test_a_smaller_runner_runs_the_declared_widths_at_its_share_and_splits_the_same(self):
         """The 16 vCPU shards (8 jobs, 4 dev-server files) got 2 and 4 vCPU runners when the pool writer
