@@ -230,7 +230,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team.
+    /// Activate the connection (owners and admins). OIDC: fetches the issuer's discovery document and needs the secret. SAML: needs a valid IdP certificate. Both need every domain verified by this team.
     SsoConnectionActivateOp {
         name: "sso.connection.activate",
         class: Mutation,
@@ -305,6 +305,56 @@ pub struct SsoConnectionCreateParams {
 wire_errors! {
     /// The error codes sso.connection.create declares.
     SsoConnectionCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Create a SAML 2.0 connection in draft (owners and admins) from the IdP's entity id, sign-on URL and signing certificate. Give the IdP the SP metadata at /v1/sso/saml/metadata/{team}/{connection}, then activate it.
+    SsoConnectionCreateSamlOp {
+        name: "sso.connection.create_saml",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: SsoConnectionCreateSamlParams,
+        result: SsoConnection,
+        error: SsoConnectionCreateSamlError,
+    }
+}
+
+wire_enum! {
+    SsoConnectionCreateSamlParamsJitDefaultRole {
+        Member = "member",
+        Admin = "admin",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionCreateSamlParamsJit {
+    pub enabled: bool,
+    pub default_role: SsoConnectionCreateSamlParamsJitDefaultRole,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionCreateSamlParams {
+    pub idp_entity_id: String,
+    pub sso_url: String,
+    pub certificates: Vec<PemCertificate>,
+    pub domains: Vec<EmailDomain>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jit: Option<SsoConnectionCreateSamlParamsJit>,
+}
+
+wire_errors! {
+    /// The error codes sso.connection.create_saml declares.
+    SsoConnectionCreateSamlError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         IdempotencyConflict = "idempotency.conflict",
@@ -843,54 +893,4 @@ wire_op! {
         result: CloudSessionView,
         error: TeamCloudSessionPublishError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamCloudSessionPublishParams {
-    pub vm: CloudSessionVm,
-    pub session: CloudSessionId,
-    pub kind: CloudSessionKind,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<CloudSessionId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness: Option<String>,
-    pub machine_state: CloudSessionMachineState,
-    pub activity: CloudSessionActivity,
-    pub last_activity_at: i64,
-}
-
-wire_errors! {
-    /// The error codes team.cloud.session.publish declares.
-    TeamCloudSessionPublishError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudSessionNotFound = "cloud_session.not_found",
-        CloudSessionNotYours = "cloud_session.not_yours",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Reassign a Cloud workspace or chat to another member of the team (its assignee, its owner, or a team owner or admin). Followers keep following; the previous assignee follows it; turns still spend the owner's plan.
-    TeamCloudSessionReassignOp {
-        name: "team.cloud.session.reassign",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: TeamCloudSessionReassignParams,
-        result: CloudSessionView,
-        error: TeamCloudSessionReassignError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamCloudSessionReassignParams {
-    pub vm: CloudSessionVm,
-    pub session: CloudSessionId,
-    pub to: UserId,
 }
