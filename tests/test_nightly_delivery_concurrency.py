@@ -32,6 +32,9 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
         "the scheduled 'feed' tick canaries the feed's newest build when it starts; a dispatch for one "
         "build and a pull request run have their own groups"),
     ("nightly-next-feed-watch.yml", ""): "a schedule-only watch that reads the feed when it starts",
+    ("nightly-next-update-e2e.yml", ""): (
+        "only the scheduled 'feed' tick shares it: each installs the feed's second-newest build and updates to "
+        "its newest when it starts, and delivers nothing; a dispatch has its own run id, a pull request its own group"),
     ("nightly-next-launch-smoke.yml", ""): (
         "a schedule or dispatch run has a group of its own run id; only a pull request's runs share one, "
         "per pull request, and such a run delivers nothing (it never rolls back or files)"),
