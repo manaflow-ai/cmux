@@ -372,9 +372,8 @@ public final class SidebarDocStore {
     /// into Pinned (`roomOps`, spaces.md), in the same change; nil when it stores none (a plain `sidebar.move`).
     func spaceKeepingMove(_ items: [String], to target: SidebarDocTarget) -> [[String: Any]]? {
         let stamps = Self.roomOps(moving: items, into: target.section, room: newItemRoom(), records: settledRecords)
-        // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
-        guard !stamps.isEmpty, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else { return nil }
-        return [["op": "move", "items": items, "to": to]] + stamps
+        guard !stamps.isEmpty else { return nil }
+        return [["op": "move", "items": items, "to": target.jsonObject]] + stamps
     }
 
     /// Pin: the items move to the end of Pinned.
