@@ -40,6 +40,9 @@ const FILE: &str = "synced-state.json";
 const PENDING_FILE: &str = "synced-pending.json";
 /// Entries one push may carry: a client cannot hand the daemon an unbounded merge.
 const MAX_PUSH_ENTRIES: usize = 10_000;
+/// How many pushes one exchange makes at most: the first carries what the peer lacked, each later
+/// one an edit made here while the one before was in flight.
+const EXCHANGE_PUSH_ROUNDS: usize = 4;
 
 /// A key's meaning, for applying a winning remote edit to the chat it names.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -523,19 +526,30 @@ impl Hub {
         if !delta.entries.is_empty() {
             self.synced_merge(&delta).await;
         }
-        let (_, lacking, _) = self.synced().pull(&theirs);
-        if !lacking.entries.is_empty() {
+        // An edit made here while this exchange runs finds no known peer to tell
+        // (`synced_tell_peers` reads `known_peers`, set only by the `note_peer` below), so the
+        // exchange carries it: it pushes again until the peer holds all it lacked. Before, such an
+        // edit waited for the next edit or reconnect: "title reaches the machine's replica before
+        // the chat: still null after 15s" (transfer_cli synced_pins_drafts, 3 of 15 false reds,
+        // 2026-11-27/28).
+        for _ in 0..EXCHANGE_PUSH_ROUNDS {
+            let (_, lacking, _) = self.synced().pull(&theirs);
+            if lacking.entries.is_empty() {
+                break;
+            }
             if lacking.entries.len() > MAX_PUSH_ENTRIES {
                 tracing::warn!(
                     peer = name,
                     entries = lacking.entries.len(),
                     "synced push too large"
                 );
-            } else {
-                theirs = self.synced_send(&call, &lacking).await?;
+                break;
             }
+            theirs = self.synced_send(&call, &lacking).await?;
         }
         self.synced().note_peer(name, theirs);
+        // An edit made between the last round and `note_peer` goes on as any later edit does.
+        self.synced_tell_peers();
         Ok(())
     }
 

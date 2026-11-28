@@ -289,6 +289,38 @@ async fn an_offline_edit_crosses_on_reconnect() {
     assert!(lacking.entries.is_empty());
 }
 
+/// An edit made while an exchange is in flight crosses in that exchange. Before, the peer was not
+/// yet known (`note_peer` comes at the exchange's end), so `synced_tell_peers` sent it nowhere and
+/// it waited for the next edit: transfer_cli synced_pins_drafts "title ... still null after 15s".
+#[tokio::test]
+async fn an_edit_made_during_an_exchange_crosses_in_it() {
+    let (a, sa) = hub_with_chat();
+    let (b, sb) = hub_with_chat();
+    a.set_pinned(&sa, true).unwrap();
+    let edited = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (other, here, flag) = (b.clone(), a.clone(), edited.clone());
+    let call = move |m: &'static str, params: Value| {
+        let (other, here, flag) = (other.clone(), here.clone(), flag.clone());
+        async move {
+            if m == crate::rpc::method::MUX_SYNC_PULL {
+                return Ok(serde_json::to_value(other.sync_pull(&params)?).unwrap());
+            }
+            let done = serde_json::to_value(other.sync_push(&params).await?).unwrap();
+            // The person renames the chat while the first push is on the wire.
+            if !flag.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                here.synced_record(title_key(CHAT), json!("release-notes"));
+            }
+            Ok(done)
+        }
+    };
+    a.synced_exchange("peer", call).await.unwrap();
+    assert!(edited.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(sb.meta().pinned);
+    assert_eq!(sb.meta().name, "release-notes");
+    let (_, lacking, _) = a.synced().pull(&b.synced().vv());
+    assert!(lacking.entries.is_empty(), "b lacks {lacking:?}");
+}
+
 /// A pin or a draft set here is heard by a watcher (a peer daemon following this list) at once,
 /// with no list read after it. Before, each only waited for the next list read, which a peer never
 /// makes: the peer's row kept the old pin until some other change of the chat (two-daemon check).
