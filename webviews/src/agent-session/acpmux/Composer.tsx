@@ -384,7 +384,7 @@ type Props = {
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
   /// `/side <prompt>` can fork this chat now (App.tsx, the command's own refusal rule): Send's menu
-  /// offers Send in side chat, and Option-Return sends there (composer/sendMenuModel.ts).
+  /// offers Send in side chat (composer/sendMenuModel.ts).
   sendsToSide?: boolean;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -592,6 +592,9 @@ type Props = {
   /// stack's edge from it (App.tsx `data-focused` on `.acpmux-dock`, composerStates.css). Called on
   /// focus and shell changes only.
   onFocusEdge?(lit: boolean): void;
+  /// Whether the prompt holds anything (text, chips, pending tiles), on each change: Toggle
+  /// Terminal and Chat reads it without a page call (conversation/toggleDraft.ts).
+  onFilled?(filled: boolean): void;
 };
 
 /// What the prompt holds: its text and the chips placed in it.
@@ -869,6 +872,7 @@ function ComposerFrame({
   attachRefusal,
   relayed = false,
   onFocusEdge,
+  onFilled,
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
@@ -2622,6 +2626,7 @@ function ComposerFrame({
   const stopShown = !shell && stopPresence.shown;
   const stop = stopShown && facts.empty;
   const hasDraft = Boolean(!facts.empty || attachments.length || pending.length);
+  useEffect(() => onFilled?.(hasDraft), [hasDraft, onFilled]);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
@@ -3162,13 +3167,6 @@ function ComposerFrame({
     if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
       send(false, followUpSteers("commandReturn", followUpMode, followUp));
-      return;
-    }
-    // Option-Return sends the draft in a side chat, where Send's menu offers that (sendMenuModel.ts);
-    // elsewhere it is left as it was.
-    if (sendChoiceForKey(event) === "side" && sendChoices.includes("side")) {
-      event.preventDefault();
-      chooseSend("side");
       return;
     }
     // ⌘Return on an empty prompt after a turn answers a waiting tagged ask (NextStepCard.tsx).

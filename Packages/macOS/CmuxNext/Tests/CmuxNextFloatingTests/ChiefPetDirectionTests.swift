@@ -64,7 +64,8 @@ import Testing
         #expect(drawn.pose == .lookTour)
         let steps = try #require(drawn.layer.animation(forKey: ChiefPetSpriteLayer.animationKey) as? CAKeyframeAnimation)
         // Each look: two passes of thinking (6 frames) and one look pass (6 frames), four looks.
-        #expect(steps.values?.count == 4 * (2 * 6 + 6))
+        let frames: Int = 4 * (2 * 6 + 6)
+        #expect(steps.values?.count == frames)
         #expect(steps.repeatCount == .infinity)
         drawn.show(mochi, state: .thinking, facingRight: true, moving: false)
         #expect(drawn.pose == .state)

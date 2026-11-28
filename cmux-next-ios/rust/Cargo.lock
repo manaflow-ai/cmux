@@ -681,8 +681,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hop-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "cmux-scope",
+ "cmux-transport",
+ "getrandom 0.3.4",
+ "hmac",
+ "serde_json",
+ "sha2",
+ "tokio",
+]
+
+[[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-local-url"
+version = "0.1.0"
+dependencies = [
+ "regex-automata",
+ "url",
+]
+
+[[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
+dependencies = [
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "cmux-mobile-auto"
@@ -717,10 +750,12 @@ dependencies = [
  "cmux-deadline",
  "cmux-egress",
  "cmux-fault",
+ "cmux-json",
  "cmux-message-preview",
  "cmux-mobile-core",
  "cmux-mobile-link",
  "cmux-output-paint",
+ "cmux-phone-page",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
@@ -775,6 +810,7 @@ dependencies = [
  "cmux-bundle",
  "cmux-egress",
  "cmux-fault",
+ "cmux-hop-relay",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-proxy",
@@ -825,11 +861,13 @@ dependencies = [
  "cmux-composer-send",
  "cmux-fault",
  "cmux-follow-cam",
+ "cmux-local-url",
  "cmux-mobile-auto",
  "cmux-mobile-core",
  "cmux-mobile-host",
  "cmux-mobile-last-place",
  "cmux-mobile-link",
+ "cmux-mobile-tailnet",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-ffi",
@@ -841,6 +879,7 @@ dependencies = [
  "cmux-tab-snapshots",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
+ "cmux-vault-e2e",
  "cmux-vnc",
  "cmux-window-rules",
  "libc",
@@ -855,9 +894,11 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "uniffi",
  "url",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -875,6 +916,13 @@ dependencies = [
 [[package]]
 name = "cmux-output-paint"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-process"
@@ -938,8 +986,11 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "rustls",
+ "rustls-native-certs",
  "sha1",
  "snow",
+ "socket2 0.6.5",
  "windows-sys 0.61.2",
 ]
 
@@ -960,6 +1011,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-region-pick"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-relay-snapshot"
@@ -1078,6 +1133,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-vault-e2e"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chacha20poly1305",
+ "getrandom 0.3.4",
+ "hpke",
+ "rand_core 0.9.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-vnc"
 version = "0.1.0"
 dependencies = [
@@ -1116,6 +1186,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 
@@ -1741,6 +1812,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest",
+]
+
+[[package]]
+name = "hpke"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f65d16b699dd1a1fa2d851c970b0c971b388eeeb40f744252b8de48860980c8f"
+dependencies = [
+ "aead",
+ "aes-gcm",
+ "chacha20poly1305",
+ "digest",
+ "generic-array",
+ "hkdf",
+ "hmac",
+ "rand_core 0.9.5",
+ "sha2",
+ "subtle",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

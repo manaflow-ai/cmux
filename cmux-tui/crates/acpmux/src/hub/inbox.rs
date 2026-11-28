@@ -89,7 +89,9 @@
 //! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
 //!   ([`Inbox::held_by_person`]; FYIs alone are not held so, they wait for the flush as they
 //!   would have in that turn), else [`WAKE_DEBOUNCE_MS`] after the oldest message that may
-//!   wake it came (a burst is one turn). What may not wake it waits for its next turn, never a
+//!   wake it came (a burst is one turn), or [`WARM_HOLD_MS`] when every waking message is a
+//!   result that may wait for company ([`holds_wake`]: a report or a task's result, not from its
+//!   parent or delegator), so one turn carries it and what else comes meanwhile. What may not wake it waits for its next turn, never a
 //!   flush of its own (a cold prompt cache rewritten to carry FYIs), except a coordinator's held
 //!   status, which goes [`FLUSH_MS`] after it came (`inbox_page_rule.rs`). A message that may wake it: a blocker (a block or a question,
 //!   `prompt_class.rs`), a report of work it gave (a lane's report, a task's result), or an
@@ -120,6 +122,8 @@
 //!
 //! Deadlines: no held message waits forever ([`Item::due`], `prompt_class::due_at`). A block or a
 //! question is due at once; a result (an action) within 15 minutes of coming; an FYI within 60.
+//! In a cold chat, a result the inbox reader rated background or noise may wait up to the FYI
+//! deadline unless it is a page, FIRE, a waited message or from the parent or delegator.
 //! The sender may tighten it (`acpmux send --within 5m`, `_meta.acpmux.within`, kept on the
 //! inbox record's provenance), never loosen it. When the oldest new message's deadline comes, an
 //! idle chat is woken (and a running turn that takes notices is steered) with ONE notice that
@@ -145,8 +149,11 @@
 use super::*;
 #[path = "inbox_admit.rs"]
 mod admit;
+pub(super) use admit::codex_unanswered;
 #[path = "inbox_deadline.rs"]
 pub(super) mod deadline;
+#[path = "inbox_point.rs"]
+pub(super) mod inbox_point;
 #[path = "inbox_page_rule.rs"]
 pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
@@ -172,6 +179,15 @@ const NOTICE_ID_PREFIX: &str = "inbox-notice-";
 pub const FIRST_WORK: &str = "firstWork";
 /// How long after the oldest waking message an idle chat is woken: a burst is one turn.
 pub const WAKE_DEBOUNCE_MS: u64 = 2_000;
+/// How long a warm idle chat holds a waking result it did not ask to steer by ([`holds_wake`]: a
+/// lane's report, a task's result, a land verdict), so whatever else comes meanwhile (another
+/// report, a background task's end, the person's prompt) goes in with it as ONE turn. Leo,
+/// 2026-11-26: "us not getting fucking swamped by our own fucking wake-ups, our own tool calls".
+/// One lane VM, 24 h: 1,459 `[inbox]` wake turns, 1,040 with no blocker, and 384 of those had
+/// another turn start within the next 5 minutes. It ends by the prompt cache's expiry
+/// (`cold_wake::cache_expires_at`), so the turn it starts still reads warm; a result's own
+/// deadline (15 minutes) is later still.
+pub const WARM_HOLD_MS: u64 = 5 * 60 * 1000;
 /// A notice the chat refused is tried again no sooner than this.
 pub const REFUSED_RETRY_MS: u64 = 30_000;
 /// How long a message that wakes no one waits in an idle chat, or FYIs alone wait for a running
@@ -1090,21 +1106,51 @@ fn earliest_due(new: &[&Item]) -> u64 {
 /// A session's held-message deadlines for its `ls` row: how many new messages are past their
 /// deadline, and the soonest one's (module docs, "Deadlines"). NOW reads `inboxOverdue` from
 /// `acpmux ls --live --fields` in one call and counts each such session red.
-pub(super) fn deadline_row(session: &Session) -> (usize, Option<u64>) {
-    deadline_counts(&session.inbox().items, now_ms())
+pub(super) fn deadline_row(session: &Session, meta: &SessionMeta) -> (usize, Option<u64>) {
+    let now = now_ms();
+    let lapsed = super::cold_wake::coldness(meta, now).is_some();
+    deadline_counts(&session.inbox().items, now, |i| quiet(&session.id, meta, lapsed, i))
 }
 
-fn deadline_counts(items: &[Item], now: u64) -> (usize, Option<u64>) {
+fn deadline_counts<'a>(
+    items: impl IntoIterator<Item = &'a Item>,
+    now: u64,
+    is_quiet: impl Fn(&Item) -> bool,
+) -> (usize, Option<u64>) {
     let mut overdue = 0;
     let mut due_at: Option<u64> = None;
-    for item in items.iter().filter(|i| !i.noticed && !folded(i)) {
-        let due = item.due();
+    for item in items.into_iter().filter(|i| !i.noticed && !folded(i)) {
+        let due = due_for(item, is_quiet(item));
         if due < now {
             overdue += 1;
         }
         due_at = Some(due_at.map_or(due, |d| d.min(due)));
     }
     (overdue, due_at)
+}
+
+/// Whether `item`, new in the inbox of chat `session_id` (`meta`), waits for the chat's next turn
+/// instead of waking it: the chat's prompt cache lapsed (`lapsed`, `cold_wake.rs` coldness), and
+/// the inbox reader rated it background or noise ([`reader::quiet`]). A blocker, a FIRE, a page
+/// or fold, a message from the chat's parent or delegator, and one that waited for this machine
+/// wake as their class says. Its deadline is then an FYI's ([`due_for`]).
+fn quiet(session_id: &str, meta: &SessionMeta, lapsed: bool, item: &Item) -> bool {
+    lapsed
+        && !item.fire
+        && !item.waited
+        && !item.class.urgent()
+        && item.verdict.is_none()
+        && !controls(meta, item.from_session.as_deref())
+        && reader::quiet(session_id, &item.prompt_id)
+}
+
+/// `item`'s deadline ([`Item::due`]), or an FYI's when it is [`quiet`] (`is_quiet`).
+fn due_for(item: &Item, is_quiet: bool) -> u64 {
+    if is_quiet {
+        crate::prompt_class::due_at(PromptClass::Fyi, item.at, item.within)
+    } else {
+        item.due()
+    }
 }
 
 fn folded(item: &Item) -> bool {
@@ -1136,6 +1182,20 @@ fn wakes_as(
         PromptClass::Fyi => waited,
         PromptClass::Result => meta.turn_count == 0 || report || waited || controls(meta, from),
     }
+}
+
+/// Whether `item`, which wakes the idle chat of `meta` ([`wakes`]), may wait [`WARM_HOLD_MS`]
+/// for company instead of the 2 s burst window: a result (a report of work the chat gave, a
+/// task's result) that is not the chat's first work, did not wait for this machine, and is not
+/// from the session that started the chat or gave it work (that is the next step, and goes at
+/// once). A block, a question, a fire notice and a coordinator's page wake as before.
+fn holds_wake(meta: &SessionMeta, item: &Item) -> bool {
+    item.class == PromptClass::Result
+        && !item.fire
+        && item.verdict.is_none()
+        && !item.waited
+        && meta.turn_count > 0
+        && !controls(meta, item.from_session.as_deref())
 }
 
 /// Whether `item` steers into a running turn at once, bringing every new message with it: a

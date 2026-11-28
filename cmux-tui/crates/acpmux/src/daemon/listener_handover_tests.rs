@@ -28,3 +28,22 @@ fn listeners_go_through_the_side_socket() {
     got.ws.unwrap().accept().unwrap();
     HANDED_TO.store(0, Ordering::SeqCst);
 }
+
+/// The daemon binds its socket at a staging name and renames it into place
+/// (`server::bind_unix`), and the kernel keeps the staging name: a handed listener bound that way
+/// still serves the socket. Comparing only the bound name refused every one, and the start that
+/// took over died binding again.
+#[tokio::test]
+async fn a_listener_bound_at_a_staging_name_serves_its_socket() {
+    let dir = cmux_unix_socket::short_test_dir("lhs");
+    let sock = dir.path().join("a.sock");
+    let listener = crate::server::bind_unix(&sock).await.unwrap();
+    let std_listener = listener.into_std().unwrap();
+    let bound = std_listener.local_addr().unwrap().as_pathname().map(Path::to_path_buf).unwrap();
+    assert_ne!(bound, sock, "bound at its staging name: {}", bound.display());
+    assert!(serves_path(&std_listener, &sock));
+    assert!(!serves_path(&std_listener, &dir.path().join("b").join("a.sock")));
+    assert!(!staged_for(Path::new("/x/.bzz/s"), Path::new("/x/a.sock")));
+    assert!(!staged_for(Path::new("/x/.b12/t"), Path::new("/x/a.sock")));
+    assert!(staged_for(Path::new("/x/.b1f2/s"), Path::new("/x/a.sock")));
+}

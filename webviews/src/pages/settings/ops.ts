@@ -424,6 +424,19 @@ export type AppUpdateState = {
   actions: { id: AppUpdateAction; title: string; prominent: boolean }[];
   /** Read-only lines under the status: Last Updated and Next Check, label and value the host's. */
   schedule?: { id: string; label: string; value: string }[];
+  /** "What's in this build" while an update waits: the PRs since the installed build, every skipped
+      nightly's included, by area (the host's BuildPullRequests, as the update popover reads it). A
+      group without an area is "Other", last; `title` and `other` are the host's words. Absent with none. */
+  prs?: {
+    title: string;
+    other: string;
+    groups: {
+      area?: string | null;
+      items: { pr: number; title: string; author?: string | null; url: string; build: string }[];
+    }[];
+    /** CI and tooling-only PRs, counted and not listed. */
+    internalCount: number;
+  } | null;
 };
 
 /**
@@ -715,7 +728,13 @@ export interface TeamAllotment {
   snoozed_until: number | null;
   changed_at: number;
   changed_by: string;
+  /** How long a person's machine stays ready after a reply before it may pause, in seconds. Absent:
+   * the deployment's own window. */
+  person_hold_seconds?: number;
 }
+
+/** The holds a team can choose for its people's machines, in seconds (the platform's choices). */
+export type PersonHoldSeconds = 300 | 900 | 1800;
 
 /** One member's Cloud use over this month and the last 14 days. `spare_micros` is warm-spare time,
  * the platform's cost, shown to the team as $0. */
@@ -759,6 +778,9 @@ export interface AllotmentView {
   decision: AllotmentDecision;
   hard_cap_micros: number | null;
   as_of: number;
+  /** Each member id's display name, as the platform's view carries it; a member missing here is
+   * shown by id. */
+  names?: Record<string, string>;
 }
 
 export type AllotmentPosition = AllotmentDecision["position"];
@@ -767,42 +789,96 @@ export type AllotmentPosition = AllotmentDecision["position"];
  * snoozes proposals 14 days. `auto` sets the mode. */
 /** No `action`: only the mode changes (the Auto switch); the commit and any snooze are kept, as the platform's
  * cloud.allotment.set does. `hold` snoozes proposals. */
-export type AllotmentSet = { action?: AllotmentPosition; auto?: boolean };
+/** `person_hold_seconds`: the team's hold for its people; null clears it. */
+export type AllotmentSet = {
+  action?: AllotmentPosition;
+  auto?: boolean;
+  person_hold_seconds?: PersonHoldSeconds | null;
+};
 
 /** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
 export type ModelConnectionKind =
   | "codex-login"
   | "claude-login"
+  | "native-login"
   | "subscription"
   | "chatgpt-plan"
   | "claude-token"
-  | "api-key";
+  | "grok-plan"
+  | "copilot-plan"
+  | "kimi-plan"
+  | "api-key"
+  | "endpoint";
 
 /** A model provider a connection pays (product names, shown as they are). */
-export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "xai";
+export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "vertex-express" | "xai";
 
 /** One of the person's connections (acpmux `_acpmux/connections`), in the order threads use them. */
 export type ModelConnection = {
-  /** The acpmux route id. */
+  /** The acpmux connection id. Endpoints use their provider field as their harness profile id. */
   id: string;
+  /** Identity of this saved route, even when its ID is reused later. */
+  credentialInstance?: string | null;
+  /** Revision of the saved API-key reference used for Cloud consent. */
+  keyRevision?: string | null;
   kind: ModelConnectionKind;
-  provider: ModelProvider;
+  provider: string;
   families: string[];
   label: string;
   /** Shown on this local page only. */
   email: string | null;
   plan: string | null;
   signedIn: boolean;
+  signInReason?: "keychain_other_build" | null;
   /** The routing switch: a disabled connection serves no thread. */
   enabled: boolean;
   defaultFor: string[];
   /** False: only this Mac's own chats can use it (a Mac login Cloud threads cannot reach). */
   servesCloud: boolean;
+  /** Eligible even when Cloud use has been turned off for this connection. */
+  canServeCloud?: boolean;
+  cloudFamilies?: string[];
+  launchHarness?: string | null;
+  /** True for a saved key that can be checked against its provider's standard endpoint. */
+  canCheckAccess?: boolean;
+  /** Unix seconds for a Claude token captured on this Mac. */
+  expiresAt?: number | null;
+  /** Non-secret editing fields for a locally owned endpoint profile. */
+  endpoint?: {
+    kind: "anthropic-endpoint" | "openai-endpoint";
+    preset?: string;
+    baseUrl: string;
+    models: string[];
+    revision: string;
+  } | null;
+  /** The host can replace this key without changing the connection's identity. */
+  canReplaceKey?: boolean;
+};
+
+export type ClaudeLogin = {
+  environment?: string | null;
+  phase: "idle" | "preparing" | "approving" | "code" | "cancelling" | "connected" | "disabled" | "failed";
+  error: string | null;
+  apiKey?: boolean;
+  signedIn?: boolean | null;
+  machineName?: string | null;
+  machine?: string | null;
+  recoverySession?: string | null;
+  completion?: string | null;
 };
 
 /** Settings > Models (`cmux.settings.models.state`): the person's connections, the organization's,
  * the members policy, and a ChatGPT sign-in in flight. */
 export type ModelsState = {
+  /** Older hosts omit the route tools. */
+  connectionTools?: boolean;
+  cloudHarnesses?: string[];
+  cloudSubscriptionHarnesses?: string[];
+  cloudEndpointRunnersPending?: boolean;
+  cloudRunnersOffline?: boolean;
+  cloudSubscriptionRunnersPending?: boolean;
+  claudeCodeAvailable?: boolean | null;
+  cloudClaudeApprovalBusy?: boolean;
   /** `available`: false when this Mac's daemon does not list connections. */
   personal: { connections: ModelConnection[]; spread: boolean; available: boolean };
   organization: {
@@ -815,6 +891,12 @@ export type ModelsState = {
   /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
    * failure code (`access_denied`, `no_chatgpt_account`, ...). */
   chatgpt: { attempt: string | null; error: string | null };
+  chatgptDevice?: ChatGPTDeviceState;
+  deviceProvider?: ModelDeviceProvider;
+  deviceRegion?: string | null;
+  deviceTarget?: string | null;
+  claudeLogin?: ClaudeLogin;
+  cloudClaudeLogin?: ClaudeLogin;
   /** Connect Claude's one-click run (`connectClaudeToken`): the app runs `claude setup-token` itself,
    * opens the sign-in page in cmux's browser and saves the token it prints, which the page never sees.
    * `attempt`: the run in flight; `phase`: where it is; `error`: the last run's failure, as the host
@@ -832,6 +914,14 @@ export type ClaudeTokenState = {
   saved?: boolean;
 };
 
+export type ModelDeviceProvider = "chatgpt" | "grok" | "copilot" | "kimi" | "openrouter";
+
+export type ChatGPTDeviceState =
+  | { phase: "idle" | "starting" | "cancelling" }
+  | { phase: "waiting"; userCode: string; verificationURL: string; expiresAt: number }
+  | { phase: "connected"; id: string }
+  | { phase: "failed"; error: string; actual?: string; expected?: string };
+
 /** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
  * the app moves it into the Keychain and passes acpmux or the team only a reference.
  * `connectClaudeToken` is Connect Claude's one click (`claudeToken`); `cancelClaudeToken` stops it.
@@ -841,17 +931,60 @@ export type ModelsRun =
   | { action: "order"; ids: string[] }
   | { action: "spread"; on: boolean }
   | { action: "enable"; id: string; on: boolean }
-  | { action: "remove"; id: string }
+  | { action: "rename"; id: string; instance: string | null; name: string }
+  | { action: "remove"; id: string; instance: string | null }
   | { action: "connectChatGPT"; id?: string }
   | { action: "cancelChatGPT" }
-  | { action: "connectClaude" }
+  | {
+      action: "connectChatGPTDevice";
+      provider?: ModelDeviceProvider;
+      id?: string;
+      openBrowser?: boolean;
+      region?: string;
+      servesCloud?: boolean;
+    }
+  | { action: "openChatGPTDevice" }
   | { action: "connectClaudeToken"; label?: string }
   | { action: "cancelClaudeToken" }
   | { action: "claudeSetupToken" }
-  | { action: "addClaudeToken"; token: string; label?: string }
-  | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
+  | { action: "addClaudeToken"; token: string; label?: string; replacement?: { id: string; instance: string } }
+  | { action: "closeKeyPage"; url: string }
+  | { action: "checkClaudeLogin"; cloud: boolean; machine?: string; environment?: string; machineName?: string }
+  | { action: "cancelClaudeLogin"; cloud: boolean; machine?: string; recoverySession?: string }
+  | { action: "signOutClaude"; cloud: boolean; machine?: string }
+  | {
+      action: "connectClaude";
+      recoverySession?: string;
+      cloud?: boolean;
+      replace?: string;
+      machine?: string;
+      environment?: string;
+      machineName?: string;
+    }
+  | { action: "finishClaudeLogin"; cloud: boolean; code: string; machine?: string; recoverySession?: string }
+  | { action: "cancelChatGPTDevice" }
+  | { action: "setCloud"; id: string; instance: string; keyRevision: string; on: boolean }
+  | {
+      action: "addKey";
+      provider: ModelProvider;
+      key: string;
+      label?: string;
+      verifyAccess?: boolean;
+      servesCloud?: boolean;
+      replace?: string;
+      replaceInstance?: string;
+    }
   | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
-  | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean };
+  | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean }
+  | ModelsAccessRun;
+
+export type ModelsAccessRun = { action: "checkAccess" } & (
+  | { id: string }
+  | { provider: ModelProvider; key: string }
+  | { baseUrl: string; key?: string }
+);
+
+export type ModelsAccessResult = { models: string[] } | { failure: string };
 
 export type AccountsState = {
   github?: GitHubConnectionState;
@@ -968,7 +1101,7 @@ export type AgentsRun =
       protocol?: "acp" | "terminal";
       envKeys?: string[];
     }
-  | { action: "remove"; id: string }
+  | { action: "remove"; id: string; endpointRevision?: string }
   | { action: "restore"; backup?: string }
   | { action: "doctor"; id: string; noPrompt?: boolean }
   /** A user profile's icon: a typed value, an image's base64 bytes, or Automatic (`clear`). */
@@ -999,7 +1132,7 @@ export type HarnessRow = {
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
   ownerUpdate?: boolean;
-  /** acpmux runs its update on its own when a check finds it outdated (off by default). */
+  /** acpmux runs its update on its own when a check finds it outdated (on unless turned off). */
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
   lastAutoUpdate?: { ok: boolean; detail: string } | null;
@@ -1133,6 +1266,8 @@ export type CloudEnvironmentRow = {
 export type CloudEnvironmentsState = {
   /** False on the classic Cloud path or while signed out: the card explains instead of listing. */
   available: boolean;
+  /** The server does not serve environments. Older hosts omit this field. */
+  unsupported?: boolean;
   loading: boolean;
   environments: CloudEnvironmentRow[];
   error: string | null;
@@ -2485,6 +2620,9 @@ export type IntegrationsRun = { action: "refresh" } | { action: "install" | "rep
 
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
+/** A write of the durable settings history: also the daemon's revision of the change it recorded
+ * (`history_revision`, what settings.restore takes), beside the host's own load revision. */
+export type HistoryMutationResult = MutationResult & { history_revision?: string };
 
 type Mutation<P> = P & { idempotency_key: string; if_revision?: string };
 
@@ -2580,6 +2718,17 @@ export type SettingsOps = {
   "cmux.settings.set": [Mutation<{ key: string; value: unknown }>, MutationResult];
   "cmux.settings.reset": [Mutation<{ key: string }>, MutationResult];
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
+  /** The daemon's durable settings history (settings-history-v1), newest first, which the host
+   * forwards (durableHistory.ts); absent from older hosts. */
+  "cmux.settings.history": [Record<string, never>, { entries: unknown[] }];
+  /** settings.undo as the person: takes back the newest change of any writer. */
+  "cmux.settings.undo": [Mutation<object>, HistoryMutationResult];
+  /** settings.restore as the person: the file just before the change that produced `revision`. */
+  "cmux.settings.restore": [Mutation<{ revision: string }>, HistoryMutationResult];
+  /** settings.reset_group as the person: a section or `section.group` back to its defaults. */
+  "cmux.settings.reset_group": [Mutation<{ group: string }>, HistoryMutationResult];
+  /** One settings.edit of resets (a card that is not one schema group): one history entry. */
+  "cmux.settings.reset_keys": [Mutation<{ keys: string[] }>, HistoryMutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
   /** Native: every release channel's recent builds, read on demand (Settings > Updates). */
@@ -2637,7 +2786,7 @@ export type SettingsOps = {
   /** Native: Settings > Models, the person's and the organization's connections (model-connections.md). */
   "cmux.settings.models.state": [Record<string, never>, ModelsState];
   /** Native: one Settings > Models gesture; a refusal rejects with the host's text. */
-  "cmux.settings.models.run": [ModelsRun, unknown];
+  "cmux.settings.models.run": [ModelsRun, Partial<{ models: string[]; failure: string; verificationFailed: boolean }>];
   /** Native: acpmux's harnesses (Settings > Agents). */
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
