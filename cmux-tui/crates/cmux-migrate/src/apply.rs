@@ -4,8 +4,8 @@
 //! nothing twice. Pure over those two traits: tests drive it with fakes.
 //!
 //! What crosses: the repo is cloned on the machine (never copied); local work a clone misses goes
-//! as two text patches (`git format-patch` of unpushed commits, `git diff --binary` of the working
-//! tree and untracked files) applied on the machine; agent chat histories go as their JSONL files,
+//! as one `git bundle` ([`LocalWork`]: local branches and tags past the remote, the uncommitted
+//! work as one commit) fetched there, the whole history when the source had no remote; agent chat histories go as their JSONL files,
 //! renamed into the folder the agent looks in for the machine's checkout; machine-wide carry (shell,
 //! git and editor settings, agent settings) goes as text files under the machine user's home.
 //! Secret values never go through here: `deliver-secrets` sends them from the Keychain over the
@@ -61,27 +61,38 @@ pub trait Cloud {
     }
 }
 
-/// Local work a clone would miss, as text.
+/// Local work a clone would miss, carried as one `git bundle` (the way `cloud move` carries a
+/// chat's folder): every local branch and tag past what the remote has, with the commits exactly
+/// as made (ids, merges, authors kept), and the uncommitted work (untracked files included) as one
+/// more commit on HEAD that the machine unpacks back into its working tree, uncommitted again.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct WorkPatch {
-    /// `git format-patch --stdout` of the commits the remote lacks; empty when none.
-    pub commits: String,
-    /// `git diff --binary` of the working tree, untracked files included; empty when clean.
-    pub work: String,
-    /// The commit both patches sit on: the merge base of HEAD and its upstream (else the remote's
-    /// default branch). The machine checks it out before applying, since its clone lands on the
-    /// remote's default branch. `None` when the checkout has no remote to share a commit with.
+pub struct LocalWork {
+    /// The bundle in base64; empty when the clone lacks nothing.
+    pub bundle: String,
+    /// HEAD's commit on the source; `None` before the first commit.
+    pub head: Option<String>,
+    /// A commit on `head` whose tree is the working tree; `None` when it is clean.
+    pub work: Option<String>,
+    /// The merge base of HEAD and its upstream (else the remote's default branch); `None` when the
+    /// checkout has no remote to share a commit with (the bundle then holds its whole history).
     pub base: Option<String>,
-    /// The source's branch, made on the machine at `base`; `None` when HEAD is detached.
+    /// The source's branch, made on the machine at `head`; `None` when HEAD is detached.
     pub branch: Option<String>,
+    /// Commits on local branches, tags and HEAD that no remote branch has.
+    pub commits: u32,
+    /// Files the working tree changes, adds or deletes against HEAD.
+    pub files: u32,
 }
+
+/// A bundle larger than this is not carried: the step fails and says to push.
+pub const MAX_BUNDLE_BYTES: usize = 256 * 1024 * 1024;
 
 /// Where a project's local work is read from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatchRoute {
     /// The checkout is a folder of this computer.
     Local,
-    /// The checkout is on the source: [`WORK_PATCH_SCRIPT`] runs there as `program args` with the
+    /// The checkout is on the source: [`WORK_SCRIPT`] runs there as `program args` with the
     /// script on stdin (`ssh HOST sh -s`, `gh codespace ssh -c NAME -- sh -s`).
     Remote { program: String, args: Vec<String> },
     /// No route reads it yet: the step is skipped with this note.
@@ -121,63 +132,112 @@ pub fn patch_route(source: &Source, project: &str) -> PatchRoute {
     }
 }
 
-/// Run on the source with `cd CHECKOUT` before it ([`remote_patch_script`]): prints the branch,
-/// the base commit, the unpushed commits and the working tree (untracked files included, through
-/// a throwaway index so the real one is never touched), each after a marker line.
-pub const WORK_PATCH_SCRIPT: &str = r#"up=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || up=
-[ -n "$up" ] || up=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null) || up=
-branch=$(git symbolic-ref --short -q HEAD) || branch=
+/// Run on the source with `cd CHECKOUT` before it ([`work_script`]): prints the branch, HEAD, the
+/// base commit, the uncommitted-work commit and the counts, each after a marker line, then the
+/// bundle in base64. The person's index, refs and branches are never touched: the working tree is
+/// read through a throwaway index, and the bundle is cut from a scratch repository that borrows
+/// the checkout's objects (`objects/info/alternates`). The one write is the work commit's objects,
+/// unreachable, which `git gc` prunes like a dropped stash.
+pub const WORK_SCRIPT: &str = r#"g() { git -c core.fsmonitor=false -c core.quotepath=off "$@"; }
+top=$(g rev-parse --show-toplevel) || exit 3
+cd "$top" || exit 3
+up=$(g rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || up=
+[ -n "$up" ] || up=$(g rev-parse --abbrev-ref origin/HEAD 2>/dev/null) || up=
+branch=$(g symbolic-ref --short -q HEAD) || branch=
+head=$(g rev-parse -q --verify 'HEAD^{commit}') || head=
 base=
-[ -n "$up" ] && { base=$(git merge-base "$up" HEAD 2>/dev/null) || base=; }
+[ -n "$up" ] && [ -n "$head" ] && { base=$(g merge-base "$up" HEAD 2>/dev/null) || base=; }
+s=$(mktemp -d) || exit 4
+trap 'rm -rf "$s"' EXIT
+cp "$(g rev-parse --git-path index)" "$s/index" 2>/dev/null
+GIT_INDEX_FILE=$s/index g add -A >/dev/null 2>&1
+tree=$(GIT_INDEX_FILE=$s/index g write-tree) || exit 5
+if [ -n "$head" ]; then
+  files=$(GIT_INDEX_FILE=$s/index g diff --cached --name-only --no-renames HEAD | wc -l)
+else
+  files=$(GIT_INDEX_FILE=$s/index g ls-files | wc -l)
+fi
+files=$((files + 0))
+work=
+if [ "$files" -gt 0 ]; then
+  if [ -n "$head" ]; then
+    work=$(g -c user.name=cmux -c user.email=cmux@localhost commit-tree "$tree" -p "$head" -m "cmux migrate: uncommitted work") || exit 5
+  else
+    work=$(g -c user.name=cmux -c user.email=cmux@localhost commit-tree "$tree" -m "cmux migrate: uncommitted work") || exit 5
+  fi
+fi
+commits=0
+[ -n "$head" ] && commits=$(g rev-list --count HEAD --branches --tags --not --remotes 2>/dev/null)
+commits=$((commits + 0))
 echo "@@cmux-migrate:branch@@ $branch"
+echo "@@cmux-migrate:head@@ $head"
 echo "@@cmux-migrate:base@@ $base"
-echo "@@cmux-migrate:commits@@"
-[ -n "$base" ] && git format-patch --stdout --binary "$base..HEAD"
-echo "@@cmux-migrate:work@@"
-tmp=$(mktemp) || exit 4
-trap 'rm -f "$tmp"' EXIT
-cp "$(git rev-parse --git-path index)" "$tmp" 2>/dev/null
-GIT_INDEX_FILE=$tmp git add -A . >/dev/null 2>&1
-GIT_INDEX_FILE=$tmp git -c core.quotepath=off diff --cached --binary HEAD
+echo "@@cmux-migrate:work@@ $work"
+echo "@@cmux-migrate:counts@@ $commits $files"
+echo "@@cmux-migrate:bundle@@"
+if [ "$commits" -gt 0 ] || [ -n "$work" ]; then
+  common=$(cd "$(g rev-parse --git-common-dir)" && pwd) || exit 6
+  git init -q --bare "$s/g.git" || exit 6
+  echo "$common/objects" > "$s/g.git/objects/info/alternates"
+  g for-each-ref --format='create %(refname) %(objectname)' refs/heads refs/tags > "$s/refs"
+  [ -n "$head" ] && echo "create refs/cmux-migrate/head $head" >> "$s/refs"
+  [ -n "$work" ] && echo "create refs/cmux-migrate/work $work" >> "$s/refs"
+  git --git-dir="$s/g.git" update-ref --stdin < "$s/refs" || exit 6
+  g for-each-ref --format='^%(objectname)' refs/remotes > "$s/not"
+  git --git-dir="$s/g.git" bundle create "$s/b" --all --stdin < "$s/not" 2>"$s/err" || { cat "$s/err" >&2; exit 7; }
+  base64 < "$s/b" | tr -d '\n'
+fi
+echo
+echo "@@cmux-migrate:end@@"
 "#;
 
-/// The script a [`PatchRoute::Remote`] sends: into `checkout`, then [`WORK_PATCH_SCRIPT`].
-pub fn remote_patch_script(checkout: &str) -> String {
+/// The script a source runs: into `checkout`, then [`WORK_SCRIPT`].
+pub fn work_script(checkout: &str) -> String {
     let dir = match checkout.strip_prefix("~/") {
         Some(rest) => format!("\"$HOME\"/{}", shq(rest)),
         None => shq(checkout),
     };
-    format!("cd {dir} || exit 3\n{WORK_PATCH_SCRIPT}")
+    format!("cd {dir} || exit 3\n{WORK_SCRIPT}")
 }
 
-/// [`WORK_PATCH_SCRIPT`]'s output as a patch.
-pub fn parse_remote_patch(out: &str) -> Result<WorkPatch, String> {
-    let mut patch = WorkPatch::default();
-    let mut section = None;
-    let mut seen_work = false;
-    for line in out.split_inclusive('\n') {
-        let bare = line.trim_end_matches('\n');
-        if let Some(rest) = bare.strip_prefix("@@cmux-migrate:branch@@") {
-            patch.branch = Some(rest.trim().to_owned()).filter(|b| !b.is_empty());
-        } else if let Some(rest) = bare.strip_prefix("@@cmux-migrate:base@@") {
-            patch.base = Some(rest.trim().to_owned()).filter(|b| !b.is_empty());
-        } else if bare == "@@cmux-migrate:commits@@" && section.is_none() {
-            section = Some(false);
-        } else if bare == "@@cmux-migrate:work@@" && section == Some(false) {
-            section = Some(true);
-            seen_work = true;
-        } else {
-            match section {
-                Some(false) => patch.commits.push_str(line),
-                Some(true) => patch.work.push_str(line),
-                None => {}
-            }
+/// [`WORK_SCRIPT`]'s output.
+pub fn parse_work(out: &str) -> Result<LocalWork, String> {
+    let mut work = LocalWork::default();
+    let (mut in_bundle, mut ended) = (false, false);
+    let some = |rest: &str| Some(rest.trim().to_owned()).filter(|v| !v.is_empty());
+    for line in out.lines() {
+        if line == "@@cmux-migrate:end@@" {
+            ended = true;
+            break;
+        } else if in_bundle {
+            work.bundle.push_str(line.trim());
+        } else if line == "@@cmux-migrate:bundle@@" {
+            in_bundle = true;
+        } else if let Some(rest) = line.strip_prefix("@@cmux-migrate:branch@@") {
+            work.branch = some(rest);
+        } else if let Some(rest) = line.strip_prefix("@@cmux-migrate:head@@") {
+            work.head = some(rest);
+        } else if let Some(rest) = line.strip_prefix("@@cmux-migrate:base@@") {
+            work.base = some(rest);
+        } else if let Some(rest) = line.strip_prefix("@@cmux-migrate:work@@") {
+            work.work = some(rest);
+        } else if let Some(rest) = line.strip_prefix("@@cmux-migrate:counts@@") {
+            let mut n = rest.split_whitespace().map(|n| n.parse().unwrap_or(0));
+            work.commits = n.next().unwrap_or(0);
+            work.files = n.next().unwrap_or(0);
         }
     }
-    if !seen_work {
+    if !ended {
         return Err("the source's checkout could not be read (is it a git checkout?)".into());
     }
-    Ok(patch)
+    // Base64 is 4 characters per 3 bytes.
+    if work.bundle.len() / 4 * 3 > MAX_BUNDLE_BYTES {
+        return Err(format!(
+            "the local work is over {} MiB as a git bundle: push it and the clone has it",
+            MAX_BUNDLE_BYTES >> 20
+        ));
+    }
+    Ok(work)
 }
 
 /// This computer's side. Paths are as the plan writes them (`~/…` or absolute).
@@ -193,7 +253,7 @@ pub trait Local {
         source: &Source,
         project: &str,
         checkout: &str,
-    ) -> Result<WorkPatch, String>;
+    ) -> Result<LocalWork, String>;
     /// Milliseconds since the epoch.
     fn now_ms(&self) -> i64;
 }
@@ -538,79 +598,83 @@ pub fn apply_saving(
     outcome
 }
 
-/// Carries `patch` into `checkout` in three sub-steps, each recorded in `done` as
+/// Carries `work` into `checkout` in up to three sub-steps, each recorded in `done` as
 /// `carry-worktree:NAME` once it worked, so a rerun after a failure goes on from the one that
-/// failed and never applies a patch twice: `base` (check out the commit the patches sit on, on the
-/// source's branch name), `commits` (`git am`, after aborting any half-done one), `work`
-/// (`git apply`, which applies all or nothing).
+/// failed and never unpacks twice: `bundle` (the bundle written to the machine and fetched into
+/// the checkout, a fresh repository when the source had no remote), `head` (the source's branch
+/// checked out at its HEAD), `work` (the uncommitted work read into the working tree and left
+/// uncommitted). The work commit stays at `refs/cmux-migrate/work` on the machine.
 fn carry_worktree(
     cloud: &mut dyn Cloud,
     done: &mut Vec<String>,
     machine: &str,
-    patch: &WorkPatch,
+    work: &LocalWork,
     checkout: &str,
 ) -> Result<String, String> {
-    if patch.commits.is_empty() && patch.work.is_empty() {
+    if work.bundle.is_empty() {
         return Ok("nothing the clone lacks".into());
     }
     let sub = |part: &str| format!("carry-worktree:{part}");
     let has = |done: &[String], part: &str| done.iter().any(|d| *d == sub(part));
     let dir = format!("{MACHINE_HOME}/.cmux/migrate");
     let cd = format!("cd {}", shq(checkout));
-    let mut said = Vec::new();
-    if let Some(base) = &patch.base
-        && !has(done, "base")
+    if !has(done, "bundle") {
+        let (text, file) = (format!("{dir}/worktree.bundle.b64"), format!("{dir}/worktree.bundle"));
+        cloud.write_file(machine, &text, &work.bundle)?;
+        // Detached first, so the fetch may move the branch the clone checked out. A bundle whose
+        // prerequisites the clone lacks (a shallow or single-branch clone) gets origin's history.
+        cloud.exec(
+            machine,
+            &format!(
+                "mkdir -p {q} && {cd} && {{ git rev-parse --git-dir >/dev/null 2>&1 || git init -q; }} \
+                 && base64 -d < {t} > {f} \
+                 && {{ git checkout -q --detach 2>/dev/null; true; }} \
+                 && {{ git bundle verify -q {f} >/dev/null 2>&1 || {{ git fetch -q --unshallow origin 2>/dev/null || git fetch -q origin; }}; }} \
+                 && git fetch -q {f} '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*' '+refs/cmux-migrate/*:refs/cmux-migrate/*' \
+                 && rm -f {t} {f}",
+                q = shq(checkout),
+                t = shq(&text),
+                f = shq(&file),
+            ),
+        )?;
+        done.push(sub("bundle"));
+    }
+    if let Some(head) = &work.head
+        && !has(done, "head")
     {
-        let switch = match &patch.branch {
-            Some(branch) => format!("git checkout --quiet -B {} {}", shq(branch), shq(base)),
-            None => format!("git checkout --quiet --detach {}", shq(base)),
+        let switch = match &work.branch {
+            Some(branch) => format!("git checkout -q -B {} {}", shq(branch), shq(head)),
+            None => format!("git checkout -q --detach {}", shq(head)),
         };
         cloud.exec(
             machine,
             &format!(
-                "{cd} && {{ git cat-file -e {c} 2>/dev/null || git fetch --quiet origin {b}; }} && {switch}",
-                c = shq(&format!("{base}^{{commit}}")),
-                b = shq(base),
+                "{cd} && {{ git cat-file -e {c} 2>/dev/null || git fetch -q origin {h}; }} && {switch}",
+                c = shq(&format!("{head}^{{commit}}")),
+                h = shq(head),
             ),
         )?;
-        done.push(sub("base"));
+        done.push(sub("head"));
     }
-    if !patch.commits.is_empty() {
-        if !has(done, "commits") {
-            let file = format!("{dir}/commits.patch");
-            cloud.write_file(machine, &file, &patch.commits)?;
-            cloud.exec(
-                machine,
-                &format!(
-                    "{cd} && {{ git am --abort >/dev/null 2>&1; git -c user.name=cmux -c user.email=cmux@localhost am --3way --keep-cr {} >/dev/null; }}",
-                    shq(&file)
-                ),
-            )?;
-            done.push(sub("commits"));
-        }
-        said.push(format!("{} commit(s)", patch.commits.matches("\nSubject: ").count().max(1)));
+    if let Some(commit) = &work.work
+        && !has(done, "work")
+    {
+        // Two-tree read-tree moves the files to the work commit's tree; the reset (or the emptied
+        // index before a first commit) makes them uncommitted again, new files untracked.
+        let unpack = match &work.head {
+            Some(_) => format!("git read-tree -u -m HEAD {c} && git reset -q", c = shq(commit)),
+            None => {
+                format!("git read-tree -u --reset {c} && git read-tree --empty", c = shq(commit))
+            }
+        };
+        cloud.exec(machine, &format!("{cd} && {unpack}"))?;
+        done.push(sub("work"));
     }
-    if !patch.work.is_empty() {
-        if !has(done, "work") {
-            let file = format!("{dir}/work.patch");
-            cloud.write_file(machine, &file, &patch.work)?;
-            cloud.exec(
-                machine,
-                &format!("{cd} && git apply --binary --whitespace=nowarn {}", shq(&file)),
-            )?;
-            done.push(sub("work"));
-        }
-        said.push(format!(
-            "{} changed file(s)",
-            patch
-                .work
-                .matches("\ndiff --git ")
-                .count()
-                .saturating_add(usize::from(patch.work.starts_with("diff --git ")))
-        ));
-    }
-    let on = patch.branch.as_deref().map(|b| format!(" on {b}")).unwrap_or_default();
-    Ok(format!("{} in {checkout}{on}", said.join(" and ")))
+    let on = work.branch.as_deref().map(|b| format!(" on {b}")).unwrap_or_default();
+    Ok(format!(
+        "{} commit(s) and {} changed file(s) in {checkout}{on}, as a git bundle",
+        work.commits, work.files
+    ))
 }
 
 fn move_chats(
@@ -730,3 +794,7 @@ pub fn undo(
 #[cfg(test)]
 #[path = "apply_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "apply_carry_tests.rs"]
+mod carry_tests;

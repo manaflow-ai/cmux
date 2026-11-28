@@ -85,6 +85,41 @@ import Testing
         #expect(services.cache.lastFrames.picture(tab) == nil, "an empty prompt was pictured (Leo 2026-10-13)")
     }
 
+    /// goals/infinite-tabs-flat.md: a hibernated workspace's terminal kept its full-resolution frame in app memory (up
+    /// to 128 of them, 24 MB each at 2x). It sleeps on disk now, a `DormantRecord` in memory, and its pane shows that
+    /// frame again when it wakes, until the replay paints; its card keeps its picture meanwhile.
+    @Test func aHibernatedTerminalsFrameSleepsOnDiskAndShowsWhenItWakes() async throws {
+        let (services, tab, session, done) = try await Self.terminal(output: "npm run dev\r\n  ready on http://localhost:3000\r\n")
+        defer { done() }
+        let removed = services.cache.terminals.removeValue(forKey: tab)
+        let entry = try #require(removed)
+        services.cache.lastFrames.evict(session, key: tab, capacity: 8, atOnce: false)
+        await services.cache.lastFrames.pictureSettled(tab)
+        entry.close()
+        try #require(services.cache.lastFrames[tab] != nil, "setup: the eviction kept no frame")
+
+        services.cache.lastFrames.stow(tab)
+        #expect(services.cache.lastFrames[tab] == nil, "the sleeping frame stayed in the warm store")
+        await services.cache.lastFrames.sleepSettled()
+        let sleeping = services.cache.lastFrames.sleeping
+        #expect(sleeping.encoding == 0 && sleeping.stored == 1, "the frame was not stored: \(sleeping)")
+        #expect(sleeping.bytes > 0, "no file was written")
+        #expect(services.cache.lastFrames.picture(tab) != nil, "the card lost its picture")
+
+        // It wakes on a new session with no content yet: the frame from disk shows over it.
+        let woken = TerminalSession(io: ScriptedTerminalIO())
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 240))
+        woken.view.frame = NSRect(x: 0, y: 0, width: 480, height: 240)
+        window.contentView?.addSubview(woken.view)
+        services.cache.lastFrames.show(tab, on: woken)
+        #expect(woken.showsHeldFrame, "the woken pane showed no frame")
+        #expect(services.cache.lastFrames.outcomes["shown_from_disk"] == 1)
+        #expect(services.cache.lastFrames.sleeping.stored == 0, "the woken terminal's record stayed")
+    }
+
     /// A cache terminal in a window, drawn showing `output`.
     private static func terminal(output: String) async throws -> (AppServices, String, TerminalSession, () -> Void) {
         _ = NSApplication.shared

@@ -58,8 +58,6 @@ export function received(id: string, at: number, message: Sent): AcpmuxRow {
   return { id, version: 1, at, kind: "user", text, incoming, resend: raw, untyped: true } as AcpmuxRow;
 }
 
-export const INCOMING_MESSAGES = [STATUS, REPORT] as const;
-
 export function incomingRows(at: number): AcpmuxRow[] {
   return [
     {

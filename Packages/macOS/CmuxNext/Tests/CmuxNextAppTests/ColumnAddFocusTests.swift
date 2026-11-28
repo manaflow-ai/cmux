@@ -64,7 +64,7 @@ struct ColumnAddFocusTests {
     /// Focus Column Right then Left: each scroll aligns the nearest edge, the least that shows the
     /// focused column whole; a column already whole does not scroll.
     @Test func focusingAColumnScrollsTheLeastThatShowsItWhole() {
-        var state = ColumnScrollState()
+        let state = ColumnScrollState()
         let strip = Self.strip()
         state.reduce(.sync(strip, focused: "p0", source: .keyboard, animated: false))
         #expect(state.spring.target == 0)

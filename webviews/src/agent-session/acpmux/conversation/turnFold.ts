@@ -116,6 +116,42 @@ function startTop(fold: TurnFold, id: string): number | undefined {
   return index === undefined ? undefined : topAt(fold.startRows, index) - topAt(fold.startRows, fold.startAt);
 }
 
+/// The fold copies each thread holds, recorded where a fold puts one in (`placeCopy`), so the
+/// transcript's sweep reads only them and never walks the thread's rows.
+const placedCopies = new WeakMap<HTMLElement, Set<HTMLElement>>();
+
+/// Puts a fold's `copy` in `thread` before `before`, and records it for `sweepFoldCopies`. Every fold
+/// puts its copies in through here.
+export function placeCopy(thread: HTMLElement, copy: HTMLElement, before: Node | null): void {
+  thread.insertBefore(copy, before);
+  let copies = placedCopies.get(thread);
+  if (!copies) placedCopies.set(thread, (copies = new Set()));
+  copies.add(copy);
+}
+
+/// Takes out of `thread` every fold copy (`placeCopy`) that no playing fold owns, and answers how many
+/// it took. A copy lives only while its fold plays: the fold that made it takes it out when it ends
+/// (`settleTurnEnd`, `settleTurnFold`). One left behind drew a turn's folded messages at full ink over
+/// the rows the reader scrolled to, until the page reloaded (CMUX-896). `owned`: whether a playing
+/// fold holds the copy. O(1) when the thread holds no copy, else O(copies put in since the last sweep).
+export function sweepFoldCopies(thread: HTMLElement | null, owned: (copy: HTMLElement) => boolean): number {
+  const copies = thread ? placedCopies.get(thread) : undefined;
+  if (!thread || !copies || copies.size === 0) return 0;
+  let taken = 0;
+  for (const copy of copies) {
+    // Taken out already (its fold ended): forgotten. Put in again, it is recorded again.
+    if (copy.parentElement !== thread) {
+      copies.delete(copy);
+      continue;
+    }
+    if (owned(copy)) continue;
+    copy.remove();
+    copies.delete(copy);
+    taken += 1;
+  }
+  return taken;
+}
+
 /// A copy of `row` that can sit in the thread for a moment: no ids, nothing focusable or found.
 /// How many px of `node`'s bottom its clip-path hides now (tailGlide.ts clips the row above a row
 /// gliding down under it), or 0. One style read, only while something plays on the row.
@@ -410,7 +446,7 @@ export function playTurnFold(
     }
     if (Object.keys(first).length === 0 && !exits) continue;
     const ghost = ghostOf(node);
-    thread.insertBefore(ghost, below);
+    placeCopy(thread, ghost, below);
     ghosts.add(ghost);
     fold.copies.set(row.id, ghost);
     const drop = () => {

@@ -30,6 +30,7 @@ import {
 } from "./scriptedTurn";
 import type { TailGlideLook } from "./tailGlide";
 import { turnView } from "./turns";
+import { useStreamAppendDeclaration } from "../devMotionAudit";
 import { MOTION_MS, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 
 const expanded = new Set<string>();
@@ -60,6 +61,10 @@ function TurnTransitionsGallery({ turn, look, swap }: { turn: GalleryTurn; look:
   }));
   const [dock, setDock] = useState<HTMLElement | null>(null);
   const [state, setState] = useState<"ready" | "playing" | "settled">("ready");
+  // The pane declares its transcript's growth while a turn works (App.tsx `useStreamAppendDeclaration`,
+  // contract `stream-append`); this stage plays the same VirtualTranscript, so it declares the same flag.
+  // Without it each row the live turn pushed down read as an undeclared move (TurnEndFold.gallery.tsx, #57247).
+  useStreamAppendDeclaration(view.working);
   const play = () => {
     if (state === "playing") return;
     setState("playing");

@@ -87,6 +87,22 @@
         ],
         "why": "traced: the fast-gates tests read scripts/ci, the workflows, the CI notes, the sidebar-owner plan, the parity notes, webviews' tsconfig and package.json, and `git ls-files -- webviews` filtered to *.test.*/*.spec.*; every git history read is in fixture repos",
         "traced": true
+      },
+      "tt-cli-path-folder-access": {
+        "inputs": [
+          "scripts/cmux-next/tests/cli-path-folder-access.test.sh",
+          "Resources/cmux-cli-path/zsh/**",
+          "scripts/ci/apt-ensure.sh"
+        ],
+        "why": "the run text installs zsh first, so the walker reads no test from it; the test runs the app's zsh layer"
+      },
+      "tt-swift-cloud-http": {
+        "inputs": [
+          "scripts/cmux-next/swift-cloud-http.py",
+          "scripts/cmux-next/swift-cloud-http-allow.txt",
+          "Packages/macOS/CmuxNext/Sources/**"
+        ],
+        "why": "its run text names a checker, not a test, so the walker resolves no test for it; swift-cloud-http.py --check reads every Swift file under Packages/macOS/CmuxNext/Sources and its allow list, nothing else"
       }
     }
   }

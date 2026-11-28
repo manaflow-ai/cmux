@@ -3,7 +3,7 @@
 
 extension AgentBrandID {
     /// Every brand with a mark, in manifest order.
-    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .github, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .meta, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio, .vercel, .prime]
+    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .github, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .meta, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio, .zai, .minimax, .morph, .groq, .together, .fireworks, .cerebras, .baseten, .nvidia, .huggingface, .vercel, .prime, .cloudflare, .bedrock, .azure]
     public static let claude = AgentBrandID(rawValue: "claude")
     public static let anthropic = AgentBrandID(rawValue: "anthropic")
     public static let openai = AgentBrandID(rawValue: "openai")
@@ -33,8 +33,21 @@ extension AgentBrandID {
     public static let ollama = AgentBrandID(rawValue: "ollama")
     public static let openrouter = AgentBrandID(rawValue: "openrouter")
     public static let lmstudio = AgentBrandID(rawValue: "lmstudio")
+    public static let zai = AgentBrandID(rawValue: "zai")
+    public static let minimax = AgentBrandID(rawValue: "minimax")
+    public static let morph = AgentBrandID(rawValue: "morph")
+    public static let groq = AgentBrandID(rawValue: "groq")
+    public static let together = AgentBrandID(rawValue: "together")
+    public static let fireworks = AgentBrandID(rawValue: "fireworks")
+    public static let cerebras = AgentBrandID(rawValue: "cerebras")
+    public static let baseten = AgentBrandID(rawValue: "baseten")
+    public static let nvidia = AgentBrandID(rawValue: "nvidia")
+    public static let huggingface = AgentBrandID(rawValue: "huggingface")
     public static let vercel = AgentBrandID(rawValue: "vercel")
     public static let prime = AgentBrandID(rawValue: "prime")
+    public static let cloudflare = AgentBrandID(rawValue: "cloudflare")
+    public static let bedrock = AgentBrandID(rawValue: "bedrock")
+    public static let azure = AgentBrandID(rawValue: "azure")
 }
 
 extension AgentBrandCatalog {
@@ -403,6 +416,129 @@ extension AgentBrandCatalog {
             tile: nil,
             overlays: []
         ),
+        .zai: AgentBrandSpec(
+            name: "Z.ai",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 24, height: 24),
+            tone: AgentBrandTone(dark: 0xFFFFFF, light: 0x2D2D2D),
+            paths: [
+                AgentBrandPathSpec(d: "M12.6 1.8L10.93 4.2C10.67 4.57 10.23 4.8 9.77 4.8L0.6 4.8L0.6 1.8ZM24 1.8L9.6 22.2L0 22.2L14.4 1.8ZM11.4 22.2L13.08 19.8C13.34 19.43 13.78 19.2 14.24 19.2L23.39 19.2L23.39 22.2Z"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .minimax: AgentBrandSpec(
+            name: "MiniMax",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 24, height: 24),
+            tone: AgentBrandTone(dark: 0xE73562, light: 0xE73562),
+            paths: [
+                AgentBrandPathSpec(d: "M11.43 3.92C11.43 3.445 11.045 3.06 10.57 3.06C10.095 3.06 9.71 3.445 9.71 3.92L9.71 18.16C9.71 19.265 8.815 20.16 7.71 20.16C6.605 20.16 5.71 19.265 5.71 18.16L5.71 9.02C5.745 8.692 5.591 8.373 5.311 8.199C5.032 8.024 4.678 8.024 4.399 8.199C4.119 8.373 3.965 8.692 4 9.02L4 12.89C4 13.995 3.105 14.89 2 14.89C0.895 14.89 0 13.995 0 12.89L0 11.49C0 11.175 0.255 10.92 0.57 10.92C0.885 10.92 1.14 11.175 1.14 11.49L1.14 12.89C1.14 13.365 1.525 13.75 2 13.75C2.475 13.75 2.86 13.365 2.86 12.89L2.86 9.02C2.86 7.915 3.755 7.02 4.86 7.02C5.965 7.02 6.86 7.915 6.86 9.02L6.86 18.16C6.907 18.597 7.276 18.927 7.715 18.927C8.154 18.927 8.523 18.597 8.57 18.16L8.57 3.92C8.57 2.815 9.465 1.92 10.57 1.92C11.675 1.92 12.57 2.815 12.57 3.92L12.57 15.71C12.57 16.025 12.315 16.28 12 16.28C11.685 16.28 11.43 16.025 11.43 15.71ZM22 7.02C20.895 7.02 20 7.915 20 9.02L20 16.65C19.953 17.087 19.584 17.417 19.145 17.417C18.706 17.417 18.337 17.087 18.29 16.65L18.29 3.92C18.29 2.815 17.395 1.92 16.29 1.92C15.185 1.92 14.29 2.815 14.29 3.92L14.29 20.08C14.29 20.555 13.905 20.94 13.43 20.94C12.955 20.94 12.57 20.555 12.57 20.08L12.57 18.08C12.57 17.765 12.315 17.51 12 17.51C11.685 17.51 11.43 17.765 11.43 18.08L11.43 20.08C11.43 21.185 12.325 22.08 13.43 22.08C14.535 22.08 15.43 21.185 15.43 20.08L15.43 3.92C15.43 3.445 15.815 3.06 16.29 3.06C16.765 3.06 17.15 3.445 17.15 3.92L17.15 16.65C17.15 17.755 18.045 18.65 19.15 18.65C20.255 18.65 21.15 17.755 21.15 16.65L21.15 9.02C21.115 8.692 21.269 8.373 21.549 8.199C21.828 8.024 22.182 8.024 22.461 8.199C22.741 8.373 22.895 8.692 22.86 9.02L22.86 15.71C22.86 16.025 23.115 16.28 23.43 16.28C23.745 16.28 24 16.025 24 15.71L24 9.02C24 7.915 23.105 7.02 22 7.02"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .morph: AgentBrandSpec(
+            name: "Morph",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: -3.33, width: 36.67, height: 36.67),
+            tone: AgentBrandTone(dark: 0x99D52A, light: 0x99D52A),
+            paths: [
+                AgentBrandPathSpec(d: "M6.67 22.04C6.692 23.681 8.029 25 9.67 25L12.05 25C13.431 25 14.55 26.119 14.55 27.5C14.55 28.881 13.431 30 12.05 30L10.05 30C8.582 30.006 7.325 28.948 7.08 27.5L6.67 25ZM11.63 0C12.99 0 14.181 0.915 14.53 2.23L14.64 2.77C14.989 4.085 16.18 5 17.54 5L19.14 5C20.497 4.996 21.682 4.081 22.03 2.77L22.14 2.24C22.485 0.921 23.677 0.001 25.04 0L26.62 0C28.085 -0.001 29.336 1.056 29.58 2.5L29.63 2.8C29.85 4.108 30.903 5.117 32.22 5.28L34.04 5.51C35.54 5.696 36.666 6.969 36.67 8.48L36.67 21.52C36.671 23.035 35.543 24.313 34.04 24.5L32.22 24.72C30.9 24.884 29.846 25.898 29.63 27.21L29.58 27.49C29.341 28.934 28.094 29.995 26.63 30L24.62 30C23.239 30 22.12 28.881 22.12 27.5C22.12 26.119 23.239 25 24.62 25L27 25C28.657 25 30 23.657 30 22L30 8C30 6.343 28.657 5 27 5L24.67 5C23.013 5 21.67 6.343 21.67 8L21.67 17C21.67 18.657 20.327 20 18.67 20L18 20C16.343 20 15 18.657 15 17L15 8C15 6.343 13.657 5 12 5L9.67 5C8.013 5 6.67 6.343 6.67 8L6.67 25L2.63 24.5C1.127 24.313 -0.001 23.035 0 21.52L0 8.48C-0.001 6.965 1.127 5.687 2.63 5.5L4.45 5.28C5.766 5.112 6.815 4.099 7.03 2.79L7.08 2.51C7.32 1.062 8.572 0 10.04 0Z"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .groq: AgentBrandSpec(
+            name: "Groq",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 4.35, y: 4.2, width: 24.4, height: 24.4),
+            tone: AgentBrandTone(dark: 0xFFFFFF, light: 0xFFFFFF),
+            paths: [
+                AgentBrandPathSpec(d: "M18.45 4.4L8.98 18.16L16.32 18.82L14.62 28.4L24.1 14.66L16.76 13.99Z"),
+            ],
+            small: nil,
+            tile: AgentBrandTile(viewBox: AgentBrandRect(x: 0.54, y: 0.39, width: 32, height: 32), radius: 7, tone: AgentBrandTone(dark: 0xF43E01, light: 0xF43E01)),
+            overlays: []
+        ),
+        .together: AgentBrandSpec(
+            name: "Together AI",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: -16.2, width: 485, height: 485),
+            tone: AgentBrandTone(dark: 0xEF2CC1, light: 0xEF2CC1),
+            paths: [
+                AgentBrandPathSpec(d: "M468.7 60.7C441.79 13.99 387.26 -9.32 334.89 3.48C282.53 16.29 244.92 62.14 242.6 116L363.8 116.1L363.8 126.5L242.6 126.5C244.84 176.73 277.86 220.36 325.59 236.16C373.32 251.96 425.85 236.65 457.62 197.68C489.39 158.71 493.8 104.17 468.7 60.6"),
+                AgentBrandPathSpec(d: "M16.3 60.6C-10.76 107.28 -3.71 166.22 33.6 205.2C70.91 244.17 129.49 253.79 177.3 228.8L116.8 123.8L125.8 118.6L186.4 223.6C228.85 196.59 250.19 146.17 240.05 96.9C229.9 47.62 190.36 9.74 140.7 1.7C91.04 -6.34 41.57 17.14 16.4 60.7", tone: AgentBrandTone(dark: 0xCAAEF5, light: 0xCAAEF5)),
+                AgentBrandPathSpec(d: "M242.5 452.5C296.42 452.55 343.89 416.96 358.97 365.19C374.05 313.42 353.11 257.92 307.6 229L247 334L238 328.8L298.6 223.8C253.98 200.67 199.72 207.47 162.2 240.9C124.67 274.33 111.67 327.45 129.51 374.43C147.36 421.41 192.34 452.51 242.6 452.6", tone: AgentBrandTone(dark: 0xFC4C02, light: 0xFC4C02)),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .fireworks: AgentBrandSpec(
+            name: "Fireworks AI",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 85, height: 85),
+            tone: AgentBrandTone(dark: 0xF9F7F5, light: 0x280016),
+            paths: [
+                AgentBrandPathSpec(d: "M81.7 54.18C78.51 54.6 55.4 56.78 55.4 56.78C55.41 56.78 73.56 41.81 75.86 40.05L72.56 32.09L53.26 51.35C47.32 57.29 49.33 62.15 57.74 62.15L85 62.15ZM12.43 32.08L9.14 40.05C15.99 45.589 22.81 51.166 29.6 56.78C29.6 56.78 6.5 54.6 3.3 54.18L0 62.14L27.26 62.14C35.67 62.14 37.68 57.29 31.73 51.34ZM58.76 22.85L48.34 48.05C45.14 55.82 39.87 55.82 36.66 48.05L26.24 22.85L34.85 22.85C35.6 25.65 42.5 48.15 42.5 48.15C42.5 48.15 49.32 25.96 50.15 22.85Z"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .cerebras: AgentBrandSpec(
+            name: "Cerebras",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 533, height: 533),
+            tone: AgentBrandTone(dark: 0xF05A28, light: 0xF05A28),
+            paths: [
+                AgentBrandPathSpec(d: "M269.6 498C192.03 498.12 119.4 459.95 75.5 396C49.33 357.86 35.38 312.66 35.5 266.4C35.5 234.4 41.9 204 53.9 176.2C91.05 90.2 175.92 34.64 269.6 35L269.6 0C232.4 0 197 7.4 164.6 21C116.6 41.03 75.44 74.55 46.1 117.5C6.23 176.06 -8.54 248.15 5.11 317.67C18.75 387.19 59.66 448.35 118.7 487.5C161.7 516.2 213.6 533 269.4 533L269.4 498ZM149.6 408.5C90.57 358.9 68.5 277.89 94.2 205.2C101.27 185.07 112.1 166.23 126.7 148.7C192.42 70.65 308.92 60.53 387.1 126.1L409.8 99.1C370.2 65.84 320.11 47.67 268.4 47.8C203.37 47.95 141.67 76.6 99.6 126.2C62.1 170.78 43.92 228.47 49.06 286.49C54.2 344.52 82.25 398.11 127 435.4ZM203.9 385.8C172.09 369.13 148.24 340.47 137.62 306.16C126.99 271.85 130.48 234.73 147.3 203C182.65 136.93 264.7 111.78 331 146.7L347.3 115.6C294.63 88.19 231.59 89.7 180.3 119.6C141.38 142.52 113.15 179.97 101.84 223.71C90.54 267.44 97.07 313.88 120 352.8C136.13 379.96 159.5 402.08 187.5 416.7ZM269.8 352.2C240.98 352.3 214.02 337.96 198 314C180 287.45 178.15 253.12 193.19 224.78C208.24 196.45 237.72 178.75 269.8 178.8L269.8 143.7C252.93 143.83 237.1 147 222.3 153.2C160.25 179.51 131.18 251.07 157.3 313.2C176.48 358.25 220.74 387.46 269.7 387.4Z", evenOdd: true),
+                AgentBrandPathSpec(d: "M298.4 237.8C294.65 233.83 290.34 230.42 285.6 227.7C281.2 225.17 276.63 223.9 271.9 223.9C254.88 223.56 239.51 234.04 233.6 250C231.73 255.07 230.83 260.27 230.9 265.6C230.97 270.93 231.87 276.17 233.6 281.3C237.4 291.59 245.26 299.87 255.33 304.19C265.41 308.52 276.82 308.53 286.9 304.2C291.53 301.87 295.56 298.52 298.7 294.4L322 319.4C318.46 322.96 314.41 326 310 328.4C301.58 332.98 292.46 336.13 283 337.7C278.73 338.43 275.03 338.77 271.9 338.7C261.8 338.76 251.77 337 242.3 333.5C224.19 326.99 209.61 313.22 202.1 295.5C198.1 286.57 196.13 276.6 196.2 265.6C195.9 245.63 203.9 226.44 218.3 212.6C240.05 192.67 271.28 186.92 298.7 197.8C307.74 201.21 315.85 206.69 322.4 213.8Z", evenOdd: true, tone: AgentBrandTone(dark: 0xFFFFFF, light: 0x000000)),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .baseten: AgentBrandSpec(
+            name: "Baseten",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: -2.14, y: 0, width: 22, height: 22),
+            tone: AgentBrandTone(dark: 0xFFFFFF, light: 0x000000),
+            paths: [
+                AgentBrandPathSpec(d: "M13.26 22L8.79 22L8.79 17.6L13.26 17.6ZM17.73 17.6L13.26 17.6L13.26 13.2L17.73 13.2ZM13.26 13.2L4.33 13.2L4.33 8.8L13.26 8.8ZM17.73 8.8L13.26 8.8L13.26 4.4L17.73 4.4ZM13.26 4.4L0 4.4L0 0L13.26 0Z"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .nvidia: AgentBrandSpec(
+            name: "NVIDIA",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 24, height: 24),
+            tone: AgentBrandTone(dark: 0x76B900, light: 0x76B900),
+            paths: [
+                AgentBrandPathSpec(d: "M8.95 8.8L8.95 7.37L9.37 7.35C13.29 7.23 15.87 10.72 15.87 10.72C15.87 10.72 13.09 14.57 10.12 14.57C9.713 14.57 9.327 14.51 8.96 14.39L8.96 10.04C10.49 10.23 10.79 10.9 11.7 12.43L13.74 10.71C13.74 10.71 12.25 8.76 9.74 8.76C9.473 8.755 9.205 8.769 8.94 8.8M8.94 4.06L8.94 6.2L9.37 6.17C14.82 5.99 18.38 10.64 18.38 10.64C18.38 10.64 14.3 15.61 10.05 15.61C9.683 15.61 9.317 15.577 8.95 15.51L8.95 16.84C9.257 16.873 9.563 16.893 9.87 16.9C13.82 16.9 16.69 14.88 19.46 12.49C19.92 12.86 21.8 13.75 22.19 14.14C19.56 16.35 13.42 18.13 9.94 18.13C9.616 18.127 9.292 18.107 8.97 18.07L8.97 19.94L24 19.94L24 4.06ZM8.94 14.39L8.94 15.52C5.29 14.87 4.28 11.06 4.28 11.06C4.28 11.06 6.03 9.12 8.95 8.8L8.95 10.03L8.94 10.03C7.41 9.85 6.21 11.28 6.21 11.28C6.21 11.28 6.89 13.69 8.95 14.39M2.45 10.9C2.45 10.9 4.62 7.7 8.95 7.37L8.95 6.2C4.16 6.6 0 10.65 0 10.65C0 10.65 2.35 17.45 8.95 18.07L8.95 16.84C4.11 16.24 2.45 10.9 2.45 10.9"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .huggingface: AgentBrandSpec(
+            name: "Hugging Face",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 24, height: 24),
+            tone: AgentBrandTone(dark: 0xFFD21E, light: 0xFFD21E),
+            paths: [
+                AgentBrandPathSpec(d: "M12.03 1.13C8.704 1.117 5.571 2.695 3.603 5.377C1.635 8.059 1.069 11.521 2.08 14.69C2.146 14.455 2.295 14.252 2.5 14.12C2.656 14.023 2.836 13.971 3.02 13.97C3.32 13.983 3.6 14.077 3.86 14.25C4.14 14.42 4.34 14.65 4.56 14.95C4.8 15.237 5.033 15.55 5.26 15.89C5.273 15.557 5.36 15.263 5.52 15.01C5.76 14.63 5.92 14.52 6.28 14.46C6.58 14.42 6.88 14.52 7.07 14.66C7.26 14.8 7.37 14.98 7.47 15.13C7.62 15.39 7.67 15.6 7.7 15.68C7.7 15.7 8.35 17.23 9.36 18.22C9.932 18.707 10.314 19.38 10.44 20.12C10.48 20.66 10.353 21.187 10.06 21.7C11.346 21.931 12.664 21.931 13.95 21.7C13.663 21.229 13.526 20.681 13.56 20.13C13.63 19.43 14.03 18.83 14.64 18.22C15.476 17.33 16.123 16.278 16.54 15.13C16.613 14.97 16.747 14.817 16.94 14.67C17.16 14.497 17.443 14.424 17.72 14.47C18.08 14.52 18.32 14.75 18.48 15.01C18.64 15.27 18.73 15.56 18.75 15.88L18.75 15.9C18.97 15.553 19.197 15.233 19.43 14.94C19.66 14.66 19.86 14.42 20.14 14.25C20.407 14.077 20.687 13.983 20.98 13.97C21.164 13.971 21.344 14.023 21.5 14.12C21.73 14.26 21.88 14.5 21.93 14.74L21.94 14.78C22.297 13.727 22.476 12.622 22.47 11.51C22.465 8.748 21.361 6.102 19.403 4.155C17.444 2.208 14.792 1.119 12.03 1.13M8.33 6.58C8.578 6.58 8.822 6.642 9.04 6.76C9.761 7.149 10.036 8.043 9.66 8.77C9.47 9.11 8.89 8.56 8.56 8.67C8.17 8.81 8.02 9.59 7.64 9.39C7.044 9.067 6.741 8.382 6.903 7.723C7.065 7.065 7.652 6.599 8.33 6.59M15.81 6.59C16.49 6.595 17.081 7.059 17.246 7.719C17.411 8.378 17.108 9.066 16.51 9.39C16.11 9.59 15.97 8.81 15.59 8.68C15.25 8.56 14.67 9.11 14.49 8.77C14.112 8.046 14.383 7.152 15.1 6.76C15.318 6.642 15.562 6.58 15.81 6.58M5.13 8.13C5.66 8.13 6.09 8.56 6.09 9.09C6.09 9.62 5.66 10.05 5.13 10.05C4.6 10.05 4.17 9.62 4.17 9.09C4.17 8.56 4.6 8.13 5.13 8.13M18.97 8.13C19.5 8.13 19.93 8.56 19.93 9.09C19.93 9.62 19.5 10.05 18.97 10.05C18.44 10.05 18.01 9.62 18.01 9.09C18.01 8.56 18.44 8.13 18.97 8.13M8.5 11.46C9.09 11.46 10.46 12.61 12.07 12.62C13.67 12.62 15.05 11.47 15.64 11.46C15.84 11.46 15.94 11.58 15.94 11.91C15.94 12.8 15.52 14.24 14.38 15.11C14.16 14.36 12.98 13.75 12.75 13.79L12.73 13.8L12.69 13.83L12.65 13.86L12.62 13.89L12.58 13.93L12.53 14.03L12.51 14.05L12.41 14.24L12.31 14.35L12.15 14.53L12.07 14.59C11.973 14.525 11.889 14.444 11.82 14.35L11.74 14.25C11.62 14.05 11.57 13.88 11.41 13.8C11.377 13.787 11.31 13.793 11.21 13.82C11.143 13.84 11.07 13.87 10.99 13.91L10.87 13.97L10.74 14.04L10.6 14.14L10.47 14.23L10.21 14.45L10.09 14.57L9.98 14.69L9.88 14.83L9.78 15.04L9.76 15.11C8.798 14.321 8.226 13.154 8.19 11.91C8.19 11.59 8.29 11.44 8.49 11.46M9.34 21.81C10.16 20.62 10.1 19.73 8.97 18.61C7.84 17.51 7.18 15.88 7.18 15.88C7.18 15.88 6.94 14.93 6.38 15.02C5.82 15.11 5.41 16.52 6.58 17.38C7.75 18.25 6.34 18.83 5.89 18.02C5.44 17.21 4.21 15.12 3.57 14.72C2.93 14.32 2.48 14.55 2.63 15.38C2.78 16.21 5.45 18.18 5.19 18.62C4.93 19.06 4.02 18.12 4.02 18.12C4.02 18.12 1.15 15.55 0.52 16.22C-0.11 16.89 1 17.45 2.57 18.38C4.14 19.31 4.25 19.55 4.03 19.91C3.81 20.27 0.35 17.4 0.03 18.61C-0.29 19.82 3.54 20.18 3.3 21C3.06 21.84 0.59 19.42 0.08 20.36C-0.42 21.31 3.57 22.42 3.6 22.43C4.9 22.76 8.17 23.45 9.32 21.8M14.66 21.8C13.84 20.61 13.9 19.72 15.03 18.6C16.16 17.5 16.82 15.87 16.82 15.87C16.82 15.87 17.06 14.93 17.62 15.01C18.18 15.09 18.59 16.51 17.42 17.37C16.25 18.24 17.66 18.82 18.11 18.01C18.56 17.2 19.79 15.11 20.43 14.71C21.07 14.31 21.52 14.54 21.37 15.37C21.22 16.2 18.55 18.17 18.81 18.61C19.07 19.05 19.98 18.11 19.98 18.11C19.98 18.11 22.85 15.54 23.48 16.21C24.11 16.88 23 17.44 21.43 18.37C19.86 19.3 19.75 19.54 19.97 19.9C20.19 20.26 23.64 17.39 23.97 18.6C24.29 19.81 20.45 20.17 20.68 21C20.92 21.84 23.39 19.42 23.9 20.36C24.4 21.31 20.4 22.42 20.38 22.43C19.08 22.76 15.81 23.45 14.66 21.8"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
         .vercel: AgentBrandSpec(
             name: "Vercel",
             isWordmark: false,
@@ -427,6 +563,44 @@ extension AgentBrandCatalog {
             tile: nil,
             overlays: []
         ),
+        .cloudflare: AgentBrandSpec(
+            name: "Cloudflare",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 24, height: 24),
+            tone: AgentBrandTone(dark: 0xF38020, light: 0xF38020),
+            paths: [
+                AgentBrandPathSpec(d: "M16.5 16.84C16.66 16.34 16.6 15.87 16.35 15.53C16.117 15.203 15.763 15.03 15.29 15.01L6.63 14.9C6.579 14.894 6.533 14.869 6.5 14.83C6.471 14.782 6.464 14.724 6.48 14.67C6.499 14.575 6.583 14.508 6.68 14.51L15.42 14.41C16.56 14.29 17.54 13.552 17.97 12.49L18.47 11.19C18.493 11.136 18.5 11.077 18.49 11.02C17.947 8.519 15.8 6.69 13.245 6.553C10.69 6.415 8.358 8.002 7.55 10.43C6.681 9.776 5.495 9.742 4.59 10.345C3.685 10.948 3.26 12.057 3.53 13.11C2.489 13.136 1.509 13.607 0.839 14.405C0.169 15.203 -0.125 16.25 0.03 17.28C0.057 17.367 0.113 17.417 0.2 17.43L16.2 17.43C16.293 17.423 16.36 17.37 16.4 17.27ZM19.27 11.28L19.03 11.29C18.97 11.29 18.927 11.323 18.9 11.39L18.56 12.56C18.42 13.07 18.47 13.54 18.72 13.88C18.953 14.2 19.307 14.373 19.78 14.4L21.62 14.51C21.68 14.51 21.727 14.533 21.76 14.58C21.78 14.633 21.787 14.687 21.78 14.74C21.761 14.835 21.677 14.902 21.58 14.9L19.65 15C18.51 15.12 17.53 15.858 17.1 16.92L16.96 17.28C16.94 17.36 16.973 17.407 17.06 17.42L23.66 17.42C23.74 17.42 23.793 17.38 23.82 17.3C23.94 16.887 24 16.46 24 16.02C24 13.42 21.87 11.29 19.27 11.29"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .bedrock: AgentBrandSpec(
+            name: "Amazon Bedrock",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 16, height: 16),
+            tone: AgentBrandTone(dark: 0x01A88D, light: 0x01A88D),
+            paths: [
+                AgentBrandPathSpec(d: "M8 14.14L5.57 14.94L4.63 14.32L5.66 13.97L5.34 13.03L3.57 13.61L3 13.23L3 10.5C3 10.309 2.892 10.134 2.72 10.05L1 9.2L1 6.81L2.5 6.06L4 6.8L4 8.5C4 8.7 4.093 8.85 4.28 8.95L6.28 9.95L6.72 9.05L5 8.2L5 6.81L6.72 5.95C6.892 5.866 7 5.691 7 5.5L7 4L6 4L6 5.2L4.5 5.94L3 5.2L3 2.77L4 2.1L4 4L5 4L5 1.43L5.57 1.05L8 1.86ZM13.5 13C13.776 13 14 13.224 14 13.5C14 13.776 13.776 14 13.5 14C13.224 14 13 13.776 13 13.5C13 13.224 13.224 13 13.5 13M12.5 2C12.776 2 13 2.224 13 2.5C13 2.776 12.776 3 12.5 3C12.224 3 12 2.776 12 2.5C12 2.224 12.224 2 12.5 2M14.5 8C14.776 8 15 8.224 15 8.5C15 8.776 14.776 9 14.5 9C14.224 9 14 8.776 14 8.5C14 8.224 14.224 8 14.5 8M13.1 9C13.344 9.689 14.048 10.102 14.768 9.978C15.488 9.855 16.014 9.231 16.014 8.5C16.014 7.769 15.488 7.145 14.768 7.022C14.048 6.898 13.344 7.311 13.1 8L9 8L9 6L12.5 6C12.776 6 13 5.776 13 5.5L13 3.9C13.689 3.656 14.102 2.952 13.978 2.232C13.855 1.512 13.231 0.986 12.5 0.986C11.769 0.986 11.145 1.512 11.022 2.232C10.898 2.952 11.311 3.656 12 3.9L12 5L9 5L9 1.5C8.998 1.287 8.862 1.098 8.66 1.03L5.66 0.03C5.514 -0.023 5.351 -0.004 5.22 0.08L2.22 2.08C2.081 2.174 1.998 2.332 2 2.5L2 5.2L0.28 6.05C0.108 6.134 0 6.309 0 6.5L0 9.5C0 9.7 0.093 9.85 0.28 9.95L2 10.8L2 13.49C2 13.663 2.073 13.803 2.22 13.91L5.22 15.91C5.351 15.994 5.514 16.013 5.66 15.96L8.66 14.96C8.859 14.893 8.994 14.709 9 14.5L9 12L11.3 12L12.15 12.85C11.927 13.315 11.957 13.861 12.232 14.298C12.506 14.734 12.985 14.999 13.5 15C14.328 15 15 14.328 15 13.5C15 12.672 14.328 12 13.5 12C13.26 12 13.04 12.053 12.84 12.16L12.85 12.15L11.85 11.15C11.758 11.056 11.632 11.002 11.5 11L9 11L9 9Z", evenOdd: true),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
+        .azure: AgentBrandSpec(
+            name: "Microsoft Azure",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 24, height: 24),
+            tone: AgentBrandTone(dark: 0x32AEEA, light: 0x32AEEA),
+            paths: [
+                AgentBrandPathSpec(d: "M18.4 15.3L7.4 15.3C7.191 15.3 7.004 15.428 6.927 15.622C6.85 15.815 6.899 16.036 7.05 16.18L14.12 22.78C14.32 22.96 14.6 23.08 14.88 23.08L21.1 23.08Z", tone: AgentBrandTone(dark: 0x0078D4, light: 0x0078D4), monoOpacity: 0.75),
+                AgentBrandPathSpec(d: "M8.3 0.86C7.82 0.86 7.4 1.16 7.24 1.61L0.5 21.61C0.383 21.948 0.438 22.322 0.646 22.612C0.855 22.903 1.192 23.073 1.55 23.07L6.98 23.07C7.45 23.07 7.88 22.77 8.03 22.32L9.37 18.34L7.05 16.18C6.899 16.036 6.85 15.815 6.927 15.622C7.004 15.428 7.191 15.3 7.4 15.3L10.4 15.3L15.27 0.86Z", tone: AgentBrandTone(dark: 0x0C5AA4, light: 0x0C5AA4), monoOpacity: 0.5),
+                AgentBrandPathSpec(d: "M17.2 1.61C17.048 1.156 16.619 0.853 16.14 0.86L8.34 0.86L8.37 0.86C8.84 0.86 9.27 1.16 9.42 1.61L16.17 21.61C16.288 21.95 16.232 22.326 16.021 22.616C15.81 22.907 15.469 23.077 15.11 23.07L15 23.07L22.9 23.07C23.258 23.073 23.595 22.903 23.804 22.612C24.012 22.322 24.067 21.948 23.95 21.61Z"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
     ]
 
     /// Marks drawn at this many points or smaller use their `small` art.
@@ -439,17 +613,22 @@ extension AgentBrandCatalog {
         "acli": .rovodev,
         "agy": .antigravity,
         "aider": .aider,
+        "amazon-bedrock": .bedrock,
         "amp": .amp,
         "anthropic": .anthropic,
         "antigravity": .antigravity,
-        "bedrock": nil,
+        "azure": .azure,
+        "baseten": .baseten,
+        "bedrock": .bedrock,
         "campfire": nil,
+        "cerebras": .cerebras,
         "chatgpt": .openai,
         "claude": .claude,
         "claude-code": .claude,
         "claude-sr": .claude,
         "claude_code": .claude,
         "claudecode": .claude,
+        "cloudflare": .cloudflare,
         "codebuddy": .codebuddy,
         "codex": .openai,
         "codex-acp": .openai,
@@ -464,27 +643,34 @@ extension AgentBrandCatalog {
         "droid": .factory,
         "dsh": .deepseek,
         "factory": .factory,
+        "fireworks": .fireworks,
         "gemini": .gemini,
         "gemini-cli": .gemini,
         "github": .github,
         "github-copilot": .copilot,
         "github-copilot-cli": .copilot,
+        "glm": .zai,
         "goose": .goose,
         "grok": .grok,
         "grok-cli": .grok,
-        "groq": nil,
+        "groq": .groq,
         "hermes": .hermes,
         "hermes-agent": .hermes,
+        "hugging-face": .huggingface,
+        "huggingface": .huggingface,
         "kimi": .kimi,
         "kimi-cli": .kimi,
         "kiro": .kiro,
         "kiro-cli": .kiro,
         "lmstudio": .lmstudio,
         "meta": .meta,
+        "minimax": .minimax,
         "mistral": .mistral,
+        "morph": .morph,
         "muse": .meta,
         "muse-code": .meta,
         "mux": nil,
+        "nvidia": .nvidia,
         "oh-my-pi": .omp,
         "ollama": .ollama,
         "omp": .omp,
@@ -505,10 +691,13 @@ extension AgentBrandCatalog {
         "qwen-code": .qwen,
         "rovo-dev": .rovodev,
         "rovodev": .rovodev,
+        "together": .together,
         "vercel": .vercel,
         "vercel-ai-gateway": .vercel,
         "vertex": nil,
         "xai": .grok,
+        "zai": .zai,
+        "zhipu": .zai,
     ]
 
     /// The agents and harnesses cmux supports, with their display names.

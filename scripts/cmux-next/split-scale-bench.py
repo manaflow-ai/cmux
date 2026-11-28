@@ -77,6 +77,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -129,6 +130,10 @@ parser.add_argument("--workspaces", default="1,10,30")
 parser.add_argument("--transitions", default=",".join(TRANSITIONS))
 parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--quick", action="store_true", help="smoke: 1 and 4 splits, empty and browser, 1 workspace, 1 round")
+parser.add_argument("--baseline", default="",
+                    help="the before column of the per-PR table: split_scale_metrics.encode_baseline() of the newest "
+                         "nightly's numbers for these cells (cmux-next-split-table.yml); the report's row_table carries "
+                         "base_* beside each row and `baseline_sha` names the nightly. Empty: no before column")
 parser.add_argument("--scrollback", type=int, default=20000)
 parser.add_argument("--chat-turns", type=int, default=300)
 parser.add_argument("--strip-ms", type=float, default=900, help="how long each frame strip records after the input")
@@ -149,6 +154,16 @@ parser.add_argument("--gate", action="store_true", help="exit 1 when a move fail
 parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
                     help="an env var for the launched app, repeatable: an A/B of an app switch on one bench build "
                          "(CMUX_CEF_RESIZE_FENCE=0); the report's app_env lists them")
+parser.add_argument("--diag-arm", action="append", default=[], metavar="NAME[@CELL[/T,T]]:ENV=VALUE[;ENV=VALUE]",
+                    help="a diagnostic arm, repeatable: after the matrix, the app relaunches with these env vars (and once "
+                         "with none, the `control` arm) and measures --diag-cell's --diag-transitions only. Its rows go "
+                         "to the report's `diagnostic_arms`, never to cells, verdicts, flatness or worst, so no score "
+                         "reads them (instant-splits: CMUX_CEF_RESIZE_FENCE=0 on the browser close stall). NAME@CELL/T,T measures "
+                         "that cell's transitions instead (each such scope gets its own `control@CELL` arm), e.g. "
+                         "keepattached@s9-browser-w30/divider_drag:CMUX_CEF_DRAG_KEEP_ATTACHED=1")
+parser.add_argument("--diag-cell", default="s9-browser-w10", help="the one cell the diagnostic arms measure")
+parser.add_argument("--diag-transitions", default="close_right,close_down,bottom_close",
+                    help="the transitions the diagnostic arms keep (each close's open runs too, as in the matrix)")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts, _unknown = parser.parse_known_args()
@@ -178,6 +193,55 @@ for name, given, known in (("content", WANTED_CONTENTS, CONTENTS), ("transition"
         raise SystemExit(f"split-scale: unknown {name} {bad}; use {','.join(known)}")
 if any(s not in (1, 4, 9) for s in SPLITS):
     raise SystemExit("split-scale: --splits takes 1, 4 and 9 (a 1 x 1, 2 x 2 or 3 x 3 grid)")
+DIAG_ARMS = []
+DIAG_SCOPES = {}  # arm name -> (cell, transitions) when the arm names its own; else --diag-cell/--diag-transitions
+for spec in opts.diag_arm:
+    arm_name, sep, pairs = spec.partition(":")
+    arm_name, at, scope = arm_name.partition("@")
+    if at:
+        scope_cell, slash, scope_moves = scope.partition("/")
+        DIAG_SCOPES[arm_name] = (scope_cell, [t.strip() for t in scope_moves.split(",") if t.strip()] if slash else None)
+    arm_env = {}
+    for pair in pairs.split(";") if sep else []:
+        name, eq, value = pair.partition("=")
+        if not eq or not name.strip():
+            parser.error(f"--diag-arm takes NAME:ENV=VALUE[;ENV=VALUE], not {spec!r}")
+        arm_env[name.strip()] = value
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", arm_name) or arm_name == "control" or not arm_env:
+        parser.error(f"--diag-arm {spec!r}: a name ([A-Za-z0-9_.-], not 'control') and at least one ENV=VALUE")
+    DIAG_ARMS.append((arm_name, arm_env))
+DIAG_CELL = re.fullmatch(r"s([149])-([a-z]+)-w(\d+)", opts.diag_cell)
+DIAG_TRANSITIONS = [t.strip() for t in opts.diag_transitions.split(",") if t.strip()]
+
+
+def diag_scope_check(cell, transitions, flag):
+    match = re.fullmatch(r"s([149])-([a-z]+)-w(\d+)", cell)
+    if not match or match.group(2) not in CONTENTS or match.group(2) == "chat":
+        raise SystemExit(f"split-scale: {flag} {cell!r}: sN-CONTENT-wN, N of 1/4/9, no chat content")
+    bad = [t for t in transitions if t not in TRANSITIONS]
+    if bad or not transitions:
+        raise SystemExit(f"split-scale: unknown diagnostic transition {bad}; use {','.join(TRANSITIONS)}")
+    return match
+
+
+if DIAG_ARMS:
+    diag_scope_check(opts.diag_cell, DIAG_TRANSITIONS, "--diag-cell")
+    for arm_name, (scope_cell, scope_moves) in list(DIAG_SCOPES.items()):
+        DIAG_SCOPES[arm_name] = (scope_cell, scope_moves or list(DIAG_TRANSITIONS))
+        diag_scope_check(scope_cell, DIAG_SCOPES[arm_name][1], f"--diag-arm {arm_name}@")
+
+
+def diag_groups():
+    """(cell, transitions, [(arm name, env)]) per scope, the --diag-cell scope first; each group runs its control first:
+    `control` on --diag-cell's scope (as before), `control@CELL` on an arm's own."""
+    groups = {}
+    for name, env in DIAG_ARMS:
+        cell, moves = DIAG_SCOPES.get(name, (opts.diag_cell, DIAG_TRANSITIONS))
+        groups.setdefault((cell, tuple(moves)), []).append((name, env))
+    default = (opts.diag_cell, tuple(DIAG_TRANSITIONS))
+    order = ([default] if default in groups else []) + [k for k in groups if k != default]
+    return [(cell, list(moves), "control" if (cell, moves) == default else f"control@{cell}", groups[(cell, moves)])
+            for cell, moves in order]
 CONFIG = {"workspaces": {"newPlacement": "bottom"}}
 if WANTED_MOVES:
     CONFIG["shortcuts"] = {"bindings": {
@@ -984,9 +1048,11 @@ def finish(results):
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
     # The per-PR table: every cell x transition, first frame ms and blank frames, worst row first (report-only).
-    rows = ssm.row_table(results)
+    base = ssm.decode_baseline(opts.baseline)
+    rows = ssm.row_table(results, base=base)
     results["row_table"], results["row_table_ok"] = rows, ssm.row_table_ok(rows)
-    row_markdown = ssm.row_table_markdown(rows)
+    results["baseline_sha"] = (base or {}).get("sha")
+    row_markdown = ssm.row_table_markdown(rows, base_sha=results["baseline_sha"])
     print("SPLIT-ROW-TABLE-BEGIN\n" + row_markdown + "\nSPLIT-ROW-TABLE-END", flush=True)
     timeline = frame_timeline(results)
     if opts.json:
@@ -1015,13 +1081,75 @@ def frame_timeline(results):
             except OSError as error:  # a half the ring rotated away mid-read: the other still counts
                 say(f"split-scale: frame timing log {path}: {error}")
     rows, _ = frame_timing.read_lines(lines)
-    table = frame_timing.table([r for r in rows if isinstance(r.get("at_ms"), (int, float)) and r["at_ms"] >= started])
+    ended = results.get("diag_started_ms") or float("inf")  # the diagnostic arms' frames are not the matrix's
+    table = frame_timing.table([r for r in rows if isinstance(r.get("at_ms"), (int, float))
+                                and started <= r["at_ms"] < ended])
     results["frame_timing_table"] = table
     if not table:
         return ""
     text = frame_timing.format_table(table)
     print("FRAME-TIMING-TABLE-BEGIN\n" + text + "\nFRAME-TIMING-TABLE-END", flush=True)
     return text
+
+
+def start_app(run, results):
+    """Launches RUN's app, places its window and waits for the launch's motion and layers to rest."""
+    run.launch()
+    results["app_version"] = (run.app.identify() or {}).get("version")
+    _, problem = STRESS.place_window(run.rpc)
+    if problem:  # a window off its screen or the wrong size measures nothing comparable; fail the run
+        results["errors"]["placement"] = problem
+        raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1200 display (--vdisplay=120 makes one)")
+    # Launch work ends before the first cell: the springs rest and the window's layers hold still.
+    motion_ends(run, "the launch")
+    if wait_stable(lambda: json.dumps(run.rpc("debug.layers"), sort_keys=True, default=str), "the window after launch",
+                   timeout=30, interval=0.25, reads=4, raise_on_timeout=False) is None:
+        say("split-scale: the window's layers still changed 30 s after launch")
+
+
+def run_diag_arms(results, base_env):
+    """Each diagnostic arm in a fresh app, grouped by scope (diag_groups): a scope's control arm (no extra env) first,
+    then its arms, each on the scope's cell and transitions, --rounds times. Into results["diagnostic_arms"] only:
+    the matrix's cells, verdicts and headline never read them."""
+    global WANTED
+    out = results.setdefault("diagnostic_arms", {
+        "about": "not scored: one cell per arm in a fresh app, for an A/B of an app switch inside the nightly step",
+        "cell": opts.diag_cell, "transitions": DIAG_TRANSITIONS, "rounds": opts.rounds, "arms": {}})
+    kept = WANTED
+    try:
+        for cell, moves, control, arms in diag_groups():
+            match = re.fullmatch(r"s([149])-([a-z]+)-w(\d+)", cell)
+            splits, content, count = int(match.group(1)), match.group(2), int(match.group(3))
+            WANTED = list(moves)
+            for name, extra in [(control, {})] + arms:
+                arm = {"env": dict(extra), "cell": cell, "transitions": list(moves), "raw": {}, "errors": {},
+                       "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+                out["arms"][name] = arm
+                say(f"split-scale: diagnostic arm {name} {extra} on {cell}")
+                run = None
+                try:
+                    wipe_state(APP)
+                    run = Run({**base_env, **extra})
+                    start_app(run, arm)
+                    workspace = None
+                    try:
+                        workspace, columns = build_cell(run, splits, content, [])
+                        background(run, count, workspace)
+                        run_cell(run, workspace, columns, arm, cell, content)
+                    finally:
+                        if workspace:
+                            left = close_cell(run, workspace)
+                            if left:
+                                arm["errors"]["cleanup"] = left
+                except (Exception, SystemExit) as error:  # noqa: BLE001 - an arm that fails is its record; the next runs
+                    arm["errors"]["arm"] = f"{type(error).__name__}: {str(error)[:500]}"
+                    say(f"split-scale: diagnostic arm {name} did not finish: {arm['errors']['arm']}")
+                finally:
+                    if run:
+                        run.end()
+                arm["cells"] = {c: {t: ssm.summarize(rows) for t, rows in per.items()} for c, per in arm["raw"].items()}
+    finally:
+        WANTED = kept
 
 
 def main():
@@ -1058,17 +1186,7 @@ def main():
             env["ACPMUX_HOME"] = home
         wipe_state(APP)
         run = Run(env)
-        run.launch()
-        results["app_version"] = (run.app.identify() or {}).get("version")
-        _, problem = STRESS.place_window(run.rpc)
-        if problem:  # a window off its screen or the wrong size measures nothing comparable; fail the run
-            results["errors"]["placement"] = problem
-            raise SystemExit(f"split-scale: {problem}: run with a 1920 x 1200 display (--vdisplay=120 makes one)")
-        # Launch work ends before the first cell: the springs rest and the window's layers hold still.
-        motion_ends(run, "the launch")
-        if wait_stable(lambda: json.dumps(run.rpc("debug.layers"), sort_keys=True, default=str), "the window after launch",
-                       timeout=30, interval=0.25, reads=4, raise_on_timeout=False) is None:
-            say("split-scale: the window's layers still changed 30 s after launch")
+        start_app(run, results)
         if WANTED_MOVES:
             results["matrix"] = {"shapes": WANTED_SHAPES, "contents": WANTED_CONTENTS, "moves": WANTED_MOVES,
                                  "rounds": opts.rounds, "chat_turns": opts.chat_turns}
@@ -1090,6 +1208,11 @@ def main():
                         left = close_cell(run, workspace)
                         if left:
                             results["errors"][cell] = results["errors"].get(cell) or f"cleanup: {left}"
+        if DIAG_ARMS and not WANTED_MOVES:
+            run.end()  # each arm launches its own app with its env
+            run = None
+            results["diag_started_ms"] = int(time.time() * 1000)
+            run_diag_arms(results, env)
     finally:
         try:
             (finish_moves if WANTED_MOVES else finish)(results)  # before teardown: a teardown that stalls never loses the run

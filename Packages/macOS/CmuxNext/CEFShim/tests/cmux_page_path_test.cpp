@@ -297,6 +297,12 @@ int main() {
     }
     Expect(cmux_shim::OwnRendererHeaders("cmux.markdown", true, 7, 7).empty(), "another page id keeps sharing");
     Expect(cmux_shim::OwnRendererHeaders("cmux.markdown", false, 7, 7).empty(), "another page id gets no COEP");
+    // A chat's top document waits one UI turn only while the app may still name its browser.
+    Expect(!cmux_shim::OwnRendererNeedsUITurn(true, 7, 7), "the named chat's document is answered now");
+    Expect(cmux_shim::OwnRendererNeedsUITurn(true, 8, 7), "another chat waits the turn (it may be named in it)");
+    Expect(cmux_shim::OwnRendererNeedsUITurn(true, 7, 0), "no chat named yet: wait the turn");
+    Expect(cmux_shim::OwnRendererNeedsUITurn(true, 0, 0), "no browser id: wait the turn");
+    Expect(!cmux_shim::OwnRendererNeedsUITurn(false, 8, 7), "not a chat's top document: no turn");
   }
   char tmpl[] = "/tmp/cmux-page-path.XXXXXX";
   if (!mkdtemp(tmpl)) return 2;

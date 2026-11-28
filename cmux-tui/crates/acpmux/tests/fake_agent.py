@@ -92,6 +92,10 @@ FAKE_FORK_SILENT=1: the agent never answers session/fork, and goes on answering 
 FAKE_FORK_DELAY_MS=<ms>: the agent answers session/fork that long after it read it, and goes on
 answering everything else meanwhile.
 
+FAKE_FORK_BUSY=1: session/fork as OpenCode 1.19 answers it: only once no prompt of this process
+runs, and of any session id (its sessions are in a store every process of it reads), the new id
+unique across processes. FAKE_FORK_LOG=<path>: each session/new, session/load and session/fork
+appends {"pid", "method", "sessionId"} as one JSON line.
 FAKE_FORK_REPLAY=1: before it answers session/fork, the agent replays the forked conversation as
 session/updates under the NEW session's id (a prompt, a thought, a tool call, a reply, its
 commands), as OpenCode 1.19's forkSession does (its replayMessages).
@@ -145,6 +149,9 @@ FAKE_CAPACITY_FILE=<path>: while <path> exists, every prompt, `/compact` too, fa
 error, in turn the provider's 529 overloaded, the SR2 gateway's 503 "no non-exhausted accounts"
 and the worker gateway's 502 "at its call limit": an overload storm. Each prompt's text is appended
 to <path>.seen, one JSON string per line, so a test sees what reached the model.
+FAKE_PROMPT_ERROR=<message>: every prompt fails with <message> as its error, as a harness's
+model call that came back with that error (a capture shows the pane's card for one exact error,
+scripts/cmux-next/media/states/turn-failure-gateway-stalled.json).
 FAKE_QUIT_429_FILE=<path>: while <path> exists, an agent started on a chat's conversation
 (session/load) answers the load, then, idle, prints <path>'s line on stderr and exits 0 on its own,
 as a CLI does that quits on its account's 429 between turns (`quit-after:` once, this at every start).
@@ -168,6 +175,20 @@ if os.environ.get("FAKE_REEXEC_WITHOUT"):
               {k: v for k, v in os.environ.items() if k not in _drop})
 
 lock = threading.Lock()
+# FAKE_FORK_BUSY=1: the prompts of this process running now.
+running_prompts = [0]
+
+
+def counted(target):
+    def run(rid, params):
+        with lock:
+            running_prompts[0] += 1
+        try:
+            target(rid, params)
+        finally:
+            with lock:
+                running_prompts[0] -= 1
+    return run
 # FAKE_CAPACITY_FILE: how many prompts the storm refused, to rotate its errors.
 capacity_storm = [0]
 cancelled = set()
@@ -387,8 +408,12 @@ def is_attribution(block):
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
 # blocks too, and the agent must read them, so their tests read them in the echo. The "where
 # you are" card (`agent_card.rs`) is hidden first-turn context the same way.
-GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
-                 "<cmux-card-context>")
+# The hidden cmux blocks' sources: `context_inventory::RULE_SOURCES`, whose test
+# (`the_fakes_strip_every_hidden_block_the_product_sends`) fails when this line drifts from it.
+# Inline, not a sibling file: probes check out this one file alone and run it.
+# Each goes out as `<SOURCE-context>`.
+GUIDANCE_SOURCES = frozenset({"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"})
+GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
 
 
 def guidance_text(text):
@@ -405,7 +430,7 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
+    if source in GUIDANCE_SOURCES:
         return True
     return guidance_text(block.get("text", ""))
 
@@ -817,6 +842,9 @@ def handle_prompt(rid, params):
         return
     if os.environ.get("FAKE_UPSTREAM_URL"):
         return upstream_turn(rid, sid, text)
+    if os.environ.get("FAKE_PROMPT_ERROR"):
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": os.environ["FAKE_PROMPT_ERROR"]}})
+        return
     cap_file = os.environ.get("FAKE_CAPACITY_FILE")
     if cap_file:
         with open(cap_file + ".seen", "a") as seen:
@@ -1688,6 +1716,12 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "picked-model" replies with the model this process's session runs (FAKE_PICKER's set_model or
+    # model option), "default" when none was set: what the agent itself runs, not acpmux's meta.
+    if text == "picked-model":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": PICKER_MODELS.get(sid, "default")}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "dirs" replies with the additionalDirectories of the last session/new, load or fork.
     if text == "dirs":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_DIRS)}})
@@ -2340,6 +2374,18 @@ def handle_prompt(rid, params):
 MODE_OPTION = {}
 
 
+# FAKE_COLLAB=1: Codex's `collaboration_mode` option (default or plan) beside its modes, per session.
+COLLAB = {}
+
+
+def collab_options(sid):
+    return [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1",
+             "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]},
+            {"id": "collaboration_mode", "name": "Collaboration", "type": "select",
+             "currentValue": COLLAB.get(sid, "default"),
+             "options": [{"value": v, "name": v} for v in ("default", "plan")]}]
+
+
 def mode_options(sid):
     return [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1",
              "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]},
@@ -2353,6 +2399,26 @@ PICKER_MODELS = {}
 PICKER_EFFORTS = {}
 CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("claude-sonnet-5-5", "Sonnet 5.5"),
                  ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
+
+
+def claude_models():
+    """The "model" option's rows for FAKE_PICKER_MODES=claude: CLAUDE_MODELS, or with FAKE_MODELS=<id,id>
+    (the account's models, which a profile capture sets to the Claude 5.5 family) Default and those
+    alone, named as Claude Code names them ("claude-opus-5-5" is "Opus 5.5"). Before, FAKE_MODELS fed
+    only ACP `models` and the option kept CLAUDE_MODELS, so a capture listed Fable 5.1 it never asked for."""
+    ids = [i for i in os.environ.get("FAKE_MODELS", "").split(",") if i]
+    if not ids:
+        return CLAUDE_MODELS
+    known = dict(CLAUDE_MODELS)
+
+    def name(i):
+        if i in known:
+            return known[i]
+        parts = i.split("-")
+        if parts[0] == "claude" and len(parts) >= 3 and all(p.isdigit() for p in parts[2:]):
+            return f"{parts[1].capitalize()} {'.'.join(parts[2:])}"
+        return i
+    return [("default", "Default")] + [(i, name(i)) for i in ids if i != "default"]
 
 
 HELD = []
@@ -2484,6 +2550,9 @@ def main():
             sys.stderr.flush()
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
+            if os.environ.get("FAKE_FORK_LOG"):
+                with open(os.environ["FAKE_FORK_LOG"], "a") as log:
+                    log.write(json.dumps({"pid": os.getpid(), "method": m, "sessionId": params.get("sessionId")}) + "\n")
             LAST_MCP_SERVERS = params.get("mcpServers")
             # FAKE_MCP_OUT=<dir>: each start writes the servers it was given to <dir>/<pid>.json.
             if os.environ.get("FAKE_MCP_OUT"):
@@ -2515,7 +2584,7 @@ def main():
                 PICKER_MODELS[sid] = params.get("modelId")
             options = [effort] + ([{"id": "model", "name": "Model", "category": "model", "type": "select",
                                     "currentValue": PICKER_MODELS.get(sid, "default"),
-                                    "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}] if claude_like else [])
+                                    "options": [{"value": v, "name": n} for v, n in claude_models()]}] if claude_like else [])
             if m == "session/new":
                 sessions += 1
                 result = {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": options}
@@ -2524,7 +2593,7 @@ def main():
                 if os.environ.get("FAKE_PICKER_MODES") == "1":
                     result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
                 elif os.environ.get("FAKE_PICKER_MODES") == "claude":
-                    result["modes"] = {"currentModeId": "default", "availableModes": [
+                    result["modes"] = {"currentModeId": os.environ.get("FAKE_PICKER_INITIAL_MODE", "default"), "availableModes": [
                         {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
                         {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
                 # FAKE_MODELS=<id,id>: the models this account offers (ACP `models`), as Codex reports them.
@@ -2659,6 +2728,8 @@ def main():
             }
             if os.environ.get("FAKE_MODE_OPTION") == "1":
                 result["configOptions"] = mode_options(new_sid)
+            if os.environ.get("FAKE_COLLAB") == "1":
+                result["configOptions"] = collab_options(new_sid)
             # FAKE_PI_MODES=1: pi-acp 0.0.33's answer: its thinking levels as its `thought_level`
             # option and, for clients older than config options, again as ACP `modes`.
             if os.environ.get("FAKE_PI_MODES") == "1":
@@ -2677,6 +2748,10 @@ def main():
             # FAKE_PLAN_MODE=claude: Claude's asking modes, "default" and a "plan" that asks.
             if os.environ.get("FAKE_PLAN_MODE") == "claude":
                 result["modes"] = {"currentModeId": "default", "availableModes": [{"id": "default", "name": "Default"}, {"id": "plan", "name": "Plan"}]}
+            # Gemini CLI's ACP approval modes; start wider so a local asking policy must settle it.
+            if os.environ.get("FAKE_GEMINI_MODES") == "1":
+                result["modes"] = {"currentModeId": "yolo", "availableModes": [
+                    {"id": mode, "name": mode} for mode in ["default", "autoEdit", "yolo", "plan"]]}
             # FAKE_FULL_ACCESS=1: a harness that also offers a full-access mode.
             if os.environ.get("FAKE_FULL_ACCESS") == "1" and "modes" in result:
                 result["modes"]["availableModes"].append({"id": "full-access", "name": "Full access"})
@@ -2809,6 +2884,16 @@ def main():
                 continue
             sessions += 1
             result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            if os.environ.get("FAKE_FORK_BUSY") == "1":
+                result = {"sessionId": f"{params['sessionId']}-fork-{os.getpid()}-{sessions}"}
+
+                def answer_when_idle(reply={"jsonrpc": "2.0", "id": rid, "result": result}):
+                    import time as clock  # main() binds `time` locally
+                    while running_prompts[0] > 0:
+                        clock.sleep(0.02)
+                    send(reply)
+                threading.Thread(target=answer_when_idle, daemon=True).start()
+                continue
             if os.environ.get("FAKE_FORK_REPLAY") == "1":
                 new_sid = result["sessionId"]
                 update(new_sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
@@ -2839,8 +2924,11 @@ def main():
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
             # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
-            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1" or params.get("modeId") in os.environ.get("FAKE_REFUSE_MODES", "").split(","):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
+            if os.environ.get("FAKE_SET_MODE_ACTUAL"):
+                send({"jsonrpc": "2.0", "id": rid, "result": {"currentModeId": os.environ["FAKE_SET_MODE_ACTUAL"]}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
@@ -2876,6 +2964,10 @@ def main():
                     continue
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
                 continue
+            if os.environ.get("FAKE_COLLAB") == "1" and params.get("configId") == "collaboration_mode":
+                COLLAB[params.get("sessionId")] = v
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": collab_options(params.get("sessionId"))}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
         elif m == "session/prompt":
             if FAKE_USAGE_UPDATES is not None:
@@ -2890,7 +2982,7 @@ def main():
                 target = codex_store_prompt
             if CLAUDE_STORE and params.get("sessionId") in claude_files:
                 claude_write(params["sessionId"], {"type": "fake-prompt", "text": prompt_text(params)})
-            threading.Thread(target=target, args=(rid, params), daemon=True).start()
+            threading.Thread(target=counted(target), args=(rid, params), daemon=True).start()
             # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
             # file exists: a long answer then waits in the agent host's stdin writer, as it does
             # for a harness that stopped reading.

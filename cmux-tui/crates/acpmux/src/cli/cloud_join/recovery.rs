@@ -153,7 +153,7 @@ fn read() -> Result<Option<Pending>> {
         Ok(_) => {}
     }
     let p: Pending = crate::config::private_state_file(&path)
-        .and_then(|f| Ok(serde_json::from_reader(f)?))
+        .and_then(|f| Ok(serde_json::from_reader(std::io::BufReader::new(f))?))
         .map_err(store_error_from)?;
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(p.credential.strip_prefix("cmm_").unwrap_or_default());
