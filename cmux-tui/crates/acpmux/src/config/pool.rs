@@ -91,6 +91,16 @@ pub fn spare_personal_enabled() -> bool {
     spare_env_allows(std::env::var(SPARE_PERSONAL_ENV).ok().as_deref())
 }
 
+/// The kill switch for warming a pooled Claude Code before a chat takes it (`hub/pool/start.rs`,
+/// `claude_stdio::WARM`). On by default; off when the daemon's environment sets it to 0, false,
+/// off or no.
+pub const SPARE_WARM_ENV: &str = "ACPMUX_SPARE_WARM";
+
+/// Whether pooled Claude Code is warmed (`ACPMUX_SPARE_WARM`; on unless switched off).
+pub fn spare_warm_enabled() -> bool {
+    spare_env_allows(std::env::var(SPARE_WARM_ENV).ok().as_deref())
+}
+
 #[cfg(test)]
 #[path = "pool_spare_tests.rs"]
 mod spare_tests;

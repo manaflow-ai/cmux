@@ -35,6 +35,28 @@ pub(in crate::hub) fn held_reports_full_access(
     reports.of_answer(new)
 }
 
+/// How long a pooled Claude Code's warm call may take before the pool stops waiting for it.
+const WARM_BOUND: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// Warm a pooled Claude Code before a chat can take it (`claude_stdio::WARM`): one tiny side
+/// question, so the person's first prompt does not pay for the first API connection and first-call
+/// setup. It is bounded by [`WARM_BOUND`], and a refusal or timeout leaves the agent as it was
+/// (a Claude Code with no `side_question` simply starts unwarmed).
+async fn warm_claude(p: &Pooled) {
+    let started = std::time::Instant::now();
+    match p.child.request_within(crate::claude_stdio::WARM, json!({}), WARM_BOUND).await {
+        Some(Ok(_)) => tracing::debug!(
+            session = %p.session_id,
+            ms = started.elapsed().as_millis() as u64,
+            "pooled claude warmed"
+        ),
+        Some(Err(e)) => {
+            tracing::debug!(session = %p.session_id, "pooled claude warm refused: {}", e.message)
+        }
+        None => tracing::debug!(session = %p.session_id, "pooled claude warm timed out"),
+    }
+}
+
 fn pooled_host_spec(
     session_id: &str,
     draft: &SessionMeta,
@@ -335,6 +357,9 @@ impl Hub {
         if latch.off() && p.runs_full_access(&spec.spawn.argv) {
             end_pooled(p).await;
             anyhow::bail!("it came up in full access, which MDM forces off");
+        }
+        if claude && crate::config::spare_warm_enabled() {
+            warm_claude(&p).await;
         }
         Ok(p)
     }
