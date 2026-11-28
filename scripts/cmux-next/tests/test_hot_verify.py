@@ -232,6 +232,14 @@ class PlanTest(unittest.TestCase):
         self.assertIn("1 commits ahead", ahead[0])
         self.assertIn("(1 of them in webviews/)", ahead[0])
 
+    def test_an_app_that_already_has_the_head_has_no_gap_note(self):
+        # A merged PR looked at on a nightly that ships it: "the app already contains" it, not "ahead of its fork".
+        head = self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 6'\n"})
+        app = self.fx.commit({"docs/notes.md": "later\n"}, "after the change", parent=head)
+        planned = self.plan(head, base=app)
+        self.assertFalse([note for note in planned["notes"] if "ahead of the change's fork" in note],
+                         planned["notes"])
+
     def test_an_app_at_the_change_s_fork_has_no_gap_note(self):
         planned = self.plan(self.fx.change({"webviews/src/app.tsx": "export const title = 'Home 5'\n"}))
         self.assertFalse([note for note in planned["notes"] if "ahead" in note or "behind" in note], planned["notes"])
