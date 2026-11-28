@@ -174,13 +174,14 @@ fn has_finite_verb(rest: &str) -> bool {
             word.chars().filter(|c| c.is_alphabetic() || matches!(c, '\'' | '’' | '-')).collect()
         })
         .collect();
-    words.iter().enumerate().skip(1).any(|(at, word)| {
+    words.windows(2).any(|pair| {
+        let [previous, word] = pair else { return false };
         any_eq(FINDING_VERBS, word)
             || (word.ends_with("ed")
                 && word.chars().count() >= 4
                 && word.chars().all(char::is_alphabetic)
                 && !word.to_ascii_lowercase().ends_with("eed")
-                && !words.get(at - 1).is_some_and(|previous| any_eq(ED_ADJECTIVE_AFTER, previous)))
+                && !any_eq(ED_ADJECTIVE_AFTER, previous))
     })
 }
 
