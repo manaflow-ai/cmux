@@ -8,7 +8,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Waiting for you to finish signing in to ChatGPT in your browser…"
+            "value" : "Waiting for you to sign in to ChatGPT in your browser…"
           }
         },
         "ar" : {
@@ -32,19 +32,19 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Warte, bis du die Anmeldung bei ChatGPT im Browser abschließt …"
+            "value" : "Warte auf deine Anmeldung bei ChatGPT im Browser …"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esperando a que termines de iniciar sesión en ChatGPT en tu navegador…"
+            "value" : "Esperando que inicies sesión en ChatGPT en el navegador…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En attente de la fin de votre connexion à ChatGPT dans le navigateur…"
+            "value" : "En attente de votre connexion à ChatGPT dans le navigateur…"
           }
         },
         "it" : {
@@ -74,7 +74,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Venter på at du fullfører påloggingen til ChatGPT i nettleseren …"
+            "value" : "Venter på at du logger på ChatGPT i nettleseren …"
           }
         },
         "pl" : {
