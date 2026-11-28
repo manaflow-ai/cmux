@@ -50,9 +50,9 @@ hardware-speed flow coverage or an end-to-end phone performance claim.
 Import its receipt using `scripts/bench/cmux-bench phone-default-speed --import LOG`.
 The detector is `ghostty-vt`'s `phone_default_speed` example, built in the normal
 dev/test profile (Ghostty itself remains ReleaseFast). PRs restore the existing
-workspace target cache. The base cache producer runs the exact same narrow
-example invocation before saving, including baseline CPU, profile, optional
-feature and tool environment. A second build must report `Fresh ghostty-vt-sys`;
+workspace target cache. Its producer currently warms the normal daemon build;
+reuse by this example's feature set and tool environment remains unverified.
+A second build must report `Fresh ghostty-vt-sys`;
 a native rebuild on that warm invocation fails. Initial setup cost is recorded
 separately and must be judged from the managed receipt.
 The Rust wrapper's dev optimization is part of the instruction baseline.
