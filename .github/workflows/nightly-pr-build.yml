@@ -99,7 +99,7 @@ jobs:
   swift-fleet:
     name: nightly app compile ${{ matrix.arch }} fleet job (advisory)
     needs: [route]
-    if: ${{ needs.route.outputs.swift == 'true' }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.swift == 'true' }}
     # Use the gateway when configured, then the overflow pool, then the owned
     # Linux pool. The job remains a thin cmux-ci client on every route.
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
@@ -284,7 +284,7 @@ jobs:
   helpers:
     name: nightly rust helpers (advisory)
     needs: [route]
-    if: ${{ needs.route.outputs.helpers == 'true' }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.helpers == 'true' }}
     runs-on: cmux-linux
     timeout-minutes: 45
     permissions:
