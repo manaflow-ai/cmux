@@ -32,7 +32,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: nightly-next-update-e2e-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'feed' }}
+  # The scheduled tick shares 'feed' (each tests the feed's newest build when it starts, so a waiting tick
+  # does the work of one it replaced); a dispatch (maybe for one from_build) has its own run id.
+  group: nightly-next-update-e2e-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'schedule' && 'feed' || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
