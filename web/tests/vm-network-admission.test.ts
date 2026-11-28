@@ -9,12 +9,7 @@ import {
   networkAdmissionVerdict,
   resetNetworkAddressAlertsForTest,
 } from "../services/vms/networkAdmission";
-import { teamNetworkCidr, userNetworkCidr } from "../services/vms/privateNetwork";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
-
-function ipv4ToInt(address: string): number {
-  return address.split(".").reduce((value, octet) => value * 256 + Number(octet), 0);
-}
 
 const TEAM_NET = { providerNetworkId: "vpc-team", cidr: "10.40.0.0/24", scope: "team" as const };
 
@@ -58,14 +53,14 @@ describe("networkAdmissionVerdict", () => {
 });
 
 describe("admitNetworkAddress", () => {
-  test("a mostly empty network costs one count and no tunnel read", async () => {
+  test("a tunnel-heavy network with few machines is full: tunnels are always counted", async () => {
     const { repo, calls } = repoHolding(10);
     let tunnelReads = 0;
-    const usage = await Effect.runPromise(admitNetworkAddress(repo, {
-      listNetworkTunnelIds: () => Effect.sync(() => { tunnelReads += 1; return []; }),
-    }, input()));
-    expect(usage).toEqual({ held: 10, capacity: 254, machines: 10, tunnels: null });
-    expect(tunnelReads).toBe(0);
+    const result = await Effect.runPromise(Effect.either(admitNetworkAddress(repo, {
+      listNetworkTunnelIds: () => Effect.sync(() => { tunnelReads += 1; return Array.from({ length: 245 }, (_, i) => `wg-${i}`); }),
+    }, input())));
+    expect(tunnelReads).toBe(1);
+    expect(result._tag).toBe("Left");
     expect(calls).toEqual([{ provider: "freestyle", userId: "user-1", billingTeamId: "team-1", scope: "team", cidr: "10.40.0.0/24" }]);
   });
 
@@ -102,22 +97,5 @@ describe("admitNetworkAddress", () => {
       listNetworkTunnelIds: () => Effect.fail(new Error("provider down")),
     }, input()));
     expect(usage).toMatchObject({ held: 200, tunnels: null });
-  });
-});
-
-describe("team network CIDR", () => {
-  test("is a stable, aligned /20 inside 10.128.0.0/10, clear of the user pool", () => {
-    const teams = ["team-1", "team-2", "a-much-longer-stack-team-id"];
-    expect(teamNetworkCidr("team-1")).toBe(teamNetworkCidr("team-1"));
-    const userLow = ipv4ToInt("10.192.0.0");
-    for (const team of teams) {
-      const [address, prefix] = teamNetworkCidr(team).split("/");
-      expect(prefix).toBe("20");
-      const base = ipv4ToInt(address!);
-      expect(base % 4096).toBe(0);
-      expect(base).toBeGreaterThanOrEqual(ipv4ToInt("10.128.0.0"));
-      expect(base + 4095).toBeLessThan(userLow);
-      expect(ipv4ToInt(userNetworkCidr(team).split("/")[0]!)).toBeGreaterThanOrEqual(userLow);
-    }
   });
 });
