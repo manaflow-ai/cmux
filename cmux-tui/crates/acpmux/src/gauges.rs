@@ -353,6 +353,9 @@ impl Links {
             "hubPlainDials": n(&self.hub_plain_dials),
             "hubKeptDials": n(&self.hub_kept_dials),
             "keptStreamOpens": n(&self.kept_stream_opens),
+            "sshHopsOpen": n(&crate::ssh_hops::counts().open),
+            "sshHopsRefused": n(&crate::ssh_hops::counts().refused),
+            "sshHopsReaped": n(&crate::ssh_hops::counts().reaped),
             "dialGateInFlight": crate::peer_dial_gate::global().in_flight(),
             "dialGateWaited": crate::peer_dial_gate::global().waited(),
         })

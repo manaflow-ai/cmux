@@ -230,3 +230,31 @@ fn ssh_master_directory_stays_in_the_held_home() {
         |_, _| {},
     );
 }
+
+/// A closed route leaves no ssh behind it: the link's tunnel is recorded under the home's
+/// `run/ssh-hops` while it is open, and ending it takes its record and its host's slot back.
+#[tokio::test]
+async fn an_ended_tunnel_leaves_no_hop_recorded_or_counted() {
+    let fake = Fake::new();
+    let peer = fake.peer("sm-hop-ended", "box-hop-ended", fake.mux());
+    let ledger = crate::ssh_hops::ledger_dir(fake.dir.path());
+    let listed = || {
+        std::fs::read_dir(&ledger)
+            .map(|d| {
+                d.flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".json")).count()
+            })
+            .unwrap_or(0)
+    };
+    let tunnel = peer.open_tunnel().await.unwrap();
+    assert_eq!(listed(), 1, "the open tunnel is recorded");
+    assert_eq!(crate::ssh_hops::open_to("box-hop-ended"), 1);
+    peer.end_tunnel().await;
+    drop(tunnel);
+    for _ in 0..250 {
+        if listed() == 0 && crate::ssh_hops::open_to("box-hop-ended") == 0 {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("the ended tunnel is still recorded ({}) or counted", listed());
+}

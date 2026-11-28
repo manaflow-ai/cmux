@@ -142,6 +142,19 @@ impl Peer {
         ssh
     }
 
+    /// Spawns one of this peer's ssh hops: under its host's cap, recorded beside the masters'
+    /// sockets (`<home>/run/ssh-hops`) until it exits, so a daemon that goes without dropping it
+    /// leaves nothing the next one cannot end (`ssh_hops.rs`).
+    pub(in crate::peer) fn spawn_hop(
+        &self,
+        command: &mut tokio::process::Command,
+    ) -> io::Result<tokio::process::Child> {
+        let host = self.ssh_parts().map(|(destination, _)| destination).unwrap_or_default();
+        let ledger =
+            self.ssh_mux().dir.as_deref().and_then(Path::parent).map(|run| run.join("ssh-hops"));
+        crate::ssh_hops::spawn(command, &host, ledger.as_deref())
+    }
+
     /// The first SSH process establishes the shared transport. A per-socket advisory lock
     /// also covers a second daemon starting during handoff. The lock is released on exit
     /// or cancellation, and a warm multiplexed channel only needs a socket existence check.

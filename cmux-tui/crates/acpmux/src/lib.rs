@@ -433,6 +433,7 @@ pub mod sr2_priority;
 pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
 pub(crate) mod ssh_forward_owners;
+pub(crate) mod ssh_hops;
 pub mod stash;
 pub mod stats;
 pub(crate) mod stderr;
