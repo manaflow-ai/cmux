@@ -109,6 +109,8 @@ fn to_hint(hint: CloudWakeHint) -> Hint {
         allowed: hint.allowed,
         loaded: hint.loaded,
         status: hint.status,
+        // The phone's hint carries no reads-without-wake flag: false keeps it waking as before (#65536's absent default).
+        reads_without_wake: false,
     }
 }
 
