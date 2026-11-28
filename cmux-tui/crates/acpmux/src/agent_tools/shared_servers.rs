@@ -168,18 +168,25 @@ pub fn claude_with(
         .collect()
 }
 
-/// Resolve precedence before applying sharing's disabled filter. Identity detection also
-/// needs disabled entries: changing their name would lose the harness's disabled setting.
+/// Resolve precedence independently of sharing eligibility. Identity detection includes
+/// disabled and policy-denied entries: renaming either would evade the harness's name rules.
 fn claude_entries(
     claude: &project_mcp::Claude,
     cwd: &Path,
-    include_disabled: bool,
+    identity_only: bool,
 ) -> Map<String, Value> {
     let mut out = Map::new();
     if claude.managed_mcp.exists() {
         return out;
     }
-    let Some(managed) = project_mcp::managed_policies(claude) else { return out };
+    // Permission filters govern sharing, never recognition of a config identity. A denied
+    // legacy builtin keeps its name so Claude continues applying that denial to our entry.
+    let managed = if identity_only {
+        Vec::new()
+    } else {
+        let Some(managed) = project_mcp::managed_policies(claude) else { return out };
+        managed
+    };
     let real = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     let configs: Vec<Value> =
         claude.configs.iter().filter_map(|f| project_mcp::read_json(f)).collect();
@@ -206,7 +213,7 @@ fn claude_entries(
         }
     }
     let folders: Vec<&Path> = real.ancestors().collect();
-    if include_disabled {
+    if identity_only {
         // Read declarations before disabled filtering, nearest folder first. An unrelated
         // disabled declaration still shadows a lower-priority legacy cmux entry.
         for folder in &folders {
@@ -235,7 +242,7 @@ fn claude_entries(
         if !seen.insert(name.clone()) {
             continue;
         }
-        if !include_disabled && disabled.contains(&name) {
+        if !identity_only && disabled.contains(&name) {
             continue;
         }
         let Some(line) = project_mcp::stdio_line(&server) else { continue };
@@ -337,7 +344,7 @@ pub fn claude_leftover(env: &BTreeMap<String, String>, cwd: &Path) -> Option<Str
     claude_leftover_with(&claude, env, cwd)
 }
 
-/// Resolve the same effective entry as sharing, including disabled legacy servers.
+/// Resolve the effective config identity, including disabled and denied legacy servers.
 /// A lower-priority user entry must never replace an unrelated project or local server.
 fn claude_leftover_with(
     claude: &project_mcp::Claude,
