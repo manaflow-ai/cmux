@@ -8,7 +8,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
-import { railFrame } from "./support/railFrame";
+import { railFrame, scrollFrames } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -146,6 +146,8 @@ for (let height = 96; height <= 336; height += 16)
         for (const at of offsets.filter((at) => at >= 0)) {
           scroller.scrollTop = at;
           await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+          // The band moves, then the list places itself, each in its own frame (scrollFrames).
+          await scrollFrames(dom.window);
           const rail = host.querySelector<HTMLElement>(".acpmux-minimap__rail");
           if (!rail) {
             clipped.push(`${count} prompts at ${at} px: no rail`);

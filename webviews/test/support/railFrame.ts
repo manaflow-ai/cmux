@@ -18,3 +18,14 @@ export const withRail = async (acted: PromiseLike<unknown>) => {
   await acted;
   await railFrame();
 };
+
+/// Runs `count` of the window's animation frames inside an act. A scroll moves the rail's band in
+/// the frame after its event (ThreadMinimap.tsx, the band's `place`, bad28b3b), and the band's move
+/// places the rail's list in the frame after that commit (the list's `place`, #50774 and #54847): a
+/// test that scrolls and then reads the rail runs both, as a browser would before the rail is seen.
+export const scrollFrames = async (win: { requestAnimationFrame: (callback: () => void) => number }, count = 2) => {
+  for (let frame = 0; frame < count; frame++)
+    await act(async () => {
+      await new Promise<void>((resolve) => win.requestAnimationFrame(() => resolve()));
+    });
+};
