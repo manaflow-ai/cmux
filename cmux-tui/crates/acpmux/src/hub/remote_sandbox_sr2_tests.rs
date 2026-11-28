@@ -9,13 +9,13 @@ fn profile(argv: &[&str], env: &[(&str, &str)]) -> HarnessProfile {
     .unwrap()
 }
 
-const GATEWAY: &str = "http://sr2-gateway.tail137216.ts.net:4016";
+const GATEWAY: &str = "http://sr2-gateway.example.ts.net:4016";
 
 fn strings(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
 }
 
-/// air-blue, 2026-11-28: a remote chain's `sr2 claude2` slept forever before its main in the
+/// 2026-11-28: a remote chain's `sr2 claude2` slept forever before its main in the
 /// sandbox (or exited on the claude.json.lock EPERM). It now runs Claude Code itself on the sr2
 /// gateway, even when acpmux's own `claude` profile is that same launcher.
 #[test]

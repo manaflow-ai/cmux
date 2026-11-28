@@ -4,7 +4,7 @@
 //! `main`, CoreFoundation's initializer asks notifyd for the user's encoding
 //! (`getpwuid_r` -> `notify_register_check` -> `bootstrap_look_up3`), a Mach
 //! lookup the profile denies, and the reply never comes: the launch sleeps
-//! forever with no child (air-blue, 2026-11-28: sr2 16861 and 18931, 80743 and
+//! forever with no child (a Mac, 2026-11-28: sr2 16861 and 18931, 80743 and
 //! 81030 for 88 minutes). When it gets past that, it writes its account store
 //! (`~/.subrouter/codex/claude.json.lock`), which the profile also denies:
 //! "operation not permitted". So a remote chain never runs the launcher: it
@@ -69,7 +69,7 @@ pub(super) fn sr2_plan(
     let route = route.ok_or(format!(
         "the sr2 launcher cannot run in a remote chain's sandbox (its startup is blocked there), and no sr2 gateway is known to run Claude Code on directly: set {ROUTE_ENV}"
     ))?;
-    // A `claude` profile that is itself a launcher (air-blue's is `sr2 claude2`) is not Claude Code.
+    // A `claude` profile that is itself a launcher (one Mac's is `sr2 claude2`) is not Claude Code.
     let launcher = |p: &str| {
         let base = std::path::Path::new(p).file_name().and_then(|n| n.to_str()).unwrap_or(p);
         crate::sr2_priority::is_sr2_launcher(p) || matches!(base, "sr" | "claude-sr")
