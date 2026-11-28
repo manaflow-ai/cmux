@@ -94,6 +94,14 @@ class MacIntegrationGateTest(unittest.TestCase):
         self.assertIn("inputs.mac_integration != ''", mac["if"])
         steps = {step["name"]: step for step in mac["steps"] if "name" in step}
         self.assertEqual(steps["Route the Mac tiers"]["if"], "inputs.mac_integration_only == ''")
+        scratch = steps["Prepare Swift scratch for selected Mac integrations"]
+        # No fast_tier predicate: selected native suites need scratch even when tier routing is skipped.
+        self.assertEqual(scratch["if"], "inputs.mac_integration != '' && contains(runner.name, '-glaeda')")
+        self.assertEqual(shlex.split(scratch["run"]),
+                         ["python3", "scripts/ci/owned_spm_scratch.py", "link", "$GITHUB_WORKSPACE"])
+        names = list(steps)
+        self.assertLess(names.index("Select Xcode"), names.index(scratch["name"]))
+        self.assertLess(names.index(scratch["name"]), names.index("Run the routed mac steps (ci/steps.toml)"))
         run = steps["Run the routed mac steps (ci/steps.toml)"]
         self.assertIn('--only "$MAC_ONLY"', run["run"])
         self.assertIn("inputs.mac_integration", run["env"]["CI_STEP_VERDICT_STEPS"])

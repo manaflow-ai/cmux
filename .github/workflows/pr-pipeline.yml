@@ -1126,6 +1126,11 @@ jobs:
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
           python3 scripts/ci/github_fetch_auth.py || true
+      # Narrow native integrations build in the checkout, independently of the fast-tier leased root.
+      # clean:false can retain .build links whose cache target was evicted between runner jobs.
+      - name: Prepare Swift scratch for selected Mac integrations
+        if: inputs.mac_integration != '' && contains(runner.name, '-glaeda')
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
       - name: Name the build root
         if: steps.tiers.outputs.fast_tier == 'true'
         env:

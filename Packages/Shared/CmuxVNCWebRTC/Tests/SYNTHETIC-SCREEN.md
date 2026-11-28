@@ -40,3 +40,9 @@ The PR router selects this assertion even on cheap or carried heads. Those heads
 `cmux/ios-fast` status consumes the selected step's assertion verdict, not the Mac job's
 exit status: missing, skipped and timed-out tests cannot pass. Manual verdict recovery
 also runs this single suite at the exact PR test-merge commit before posting green.
+
+On owned Macs, the selected integration prepares the checkout's SwiftPM scratch independently
+of the fast tier's leased root. A reused checkout can retain `.build` links after their cache
+targets are evicted; `owned_spm_scratch.py link` recreates the target and relinks it before
+resolution. `Scratch.test_integration_setup_repairs_a_build_link_after_cache_eviction` checks
+this case, and `MacIntegrationGateTest` checks that narrow routing includes the setup.
