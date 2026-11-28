@@ -20891,7 +20891,7 @@ test "cancel has one total deadline across stale and fragmented reads" {
             .allocator = std.testing.allocator,
             .mode = .success,
             .cancel_delivery = delivery,
-            .cancel_read_delay_ms = 12,
+            .cancel_read_delay_ms = 30,
         };
         defer stream_shared.deinit();
         var factory_state = StreamFactoryState{
@@ -20902,7 +20902,9 @@ test "cancel has one total deadline across stale and fragmented reads" {
             &control_shared,
         );
         var client = Client.init(std.testing.allocator, connection, .{
-            .timeout_ms = 40,
+            // Four 30 ms reads fit the budget; at 40/12 a loaded runner spent it all
+            // on the first read and never made a second.
+            .timeout_ms = 120,
             .stream_factory = .{
                 .context = &factory_state,
                 .openFn = StreamFactoryState.open,
