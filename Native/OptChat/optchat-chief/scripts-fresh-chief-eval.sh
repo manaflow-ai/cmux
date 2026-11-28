@@ -5,6 +5,7 @@
 set -u
 cd "$(dirname "$0")"
 out=$(cargo test --test fresh_chief_placement --test fresh_chief_first_run 2>&1)
+cargo_rc=$?
 # Hosted (Cloud) Chief case, a655: a spawned child gets a workspace link (needs backend deps; skipped without).
 api=../../../backend/apps/api
 if [ -d "$api/node_modules" ] || [ -d ../../../backend/node_modules ]; then
@@ -16,4 +17,10 @@ echo "$out" | grep -E "^test " | sed -E 's/^test //; s/ \.\.\. / | /'
 pass=$(echo "$out" | grep -cE "^test .* ok$")
 fail=$(echo "$out" | grep -cE "^test .* FAILED$")
 echo "pass-rate: $pass/$((pass+fail))"
+# Zero tests counted means cargo never ran them (a build or toolchain error): print why,
+# instead of a bare 0/0 that names no cause.
+if [ $((pass+fail)) -eq 0 ]; then
+  echo "fresh-chief-eval: no test ran (cargo exit $cargo_rc); cargo said:" >&2
+  echo "$out" | tail -n 60 >&2
+fi
 [ "$fail" -eq 0 ] && [ "$pass" -gt 0 ]
