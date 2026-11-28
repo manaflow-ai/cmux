@@ -96,10 +96,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
     static let replayKey = "CMUX_RESTORE_SCROLLBACK_FILE"
 
     private func pane(holding surface: SurfaceID) async throws -> PaneID {
-        guard let pane = try await daemon.shape(of: key, after: connection)?.pane(holding: surface) else {
-            throw DaemonError.malformedResponse("pane for surface \(surface) not found")
-        }
-        return pane
+        try await daemon.pane(holding: surface, in: key, after: connection)
     }
 
     /// Splits are made at the daemon's default ratio; set each to the
