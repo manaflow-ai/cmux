@@ -55,8 +55,10 @@ REVIEWED_FIELDS = {
                                          "c7e82d092e3ba83a"),
     ("put-frontend-projection", "projection"): ("the phone's own personal projection; the lane checks scope and subject",
                                                 "d7e14019f9227131"),
-    ("move-tab-to-column", "dock"): ("ColumnPin: an edge and a width for docking a column",
-                                     "1b92a6de6fe0171a"),
+    # The three booleans (permanent, pinned, allow_tabs) are the dock column's own layout flags the daemon
+    # already read (crate::model::ColumnDock); they name no program, directory or environment.
+    ("move-tab-to-column", "dock"): ("ColumnPin: an edge and a width for docking a column, and its permanent, "
+                                     "pinned and allow_tabs flags", "4d51da7aad28fc7f"),
     ("resize-attached-view", "identity"): ("SizingIdentity: whose size lease this is",
                                            "603297ce84b828a2"),
     ("set-host-size-policy", "policy"): ("HostSizePolicyRequest: a mode name and a list of device tokens; the "

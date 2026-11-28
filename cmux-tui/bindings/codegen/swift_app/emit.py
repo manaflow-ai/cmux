@@ -28,6 +28,11 @@ Wire rules (the same JSON the hand-written types sent):
   `workspace: WorkspaceRef` the caller must give, encoded flat as the one of the two it names
   (`WorkspaceRefFields`); `"workspace"` in `order` places it, else it comes after the fields, before
   `mutation`;
+- `object: {...}` on a field whose schema type is an object makes a nested `Encodable` struct in the request
+  (`name`, default the field's name as a type; `order`, `fields`, `omit`, `doc`): its fields follow these
+  same rules, so it sends what the hand-written nested struct sent;
+- `omit` (request or nested object) lists optional schema fields the Swift type never sends: the daemon
+  keeps their default;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
@@ -91,12 +96,14 @@ _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation",
-    "workspace_ref", "one_of",
+    "workspace_ref", "one_of", "omit",
 })
 # A request property of a hand-written Swift enum (`one_of`): each case carries one optional schema field, and
 # the request sends the field of the case it holds, so exactly one of them goes on the wire.
 _ONE_OF_KEYS = frozenset({"type", "cases", "doc"})
-_FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update", "with"})
+_FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update", "with", "object"})
+# A request field's nested object (`object`): a struct of the request whose fields follow the request rules.
+_NESTED_KEYS = frozenset({"name", "doc", "order", "fields", "omit"})
 _ENCODE_MODES = {"always": True, "if_present": False}
 IF_TRUE = "if_true"
 DECIMAL = "decimal"
@@ -210,6 +217,39 @@ class _Enum:
                 raise BindingError(f"enum {self.name}: two values become the Swift case {case}")
             cases.add(_bare(case))
             out.append(f"{indent}    case {case}" + ("" if _bare(case) == value else f" = {json.dumps(value)}"))
+        out.append(f"{indent}}}")
+        return out
+
+
+@dataclass
+class _Struct:
+    """A request field's nested object (`object`): an Encodable struct with the request's wire rules."""
+
+    name: str
+    fields: list["_Field"]
+    nested: list[Any]
+    doc: list[str] = field(default_factory=list)
+
+    def lines(self, indent: str, *, public_doc: bool = True) -> list[str]:
+        inner = indent + "    "
+        out = _doc(self.doc, indent) if public_doc else []
+        out.append(f"{indent}public struct {self.name}: Encodable, Sendable, Equatable {{")
+        for item in self.nested:
+            out += [*item.lines(inner), ""]
+        for item in self.fields:
+            out += _doc(item.doc, inner)
+            out.append(f"{inner}public var {item.name}: {item.declared_type}")
+        out += ["", f"{inner}public init({', '.join(item.parameter() for item in self.fields)}) {{"]
+        out += [f"{inner}    self.{item.name} = {item.name}" for item in self.fields]
+        out.append(f"{inner}}}")
+        out += ["", f"{inner}enum CodingKeys: String, CodingKey {{"]
+        out += [f"{inner}    {key}" for item in self.fields for key in item.coding_keys()]
+        out.append(f"{inner}}}")
+        out += ["", f"{inner}public func encode(to encoder: any Encoder) throws {{"]
+        out.append(f"{inner}    var container = encoder.container(keyedBy: CodingKeys.self)")
+        for item in self.fields:
+            out += [line.replace("        ", inner + "    ", 1) for line in item.encode_line().split("\n")]
+        out.append(f"{inner}}}")
         out.append(f"{indent}}}")
         return out
 
@@ -386,9 +426,15 @@ class _Renderer:
             override = _check_keys(
                 f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _FIELD_KEYS
             )
-            swift_type = override.get("type") or self.swift_type(
-                spec["type"], where=f"{where}.{wire}", wire=wire, nested=nested
-            )
+            if "object" in override:
+                if read or "type" in override or override.get("update") or "encode" in override and override[
+                        "encode"] not in _ENCODE_MODES:
+                    raise BindingError(f"{where}.{wire}: object is for a request field with no type, update or encode mode")
+                swift_type = self.nested_object(f"{where}.{wire}", wire, spec["type"], override["object"], nested)
+            else:
+                swift_type = override.get("type") or self.swift_type(
+                    spec["type"], where=f"{where}.{wire}", wire=wire, nested=nested
+                )
             required = spec["presence"] == "required"
             if_true = decimal = False
             # A JSONValue carries null itself, so a required nullable JSON field is not an Optional.
@@ -502,6 +548,46 @@ class _Renderer:
             target.doc.append(f"Sent only with `{_bare(gate.name)}`.")
         return result
 
+    def nested_object(self, where: str, wire: str, expr: Mapping[str, Any], binding: Any,
+                      nested: list[Any]) -> str:
+        """The nested struct an `object` field binding makes; its Swift name."""
+        binding = _check_keys(f"{where}.object", binding, _NESTED_KEYS)
+        if expr["kind"] == "ref" and expr["name"] in {**self.bound, **self.read_types, **self.enums}:
+            raise BindingError(f"{where}: schema type {expr['name']} already has a Swift type; drop the object binding")
+        target = self._object(expr)
+        if target is None:
+            raise BindingError(f"{where}: object is for a field whose schema type is an object")
+        name = binding.get("name") or type_name(wire)
+        if not isinstance(name, str) or not _IDENTIFIER.fullmatch(name) or name in _KEYWORDS:
+            raise BindingError(f"{where}.object: {name!r} is not a Swift type name")
+        if any(existing.name == name for existing in nested):
+            raise BindingError(f"{where}: two nested types become {name}")
+        schema_fields = self.omitting(f"{where}.object", target["fields"], binding)
+        if not schema_fields:
+            raise BindingError(f"{where}.object: the nested object sends no field")
+        inner: list[Any] = []
+        fields = self.fields(f"{where}.object", schema_fields, binding.get("fields", {}),
+                             list(binding.get("order", ())), inner)
+        for item in fields:
+            if item.update:
+                raise BindingError(f"{where}.object.{item.wire}: update is for a request's own field")
+        nested.append(_Struct(name, fields, inner, list(binding.get("doc", ()))))
+        return name
+
+    @staticmethod
+    def omitting(where: str, schema_fields: Mapping[str, Any], binding: Mapping[str, Any]) -> dict[str, Any]:
+        """The schema fields less the binding's `omit`: optional fields the Swift type never sends."""
+        omit = binding.get("omit", [])
+        if not isinstance(omit, list) or len(set(omit)) != len(omit):
+            raise BindingError(f"{where}: omit lists schema fields, each once")
+        for wire in omit:
+            spec = schema_fields.get(wire)
+            if spec is None or spec["presence"] == "required":
+                raise BindingError(f"{where}: omit names {wire!r}, which is not an optional field of the schema")
+            if wire in binding.get("fields", {}) or wire in binding.get("order", ()):
+                raise BindingError(f"{where}: omit names {wire!r}, which the binding also binds")
+        return {wire: spec for wire, spec in schema_fields.items() if wire not in omit}
+
     # Files ------------------------------------------------------------------------------------------------
 
     def render(self) -> dict[str, str]:
@@ -545,8 +631,9 @@ class _Renderer:
         protocol = binding.get("protocol", PROTOCOLS[0])
         if protocol not in PROTOCOLS:
             raise BindingError(f"{command}: protocol must be one of {', '.join(PROTOCOLS)}")
-        nested: list[_Enum] = []
-        schema_fields, order = request["fields"], list(binding.get("order", ()))
+        nested: list[Any] = []
+        schema_fields = self.omitting(command, request["fields"], binding)
+        order = list(binding.get("order", ()))
         mutation = binding.get("mutation", False)
         if mutation not in (True, False):
             raise BindingError(f"{command}: mutation is true or false")

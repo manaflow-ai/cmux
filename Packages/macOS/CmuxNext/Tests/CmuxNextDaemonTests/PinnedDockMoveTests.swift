@@ -17,7 +17,7 @@ struct PinnedDockMoveRequestTests {
     }
 
     @Test func aPinnedDockMoveTellsTheDaemonTheDockIsPinned() throws {
-        let request = MoveTabToColumnRequest(surface: 7, target: .pane(PaneID(rawValue: 3)), width: 0.5, dock: Self.homeDock)
+        let request = MoveTabToColumnRequest(surface: 7, target: .pane(PaneID(rawValue: 3)), width: 0.5, dock: .init(Self.homeDock))
         #expect(try dock(of: request) == .object([
             "edge": .string("left"), "mode": .string("docked"), "role": .string("agent_chat"), "pinned": .bool(true),
         ]))
@@ -26,7 +26,7 @@ struct PinnedDockMoveRequestTests {
     /// An ordinary dock move sends what it always sent: an older daemon reads it as before.
     @Test func anUnpinnedDockMoveSendsNoPin() throws {
         let plain = DockSnapshot(edge: .right, mode: .overlay)
-        let request = MoveTabToColumnRequest(surface: 7, target: .pane(PaneID(rawValue: 3)), dock: plain)
+        let request = MoveTabToColumnRequest(surface: 7, target: .pane(PaneID(rawValue: 3)), dock: .init(plain))
         #expect(try dock(of: request) == .object(["edge": .string("right"), "mode": .string("overlay")]))
     }
 }

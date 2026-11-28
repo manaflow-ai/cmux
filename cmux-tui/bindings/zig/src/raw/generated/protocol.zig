@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c";
+pub const ir_sha256 = "9ec9944a25f9ad6c03f7f5341e9a5796ccb4620d79b93cf1ddf1233c074d67c1";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -500,9 +500,18 @@ pub const ColumnMoveDirection = enum {
 };
 
 pub const ColumnPin = struct {
+    allow_tabs: ?bool = null,
     edge: []const u8,
     mode: []const u8,
+    permanent: ?bool = null,
+    pinned: ?bool = null,
     role: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "allow_tabs",
+        "permanent",
+        "pinned",
+    };
 };
 
 pub const ColumnSide = enum {

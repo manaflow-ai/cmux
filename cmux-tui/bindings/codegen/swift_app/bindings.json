@@ -1882,7 +1882,7 @@
       }
     },
     "TabMove": {
-      "$comment": "Hand-written still: MoveTabToWorkspaceRequest (the schema gates move-tab-to-workspace by tab-workspace-move-v1, which the app never required); the other move-tab-to-split requests (one binding per command) and move-tab-to-column (a drop target and a dock pin the emitter cannot encode).",
+      "$comment": "Hand-written still: MoveTabToWorkspaceRequest (the schema gates move-tab-to-workspace by tab-workspace-move-v1, which the app never required); the other move-tab-to-split requests (one binding per command); move-tab-to-column's respawn wrapper (MoveTabToColumnRespawnRequest: it owns respawn and pane_id, which MoveTabToColumnRequest omits).",
       "requests": {
         "move-tab": {
           "name": "MoveTabRequest",
@@ -1957,6 +1957,101 @@
             },
             "respawn": {
               "type": "SplitRespawn"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabMoveResult"
+        },
+        "move-tab-to-column": {
+          "name": "MoveTabToColumnRequest",
+          "doc": [
+            "Drop between strip columns: new viewport column holding the tab."
+          ],
+          "order": [
+            "surface",
+            "target",
+            "after_column",
+            "width",
+            "dock",
+            "keep_focus",
+            "transaction"
+          ],
+          "one_of": {
+            "target": {
+              "type": "ColumnDropTarget",
+              "cases": [
+                "screen",
+                "pane"
+              ],
+              "doc": [
+                "The destination screen, named directly or by any of its panes."
+              ]
+            }
+          },
+          "omit": [
+            "respawn",
+            "pane_id"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "after_column": {
+              "type": "ColumnID",
+              "doc": [
+                "Insert after this column; nil = after the last one."
+              ]
+            },
+            "width": {
+              "doc": [
+                "Viewport fraction 0.1...1.0; nil = 2/3."
+              ]
+            },
+            "dock": {
+              "doc": [
+                "Pins the new column to an edge in the same commit (edge-docks-v1)."
+              ],
+              "object": {
+                "name": "Dock",
+                "doc": [
+                  "The dock pin a new column takes (`ColumnPin`); `init(_:)` makes it from a ``DockSnapshot``."
+                ],
+                "order": [
+                  "edge",
+                  "mode",
+                  "role",
+                  "pinned"
+                ],
+                "omit": [
+                  "permanent",
+                  "allow_tabs"
+                ],
+                "fields": {
+                  "edge": {
+                    "type": "DockSnapshot.Edge"
+                  },
+                  "mode": {
+                    "type": "DockSnapshot.Mode"
+                  },
+                  "role": {
+                    "type": "DockSnapshot.Role"
+                  },
+                  "pinned": {
+                    "encode": "if_true",
+                    "doc": [
+                      "A pinned dock (Home's): `pinned-dock-alone-v1` lets only it take a screen's only tab."
+                    ]
+                  }
+                }
+              }
+            },
+            "keep_focus": {
+              "encode": "if_true",
+              "doc": [
+                "The new column's pane does not take focus; ``DaemonConnection/moveTabToColumn`` sends true only to a daemon that has `tab-split-keep-focus-v1`."
+              ]
             },
             "transaction": {
               "type": "ClientTransactionID"
@@ -2201,7 +2296,7 @@
       }
     },
     "TerminalIO": {
-      "$comment": "Hand-written still: set-attach-visibility, clear-history, the clipboard subscribe and reply, cancel-creating-input, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work); terminal-find (the schema adds max_matches and page_rows).",
+      "$comment": "Hand-written still: set-attach-visibility, clear-history, the clipboard subscribe and reply, cancel-creating-input, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work); terminal-find (the schema adds max_matches and page_rows).",
       "enums": {},
       "requests": {
         "send-key": {
@@ -2320,6 +2415,52 @@
             }
           },
           "response": "hand-written"
+        },
+        "set-size-policy": {
+          "name": "SetSizePolicyRequest",
+          "doc": [
+            "Sets the terminal's own sizing policy (`set-size-policy {surface, policy}`, `shared-sizing-v1`).",
+            "Take over under a policy that picks by size sets last active first, so its claim wins",
+            "(plans/cmux-next/sync-ux/DESIGN.md 2.6)."
+          ],
+          "order": [
+            "surface",
+            "policy"
+          ],
+          "omit": [
+            "workspace"
+          ],
+          "fields": {
+            "surface": {
+              "optional": false,
+              "encode": "always"
+            },
+            "policy": {
+              "optional": false,
+              "encode": "always",
+              "object": {
+                "name": "Policy",
+                "order": [
+                  "mode"
+                ],
+                "omit": [
+                  "priority",
+                  "fixed"
+                ],
+                "fields": {
+                  "mode": {
+                    "type": "String",
+                    "optional": false,
+                    "encode": "always",
+                    "doc": [
+                      "`latest`, `smallest`, `largest`, `priority` or `fixed`."
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "response": "EmptyResponse"
         }
       }
     },

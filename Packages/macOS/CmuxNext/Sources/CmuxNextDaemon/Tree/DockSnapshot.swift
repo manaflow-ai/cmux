@@ -3,14 +3,14 @@ import Foundation
 /// A column docked to a viewport edge, `columns[].dock`: left or right
 /// (`dock-columns-v1`), top or bottom (also `edge-docks-v1`).
 public struct DockSnapshot: Sendable, Hashable, Decodable {
-    public enum Edge: String, Sendable, Hashable, Decodable {
+    public enum Edge: String, Sendable, Hashable, Codable {
         case left, right, top, bottom
 
         public var isBand: Bool { self == .top || self == .bottom }
     }
-    public enum Mode: String, Sendable, Hashable, Decodable { case docked, overlay }
+    public enum Mode: String, Sendable, Hashable, Codable { case docked, overlay }
     /// What the column is for (`dock-column-role-v1`): the agent chat column.
-    public enum Role: String, Sendable, Hashable, Decodable { case agentChat = "agent_chat" }
+    public enum Role: String, Sendable, Hashable, Codable { case agentChat = "agent_chat" }
     public var edge: Edge
     public var mode: Mode
     public var role: Role?

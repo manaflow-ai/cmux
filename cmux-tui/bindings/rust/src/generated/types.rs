@@ -451,8 +451,14 @@ pub enum ColumnMoveDirection {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColumnPin {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub allow_tabs: Option<bool>,
     pub edge: String,
     pub mode: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub permanent: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub role: Optional<String>,
 }

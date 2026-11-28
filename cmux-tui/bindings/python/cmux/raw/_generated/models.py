@@ -598,6 +598,9 @@ class ColumnPin:
     __cmux_schema_path__: ClassVar[str] = 'types/ColumnPin'
     edge: str
     mode: str
+    allow_tabs: Union[bool, MissingType] = field(default=MISSING)
+    permanent: Union[bool, MissingType] = field(default=MISSING)
+    pinned: Union[bool, MissingType] = field(default=MISSING)
     role: Union[str, None, MissingType] = field(default=MISSING)
 
 

@@ -484,6 +484,79 @@ class OneOfTests(unittest.TestCase):
                 self.source(one_of, order, **fields)
 
 
+class NestedObjectTests(unittest.TestCase):
+    """`object`: a field whose schema type is an object becomes a struct nested in the request; `omit` drops
+    optional schema fields the Swift type never sends, on the request or on the nested object."""
+
+    PIN = {"doc": ["The pin."], "order": ["edge", "pinned"], "omit": ["size"], "fields": {"pinned": {"encode": "if_true"}}}
+
+    def document(self) -> dict[str, Any]:
+        document = layout_document()
+        document["types"]["Pin"] = {
+            "kind": "object",
+            "fields": {
+                "edge": _field({"kind": "ref", "name": "PaneDirection"}),
+                "pinned": _field({"kind": "scalar", "name": "boolean"}, required=False, default=False),
+                "size": _field({"kind": "scalar", "name": "uint32"}, required=False, nullable=True),
+            },
+            "additional_properties": False,
+        }
+        document["types"]["Bare"] = {"kind": "object", "fields": {}, "additional_properties": False}
+        request = document["commands"]["set-split-ratio"]["request"]["fields"]
+        request["pin"] = _field({"kind": "ref", "name": "Pin"}, required=False, nullable=True)
+        request["bare"] = _field({"kind": "ref", "name": "Bare"}, required=False, nullable=True)
+        request["respawn"] = _field({"kind": "scalar", "name": "boolean"}, required=False, default=False)
+        return document
+
+    def source(self, fields: dict[str, Any] | None = None, omit: list[str] | None = None,
+               order: list[str] | None = None) -> str:
+        bindings = layout_bindings()
+        binding = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        binding["order"] = order or ["split", "ratio", "pin"]
+        binding["omit"] = ["respawn", "bare"] if omit is None else omit
+        binding["fields"] = {"pin": {"object": self.PIN}} if fields is None else fields
+        return rendered(self.document(), bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_the_nested_struct_encodes_its_own_fields(self) -> None:
+        source = self.source()
+        self.assertIn("    public var pin: Pin?\n", source)
+        self.assertIn("    /// The pin.\n    public struct Pin: Encodable, Sendable, Equatable {\n", source)
+        self.assertIn("        public var edge: PaneDirection\n", source)
+        self.assertIn("        public init(edge: PaneDirection, pinned: Bool = false) {\n", source)
+        self.assertIn("        enum CodingKeys: String, CodingKey {\n            case edge\n            case pinned\n", source)
+        self.assertIn("            if pinned { try container.encode(true, forKey: .pinned) }\n", source)
+        self.assertIn("        try container.encodeIfPresent(pin, forKey: .pin)\n", source)
+        self.assertEqual(source.count("{"), source.count("}"))
+        self.assertNotIn("size", source)
+        self.assertNotIn("respawn", source)
+
+    def test_a_name_overrides_the_field_name(self) -> None:
+        source = self.source({"pin": {"object": {"name": "Dock", "order": ["edge"], "omit": ["pinned", "size"]}}})
+        self.assertIn("    public var pin: Dock?\n", source)
+        self.assertIn("    public struct Dock: Encodable, Sendable, Equatable {\n", source)
+
+    def test_object_and_omit_are_refused_where_they_cannot_keep_the_wire(self) -> None:
+        def pin(**binding: Any) -> dict[str, Any]:
+            return {"pin": {"object": {"order": ["edge", "pinned"], "omit": ["size"], **binding}}}
+
+        cases: dict[str, tuple[dict[str, Any] | None, list[str] | None, list[str] | None]] = {
+            "an object binding on a scalar": ({"ratio": {"object": {}}}, None, None),
+            "a nested field the schema lacks": (pin(order=["edge", "nope"]), None, None),
+            "omit of a required field": (pin(order=["pinned"], omit=["edge", "size"]), None, None),
+            "omit of a field it binds": (pin(order=["edge", "pinned", "size"]), None, None),
+            "omit twice": (pin(omit=["size", "size"]), None, None),
+            "an unknown key": (pin(nope=1), None, None),
+            "a bad name": (pin(name="not a name"), None, None),
+            "a nested update": (pin(order=["edge", "size"], omit=["pinned"], fields={"size": {"update": True}}), None, None),
+            "an object that sends nothing": ({"bare": {"object": {}}}, ["respawn", "pin"], ["split", "ratio", "bare"]),
+            "request omit of a required field": (None, ["respawn", "bare", "split"], ["ratio", "pin"]),
+            "request omit of a field in order": (None, ["respawn", "bare"], ["split", "ratio", "pin", "respawn"]),
+        }
+        for name, (fields, omit, order) in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(fields, omit, order)
+
+
 class DecimalTests(unittest.TestCase):
     """`encode: decimal`: a UInt64 the wire carries as a decimal string."""
 

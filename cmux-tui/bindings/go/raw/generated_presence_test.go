@@ -1009,6 +1009,72 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "terminal_incarnation", true, "\"value\"")
 	})
+	t.Run("ColumnPin.AllowTabs", func(t *testing.T) {
+		var missing ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.AllowTabs != nil {
+			t.Fatal("AllowTabs did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "allow_tabs", false, "")
+		var nullValue ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\",\"allow_tabs\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field allow_tabs accepted null")
+		}
+		var presentValue ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\",\"allow_tabs\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.AllowTabs == nil {
+			t.Fatal("AllowTabs lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "allow_tabs", true, "true")
+	})
+	t.Run("ColumnPin.Permanent", func(t *testing.T) {
+		var missing ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Permanent != nil {
+			t.Fatal("Permanent did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "permanent", false, "")
+		var nullValue ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\",\"permanent\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field permanent accepted null")
+		}
+		var presentValue ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\",\"permanent\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Permanent == nil {
+			t.Fatal("Permanent lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "permanent", true, "true")
+	})
+	t.Run("ColumnPin.Pinned", func(t *testing.T) {
+		var missing ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Pinned != nil {
+			t.Fatal("Pinned did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "pinned", false, "")
+		var nullValue ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\",\"pinned\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field pinned accepted null")
+		}
+		var presentValue ColumnPin
+		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\",\"pinned\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Pinned == nil {
+			t.Fatal("Pinned lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "pinned", true, "true")
+	})
 	t.Run("ColumnPin.Role", func(t *testing.T) {
 		var missing ColumnPin
 		if err := json.Unmarshal([]byte("{\"edge\":\"value\",\"mode\":\"value\"}"), &missing); err != nil {
@@ -70000,10 +70066,10 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1971
+	generatedFieldShapeCount               = 1974
 	generatedOptionalNullableFieldCount    = 1365
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 428
+	generatedOptionalNonnullableFieldCount = 431
 	generatedRequiredFieldCount            = 1662
 	generatedRequiredNonnullableFieldCount = 1484
 	generatedConstrainedFieldCount         = 139
