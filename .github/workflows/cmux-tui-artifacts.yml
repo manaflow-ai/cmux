@@ -373,6 +373,9 @@ jobs:
   # all runtime binaries and checksum markers exist, so there is no reason to spend a macOS build
   # or daemon-test slot on another commit with the same inputs.
   tree-preflight:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: cmux-tui tree preflight
     # push-gate is skipped for trunk pushes and dispatches; !cancelled() runs this job then.
     # coalesce is skipped (run empty) everywhere but a feat-cmux-next push, so only a coalesced push stops here.
@@ -708,7 +711,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
+          # attempt-2+ rerun on a nightly ref moves to (#64136).
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
         run: |
           set -euo pipefail
           superseded=false
@@ -1209,7 +1214,9 @@ jobs:
           TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
           DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
           # Only defer to a publisher queued on the current daemon-test runner.
-          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+          # Both pools the gate can take: cmux-linux, and the nightly spill pool an
+          # attempt-2+ rerun on a nightly ref moves to (#64136).
+          DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux,cmux-gcp-nightly-x64' }}
           # How long a live owner holds its key before a feat-cmux-next push
           # takes it over. On 2026-10-28 a healthy owner published about 20
           # minutes after it started, and owners hung for up to an hour in a Zig
@@ -1701,9 +1708,13 @@ jobs:
       build_cmux_rd: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.build_cmux_rd }}
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
-      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
-      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
-      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's one-job
+      # on-demand JIT label, never the pool that just failed it (cmux-tui-build-package.yml). Not
+      # cmux-gcp-nightly-x64: spot pool VMs serve it too, and 2026-11-28 08:05-12:05Z they were shut down 18-26
+      # min into the fat-LTO legs on attempts 1 and 2 alike (cmuxterm-hq#36618), so no tree published from 07:42Z
+      # and the Cloud image roll was never requested (deploy lag 259 min, bound 180). runner_pool.py keeps the
+      # nightly JIT label on-demand: "a long or one-off job there costs more to re-run than spot saves".
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || '' }}
 
 
   # MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST: the Cloud machine channel's thin copy of the two Linux musl
@@ -1803,9 +1814,13 @@ jobs:
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
-      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
-      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
-      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's one-job
+      # on-demand JIT label, never the pool that just failed it (cmux-tui-build-package.yml). Not
+      # cmux-gcp-nightly-x64: spot pool VMs serve it too, and 2026-11-28 08:05-12:05Z they were shut down 18-26
+      # min into the fat-LTO legs on attempts 1 and 2 alike (cmuxterm-hq#36618), so no tree published from 07:42Z
+      # and the Cloud image roll was never requested (deploy lag 259 min, bound 180). runner_pool.py keeps the
+      # nightly JIT label on-demand: "a long or one-off job there costs more to re-run than spot saves".
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || '' }}
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
@@ -1890,6 +1905,9 @@ jobs:
   # FALLBACK_AFTER_TIMEOUT: a timed-out leg ends as cancelled, so either a
   # failure or a timeout can trigger the native build of the missing targets.
   darwin-fallback-plan:
+    environment:
+      name: ci-routing-agent
+      deployment: false
     name: plan the macOS fallback build
     # FALLBACK_STARTS_WHEN_BUILD_FAILS: the plan no longer waits on build-linux. Run 46095639867's
     # macOS cross leg failed at 02:18Z, but the plan waited for build-linux until 02:26Z, so the Mac
@@ -2150,9 +2168,13 @@ jobs:
       darwin_builder: ${{ needs.darwin-fallback-plan.outputs.builder }}
       macos_stubs_ref: ${{ needs.darwin-fallback-plan.outputs.stubs_ref }}
       linux_runner: cmux-linux
-      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
-      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
-      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's one-job
+      # on-demand JIT label, never the pool that just failed it (cmux-tui-build-package.yml). Not
+      # cmux-gcp-nightly-x64: spot pool VMs serve it too, and 2026-11-28 08:05-12:05Z they were shut down 18-26
+      # min into the fat-LTO legs on attempts 1 and 2 alike (cmuxterm-hq#36618), so no tree published from 07:42Z
+      # and the Cloud image roll was never requested (deploy lag 259 min, bound 180). runner_pool.py keeps the
+      # nightly JIT label on-demand: "a long or one-off job there costs more to re-run than spot saves".
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-jit-x64' || '' }}
 
   # The publish jobs take the build from here: the matrix build, or that
   # build with its macOS targets rebuilt by build-darwin-fallback, or every
@@ -4390,7 +4412,7 @@ jobs:
     # It fetches the Mac-built x86_64 objects, which only main builds (CMUX_TUI_DARWIN_X86_64).
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     # 32 vCPU: the shadow builds both macOS targets of every binary.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-lane-build-x64' }} # host pin: the darwin cross build lane (was vars.LINUX_RUNNER_DARWIN_CROSS)
     timeout-minutes: 60
     continue-on-error: true
     permissions:
@@ -5942,7 +5964,7 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest, tree-preflight, publish-tree, sign-nightly-linux-release]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 115  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive, the AppImage and the Mac live update file, 20 for the Screen Sharing helper, 5 each for the Linux nightly and stable channels
+    timeout-minutes: 145  # 15 for the Cloud machine channel, at most 25 more for the Linux release file and its .deb and .rpm, 15 each for the apt and yum archive, the AppImage and the Mac live update file, 20 for the Screen Sharing helper, 5 each for the Linux nightly and stable channels, 15 each for their AppImages
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -6091,6 +6113,34 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
         run: scripts/ci/linux-appimage-publish.sh "$RUNNER_TEMP/machine-channel/linux-release/built" "$RUNNER_TEMP/linux-appimage"
+
+      # The AppImage of the Linux nightly channel (linux/appimage/nightly/, its own update file): built from the
+      # signed release file of the commit linux-nightly.json names (set by the follow step above), so a nightly
+      # AppImage updates within nightly. Skips when that channel's AppImage is at the commit already.
+      - name: Publish the nightly AppImage
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
+        run: scripts/ci/linux-appimage-publish.sh - "$RUNNER_TEMP/linux-appimage-nightly" nightly
+
+      # The AppImage of the Linux stable channel (linux/appimage/stable/, its own update file): built from the
+      # signed release file of the commit linux-stable.json names (set by the follow step above), so a stable
+      # AppImage updates within stable. Skips when that channel's AppImage is at the commit already.
+      - name: Publish the stable AppImage
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          ARCHIVE_SIGNING_KEY: ${{ secrets.CMUX_LINUX_ARCHIVE_SIGNING_KEY }}
+        run: scripts/ci/linux-appimage-publish.sh - "$RUNNER_TEMP/linux-appimage-stable" stable
 
   # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
   # Linux release signing. Manual artifact repairs must publish the same live file
