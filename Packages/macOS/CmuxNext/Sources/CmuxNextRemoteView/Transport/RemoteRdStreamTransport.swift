@@ -24,6 +24,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     /// Whether this viewer offered `clipboard.text` in its hello (the caller's decision).
     private let offersClipboard: Bool
     private let nowMicros: @Sendable () -> UInt64
+    /// Where this session's report goes when it ends (the builder's choice; the default drops it).
+    private let reports: RemoteRdSessionReports
     // internal for the +Service extension file
     let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
     private let timer = DemandTimer(owner: "RemoteRdStreamTransport.deadline")
@@ -69,6 +71,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var endReason: String?
         /// The carrier's latest progress text while the path opens; cleared once it is ready.
         var connectingReason: String?
+        /// Whether this session's report went to `reports` (once, at the end).
+        var reported = false
 
         init(core: RemoteRdSession, input: RemoteRdInput, service: String) {
             self.core = core
@@ -89,12 +93,14 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
 
     /// `startKey` and `control` form the start message (`mode` view or
     /// control); `clipboard` adds `clipboard.text` to the hello (the caller decided the setting and
-    /// the own-device rule allow it); `nowMicros` is a monotonic clock (injected for tests). Nil
-    /// only when the Rust core cannot allocate its state.
+    /// the own-device rule allow it); `nowMicros` is a monotonic clock (injected for tests);
+    /// `reports` takes the session report at the end. Nil only when the Rust core cannot allocate
+    /// its state.
     public init?(
         carrier: any RemoteRdByteCarrier, hello: RemoteRdHello, startKey: String, control: Bool = false,
         clipboard: Bool = false,
-        nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros
+        nowMicros: @escaping @Sendable () -> UInt64 = RemoteRdStreamTransport.monotonicMicros,
+        reports: RemoteRdSessionReports = RemoteRdSessionReports()
     ) {
         guard let core = RemoteRdSession(carrier: .stream), let input = RemoteRdInput(carrier: .stream) else { return nil }
         var streamHello = hello
@@ -106,6 +112,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         self.startKey = startKey
         self.control = control
         self.nowMicros = nowMicros
+        self.reports = reports
         engine = Engine(core: core, input: input, service: hello.service)
         state = Mutex(Continuations())
     }
@@ -125,6 +132,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         queue.async { [self] in
             guard !engine.started, !engine.handshake.isEnded else { return }
             engine.started = true
+            engine.core.noteConnectStarted(atMicros: nowMicros())
             carrier.start(queue: queue) { [weak self] event in
                 self?.carrierEvent(event)
             }
@@ -442,6 +450,10 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         engine.clipboard = nil
         timer.cancel()
         carrier.cancel()
+        if !engine.reported {
+            engine.reported = true
+            if let report = engine.core.sessionReport() { reports.send(report) }
+        }
         state.withLock { state in
             state.units?.finish()
             state.cursors?.finish()

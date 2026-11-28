@@ -211,7 +211,7 @@ impl Serve {
         // The process is gone, so its stdout reader ends soon; never wait on it long.
         let mut ended = None;
         while let Ok(line) = self.lines.recv_timeout(Duration::from_millis(200)) {
-            if let Some(reason) = line["ended"].as_str() {
+            if let Some(reason) = line.get("ended").and_then(Value::as_str) {
                 ended.get_or_insert_with(|| reason.to_owned());
             }
         }

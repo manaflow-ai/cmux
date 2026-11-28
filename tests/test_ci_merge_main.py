@@ -564,5 +564,38 @@ class RemoteTests(unittest.TestCase):
             self.assertEqual(merge_main.cmux_remote(repo), "origin")
 
 
+class DefaultBaseTests(TempRepoCase):
+    """run_ci_guards.default_base picks the nearest merge-base, so a feat-cmux-next head is judged
+    against feat-cmux-next rather than the whole branch since main (a false "112 new spinners")."""
+
+    def default_base(self, head: str) -> str:
+        with mock.patch.object(run_ci_guards, "ROOT", self.repo), \
+                mock.patch.dict(os.environ, {"CMUX_GUARDS_BASE_SHA": ""}):
+            return run_ci_guards.default_base(head)
+
+    def test_feat_head_compares_to_feat_not_main(self) -> None:
+        git(self.remote, "checkout", "-q", "-b", "feat-cmux-next")
+        for n in range(3):
+            feat_tip = commit(self.remote, f"feat {n}", {f"feat{n}": "x\n"})
+        git(self.remote, "checkout", "-q", "main")
+        git(self.repo, "fetch", "-q", "origin")
+        git(self.repo, "checkout", "-q", "-b", "lane", "origin/feat-cmux-next")
+        head = commit(self.repo, "lane change", {"lane": "x\n"})
+        self.assertEqual(self.default_base(head), feat_tip)
+
+    def test_main_head_still_compares_to_main(self) -> None:
+        git(self.remote, "checkout", "-q", "-b", "feat-cmux-next")
+        commit(self.remote, "feat only", {"feat": "x\n"})
+        git(self.remote, "checkout", "-q", "main")
+        git(self.repo, "fetch", "-q", "origin")
+        head = commit(self.repo, "feature change", {"feature": "x\n"})
+        self.assertEqual(self.default_base(head), self.base)
+
+    def test_explicit_base_wins(self) -> None:
+        head = commit(self.repo, "feature change", {"feature": "x\n"})
+        with mock.patch.dict(os.environ, {"CMUX_GUARDS_BASE_SHA": "abc123"}):
+            self.assertEqual(run_ci_guards.default_base(head), "abc123")
+
+
 if __name__ == "__main__":
     unittest.main()

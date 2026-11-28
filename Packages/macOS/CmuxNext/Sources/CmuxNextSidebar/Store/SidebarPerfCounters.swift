@@ -25,6 +25,9 @@ import Foundation
 /// - `row_maps_unchanged`: rows a flush mapped that came out unchanged (no patch).
 /// - `row_flushes`: flushes of the row feed that mapped rows; `row_maps` over the ticks of one ticking workspace stays at
 ///   or under 1 at any sidebar length (sidebar-stress-bench.py ticks `per_tick`, perf-gate.py status).
+/// - `row_batch_runs`: synchronous calls a row map made on the main thread: each ``SidebarRowBatch`` run is one Rust call
+///   (`cmux_sidebar_face_rows`) for every row it staged. `flush_sync_calls_max` is the most one row-feed flush made: one,
+///   however many rows the flush maps and however long the sidebar (SidebarFlushSyncCallsTests, ask-5ad71ec59c).
 /// - `row_views_made`: row views a list made while it applied rows (none for a new workspace row while the list's spare
 ///   waits: `SidebarListView.makeSpareRow`).
 /// - `spare_row_views`: spare workspace row views made after a frame committed.
@@ -91,6 +94,10 @@ nonisolated enum SidebarPerfCounters {
         case slotRows = "slot_rows"
         /// `SidebarDocStore.reshow` calls.
         case docReshows = "doc_reshows"
+        /// ``SidebarRowBatch`` runs: one synchronous Rust call each (`SidebarRowFeed.Make.rows`).
+        case rowBatchRuns = "row_batch_runs"
+        /// The most synchronous calls (``rowBatchRuns``) one row-feed flush made (`SidebarRowFeed.flush`).
+        case flushSyncCallsMax = "flush_sync_calls_max"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])
@@ -110,6 +117,11 @@ nonisolated enum SidebarPerfCounters {
             $0[.viewportRows, default: 0] += amount
             $0[.rowsWalked, default: 0] += amount
         }
+    }
+
+    /// Raises `counter` to `value` if it is below (a high-water mark).
+    static func raise(_ counter: Counter, to value: Int) {
+        counts.withLock { $0[counter] = max($0[counter] ?? 0, value) }
     }
 
     /// The current count of `counter`.

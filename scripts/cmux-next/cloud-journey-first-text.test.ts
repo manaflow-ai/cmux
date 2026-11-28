@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FirstTextTiming, firstTextCommand, noReplyError, observeFirstText, tailFacts, probeRow, resolveBackend, transientMachineError, type Step } from "./cloud-journey";
+import { CAPTURED_FIRST_TOKEN_TRACE, FirstTextTiming, JOURNEY_STUB_SCRIPT, journeyStubScript, parseStubReplay, firstTextCommand, noReplyError, observeFirstText, tailFacts, probeRow, resolveBackend, transientMachineError, type Step } from "./cloud-journey";
 
 const chunk = (kind = "agent_message_chunk", text = "hello") => ({
   kind,
@@ -127,6 +127,63 @@ describe("create to streamed first text", () => {
     expect(bare.fields().guest_ms).toEqual({ first_token: 2400 });
   });
 
+  test("first text splits into our path and the guest's model term; the stub's replayed ttft rides beside it", async () => {
+    let now = 0;
+    const timing = new FirstTextTiming(() => now);
+    timing.stubReplay(CAPTURED_FIRST_TOKEN_TRACE.ttft_ms);
+    timing.mark("create");
+    now = 13629;
+    const steps: Step[] = [];
+    await observeFirstText(async () => ({ code: 0, stdout: "@@first-text 6139 -1\n", stderr: "" }), "s", 5000, timing, (s) => steps.push(s));
+    expect(steps[0].fields).toMatchObject({ create_to_first_text_ms: 13629, our_path_ms: 7490, model_ms: 6139, stub_replay_ttft_ms: 6139 });
+    // No guest time (an old observer), or a guest time past the runner's (clocks disagree): no split, never a negative.
+    const bare = new FirstTextTiming(() => now);
+    bare.mark("create");
+    now = 20000;
+    bare.mark("first_text");
+    expect(bare.fields()).not.toHaveProperty("our_path_ms");
+    bare.guest("first_token", 30000);
+    expect(bare.fields()).not.toHaveProperty("our_path_ms");
+    expect(bare.fields()).not.toHaveProperty("stub_replay_ttft_ms");
+  });
+
+  test("the stub replay: none keeps the script, captured delays the journey's own turns' first answer only", () => {
+    expect(parseStubReplay(undefined)).toBeNull();
+    expect(parseStubReplay(" none ")).toBeNull();
+    expect(journeyStubScript(null)).toBe(JOURNEY_STUB_SCRIPT);
+    expect(parseStubReplay("captured")).toEqual({ ...CAPTURED_FIRST_TOKEN_TRACE });
+    expect(parseStubReplay('{"ttft_ms": 4200}')).toEqual({ ttft_ms: 4200 });
+    expect(parseStubReplay("/trace.json", () => '{"ttft_ms": 10, "run": "r"}')).toEqual({ ttft_ms: 10, run: "r" });
+    expect(() => parseStubReplay('{"ttft_ms": -1}')).toThrow(/whole number/);
+    expect(() => parseStubReplay('{"ttft_ms": 1.5}')).toThrow(/whole number/);
+    const s = journeyStubScript({ ttft_ms: 6139 }) as unknown as { steps: Array<Record<string, unknown>>; turns: Array<{ match: string; steps: Array<Record<string, unknown>> }> };
+    expect(s.steps[0].delay_ms).toBe(6139);
+    expect(s.steps[1].delay_ms).toBeUndefined();
+    const plain = JOURNEY_STUB_SCRIPT as unknown as typeof s;
+    for (const [i, t] of s.turns.entries()) {
+      const own = /journey-(read|text)/.test(t.match);
+      expect(t.steps[0].delay_ms).toBe(own ? 6139 : plain.turns[i].steps[0].delay_ms);
+      expect(t.steps.slice(1).every((x, j) => x.delay_ms === plain.turns[i].steps[j + 1].delay_ms)).toBe(true);
+    }
+    expect(s.turns.filter((t) => /journey-(read|text)/.test(t.match))).toHaveLength(2);
+    // The shared script itself is never changed (zero-to-going and the idle-stub test play it as is).
+    expect(plain.steps[0].delay_ms).toBeUndefined();
+  });
+
+  test("the model stub accepts the replayed script", () => {
+    const dir = mkdtempSync(join(tmpdir(), "stub-replay-"));
+    try {
+      const file = join(dir, "s.json");
+      writeFileSync(file, JSON.stringify(journeyStubScript({ ttft_ms: 6139 })));
+      const stub = new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url).pathname;
+      const r = spawnSync("python3", ["-I", "-c", "import importlib.util,json,sys; s=importlib.util.spec_from_file_location('m', sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.load_script(sys.argv[2]); print('ok')", stub, file], { encoding: "utf8" });
+      expect(r.stderr).toBe("");
+      expect(r.stdout.trim()).toBe("ok");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   function runTail(program: string, budget = 2000) {
     const dir = mkdtempSync(join(tmpdir(), "journey-first-text-"));
     try {
@@ -150,6 +207,19 @@ time.sleep(10) # a turn whose end must never be awaited`);
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
     expect(result.stdout).not.toContain("héllo");
+  });
+
+  test("follows a session that appears after the observer started (acp tail exits 4 until it exists)", () => {
+    const text = JSON.stringify(chunk("agent_message_chunk", "hi"));
+    const result = runTail(`n = os.path.join(os.path.dirname(sys.argv[0]), 'n')
+k = int(open(n).read()) if os.path.exists(n) else 0
+open(n, 'w').write(str(k + 1))
+if k < 2: sys.exit(4)
+print('{"kind":"turn_started"}', flush=True)
+print(${JSON.stringify(text)}, flush=True)
+time.sleep(10)`);
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
   });
 
   test("accepts the live session/update shape", () => {

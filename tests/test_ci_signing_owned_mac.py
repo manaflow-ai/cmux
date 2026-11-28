@@ -527,7 +527,8 @@ def owned_route(jobs: dict, job: dict) -> bool:
     if owned_pick_reads(jobs, runs_on) or owned_only(runs_on):
         return True
     text = keychain_guard.strip_literal_selectors(FORK_ROUTE.sub("", runs_on))
-    if any(label.startswith("glaeda-") for label in LABEL_LITERAL.findall(text)):
+    # RFD 0185 (#61222): the owned minis also carry the unified mac-* labels (mac-gui, mac-nightly, ...).
+    if any(label.startswith(("glaeda-", "mac-")) for label in LABEL_LITERAL.findall(text)):
         return True
     return any(keychain_guard.owned_label(text, match) for match in keychain_guard.RUNNER_VARIABLE.finditer(text))
 

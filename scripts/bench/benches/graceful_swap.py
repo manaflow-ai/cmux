@@ -110,6 +110,20 @@ class GracefulSwap(Bench):
             ctx.notes.append("not imperceptible: a region showed a transient or blank frame, shifted or lost state")
 
     @staticmethod
+    def now_publish_line(ctx: Context, key: str, p95: float) -> str:
+        """NOW reads these rows from hand-measure state, not the bench ledger: the exact command that publishes one.
+
+        cmuxterm-hq now_benches.HOT_SWAP_ROWS reads hand row hot_swap.mac.<surface>.p95_ms@<capture Mac>; for 4 days
+        the goal hot-swap-fast read no value while imports went only to the ledger (11-28)."""
+        hand = key.replace("hot_swap_mac_", "hot_swap.mac.").replace("_p95_ms", ".p95_ms")
+        host = ctx.arg("capture_host")  # --arg capture_host=H, or --host-name H on an import
+        sha = (ctx.build or {}).get("sha")
+        return ("NOW reads this row only once published (cmuxterm-hq checkout, lane VM ok): "
+                "python3 tools/fleet-reconcilers/now_hand_measures.py publish "
+                f"--row {hand}@{host or '<capture Mac>'} --value {p95:g} --step {ctx.arg('step') or '<cmux-ci step>'} "
+                f"--sha {sha or '<app sha>'}")
+
+    @staticmethod
     def ingest_latency(ctx: Context, receipt: dict, path: Path) -> None:
         surface = receipt.get("surface")
         if surface not in LATENCY_ROWS:
@@ -146,6 +160,7 @@ class GracefulSwap(Bench):
         else:
             p50, p95 = float(watched["p50_ms"]), float(watched["p95_ms"])
         ctx.row(key, p95, "ms", p50=p50, p95=p95, n=len(samples) + missed, labels=labels)
+        ctx.notes.append(GracefulSwap.now_publish_line(ctx, key, p95))
         if p95 > bar or kept < runs or transient or censored:
             over = "over " if censored else ""
             ctx.notes.append(f"{key}: p95 {over}{p95:.0f} ms against {bar} ms ({missed}/{runs} runs missed the "

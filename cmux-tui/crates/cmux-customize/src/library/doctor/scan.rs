@@ -178,7 +178,7 @@ impl SettingNames {
                 .chain(menus::SECTIONS.iter().copied())
             {
                 names.leaves.insert(key);
-                names.prefixes.extend(key.match_indices('.').map(|(at, _)| &key[..at]));
+                names.prefixes.extend(key.match_indices('.').filter_map(|(at, _)| key.get(..at)));
             }
             names
         })

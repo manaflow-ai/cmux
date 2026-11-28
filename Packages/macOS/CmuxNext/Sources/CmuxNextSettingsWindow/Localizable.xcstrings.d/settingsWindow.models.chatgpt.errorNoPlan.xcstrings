@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.chatgpt.errorNoPlan" : {
+      "comment" : "Settings > Models (ModelsCard.tsx): Cloud threads' subscriptions and keys. ChatGPT, Claude, Claude Code, OpenAI, Anthropic and the provider names are product names.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This ChatGPT account didn't allow use of its plan. Try again and allow access to your ChatGPT plan."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لم يسمح حساب ChatGPT هذا باستخدام خطته. أعد المحاولة واسمح بالوصول إلى خطة ChatGPT الخاصة بك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovaj ChatGPT račun nije dozvolio korištenje svog plana. Pokušaj ponovo i dozvoli pristup svom ChatGPT planu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne ChatGPT-konto tillod ikke brug af sit abonnement. Prøv igen, og giv adgang til dit ChatGPT-abonnement."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses ChatGPT-Konto hat die Nutzung seines Abos nicht erlaubt. Versuche es erneut und erlaube den Zugriff auf dein ChatGPT-Abo."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta cuenta de ChatGPT no permitió usar su plan. Vuelve a intentarlo y permite el acceso a tu plan de ChatGPT."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce compte ChatGPT n’a pas autorisé l’utilisation de son forfait. Réessayez et autorisez l’accès à votre forfait ChatGPT."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo account ChatGPT non ha consentito l’uso del suo piano. Riprova e consenti l’accesso al tuo piano ChatGPT."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この ChatGPT アカウントはプランの使用を許可しませんでした。もう一度試して、ChatGPT プランへのアクセスを許可してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "គណនី ChatGPT នេះមិនបានអនុញ្ញាតឱ្យប្រើគម្រោងរបស់វាទេ។ ព្យាយាមម្ដងទៀត ហើយអនុញ្ញាតការចូលប្រើគម្រោង ChatGPT របស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 ChatGPT 계정에서 요금제 사용을 허용하지 않았습니다. 다시 시도하고 ChatGPT 요금제 접근을 허용하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne ChatGPT-kontoen tillot ikke bruk av abonnementet. Prøv igjen og gi tilgang til ChatGPT-abonnementet ditt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To konto ChatGPT nie zezwoliło na użycie planu. Spróbuj ponownie i zezwól na dostęp do planu ChatGPT."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta conta do ChatGPT não permitiu o uso do plano. Tente de novo e permita o acesso ao seu plano do ChatGPT."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот аккаунт ChatGPT не разрешил использовать свой план. Повторите попытку и разрешите доступ к плану ChatGPT."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "บัญชี ChatGPT นี้ไม่อนุญาตให้ใช้แพ็กเกจ ลองอีกครั้งและอนุญาตการเข้าถึงแพ็กเกจ ChatGPT ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu ChatGPT hesabı planının kullanımına izin vermedi. Tekrar deneyin ve ChatGPT planınıza erişime izin verin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цей обліковий запис ChatGPT не дозволив використовувати свій план. Спробуйте ще раз і дозвольте доступ до плану ChatGPT."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tài khoản ChatGPT này không cho phép dùng gói của nó. Hãy thử lại và cho phép truy cập gói ChatGPT của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 ChatGPT 账户未允许使用其套餐。请重试并允许访问你的 ChatGPT 套餐。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 ChatGPT 帳號未允許使用其方案。請再試一次並允許存取你的 ChatGPT 方案。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -769,6 +769,7 @@ function TurnFailure({
     switchModel &&
     [
       "rate-limited",
+      "gateway-stalled",
       "usage-limit",
       "account-disabled",
       "unreachable",
