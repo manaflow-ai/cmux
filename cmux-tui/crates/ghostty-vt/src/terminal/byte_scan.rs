@@ -298,13 +298,12 @@ pub(super) mod block {
     #[inline]
     pub(in crate::terminal) fn skip(data: &[u8], from: usize) -> usize {
         let mut at = from;
-        while at + 64 <= data.len() {
-            let block: &[u8; 64] = data[at..at + 64].try_into().unwrap_or(&[0; 64]);
+        while let Some(block) = data.get(at..).and_then(<[u8]>::first_chunk::<64>) {
             let step = passes(block, &masks(block));
             if step == 0 {
                 break;
             }
-            at += step;
+            at = at.saturating_add(step);
         }
         at
     }
@@ -340,7 +339,8 @@ pub(super) mod block {
         }
         let mut others = sum & !m.param & !m.final_m;
         while others != 0 {
-            if !is_inert_csi_final(block[others.trailing_zeros() as usize]) {
+            let at = others.trailing_zeros() as usize;
+            if !block.get(at).copied().is_some_and(is_inert_csi_final) {
                 return false;
             }
             others &= others - 1;

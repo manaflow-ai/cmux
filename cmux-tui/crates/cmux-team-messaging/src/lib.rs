@@ -62,6 +62,7 @@ pub mod presence;
 pub mod refs;
 pub mod service;
 pub mod session_info;
+pub mod settings;
 pub mod shared_doc;
 
 pub use backend::{BackendError, ForumBackend, PresenceBackend, RoomBackend, StoredMessage};
