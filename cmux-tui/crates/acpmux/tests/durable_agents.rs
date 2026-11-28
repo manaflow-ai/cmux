@@ -87,6 +87,7 @@ mod update_tool_call;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
 // and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_DURESS_BINARY",
     "ACPMUX_REATTACH_LIVE",
     "ACPMUX_REATTACH_IDLE",
     "ACPMUX_REATTACH_CLOSED",
@@ -129,6 +130,10 @@ impl Daemon {
     }
 
     fn with_env(tag: &str, policy: &str, env: &[(&str, &str)]) -> Self {
+        Self::with_executable(tag, policy, env, daemon_env::bin())
+    }
+
+    fn with_executable(tag: &str, policy: &str, env: &[(&str, &str)], binary: &Path) -> Self {
         // Short: socket paths must stay under the macOS limit.
         let home = std::env::temp_dir().join(format!("amd-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
@@ -140,7 +145,7 @@ impl Daemon {
         .unwrap();
         let socket = home.join("s.sock");
         let env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        let exe = daemon_env::bin().to_path_buf();
+        let exe = binary.to_path_buf();
         let mut daemon = Self { child: None, exe, home, socket, env, key: None };
         daemon.start();
         daemon

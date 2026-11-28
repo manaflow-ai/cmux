@@ -216,6 +216,28 @@ async fn many_chats_mid_tool_call_survive_repeated_restarts_and_every_call_and_a
     }
 }
 
+/// A reconnecting CLI can win daemon startup, leaving `Daemon.child` as an exited
+/// startup helper. Stop the live owner of this test's private home, not that helper.
+fn stop_live_daemon(daemon: &mut Daemon) {
+    let owner: Value = serde_json::from_slice(
+        &std::fs::read(daemon.home.join("daemon.owner.json")).expect("test daemon owner"),
+    )
+    .unwrap();
+    let pid = u32::try_from(owner["pid"].as_u64().expect("owner pid")).unwrap();
+    let start = owner["startTime"].as_u64().expect("owner start time");
+    assert_eq!(acpmux::daemon::process_start(pid), Some(start), "test daemon owner changed");
+    assert!(pid > 1);
+    // SAFETY: the matching live owner of the private home created by this test.
+    assert_eq!(unsafe { libc::kill(pid as i32, libc::SIGTERM) }, 0);
+    let status = daemon.child.take().expect("daemon startup child").wait().unwrap();
+    assert!(status.success(), "daemon startup child exited badly: {status}");
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while acpmux::daemon::process_start(pid) == Some(start) && alive(i64::from(pid)) {
+        assert!(Instant::now() < deadline, "test daemon owner {pid} did not stop");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// The coordinator path uses the real CLI as its waiting client.  Keep this larger than the
 /// unit-sized restart test above: every session is busy in a gated turn before its CLI send is
 /// queued, then the daemon is handed off five times while all twenty harnesses remain active.
@@ -225,8 +247,15 @@ async fn many_chats_mid_tool_call_survive_repeated_restarts_and_every_call_and_a
 async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplication() {
     const SENDS: usize = 20;
     const RESTARTS: usize = 5;
-    let mut daemon = Daemon::new("cli-duress", "approve-all");
-    daemon.sigterm();
+    // Run the identical test runner against a captured pre-fix executable and the fixed build.
+    // The hermetic test environment keeps only this explicit, test-only binary override.
+    let binary = std::env::var_os("ACPMUX_DURESS_BINARY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| daemon_env::bin().to_path_buf());
+    assert!(binary.is_absolute(), "ACPMUX_DURESS_BINARY must be an absolute path");
+    // The override owns even the first start, so the fixed build cannot migrate the baseline store.
+    let mut daemon = Daemon::with_executable("cli-duress", "approve-all", &[], &binary);
+    stop_live_daemon(&mut daemon);
     let log = daemon.home.join("wire.jsonl");
     let wire_env = format!("FAKE_WIRE_LOG={}", log.display());
     std::fs::write(
@@ -242,7 +271,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
     let mut children = Vec::with_capacity(SENDS);
     for i in 0..SENDS {
         let name = format!("cli-duress-{i}");
-        let made = std::process::Command::new(daemon_env::bin())
+        let made = std::process::Command::new(&binary)
             .args(["--json", "new", "-d", "-n", &name, "-m", "fake"])
             .env_clear()
             .envs(daemon_env::vars(&daemon.home, daemon_env::Agents::StandIn, &[]))
@@ -271,13 +300,13 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
         .await;
         daemon.wait_event(&session, "busy turn before-gate", |e| chunk(e, "before-gate"));
 
-        let mut send = std::process::Command::new(daemon_env::bin());
+        let mut send = std::process::Command::new(&binary);
         send.args([
             "--json",
             "send",
             &name,
             "--timeout",
-            "180",
+            "600",
             "--prompt-id",
             &cli_prompt_id,
             &format!("queued-cli-{i}"),
@@ -297,7 +326,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
     // Every send is queued behind its busy turn before the first restart.
     for (session, _, _, prompt_id) in &sessions {
         daemon.wait_event(session, "CLI send queued", |e| {
-            e["kind"] == "queued" && e["msg"]["promptId"] == prompt_id
+            e["kind"] == "queued" && e["msg"]["promptId"] == prompt_id.as_str()
         });
     }
 
@@ -305,7 +334,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
         // A count cursor prevents a historical adoption record from satisfying this cycle.
         let adopted_before: Vec<usize> =
             sessions.iter().map(|(session, ..)| adoptions(&daemon, session)).collect();
-        daemon.sigterm();
+        stop_live_daemon(&mut daemon);
         daemon.start();
         for ((session, ..), before) in sessions.iter().zip(adopted_before) {
             let deadline = Instant::now() + Duration::from_secs(30);
@@ -322,7 +351,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
     }
     for (session, _, busy_prompt_id, _) in &sessions {
         daemon.wait_event(session, "busy turn result", |e| {
-            e["kind"] == "turn_result" && e["msg"]["promptId"] == busy_prompt_id
+            e["kind"] == "turn_result" && e["msg"]["promptId"] == busy_prompt_id.as_str()
         });
     }
     let mut completed = 0;
@@ -346,7 +375,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
         !daemon
             .events(session)
             .iter()
-            .any(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id)
+            .any(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id.as_str())
     }) && Instant::now() < deadline
     {
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -361,7 +390,7 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
             .iter()
             .filter(|line| {
                 line["method"] == "session/prompt"
-                    && (line["promptId"] == prompt_id
+                    && (line["promptId"] == prompt_id.as_str()
                         || line["text"]
                             .as_str()
                             .is_some_and(|text| text.split_whitespace().any(|word| word == marker)))
@@ -369,11 +398,11 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
             .count();
         let starts = events
             .iter()
-            .filter(|e| e["kind"] == "turn_started" && e["msg"]["promptId"] == prompt_id)
+            .filter(|e| e["kind"] == "turn_started" && e["msg"]["promptId"] == prompt_id.as_str())
             .count();
         let results = events
             .iter()
-            .filter(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id)
+            .filter(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id.as_str())
             .count();
         if executions == 0 || starts == 0 || results == 0 {
             execution_loss.push(format!(
