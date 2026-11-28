@@ -677,3 +677,33 @@ pub unsafe extern "C" fn cmux_agent_pane_policy_call(
         }
     })
 }
+
+/// Decodes the page's request `body` (JSON) into the host's request JSON
+/// (`app_request::decode`); `home` is the user's home folder. `ERR_INVALID` when
+/// either is not UTF-8 or `body` is not JSON.
+///
+/// # Safety
+///
+/// Each pointer with its length is readable (or null); `out` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_agent_pane_request_decode(
+    body: *const u8,
+    body_len: usize,
+    home: *const u8,
+    home_len: usize,
+    out: *mut CmuxAgentPaneBytes,
+) -> i32 {
+    guarded(|| {
+        if out.is_null() {
+            return ERR_NULL;
+        }
+        // SAFETY: forwarded from the caller.
+        let Some(body) = (unsafe { input(body, body_len) }) else { return ERR_INVALID };
+        // SAFETY: forwarded from the caller.
+        let Some(home) = (unsafe { text(home, home_len) }) else { return ERR_INVALID };
+        let Ok(body) = serde_json::from_slice::<Value>(body) else { return ERR_INVALID };
+        let decoded = crate::app_request::decode(&body, home).into_json();
+        // SAFETY: `out` is writable and non-null.
+        unsafe { give(out, &decoded) }
+    })
+}

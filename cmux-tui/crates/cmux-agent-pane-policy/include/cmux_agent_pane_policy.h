@@ -135,4 +135,12 @@ int32_t cmux_agent_pane_policy_call(const CmuxAgentPanePolicy *pane, const char 
                                     const uint8_t *request, size_t request_len,
                                     CmuxAgentPaneBytes *out);
 
+/* Decodes the page's request body (JSON {id?, method, params}) into the host's request JSON
+ * (`{"case": name, "_0": .., "label": ..}`, or `{"delegate":true}` when the host's own decoder
+ * owns the method). home is the user's home folder, for "~". Free out with
+ * cmux_agent_pane_policy_bytes_free. */
+int32_t cmux_agent_pane_request_decode(const uint8_t *body, size_t body_len,
+                                       const uint8_t *home, size_t home_len,
+                                       CmuxAgentPaneBytes *out);
+
 #endif
