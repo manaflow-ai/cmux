@@ -58,8 +58,8 @@ impl Wake {
             "outcome": outcome,
         });
         // Absent from an old guest's block and from a wake with no table read.
-        if let Some(sockets) = &self.sockets {
-            block["sockets"] = sockets.clone();
+        if let (Some(sockets), Some(obj)) = (&self.sockets, block.as_object_mut()) {
+            obj.insert("sockets".to_owned(), sockets.clone());
         }
         block
     }
@@ -146,7 +146,9 @@ impl WakeEcho {
         match &self.cur {
             Some(w) => {
                 let mut b = w.block("");
-                b["outcome"] = Value::Null;
+                if let Some(obj) = b.as_object_mut() {
+                    obj.insert("outcome".to_owned(), Value::Null);
+                }
                 Some(b)
             }
             None => self.done.clone(),
