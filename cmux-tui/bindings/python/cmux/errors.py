@@ -128,6 +128,14 @@ class TimeoutError(CmuxError):
     """The server did not produce the next frame before the deadline."""
 
 
+class _DispatchTimeoutError(TimeoutError):
+    """A request dispatch timeout annotated with whether writing started."""
+
+    def __init__(self, message: str, *, write_started: bool) -> None:
+        super().__init__(message)
+        self.write_started = write_started
+
+
 class CancelledError(CmuxError):
     """A local cancellation signal stopped a request."""
 
