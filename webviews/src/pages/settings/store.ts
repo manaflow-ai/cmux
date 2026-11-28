@@ -1381,6 +1381,13 @@ export class SettingsStore {
     return this.runAction("customize.open", { draft: `/customize ${words.trim().replace(/\s+/g, " ")}` });
   }
 
+  /** Edit this view (Labs: labs.editThisView): the Customize chat opens with a request naming the
+   * section, its React source and `cmux live start`, so the agent's edits show in this page live and
+   * end with Keep or Revert. */
+  async editThisView(section: string, title: string): Promise<Reply<unknown>> {
+    return this.runAction("customize.open", { draft: `/customize ${t("settingsPage.editThisView.draft", title, section)}` });
+  }
+
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
   async runAction(
     action: SettingsPageAction,

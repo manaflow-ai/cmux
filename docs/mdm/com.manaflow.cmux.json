@@ -5265,6 +5265,12 @@
       "title" : "Upcoming Connections",
       "type" : "boolean"
     },
+    "labs.editThisView" : {
+      "default" : false,
+      "description" : "Adds Edit this view to each Settings section: an agent changes that page live, then you keep or revert it.",
+      "title" : "Edit This View",
+      "type" : "boolean"
+    },
     "labs.hostsSidebar" : {
       "default" : false,
       "description" : "Shows your machines in the sidebar with Add Host and per-host terminal actions.",

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.editThisView.help" : {
+      "comment" : "Settings > Advanced > Labs: help under Edit This View",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يضيف «عدّل هذا العرض» إلى كل قسم في الإعدادات: يغيّر وكيل تلك الصفحة مباشرة، ثم تحتفظ بالتغيير أو تتراجع عنه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dodaje Uredi ovaj prikaz svakom odjeljku Postavki: agent mijenja tu stranicu uživo, a ti zadržiš ili vratiš promjenu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tilføjer Rediger denne visning til hver sektion i Indstillinger: en agent ændrer siden live, og du beholder eller fortryder det."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fügt jedem Einstellungsbereich „Diese Ansicht bearbeiten“ hinzu: Ein Agent ändert die Seite live, dann behältst du es oder machst es rückgängig."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adds Edit this view to each Settings section: an agent changes that page live, then you keep or revert it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Añade Editar esta vista a cada sección de Ajustes: un agente cambia esa página en vivo y luego lo conservas o lo deshaces."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajoute Modifier cette vue à chaque section des Réglages : un agent modifie la page en direct, puis tu gardes ou annules."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aggiunge Modifica questa vista a ogni sezione di Impostazioni: un agente cambia la pagina dal vivo, poi tieni o annulli."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "設定の各セクションに「このビューを編集」を追加します。エージェントがそのページをその場で変更し、保持するか元に戻すかを選べます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បន្ថែម កែទិដ្ឋភាពនេះ ទៅផ្នែកនីមួយៗនៃការកំណត់៖ ភ្នាក់ងារផ្លាស់ប្ដូរទំព័រនោះផ្ទាល់ បន្ទាប់មកអ្នករក្សាទុក ឬត្រឡប់វិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "설정의 각 섹션에 이 화면 편집을 추가합니다. 에이전트가 그 페이지를 바로 바꾸고, 유지하거나 되돌릴 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Legger til Rediger denne visningen i hver del av Innstillinger: en agent endrer siden direkte, så beholder eller angrer du."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dodaje Edytuj ten widok do każdej sekcji Ustawień: agent zmienia stronę na żywo, a ty zachowujesz lub cofasz zmianę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adiciona Editar esta tela a cada seção dos Ajustes: um agente muda a página ao vivo e você mantém ou reverte."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Добавляет «Изменить этот экран» в каждый раздел настроек: агент меняет страницу вживую, а ты оставляешь или отменяешь изменения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เพิ่ม แก้ไขมุมมองนี้ ให้ทุกส่วนของการตั้งค่า: เอเจนต์เปลี่ยนหน้านั้นสด ๆ แล้วคุณเลือกเก็บหรือย้อนกลับ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ayarların her bölümüne Bu görünümü düzenle ekler: bir ajan sayfayı canlı değiştirir, sonra tutar ya da geri alırsın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Додає «Змінити цей екран» до кожного розділу налаштувань: агент змінює сторінку наживо, а ти залишаєш або скасовуєш зміни."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thêm Sửa giao diện này vào mỗi mục Cài đặt: một agent đổi trang đó trực tiếp, rồi bạn giữ hoặc hoàn tác."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在设置的每个部分加入“编辑此视图”：代理实时修改该页面，然后你选择保留或还原。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在設定的每個部分加入「編輯此檢視」：代理即時修改該頁面，然後你選擇保留或還原。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

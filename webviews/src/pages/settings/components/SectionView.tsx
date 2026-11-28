@@ -28,6 +28,7 @@ import {
 import { arrangeGroups } from "../rowLevels";
 import { Card } from "./cardModules";
 import { LinkMissing, useLinkLanding } from "./LinkLanding";
+import { SectionTitle } from "./EditThisView";
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
 export function SectionView({
@@ -111,7 +112,7 @@ export function SectionView({
   const cards = arrangeGroups(category.id, groups, focus);
   return (
     <div className="section" data-section={category.id}>
-      <h1 className="section-title">{text(category.title)}</h1>
+      <SectionTitle section={category.id} title={text(category.title)} />
       {unmatched && <LinkMissing name={unmatched} />}
       {category.lead.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />

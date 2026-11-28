@@ -590,6 +590,7 @@ labs.bundledCodexAppServer
 labs.classicHome
 labs.commentThreads
 labs.connectionsUpcoming
+labs.editThisView
 labs.hostsSidebar
 labs.liveCode
 labs.liveTree
