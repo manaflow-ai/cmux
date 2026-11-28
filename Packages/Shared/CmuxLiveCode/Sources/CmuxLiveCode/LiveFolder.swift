@@ -130,6 +130,9 @@ public struct LiveFolder: Sendable {
     struct Sidecar: Decodable {
         var commit: String?
         var files: [String]?
+        /// What the patch was built from (patch.py's source_key): two patches with the same one hold
+        /// the same code, so the engine reuses the image it loaded for the first.
+        var source: String?
     }
 
     /// `NAME.json` beside the patch `NAME.dylib`, when patch.py wrote one.
