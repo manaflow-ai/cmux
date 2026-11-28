@@ -39,6 +39,12 @@ on:
       CMUX_BOT_APP_KEY:
         description: The bot App's key; its token reads the phone list on the App's own quota
         required: false
+      # Declared only so the lint sees them: the dial job's environment holds the test account, and GitHub uses an
+      # environment's secret over one a caller passes, so callers pass none of these.
+      CMUX_DOGFOOD_STACK_EMAIL:
+        required: false
+      CMUX_DOGFOOD_STACK_PASSWORD:
+        required: false
   workflow_dispatch:
     inputs:
       api:
