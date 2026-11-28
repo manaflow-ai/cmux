@@ -2297,35 +2297,40 @@ function shapeTurn(
     if (final) {
       // The final answer starts the folded presentation before turn_result. Reuse the settled
       // projection, remove its internal footer, and retain the real live status below the answer.
-      const provisional: AcpmuxRow = {
-        id: `concluding-${user.id}`,
-        version: 1,
-        at: final.at,
-        kind: "turnSummary",
-        status: "completed",
-        // The running header's start, as it read it (`turnClock`): the turn's own, else its rows'.
-        ...(turnStartedAtMs !== undefined && { turnStartedAtMs }),
-        durationMs: Math.max(0, final.at - (turnStartedAtMs ?? user.at)),
+      const concluding = (rows: AcpmuxRow[]): AcpmuxRow[] => {
+        const answer = rows.find(isFinalAnswer) ?? final;
+        const provisional: AcpmuxRow = {
+          id: `concluding-${user.id}`,
+          version: 1,
+          at: answer.at,
+          kind: "turnSummary",
+          status: "completed",
+          // The running header's start, as it read it (`turnClock`): the turn's own, else its rows'.
+          ...(turnStartedAtMs !== undefined && { turnStartedAtMs }),
+          durationMs: Math.max(0, answer.at - (turnStartedAtMs ?? user.at)),
+        };
+        const body = shapeTurn(
+          user,
+          [...rows, provisional],
+          expanded,
+          foldOpen,
+          true,
+          last,
+          false,
+          false,
+          clockOffset,
+          agentFamily,
+          trayAgents,
+          endedBackground,
+          turnStartedAtMs,
+          true,
+        ).filter((row) => row.id !== provisional.id);
+        if (!live) return body;
+        const line = liveTurn(user, rows, clockOffset, trayAgents, turnStartedAtMs).at(-1);
+        return line ? [...body, line] : body;
       };
-      const body = shapeTurn(
-        user,
-        [...turn, provisional],
-        expanded,
-        foldOpen,
-        true,
-        last,
-        false,
-        false,
-        clockOffset,
-        agentFamily,
-        trayAgents,
-        endedBackground,
-        turnStartedAtMs,
-        true,
-      ).filter((row) => row.id !== provisional.id);
-      if (!live) return body;
-      const line = liveTurn(user, turn, clockOffset, trayAgents, turnStartedAtMs).at(-1);
-      return line ? [...body, line] : body;
+      // The pane's bypass compares what it drew with this pass's shape (`notedLiveShape`).
+      return live ? notedLiveShape(user, turn, concluding) : concluding(turn);
     }
   }
   // A turn still running shows its work as it happens, under its live status; one without a
@@ -3553,7 +3558,9 @@ type LiveTurnArgs = readonly [
 export type LiveTurnShape = {
   readonly user: AcpmuxRow;
   readonly turn: readonly AcpmuxRow[];
-  readonly args: LiveTurnArgs;
+  /// The pass that shaped `shaped`, for another `turn`: the running turn's (`liveTurn`), or once its
+  /// final answer came, the concluding one (`shapeTurn` under a provisional summary, the line below).
+  readonly shapeOf: (turn: AcpmuxRow[]) => AcpmuxRow[];
   readonly shaped: readonly AcpmuxRow[];
   readonly stamp: number;
 };
@@ -3563,8 +3570,17 @@ let liveStamp = 0;
 
 /// `liveTurn` for the running turn's own pass, noted as `liveTurnShapes.last()`.
 function shapedLiveTurn(user: AcpmuxRow, turn: AcpmuxRow[], args: LiveTurnArgs): AcpmuxRow[] {
-  const shaped = liveTurn(user, turn, ...args);
-  liveShape = { user, turn: turn.slice(), args, shaped, stamp: liveStamp };
+  return notedLiveShape(user, turn, (rows) => liveTurn(user, rows, ...args));
+}
+
+/// `shapeOf(turn)`, noted as the running turn's newest shape. Each pass that draws the running turn
+/// notes its own: before, the concluding pass (a final answer before `turn_result`) noted none, so
+/// the shape the pane's bypass compared was the running one before it ("Working for" where the pane
+/// drew "Worked for"), and each call after the answer redrew the pane: 60 of 2167 records a replay
+/// window under load (replay-under-load RENDERS=1, `drewShaped/differs:worked`).
+function notedLiveShape(user: AcpmuxRow, turn: AcpmuxRow[], shapeOf: (turn: AcpmuxRow[]) => AcpmuxRow[]): AcpmuxRow[] {
+  const shaped = shapeOf(turn);
+  liveShape = { user, turn: turn.slice(), shapeOf, shaped, stamp: liveStamp };
   return shaped;
 }
 
@@ -3576,8 +3592,7 @@ export const liveTurnShapes = {
     liveStamp = stamp;
   },
   /// `shape`'s turn shaped again from `turn`, with the same arguments. Notes nothing.
-  reshape: (shape: LiveTurnShape, turn: readonly AcpmuxRow[]): AcpmuxRow[] =>
-    liveTurn(shape.user, turn as AcpmuxRow[], ...shape.args),
+  reshape: (shape: LiveTurnShape, turn: readonly AcpmuxRow[]): AcpmuxRow[] => shape.shapeOf(turn as AcpmuxRow[]),
   /// Forgets the newest shape (tests).
   reset(): void {
     liveShape = undefined;
