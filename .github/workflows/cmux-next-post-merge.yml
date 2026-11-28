@@ -227,6 +227,17 @@ jobs:
     permissions:
       contents: read
 
+  chat-size-ladder:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' chat-size-ladder ')
+    uses: ./.github/workflows/chat-size-ladder.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
+    permissions:
+      contents: read
+
   swift-acpmux-protocol:
     needs: plan
     if: contains(needs.plan.outputs.suites, ' swift-acpmux-protocol ')
@@ -424,7 +435,7 @@ jobs:
       contents: read
 
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec, ghosttykit-release-check]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, chat-size-ladder, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, pr-pipeline-linux, pr-pipeline-mac, pr-pipeline-ios, gallery-health, cmux-tui-sdks, cmux-tui-spec, ghosttykit-release-check]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
@@ -535,6 +546,8 @@ jobs:
           REUSE: ${{ needs.plan.outputs.reuse || inputs.reuse }}
           STATES: ${{ inputs.states }}
           GALLERY_REDS_DIR: ${{ runner.temp }}/gallery-reds
+          # 0: a new red's bisect does not probe its last green commit first (post_merge_batch.py good_anchor_on).
+          POST_MERGE_GOOD_ANCHOR: ${{ vars.POST_MERGE_GOOD_ANCHOR }}
           # 0: a culprit's confirm round renders again even when the same round already finished (earlier_confirm_round).
           POST_MERGE_CONFIRM_REUSE: ${{ vars.POST_MERGE_CONFIRM_REUSE }}
           # Daily probe cap per suite job (job_probes_per_day): over it a red is named only, no new bisect. 0: no cap.

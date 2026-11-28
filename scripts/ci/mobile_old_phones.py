@@ -29,7 +29,9 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 TITLE = re.compile(r"^cmux-next-ios INTERNAL ([0-9a-f]{40})\b")
@@ -53,13 +55,83 @@ def shipped_commits(runs: list[dict], count: int) -> list[dict]:
     return out
 
 
-def fetch_runs(repo: str, token: str) -> list[dict]:
+def runs_request(repo: str, token: str) -> urllib.request.Request:
+    """GitHub's API answers 403 to urllib's default "Python-urllib/3.x" agent, so name ours."""
     url = (f"https://api.github.com/repos/{repo}/actions/workflows/ios-internal-nightly.yml/runs"
            "?status=success&per_page=50")
-    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
-                                               **({"Authorization": f"Bearer {token}"} if token else {})})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r).get("workflow_runs", [])
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+               "User-Agent": "cmux-ci-mobile-old-phones/1"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return urllib.request.Request(url, headers=headers)
+
+
+RETRY_CODES = {403, 429, 500, 502, 503, 504}
+
+
+# The longest wait for GitHub's quota reset when no earlier list can answer instead. The job's 30 min timeout
+# covers it plus the retries.
+RESET_WAIT_MAX_S = 20 * 60
+
+
+def fetch_runs(repo: str, token: str, *, opener=urllib.request.urlopen, sleep=time.sleep, now=time.time,
+               waits=(5, 20, 60), reset_wait_max: float = 0) -> list[dict]:
+    """Read the shipped phone runs; a 403/429/5xx (a busy repo's token rate limit) retries, and the last
+    one names GitHub's own reason instead of a bare traceback. With RESET_WAIT_MAX set, a spent quota
+    (x-ratelimit-remaining=0) whose x-ratelimit-reset is that close gets one more read after the reset:
+    run 46141489174 had no earlier list to fall back on (the runner's cache is per host) and died 90 s
+    in, with the quota due back within the hour."""
+    reset_waited = False
+    attempt = 0
+    while True:
+        try:
+            with opener(runs_request(repo, token), timeout=30) as r:
+                return json.load(r).get("workflow_runs", [])
+        except urllib.error.HTTPError as e:
+            body = e.read()[:300].decode("utf-8", "replace")
+            why = (f"GitHub answered {e.code} for the ios-internal-nightly runs "
+                   f"(x-ratelimit-remaining={e.headers.get('x-ratelimit-remaining')}): {body}")
+            if e.code not in RETRY_CODES:
+                raise SystemExit(f"::error::{why}") from None
+            if attempt < len(waits):
+                print(f"::warning::{why}; retrying in {waits[attempt]} s", file=sys.stderr)
+                sleep(waits[attempt])
+                attempt += 1
+                continue
+            reset = e.headers.get("x-ratelimit-reset", "")
+            left = float(reset) - now() if reset.isdigit() else -1
+            if (reset_waited or e.headers.get("x-ratelimit-remaining") != "0"
+                    or not 0 <= left <= reset_wait_max):
+                raise SystemExit(f"::error::{why}") from None
+            print(f"::warning::{why}; the quota resets in {int(left)} s, reading again then", file=sys.stderr)
+            sleep(left + 5)
+            reset_waited = True
+
+
+def resolve(repo: str, token: str, count: int, cache: Path | None, *, fetch=fetch_runs) -> tuple[list[str], bool]:
+    """The phone build lines and whether they are fresh. The repo's token shares one hourly quota with every
+    workflow, and runs 46116606886 and 46125947911 died on "API rate limit exceeded for installation"
+    (x-ratelimit-remaining=0) after every retry. Builds ship about nightly, so the last list read
+    (kept in CACHE, which the workflow carries between runs) answers until the quota resets. The runner's
+    cache is per host, so most runs have none: those wait for the reset instead (fetch_runs)."""
+    have_old = bool(cache and cache.is_file() and cache.read_text().strip())
+    try:
+        got = shipped_commits(fetch(repo, token, reset_wait_max=0 if have_old else RESET_WAIT_MAX_S), count)
+    except SystemExit as e:
+        old = cache.read_text().split("\n") if cache and cache.is_file() else []
+        old = [line for line in old if line.strip()]
+        if not old:
+            raise
+        print(f"{e}; using the last list read ({cache}), which may miss a build shipped since",
+              file=sys.stderr)
+        return old, False
+    if len(got) < count:
+        print(f"::warning::only {len(got)} shipped phone builds found", file=sys.stderr)
+    lines = [f"{g['sha']} {g['run']} {g['created']}" for g in got]
+    if cache and lines:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text("\n".join(lines) + "\n")
+    return lines, True
 
 
 def json_lines(path: Path) -> list[dict]:
@@ -140,17 +212,20 @@ def main() -> int:
     r = sub.add_parser("resolve")
     r.add_argument("--repo", required=True)
     r.add_argument("--count", type=int, default=3)
+    r.add_argument("--cache", help="last list read: written on success, read when GitHub refuses")
     d = sub.add_parser("verdict")
     d.add_argument("--dir", required=True)
     a = ap.parse_args()
     if a.cmd == "resolve":
-        got = shipped_commits(fetch_runs(a.repo, os.environ.get("GH_TOKEN", "")), a.count)
-        if len(got) < a.count:
-            print(f"::warning::only {len(got)} shipped phone builds found", file=sys.stderr)
-        if not got:
+        lines, fresh = resolve(a.repo, os.environ.get("GH_TOKEN", ""), a.count,
+                               Path(a.cache) if a.cache else None)
+        if not lines:
             return 1
-        for g in got:
-            print(g["sha"], g["run"], g["created"])
+        print("\n".join(lines))
+        out = os.environ.get("GITHUB_OUTPUT")
+        if out:
+            with open(out, "a") as f:
+                f.write(f"fresh={'true' if fresh else 'false'}\n")
         return 0
     lines, failed = verdict(Path(a.dir))
     print("\n".join(lines))

@@ -12,7 +12,7 @@
 //!
 //! A machine goes one of two ways. An ssh peer runs the script over `ssh <peer> bash -s`. A
 //! Cloud or AutoCloud machine (any of the person's machines the hub carrier reaches) gets the
-//! script written to its temp folder and run there, both as `_acpmux/machine_files_call`
+//! script written into a private (0700) folder in its temp folder and run there, all as `_acpmux/machine_files_call`
 //! actions (`machine_files_relay.rs`) that its own grant and policy decide; the task's runner is
 //! `acpmux run-elsewhere-carrier` (`cli/run_elsewhere_carrier.rs`). That way holds a run to ten
 //! minutes and 256 KB of output per stream, and its output comes when the run ends.

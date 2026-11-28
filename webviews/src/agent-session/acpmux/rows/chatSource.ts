@@ -20,9 +20,10 @@ export const chatRowsState = (): ChatRowsState => state;
 /// (`CHAT_ROWS_OTHER_SID`): each fell that chat to v1 once, and left the switch as it was.
 let otherSids = 0;
 export const chatRowsOtherSids = (): number => otherSids;
-/// A test's fresh page.
-export function resetChatRowsState(): void {
-  state = "unknown";
+/// A test's fresh page; `said` makes it one a host already opened a chat on (`hostSaidOn`), as every
+/// page is after its first open: its next open guesses the switch (0-RTT, `direct.ts` `HandshakeGuess`).
+export function resetChatRowsState(said?: "on"): void {
+  state = said ?? "unknown";
   otherSids = 0;
 }
 

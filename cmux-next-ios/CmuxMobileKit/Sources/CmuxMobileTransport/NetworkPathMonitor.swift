@@ -21,8 +21,8 @@ public enum NetworkPathEvent: Equatable, Sendable {
 /// with no network says so, CMUX-49). Repeats of the same path are dropped.
 public struct NetworkPathFilter: Sendable {
     private var last: String?
-    private var started = false
-    private var down = false
+    public private(set) var started = false
+    public private(set) var down = false
 
     public init() {}
 
@@ -70,6 +70,67 @@ public struct NetworkPathFilter: Sendable {
     }
 }
 
+/// Holds a path change until the route has stayed put for ``window``. One weak Wi-Fi under a
+/// cellular fallback flips the preferred interface en0 <-> pdp_ip0 several times a second: Leo's
+/// phone logged 2,891 path changes in 15 minutes (11-27), and each one roamed every link, kicked
+/// presence, re-asked the service for the Macs and restarted any dial under way (388 connections
+/// in those 15 minutes). Now a burst is one change onto the path it ends on, and none when it
+/// ends back on the path the links are already on. Losing the network and getting it back are
+/// told at once: a redial after an outage must not wait.
+public struct NetworkPathSettle: Sendable {
+    /// How long the route must hold before the links move onto it.
+    public static let window: TimeInterval = 1.5
+
+    public enum Step: Equatable, Sendable {
+        /// Deliver this event now.
+        case deliver(NetworkPathEvent)
+        /// Call ``settle(generation:)`` with this generation after ``window``.
+        case arm(Int)
+    }
+
+    private var filter = NetworkPathFilter()
+    /// The route the links are on (the first path, or the last change delivered).
+    private var onPath: String?
+    private var pending: String?
+    private var generation = 0
+
+    public init() {}
+
+    public mutating func update(satisfied: Bool, signature: String) -> Step? {
+        let first = !filter.started
+        let wasDown = filter.down
+        guard let event = filter.update(satisfied: satisfied, signature: signature) else {
+            if first, satisfied { onPath = signature }
+            return nil
+        }
+        generation += 1
+        switch event {
+        case .lost:
+            pending = nil
+            onPath = nil
+            return .deliver(.lost)
+        case .changed(let path):
+            if wasDown {
+                pending = nil
+                onPath = path
+                return .deliver(event)
+            }
+            pending = path
+            return .arm(generation)
+        }
+    }
+
+    /// The change to deliver once the route held for ``window`` since the update that armed
+    /// `generation`; nil when a later update re-armed it or the burst ended on the links' path.
+    public mutating func settle(generation armed: Int) -> NetworkPathEvent? {
+        guard armed == generation, let path = pending else { return nil }
+        pending = nil
+        guard path != onPath else { return nil }
+        onPath = path
+        return .changed(path)
+    }
+}
+
 #if canImport(Network)
 /// Watches the device's network with `NWPathMonitor`.
 public final class NetworkPathMonitor: @unchecked Sendable {
@@ -79,8 +140,9 @@ public final class NetworkPathMonitor: @unchecked Sendable {
     public init() {
         let (events, continuation) = AsyncStream.makeStream(of: NetworkPathEvent.self, bufferingPolicy: .bufferingNewest(8))
         self.events = events
-        // Updates arrive on this one serial queue, so the filter needs no lock.
+        // Updates and settles run on this one serial queue, so the state needs no lock.
         let state = FilterBox()
+        let queue = DispatchQueue(label: "dev.cmux.mobile.network-path")
         monitor.pathUpdateHandler = { path in
             let preferred = path.availableInterfaces.first
             let kind = NetworkPathFilter.networkKind(
@@ -93,13 +155,18 @@ public final class NetworkPathMonitor: @unchecked Sendable {
             // The key-to-paint histogram's network tag (Rust `key_paint`).
             setNetworkKind(kind: kind)
             #endif
-            if let event = state.filter.update(satisfied: path.status == .satisfied, signature: Self.signature(path)) {
-                continuation.yield(event)
+            switch state.settle.update(satisfied: path.status == .satisfied, signature: Self.signature(path)) {
+            case .deliver(let event): continuation.yield(event)
+            case .arm(let generation):
+                queue.asyncAfter(deadline: .now() + NetworkPathSettle.window) {
+                    if let event = state.settle.settle(generation: generation) { continuation.yield(event) }
+                }
+            case nil: break
             }
         }
         let monitor = monitor
         continuation.onTermination = { _ in monitor.cancel() }
-        monitor.start(queue: DispatchQueue(label: "dev.cmux.mobile.network-path"))
+        monitor.start(queue: queue)
     }
 
     deinit {
@@ -112,6 +179,6 @@ public final class NetworkPathMonitor: @unchecked Sendable {
 }
 
 private final class FilterBox: @unchecked Sendable {
-    var filter = NetworkPathFilter()
+    var settle = NetworkPathSettle()
 }
 #endif
