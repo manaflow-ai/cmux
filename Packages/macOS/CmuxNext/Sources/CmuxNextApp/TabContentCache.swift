@@ -472,8 +472,11 @@ final class TabContentCache {
         if let tab = page as? CEFTab {
             (tab.onReadyForKeys, tab.onLaunchMark) = ({ [weak self] in self?.onBrowserReady?(key) }, { DebugTimings.markLaunch($0) }) // ready for keys (a restored page: its document loaded); its launch marks
             tab.onLoadingStopped = { [weak self, weak tab] in
-                guard let self, let tab, self.browsers[key]?.tab === tab else { return }
-                self.hibernation?.browserLoadingStopped(key)
+                // A settled load only replans the same hidden page while freezing is enabled.
+                guard let self, let tab, self.browsers[key]?.tab === tab,
+                      self.lifecycle.phase(key) == .mountedHidden,
+                      let hibernation = self.hibernation, hibernation.setting.freezeSeconds != nil else { return }
+                hibernation.replan()
             }
         }
         pageInstalls.bump([key])

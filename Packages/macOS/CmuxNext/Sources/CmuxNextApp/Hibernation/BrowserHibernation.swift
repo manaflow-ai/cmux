@@ -85,12 +85,11 @@ final class BrowserHibernation {
     private(set) var frozen: Set<String> = []
     /// Pages a freeze probe is asking (media, Web Audio, capture).
     private(set) var freezeProbing: Set<String> = []
-    /// When a page the probe kept awake (playing audio) is asked again.
-    private var freezeKeptAt: [String: ContinuousClock.Instant] = [:]
+    /// Backoff and the next deadline for hidden pages' freeze probes.
+    private let freezeSchedule = BrowserFreezeSchedule()
     /// What each hidden page's probes said lately: the benefit of the doubt while it does not
     /// answer (the freeze probes, `freezeSeconds` apart, count the misses).
     private var probeHistory = PageProbeHistory()
-    private let freezeDeadline = DemandTimer(owner: "BrowserFreeze")
     /// The memory pressure events it follows, made by `AppServices` (tests pass their own).
     private let memoryPressure: MemoryPressureEvents
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
@@ -192,7 +191,7 @@ final class BrowserHibernation {
         lowPowerObservation?.cancel()
         lowPowerObservation = nil
         deadline.cancel()
-        freezeDeadline.cancel()
+        freezeSchedule.cancel()
         tabHover.cancel()
         workspaceHover.cancel()
     }
@@ -274,7 +273,7 @@ final class BrowserHibernation {
     func tabDidShow(_ key: String) {
         if frozen.contains(key) { coldShows += 1 }
         thaw(key)
-        freezeKeptAt[key] = nil
+        freezeSchedule.forget(key)
         probeHistory.clearMisses(key)
         hoveredAt[key] = nil
         hoverRestores.drop(key)
@@ -322,7 +321,7 @@ final class BrowserHibernation {
         exemptions[key] = nil
         frozen.remove(key)
         freezeProbing.remove(key)
-        freezeKeptAt[key] = nil
+        freezeSchedule.forget(key)
         probeHistory.forget(key)
         hoveredAt[key] = nil
         hoverRestores.drop(key)
@@ -527,48 +526,14 @@ final class BrowserHibernation {
 
     // MARK: Freeze
 
-    /// Chromium's loading state settled after a hidden page was skipped by the last plan.
-    /// The event-driven replan avoids a timer while a page is loading and makes it eligible immediately.
-    func browserLoadingStopped(_ key: String) {
-        // Loading completion only affects hidden-tab freezing; visible loads and disabled freezing
-        // must not replan the full hibernation set.
-        guard let cache, cache.browsers[key] != nil,
-              setting.freezeSeconds != nil,
-              cache.lifecycle.phase(key) == .mountedHidden else { return }
-        replan()
-    }
-
-    /// CEF reports an explicit loading-settled transition; WebKit keeps the pre-existing state check.
-    private func isLoadingSettled(_ tab: any BrowserTab) -> Bool {
-        guard let cef = tab as? CEFTab else { return !tab.state.isLoading }
-        return cef.isLoadingSettled
-    }
-
-    /// Freezes every hidden page past `freezeSeconds` and arms one deadline
-    /// for the next (`HibernationPlanner.freezePlan`). Events only, as for hibernation.
     private func replanFreeze(_ hidden: [HibernationPlanner.Candidate]) {
         guard let cache else { return }
-        let now = self.now()
-        let threshold = setting.freezeSeconds
-        var recheck: Double?
-        let candidates = hidden.filter { candidate in
-            guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
-                  let tab = cache.browsers[candidate.key]?.tab, isLoadingSettled(tab),
-                  let page = freezer(tab), !page.freezeDropsExtensionEvents else { return false }
-            if let kept = freezeKeptAt[candidate.key], let threshold {
-                let left = threshold - (now - kept).seconds
-                if left > 0 { recheck = min(recheck ?? left, left); return false }
-                freezeKeptAt[candidate.key] = nil
-            }
-            return true
-        }
-        let plan = HibernationPlanner.freezePlan(setting, candidates: candidates)
-        for key in plan.due { freeze(key) }
-        if let next = [plan.nextCheck, recheck].compactMap(\.self).min() {
-            freezeDeadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
-        } else {
-            freezeDeadline.cancel()
-        }
+        freezeSchedule.replan(setting, hidden: hidden, now: now(), eligible: { key in
+            guard !frozen.contains(key), !freezeProbing.contains(key),
+                  let tab = cache.browsers[key]?.tab, tab.isLoadingSettledForFreeze,
+                  let page = freezer(tab) else { return false }
+            return !page.freezeDropsExtensionEvents
+        }, freeze: freeze, onDeadline: { [weak self] in self?.replan() })
     }
 
     /// Asks the page for playing media, Web Audio, capture, WebRTC and open devices, then freezes it
@@ -585,7 +550,7 @@ final class BrowserHibernation {
             self.freezeProbing.remove(key)
             guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
                   cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil,
-                  self.isLoadingSettled(tab) else {
+                  tab.isLoadingSettledForFreeze else {
                 // Shown and hidden again while it was asked: that hide's replan skipped it (it was
                 // being probed), so plan again for a page still hidden, or it never freezes.
                 if cache.lifecycle.phase(key) == .mountedHidden { self.replan() }
@@ -595,7 +560,7 @@ final class BrowserHibernation {
             guard self.mayFreeze(key) else { return }
             let doubted = self.probeHistory.record(probe, for: key, step: .freeze)
             if probe.stopsWhenFrozen || doubted {
-                self.freezeKeptAt[key] = self.now()
+                self.freezeSchedule.keep(key, at: self.now())
                 self.replan()
                 return
             }
@@ -616,7 +581,7 @@ final class BrowserHibernation {
         // The engine refuses a page it still counts visible: it stays awake and is asked again
         // after `freezeSeconds` (a hidden page's visibility reaches the engine within a frame).
         guard page.setFrozen(true) else {
-            freezeKeptAt[key] = now()
+            freezeSchedule.keep(key, at: now())
             cache?.trace(key, "freeze refused")
             replan()
             return
@@ -628,7 +593,7 @@ final class BrowserHibernation {
 
     /// Woken by a command (issue 51079): asked again after `freezeSeconds`. Lost (#44019): discarded, restored when shown.
     private func frozenPageChanged(_ key: String, _ change: BrowserFrozenPageChange) {
-        guard change == .lost else { if frozen.remove(key) != nil { freezeKeptAt[key] = now(); replan() }; return }
+        guard change == .lost else { if frozen.remove(key) != nil { freezeSchedule.keep(key, at: now()); replan() }; return }
         guard frozen.remove(key) != nil, let cache, cache.lifecycle.phase(key) == .mountedHidden, !probing.contains(key),
               let state = (cache.browsers[key]?.tab as? any BrowserHibernationSource)?.hibernationState() else { return }
         prepared[key] = (state, nil, "frozen-page-lost")
