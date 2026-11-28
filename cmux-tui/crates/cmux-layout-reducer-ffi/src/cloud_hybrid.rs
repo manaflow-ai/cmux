@@ -142,12 +142,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
         }
         // The app's Cloud send: run its first turn here while the machine boots, or not and why
-        // (cmux-cloud-start-core `hybrid_gui`). The kill switches are this process's env.
+        // (cmux-cloud-start-core `hybrid_gui`). The kill switches and the attach flag are this
+        // process's env.
         b"cloud_hybrid_gui_start" => {
             let mut send: hybrid_gui::Send = read(request)?;
             send.killed |= [hybrid_gui::ENV, hybrid_gui::GUI_ENV]
                 .iter()
                 .any(|name| hybrid_gui::says_off(std::env::var(name).ok().as_deref()));
+            send.attach_on |=
+                hybrid_gui::says_on(std::env::var(hybrid_gui::ATTACH_ENV).ok().as_deref());
             serde_json::to_value(hybrid_gui::decide(&send)).map_err(|_| ERR_INVALID)?
         }
         // One model call's `x-cmux-call-key` (cmux-platform#2074's dedupe).
