@@ -9,6 +9,7 @@
     "sidebar.groupHeader.background": "sections",
     "sidebar.groupHeader.memberCount": false,
     "sidebar.groupHeader.unreadCount": false,
+    "sidebar.workspaceRow.tabCount": false,
     "sidebar.workspaceRow.icon": false,
     "sidebar.workspaceRow.unreadDot": "neutral",
     "sidebar.showColors": false,

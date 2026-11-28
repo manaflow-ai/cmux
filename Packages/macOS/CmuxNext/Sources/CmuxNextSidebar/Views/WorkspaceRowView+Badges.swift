@@ -18,6 +18,7 @@ extension WorkspaceRowView {
         guard style != .trailing, !isShowingPlaceholder else {
             shownBadges = (ws.id, [])
             rowBadge.configure([], look: .corner)
+            rowBadge.spokenBadges = nil
             return
         }
         // The icon, the cleared unread badge and the idle activity are set in `configure`.
@@ -37,8 +38,9 @@ extension WorkspaceRowView {
         let settles = previous.map { WorkspaceRowBadges.settles(from: $0, to: states) } ?? false
         rowBadge.unreadColor = shown.neutralUnreadDot ? Palette.textSecondary : nil
         rowBadge.configure(states, look: states.count > 1 ? .stack : .plain, settles: settles)
-        // What the badges say goes to VoiceOver; the row's hover card shows the same (a1315's cut 3: no tooltip).
-        rowBadge.setAccessibilityHelp(Self.badgeSummary(badges, stacked: !corner))
+        // What the badges say goes to VoiceOver, built when it reads them (`RowBadgeView.accessibilityHelp`); the row's
+        // hover card shows the same (a1315's cut 3: no tooltip).
+        rowBadge.spokenBadges = .init(badges: badges, stacked: !corner)
     }
 
     /// What the badges say, for VoiceOver: the count, then each state, then what the stack left out
