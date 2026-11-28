@@ -41,4 +41,17 @@ public enum GhosttyBackgroundBlur: Equatable, Sendable {
             return false
         }
     }
+
+    /// Whether this mode should drive the AppKit compositor background blur
+    /// (the private-API window blur). Only a positive gaussian radius does:
+    /// `.disabled` must leave a transparent window truly clear, and the macOS
+    /// glass materials are handled by the window-glass path instead.
+    public var appliesCompositorBlur: Bool {
+        switch self {
+        case let .radius(points):
+            return points > 0
+        case .disabled, .macosGlassRegular, .macosGlassClear:
+            return false
+        }
+    }
 }
