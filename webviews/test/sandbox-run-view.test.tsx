@@ -2,6 +2,7 @@
 // VM runs it, then its receipt: the reply first, then status, time, cost, artifacts and the VM's
 // cleanup. The send's state is sandbox-run.test.tsx's.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { importWithDom } from "./support/importWithDom";
@@ -76,6 +77,7 @@ test("a running card whose newest read failed reads again on its own, with no Ch
     expect(reads).toBeGreaterThanOrEqual(1);
   } finally {
     await act(async () => root.unmount());
+    await settleReact();
     setLastingGrace(LASTING_MS);
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];
