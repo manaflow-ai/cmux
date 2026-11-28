@@ -4135,14 +4135,44 @@ def linux_matrix(parts):
                       separators=(",", ":"))
 
 
+# Parts that spend the repository's GITHUB_TOKEN budget themselves: a drained budget cannot run them.
+STAND_IN_SKIPPED = {"cloud-claim"}
+
+
+def stand_in_parts(tip):
+    """The Linux parts a tick runs when the state could not be read: every Linux part the tip's tree can measure, in
+    PARTS order, bar those that call GitHub with the token (STAND_IN_SKIPPED)."""
+    supported = set(supported_parts_at(tip))
+    return [p["name"] for p in PARTS
+            if p.get("where") == "linux" and p["name"] in supported and p["name"] not in STAND_IN_SKIPPED]
+
+
+def stand_in_outputs(tip, error):
+    """The plan's outputs when GitHub's rate limit hid the state (2026-11-27: five ticks in a row planned nothing, and the
+    perf board did not measure for hours, because the shared GITHUB_TOKEN budget was drained by other workflows). The
+    tip's Linux parts run with no state (git is local, the parts call no GitHub API), their numbers land in each
+    part's job summary and artifact, and nothing is saved: the report sees the RATE_LIMITED mark and leaves the last
+    trusted state alone. The Mac parts need the state (the measurement in flight, the host that built the app) and wait."""
+    parts = stand_in_parts(tip)
+    return {"action": "part" if parts else "none", "sha": tip if parts else "", "part": "",
+            "linux_matrix": linux_matrix(parts), "linux_request": "", "mac_parts": "", "worker": "",
+            "frame_pacing": "false", "rate_limited": "true",
+            "reason": (f"GitHub rate limit ({error}); the state was not read, so the tip's {len(parts)} Linux parts "
+                       "run as a stand-in and nothing is saved")}
+
+
 def cmd_plan(o):
     try:
         plan(o)
     except RateLimited as error:
         # Nothing written: the state file stays the one fetched, so the report saves nothing and the next tick
-        # starts from the same state.
-        out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "worker": "", "frame_pacing": "false",
-               "rate_limited": "true", "reason": f"GitHub rate limit ({error}); the next tick tries again"}
+        # starts from the same state. The Linux parts of the tip still run (stand_in_outputs): a budget drained by
+        # other workflows must not stop the cron from measuring.
+        try:
+            out = stand_in_outputs(git("rev-parse", "--verify", "--end-of-options", f"{o.tip}^{{commit}}"), error)
+        except (subprocess.SubprocessError, OSError) as failure:
+            out = {"action": "none", "sha": "", "part": "", "linux_matrix": "[]", "worker": "", "frame_pacing": "false",
+                   "rate_limited": "true", "reason": f"GitHub rate limit ({error}); no tip to measure ({failure!r})"}
         print(f"perf-cron plan: {json.dumps(out)}")
         write_outputs(o.output, out)
     print_calls("plan")
