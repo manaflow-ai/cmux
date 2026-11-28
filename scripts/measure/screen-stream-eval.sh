@@ -19,12 +19,12 @@
 # pixel are missing; eval.py OWED). Then the last line names each such target and field, and
 # results.json is still written.
 set -uo pipefail
-targets="rd,webrtc" samples=200 repeats=3 rig="" lan="" viewer_of="" peer_token="" input_frame_now=0 ltr=0 prebuilt="" tools_only=0 scene_marker=0
+targets="rd,webrtc" samples=200 repeats=3 rig="" peer_serve="" ps_port=4181 peer_hold=3600 peer_token_file="" lan="" viewer_of="" peer_token="" input_frame_now=0 ltr=0 prebuilt="" tools_only=0 scene_marker=0
 presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
 ocr_host_crop="" ocr_viewer_crop="" ocr_calibration=""
 video_path="" video_sha=""
 netem_rtt_ms="" netem_loss_pct=0 netem_seed=1
-stage_table=""
+stage_table="" seed_grants=0
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
@@ -41,6 +41,13 @@ for arg in "$@"; do
     # rig=ROOT (screen-share-vs-pair.sh): only the screen-share-vs.py rig at --root ROOT, in this Mac's grants
     # (inside the launcher app below), until the rig's quit or the step ends. No eval runs.
     rig=*) rig="${arg#rig=}" ;;
+    # peer-serve=BIND (screen-share-vs-pair.sh, the viewing Mac): only screen-share-vs.py peer-serve on BIND
+    # (with peer-port=, peer-hold=, peer-token-file=), inside the launcher app below, so the bench it starts
+    # sends UDP to the LAN under that app's Local Network grant: a step's own processes get EHOSTUNREACH.
+    peer-serve=*) peer_serve="${arg#peer-serve=}" ;;
+    peer-port=*) ps_port="${arg#peer-port=}" ;;
+    peer-hold=*) peer_hold="${arg#peer-hold=}" ;;
+    peer-token-file=*) peer_token_file="${arg#peer-token-file=}" ;;
     # input-frame-now=1: the rd host lifts its frame-rate cap after each input (--input-frame-now 1),
     # for a before/after against the default.
     input-frame-now=*) input_frame_now="${arg#input-frame-now=}" ;;
@@ -52,6 +59,10 @@ for arg in "$@"; do
     netem-seed=*) netem_seed="${arg#netem-seed=}" ;;
     # prebuilt=DIR: copy the built tools from DIR instead of building any (README.md, "Prebuilt tools").
     prebuilt=*) prebuilt="${arg#prebuilt=}" ;;
+    # seed-grants=1 (a dedicated fleet Mac, inside a fleet console step only): when CmuxScreenEvalLauncher.app
+    # lacks Screen Recording or Accessibility, write the two rows a person's console grant makes
+    # (launcher/seed-grants.sh), so a new fleet Mac needs no console step. Printed, never silent.
+    seed-grants=*) seed_grants="${arg#seed-grants=}" ;;
     # tools-only=1: build the rd tools for prebuilt= into artifacts/screen-stream-eval/tools.tar.gz, and stop.
     tools-only=*) tools_only="${arg#tools-only=}" ;;
     # Apple always requires a fresh source marker. Other displayed viewers may
@@ -164,6 +175,12 @@ if [[ -n "$stage_table" ]]; then
   [[ "$stage_table" =~ ^[a-z0-9=-]+(,[a-z0-9=-]+)*$ ]] || { echo "screen-stream-eval.sh: stage-table= is LINK or LINK=PROFILE, comma-separated" >&2; exit 2; }
 fi
 [[ -z "$rig" || "$rig" =~ ^/[A-Za-z0-9._/-]+$ ]] || { echo "screen-stream-eval.sh: rig= is an absolute path" >&2; exit 2; }
+if [[ -n "$peer_serve" ]]; then
+  [[ "$peer_serve" =~ ^[0-9.]+$ && "$ps_port" =~ ^[0-9]+$ && "$peer_hold" =~ ^[0-9]+$ ]] ||
+    { echo "screen-stream-eval.sh: peer-serve= is an IPv4 address, peer-port= and peer-hold= numbers" >&2; exit 2; }
+  [[ "$peer_token_file" == /* && -f "$peer_token_file" ]] ||
+    { echo "screen-stream-eval.sh: peer-serve= needs peer-token-file= (an absolute path to the run token)" >&2; exit 2; }
+fi
 peer_port=4180
 # From the script's place, not the cwd: inside the launcher app (below) the cwd is /.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -179,6 +196,51 @@ if [[ "$ltr" == 1 ]] && ! grep -q 'flag("ltr")' cmux-tui/crates/cmux-rd-host/src
   exit 2
 fi
 here="$root/scripts/measure/screen-stream-eval"
+if [[ -n "$peer_serve" ]]; then
+  # The viewing Mac of a pair job: peer-serve starts the bench, whose UDP to the shared Mac's LAN address
+  # macOS Local Network privacy refuses a launchd step's processes at once (`sends refused: No route to
+  # host (os error 65)`, 2026-11-27). Inside the launcher app the bench has that app's Local Network grant,
+  # given once at the console (it needs no Screen Recording or Accessibility here, so none is checked).
+  vs="$root/cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py"
+  serve=(/usr/bin/python3 -I "$vs" peer-serve --bind "$peer_serve" --port "$ps_port" --hold-s "$peer_hold"
+    --token-file "$peer_token_file")
+  [[ -n "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]] && exec "${serve[@]}"
+  launch="$peer_token_file.launcher"
+  rm -rf "$launch"
+  mkdir -p "$launch"
+  if ! app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log"); then
+    # Serving outside the app still carries every TCP call; the host half's localnet check then names the refusal.
+    echo "SCREEN-STREAM-EVAL-PEER app=none: the launcher app did not install ($(tail -1 "$launch/install.log")); serving in the step"
+    rm -rf "$launch"
+    exec "${serve[@]}"
+  fi
+  echo "SCREEN-STREAM-EVAL-PEER app=$app"
+  env_args=()
+  for var in PATH HOME TMPDIR USER LANG $(compgen -e | grep -E '^CMUX_' || true); do
+    [[ -n "${!var:-}" ]] && env_args+=(--env "$var=${!var}")
+  done
+  : >"$launch/out.log"
+  tail -n +1 -f "$launch/out.log" &
+  tail_pid=$!
+  # The app ends peer-serve when this process is gone (the step killed it, or the step ended).
+  open -W -n -g -a "$app" --stdout "$launch/out.log" --stderr "$launch/out.log" ${env_args[@]+"${env_args[@]}"} \
+    --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" \
+    "peer-serve=$peer_serve" "peer-port=$ps_port" "peer-hold=$peer_hold" "peer-token-file=$peer_token_file" \
+    >"$launch/open.log" 2>&1
+  open_rc=$?
+  sleep 0.5
+  kill "$tail_pid" 2>/dev/null
+  wait "$tail_pid" 2>/dev/null
+  status=$(cat "$launch/status" 2>/dev/null || true)
+  if [[ -z "$status" ]]; then
+    # LaunchServices did not start the app (no console session for this user): serve in the step instead.
+    echo "SCREEN-STREAM-EVAL-PEER the launcher app did not run (open exit $open_rc: $(tail -1 "$launch/open.log")); serving in the step"
+    rm -rf "$launch"
+    exec "${serve[@]}"
+  fi
+  rm -rf "$launch"
+  exit "$status"
+fi
 if [[ -n "$rig" ]]; then
   # The rig is what posts the input and starts the host, so it, not the step, needs Screen Recording and
   # Accessibility: inside the launcher app (the step's own processes hold neither) it runs the rig itself.
@@ -438,6 +500,16 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
     app="$home/Applications/CmuxScreenEvalLauncher.app"
   else
     app=$(bash "$here/launcher/install.sh" 2>"$launch/install.log") || install_status=$?
+  fi
+  if [[ "$install_status" == 0 && "$seed_grants" == 1 ]]; then
+    # The fleet console step test person_guard.py uses (fleet_console_step); person_guard has already refused
+    # a person's Mac above, so this writes grants only on a dedicated fleet worker.
+    if [[ "${CMUX_CI_CONSOLE_SESSION:-}" == 1 && -n "${CMUX_CI_STEP_KEY:-}" ]]; then
+      seeded=$(bash "$here/launcher/seed-grants.sh" "$app" 2>&1)
+      echo "SCREEN-STREAM-EVAL-LAUNCHER-SEED $seeded"
+    else
+      echo "SCREEN-STREAM-EVAL-LAUNCHER-SEED skipped: seed-grants=1 runs only inside a fleet console step (CMUX_CI_CONSOLE_SESSION=1 with CMUX_CI_STEP_KEY)"
+    fi
   fi
   if [[ "$install_status" == 0 ]]; then
     # --request also lists the app under Privacy & Security, where the grant is made.

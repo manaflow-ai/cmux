@@ -229,6 +229,46 @@ class FleetCacheTests(unittest.TestCase):
         self.assertEqual(result.returncode, 124)
         self.assertEqual(count.read_text().strip(), "2")
 
+    def test_a_crashed_build_service_retries_once_without_the_fleet_cache_too(self):
+        """Xcode's build service crashing mid-build ends with status 65 and "Build again to continue"
+        (nightly-next run 46020152626, no compile error in its tree). That build gets one more try, also on
+        a cold-cache run; a crash on the retry too ends red, and there is no third build."""
+        crash = "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+        result, count, args_log = self._run_nightly_release_stub(crash, DECIDE_COLD_CACHE_DISABLE="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(count.read_text().strip(), "2")
+        self.assertIn("build service crashed", result.stdout + result.stderr)
+        # Xcode 27.2 crashes replaying cached diagnostics (runs 46024218260, 46026219141, 46033303025), so the
+        # retry builds with the compilation cache off; the first build kept it on.
+        attempts = args_log.read_text().split("---\n")[1:]
+        self.assertIn("COMPILATION_CACHE_ENABLE_CACHING=YES\n", attempts[0])
+        self.assertIn("COMPILATION_CACHE_ENABLE_CACHING=NO\n", attempts[1])
+        self.assertIn("without the compilation cache", result.stdout + result.stderr)
+        result, count, _ = self._run_nightly_release_stub(crash, DECIDE_COLD_CACHE_DISABLE="1",
+                                                          STUB_FAIL_EVERY_BUILD="1")
+        self.assertEqual(result.returncode, 65)
+        self.assertEqual(count.read_text().strip(), "2")
+
+    def test_a_build_service_crash_in_a_large_log_is_seen_under_pipefail(self):
+        """The real Release log runs to about 110k lines. With `awk | grep -q` under pipefail, grep left at the
+        first match, awk failed writing the rest, and the crash read as no crash, so the no-cache retry never
+        ran (nightly-next runs 46074261734, 46076637784, 46079235693)."""
+        log = self.root / "big-release.log"
+        crash = "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
+        filler = "".join(f"CompileSwift normal arm64 /src/File{i}.swift\n" for i in range(200000))
+        log.write_text(filler[: len(filler) // 2] + crash + "\n" + filler + "xcodebuild exit status: 65\n")
+        lib = ROOT / "scripts/cmux-next/lib/compilation-cache.sh"
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c",
+                                 f"source '{lib}'; cmux_next_build_service_crashed '{log}' && echo crashed || echo none"],
+                                text=True, capture_output=True)
+        self.assertEqual(result.stdout.strip(), "crashed", result.stderr)
+        clean = self.root / "clean-release.log"
+        clean.write_text(filler + "xcodebuild exit status: 65\n" + crash + "\n")
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c",
+                                 f"source '{lib}'; cmux_next_build_service_crashed '{clean}' && echo crashed || echo none"],
+                                text=True, capture_output=True)
+        self.assertEqual(result.stdout.strip(), "none", result.stderr)
+
     def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):
         """Only a retry of a fleet-cache build is "after the fleet cache failed"; a cold-cache first build
         that hits the same diagnostic retries with the same local cache and says so."""
@@ -324,8 +364,9 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("local_cache_settings+=(\"$setting\")", step)
         self.assertIn('settings=("${local_cache_settings[@]}")', step)
         self.assertIn('${settings[@]+"${settings[@]}"}', step)
-        self.assertIn('run_release_build 1', step)
-        self.assertIn("retrying the Release build once with the local cache", step)
+        self.assertIn("retry_mode=1\n", step)
+        self.assertIn('run_release_build "$retry_mode"', step)
+        self.assertIn("echo 'with the local cache'", step)
         self.assertIn('exit "$release_status"', step)
 
 

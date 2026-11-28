@@ -6,7 +6,7 @@
 // on the warm gray scale, chips and the prompt on the text at 6%, dividers at 9%.
 {
   "name": "Folio",
-  "description": "A document workspace, Light: a warm off-white page, warm ink, a quiet tree sidebar, blue links.",
+  "description": "Light: a warm off-white page, a quiet sidebar, blue links.",
 
   // The terminal follows the page; the window, sidebar and pages take this theme.
   "appearance.theme": "Builtin Light",

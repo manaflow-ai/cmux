@@ -135,7 +135,7 @@ jobs:
       SHA: ${{ inputs.sha }}
       # Keep these paths in step with testflight-build.sh's source inputs. The
       # source review also reads string catalogs anywhere under the iOS tree.
-      ARCHIVE_PATHS: &archive-paths |
+      ARCHIVE_PATHS: |
         /.gitmodules
         /.gitattributes
         /.xcode-version
@@ -213,7 +213,7 @@ jobs:
       # A plain git fetch, not actions/checkout: GitHub stalls the pack body to
       # fleet Macs (runs 45773843030 on one Mac, 45808800614 on another: one
       # depth-1 fetch sat silent for the whole 20 min). http.lowSpeed* drops a
-      # fetch that moves under 1 KB/s for 45 s, and the loop asks again on a
+      # fetch that moves under 1 B/s for 60 s, and the loop asks again on a
       # new connection.
       # testflight-build.sh reads only this commit (`git archive`, `git show`,
       # `git log -1`), so one commit is enough. Full history took 63 min on
@@ -365,7 +365,7 @@ jobs:
           REMOTE: ${{ steps.source.outputs.remote }}
         run: |
           rm -rf "$RUNNER_TEMP/handoff"
-          if [[ "$REMOTE" =~ ^ios-source\.[[:alnum:]]{6}$ ]]; then rm -rf "$GITHUB_WORKSPACE/$REMOTE"; fi
+          if [[ "$REMOTE" =~ ^ios-source\.[[:alnum:]]{6}$ ]]; then rm -rf "${GITHUB_WORKSPACE:?}/$REMOTE"; fi
 
   # Only when the dispatch has no base (the first build after a manual or
   # retired-lane upload): the newest processed build's note records the commit

@@ -1,0 +1,176 @@
+name: cmux-vmd host artifacts
+
+# What a new GCE microVM host installs at boot, so it provisions itself with nobody's ssh or tailnet
+# (cmuxterm-hq build-fleet/microvm-host/provision.sh): cmux-vmd (release, linux x86_64), the pinned Firecracker and
+# guest kernel, the autocloud image's rootfs.ext4 with the cmux-vmd-guest agent in it, and autocloud-template.sh.
+# scripts/cmux-vmd/host-artifacts.sh builds the bundle and publishes it to the private R2 bucket
+# cmux-fleet-artifacts at cmux-vmd/<rev>/, then cmux-vmd/latest.json last. Hosts read it with a read-only key.
+#
+# The rootfs is the newest rolled cmux VM image: cloud-vm-image-roll.yml's qcow2 job writes
+# cmux-vm-image/<tag>/rootfs.tar.zst and records it in its cloud-vm-image-qcow2-<tag> artifact (qcow2.json).
+# A dispatch can name another key with rootfs_key.
+
+on:
+  push:
+    branches:
+      - feat-cmux-next
+    paths:
+      - "cmux-tui/crates/cmux-vmd/**"
+      - "scripts/cmux-vmd/**"
+      - ".github/workflows/cmux-vmd-host-artifacts.yml"
+  workflow_dispatch:
+    inputs:
+      rootfs_key:
+        description: "R2 key of a rootfs.tar.zst in cmux-fleet-artifacts (empty: the newest rolled image's)"
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: cmux-vmd-host-artifacts
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build cmux-vmd (linux x86_64)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Validate the host artifacts script
+        run: python3 tests/test_cmux_vmd_host_artifacts.py
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-vmd-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: Build cmux-vmd and cmux-vmd-guest
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p cmux-vmd --bin cmux-vmd --bin cmux-vmd-guest
+          mkdir -p "$GITHUB_WORKSPACE/vmd-bins"
+          install -m 0755 target/release/cmux-vmd target/release/cmux-vmd-guest "$GITHUB_WORKSPACE/vmd-bins/"
+          file "$GITHUB_WORKSPACE"/vmd-bins/* || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-vmd-bins
+          path: vmd-bins/
+          retention-days: 3
+          if-no-files-found: error
+
+  publish:
+    name: Bundle and publish to R2
+    needs: build
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-deploy-jit-x64' }}
+    timeout-minutes: 60
+    # The R2 key that reaches cmux-fleet-artifacts (storage-maintenance.yml's census reads it with this one). Not
+    # cmux-next-vm-image-dev: its key gets 403 AccessDenied writing this bucket (every roll's qcow2 job, 2026-11-27).
+    environment:
+      name: artifacts
+      deployment: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+    permissions:
+      contents: read
+      actions: read
+    env:
+      OUT: ${{ github.workspace }}/vmd-host-out
+      WORK: ${{ github.workspace }}/vmd-host-work
+      AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+      R2_BUCKET: cmux-fleet-artifacts
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-vmd-bins
+          path: vmd-bins
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          chmod +x vmd-bins/*
+          missing=""
+          for t in mkfs.ext4 fakeroot zstd jq; do command -v "$t" >/dev/null || missing=1; done
+          if [ -n "$missing" ]; then
+            sudo -n apt-get update -qq >/dev/null
+            sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq e2fsprogs fakeroot zstd jq >/dev/null
+          fi
+
+      - name: Find the rolled image's rootfs
+        id: rootfs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROOTFS_KEY_INPUT: ${{ inputs.rootfs_key }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK"
+          key="$ROOTFS_KEY_INPUT" want=""
+          if [ -z "$key" ]; then
+            # The newest successful rolls first; the first whose record names a rootfs tarball wins (an export that
+            # failed records none).
+            while read -r id name; do
+              rm -rf "$WORK/rec" && mkdir -p "$WORK/rec"
+              gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$WORK/rec.zip" || continue
+              unzip -q -o "$WORK/rec.zip" -d "$WORK/rec" || continue
+              [ -f "$WORK/rec/qcow2.json" ] || continue
+              key="$(jq -r '.rootfs_tar.key // empty' "$WORK/rec/qcow2.json")"
+              want="$(jq -r '.rootfs_tar.sha256 // empty' "$WORK/rec/qcow2.json")"
+              [ -n "$key" ] && { echo "rootfs from $name: $key"; break; }
+            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cloud-vm-image-roll.yml/runs?status=success&per_page=20" \
+                       --jq '.workflow_runs[].id' | while read -r run; do
+                       gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq \
+                         '.artifacts[] | select((.name | startswith("cloud-vm-image-qcow2-")) and (.expired | not)) | "\(.id) \(.name)"'
+                     done)
+          fi
+          if ! [[ "$key" =~ ^cmux-vm-image/[A-Za-z0-9._-]+/rootfs\.tar\.zst$ ]]; then
+            # Every roll's qcow2 export fails today (R2 403 on cmux-fleet-artifacts), so none has a tarball yet.
+            echo "::warning title=cmux-vmd host artifacts::no rolled rootfs.tar.zst found (key '$key'); publishing without the image"
+            exit 0
+          fi
+          url="$(python3 scripts/ci/r2-presign.py --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET" --key "$key" --method GET --expires 3600)"
+          curl -fsS --retry 5 --retry-all-errors -o "$WORK/rootfs.tar.zst" "$url"
+          if [ -n "$want" ]; then echo "$want  $WORK/rootfs.tar.zst" | sha256sum -c -; fi
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - name: Bundle
+        env:
+          ROOTFS_KEY: ${{ steps.rootfs.outputs.key }}
+        run: |
+          set -euo pipefail
+          args=(--bins vmd-bins --out "$OUT")
+          if [ -n "$ROOTFS_KEY" ]; then args+=(--rootfs-tar "$WORK/rootfs.tar.zst"); fi
+          bash scripts/cmux-vmd/host-artifacts.sh bundle "${args[@]}"
+
+      - name: Publish
+        run: bash scripts/cmux-vmd/host-artifacts.sh publish --out "$OUT" --rev "${GITHUB_SHA::12}-${GITHUB_RUN_ID}"
+
+      - name: Upload the manifest
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-vmd-host-manifest
+          path: |
+            vmd-host-out/manifest.json
+            vmd-host-out/latest.json
+          if-no-files-found: ignore
+          retention-days: 3

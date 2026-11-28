@@ -29,6 +29,7 @@ pub mod host;
 pub mod lan;
 pub mod link_deflate;
 pub mod link_socket;
+pub mod link_zstd;
 pub mod live_code;
 pub mod local_link;
 pub mod localhost;
@@ -67,6 +68,7 @@ pub mod size_release;
 pub mod surface;
 pub mod tab_snapshots;
 pub mod traffic;
+pub mod try_pr;
 pub mod viewport_link;
 pub mod viewport_sync;
 

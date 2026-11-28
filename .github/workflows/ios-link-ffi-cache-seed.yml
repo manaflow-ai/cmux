@@ -23,6 +23,12 @@ on:
 permissions:
   contents: read
 
+# The R2 copy (the r2 job below): NEXT's bucket, the one name every reader and this seed use.
+env:
+  CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+  CI_CACHE_R2_NAMESPACE: any
+
 concurrency:
   # One at a time, never cancelled while running. A pending run is replaced by a newer push, whose inputs are the
   # newest, so the entry the next pull request reads is still the one seeded.
@@ -41,6 +47,7 @@ jobs:
       inputs: ${{ steps.key.outputs.inputs }}
       key: ${{ steps.key.outputs.key }}
       hit: ${{ steps.lookup.outputs.cache-hit }}
+      r2_hit: ${{ steps.r2-lookup.outputs.hit }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -64,6 +71,24 @@ jobs:
           enableCrossOsArchive: true
           key: ${{ steps.key.outputs.key }}
           lookup-only: true
+
+      # The r2 job's copy, read as a Blacksmith Mac reads it (the public URL, no credentials). One HEAD per archive kind.
+      - name: Is it in R2
+        id: r2-lookup
+        continue-on-error: true
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+        run: |
+          set -uo pipefail
+          hit=false
+          for ext in tar.zst tar.gz; do
+            if curl --fail --silent --head --max-time 20 -o /dev/null \
+                "${CI_CACHE_R2_PUBLIC_URL%/}/v1/${CI_CACHE_R2_NAMESPACE}/objects/${KEY}.${ext}"; then
+              hit=true
+            fi
+          done
+          echo "hit=${hit}" >> "$GITHUB_OUTPUT"
+          echo "R2 copy of ${KEY}: ${hit}"
 
   # A miss: the build fleet builds it (scripts/ci/fleet_ios_build.py, as link-ffi-fleet does), so no Mac waits for it.
   # Exit 0 means its bindings matched the checked-in ones; anything else leaves it to the Mac below.
@@ -175,3 +200,42 @@ jobs:
         with:
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
           key: ${{ steps.key.outputs.key }}
+
+  # The same entry in R2, for the Blacksmith Macs. Their actions/cache reads a store of its own, not the one this
+  # workflow's cmux-linux jobs write: the key job above hit e141ff51 at 21:21Z (run 46069736597) while every hosted
+  # ios fast verdict missed it (jobs 140732828652 at 20:52Z, 140739674555 at 21:13Z) and built the FFI itself, 381 s
+  # of a 16 min job; 155 of 160 verdicts ran on Blacksmith (2026-11-27, 16-20Z). R2 is the one store every runner
+  # reads (scripts/ci/r2-cache.sh, the fast tier's precedent). This job copies whatever the store above holds, so it
+  # runs once per input key, after the fleet or the Mac saved it, or now for a key saved before this job existed.
+  r2:
+    name: CmuxMobileLinkFFI.xcframework (R2 copy, seed)
+    needs: [key, fleet, mac]
+    if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && needs.key.outputs.key != '' && needs.key.outputs.r2_hit != 'true' }}
+    runs-on: cmux-linux
+    timeout-minutes: 15
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          filter: blob:none
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Restore CmuxMobileLinkFFI.xcframework
+        id: restore
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          enableCrossOsArchive: true
+          key: ${{ needs.key.outputs.key }}
+
+      - name: Save CmuxMobileLinkFFI.xcframework to R2
+        if: steps.restore.outputs.cache-hit == 'true'
+        # A failed copy is only a miss for the readers, which build as before.
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          KEY: ${{ needs.key.outputs.key }}
+        run: bash scripts/ci/r2-cache.sh save cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework "$KEY"
