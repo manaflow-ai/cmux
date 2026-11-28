@@ -144,3 +144,22 @@ test("Sign In Again renews a standalone ChatGPT plan through its device flow on 
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPTDevice", openBrowser: true, id: plan.id }]);
   expect(rendered.provider.accountRuns).toEqual([]);
 });
+
+test("Connect with ChatGPT on an in-place host offers one way in: Connect for a device code, no browser button", async () => {
+  const rendered = await open();
+  await click(document.querySelector<HTMLButtonElement>("[data-models-add]")!);
+  await click(document.querySelector<HTMLElement>('[data-models-choice="chatgpt"]')!);
+  const dialog = document.querySelector<HTMLElement>("[data-models-dialog]")!;
+  // The weird modal: Cancel / Connect plus a second full-width "Sign in with ChatGPT" (the browser sign-in).
+  expect(dialog.querySelector('[data-models-action="connectChatGPT"]')).toBeNull();
+  expect(dialog.querySelector("[data-chatgpt]")).toBeNull();
+  expect([...dialog.querySelectorAll("button")].map((button) => button.textContent)).not.toContain(
+    "Sign in with ChatGPT",
+  );
+  const connect = [...dialog.querySelectorAll<HTMLButtonElement>("button[type=submit]")];
+  expect(connect).toHaveLength(1);
+  await click(connect[0]!);
+  await settle();
+  expect(rendered.provider.accountRuns.find((run) => run.action === "signInStart")).toMatchObject({ family: "codex" });
+  expect(rendered.provider.modelRuns.some((run) => run.action === "connectChatGPT")).toBe(false);
+});

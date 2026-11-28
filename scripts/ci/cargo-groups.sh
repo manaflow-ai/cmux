@@ -105,7 +105,25 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   if [[ -n "$avail_gib" ]] && { [[ -z "$budget" ]] || ((avail_gib < budget)); }; then
     budget=$avail_gib source="MemAvailable"
   fi
-  capped="" max_par=0
+  capped="" max_par=0 giants_tight=""
+  # GIANT_RESERVE: one fat-LTO acpmux or cmux-tui-core rustc holds about CARGO_GROUPS_GIANT_GIB (16) GiB by itself,
+  # so a budget that holds fewer than two keeps one giant's share aside and sizes every other token from the rest,
+  # and the giants compile one at a time (GIANTS_ONE_AT_A_TIME below), capped by memory.max or not. Sized by cores
+  # alone on an uncapped 31 GiB nightly VM (8 cores: 8 + 9 x 2 = 26 tokens, both acpmux builds and cmux-tui-core
+  # at once), the darwin cross leg took the runner down (cmux-tui-artifacts run 46173391786 attempt 2, job
+  # 141099663884, 2026-11-28 20:20Z: "The runner has received a shutdown signal"), so no cmux-tui tree published.
+  giant_gib=${CARGO_GROUPS_GIANT_GIB:-16}
+  # Only where the budget is the host's MemAvailable (no memory.max below it): there running out takes the whole
+  # runner down, where under a memory.max the kernel kills one rustc and OOM_RERUN_ALONE rebuilds it. Only a budget
+  # that holds one giant (budget >= giant_gib): below that it cannot fit whatever the rest does. Fat-LTO musl legs
+  # (CARGO_GROUPS_HEAVY) keep HEAVY_GROUPS_ONE_AT_A_TIME, which already passes there.
+  if [[ "$source" == MemAvailable && -z "${CARGO_GROUPS_HEAVY:-}" && -z "${CARGO_GROUPS_NO_GIANT_LOCK:-}" ]] &&
+    ((budget >= giant_gib && budget < 2 * giant_gib)); then
+    giants_tight=1
+    rest=$((budget - giant_gib)); ((rest >= 2)) || rest=2
+    echo "cargo groups: $source ${budget} GiB holds fewer than two giants at ${giant_gib} GiB: ${rest} GiB for everything else"
+    budget=$rest
+  fi
   if [[ -n "$budget" ]]; then
     per=${CARGO_GROUPS_GIB_PER_CORE:-3}
     fit=$((budget / per)); ((fit >= 1)) || fit=1
@@ -159,7 +177,7 @@ if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
   # artifact was ready 27.5 min after the job started against about 15.5 without the lost attempt, and the channel
   # lag passed 60 min. A rustc wrapper (scripts/ci/cargo-giant-lock.sh) holds an flock around each giant's rustc;
   # every other crate keeps the group's tokens. Fat-LTO legs keep HEAVY_GROUPS_ONE_AT_A_TIME alone.
-  if [[ -n "$capped" && -z "${CARGO_GROUPS_HEAVY:-}" && -z "${CARGO_GROUPS_NO_GIANT_LOCK:-}" ]] && command -v flock >/dev/null; then
+  if [[ -n "$capped$giants_tight" && -z "${CARGO_GROUPS_HEAVY:-}" && -z "${CARGO_GROUPS_NO_GIANT_LOCK:-}" ]] && command -v flock >/dev/null; then
     export CARGO_GROUPS_GIANTS="${CARGO_GROUPS_GIANTS:-acpmux cmux_tui_core}"
     export CARGO_GROUPS_GIANT_LOCK="$logs/giant.lock"
     export CARGO_GROUPS_INNER_WRAPPER="${RUSTC_WRAPPER:-}"

@@ -27,10 +27,6 @@ cmux-tui/crates/cmux-acpmux-remote-wire/include/cmux_acpmux_remote_wire.h	cmux_a
 cmux-tui/crates/cmux-acpmux-remote-wire/include/cmux_acpmux_remote_wire.h	cmux_acpmux_remote_wire_new
 cmux-tui/crates/cmux-acpmux-remote-wire/include/cmux_acpmux_remote_wire.h	cmux_acpmux_remote_wire_string_free
 cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_action_catalog_abi_version
-cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_action_catalog_call
-cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_action_catalog_reply_free
-cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_deep_link_call
-cmux-tui/crates/cmux-action-catalog/include/cmux_action_catalog.h	cmux_deep_link_free
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_abi_version
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_check
 cmux-tui/crates/cmux-agent-pane-policy/include/cmux_agent_pane_policy.h	cmux_agent_pane_policy_check_gesture

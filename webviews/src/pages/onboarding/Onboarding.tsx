@@ -6,7 +6,7 @@
 // own layout. Return presses the primary (not on a repeat, nor when a text field, a focused button
 // or an open popup owns it); Escape skips. While the webview is offline, one line under the title
 // says so (sign-ins and downloads work once it is back); it goes by itself when the network returns.
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, useCallback } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { StableLabel } from "../../ui/StableLabel";
 import { useConnectionQuiet } from "../../ui/lasting";
@@ -21,14 +21,14 @@ import { OnboardingContext, useOnboarding, useOnline } from "./parts";
 import { useOnboardingReadiness } from "./signInReadiness";
 import type { OnboardingStore } from "./store";
 import {
-  EMPTY_HISTORY,
   MAKE_IT_YOURS_SCREENS,
-  UNDOABLE_OPS,
-  restoreWrites,
   walkValues,
   type MakeItYoursScreen,
-  type WalkHistory,
   type WalkValues,
+  EMPTY_HISTORY,
+  UNDOABLE_OPS,
+  restoreWrites,
+  type WalkHistory,
 } from "./walk";
 import { keyIntent, primaryLabel, primaryLabels, skipLabel, skipLabels, windowTitle } from "./text";
 
@@ -107,12 +107,27 @@ function Footer({
             {back}
           </DialogButton>
         )}
+        {/* The intro walk's way out to a chat from any screen before the last (cmux#56827): it keeps
+            every pick so far and ends the step as Continue on the last screen does; Skip still puts
+            them back. */}
+        {walkNext && (
+          <DialogButton
+            dialogKey={null}
+            className="ui-button ui-btn"
+            data-variant="subtle"
+            data-size="md"
+            data-walk-exit=""
+            onClick={() => store.call(OPS.next)}
+          >
+            {strings.t("onboarding.button.startChatting")}
+          </DialogButton>
+        )}
         <DialogButton
           dialogKey="escape"
           className="ui-button ui-btn"
           data-variant="subtle"
           data-size="md"
-          onClick={() => store.call(OPS.skip)}
+          onClick={() => store.call(OPS.skip, walk != null ? { screen: walk.screen } : {})}
         >
           <StableLabel label={skipLabel(strings, footer.skip)} alternatives={skipLabels(strings, step)} />
         </DialogButton>
@@ -123,7 +138,9 @@ function Footer({
           data-size="md"
           data-primary={footer.primary}
           disabled={!footer.primaryEnabled}
-          onClick={() => (walkNext ? walk.go(walk.screen + 1) : store.call(OPS.next))}
+          onClick={() =>
+            walkNext ? walk.go(walk.screen + 1) : store.call(OPS.next, walk != null ? { screen: walk.screen } : {})
+          }
         >
           <StableLabel label={primaryLabel(strings, footer.primary)} alternatives={primaryLabels(strings, step)} />
         </DialogButton>
@@ -344,7 +361,9 @@ export function OnboardingPage({
         setScreen(screenRef.current + 1);
         return;
       }
-      store.call(intent === "skip" ? OPS.skip : OPS.next);
+      // The walk's screen goes with its end, for the walk's record (IntroWalkSplit).
+      const params = current.step === "makeItYours" ? { screen: screenRef.current } : {};
+      store.call(intent === "skip" ? OPS.skip : OPS.next, params);
     };
     window.addEventListener("keydown", press);
     return () => window.removeEventListener("keydown", press);

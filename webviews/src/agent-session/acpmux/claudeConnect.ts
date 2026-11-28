@@ -116,3 +116,20 @@ export function refusalText(failure: unknown, fallback: string): string {
   const message = failure instanceof Error ? failure.message.trim() : "";
   return message || fallback;
 }
+
+type ConnectFlowState = { openBrand: string | undefined; saved: boolean; ran: boolean };
+
+/// The connect flow's next state, a fixed point (a second step changes nothing): a sign-in that
+/// started has run; one that ran and ended with no error saved; and when the host no longer needs a
+/// connection (or the open brand left its list) the flow starts over.
+export function connectFlowStep(
+  state: ConnectFlowState,
+  host: { phase: unknown; error: unknown; needed: boolean; brands: readonly string[] },
+): ConnectFlowState {
+  const { openBrand } = state;
+  const ran = state.ran || (openBrand !== undefined && host.phase !== null);
+  const saved = state.saved || (ran && host.phase === null && host.error === null);
+  const over = !host.needed || (openBrand !== undefined && !host.brands.includes(openBrand));
+  if ((saved || openBrand || ran) && over) return { openBrand: undefined, saved: false, ran: false };
+  return { openBrand, saved, ran };
+}
