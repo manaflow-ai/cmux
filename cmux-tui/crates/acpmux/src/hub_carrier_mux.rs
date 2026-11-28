@@ -485,6 +485,19 @@ impl Mux {
                 }
                 Err(refusal) => refuse(refusal).await,
             },
+            // This machine's iroh address, one record, then the stream ends.
+            Ok(CircuitService::IrohAddr) => match incoming.carrier.iroh_addr_record() {
+                Some(record) => {
+                    let (mut ours, theirs) = tokio::io::duplex(record.len().max(1));
+                    use tokio::io::AsyncWriteExt;
+                    let _ = ours.write_all(&record).await;
+                    drop(ours);
+                    self.carry_admitted(id, theirs, events, credit).await
+                }
+                None => {
+                    refuse(ServiceRefusal::new("service.off", "iroh is off on this machine")).await
+                }
+            },
             Ok(CircuitService::Consent) => match incoming.consent(from).await {
                 Ok((local, serving)) => {
                     tokio::join!(serving, self.carry_admitted(id, local, events, credit));

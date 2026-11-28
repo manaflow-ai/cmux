@@ -359,6 +359,9 @@ impl Hub {
             );
         }
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
+        // Its parent's recorded namespace while it works in the same folder: the fork's Codex
+        // answer is read from it while its digest is the same (`session_manifest.rs`).
+        crate::session_manifest::mark(&mut fork_env, parent_meta.manifest.as_ref(), &cwd);
         // The modern ForkStart route and an explicit own-harness retarget use the same
         // model validation and spawn handling.
         let mut start = start;
@@ -910,6 +913,8 @@ impl Hub {
         }
         // A fork opens under its parent's title, which its first prompt may refine (`titles.rs`).
         let (title, title_source) = super::titles::fork_title(&parent_meta);
+        // Its parent's namespace while it works in the same folder (`session_manifest.rs`).
+        let fork_manifest = crate::session_manifest::for_fork(parent_meta.manifest.as_ref(), &cwd);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -1123,6 +1128,7 @@ impl Hub {
             }),
             // A fork is a new chat: Auto, whatever its parent was pinned to.
             place_mode: None,
+            manifest: fork_manifest,
         };
         // The subagent's name and its last prompt, as an adopted chat's past sets them.
         if let Some(c) = &sub_copy {

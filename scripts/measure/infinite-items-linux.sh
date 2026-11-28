@@ -18,6 +18,11 @@
 #     (each live chat holds an agent host and an agent, so 1,000 of them need tens of GB).
 #   infinite-items-linux.sh freed=1 ...: last, runs the same build with every tab parked after the open and each day
 #     (--park-idle, FREED lines): what an item costs once the app's freeing tier (workspaces.freeing, a day idle) took it.
+#   infinite-items-linux.sh freeing=N ...: last, runs the same build with the daemon's own freeing timer at an idle time
+#     of N seconds (--free-idle-seconds N, FREEING lines, rows infinite_items.freeing_idle.*): the simulated day lasts
+#     seconds, so the tabs its workspace switches start (select-workspace wakes a parked tab) are still live at the
+#     sample, while in the product the timer (workspaces.freeing, on, a day idle) parks them again a day later.
+#     Like freed=1, not with before=ref:/own-exe/hosts (those passes end the script first).
 #   infinite-items-linux.sh alloc_ab=1 [alloc_budget=3000] [alloc_caps=64,off] ...: acpmux several ways from this head
 #     (glibc's malloc, the gnu build's own: arms system and glibc; mimalloc, the musl packages' allocator: feature
 #     mimalloc-gnu; mimalloc2: its v2 line; dhat-heap) and one cmux-tui, run in turn REPEAT times (ALLOC arm=A rI
@@ -43,6 +48,7 @@ repeat=1
 live=0
 live_counts=""
 freed=0
+freeing=0
 cap_ab=""
 alloc_ab=0
 alloc_budget=3000
@@ -61,6 +67,7 @@ for arg in "$@"; do
     live=*) live="${arg#live=}" ;;
     live_counts=*) live_counts="${arg#live_counts=}" ;;
     freed=*) freed="${arg#freed=}" ;;
+    freeing=*) freeing="${arg#freeing=}" ;;
     cap_ab=*) cap_ab="${arg#cap_ab=}" ;;
     alloc_ab=*) alloc_ab="${arg#alloc_ab=}" ;;
     alloc_budget=*) alloc_budget="${arg#alloc_budget=}" ;;
@@ -128,7 +135,9 @@ if [[ "$musl" == 1 ]]; then
   fi
   tail -n 3 "$build_log"
   bin="$target/$musl_target/release"
-  cp "$bin/acpmux-standalone" "$bin/acpmux"
+  # Copy, then rename: a daemon an earlier run left up may still run $bin/acpmux, and cp onto it fails with "Text
+  # file busy" (run 46155529321's second musl arm); the rename leaves that process its old inode.
+  cp "$bin/acpmux-standalone" "$bin/acpmux.new.$$" && mv -f "$bin/acpmux.new.$$" "$bin/acpmux"
 else
   cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
   bin="$target/release"
@@ -340,6 +349,11 @@ python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmu
 if [[ "$freed" == 1 ]]; then
   python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
     --counts "$counts" --days "$days" --park-idle ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/FREED /' || status=$?
+fi
+if [[ "$freeing" != 0 ]]; then
+  python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+    --counts "$counts" --days "$days" --free-idle-seconds "$freeing" --row-arm freeing_idle \
+    ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/FREEING /' || status=$?
 fi
 if [[ "$pages" == 1 ]]; then
   cd "$root/webviews"

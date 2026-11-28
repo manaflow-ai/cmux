@@ -27,7 +27,8 @@ extension TabCell {
     /// status there: the state mark and the loading indicator hide, keeping their room;
     /// `animated` fades them on the hover curve.
     func layoutTrailingMarks(titleX: CGFloat, titleEnd: CGFloat, midY: CGFloat, onPath: Bool,
-                             statusSlot: CGRect? = nil, statusHidden: Bool = false, animated: Bool = false) -> CGFloat {
+                             statusSlot: CGRect? = nil, statusHidden: Bool = false, animated: Bool = false,
+                             statusOnly: Bool = false) -> CGFloat {
         // Opacities before this layout, so a hover change fades from what showed.
         let before = Dictionary(uniqueKeysWithValues: statusMarkLayers.map { (ObjectIdentifier($0), $0.opacity) })
         var end = titleEnd
@@ -51,7 +52,13 @@ extension TabCell {
                 _ = layoutTrailingSpinner(end: statusSlot.midX + spinnerSide / 2, midY: midY)
             }
         }
+        // `statusOnly` (`TabCrowdedMarks.dropBadges`): a crowded title keeps the status and loses the badges beside it.
+        if statusOnly {
+            hideTrailingBadges()
+            themeBadgeLayer?.opacity = 0
+        }
         for mark in TrailingMark.allCases {
+            if statusOnly, mark != .state, mark != .loading { continue }
             switch mark {
             case .state: if statusSlot == nil, combined == nil { end = layoutTrailingStateMark(end: end, midY: midY, onPath: onPath) }
             case .count: end = layoutCountPill(titleX: titleX, titleEnd: countPillEnd(end, statusSlot: statusSlot, midY: midY), midY: midY)

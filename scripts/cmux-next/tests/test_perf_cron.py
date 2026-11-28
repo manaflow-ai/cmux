@@ -1126,6 +1126,25 @@ class WebUiTests(unittest.TestCase):
         split = open(os.path.join(HERE, "..", "split-spring-terminal.py")).read()
         self.assertIn('"--suite=graceful-swap"', split, "the suite the part names is dispatched")
 
+    def test_every_goal_bench_row_has_a_recurring_part(self):
+        """Goal goals-born-owned-and-read: each Mac bench row a goal reads is made by a perf-cron part (or the
+        launch-tti / dev-loop schedules), never only by a hand step. The perf-cron rows must map to a Mac part."""
+        rows = {
+            "hot_swap.mac.unfocused_pane.p95_ms": "hot-swap",
+            "infinite_tabs.mac.memory_vs_empty": "infinite-tabs",
+            "chat_snappy.mac.send_paint.p95_ms": "chat-snappy",
+            "terminal.throughput.ratio_vs_ghostty": "throughput",
+        }
+        for row, part in rows.items():
+            self.assertEqual(cron.part_for_row(row + "@cmux20-bench"), part, row)
+            self.assertIn(part, FLEET, part)
+        p = cron.PART_BY_NAME["infinite-tabs"]
+        self.assertEqual(p["goal"], "infinite-tabs-flat")
+        self.assertIn("--suite=infinite-tabs", p["args"])
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.search("infinite_tabs.mac.memory_vs_empty"))
+        split = open(os.path.join(HERE, "..", "split-spring-terminal.py")).read()
+        self.assertIn('"--suite=infinite-tabs"', split)
+
     def test_the_cef_resize_part_owns_its_rows_and_judges_late_frames(self):
         """Live resize beside a Chromium page (cef-layer-hosting-DESIGN.md "Live resize"): every frame on time (0
         missed) and the frame's commit under half a display frame, from pane-perf-terminal.py --browser's summary."""
@@ -1440,6 +1459,8 @@ class WebUiTests(unittest.TestCase):
         live, _, _ = runs["all-live"]
         self.assertIn("--lazy-start=off", live)  # the all-live arm, beside the product (lazy start on) suite
         self.assertIn("--row-arm=all_live", live)
+        self.assertIn("--evict-idle-secs=0", live)  # every chat resident: the bench evicts at 5 s by default
+        self.assertNotIn("--evict-idle-secs=0", runs["suite"][0])  # the product arm keeps eviction on
         self.assertIn("counts=1000", live)
         self.assertEqual(cron.part_for_row("webui.infinite_items.all_live.n1000.memory_vs_empty@linux"), "infinite-items")
         self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only", "musl=1"])
@@ -3374,6 +3395,9 @@ class RateLimitTests(unittest.TestCase):
     def test_a_refusal_says_how_long_until_github_takes_calls_again(self):
         import email.message
         for name, value, want in (("retry-after", "90", 90), ("x-ratelimit-reset", str(int(cron.time.time()) + 600), 600)):
+            # A token refused once is not tried again in this process (#62127): each case starts with none spent.
+            cron.SPENT_TOKENS.clear()
+            self.addCleanup(cron.SPENT_TOKENS.clear)
             headers = email.message.Message()
             headers["x-ratelimit-remaining"] = "0"
             headers[name] = value
@@ -5156,6 +5180,7 @@ class StalePartFirstTests(unittest.TestCase):
         # Each stored part carried its goal's rows (goal_rows_missing), so only the stored date makes one due.
         state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"]),
                               "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"]),
+                              "infinite_tabs.mac.memory_vs_empty@h": dict(state["part_stored"]["infinite-tabs"]),
                               "chat_snappy.none.send_paint@h": dict(state["part_stored"]["chat-snappy"])}
         return state, now
 
