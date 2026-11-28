@@ -675,7 +675,7 @@
       "accessKeyIdField": "Access key ID",
       "secretAccessKeyField": "Secret access key",
       "sessionTokenField": "Session token",
-      "optionalPlaceholder": "Optional",
+      "bedrockTemporaryHint": "Add temporary AWS credentials: an ASIA... key with its session token. Long-lived keys (AKIA...) are not stored here; keep them in your own secret store or a local Bedrock route.",
       "codexBody": "Codex signs in through a browser, so add it from your terminal. Sign in with this team, then run:",
       "opencodeBody": "OpenCode reads its provider list from coderouter. Sign in with this team, then run:",
       "copyCommand": "Copy command",

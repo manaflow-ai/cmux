@@ -1000,15 +1000,11 @@ function ClaudeUpstreamForm({
       ) : null}
       {kind === "bedrock" ? (
         <>
+          <p className="text-xs text-muted">{t("bedrockTemporaryHint")}</p>
           <Field label={t("regionField")} name="region" placeholder="us-west-2" secret={false} />
-          <Field label={t("accessKeyIdField")} name="accessKeyId" placeholder="AKIA..." />
+          <Field label={t("accessKeyIdField")} name="accessKeyId" placeholder="ASIA..." />
           <Field label={t("secretAccessKeyField")} name="secretAccessKey" placeholder="" />
-          <Field
-            label={t("sessionTokenField")}
-            name="sessionToken"
-            placeholder={t("optionalPlaceholder")}
-            required={false}
-          />
+          <Field label={t("sessionTokenField")} name="sessionToken" placeholder="" />
         </>
       ) : null}
       <Field
