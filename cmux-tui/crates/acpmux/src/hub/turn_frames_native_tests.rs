@@ -22,7 +22,10 @@ fn launching_a_mac_app_is_told_from_the_command() {
     assert_eq!(app("swift build && swift run Demo").as_deref(), Some("Demo"));
     assert_eq!(app("swift run -c release --package-path pkg Demo --flag").as_deref(), Some("Demo"));
     assert_eq!(app("RUST_LOG=1 nohup .build/debug/Demo &").as_deref(), Some("Demo"));
-    assert_eq!(app("./DerivedData/Build/Products/Debug/Demo.app/Contents/MacOS/Demo").as_deref(), Some("Demo"));
+    assert_eq!(
+        app("./DerivedData/Build/Products/Debug/Demo.app/Contents/MacOS/Demo").as_deref(),
+        Some("Demo")
+    );
     // Arrays of words, as some harnesses send.
     let words = json!({"rawInput": {"command": ["open", "-a", "Notes"]}});
     assert_eq!(runs_mac_app(&words).as_deref(), Some("Notes"));
@@ -142,7 +145,13 @@ fn native_frame_cost() {
     let mut pixels = Vec::with_capacity((width * height * 3) as usize);
     for y in 0..height {
         for x in 0..width {
-            let v = if x < 900 { 30 } else if y < 120 { 200 } else { 245 };
+            let v = if x < 900 {
+                30
+            } else if y < 120 {
+                200
+            } else {
+                245
+            };
             pixels.extend_from_slice(&[v, v, v]);
         }
     }
