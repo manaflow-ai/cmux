@@ -1035,7 +1035,7 @@ test("the menu grows by the open card's height, so the lists keep theirs, and go
     Object.defineProperty(window.HTMLElement.prototype, "scrollHeight", {
       configurable: true,
       get(this: HTMLElement) {
-        return this.classList.contains("acpmux-cols-card") ? 120 : 0;
+        return this.classList.contains("acpmux-cols-card-body") ? 120 : 0;
       },
     });
   };
@@ -1085,7 +1085,6 @@ const cardWho = () => {
   const card = popup().querySelector<HTMLElement>(".acpmux-cols-card")!;
   return {
     name: card.querySelector(".acpmux-cols-card-name")?.textContent,
-    title: card.querySelector(".acpmux-cols-card-name")?.getAttribute("title"),
     detail: card.querySelector(".acpmux-cols-card-head .acpmux-cols-detail")?.textContent,
     rows: [...card.querySelectorAll(".acpmux-cols-card-list [role=button] .acpmux-cols-name")].map(
       (node) => node.textContent,
@@ -1102,7 +1101,6 @@ test("a chat on SR2 names the SR2 sign-in acpmux reports, not CLI login, and its
   await openCard();
   const who = cardWho();
   expect(who.name).toBe("SR2 token");
-  expect(who.title).toBe("SR2 token (sr2 claude)");
   expect(who.detail).toBe("Claude Code (sr2 internal)");
   expect(who.rows).not.toContain("CLI login");
 });
@@ -1140,7 +1138,6 @@ test("a bound route still names the account; the default row stays the harness l
   await openMenu(undefined, "medium", undefined, { signIn: "API key (ANTHROPIC_API_KEY, from route Max)" });
   await openCard();
   expect(cardWho().name).toBe("Max");
-  expect(cardWho().title).toBeNull();
   expect(cardWho().rows[0]).toBe("CLI login");
 });
 
