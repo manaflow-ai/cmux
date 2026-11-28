@@ -951,6 +951,24 @@ export async function turnShown(read: () => Promise<TurnState>, budgetMs: number
   }
 }
 
+/**
+ * A guest command that is safe to run twice (it only writes files of its own), retried while the exec route refuses it
+ * (vm_unavailable, a 502/503/504 from the API) and within `budgetMs`. Run 46116359583: the platform answered the
+ * counting-files write for "session host restart" with 502 vm_unavailable (the provider's exec failed; its message says
+ * "retry") on a running machine whose carrier was fine, and the leg failed at 0 ms; the next leg's write went through.
+ * Any other answer, a good one or a command's own failure, comes back at once.
+ */
+export const EXEC_REFUSED = /\bvm_unavailable\b|\bvm_busy\b|\b50[234] [A-Za-z]/;
+export async function idempotentExec(exec: ChaosExec, command: string, timeoutMs: number, budgetMs: number, pauseMs = 2_000): Promise<{ code: number; stdout: string; stderr: string; tries: number }> {
+  let tries = 0;
+  for (const until = Date.now() + budgetMs; ;) {
+    tries++;
+    const r = await exec(command, timeoutMs).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+    if (r.code === 0 || !EXEC_REFUSED.test(`${r.stdout}${r.stderr}`) || Date.now() + pauseMs >= until) return { ...r, tries };
+    await sleep(pauseMs);
+  }
+}
+
 export async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
   const until = Date.now() + TURN_DEADLINE_MS;
   let last = { started: 0, running: false, status: "", detail: "" };
@@ -1241,10 +1259,10 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         out.push(failed(f.name, `the counting files have no folder: the chat's folder could not be read (${facts.text})`));
         continue;
       }
-      const wrote = await ctx.exec(`${ctx.guest}${countingFilesCommand(facts.cwd, tag)}`, 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+      const wrote = await idempotentExec(ctx.exec, `${ctx.guest}${countingFilesCommand(facts.cwd, tag)}`, 60_000, 60_000);
       const dir = /@@dir (\S+)/.exec(wrote.stdout)?.[1];
       if (!dir) {
-        out.push(failed(f.name, `the counting files could not be written in ${facts.cwd}: ${(wrote.stdout + wrote.stderr).trim().slice(-200)}`));
+        out.push(failed(f.name, `the counting files could not be written in ${facts.cwd} (${wrote.tries} ${wrote.tries === 1 ? "try" : "tries"}): ${(wrote.stdout + wrote.stderr).trim().slice(-200)}`));
         continue;
       }
       const seq = new SeqTerminal(chat.dial, SEQ_LINES, `/tmp/cmux-chaos-seq-${tag}.txt`);
