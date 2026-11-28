@@ -1875,11 +1875,14 @@ jobs:
   # failure or a timeout can trigger the native build of the missing targets.
   darwin-fallback-plan:
     name: plan the macOS fallback build
-    # The Linux targets come from build-linux, so the plan waits on it too; it checks that
-    # build-linux's artifacts are there before it plans a macOS fallback.
+    # FALLBACK_STARTS_WHEN_BUILD_FAILS: the plan no longer waits on build-linux. Run 46095639867's
+    # macOS cross leg failed at 02:18Z, but the plan waited for build-linux until 02:26Z, so the Mac
+    # rebuild (and the nightly waiting for this tree) started 8 min late. A Linux leg still running
+    # counts as not failed; one that already failed in a step still refuses the fallback, and
+    # publish still waits on build-linux, so nothing ships without the Linux targets.
     if: ${{ !cancelled() && (needs.build.result == 'failure' || needs.build.result == 'cancelled') && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
     # tree-owner-wait: BRANCH_PUSH reads whether this run took a deferred key over (FEAT_BUILD_COALESCED).
-    needs: [tree-preflight, tree-owner-wait, build-linux, build]
+    needs: [tree-preflight, tree-owner-wait, build]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -1974,6 +1977,12 @@ jobs:
                 --jq '.jobs[] | "\(.name)\t\(.conclusion // "")\t\([.steps[]? | select(.conclusion == "failure")] | length)"' 2>/dev/null || true)"
             fi
             ended="$(awk -F '\t' -v name="build-linux / build $linux" '$1 == name { print $2 "/" $3; exit }' <<<"$legs")"
+            # FALLBACK_STARTS_WHEN_BUILD_FAILS: a leg with no conclusion yet is still building; its
+            # artifacts are not there because it has not finished, not because it failed.
+            if [[ "$ended" == /* ]]; then
+              echo "the $linux leg is still building; planning the macOS fallback now instead of waiting for it"
+              continue
+            fi
             if [[ "$ended" == cancelled/* || "$ended" == failure/0 ]]; then
               echo "::warning title=Linux leg lost::the $linux leg ended ${ended%%/*} with no failed step (a lost or preempted runner, not a build failure); the macOS fallback still runs, and \"Re-run failed jobs\" rebuilds $linux"
               continue
@@ -2069,7 +2078,12 @@ jobs:
       - name: Mark the failed Linux cross build with a non-required red status
         if: steps.plan.outputs.cross_failed == 'true'
         continue-on-error: true
+        # A status that blocks nothing must not hold the plan: on run 46095639867 its jobs read hit
+        # the rate limit, gh_budget_wait slept toward a 1703 s reset, and the 5 min job timeout
+        # cancelled the plan, starting the Mac rebuild 5 min late. No wait, one minute at most.
+        timeout-minutes: 1
         env:
+          GH_BUDGET_WAIT_MAX_SECONDS: '0'
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}

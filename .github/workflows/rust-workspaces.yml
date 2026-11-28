@@ -564,6 +564,9 @@ jobs:
           CI_LABELLED_BASE_MERGE_SKIP: ${{ vars.CI_LABELLED_BASE_MERGE_SKIP || '1' }}
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
           CI_CONTENT_BASE_MERGE: ${{ vars.CI_CONTENT_BASE_MERGE || '1' }}
+          # A post-merge-tier workflow the post-merge batch runs plans nothing on a feat-cmux-next pull request
+          # head (head_tier.py's post-merge tier rule); off unless the repository variable is 1.
+          CI_POST_MERGE_TIER_PR: ${{ vars.CI_POST_MERGE_TIER_PR || '0' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
