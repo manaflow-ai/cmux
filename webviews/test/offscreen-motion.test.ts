@@ -421,3 +421,41 @@ test("a row the intersection observer saw wholly in view costs no box read per t
     sheet.close();
   }
 });
+
+test("a page of rows with no motion mounts with no box read; one with a motion is still ended", async () => {
+  // A fling up mounts a page of older rows every frame, none of them moving: a box read there is a forced
+  // layout of the whole page after React's writes (a 100k-row chat's fling paid 10.8 ms a frame in it).
+  const sheet = page({ top: 0, height: 300 });
+  const stop = endOffscreenMotion(sheet.scroller);
+  const proto = sheet.window.HTMLElement.prototype;
+  const read = proto.getBoundingClientRect;
+  let reads = 0;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    reads += 1;
+    return read.call(this);
+  };
+  try {
+    for (let at = 0; at < 40; at += 1) {
+      const row = sheet.add(sheet.scroller, "acpmux-row", { top: -4000 + at * 60, height: 60 });
+      sheet.add(row, "acpmux-row__line", { top: -4000 + at * 60, height: 20 });
+    }
+    // A spinner and a finished motion are none to end either.
+    const spinner = sheet.plays(sheet.add(sheet.scroller, "acpmux-row", { top: -500, height: 60 }), sheet.loop());
+    const done = sheet.fade();
+    done.finish();
+    sheet.plays(sheet.add(sheet.scroller, "acpmux-row", { top: -600, height: 60 }), done);
+    await sheet.flush();
+    expect(reads).toBe(0);
+    expect(spinner.finished).toBe(0);
+    // A row with an entrance among them is read and ended as before.
+    const moving = sheet.plays(sheet.add(sheet.scroller, "acpmux-row", { top: -700, height: 60 }), sheet.fade());
+    sheet.add(sheet.scroller, "acpmux-row", { top: -760, height: 60 });
+    await sheet.flush();
+    expect(moving.finished).toBe(1);
+    expect(reads).toBe(2);
+  } finally {
+    proto.getBoundingClientRect = read;
+    stop();
+    sheet.close();
+  }
+});

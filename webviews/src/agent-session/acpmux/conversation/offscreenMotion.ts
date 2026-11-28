@@ -15,8 +15,9 @@
 // gates itself (turnEndFold.ts).
 //
 // Cost: per commit that adds nodes or changes a class, nothing for a row an intersection observer last
-// saw wholly in the view (the streaming reply, the live line); else one box read for the view and one per
-// changed row and element. None at rest, none for a text-only change. Read in the mutation's microtask, a
+// saw wholly in the view (the streaming reply, the live line); else a read of each changed row's and
+// element's motions (a style update), and a box read for the view and one per row or element that has
+// a motion to end. None at rest, none for a text-only change. Read in the mutation's microtask, a
 // box is a forced layout after React's writes: each streamed token of a reply in view paid one (0.65 to
 // 1.3 ms a token, bench/transcript-replay.bench.ts PROFILE=1, `observer` and `started` here).
 
@@ -75,13 +76,18 @@ function paintsOnly(animation: Animation): boolean {
   return true;
 }
 
-/// Finishes each of `animations` that has a finite end, is still to play and paints only.
+/// Whether `animation` has a finite end, is still to play and paints only: one this module ends.
+function finishable(animation: Animation): boolean {
+  if (animation.playState === "finished" || animation.playState === "idle") return false;
+  if (!paintsOnly(animation)) return false;
+  const end = animation.effect?.getComputedTiming?.().endTime;
+  return end !== undefined && Number.isFinite(Number(end));
+}
+
+/// Finishes each of `animations` that `finishable` names.
 function finishAll(animations: readonly Animation[]): void {
   for (const animation of animations) {
-    if (animation.playState === "finished" || animation.playState === "idle") continue;
-    if (!paintsOnly(animation)) continue;
-    const end = animation.effect?.getComputedTiming?.().endTime;
-    if (end === undefined || !Number.isFinite(Number(end))) continue;
+    if (!finishable(animation)) continue;
     try {
       animation.finish();
     } catch {
@@ -159,10 +165,23 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
           }
         }
         if (rows.size === 0) return;
-        const view = scroller.getBoundingClientRect();
-        for (const row of rows) if (misses(row.getBoundingClientRect(), view)) finishAll(cssOf(row));
-        for (const element of changed)
-          if (element.isConnected && misses(element.getBoundingClientRect(), view)) finishAll(cssOf(element));
+        // Boxes only where there is a motion to end: a box read here is a forced layout of the page after
+        // React's writes, and a fling up mounts a page of rows every frame with no motion in them (a 100k-row
+        // chat paid 9 s of a 46 s fling in this read, 10.8 ms a frame, bench/transcript-scroll-up.bench.ts
+        // MODE=fling SPLIT=1, `getBoundingClientRect <- observer`). Reading the motions first costs a style
+        // update, no layout, and the frame lays the page out once, as it draws.
+        let view: DOMRect | undefined;
+        const outside = (element: Element) =>
+          misses(element.getBoundingClientRect(), (view ??= scroller.getBoundingClientRect()));
+        for (const row of rows) {
+          const motions = cssOf(row);
+          if (motions.some(finishable) && outside(row)) finishAll(motions);
+        }
+        for (const element of changed) {
+          if (!element.isConnected) continue;
+          const motions = cssOf(element);
+          if (motions.some(finishable) && outside(element)) finishAll(motions);
+        }
       })
     : undefined;
   observer?.observe(scroller, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
