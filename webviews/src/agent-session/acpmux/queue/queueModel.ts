@@ -5,10 +5,6 @@
 // as acpmux stops reporting it, and an answer goes the way Needs you sends it (needsYou/).
 import { questionAnswers, type NeedsYouAnswer, type NeedsYouItem } from "../needsYou/model";
 import { questionFromPermission, type AgentQuestion } from "../question/model";
-
-export const QUEUE_METHOD = "_acpmux/review_queue";
-export const VERDICT_METHOD = "_acpmux/review_verdict";
-export const AUDIT_METHOD = "_acpmux/audit";
 /// How many items one read asks for (acpmux's own default).
 export const QUEUE_LIMIT = 200;
 
