@@ -151,6 +151,7 @@ import { composerFooterControls } from "../agent-session/acpmux/composer/footerC
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
 import { toastsV2 } from "../ui/toastsV2.experiment";
 import { toastGlass } from "../ui/toastGlass.experiment";
+import { findGlass } from "../ui/findGlass.experiment";
 import { diffViewedProgress } from "../diff-viewer/viewedProgress.experiment";
 import type { Experiment } from "./experiment";
 
@@ -311,6 +312,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   menuRowStates,
   toastsV2,
   toastGlass,
+  findGlass,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

@@ -884,6 +884,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.forumCallCard` | boolean | `false` |  | Forum Tool Calls. Agent forum searches, reads and posts show as forum rows with links to their threads. |
 | `experiments.toastsV2` | boolean | `false` |  | Toasts v2. Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat. |
 | `experiments.themedPrompts` | boolean | `false` |  | Themed Floating Prompts. Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors. |
+| `experiments.findGlass` | boolean | `false` |  | Find Glass. The find bar in chats sits on the same glass as the app's own find bar. |
 | `experiments.toastGlass` | boolean | `false` |  | Toast Glass. Toasts in chats sit on the same glass as the app's own toasts. |
 | `experiments.terminalHistoryFind` | boolean | `true` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
 | `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |

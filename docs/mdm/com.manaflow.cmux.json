@@ -4964,6 +4964,12 @@
       "title" : "Feed",
       "type" : "boolean"
     },
+    "experiments.findGlass" : {
+      "default" : false,
+      "description" : "The find bar in chats sits on the same glass as the app's own find bar.",
+      "title" : "Find Glass",
+      "type" : "boolean"
+    },
     "experiments.foldSummaryCounts" : {
       "default" : false,
       "description" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
