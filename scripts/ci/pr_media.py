@@ -97,14 +97,37 @@ SKIP_AS_KEY = {"00-launched", "99-final", "99-final-screen"}
 # GitHub
 
 
+def json_pages(text: str) -> list[Any]:
+    """Each JSON value of `gh api --paginate`'s output, one per page, in order.
+
+    gh prints the pages back to back; only gh 2.48 and later can wrap them in
+    one array (--slurp). The pool's JIT runners carry an older gh, and every
+    "Pick tours" job that landed on one failed with "unknown flag: --slurp"
+    (main, 2026-11-28, run 46120643203). So the pages are split here, with
+    any gh."""
+    decoder, pages, index = json.JSONDecoder(), [], 0
+    while True:
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text):
+            return pages
+        value, index = decoder.raw_decode(text, index)
+        pages.append(value)
+
+
 def gh_json(args: list[str], *, allow_missing: bool = False, attempts: int = 4,
             sleep: Callable[[float], None] = time.sleep) -> Any:
     """A GET through gh. READ_TOKEN (the route App's own budget), when the
-    workflow minted one, carries reads; transient failures are retried."""
+    workflow minted one, carries reads; transient failures are retried.
+    "--slurp" asks for the list of pages, whatever gh is installed."""
+    slurp = "--slurp" in args
+    args = [arg for arg in args if arg != "--slurp"]
     env = {**os.environ, "GH_TOKEN": os.environ["READ_TOKEN"]} if os.environ.get("READ_TOKEN") else None
     for attempt in range(attempts):
         done = subprocess.run(["gh", "api", *args], capture_output=True, text=True, env=env)
         if done.returncode == 0:
+            if slurp:
+                return json_pages(done.stdout)
             return json.loads(done.stdout) if done.stdout.strip() else None
         if allow_missing and ("HTTP 404" in done.stderr or "Not Found" in done.stderr):
             return None
@@ -425,7 +448,12 @@ def plan(repository: str) -> int:
     shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"], cwd=ROOT, check=True,
                              capture_output=True, text=True).stdout.strip() == "true"
     depth = ["--depth=1"] if shallow else []
-    subprocess.run(["git", "fetch", "--no-tags", *depth, "origin", head_sha], cwd=ROOT, check=True)
+    # No submodule recursion: the checkout has none, and on a full (pool) clone
+    # the default on-demand fetch walked the head's gitlinks, printed "Could
+    # not access submodule 'ghostty'" and failed the fetch with exit 1 after
+    # the head itself had arrived (main, 2026-11-28, run 46120606246).
+    subprocess.run(["git", "fetch", "--no-tags", "--recurse-submodules=no", *depth, "origin", head_sha],
+                   cwd=ROOT, check=True)
     scenarios = head_scenarios(head_sha)
     # A head that predates a tour's `paths` is still picked by main's globs.
     for name, scenario in scenarios.items():
