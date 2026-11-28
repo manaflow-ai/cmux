@@ -76,6 +76,7 @@ mod remote;
 mod roots;
 mod seed_pull;
 mod small_writes;
+pub(crate) mod sync_back;
 mod timings;
 
 /// `cmux link seed pull`'s engine ([`super::seed_cli`] is its CLI).
