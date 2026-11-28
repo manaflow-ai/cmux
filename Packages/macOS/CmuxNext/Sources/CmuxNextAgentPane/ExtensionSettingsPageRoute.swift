@@ -80,7 +80,7 @@ public final class ExtensionSettingsPageRoute: PageProvider {
         return try await send(request)
     }
 
-    private func send<R: DaemonRequest>(_ request: R) async throws -> CmuxNextSettings.JSONValue where R.Response == JSONValue {
+    private func send<R: DaemonRequest>(_ request: R) async throws -> CmuxNextSettings.JSONValue where R.Response == CmuxNextDaemon.JSONValue {
         guard let connection = connection() else { throw PageError.closed }
         do {
             return try DaemonPageValue.pageValue(try await connection.request(request))
