@@ -1068,8 +1068,22 @@ NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
 # Runs on every head: deletes the pull request's preview when it closes; ios-placeholder-bounds (seconds of Python)
 # records a pass on every pull request so land-judge's required list can name it; spec-checks (about 35 s of Python)
 # catches a spec inventory red before the merge (#56203 merged one on the affected tier).
+# Run only on what a gated job they need produced on this head, so that job's gate is theirs: a cheap head whose
+# fast-gates or resolve never ran never starts them. fast-gates-fail-fast (#54837) runs once fast-gates failed;
+# lane-receipt-audit (#55512) runs once resolve asked for an audit.
+AFTER_GATED_FAILURE = {("cmux-next-fast-gates.yml", "fast-gates-fail-fast"): "needs.fast-gates.result == 'failure'",
+                       ("cmux-next-fast-gates.yml", "lane-receipt-audit"): "needs.resolve.outputs.receipt_audit == 'true'",
+                       ("cmux-next-guards.yml", "tooling-tests-fail-fast"): "needs.tooling-tests.result == 'failure'"}
+# Heavy-at-land (#63991): a ready head runs them only at the ready-to-land label event, not on every later push.
+HEAVY_AT_LAND_ONLY = {("session-move-tests.yml", "transfer-cli")}
+_LAND_FULL = "(contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1')"
+_LAND_HEAVY = ("(contains(github.event.pull_request.labels.*.name, 'ready-to-land') && "
+               "((vars.CI_HEAVY_AT_LAND || '1') == '0' || github.event.action == 'labeled'))")
 KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds"),
-                      ("cmux-next-guards.yml", "app-store-shelf-pr"), ("cmux-next-guards.yml", "spec-checks")}
+                      ("cmux-next-guards.yml", "app-store-shelf-pr"), ("cmux-next-guards.yml", "spec-checks"),
+                      # workflow-start-lint (#56527): a workflow-only diff ends after its checkout; it gates the heads it
+                      # lints, so a land-tier gate on it would skip exactly the pull requests it guards.
+                      ("cmux-next-guards.yml", "workflow-start-lint")}
 # The full-ci base merge carry job (head_tier.full_carry): runs only on the full-ci or ready-to-land label event the
 # land tier itself runs on, before that tier's jobs, so it carries the label condition instead of the land condition. It runs only
 # where those jobs would (full-ci or CI_LAND_FULL_PER_PR; ios-e2e's PR tailnet gate too), or its runner decides nothing.
@@ -1181,6 +1195,12 @@ class GatedWorkflowTests(unittest.TestCase):
                                   "vars.CI_LAND_FULL_PER_PR == '1')", condition or "", f"{name}: job {job}")
                     if name == "ios-e2e.yml":
                         self.assertIn("vars.IOS_E2E_PR_TAILNET == 'true'", condition or "", f"{name}: job {job}")
+                    continue
+                if (name, job) in HEAVY_AT_LAND_ONLY:
+                    self.assertIn(expected.replace(_LAND_FULL, _LAND_HEAVY), condition or "", f"{name}: job {job}")
+                    continue
+                if (name, job) in AFTER_GATED_FAILURE:
+                    self.assertIn(AFTER_GATED_FAILURE[(name, job)], condition or "", f"{name}: job {job}")
                     continue
                 if (name, job) in KEEP_ON_EVERY_HEAD:
                     self.assertNotIn("CI_LAND_TIER", condition or "", f"{name}: job {job}")
@@ -1699,8 +1719,10 @@ class RustWorkspacesTierTests(unittest.TestCase):
         self.assertLess(names.index("CI tier of this head"), names.index("Plan the workspaces this change reaches"))
 
     def test_only_none_skips_the_lock_check_and_the_plan(self) -> None:
+        # #61781 also skips them when the diff touches no Cargo manifest, lock or toolchain file.
         for name in ("Set up pinned Rust (lock check)", "Every Cargo.lock matches its manifests"):
-            self.assertEqual(self.steps[name].get("if"), "${{ steps.tier.outputs.tier != 'none' }}", name)
+            self.assertEqual(self.steps[name].get("if"),
+                             "${{ steps.tier.outputs.tier != 'none' && steps.diff.outputs.locks != 'false' }}", name)
         plan = self.steps["Plan the workspaces this change reaches"]
         self.assertEqual(plan["env"]["TIER"], "${{ steps.tier.outputs.tier }}")
         self.assertIn('if [[ "$TIER" == none ]]; then\n  echo "jobs=[]" >> "$GITHUB_OUTPUT"', plan["run"])
@@ -1977,6 +1999,23 @@ class PostMergeTierTests(unittest.TestCase):
             (Path(tmp) / ".github" / "post-merge-batch.json").write_text(
                 (ROOT / ".github" / "post-merge-batch.json").read_text())
             self.assertEqual(head_tier.batch_post_merge_workflows(tmp), set())
+
+    def test_config_missing_on_disk_is_read_from_head(self) -> None:
+        # A reused pool workspace whose sparse reapply refused has both files in HEAD but not on disk
+        # (cmux-tui-spec run 46148570367 planned `full`): the rule reads HEAD's copies.
+        with tempfile.TemporaryDirectory() as tmp:
+            git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            (Path(tmp) / ".github").mkdir()
+            for name in ("post-merge-checks.json", "post-merge-batch.json"):
+                (Path(tmp) / ".github" / name).write_text((ROOT / ".github" / name).read_text())
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-q", "-m", "c"], check=True)
+            want = head_tier.batch_post_merge_workflows(tmp)
+            self.assertIn("cmux-tui-spec.yml", want)
+            for name in ("post-merge-checks.json", "post-merge-batch.json"):
+                (Path(tmp) / ".github" / name).unlink()
+            self.assertEqual(head_tier.batch_post_merge_workflows(tmp), want)
 
     def test_decide_reads_the_run_s_workflow_and_the_switch(self) -> None:
         ev = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")

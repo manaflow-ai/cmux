@@ -885,14 +885,30 @@ def batch_post_merge_workflows(root: str | None = None) -> set[str]:
     """Workflow files that RFD 0013 puts after the merge (merge_tier.post_merge, switch on) and that a post-merge
     batch suite runs. Empty when either file is unreadable or the switch is off."""
     root = root or _repo_root()
-    checks = _load(os.path.join(root, ".github", "post-merge-checks.json")).get("merge_tier")
-    batch = _load(os.path.join(root, ".github", "post-merge-batch.json")).get("suites")
+    checks = _load_at_head(root, ".github/post-merge-checks.json").get("merge_tier")
+    batch = _load_at_head(root, ".github/post-merge-batch.json").get("suites")
     if not isinstance(checks, dict) or str(checks.get("switch") or "") != "on" or not isinstance(batch, dict):
         return set()
     listed = checks.get("post_merge")
     listed = set(listed) if isinstance(listed, (dict, list)) else set()
     run = {str(v.get("workflow") or "") for v in batch.values() if isinstance(v, dict)}
     return {str(w) for w in listed} & run
+
+
+def _load_at_head(root: str, rel: str) -> dict:
+    """ROOT/REL as JSON; when the worktree lacks it, the checked-out commit's copy (`git show HEAD:REL`). A reused
+    pool-VM workspace whose `git sparse-checkout reapply` refused ("not uptodate", cmux-tui-spec run 46148570367,
+    11-28 13:14Z) has the file in HEAD but not on disk: the rule read no config and planned `full` on every head."""
+    data = _load(os.path.join(root, rel))
+    if data:
+        return data
+    try:
+        out = subprocess.run(["git", "-C", root, "show", f"HEAD:{rel}"], capture_output=True, text=True,
+                             timeout=20, check=False)
+        parsed = json.loads(out.stdout) if out.returncode == 0 else {}
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def post_merge_tier(event_name: str, event: dict, workflow: str, switch: str | None = None,
