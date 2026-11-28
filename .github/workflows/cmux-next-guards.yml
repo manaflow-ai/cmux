@@ -282,11 +282,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -409,11 +409,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -504,11 +504,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -587,11 +587,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -879,11 +879,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -1230,11 +1230,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -1305,11 +1305,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -1437,11 +1437,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -1495,11 +1495,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -1598,11 +1598,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -1712,11 +1712,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0
@@ -1946,11 +1946,11 @@ jobs:
           why=""
           if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
             why="sparse"
-          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+          elif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then
             why="skip-worktree entries"
           elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
             why="HEAD does not resolve"
-          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then
             why="a ref names a missing object"
           else
             exit 0

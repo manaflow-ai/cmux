@@ -91,6 +91,18 @@ pub(crate) fn remove_if(dir: &Path, id: &str, pid: u32) {
     }
 }
 
+/// The pid of every readable record, alive or not; nothing is removed.
+pub(crate) fn pids(dir: &Path) -> Vec<u32> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            read(dir, name.strip_suffix(".json")?).map(|record| record.pid)
+        })
+        .collect()
+}
+
 /// Every record whose process runs (`alive`); the others are removed.
 pub(crate) fn live(dir: &Path, alive: impl Fn(&Record) -> bool) -> Vec<Record> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
