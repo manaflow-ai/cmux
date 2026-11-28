@@ -17303,7 +17303,7 @@ class RealBaseLogsPlaceWithAnnotations(WorkflowHeadersPlaceRealLogs):
     trimmed (step headers, groups, runner lines and `##[` lines, stamps as served; each workflow at the job's commit,
     hq's cut to its job's steps and the text of its log's annotations and passing tests cut, as hq is private):
     - hq main run 46106377067's 'tests' (job 140859953348; refused hq#35967 at 04:25Z and hq#35280 at 01:12Z): its
-      passing suites print Actions annotations (`##[error]fs-agent-lane-3: refused: ...` from the freestyle-lane-vms
+      passing suites print Actions annotations (`##[error]<lane>: refused: ...` from the freestyle-lane-vms
       tests, `##[error]No overload matches this call.` from a checks suite), and _aligned_starts read any `##[error]` in
       a passed step as the reading disagreeing with GitHub, so the log was unplaced. A passed step's tell is the runner's
       own exit line (RUNNER_EXIT_RED), which it never prints.

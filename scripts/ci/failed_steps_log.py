@@ -373,8 +373,8 @@ def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windo
     # composite's failure: the composite's section then has no `##[error]` line, and nothing is placed
     # (LocalCompositeCannotPose).
     # A passing step may print `##[error]` lines of its own: a suite whose code under test writes Actions annotations
-    # to stdout (hq's fleet-reconcilers-tests.yml 'freestyle-lane-vms suite' prints `##[error]fs-agent-lane-3: create
-    # failed: ...` from passing tests). Its section only disagrees with a pass when it holds the line the runner ends a
+    # to stdout (hq's fleet-reconcilers-tests.yml 'freestyle-lane-vms suite' prints `##[error]<lane>: refused: ...`
+    # from passing tests). Its section only disagrees with a pass when it holds the line the runner ends a
     # failed step with (RUNNER_EXIT_RED), which no passing step ever gets. 2026-11-28: every such line made the one
     # fitting choice disagree, so main run 46106377067's 'tests' (job 140859953348) was unplaced and hq#35967's and
     # hq#35280's reds of the same base failure were refused: "its red base verdict's log does not map one to one".
