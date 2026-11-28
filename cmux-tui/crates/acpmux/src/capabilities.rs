@@ -73,6 +73,12 @@ pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
 /// tasks the session runs (`hub/bg_tasks.rs`). Session rebalance holds a session that runs any
 /// (a move leaves them behind), and one whose row lacks the count.
 pub const SESSION_BG_FACTS: &str = "session-bg-facts-v1";
+/// A session row and `session info` carry `bgWaits`, the running background tasks that are
+/// re-armable waits (`rearm.rs`: `pr_wait`, `ci_wait`, a named target and a deadline, no local
+/// state), and `_acpmux/bg/rearm` (version 1) starts them again on a destination and releases
+/// them on the source (`server/bg_rearm.rs`). Session rebalance moves a session whose every
+/// running task is one, to a destination whose link lists the `bgRearm` peer feature.
+pub const SESSION_BG_WAITS: &str = "session-bg-waits-v1";
 
 /// `_acpmux/process/census` answers the census `acpmux ps --json` prints (`server/processes.rs`).
 pub const PROCESS_CENSUS: &str = "process-census-v1";
@@ -240,6 +246,7 @@ pub const CAPABILITIES: &[Capability] = &[
     // is unknown).
     Capability { id: SESSION_IDLE_FACTS, wire: &[method::MUX_SESSIONS] },
     Capability { id: SESSION_BG_FACTS, wire: &[method::MUX_SESSIONS] },
+    Capability { id: SESSION_BG_WAITS, wire: &[method::MUX_SESSIONS, method::MUX_BG_REARM] },
     // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
     // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
     // that reads the v2 list's keys asks for the rows it prints (agent service v2, row 7b); a
@@ -563,6 +570,16 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: "team-directory-v1",
         wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
+    },
+    // RFD 0170 phase 4: team and person customization and the `Open in cmux` handoff, under the
+    // same team-messaging gate (`server/team_settings.rs`).
+    Capability {
+        id: "team-settings-v1",
+        wire: &[
+            method::MUX_TEAM_CUSTOMIZATION,
+            method::MUX_TEAM_CUSTOMIZE,
+            method::MUX_TEAM_HANDOFF,
+        ],
     },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },

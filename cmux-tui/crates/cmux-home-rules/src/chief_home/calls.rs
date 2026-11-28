@@ -189,6 +189,56 @@ struct RunStepRequest {
     blocking: Vec<String>,
 }
 
+/// What `ChiefConversationOwner.brainsValue` resolved on the Mac (the brain
+/// host, the bundle `bin`, the login PATH, acpmux, the process environment).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrainsRequest {
+    #[serde(default)]
+    executable: String,
+    #[serde(default)]
+    home: String,
+    #[serde(default)]
+    user_name: String,
+    #[serde(default)]
+    chief_title: String,
+    #[serde(default)]
+    bin_dir: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    acpmux_bin: Option<String>,
+    #[serde(default)]
+    bundled_cli: Option<String>,
+    #[serde(default)]
+    harness: Option<String>,
+}
+
+/// `CMUX_TUI_CHIEF_BRAINS` (cmux-tui-core chief_brains.rs): the brain
+/// executable, the home and the `app` facts, keys sorted. An empty login
+/// PATH or harness is left out; `bundled_cli` only rides with acpmux.
+fn brains_value(request: BrainsRequest) -> String {
+    let mut app = BTreeMap::new();
+    if let Some(acpmux) = request.acpmux_bin {
+        app.insert("acpmux_bin", acpmux);
+        if let Some(cli) = request.bundled_cli {
+            app.insert("bundled_cli", cli);
+        }
+    }
+    if let Some(bin) = request.bin_dir {
+        app.insert("bin_dir", bin);
+    }
+    app.insert("chief_title", request.chief_title);
+    if let Some(harness) = request.harness.filter(|harness| !harness.is_empty()) {
+        app.insert("harness", harness);
+    }
+    if let Some(path) = request.path.filter(|path| !path.is_empty()) {
+        app.insert("path", path);
+    }
+    app.insert("user_name", request.user_name);
+    json!({ "app": app, "executable": request.executable, "home": request.home }).to_string()
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SourcesRequest {
@@ -196,6 +246,8 @@ struct SourcesRequest {
     sources: Vec<migration::Source>,
     #[serde(default)]
     utc_offset_seconds: i64,
+    #[serde(default)]
+    unlogged_offsets: Vec<i64>,
 }
 
 #[derive(Deserialize)]
@@ -469,7 +521,11 @@ pub(super) fn call(name: &str, request: &Value) -> Result<Value, OpError> {
         }
         "migration_memory" => {
             let request: SourcesRequest = parse(request)?;
-            reply(&migration::memory_lines(&request.sources, request.utc_offset_seconds))
+            reply(&migration::memory_lines_dated(
+                &request.sources,
+                request.utc_offset_seconds,
+                &request.unlogged_offsets,
+            ))
         }
         "migration_has_memory" => {
             let request: HasMemoryRequest = parse(request)?;
@@ -521,6 +577,10 @@ pub(super) fn call(name: &str, request: &Value) -> Result<Value, OpError> {
         "migration_copy_skips" => {
             let request: NameRequest = parse(request)?;
             Ok(json!({ "skip": migration::copy_skips(&request.name) }))
+        }
+        "owner_brains_value" => {
+            let request: BrainsRequest = parse(request)?;
+            Ok(json!({ "value": brains_value(request) }))
         }
         _ => Err(OpError::Unknown),
     }

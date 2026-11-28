@@ -427,6 +427,8 @@ fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<(
     let previous = config.mesh_relay.take();
     // The owner's own choice of team messaging stays across a rejoin or a repair.
     let team_messaging = previous.as_ref().is_none_or(|relay| relay.team_messaging);
+    // So does the owner's direct-send switch: a rejoin never turns it on, nor off.
+    let direct_send = previous.as_ref().is_some_and(|relay| relay.direct_send);
     let control_from = joined_control_from(previous);
     config.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
         url: hub.to_owned(),
@@ -434,6 +436,7 @@ fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<(
         credential: Some("join".to_owned()),
         team_messaging,
         control_from,
+        direct_send,
     });
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
 }

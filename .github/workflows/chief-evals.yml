@@ -46,7 +46,7 @@ jobs:
     name: evals${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
     # A pull request joins the tailnet only once the Tailscale trust credential admits pull_request: set the repo
     # variable CHIEF_EVALS_PR_TAILNET=true then (tests/test_ci_workflow_tailnet_oidc_pr_gate.py, cmux#43753).
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     outputs:
@@ -178,7 +178,10 @@ jobs:
     name: model cases A/B on the fleet
     needs: evals
     if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && github.event_name == 'push' && needs.evals.outputs.tailnet != 'success' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # The fleet controller is tailnet-only and the cmux-linux pool's VMs are not on the tailnet ("runner NAME has no route
+    # to the controller"), so a job that fetches the fleet client runs on the gateway runner.
+    # tests/test_ci_gateway_jobs_on_linux.py fails a fleet-client job that names only cmux-linux.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
     continue-on-error: true
     permissions:

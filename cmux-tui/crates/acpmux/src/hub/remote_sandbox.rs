@@ -779,6 +779,8 @@ fn claude_args(
     let settings = claude_settings(endpoint.map(|e| e.url.as_str()));
     // Team mode on a Cloud machine (`claude_cloud_auth.rs`): the pair and no personal credential
     // from a project or local settings file either.
+    let owner_key = profile.env.get(crate::agent_credentials::MARKER).map(String::as_str)
+        == Some(crate::agent_credentials::ANTHROPIC_KEY);
     let settings = match crate::claude_cloud_auth::marked_pair(&profile.env) {
         Some(pair) => {
             let own = serde_json::from_str::<serde_json::Map<String, Value>>(&settings).ok();
@@ -789,10 +791,16 @@ fn claude_args(
                 headers.map(String::as_str).unwrap_or(""),
             )
         }
+        None if owner_key => {
+            let own = serde_json::from_str::<serde_json::Map<String, Value>>(&settings).ok();
+            crate::claude_cloud_auth::api_key_settings(own.as_ref())
+        }
         None => settings,
     };
     args.push(settings);
-    if endpoint.is_some_and(|e| e.own) {
+    if owner_key {
+        args.extend(["--setting-sources".into(), String::new()]);
+    } else if endpoint.is_some_and(|e| e.own) {
         args.push("--setting-sources".into());
         args.push("project,local".into());
     }

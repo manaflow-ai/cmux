@@ -20,6 +20,11 @@ on:
 
 permissions: {}
 
+env:
+  SOURCE_WORKFLOW_PATHS: >-
+    .github/workflows/test-ios.yml
+    .github/workflows/cmux-next-ios-kit.yml
+
 concurrency:
   group: ios-base-bisect
   cancel-in-progress: false
@@ -27,7 +32,7 @@ concurrency:
 jobs:
   plan:
     if: >-
-      ${{ github.repository == 'manaflow-ai/cmux' && vars.IOS_BASE_BISECT != '0'
+      ${{ github.repository == 'manaflow-ai/cmux' && (vars.IOS_BASE_BISECT || '1') != '0'
           && github.event.workflow_run.event == 'push'
           && github.event.workflow_run.head_branch == 'feat-cmux-next'
           && github.event.workflow_run.conclusion == 'failure' }}

@@ -1,0 +1,4 @@
+# Swift files under Packages/macOS/CmuxNext/Sources that still build a Cloud HTTP or WebSocket request, while they
+# move to the Rust app server (cmuxterm-hq goals/cloud-client-swift-to-rust.md). scripts/cmux-next/swift-cloud-http.py
+# --check fails on a counted file not listed here and on a listed file that no longer counts: this list only shrinks.
+# Never add a line: call the Rust app server's cloud.* method instead.

@@ -121,6 +121,24 @@ struct Starter {
     }
 }
 """
+FILE_WRITES = """import Foundation
+
+struct Saver {
+    func save(_ data: Data, to url: URL) async throws {
+        try data.write(to: url)
+    }
+    func save(_ text: String, toFile path: String) async throws {
+        try text.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+    func tidy(_ url: URL, _ other: URL) async throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: url, to: other)
+        try FileManager.default.copyItem(at: url, to: other)
+        try FileManager.default.removeItem(at: url)
+        _ = try FileManager.default.replaceItemAt(url, withItemAt: other)
+    }
+}
+"""
 
 
 def run(files, pending=None):
@@ -195,6 +213,22 @@ class CallerIsolatedBlockingRule(unittest.TestCase):
     def test_a_concurrency_allow_alone_does_not_escape_it(self):
         # That comment says the call is safe off the main thread; this rule is about that assumption.
         self.red({"FixtureCore/Runner.swift": ONLY_CONCURRENCY_ALLOW}, 10)
+
+    def test_file_writes_and_file_system_changes_are_red(self):
+        result = run({"FixtureCore/Saver.swift": FILE_WRITES})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        for line in (5, 8, 11, 12, 13, 14, 15):
+            self.assertIn(f"Saver.swift:{line}: {RULE}", result.stdout)
+
+    def test_file_writes_in_a_sync_function_or_off_the_caller_are_green(self):
+        self.green({"FixtureCore/Saver.swift": FILE_WRITES.replace("async throws", "throws")})
+        self.green({"FixtureCore/Saver.swift": FILE_WRITES.replace("async throws", "async throws").replace(
+            "func save(_ data", "@concurrent func save(_ data").replace("func save(_ text", "@concurrent func save(_ text").replace(
+            "func tidy", "@concurrent func tidy")})
+
+    def test_file_writes_pending_count_is_shrink_only(self):
+        self.green({"FixtureCore/Saver.swift": FILE_WRITES}, pending={"FixtureCore/Saver.swift": 7})
+        self.red({"FixtureCore/Saver.swift": FILE_WRITES}, 5, pending={"FixtureCore/Saver.swift": 6})
 
     def test_a_pending_file_keeps_its_count(self):
         self.green({"FixtureCore/Runner.swift": CALLER}, pending={"FixtureCore/Runner.swift": 1})

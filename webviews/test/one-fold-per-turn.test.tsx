@@ -11,10 +11,13 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:te
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { layoutConversation, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
 import { TRANSCRIPT_LINE_ROW } from "../src/agent-session/acpmux/transcriptGrid";
+import { importWithDom } from "./support/importWithDom";
+
+const { layoutConversation } = await importWithDom(() => import("../src/agent-session/acpmux/model"));
+const { turnView, WORKED } = await importWithDom(() => import("../src/agent-session/acpmux/conversation/turns"));
 
 const START = Date.UTC(2026, 10, 7, 9, 0, 0);
 const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

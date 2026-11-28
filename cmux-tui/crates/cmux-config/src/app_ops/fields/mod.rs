@@ -56,6 +56,10 @@ pub fn call(op: &str, request: &Value) -> Option<Result<Value, OpError>> {
     })
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 pub(crate) fn with_root(
     request: &Value,
     read: fn(&Value) -> (Value, Vec<Value>),
@@ -81,6 +85,10 @@ fn finish(
 
 const FOCUS_STYLE: &[&str] = &["ring", "glow", "none"];
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn focus_ring(root: &Value) -> (Value, Vec<Value>) {
     let mut direct = Vec::new();
     let mut reader = Reader::open(root, "focusRing", &mut direct);
@@ -160,6 +168,10 @@ pub(crate) const SOURCES: [&str; 7] =
     ["explicit", "run", "agent", "program", "terminalProgress", "browser", "command"];
 
 /// Every source for `true`, none for `false`, else the listed names; `None` for anything else.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn honored_sources(value: &Value) -> Option<Value> {
     match value {
         Value::Bool(true) => Some(json!(SOURCES)),
@@ -190,6 +202,10 @@ const STATUS_KEYS: [&str; 9] = [
     "honorStatusStyle",
 ];
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "positions come from the value's own length or search, so they are in range"
+)]
 fn status_indicator(root: &Value) -> (Value, Vec<Value>) {
     let mut direct = Vec::new();
     let mut reader = Reader::open(root, "appearance.statusIndicator", &mut direct);

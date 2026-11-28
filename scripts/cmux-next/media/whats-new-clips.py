@@ -364,6 +364,14 @@ def capture_state(spec: dict) -> dict:
     for key in ("settings", "launch_args"):
         if key in spec:
             state[key] = spec[key]
+    # A spec's harnessFixture (tour.py's, for the nightly tour) names acpmux's test agent; `cmux-ci capture`
+    # writes that agent itself from its `fakeHarness` field. Without it, `record` of a chat spec opened no chat
+    # ("the chat did not connect to acpmux within 20 s").
+    harnesses = (spec.get("harnessFixture") or {}).get("harnesses") or {}
+    fake = [name for name, h in harnesses.items()
+            if any(str(arg).endswith("fake_agent.py") for arg in (h or {}).get("argv", []))]
+    if fake:
+        state["fakeHarness"] = {"id": fake[0]}
     return state
 
 
