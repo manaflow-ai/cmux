@@ -635,7 +635,10 @@ def pin_step(job: dict) -> dict:
 
 def dispatch_step(job: dict) -> dict:
     """The re-pin job's step that starts app-ffi-repin.yml when the re-pin failed."""
-    return next(step for step in job["steps"] if "gh workflow run" in str(step.get("run", "")))
+    # #63649 moved the dispatch into scripts/cmux-next/dispatch-app-ffi-repin.sh (cmux-bot's budget, a wait for the
+    # rate limit's reset); the step that runs it is the one.
+    return next(step for step in job["steps"] if any(
+        mark in str(step.get("run", "")) for mark in ("gh workflow run", "dispatch-app-ffi-repin.sh")))
 
 
 class RePinPublication(unittest.TestCase):
@@ -1477,7 +1480,7 @@ class RePinPublication(unittest.TestCase):
                 env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                            GH_TOKEN="actions-token", GITHUB_REPOSITORY=REPO)
                 result = subprocess.run(["bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True,
-                                        timeout=10)
+                                        timeout=10, cwd=ROOT)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(state_path.read_text())["dispatches"],
                                  [["app-ffi-repin.yml", "--ref", "feat-cmux-next"]])
