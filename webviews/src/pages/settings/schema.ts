@@ -144,20 +144,6 @@ export function rowsInSection(section: string): SchemaRow[] {
 
 export type RowGroup = { key: string; title: LocalizedText; rows: SchemaRow[] };
 
-/** Rows grouped by `group.key`, in schema order of each group's first row. */
-export function groupRows(rows: SchemaRow[]): RowGroup[] {
-  const groups = new Map<string, RowGroup>();
-  for (const row of rows) {
-    const id = row.group.key ?? row.group.text;
-    const group = groups.get(id) ?? { key: id, title: row.group, rows: [] };
-    group.rows.push(row);
-    groups.set(id, group);
-  }
-  return [...groups.values()];
-}
-
-export const defaultSection = sections[0]?.id ?? "general";
-
 export function isSection(id: string | undefined): id is string {
   return id !== undefined && sections.some((section) => section.id === id);
 }
