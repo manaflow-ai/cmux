@@ -452,6 +452,7 @@ jobs:
             scripts/ci/job_input_fingerprint.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
+            scripts/ci/affected-jobs.json
             scripts/ci/app_ffi_pin.py
             scripts/ci/select_package_tests.py
             scripts/ci/gh_expressions.py
@@ -494,6 +495,7 @@ jobs:
             scripts/ci/job_input_fingerprint.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
+            scripts/ci/affected-jobs.json
             scripts/ci/app_ffi_pin.py
             scripts/ci/select_package_tests.py
             scripts/ci/gh_expressions.py
@@ -1689,6 +1691,9 @@ jobs:
       build_cmux_rd: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).shipped.build_cmux_rd }}
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
+      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
 
 
   # MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST: the Cloud machine channel's thin copy of the two Linux musl
@@ -1788,6 +1793,9 @@ jobs:
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
       linux_runner: cmux-linux
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
+      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
 
   # The Windows legs of the build, in their own call so that publish and
   # publish-tree start as soon as the macOS and Linux targets are built: the
@@ -1873,11 +1881,14 @@ jobs:
   # failure or a timeout can trigger the native build of the missing targets.
   darwin-fallback-plan:
     name: plan the macOS fallback build
-    # The Linux targets come from build-linux, so the plan waits on it too; it checks that
-    # build-linux's artifacts are there before it plans a macOS fallback.
+    # FALLBACK_STARTS_WHEN_BUILD_FAILS: the plan no longer waits on build-linux. Run 46095639867's
+    # macOS cross leg failed at 02:18Z, but the plan waited for build-linux until 02:26Z, so the Mac
+    # rebuild (and the nightly waiting for this tree) started 8 min late. A Linux leg still running
+    # counts as not failed; one that already failed in a step still refuses the fallback, and
+    # publish still waits on build-linux, so nothing ships without the Linux targets.
     if: ${{ !cancelled() && (needs.build.result == 'failure' || needs.build.result == 'cancelled') && needs.tree-preflight.outputs.darwin_builder == 'linux' }}
     # tree-owner-wait: BRANCH_PUSH reads whether this run took a deferred key over (FEAT_BUILD_COALESCED).
-    needs: [tree-preflight, tree-owner-wait, build-linux, build]
+    needs: [tree-preflight, tree-owner-wait, build]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -1972,6 +1983,12 @@ jobs:
                 --jq '.jobs[] | "\(.name)\t\(.conclusion // "")\t\([.steps[]? | select(.conclusion == "failure")] | length)"' 2>/dev/null || true)"
             fi
             ended="$(awk -F '\t' -v name="build-linux / build $linux" '$1 == name { print $2 "/" $3; exit }' <<<"$legs")"
+            # FALLBACK_STARTS_WHEN_BUILD_FAILS: a leg with no conclusion yet is still building; its
+            # artifacts are not there because it has not finished, not because it failed.
+            if [[ "$ended" == /* ]]; then
+              echo "the $linux leg is still building; planning the macOS fallback now instead of waiting for it"
+              continue
+            fi
             if [[ "$ended" == cancelled/* || "$ended" == failure/0 ]]; then
               echo "::warning title=Linux leg lost::the $linux leg ended ${ended%%/*} with no failed step (a lost or preempted runner, not a build failure); the macOS fallback still runs, and \"Re-run failed jobs\" rebuilds $linux"
               continue
@@ -2067,7 +2084,12 @@ jobs:
       - name: Mark the failed Linux cross build with a non-required red status
         if: steps.plan.outputs.cross_failed == 'true'
         continue-on-error: true
+        # A status that blocks nothing must not hold the plan: on run 46095639867 its jobs read hit
+        # the rate limit, gh_budget_wait slept toward a 1703 s reset, and the 5 min job timeout
+        # cancelled the plan, starting the Mac rebuild 5 min late. No wait, one minute at most.
+        timeout-minutes: 1
         env:
+          GH_BUDGET_WAIT_MAX_SECONDS: '0'
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
@@ -2116,6 +2138,9 @@ jobs:
       darwin_builder: ${{ needs.darwin-fallback-plan.outputs.builder }}
       macos_stubs_ref: ${{ needs.darwin-fallback-plan.outputs.stubs_ref }}
       linux_runner: cmux-linux
+      # LINUX_RETRY_OFF_POOL: a nightly-path leg that failed on cmux-linux retries on the nightly's reserved
+      # label (RFD 0021's other pool), never the pool that just failed it (cmux-tui-build-package.yml).
+      linux_retry_runner: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || '' }}
 
   # The publish jobs take the build from here: the matrix build, or that
   # build with its macOS targets rebuilt by build-darwin-fallback, or every
@@ -6416,7 +6441,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, coalesce, coalesce-failed, supersede-feat-runs, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, keep-feat-channel, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, coalesce-failed, supersede-feat-runs, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, keep-feat-channel, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, sign-nightly-linux-release, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.
