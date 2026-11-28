@@ -44,6 +44,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A glyph is a pure function of the id: answered here for a peer's session too.
     method::SESSION_SIGNATURE,
     method::MUX_STATUS,
+    method::MUX_LIVE,
     method::MUX_HEAP_PROFILE,
     method::MUX_PERF,
     method::MUX_CALLERS,
@@ -367,6 +368,12 @@ pub(super) async fn forward(
     {
         return Some(Ok(row));
     }
+    // A message to a chat on a peer ends that peer's typing wake as sent (`compose_wake.rs`).
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE)
+        && let Some(peer) = session_key(params).ok().and_then(|key| hub.resolve_remote(key))
+    {
+        crate::compose_wake::sent(&peer.0.name);
+    }
     let reply = gated(hub, conn, m, params).await;
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
     // A prompt kept for its peer's link (`queue_for_link`) is sent by the outbox, which records it.
@@ -469,6 +476,8 @@ fn ask_back(peer: &crate::peer::Peer, m: &str, params: &Value, origin: Origin) {
 fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: Origin) -> bool {
     let wakes = origin != Origin::Peer && composing(m, params);
     if wakes {
+        // Counted by how it ends: sent, or a draft never sent (`compose_wake.rs`).
+        crate::compose_wake::composing(&peer.name);
         peer.wake();
     }
     wakes
@@ -660,12 +669,26 @@ async fn forward_inner(
         let held = m == method::SESSION_PROMPT
             && crate::author::author(params)?.is_some_and(|a| a.awaits_owner);
         let approval = held || matches!(m, method::MUX_QUEUE_APPROVE | method::MUX_QUEUE_DECLINE);
+        if m == method::MUX_DETACH {
+            super::view::detach_remote(hub, conn, &id);
+            return Ok(Some(json!({})));
+        }
+        let shared_presence =
+            m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params));
         let feature = match m {
+            _ if shared_presence => Some(crate::hub::presence::PEER_FEATURE),
             method::MUX_QUEUE_GET => Some(crate::author::QUEUE_GET_FEATURE),
             _ => approval.then_some(crate::author::QUEUE_APPROVAL_FEATURE),
         };
         let bound = feature.map(|f| peer.lists_on(f));
         if bound.is_some_and(|link| link.is_none()) {
+            if shared_presence {
+                return Err(peer_feature_unsupported(
+                    &peer,
+                    m,
+                    &[crate::hub::presence::PEER_FEATURE],
+                ));
+            }
             return Err(crate::author::approval_unsupported(&peer));
         }
         // So do a message's attachments, under their caps (`attach.rs`).
@@ -746,16 +769,17 @@ async fn forward_inner(
             }
             return Err(peer_feature_unsupported(&peer, m, &features));
         }
-        // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
-        // forwarded, whatever the peer serves this link as, one entry there would stand for
-        // every client here.
-        if m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params)) {
-            // A person typing to the chat of a peer that is down still wakes it before they
-            // send (`ask_back`); the typing itself stays this daemon's own.
+        // Authored view and typing belong to the person named by the caller. Forward them to the
+        // owner daemon so its presence fanout can relay the entry back to this daemon.
+        if shared_presence {
             if !peer.ready() {
                 wake_if_composing(&peer, m, params, conn.origin);
             }
-            return Err(crate::hub::presence::peer_unsupported());
+            // The local owner's opt-in controls what leaves this machine, including authored
+            // view/typing requests. A peer's opt-in cannot grant permission for this person.
+            if !hub.presence.is_live() {
+                return Err(crate::hub::presence::peer_unsupported());
+            }
         }
         // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
         // current: its notices keep the row as current as the peer's answer would be, one round
@@ -764,6 +788,11 @@ async fn forward_inner(
             return Ok(Some(from_row(&row, &peer.name)));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
+        // A fork's top-level `name` beside its chat's id is the child's name, not a selector: it
+        // goes as `_meta.acpmux.name`, which the peer reads first (cmux#50023).
+        if matches!(m, method::SESSION_FORK | method::ACP_SESSION_FORK) {
+            super::fork_through::name_to_meta(&mut p);
+        }
         if let Some(obj) = p.as_object_mut() {
             obj.remove(ROW_WILL_DO);
             obj.remove("session");
@@ -858,9 +887,9 @@ async fn forward_inner(
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
                 let opts = SubOpts { event_stream, filter, ..SubOpts::default() };
-                super::view::subscribe_remote(hub, conn, &id, Some(opts));
+                super::view::subscribe_remote(hub, conn, &id, &peer.name, Some(opts));
             } else {
-                super::view::subscribe_remote(hub, conn, &id, None);
+                super::view::subscribe_remote(hub, conn, &id, &peer.name, None);
             }
             first_attach = peer.mark_attached(&id);
             if first_attach && m != method::MUX_ATTACH {
@@ -1035,7 +1064,20 @@ async fn forward_inner(
             }
             on = Some(epoch);
         }
-        let result = if matches!(
+        let presence_baseline = (m == method::MUX_ATTACH)
+            .then(|| {
+                conn.sub_opts(&id)
+                    .filter(|sub| sub.remote_peer.as_deref() == Some(peer.name.as_str()))
+                    .and_then(|sub| sub.remote_presence)
+                    .map(|snapshot| {
+                        let revision = snapshot.revision();
+                        (snapshot, revision)
+                    })
+            })
+            .flatten();
+        let result = if shared_presence {
+            conn.outgoing_presence.send(hub, conn, peer.clone(), m, p, on.unwrap_or(link)).await
+        } else if matches!(
             m,
             method::MUX_INFO
                 | method::MUX_EVENTS
@@ -1162,11 +1204,17 @@ async fn forward_inner(
             let on = (peer.name.as_str(), peer.generation, link, asked);
             hub.capture_peer_page(on, (&id, m == method::MUX_EVENTS), params, &result);
         }
-        // This daemon does not carry a peer chat's presence (`hub/presence.rs`).
+        // Older peers omit presence entirely. Keep the attach reply's empty baseline while
+        // retaining a current peer's authored snapshot.
         if m == method::MUX_ATTACH
             && let Some(obj) = result.as_object_mut()
         {
-            obj.insert("presence".into(), crate::hub::presence::none(&id));
+            obj.entry("presence").or_insert_with(|| crate::hub::presence::none(&id));
+        }
+        if let Some((snapshot, revision)) = presence_baseline
+            && let Some(note) = result.get("presence")
+        {
+            snapshot.seed(note, revision);
         }
         if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
             mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());
@@ -1174,7 +1222,7 @@ async fn forward_inner(
         if matches!(m, method::SESSION_FORK | method::ACP_SESSION_FORK)
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
-            super::view::subscribe_remote(hub, conn, new_id, None);
+            super::view::subscribe_remote(hub, conn, new_id, &peer.name, None);
             peer.mark_attached(new_id);
         }
         if purge {
@@ -1339,6 +1387,7 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
 pub(super) fn strip_new_meta(p: &mut Value) {
     if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         m.remove("peer");
+        m.remove("cloudRegistryId");
         // A family lives on one daemon: this daemon's caller is no session there.
         m.remove(crate::hub::lineage::PARENT_FIELD);
         m.remove(crate::hub::lineage::TOOL_CALL_FIELD);

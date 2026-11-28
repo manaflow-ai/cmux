@@ -284,6 +284,9 @@ struct Viewer {
     stream_answer: Option<Result<(), String>>,
     /// The host closed the upstream stream.
     upstream_closed_by_host: bool,
+    /// Whole clipboard texts from the host (cap `clipboard.text`) with their arrival (ns),
+    /// read by `--input clipboard` (`run_clipboard`).
+    clipboard_rx: Vec<(u64, String)>,
     /// `--snapshot PATH`: the newest decoded frame as a binary PPM, written when the run ends.
     snapshot: Option<(usize, usize, Vec<u8>)>,
     /// The newest hardware-decoded picture for `--snapshot`, converted to RGB once, at the end.
@@ -697,6 +700,10 @@ impl Viewer {
                 Control::StreamClose { stream } if stream == UP_STREAM => {
                     self.upstream_closed_by_host = true;
                 }
+                // A whole text only: the bench's texts are short, so the host sends each in one part.
+                Control::Clipboard { text, offset: None, .. } => {
+                    self.clipboard_rx.push((now_ns(), text));
+                }
                 _ => {}
             }
         }
@@ -1046,7 +1053,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         return Err("--eval-netem-relay requires --carrier udp".into());
     }
     // key (default) | click | scroll: which input moves the marker (cloud browser page);
-    // none: a passive window (`run_passive`).
+    // none: a passive window (`run_passive`); clipboard: copy-paste round trips (`run_clipboard`).
     let input = opts.str_or("input", "key");
     let (io, udp_port) = if opts.get("link").is_some() {
         #[cfg(feature = "link")]
@@ -1137,6 +1144,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         upstream: None,
         stream_answer: None,
         upstream_closed_by_host: false,
+        clipboard_rx: Vec::new(),
         snapshot: None,
         #[cfg(target_os = "macos")]
         newest_picture: None,
@@ -1220,6 +1228,9 @@ pub fn run(opts: &Opts) -> Res<()> {
             if upstream.is_some() {
                 offered.extend([caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]);
             }
+            if input == "clipboard" {
+                offered.push(caps::CLIPBOARD_TEXT.into());
+            }
             offered.extend(opts.get("caps").into_iter().flat_map(|list| {
                 list.split(',').map(str::trim).filter(|c| !c.is_empty()).map(str::to_owned)
             }));
@@ -1254,6 +1265,9 @@ pub fn run(opts: &Opts) -> Res<()> {
             )
             .into());
         }
+    }
+    if input == "clipboard" {
+        return run_clipboard(&mut v, addr, &carrier, samples, pid);
     }
     let upstream_report = match &upstream {
         Some(which) => {
@@ -1410,6 +1424,88 @@ pub fn run(opts: &Opts) -> Res<()> {
     });
     println!("{report}");
     write_snapshot(opts, &v)?;
+    let _ = v.io.send_control(&Control::Stop);
+    Ok(())
+}
+
+/// The text of `--input clipboard`'s sample I: unique per run, with the prefix the host's echo
+/// (screen-share-vs.py `clip-echo`) answers.
+pub(crate) fn clipboard_probe(pid: u32, salt: u64, i: usize) -> String {
+    format!("cmux-vs-clip-{pid}-{salt:x}-{i}")
+}
+
+/// The echo `clip-echo` puts on the shared machine's clipboard once it saw PROBE there.
+pub(crate) fn clipboard_echo(probe: &str) -> String {
+    format!("ack:{probe}")
+}
+
+/// `--input clipboard --samples N`: copy-paste both ways, N times. Each sample sets a new text
+/// on this viewer's side (a `clipboard` message, as the app's viewer sends on a local copy);
+/// the host puts it on the shared machine's clipboard, where screen-share-vs.py's `clip-echo`
+/// sees it and copies its echo there; the host reads that change and sends it back. A sample
+/// counts when the echo arrives (viewer to host and host to viewer both carried the text), and
+/// is lost after 2 s. `g2g_ms` is the round trip: it includes the host's 4 Hz clipboard poll
+/// (cmux-rd-host clipboard.rs) and the echo's own poll, so it is not a frame-latency number.
+fn run_clipboard(
+    v: &mut Viewer,
+    addr: SocketAddr,
+    carrier: &str,
+    samples: usize,
+    pid: u32,
+) -> Res<()> {
+    let negotiated = v.welcome.as_ref().is_some_and(|w| {
+        w["caps"].as_array().is_some_and(|c| c.iter().any(|x| x == caps::CLIPBOARD_TEXT))
+    });
+    let salt = now_ns();
+    let mut rng = Rng::new(u64::from(pid) ^ salt);
+    let (mut rtt, mut lost, mut sample_times) = (Vec::new(), 0usize, Vec::new());
+    let t_begin = now_ns();
+    for i in 0..samples {
+        if !negotiated || v.ended.is_some() {
+            lost += samples - i;
+            break;
+        }
+        let probe = clipboard_probe(pid, salt, i);
+        let echo = clipboard_echo(&probe);
+        let seq = i as u64 + 1;
+        let t0 = now_ns();
+        v.io.send_control(&Control::Clipboard { seq, text: probe, offset: None, total: None })?;
+        let arrived = loop {
+            v.pump(5_000_000)?;
+            if let Some((at, _)) = v.clipboard_rx.iter().find(|(_, t)| *t == echo) {
+                break Some(*at);
+            }
+            if v.ended.is_some() || now_ns() - t0 > 2_000_000_000 {
+                break None;
+            }
+        };
+        match arrived {
+            Some(at) => {
+                rtt.push((at - t0) as f64 / 1e6);
+                sample_times.push(json!({ "sent_ns": t0, "echo_ns": at }));
+            }
+            None => lost += 1,
+        }
+        v.clipboard_rx.clear();
+        let gap_end = now_ns() + rng.range(40, 160) * 1_000_000;
+        while now_ns() < gap_end {
+            v.pump(gap_end.saturating_sub(now_ns()).max(1_000_000))?;
+        }
+    }
+    let report = json!({
+        "addr": addr.to_string(),
+        "carrier": carrier,
+        "input": "clipboard",
+        "clipboard_negotiated": negotiated,
+        "input_sent": samples,
+        "g2g_ms": pct(&mut rtt),
+        "lost": lost,
+        "sample_times": sample_times,
+        "seconds": (now_ns() - t_begin) as f64 / 1e9,
+        "welcome": v.welcome,
+        "ended": v.ended,
+    });
+    println!("{report}");
     let _ = v.io.send_control(&Control::Stop);
     Ok(())
 }
