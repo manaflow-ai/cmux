@@ -473,7 +473,7 @@ fn restart_earlier() -> String {
     format!(
         "p=\"{GATEWAY_PID}\"; e=\"{GATEWAY_EARLIER}\"; [ -s \"$e\" ] || exit 0; \
          if [ -f \"$p\" ] && kill -0 \"$(cat \"$p\")\" 2>/dev/null; then rm -f \"$e\"; exit 0; fi; \
-         mkdir -p \"$(dirname \"{GATEWAY_MARKER}\")\" && touch \"{GATEWAY_MARKER}\" && \
+         mkdir -p \"$(dirname \"{GATEWAY_MARKER}\")\" && touch \"{GATEWAY_MARKER}\" || exit 1; \
          nohup bash -c 'mapfile -d \"\" -t a < \"$1\"; exec \"${{a[@]}}\"' sh \"$e\" \
            >> \"{GATEWAY_LOG}\" 2>&1 < /dev/null & \
          echo $! > \"$p\"; echo restarted"
