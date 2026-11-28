@@ -123,6 +123,9 @@ def table(rows: list[dict]) -> str:
     return "\n".join(out) + "\n"
 
 
+SETUP_RETRIES = 2
+
+
 def local_repo(commit: str) -> str | None:
     """This checkout's object store as a file:// remote when it already has the commit: no network fetch."""
     here = Path(__file__).resolve().parent
@@ -220,7 +223,16 @@ def main(argv: list[str]) -> int:
     try:
         for trial in range(1, args.trials + 1):
             for label, edits in variants:
-                for r in netem.measure_binary(bins[label], label, profiles, scratch_out, margs):
+                # A trial whose rig never started (Xvfb or the testapp exiting at setup) measured nothing:
+                # its rows stay as errors and it runs again, up to SETUP_RETRIES times, so each variant
+                # still gets --trials readings.
+                results = []
+                for attempt in range(1 + SETUP_RETRIES):
+                    got = netem.measure_binary(bins[label], label, profiles, scratch_out, margs)
+                    results += [dict(r, attempt=attempt) for r in got]
+                    if not all(r.get("error") and not r.get("passive") for r in got):
+                        break
+                for r in results:
                     p = r.get("passive") or {}
                     secs, reached = score(p, args.passive_s)
                     row = {"schema": SCHEMA, "commit": args.commit, "variant": label, "edits": edits,
@@ -230,7 +242,7 @@ def main(argv: list[str]) -> int:
                            "min_target_kbps_after": p.get("min_target_kbps_after_15mbps"),
                            "mbps_mean": p.get("mbps_mean"), "fine_rows": p.get("fine_rows"),
                            "error": r.get("error") or (None if p.get("ok") else "passive session failed"),
-                           "host": os.uname().nodename, "kernel": os.uname().release}
+                           "attempt": r["attempt"], "host": os.uname().nodename, "kernel": os.uname().release}
                     rows.append(row)
                     with open(args.out / "sweep.jsonl", "a") as f:
                         f.write(json.dumps(row) + "\n")
