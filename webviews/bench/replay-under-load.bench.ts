@@ -352,6 +352,7 @@ async function run(): Promise<Reading> {
           "v8.execute",
           "blink.user_timing",
           "disabled-by-default-v8.gc",
+          ...(process.env.VFP_INVAL ? ["disabled-by-default-devtools.timeline.invalidationTracking"] : []),
         ],
       });
     const pageStart = await page.evaluate(() => performance.now());
@@ -374,6 +375,25 @@ async function run(): Promise<Reading> {
       }
     }
     const pageEnd = await page.evaluate(() => performance.now());
+    if (process.env.VFP_PROBE) {
+      const anims = await page.evaluate(() =>
+        document.getAnimations().map((a) => {
+          const t = (a.effect as KeyframeEffect | null)?.target as Element | null;
+          return [(a as CSSAnimation).animationName ?? a.constructor.name, a.playState, t?.tagName, String(t?.className ?? "").slice(0, 80)];
+        }),
+      );
+      let layers: unknown[] = [];
+      cdp.on("LayerTree.layerTreeDidChange", (e: { layers?: unknown[] }) => { if (e.layers) layers = e.layers; });
+      await cdp.send("LayerTree.enable");
+      await page.waitForTimeout(1500);
+      const reasons: unknown[] = [];
+      for (const l of layers.slice(0, 80) as { layerId: string; width: number; height: number; backendNodeId?: number; drawsContent: boolean; paintCount: number }[]) {
+        let r: unknown = null;
+        try { r = await cdp.send("LayerTree.compositingReasons", { layerId: l.layerId }); } catch {}
+        reasons.push([l.width, l.height, l.drawsContent, l.paintCount, l.backendNodeId, r]);
+      }
+      fs.writeFileSync(process.env.VFP_PROBE, JSON.stringify({ anims, nlayers: layers.length, reasons }, null, 1));
+    }
     clearInterval(timer);
     // The tally's last flush (at most FLUSH_MS after the window's last frames) still counts.
     await page.waitForTimeout(FLUSH_WAIT_MS);
