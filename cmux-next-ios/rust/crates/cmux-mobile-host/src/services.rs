@@ -307,10 +307,11 @@ const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
 /// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 15] = [
+pub const CAPABILITIES: [&str; 16] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
+    names::LOCALHOST_HOSTS,
     names::CLOUD_DIRECTORY,
     names::CLOUD_ACPMUX,
     names::NEEDS_YOU,
@@ -3480,6 +3481,7 @@ mod tests {
                 "removal-v1",
                 "file-preview-v1",
                 "localhost-forward-v1",
+                "localhost-hosts-v1",
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",
@@ -3504,6 +3506,7 @@ mod tests {
                 "removal-v1",
                 "file-preview-v1",
                 "localhost-forward-v1",
+                "localhost-hosts-v1",
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
                 "needs-you-v1",

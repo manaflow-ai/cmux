@@ -1700,8 +1700,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   (Open on iPhone at `http(s)://localhost:<port>`), so the page keeps its
   origin. Nothing listening: `unavailable` "Nothing is listening on port N on
   this Mac."; a missing or bad port: `bad_request`; an older Mac:
-  `unknown_service`, and the phone keeps that tab mirrored. The phone never
-  names a host.
+  `unknown_service`, and the phone keeps that tab mirrored. Without `localhost-hosts-v1` the phone never
+  names a host. With it (2026-11-24, RFD 0089) `{"host"}` may name a DNS name
+  or address (`devbox`, `a.tailnet.ts.net`, `10.0.0.5`, `[fd00::1]`; empty or
+  `localhost` is loopback): hostd resolves it itself, requires every resolved
+  address to be loopback, private (RFC 1918, `fc00::/7`) or `100.64.0.0/10`
+  (tailnet), and connects to those addresses; any other (public, link-local
+  such as `169.254.169.254`) is `forbidden`, a name that doesn't resolve is
+  `unavailable`. Bytes pass untouched, so `https` TLS runs end to end; an
+  older Mac ignores `host` and would connect to its loopback, so the phone
+  sends `host` only to a Mac that lists `localhost-hosts-v1`.
 - `site-data` (2026-11-24, `site-data-handoff-v1`; hq RFD 0089 "Shared
   sessions", RFD 0125 D7 and D8): `{"surface", "url", "trigger":
   "open_on_iphone"}` (`surface`: the tab key `s<surface>`, or the number) hands the phone the Mac browser tab's cookies and local
@@ -1799,6 +1807,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `removal-v1` | hostd `version` | After its owner removes it (signaling 4002 `removed`) the Mac stays off until iPhone connections are allowed again on the Mac; without it the Mac may add itself back. |
 | `file-preview-v1` | hostd `version` | `file-preview` sends a size metadata frame before the file bytes, so the phone can check free storage first. |
 | `localhost-forward-v1` | hostd `version` | (2026-10-30) The host serves `localhost`: a phone browser tab reaches a port on the Mac's loopback. |
+| `localhost-hosts-v1` | hostd `version` | (2026-11-24) `localhost` also takes `{"host"}`: a name this Mac resolves to a private, tailnet or loopback address (`devbox:3000`, a Cloud VM's private address); public and link-local hosts are refused (`forbidden`). An older Mac ignores `host`, so a phone sends it only to a host that says this. |
 | `cloud-directory-v1` | hostd `version` | (2026-11-01) The host lists the owner's authenticated Cloud machines through the Mac carrier (`cloud-directory`). |
 | `cloud-acpmux-v1` | hostd `version` | (2026-11-01) The host drives an owned Cloud machine's agents through the Mac carrier (`cloud-acpmux`). |
 | `needs-you-v1` | hostd `version` | The host serves `needs-you`: the Mac app's own open Feed requests. |
