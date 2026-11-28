@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.keychainOtherBuild" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This sign-in was saved by another cmux build. Sign in again to use it here."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "حفظ إصدار آخر من cmux بيانات تسجيل الدخول هذه. سجّل الدخول مجددًا لاستخدامها هنا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovu prijavu je sačuvala druga verzija cmux-a. Prijavite se ponovo da biste je koristili ovdje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette login blev gemt af en anden version af cmux. Log ind igen for at bruge det her."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Anmeldung wurde von einer anderen cmux-Version gespeichert. Melde dich erneut an, um sie hier zu verwenden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otra versión de cmux guardó este inicio de sesión. Vuelve a iniciar sesión para usarlo aquí."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une autre version de cmux a enregistré cette connexion. Reconnectez-vous pour l’utiliser ici."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un’altra versione di cmux ha salvato questo accesso. Accedi di nuovo per usarlo qui."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このサインイン情報は別の cmux ビルドで保存されました。ここで使うには、もう一度サインインしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កំណែ cmux ផ្សេងមួយបានរក្សាទុកព័ត៌មានចូលនេះ។ សូមចូលម្តងទៀតដើម្បីប្រើវានៅទីនេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다른 cmux 빌드에서 이 로그인 정보를 저장했습니다. 여기서 사용하려면 다시 로그인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne påloggingen ble lagret av en annen versjon av cmux. Logg på igjen for å bruke den her."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ta sesja została zapisana przez inną wersję cmux. Zaloguj się ponownie, aby z niej tutaj korzystać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Outra versão do cmux salvou este login. Entre novamente para usá-lo aqui."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Данные для входа сохранены другой сборкой cmux. Войдите снова, чтобы использовать их здесь."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ข้อมูลการลงชื่อเข้านี้บันทึกโดย cmux บิลด์อื่น ลงชื่อเข้าใช้อีกครั้งเพื่อใช้งานที่นี่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu oturum bilgileri başka bir cmux derlemesi tarafından kaydedildi. Burada kullanmak için tekrar oturum açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дані для входу збережено іншою збіркою cmux. Увійдіть знову, щоб використовувати їх тут."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thông tin đăng nhập này do một bản dựng cmux khác lưu. Hãy đăng nhập lại để sử dụng tại đây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此登录信息由另一个 cmux 构建版本保存。请重新登录以在此使用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此登入資訊由另一個 cmux 組建版本儲存。請重新登入以在此使用。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

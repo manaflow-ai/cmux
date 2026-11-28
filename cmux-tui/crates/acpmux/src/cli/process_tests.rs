@@ -321,6 +321,7 @@ fn start(slow: Option<&str>) -> Start {
         notify: true,
         route: Some("code-mode".to_owned()),
         slow: slow.map(str::to_owned),
+        tool_call: Some("toolu_01".to_owned()),
         command: "npm run dev".to_owned(),
     }
 }
@@ -338,7 +339,7 @@ fn process_start_asks_for_the_chats_task_in_the_shells_folder() {
     assert_eq!(
         params,
         json!({"sessionId": "chat-1", "command": "npm run dev", "notify": true,
-            "cwd": "/srv/app", "description": "dev server",
+            "cwd": "/srv/app", "description": "dev server", "toolCallId": "toolu_01",
             "callerSubagent": {"id": "a0a68e7af3df5967e", "type": "Explore"}})
     );
     // --cwd wins; an odd mark names no subagent.
