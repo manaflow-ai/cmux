@@ -417,6 +417,34 @@ async function run(name: string, engine: BrowserType) {
         longtasks: holder.__longtasks,
       };
     });
+    // The DOM after the fling: a style pass's cost follows the elements it may have to match, so a count that
+    // grows with the chat (not the mounted rows) names an O(n) restyle. Printed as `census` lines.
+    const census = await page.evaluate(() => {
+      const all = document.querySelectorAll("*");
+      const scroller = document.querySelector(".acpmux-scroll, [data-acpmux-scroller]") ?? undefined;
+      const byClass = new Map<string, number>();
+      for (const element of all) {
+        const name = (element.getAttribute("class") ?? "").split(/\s+/)[0] || element.localName;
+        byClass.set(name, (byClass.get(name) ?? 0) + 1);
+      }
+      let rules = 0;
+      for (const sheet of document.styleSheets)
+        try {
+          rules += sheet.cssRules.length;
+        } catch {
+          // A sheet from another origin has no readable rules.
+        }
+      return {
+        elements: all.length,
+        rows: document.querySelectorAll(".acpmux-row").length,
+        inScroller: scroller ? scroller.querySelectorAll("*").length : -1,
+        styled: document.querySelectorAll("[style]").length,
+        sheets: document.styleSheets.length,
+        rules,
+        top: [...byClass].sort((a, b) => b[1] - a[1]).slice(0, 12),
+      };
+    });
+    console.log(`transcript-scroll-up ${name} census ${JSON.stringify(census)}`);
     // Older pages: each ask the transcript made, to the first painted frame after it settled whose content
     // height changed (the page's rows drawn); and each page on the wire, ask to reply.
     const wire = await page.evaluate(() => {

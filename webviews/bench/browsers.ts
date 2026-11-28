@@ -37,14 +37,23 @@ export function withShippedJsFlags<T extends object = LaunchOptions>(
   return { ...options, args: joined.length ? [...rest, `--js-flags=${joined.join(" ")}`] : rest } as T & LaunchOptions;
 }
 
+/// The V8 flags a launch gets: SHIPPED_JS_FLAGS (none with `BENCH_SHIPPED_JS_FLAGS=0`), then BENCH_JS_FLAGS's own,
+/// space-separated (pure). `BENCH_JS_FLAGS="--max-inlined-bytecode-size=0"` keeps each function its own frame in a
+/// CPU profile, so a hot caller's self time names the callee that was inlined into it.
+export function benchJsFlags(env: Record<string, string | undefined> = process.env): string[] {
+  const extra = (env.BENCH_JS_FLAGS ?? "").split(/\s+/).filter(Boolean);
+  return [...(env.BENCH_SHIPPED_JS_FLAGS === "0" ? [] : SHIPPED_JS_FLAGS), ...extra];
+}
+
 function launchWithShippedJsFlags(env: Record<string, string | undefined> = process.env): void {
-  if (env.BENCH_SHIPPED_JS_FLAGS === "0") return;
+  const flags = benchJsFlags(env);
+  if (flags.length === 0) return;
   const launch = chromium.launch.bind(chromium);
   const launchPersistentContext = chromium.launchPersistentContext.bind(chromium);
   const launchServer = chromium.launchServer.bind(chromium);
-  chromium.launch = (options) => launch(withShippedJsFlags(options));
-  chromium.launchPersistentContext = (dir, options) => launchPersistentContext(dir, withShippedJsFlags(options));
-  chromium.launchServer = (options) => launchServer(withShippedJsFlags(options));
+  chromium.launch = (options) => launch(withShippedJsFlags(options, flags));
+  chromium.launchPersistentContext = (dir, options) => launchPersistentContext(dir, withShippedJsFlags(options, flags));
+  chromium.launchServer = (options) => launchServer(withShippedJsFlags(options, flags));
 }
 
 launchSystemChrome(chromium);
