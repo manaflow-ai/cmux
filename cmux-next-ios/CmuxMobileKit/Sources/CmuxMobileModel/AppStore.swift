@@ -36,6 +36,24 @@ public final class AppStore {
         let count = activeWorkspaces.count(where: \.needsAttention)
         if count != attentionCount { attentionCount = count }
     }
+
+    /// Where each Mac's workspaces sit in `workspaces` (`[macID: [workspaceID: index]]`, the
+    /// first row of an ID, as a linear `firstIndex` found it): `updateWorkspaces` looks a pushed
+    /// row up in O(1), not O(workspaces) (RFD 0227 fix 4). Rebuilt on the first push after any
+    /// other write (`workspacesRevision` moved: a topology change); a push keeps every index.
+    @ObservationIgnored private var rowPositions: [String: [String: Int]] = [:]
+    @ObservationIgnored private var rowPositionsRevision: Int?
+
+    private func currentRowPositions() -> [String: [String: Int]] {
+        guard rowPositionsRevision != workspacesRevision else { return rowPositions }
+        var positions: [String: [String: Int]] = [:]
+        for (index, workspace) in workspaceStorage.enumerated() where positions[workspace.macID]?[workspace.id] == nil {
+            positions[workspace.macID, default: [:]][workspace.id] = index
+        }
+        rowPositions = positions
+        rowPositionsRevision = workspacesRevision
+        return positions
+    }
     public var feed: [FeedEvent]
     /// The last tab the user had open per workspace on this device,
     /// persisted across launches through `tabMemory`.
@@ -221,21 +239,45 @@ public final class AppStore {
 
     /// Reconciles metadata for existing rows without rebuilding or comparing
     /// every tab on the Mac. Topology changes still use `replaceWorkspaces`.
+    /// O(rows pushed), not O(workspaces) (RFD 0227 fix 4): each row is found through
+    /// `rowPositions`, compared alone, written in place, and moves the attention count by its
+    /// own change. The result equals the linear lookup and whole recount
+    /// (`WorkspaceRowIndexTests`).
     public func updateWorkspaces(macID: String, rows: [Workspace]) {
         var rows = rows
         groupEdits.apply(to: &rows, now: now())
+        guard let positions = currentRowPositions()[macID] else { return }
         // One write for the whole push: each `workspaces[index] = row` was a copy, a
         // whole-list compare and a notification of every reader, per row, on main.
-        var next = workspaceStorage
-        var changed = false
+        var writes: [Int: Workspace] = [:]
         for row in rows {
-            guard !pendingWorkspaceIDs.contains(row.id),
-                  let index = next.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
-                  next[index] != row else { continue }
-            next[index] = row
-            changed = true
+            guard !pendingWorkspaceIDs.contains(row.id), let index = positions[row.id],
+                  (writes[index] ?? workspaceStorage[index]) != row else { continue }
+            writes[index] = row
         }
-        if changed { workspaces = next }
+        // A row pushed twice can end where it began: that index is no write.
+        writes = writes.filter { workspaceStorage[$0.key] != $0.value }
+        guard !writes.isEmpty else { return }
+        var attention = 0
+        var moved = false
+        for (index, row) in writes {
+            let old = workspaceStorage[index]
+            if old.needsAttention != row.needsAttention { attention += row.needsAttention ? 1 : -1 }
+            if row.macID != old.macID { moved = true }
+        }
+        withMutation(keyPath: \.workspaces) {
+            for (index, row) in writes { workspaceStorage[index] = row }
+        }
+        workspacesRevision &+= 1
+        if moved {
+            // A row that names another Mac: the index and the count are rebuilt from the list.
+            refreshAttentionCount()
+            return
+        }
+        rowPositionsRevision = workspacesRevision // the same rows at the same places
+        if attention != 0, activeTeam?.macs.contains(where: { $0.id == macID }) == true {
+            attentionCount += attention
+        }
     }
 
     /// `current` with one Mac's rows replaced by `next` in place: the Mac's
