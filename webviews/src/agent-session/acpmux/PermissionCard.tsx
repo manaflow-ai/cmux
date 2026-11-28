@@ -734,6 +734,7 @@ export function PermissionCard({
                 value={planEdit.text}
                 rows={Math.min(16, Math.max(4, planEdit.text.split("\n").length + 1))}
                 spellCheck
+                // oxlint-disable-next-line jsx-a11y/no-autofocus -- the editor opens on the person's own click on Edit plan.
                 autoFocus
                 onChange={(event) => setPlanEdit({ permissionId: permission.permissionId, text: event.target.value })}
                 onKeyDown={(event) => {
