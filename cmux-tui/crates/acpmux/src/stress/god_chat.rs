@@ -285,7 +285,9 @@ fn costs(bytes: u64) -> Costs {
         let cfg = config();
         let store = crate::store::open(&cfg.store, home.path()).unwrap();
         let store_open_read = (process_read() - read) as f64;
+        crate::config::diag_mark("hub new start");
         let hub = Hub::new(cfg.clone(), store);
+        crate::config::diag_mark("hub new end");
         let restart_read = (process_read() - read) as f64;
         let restart_ms = wall.elapsed().as_secs_f64() * 1e3;
         let restart_after_read = settle().await as f64;

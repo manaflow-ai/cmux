@@ -260,7 +260,9 @@ impl Hub {
             // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
             panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
         }
+        crate::config::diag_mark("read_log start");
         self.catch_up_for_load(session);
+        crate::config::diag_mark("after catch_up");
         if !session.caught_up.load(Ordering::SeqCst) {
             // What an earlier run kept on disk did not read (`take_back_kept`): nothing recovers
             // or rebuilds its queue without it (review of #37284 at 23e76b07, F2). The log stays
@@ -276,6 +278,7 @@ impl Hub {
         // restore puts back.
         let point = if recover { self.read_restore_point(session) } else { None };
         let read_to = self.settled_seq(session);
+        crate::config::diag_mark("after restore_point");
         let epoch = match self.restore_ownership_epoch_after(session, point.as_ref()) {
             Ok(epoch) => Some(epoch),
             Err(error) => {
@@ -285,6 +288,7 @@ impl Hub {
             }
         };
         let authority = self.restore_transfer_authority_after(session, point.as_ref());
+        crate::config::diag_mark("after epoch_and_authority");
         if !recover {
             // Read, with its recovery still to run: the restore that asked runs it.
             session.recovery_pending.store(true, Ordering::SeqCst);
@@ -294,6 +298,7 @@ impl Hub {
         let hosted =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id);
         let quiet = self.recover_log(session, None, point.as_ref());
+        crate::config::diag_mark("after recover_log");
         // Read here, off the first prompt's start (`seed_prompt_stops`). Records kept apart from
         // the journal are left to that prompt's read, which reads them too.
         if !Self::keeps_unstored(session) {
