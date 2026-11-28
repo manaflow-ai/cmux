@@ -12,8 +12,8 @@ workspace = true
 
 [dependencies]
 base64.workspace = true
+cmux-egress.workspace = true
 reqwest.workspace = true
-rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 url.workspace = true

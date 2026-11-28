@@ -34,6 +34,8 @@ serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 # Swift's `count` (grapheme clusters) for a one-character shortcut key (app_ops/shortcut.rs).
 unicode-segmentation.workspace = true
+# link_rules: host normalization (IDN as punycode, IPv6 hosts) as Foundation's URL.host gives them.
+url.workspace = true
 uuid.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

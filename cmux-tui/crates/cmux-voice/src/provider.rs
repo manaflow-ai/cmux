@@ -112,8 +112,7 @@ impl HttpBatch {
     }
 
     fn client(&self) -> Result<reqwest::Client, VoiceError> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let mut builder = reqwest::Client::builder()
+        let mut builder = cmux_egress::client_builder("cmux_voice::provider")
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(self.http.connect_timeout)
             .timeout(self.http.total_timeout)

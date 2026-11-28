@@ -182,6 +182,26 @@ fn agrees(rows: &RemoteRows, model: &Model) -> Result<(), String> {
         if rows.has_peer(&peer) == want.is_empty() {
             return fail(format!("has_peer({peer})"));
         }
+        // The closed-row bound's reads, the slow way: a sort of the peer's closed rows.
+        let mut closed: Vec<(u64, String)> = model
+            .iter()
+            .filter(|(_, r)| r.peer == peer && r.summary.closed())
+            .map(|(k, r)| (r.summary.updated_ms(), k.clone()))
+            .collect();
+        closed.sort();
+        if rows.closed_of_peer(&peer) != closed.len() {
+            return fail(format!("closed_of_peer({peer}) != {}", closed.len()));
+        }
+        for kept in [0, 1, 3] {
+            let want: Vec<String> = closed
+                .iter()
+                .take(closed.len().saturating_sub(kept))
+                .map(|(_, k)| k.clone())
+                .collect();
+            if rows.closed_of_peer_past(&peer, kept) != want {
+                return fail(format!("closed_of_peer_past({peer}, {kept}) != {want:?}"));
+            }
+        }
         for m in 0..MUXES {
             let mux = format!("s{m}");
             let want = model
@@ -258,8 +278,17 @@ fn apply(rows: &mut RemoteRows, model: &mut Model, op: &Op) -> Result<(), String
         Op::MarkStale(p, seen) => {
             let peer = peer_of(p);
             let seen = seen.map(u64::from);
-            let mut got: Vec<Value> =
-                rows.mark_peer_stale(&peer, seen).iter().map(PeerRow::value).collect();
+            // Half the peers are marked as a peer's outage marks them: built from a snapshot,
+            // put in under the lock.
+            let changed = if p % 2 == 0 {
+                let snapshot = rows.clone();
+                let marks = snapshot.stale_marks(&peer, seen);
+                rows.put_stale_marks_built_from(marks)
+                    .ok_or_else(|| "marks built from a current snapshot were refused".to_owned())?
+            } else {
+                rows.mark_peer_stale(&peer, seen)
+            };
+            let mut got: Vec<Value> = changed.iter().map(PeerRow::value).collect();
             let mut want: Vec<Value> = Vec::new();
             for r in model.values_mut().filter(|r| r.peer == peer) {
                 let mut summary = r.summary.value();

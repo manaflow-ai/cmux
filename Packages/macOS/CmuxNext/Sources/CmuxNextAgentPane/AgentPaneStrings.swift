@@ -430,8 +430,14 @@ extension AgentPaneModel {
 extension AgentPaneCloudRepositoryRefusal {
     /// A Cloud start's machine could not read the GitHub repository the chat starts in (`seed.needs_github`).
     nonisolated static func needsAccessMessage(_ repository: String) -> String {
-        // retry-prompt-ok: connecting GitHub is a sign-in
-        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Connect GitHub so Cloud can clone %@, then retry.", bundle: .localizedModule), repository)
+        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Sign in with GitHub so Cloud can clone %@.", bundle: .localizedModule), repository)
+    }
+
+    /// The same, when the person's own GitHub login was carried to the machine and can't reach it: says which
+    /// account, so they know to sign in with one that can (or add the repository on GitHub).
+    nonisolated static func needsAccessMessage(_ repository: String, login: AgentPaneGitHubLogin) -> String {
+        guard case .carried(let user?) = login else { return needsAccessMessage(repository) }
+        return String(format: String(localized: "agentPane.github.cloneLoginCantReach", defaultValue: "Your GitHub login %1$@ has no access to %2$@. Sign in with GitHub to give Cloud access to it.", bundle: .localizedModule), user, repository)
     }
 
     /// A Cloud start's clone of the GitHub repository the chat starts in did not finish.

@@ -338,6 +338,7 @@
     },
     "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
     "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
+    "cloud-mvp-nightly-readback.yml#readback": {"class": "macos-runtime-tests"},
     "cloud-composer-journey.yml#journey": {"class": "apple-app-build"},
     "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: attempt 1 takes the owned side label (glaeda-side-std-xcode-26.6) while CI_PR_POOL_OWNED is 1, a re-run the declared macos_26 pool; feat-cmux-next only, manual dispatch; take the label from a placement job"},
     "cmux-mobile-ffi.yml#apple": {

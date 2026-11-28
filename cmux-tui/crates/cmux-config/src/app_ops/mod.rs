@@ -20,12 +20,18 @@
 //!   the order is only for merging.
 
 pub mod chrome_theme;
+pub mod controller;
 pub mod effective;
+pub mod fields;
 pub mod home_table;
 pub mod jsonc;
+pub mod keymap;
+pub mod link_rules;
 pub mod looks;
+pub mod managed;
 pub mod notifications;
 pub mod schema;
+pub mod settings_window;
 pub mod shortcut;
 pub mod snapshot;
 pub mod theme;
@@ -46,11 +52,17 @@ pub enum OpError {
 type AreaCall = fn(&str, &Value) -> Option<Result<Value, OpError>>;
 const AREAS: &[AreaCall] = &[
     chrome_theme::call,
+    controller::call,
     effective::call,
+    fields::call,
     home_table::call,
+    keymap::call,
+    link_rules::call,
     looks::call,
+    managed::call,
     notifications::call,
     schema::call,
+    settings_window::call,
     shortcut::call,
     snapshot::call,
     theme::call,

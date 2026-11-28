@@ -11,6 +11,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -73,6 +74,11 @@ def run_record(**overrides) -> dict:
     record.update(overrides)
     return record
 
+
+
+# The verifier reads compares with git first (ci_receipt.git_compare); these tests answer them from FakeGitHub's
+# REST compare, and GitCompareTest drives the git path against a local repository.
+ci_receipt.git_compare = lambda *args, **kwargs: None
 
 class FakeGitHub:
     def __init__(self, *, run: dict | None = None, log: str | None = None, compare: str = "ahead",
@@ -490,7 +496,8 @@ def lane_receipt(**overrides) -> dict:
 
 
 def lane_verify(receipts, *, fake: FakeGitHub | None = None, base: str = BASE, audit_percent: int = 0,
-                body: str = "Change.\n", pr: int | None = None) -> tuple[dict, list[dict]]:
+                body: str = "Change.\n", pr: int | None = None,
+                merge_tree: str = MERGE_TREE) -> tuple[dict, list[dict]]:
     asked: list[dict] = []
 
     def ask(payload):
@@ -501,7 +508,7 @@ def lane_verify(receipts, *, fake: FakeGitHub | None = None, base: str = BASE, a
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
         handle.write(body)
     args = SimpleNamespace(job="fast-gates", repo=REPO, head=HEAD, base=base, head_tree=HEAD_TREE,
-                           merge_tree=MERGE_TREE, body_file=handle.name, audit_percent=audit_percent, workspaces=None,
+                           merge_tree=merge_tree, body_file=handle.name, audit_percent=audit_percent, workspaces=None,
                            pr=pr, lane=True)
     try:
         return ci_receipt.verify(args, fetch=fake or FakeGitHub(), lane_ask_fn=ask), asked
@@ -536,6 +543,26 @@ class LaneReceipts(unittest.TestCase):
                     {"producer": "actions:x"}, {"check": "rust-workspaces"}, {"base": "short"}):
             result, _ = lane_verify([lane_receipt(**bad)])
             self.assertEqual(result["valid"], "false", bad)
+
+    def test_a_dispatch_with_no_merge_tree_takes_a_receipt_on_an_older_base(self):
+        # The merger's land-time dispatch (78 of 100 fast-gates runs, 2026-11-26) has no merge ref to read a tree from.
+        result, _ = lane_verify([lane_receipt(base=OLD_BASE)], merge_tree="")
+        self.assertEqual(result["valid"], "true", result["reason"])
+        self.assertEqual(result["producer"], "lane:fs-agent-lane-9")
+
+    def test_a_dispatch_on_the_receipts_own_base_takes_it_only_for_the_same_head_commit(self):
+        # Lanes test on the newest base, so most land dispatches share the receipt's base: the same head commit on the
+        # same base is the merge the lane tested; another commit with the same tree may merge differently.
+        result, _ = lane_verify([lane_receipt()], merge_tree="")
+        self.assertEqual(result["valid"], "true", result["reason"])
+        result, _ = lane_verify([lane_receipt(head="9" * 40)], merge_tree="")
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("no merge tree", result["reason"])
+
+    def test_a_malformed_merge_tree_is_still_refused(self):
+        result, _ = lane_verify([lane_receipt(base=OLD_BASE)], merge_tree="nope")
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("unresolved", result["reason"])
 
     def test_the_first_covering_receipt_wins(self):
         result, _ = lane_verify([lane_receipt(tree="9" * 40, producer="lane:a"), lane_receipt(producer="lane:b")])
@@ -591,11 +618,123 @@ class LaneRecord(unittest.TestCase):
                                                 merge_tree=MERGE_TREE, seconds=1, post=lambda u, d: (403, b"no"),
                                                 env={}), 0)
 
-        def down(u, d):
-            raise OSError("unreachable")
-        self.assertEqual(ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE,
-                                                merge_tree=MERGE_TREE, seconds=1, post=down, env={}), 0)
+    def test_a_record_with_no_answer_is_spooled_and_flushed_until_recorded(self):
+        """2026-11-27 08:16Z-08:40Z: 7 green lane passes ran past the controller's deadline and were thrown away."""
+        import json as j  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as folder:
+            env = {"CI_RECEIPT_SPOOL": folder}
+            spawned = []
+
+            def down(u, d):
+                raise OSError("unreachable")
+            self.assertEqual(ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE,
+                                                    merge_tree=MERGE_TREE, seconds=1, post=down, env=env,
+                                                    spawn=lambda: spawned.append(1)), 0)
+            self.assertEqual(spawned, [1])
+            entries = list(Path(folder).glob("*.json"))
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(j.loads(entries[0].read_text())["payload"]["head_tree"], HEAD_TREE)
+            # a 5xx keeps it; the next round records it and empties the spool
+            answers = [(503, b"busy"), (200, j.dumps({"receipt": {"producer": "lane:x"}}).encode())]
+            sleeps = []
+            self.assertEqual(ci_receipt.flush(env=env, post=lambda u, d: answers.pop(0), sleep=sleeps.append), 0)
+            self.assertEqual((answers, sleeps, list(Path(folder).glob("*.json"))), ([], [ci_receipt.RETRY_EVERY_S], []))
+
+    def test_a_refusal_is_not_spooled_and_an_expired_entry_is_dropped(self):
+        with tempfile.TemporaryDirectory() as folder:
+            env = {"CI_RECEIPT_SPOOL": folder}
+            spawned = []
+            ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE, merge_tree=MERGE_TREE,
+                                   seconds=1, post=lambda u, d: (403, b"no"), env=env, spawn=lambda: spawned.append(1))
+            self.assertEqual((spawned, list(Path(folder).glob("*.json"))), ([], []))
+            ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE, merge_tree=MERGE_TREE,
+                                   seconds=1, post=lambda u, d: (502, b""), env=env, spawn=lambda: None)
+            later = time.time() + ci_receipt.SPOOL_FOR_S + 1
+            self.assertEqual(ci_receipt.flush(env=env, post=lambda u, d: (502, b""), sleep=lambda s: None,
+                                              now=lambda: later), 0)
+            self.assertEqual(list(Path(folder).glob("*.json")), [])
+
+
+
+class GitCompareTest(unittest.TestCase):
+    """base_covers reads OLDER...BASE with git, so a REST budget spent elsewhere does not drop a receipt."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.repo = Path(self.dir.name) / "src"
+        self.repo.mkdir()
+        run = lambda *argv: subprocess.run(["git", "-C", str(self.repo), *argv], check=True, capture_output=True,
+                                           text=True).stdout.strip()
+        self.run = run
+        run("init", "-q", "-b", "main")
+        run("config", "user.email", "t@example.com")
+        run("config", "user.name", "t")
+        run("config", "uploadpack.allowFilter", "true")
+        run("config", "uploadpack.allowAnySHA1InWant", "true")
+        (self.repo / "a.txt").write_text("a\n")
+        run("add", ".")
+        run("commit", "-qm", "one")
+        self.older = run("rev-parse", "HEAD")
+        (self.repo / "crates").mkdir()
+        (self.repo / "crates" / "lib.rs").write_text("fn x() {}\n")
+        run("add", ".")
+        run("commit", "-qm", "two")
+        self.base = run("rev-parse", "HEAD")
+        self.token = {"GH_TOKEN": "t"}
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def compare(self, older, base, files=False):
+        from unittest import mock
+        with mock.patch.dict("os.environ", self.token):
+            return ci_receipt._git_compare(REPO, older, base, files=files, remote=f"file://{self.repo}")
+
+    def test_an_ancestor_is_ahead_without_rest(self):
+        self.assertEqual(self.compare(self.older, self.base), {"status": "ahead", "files": []})
+
+    def test_files_come_from_the_trees(self):
+        self.assertEqual(self.compare(self.older, self.base, files=True),
+                         {"status": "ahead", "files": [{"filename": "crates/lib.rs"}]})
+
+    def test_off_history_falls_back_to_rest(self):
+        self.run("checkout", "-q", "-b", "side", self.older)
+        (self.repo / "b.txt").write_text("b\n")
+        self.run("add", ".")
+        self.run("commit", "-qm", "side")
+        side = self.run("rev-parse", "HEAD")
+        self.assertIsNone(self.compare(side, self.base))
+
+    def test_no_token_falls_back_to_rest(self):
+        self.token = {"GH_TOKEN": ""}
+        self.assertIsNone(self.compare(self.older, self.base))
+
+    def test_base_covers_takes_the_git_answer(self):
+        def no_rest(path):
+            raise ci_receipt.Rejected(f"GitHub answered 403 for {path}")
+        saved = ci_receipt.git_compare
+        ci_receipt.git_compare = lambda *args, **kwargs: {"status": "ahead", "files": []}
+        try:
+            ci_receipt.base_covers(no_rest, repo=REPO, job="fast-gates", where="w", receipt_base=self.older,
+                                   receipt_tree="0" * 40, base=self.base, merge_tree="", rust_roots=None)
+        finally:
+            ci_receipt.git_compare = saved
+
+
+class LaneAskDeadlineTest(unittest.TestCase):
+    def test_lookup_waits_as_long_as_a_record(self):
+        seen = []
+        original = ci_receipt.deadline_http.request
+        ci_receipt.deadline_http.request = lambda request, deadline: (seen.append(deadline), (200, b"{}", {}))[1]
+        try:
+            ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt")
+        finally:
+            ci_receipt.deadline_http.request = original
+        self.assertEqual(seen, [ci_receipt.LOOKUP_DEADLINE_S])
+        self.assertGreaterEqual(ci_receipt.LOOKUP_DEADLINE_S, ci_receipt.RECORD_DEADLINE_S)
+
 
 
 if __name__ == "__main__":
     unittest.main()
+

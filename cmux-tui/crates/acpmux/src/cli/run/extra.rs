@@ -194,6 +194,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Lifecycle(args) => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_LIFECYCLE, json!({"dryRun": args.dry_run})).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                print_lifecycle_report(&v);
+            }
+            Ok(())
+        }
+        Command::Restore { session } => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_LIFECYCLE, json!({"restore": session})).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                println!(
+                    "{} restored (unarchived: {}, log back: {})",
+                    v.get("sessionId").and_then(Value::as_str).unwrap_or("?"),
+                    v.get("unarchived").unwrap_or(&Value::Null),
+                    v.get("rehydrated").unwrap_or(&Value::Null),
+                );
+            }
+            Ok(())
+        }
         Command::HistoryOffload(args) => {
             let client = connect(true).await?;
             let v = client
@@ -225,7 +250,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Kill { session, purge, condition, close } => {
+        Command::Kill { session, purge, now, condition, close } => {
             let client = connect(true).await?;
             // An older daemon would ignore the condition and stop a busy session.
             if condition.if_idle && !client.daemon_lists(crate::hub::stop_if_idle::FEATURE) {
@@ -239,6 +264,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             let id = crate::cli::resolve::control_id(&client, &session).await?;
             let mut params = json!({"sessionId": id, "purge": purge});
+            // A delete keeps the chat 7 days, restorable, unless `--now` (`hub/soft_delete.rs`).
+            // An older daemon ignores `grace` and deletes at once; the line below says which.
+            if purge && !now {
+                cmux_json::JsonSet::set(&mut params, "grace", json!(true));
+            }
             if condition.if_idle {
                 cmux_json::JsonSet::set(&mut params, "ifIdle", json!(true));
             }
@@ -256,9 +286,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if json_out {
                 print_json(&v)
             } else {
-                println!("{}", if purge { "purged" } else { "closed" })
+                println!("{}", crate::cli::soft_delete::kill_line(purge, now, &v))
             }
             Ok(())
+        }
+        Command::Undelete { session } => {
+            let client = connect(true).await?;
+            crate::cli::soft_delete::undelete(&client, &session, json_out).await
+        }
+        Command::Deleted => {
+            let client = connect(true).await?;
+            crate::cli::soft_delete::deleted(&client, json_out).await
         }
         Command::PauseAgent { session } => {
             let client = connect(true).await?;
@@ -1646,6 +1684,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::DiskWalk) => crate::disk_usage::walk_and_store(),
         // Reads the fleet listing and the registry; changes nothing (`cell_report.rs`).
         Command::Host(PeerCmd::Cells) => super::ls::cells(json_out).await,
+        // Writes one file in acpmux's home; no daemon (`placement/reach.rs`).
+        Command::Host(PeerCmd::Unreachable { name, why, clear }) => {
+            use crate::placement::reach::{COOLDOWN_MS, Failures};
+            let line = Failures::update(&crate::config::home(), |failures| {
+                if clear {
+                    if failures.clear(&name) {
+                        format!("{name}: failure forgotten; machine pick weighs it again")
+                    } else {
+                        format!("{name}: no failure recorded")
+                    }
+                } else {
+                    let why = why.as_deref().unwrap_or("a transfer failed");
+                    failures.record(&name, why, crate::store::now_ms());
+                    format!("{name}: machine pick passes it over for {} min", COOLDOWN_MS / 60_000)
+                }
+            })?;
+            if json_out {
+                print_json(&json!({"name": name, "unreachable": !clear, "message": line}));
+            } else {
+                println!("{line}");
+            }
+            Ok(())
+        }
         // Pure: judges the readings on stdin, no daemon (`cli/host_budget.rs`).
         Command::Host(PeerCmd::Verdict) => crate::cli::host_budget::verdict_stdin(),
         // Only a running daemon's chats: no daemon, no chats to tell.
@@ -1790,11 +1851,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 PeerCmd::Load { .. }
                 | PeerCmd::Cells
+                | PeerCmd::Unreachable { .. }
                 | PeerCmd::DiskWalk
                 | PeerCmd::Verdict
                 | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
-                        "machine load, cells, disk-walk, verdict and notice are handled before connecting"
+                        "machine load, cells, unreachable, disk-walk, verdict and notice are handled before connecting"
                     ));
                 }
                 PeerCmd::Rm { name } => {
@@ -2198,6 +2260,33 @@ fn print_transcript_report(v: &Value) {
 }
 
 /// The text form of a `_acpmux/history_delete` or `_acpmux/history_offload` report.
+fn print_lifecycle_report(v: &Value) {
+    let num = |key: &str| v.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let flag = |key: &str| v.get(key).and_then(Value::as_bool) == Some(true);
+    let mb = |key: &str| num(key) as f64 / 1_048_576.0;
+    println!(
+        "{} chats {} ({} offloaded{}), {:.1} MB to {:.1} MB, {:.1} MB freed",
+        num("archived"),
+        if flag("dryRun") { "would be archived (dry run)" } else { "archived" },
+        num("offloaded"),
+        if flag("cloud") { "" } else { "; cloud history not set up" },
+        mb("bytesBefore"),
+        mb("bytesAfter"),
+        mb("bytesFreed"),
+    );
+    for chat in v.get("chats").and_then(Value::as_array).into_iter().flatten() {
+        let text = |key: &str| chat.get(key).and_then(Value::as_str).unwrap_or("");
+        let id = text("id");
+        println!(
+            "  {}  {}  {}",
+            if id.is_empty() { "?" } else { id },
+            text("reason"),
+            text("name"),
+        );
+    }
+    println!("skipped: {}", v.get("skipped").unwrap_or(&Value::Null));
+}
+
 fn print_history_report(v: &Value, verb: &str, key: &str) {
     let count = v.get(key).or_else(|| v.get("wouldDelete")).or_else(|| v.get("wouldOffload"));
     println!(

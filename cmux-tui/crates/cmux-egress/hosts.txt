@@ -32,6 +32,8 @@ api.freestyle.sh
 api.github.com
 # GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls
 api.githubcopilot.com
+# the Groq API: the recording, model and API key, only when you select Groq dictation; the models endpoint when you check the provider
+api.groq.com
 # the clock and weather widget's forecast, only when you install it (a customize template)
 api.open-meteo.com
 # the OpenAI API: voice calls on iPhone, and when you use an OpenAI key
@@ -138,6 +140,8 @@ home.atlassian.com
 html.duckduckgo.com
 # the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template)
 ice2.somafm.com
+# crates.io's package index, from a Cloud machine's crates cache, only for an index file no peer has fresh; it sends the file's name and its ETag, no code
+index.crates.io
 # images in agent replies
 lh3.googleusercontent.com
 # the Linear integration, only when an agent uses it in your signed-in browser
@@ -178,6 +182,8 @@ share-staging.cmux.dev
 share.cmux.dev
 # the radio player's station list and the song each station plays, only when you install it (a customize template)
 somafm.com
+# crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version
+static.crates.io
 # a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic
 stun.cloudflare.com
 # the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic

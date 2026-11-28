@@ -20,6 +20,10 @@ import unittest.mock
 import zipfile
 from pathlib import Path
 
+import sys as _step_sys  # noqa: E402
+from pathlib import Path as _StepPath  # noqa: E402
+_step_sys.path.insert(0, str(_StepPath(__file__).resolve().parent))  # tests/cmux_next_step_text.py
+from cmux_next_step_text import inline_steps  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import dev_release_product_reuse as reuse  # noqa: E402
@@ -237,7 +241,7 @@ class Workflows(unittest.TestCase):
             uses = "dev_release_product_reuse.py" in text or "cmux-next-dev-release-product-" in text
             with self.subTest(workflow=workflow.name):
                 self.assertEqual(uses, workflow.name == "cmux-next.yml")
-        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        text = inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text())
         job = text[text.index("\n  cmux-scheme-compile:\n"):text.index("\n  crash-ends-app:\n")]
         # The landing compile (push only, through dev-landing-place) looks up the same key.
         landing = text[text.index("\n  dev-landing-place:\n"):text.index("\n  request-cmux-next-dev-publish:\n")]
@@ -261,14 +265,14 @@ class Workflows(unittest.TestCase):
         # An unset variable is null in an expression, and null == '0' is true (both coerce to the
         # number 0): a bare `vars.X == '0'` switched reuse off for every run. Compare its string form.
         import re
-        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        text = inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text())
         job = text[text.index("\n  cmux-scheme-compile:\n"):text.index("\n  crash-ends-app:\n")]
         lookup = job[job.index("id: dev-product\n"):job.index("      - name: Fetch the same-tree cmux-tui")]
         self.assertIn("format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0'", lookup)
         self.assertEqual(re.findall(r"(?<!')vars\.[A-Z0-9_]+\s*==\s*'[0-9]", lookup), [])
 
     def test_both_record_steps_pass_the_resolved_swift_mode(self):
-        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        text = inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text())
         self.assertEqual(text.count("dev_release_product_reuse.py record"), 2)
         for compile_id in ("compile-cmux-next-dev-release", "compile"):
             with self.subTest(compile=compile_id):
@@ -280,7 +284,7 @@ class Workflows(unittest.TestCase):
         # The workflow file is keyed, but a repository variable's value is not in it: one that changes
         # the build (the Swift compilation mode) must be passed to the key by the lookup step.
         import re
-        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        text = inline_steps((ROOT / ".github/workflows/cmux-next.yml").read_text())
         job = text[text.index("\n  cmux-scheme-compile:\n"):text.index("\n  crash-ends-app:\n")]
         lookup = job[job.index("id: dev-product\n"):job.index("      - name: Fetch the same-tree cmux-tui")]
         compile_step = job[job.index("id: compile-cmux-next-dev-release\n"):job.index("      - name: Upload DEV daily compile timing")]

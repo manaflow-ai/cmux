@@ -153,6 +153,7 @@
         "scripts/ci/affected-jobs.json",
         "scripts/ci/cmux_next_route.py",
         "scripts/ci/fast_tier_cargo_route.py",
+        "scripts/ci/fleet_fast_tier_result.py",
         ".github/actions/setup-cmux-tui-rust/**",
         ".github/workflows/cmux-next-fast-tier-batch.yml"
       ],
@@ -481,6 +482,8 @@
         "schemas/motion-scale/motion-scale.json",
         "schemas/type-scale/type-scale.json",
         "schemas/design-scale/scene-scale.json",
+        "schemas/sidebar-hover-card-rules/vectors.json",
+        "schemas/sidebar-item-info/vectors.json",
         "schemas/sidebar-drag-geometry/vectors.json",
         "backend/catalog/cloud-relay-operations.json"
       ],

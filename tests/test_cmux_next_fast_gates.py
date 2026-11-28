@@ -549,6 +549,38 @@ class WorkflowShape(unittest.TestCase):
         self.assertFalse(any("uses" in step for step in audit["steps"]))
         self.assertIn("audience=cmux-ci-lane-receipt", audit["steps"][0]["run"])
 
+    def test_a_lane_head_takes_its_receipt_at_the_merger_dispatch(self):
+        # 78 of 100 fast-gates runs on 2026-11-26 were the merger's dispatches; on feat-cmux-next the pull request event
+        # skips the gates, so a lane receipt has to count there (Leo: "Shift checks left into the lanes").
+        steps = job(workflow(), "resolve")["steps"]
+        resolve = step_named(steps, "Resolve the head and the base")
+        body = resolve["run"]
+        self.assertIn(".head.ref] | @tsv", body)
+        self.assertIn("headRefName", body)
+        self.assertIn('if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then', body)
+        # The head tree is read over git, not REST: the REST budget was spent on every dispatch on 2026-11-27.
+        self.assertNotIn("git/commits/$head", body)
+        self.assertIn('head_tree="$(head_commit_tree "$head")"', body)
+        self.assertIn("--depth=1 --filter=tree:0", body)
+        self.assertIn('echo "merge_tree="; echo "lane_dispatch=true"', body)
+        self.assertEqual(resolve["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
+        verify = step_named(steps, "Verify the local test receipt")
+        self.assertIn("(github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true')",
+                      verify["if"])
+        self.assertIn('[[ -n "$PR_NUMBER" && "${DISCOVER:-1}" != 0 ]]', verify["run"])
+        names = [s.get("name", "") for s in steps]
+        for name in ("Checkout the base for the receipt verifier (lane dispatch)",
+                     "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"):
+            checkout = step_named(steps, name)
+            self.assertLess(names.index("Resolve the head and the base"), names.index(name))
+            self.assertLess(names.index(name), names.index("Verify the local test receipt"))
+            self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", checkout["if"])
+            self.assertIs(checkout["continue-on-error"], True)
+        checkout = step_named(steps, "Checkout the base for the receipt verifier (lane dispatch)")
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        self.assertEqual(checkout["with"]["ref"], "${{ steps.resolve.outputs.base }}")
+        self.assertIn("/scripts/ci/ci_receipt.py", checkout["with"]["sparse-checkout"])
+
     def test_receipt_steps_run_only_the_base_verifier_and_only_when_named(self):
         doc = workflow()
         self.assertNotIn("receipt", doc["jobs"], "the receipt is resolve's steps, not a runner of its own")
