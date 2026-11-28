@@ -700,6 +700,15 @@ jobs:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
+      # Disk: optchat-chief links 185 test binaries, each with full debuginfo, and filled the pool VM's shared
+      # disk mid-link: "No space left on device" then rust-lld signal 7 [Bus error] on the VMs' second runner
+      # (runs 46047967092, 46070764441, 46071435444, 46069873481, 2026-11-27). Line tables keep backtraces'
+      # file:line and cut the debuginfo most of the way, as ci-web.yml, cloud-journey-pr.yml and
+      # migrate-journey-pr.yml already do; incremental state is never reused on a fresh pool checkout.
+      # Detector: tests/test_ci_rust_workspaces_disk.py.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: "0"
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and

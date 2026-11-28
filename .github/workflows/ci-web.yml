@@ -1363,7 +1363,12 @@ jobs:
             exec ./scripts/build-webviews-app.sh --check --skip-typecheck
           fi
           ./scripts/check-webviews-bun-version.sh
-          (cd webviews && bun run verify:tanstack-router)
+          # build-webviews-app.sh --check installed webviews' node_modules here before #61532 restored the producer's
+          # bundles instead (build-web-bundles.sh --from installs nothing), so a runner with no node_modules left
+          # from an earlier job ran the shard with no node_modules/.bin: `vp: command not found` in
+          # check:effect-cleanup (shard 1) and no ./node_modules/.bin/playwright (Install headless engines), red on
+          # every web pull request that drew a clean runner from 18:18Z on 2026-11-27 (hosted#1050).
+          (cd webviews && bun install --frozen-lockfile && bun run verify:tanstack-router)
 
       # All shards install the producer's immutable same-run output, verified against this checkout's source key.
       - name: Source key of the web bundles
@@ -1395,6 +1400,7 @@ jobs:
           path: ${{ runner.temp }}/ci-web-head-bundles
 
       - name: Download the head bundles without OIDC
+        id: web-bundle-github
         continue-on-error: true
         if: ${{ steps.receipt.outputs.hit != 'true' && needs.react-apps-head-bundles.outputs.web_bundle_transport == 'github' }}
         timeout-minutes: 3
@@ -1974,6 +1980,7 @@ jobs:
           BUNDLES: ${{ steps.bundles.outcome }}
           WEB_BUNDLE_KEY: ${{ steps.web-bundle-key.outcome }}
           WEB_BUNDLE_CACHE: ${{ steps.web-bundle-cache.outcome }}
+          WEB_BUNDLE_GITHUB: ${{ steps.web-bundle-github.outcome }}
           PLAYWRIGHT_APT: ${{ steps.playwright-apt.outcome }}
           ENGINES: ${{ steps.engines.outcome }}
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
@@ -2012,7 +2019,7 @@ jobs:
           if [ "$HISTORY_UPLOAD" = failure ]; then
             echo "::warning::This push's webview results did not upload; the base's flake history misses this run."
           fi
-          if [ "$WEB_BUNDLE_KEY" = failure ] || [ "$WEB_BUNDLE_CACHE" = failure ]; then
+          if [ "$WEB_BUNDLE_KEY" = failure ] || [ "$WEB_BUNDLE_CACHE" = failure ] || [ "$WEB_BUNDLE_GITHUB" = failure ]; then
             echo "::warning::The web bundles' cached build was not looked up; Build the web bundles built them."
           fi
           if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then
