@@ -22,8 +22,8 @@ name: cmux-next tip test-compile
 #     it gives up (no verdict) after 45 minutes in the queue, so the one gateway
 #     runner it holds goes back to required compiles. A started step is never
 #     cancelled.
-# Batch calls compile the range selected by the batch planner. When the planner
-# has no earlier batch to use, compile all test targets in the macOS package lane.
+# Batch calls compile the range since the newest batch with a fleet pass. When
+# the batch planner has no verified commit, compile all macOS package test targets.
 # Standalone dispatches use the base supplied by the dispatch or look up the
 # latest successful standalone run.
 #
@@ -43,7 +43,7 @@ on:
         type: string
         default: ""
       base:
-        description: "The batch window's base, --all for the first batch, or the probe's known-good commit."
+        description: "The most recent verified batch SHA, --all when none is known, or the probe's known-good SHA."
         type: string
         default: ""
   workflow_dispatch:
@@ -209,6 +209,11 @@ jobs:
           cat "$RUNNER_TEMP/tip/report.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      # The batch planner reads this step conclusion from the run's job metadata.
+      - name: Confirm test targets compiled
+        if: steps.compile.outputs.verdict == 'pass'
+        run: echo "The fleet compiled the planned test targets."
+
   report:
     name: tip test-compile report
     needs: [plan, compile-fleet]
@@ -244,11 +249,15 @@ jobs:
               fi
               ;;
             fail)
-              # shellcheck disable=SC2016 # a jq filter, not shell
-              commits="$(gh api "repos/$GH_REPO/compare/$BASE...$sha" \
-                --jq '.commits | reverse | .[:20][] | "- [`\(.sha[0:11])`](\(.html_url)) \(if .author.login then "@" + .author.login else .commit.author.name end): \(.commit.message | split("\n")[0])"' || true)"
-              body="$(printf '%s\n\n%s\n\nCommits since the last verified commit (newest first, up to 20):\n\n%s\n\n[Run](%s). Every agent'"'"'s fleet test run is red until this compiles; fix it with a red/green pair on feat-cmux-next.\n' \
-                "**The tip $link does not compile its Swift tests.**" "$(echo "$REPORT" | base64 -d)" "$commits" "$RUN_URL")"
+              history="The fleet compiled all test targets in the macOS package lane."
+              if [ "$BASE" != --all ]; then
+                # shellcheck disable=SC2016 # a jq filter, not shell
+                commits="$(gh api "repos/$GH_REPO/compare/$BASE...$sha" \
+                  --jq '.commits | reverse | .[:20][] | "- [`\(.sha[0:11])`](\(.html_url)) \(if .author.login then "@" + .author.login else .commit.author.name end): \(.commit.message | split("\n")[0])"' || true)"
+                history="$(printf 'Commits since the last verified commit (newest first, up to 20):\n\n%s' "$commits")"
+              fi
+              body="$(printf '%s\n\n%s\n\n%s\n\n[Run](%s). Every agent'"'"'s fleet test run is red until this compiles; fix it with a red/green pair on feat-cmux-next.\n' \
+                "**The tip $link does not compile its Swift tests.**" "$(echo "$REPORT" | base64 -d)" "$history" "$RUN_URL")"
               if [ -n "$open" ]; then
                 gh issue comment "$open" --body "$body"
               else
@@ -258,8 +267,8 @@ jobs:
             *)
               # Superseded by a newer push, or no verdict (a busy fleet): this run
               # verified nothing, so it must not count as the next run's base.
-              # A batch call never cancels: the run is the whole batch's, and it is never this workflow's
-              # verified base anyway.
+              # A batch call never cancels the other suites. Its pass step is skipped, so
+              # the batch planner retains the previous verified commit.
               if [ "$BATCH" = true ]; then
                 echo "No verdict ($VERDICT) in the post-merge batch; the next batch compiles from the last verified commit."
                 exit 0

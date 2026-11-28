@@ -114,6 +114,7 @@ jobs:
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
       base: ${{ steps.plan.outputs.base }}
+      tip_compile_base: ${{ steps.plan.outputs.tip_compile_base }}
       # A probe's red job ('gallery-health / health (8)'): gallery-health renders that leg alone. A batch: none.
       job: ${{ inputs.mode == 'probe' && inputs.job || '' }}
       reuse: ${{ steps.plan.outputs.reuse }}
@@ -287,7 +288,7 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
-      base: ${{ needs.plan.outputs.base || (inputs.mode != 'probe' && '--all') || '' }}
+      base: ${{ needs.plan.outputs.tip_compile_base || needs.plan.outputs.base }}
     permissions:
       actions: write
       contents: read
