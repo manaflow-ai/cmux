@@ -24,8 +24,8 @@ permissions: {}
 jobs:
   bench:
     name: Benches against nightly baselines (not required)
-    # The same label as bench-baselines-nightly.yml: its baselines are recorded per machine class.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # The same pool as bench-baselines-nightly.yml (linux_4): its baselines are recorded per machine class.
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 20
     permissions:
       contents: read
