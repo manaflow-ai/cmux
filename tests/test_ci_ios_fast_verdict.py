@@ -78,7 +78,8 @@ class PlanTest(unittest.TestCase):
         for path in [*files, "cmux-tui/crates/cmux-wg/src/gone.rs", "cmux-tui/rust-toolchain.toml"]:
             with self.subTest(path=path):
                 p = fv.plan([path], root=root)
-                self.assertTrue(p["build"])
+                # A screen-sharing dependency runs the detector suite, whose test run builds the kit.
+                self.assertTrue(p["build"] or fv.SCREEN_SHARE_SUITE in p["tests"])
                 self.assertTrue(p["app"])
                 self.assertTrue(p["proof"])
                 self.assertTrue(fv.affects([path], root=root))
@@ -95,12 +96,19 @@ class PlanTest(unittest.TestCase):
             "cmux-tui/vendor/smoltcp/src/lib.rs": "pub mod iface;\n",
         }
         root = self.rust_root(files)
-        p = fv.plan(list(files), root=root)
+        inner = [f for f in files if not fv.affects_screen_sharing(f)]
+        p = fv.plan(inner, root=root)
         self.assertFalse(p["run"], p)
         self.assertFalse(p["proof"])
-        self.assertFalse(fv.affects(list(files), root=root))
+        self.assertFalse(fv.affects(inner, root=root))
+        # A workspace lock or manifest bump runs only the screen-sharing detector: no kit build, no app.
+        p = fv.plan(list(files), root=root)
+        self.assertEqual(p["tests"], [fv.SCREEN_SHARE_SUITE])
+        self.assertFalse(p["build"])
+        self.assertFalse(p["app"])
+        self.assertFalse(p["proof"])
         # With a Swift change beside them, only the Swift plans.
-        p = fv.plan([*files, KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift"], root=root)
+        p = fv.plan([*inner, KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift"], root=root)
         self.assertEqual(p["tests"], ["CmuxMobileVoiceTests"])
         self.assertFalse(p["app"])
 
