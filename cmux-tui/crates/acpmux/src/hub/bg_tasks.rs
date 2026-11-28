@@ -310,7 +310,9 @@ impl Hub {
         self.bg_records(dir)
             .tasks
             .iter()
-            .filter(|t| t.record.ended_at.is_none() && want(&t.record) && !t.gone(dir))
+            .filter(|t| {
+                t.record.ended_at.is_none() && want(&t.record) && !bg_gone(dir, &t.record.id)
+            })
             .count()
     }
 
@@ -320,7 +322,7 @@ impl Hub {
         self.bg_records(&dir)
             .tasks
             .iter()
-            .filter(|t| t.record.ended_at.is_none() && !t.gone(&dir))
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
             .map(|t| (t.record.id.clone(), t.record.cwd.clone()))
             .collect()
     }
@@ -331,7 +333,7 @@ impl Hub {
         self.bg_records(&dir)
             .tasks
             .iter()
-            .filter(|t| t.record.ended_at.is_none() && !t.gone(&dir))
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
             .map(|t| t.record.clone())
             .collect()
     }
@@ -344,7 +346,7 @@ impl Hub {
         self.bg_records(&dir)
             .tasks
             .iter()
-            .filter(|t| t.record.ended_at.is_none() && !t.gone(&dir))
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
             .filter_map(|t| {
                 let r = &t.record;
                 let mut row = crate::rearm::parse(&r.command, r.started_at)?.to_json();
@@ -364,7 +366,7 @@ impl Hub {
         let dir = self.bg_dir(session);
         let folder = self.bg_records(&dir);
         let t = folder.tasks.iter().find(|t| t.record.id == id)?;
-        if t.record.ended_at.is_some() || t.gone(&dir) {
+        if t.record.ended_at.is_some() || bg_gone(&dir, id) {
             return None;
         }
         crate::rearm::parse(&t.record.command, t.record.started_at)
@@ -394,8 +396,9 @@ impl Hub {
         self.bg_records(&dir)
             .tasks
             .iter()
-            .filter(|t| t.record.ended_at.is_none() && t.record.pid > 0 && !t.gone(&dir))
-            .map(|t| t.record.pid)
+            .map(|t| &t.record)
+            .filter(|r| r.ended_at.is_none() && r.pid > 0 && !bg_gone(&dir, &r.id))
+            .map(|r| r.pid)
             .collect()
     }
 
@@ -771,9 +774,8 @@ const STOP_WAIT: std::time::Duration =
 const STOP_LOOK: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Whether the task's runner is surely gone: its lock is free or missing. A lock that cannot be
-/// probed proves nothing, so it never counts. Counts and lists ask the folder's look instead
-/// (`BgTask::gone`, `bg_folder.rs`), which keeps the answer; a stop's wait and a sweep ask here.
-pub(super) fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
+/// probed proves nothing, so it never counts.
+fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
     #[cfg(unix)]
     {
         matches!(
@@ -849,19 +851,8 @@ pub(super) fn bg_view_at(
     tail: u64,
     segments: Option<&[u64]>,
 ) -> Value {
-    bg_view_with(dir, r, tail, segments, || bg_gone(dir, &r.id))
-}
-
-/// [`bg_view_at`], with `gone` saying whether the task's runner is surely gone.
-pub(super) fn bg_view_with(
-    dir: &std::path::Path,
-    r: &Record,
-    tail: u64,
-    segments: Option<&[u64]>,
-    gone: impl FnOnce() -> bool,
-) -> Value {
     // An exit the runner wrote is final; without one, only a free lock says the runner is gone.
-    let running = r.ended_at.is_none() && !gone();
+    let running = r.ended_at.is_none() && !bg_gone(dir, &r.id);
     let state = match (running, r.ended_at, r.stopped, r.signal) {
         (true, ..) => "running",
         (_, None, ..) => "lost",
