@@ -100,6 +100,7 @@ pub async fn start(
     let Some(wait) = wait_for(lists, deadline, tokio::time::Instant::now()) else { return };
     let params = json!({
         "name": want.name, "socket": want.socket, "token": want.token, "auto": true,
+        "origin": "send",
     });
     let answer =
         tokio::time::timeout(wait, client.request(crate::rpc::method::MUX_REGISTER, params));
@@ -148,9 +149,9 @@ async fn renew_at(path: &std::path::Path, want: AutoRegister, wait: Duration) ->
     }
 }
 
-/// `acpmux register --auto NAME`, from cmux's Claude Code hook (`cli/hook_register.rs`): the
-/// first step a send takes, with no send. Starts no daemon; once the answer says the chat is
-/// reached with this process, leaves the mark that ends the hook's asks.
+/// `acpmux register --auto NAME`: whether the chat is reached with this process. The daemon
+/// delivers no code for it (`hub/register.rs` `auto_why`). Starts no daemon; leaves the mark
+/// once the answer settles it (`cli/hook_register.rs`).
 pub async fn auto(name: String) -> Value {
     let env =
         |key: &str| std::env::var(key).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
@@ -161,7 +162,8 @@ pub async fn auto(name: String) -> Value {
     ) else {
         return json!({"registered": false, "reason": "not a Claude Code shell acpmux did not start"});
     };
-    let params = json!({"name": name, "socket": socket, "token": token, "auto": true});
+    let params =
+        json!({"name": name, "socket": socket, "token": token, "auto": true, "origin": "hook"});
     let v = auto_at(&crate::config::socket_path(), params, WAIT).await;
     crate::cli::hook_register::mark_if_reached(&crate::config::home(), &socket, &token, &v);
     v
@@ -222,6 +224,23 @@ fn line(name: &str, host: &str, outcome: Outcome) -> Option<String> {
     let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
     if flag("registered") || flag("reachable") || flag("repeat") {
         return None;
+    }
+    let named = v.get("name").and_then(Value::as_str).unwrap_or(name);
+    // No code went: one went to this chat before and was let expire, or the send came from a
+    // process the chat did not run itself (`hub/register.rs` `chat_ran_it`).
+    match v.get("offered").and_then(Value::as_bool) {
+        Some(true) => {
+            return Some(format!(
+                "the receiver cannot reply to this chat: it has no acpmux address, and acpmux already sent this chat its one automatic register code; run `{program} register {named}` in this chat's own shell for a new one"
+            ));
+        }
+        Some(false) => {
+            let by = v.get("by").and_then(Value::as_str).unwrap_or("another process");
+            return Some(format!(
+                "the receiver cannot reply to this chat: it has no acpmux address, and acpmux sends a register code only for a send the chat's own shell ran, not {by}; run `{program} register {named}` in the chat's own shell"
+            ));
+        }
+        None => {}
     }
     // The daemon's name wins: a chat that has one keeps it, and a code another `register` asked
     // for is the one to finish. A step another send started has none yet.
