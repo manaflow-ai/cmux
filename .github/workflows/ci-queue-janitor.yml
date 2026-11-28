@@ -166,13 +166,23 @@ jobs:
         run: python3 scripts/ci/queue_janitor.py
 
       - name: Alert on starved fleet runner labels
-        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
+        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' && steps.cmux-bot-token.outputs.token != '' }}
         env:
           # Not github.token: this job's GITHUB_TOKEN has no issues permission.
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           POOL_LOAD_OUT: ${{ runner.temp }}/macos-pool-load.json
         run: python3 scripts/ci/starved_labels.py
+
+      - name: Explain skipped starved-label alert
+        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' && steps.cmux-bot-token.outputs.token == '' }}
+        run: |
+          echo "::warning::starved-label alert skipped because the cmux-bot token was unavailable"
+          {
+            echo "### Starved-label alert"
+            echo
+            echo "Skipped: the cmux-bot token could not be minted. Queue cancellation and pool-load publication still ran."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # What this sweep saw on each macOS pool. ci.yml's `changes` job reads
       # the newest copy (scripts/ci/pr_runner_pool.py) to pick the pool a

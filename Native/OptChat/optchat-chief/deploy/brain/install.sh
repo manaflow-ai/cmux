@@ -6,8 +6,8 @@
 #
 # usage: install.sh --optchat-chief PATH --cmux-tui PATH --cmux PATH --acpmux PATH [--brain DIR] [--harness H] [--claude-base-url URL] [--no-start]
 #
-# No harness is pinned by default: the host takes acpmux's default (the configured CodeRouter
-# route, else the user's own `claude` login), and `engine.json` swaps it per turn.
+# No harness is pinned by default: the host takes acpmux's default (the user's own `claude`
+# login), and `engine.json` swaps it per turn.
 # --harness H pins MUX_HARNESS=H in the host's LaunchAgent.
 #
 # --cmux is the Rust `cmux` CLI from the same build (the app's Contents/Resources/bin/cmux).
