@@ -1999,7 +1999,11 @@ try {
         const w = window as unknown as BenchWindow;
         w.__firstLoad.stop();
         const snapshot = w.captureSnapshot(document, theme);
-        return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
+        // As the page's put does (App.tsx `watchChatSnapshot`): a copy written while the host's store answered
+        // says so, and the next document's first attach is then the hold (rows/chatSource.ts `rememberedOn`).
+        const opened = (window as unknown as { __benchHost?: { rowsOpens: number } }).__benchHost?.rowsOpens ?? 0;
+        const remembered = snapshot && opened > 0 ? { ...snapshot, rows: "on" as const } : snapshot;
+        return { snapshot: remembered ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (TRACE)
