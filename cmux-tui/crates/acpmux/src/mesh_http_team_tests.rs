@@ -25,6 +25,7 @@ async fn fake_hub(
         team_messaging: true,
         credential: None,
         control_from: Vec::new(),
+        direct_send: false,
     })
     .unwrap();
     *hub.token.lock().await = Some((Arc::new(Zeroizing::new("test-fixture".into())), 0));

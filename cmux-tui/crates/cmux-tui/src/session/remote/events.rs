@@ -70,6 +70,7 @@ impl RemoteSession {
         }
         let surface = value.get("surface").and_then(Value::as_u64);
         match event {
+            "client-disconnected-by" => true,
             "client-attached"
             | "client-changed"
             | "client-detached"
@@ -87,7 +88,6 @@ impl RemoteSession {
             | "colors-changed"
             | "browser-state"
             | "frame"
-            | "detached"
             | "surface-exited"
             | "agent-changed"
             | "agent-presence-changed"
@@ -96,6 +96,7 @@ impl RemoteSession {
             | "program-status-changed"
             | "size-state"
             | "scroll-changed" => surface == Some(target),
+            "detached" => surface == Some(target),
             _ => true,
         }
     }
@@ -342,7 +343,19 @@ impl RemoteSession {
                     }
                 }
             }
+            Some("client-disconnected-by") => {
+                // A whole-client kick can arrive before any surface attach.
+                self.disconnect_state.record_disconnected_by_peer();
+            }
             Some("detached") => {
+                // cmux-terminal-sizing's detach_reason::DISCONNECTED_BY: a
+                // kick, after which the client must not reconnect by itself.
+                if value.get("reason").and_then(Value::as_str) == Some("disconnected-by")
+                    && value.get("scope").and_then(Value::as_str) != Some("view")
+                    && value.get("view").is_none()
+                {
+                    self.disconnect_state.record_disconnected_by_peer();
+                }
                 if let Some(id) = surface_id() {
                     self.surfaces.lock().unwrap().remove(&id);
                     self.size_states.lock().unwrap().remove(&id);
@@ -561,11 +574,11 @@ impl RemoteSession {
                             self.surface_overflow_reconnect_required.load(Ordering::Acquire);
                         if !reconnect_required || !reconnect_was_required {
                             self.emit(MuxEvent::Status(if reconnect_required {
-                                "surface overflow recovery capacity was exhausted; detach and reconnect to recover"
+                                "surface overflow recovery capacity was exhausted; output resumes once this session is attached again"
                                     .to_string()
                             } else if stopped {
                                 format!(
-                                    "surface {surface_id} event stream repeatedly overflowed; detach and reconnect to recover"
+                                    "surface {surface_id} event stream repeatedly overflowed; its output resumes once this session is attached again"
                                 )
                             } else {
                                 format!(

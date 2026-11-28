@@ -67,12 +67,12 @@ mountSidebarChats(document.getElementById("root")!, client as never, FIXTURE_STR
 window.addEventListener("scroll", sliceNextFrame, { passive: true });
 window.addEventListener("resize", sliceNextFrame);
 window.benchRowRenders = mountedRowRenders(() => document.querySelectorAll(".sc-row[data-chat]"));
-window.benchChangeOne = (index) =>
+window.benchChangeOne = ((index: number) =>
   push({
     ...block,
     revision: block.revision + 1,
     rows: block.rows.map((row, at) => (at === index ? { ...row, title: `Changed ${block.revision}` } : row)),
-  });
+  })) as typeof window.benchChangeOne;
 window.benchTick = () => push({ ...block, revision: block.revision + 1 });
 const settle = () =>
   document.querySelector(".sc-row[data-chat]") ? (window.benchReady = true) : requestAnimationFrame(settle);

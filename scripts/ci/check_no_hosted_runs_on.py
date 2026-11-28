@@ -92,12 +92,18 @@ def hits(files: list[Path]) -> list[tuple[str, str, list[str]]]:
 
     found = []
     for path in files:
-        doc = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
+        text = path.read_text(encoding="utf-8")
+        doc = yaml.load(text, Loader=yaml.BaseLoader) or {}
         jobs = doc.get("jobs") if isinstance(doc, dict) else None
+        # A provenance job frozen to GitHub-hosted Ubuntu (`# github-hosted-required:`): npm provenance, PyPI trusted
+        # publishing and artifact attestations accept only GitHub's OIDC from a hosted runner (.github/runners.json
+        # pools.provenance, hosted: true). It read the provenance pool, which held that label, before it was frozen.
+        hosted_required = pools.marked_jobs(text, pools.HOSTED_MARK)
         for job_id, job in (jobs or {}).items():
             if not isinstance(job, dict) or (path.name, job_id) in EXCEPTIONS:
                 continue
-            labels = job_hits(job)
+            labels = [label for label in job_hits(job)
+                      if not (job_id in hosted_required and label.startswith("ubuntu-"))]
             if labels:
                 found.append((path.name, job_id, labels))
     return found
