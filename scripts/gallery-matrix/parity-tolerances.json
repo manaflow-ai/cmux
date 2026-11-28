@@ -6,5 +6,6 @@
     "pixel_tolerance": 48,
     "changed_max": 0.05
   },
-  "entries": {}
+  "entries": {},
+  "_calibration": "Pending: paired run (Linux Chromium+WebKit gallery vs Mac CEF+WebKit gallery) at this PR's head; entries filled from its parity.py report."
 }
