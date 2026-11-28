@@ -11,7 +11,8 @@ ln -sfn "$W/node_modules" "$B/node_modules"
 cp "$W/bench/zz-base-App.tsx" "$B/src/agent-session/acpmux/App.tsx"
 cp "$W/bench/zz-base-paneSnapshot.ts" "$B/src/agent-session/acpmux/pane/paneSnapshot.ts"
 cp "$W/bench/zz-base-streamingRow.ts" "$B/src/agent-session/acpmux/streamingRow.ts"
-echo "base textOnlyRowPast refs: $(grep -c textOnlyRowPast "$B/src/agent-session/acpmux/App.tsx") fix: $(grep -c textOnlyRowPast "$W/src/agent-session/acpmux/App.tsx")"
+cp "$W/bench/zz-base-liveToolOutput.ts" "$B/src/agent-session/acpmux/liveToolOutput.ts"
+echo "base textBesideOneRow refs: $(cat "$B"/src/agent-session/acpmux/pane/paneSnapshot.ts | grep -c textBesideOneRow) fix: $(cat "$W"/src/agent-session/acpmux/pane/paneSnapshot.ts | grep -c textBesideOneRow)"
 parse() { grep -E -o 'COMPOSER-TYPING \[.*' | sed 's/^COMPOSER-TYPING //' | python3 -c '
 import sys,json
 d,_=json.JSONDecoder().raw_decode(sys.stdin.read())

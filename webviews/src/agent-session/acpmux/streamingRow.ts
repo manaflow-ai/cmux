@@ -166,20 +166,49 @@ export function textOnlyRow(previous: readonly AcpmuxRow[], next: readonly Acpmu
     const before = previous[index]!;
     const after = next[index]!;
     if (before === after) continue;
-    if (changed >= 0) return -1;
-    if (
-      after.kind !== "assistant" ||
-      after.streaming !== true ||
-      before.id !== after.id ||
-      typeof before.text !== "string" ||
-      typeof after.text !== "string" ||
-      !after.text.startsWith(before.text) ||
-      !sameButText(before, after)
-    )
-      return -1;
+    if (changed >= 0 || !textGrew(before, after)) return -1;
     changed = index;
   }
   return changed;
+}
+
+/// The streaming reply's row only grew its text from `before` to `after`.
+function textGrew(before: AcpmuxRow, after: AcpmuxRow): boolean {
+  return (
+    after.kind === "assistant" &&
+    after.streaming === true &&
+    before.id === after.id &&
+    typeof before.text === "string" &&
+    typeof after.text === "string" &&
+    after.text.startsWith(before.text) &&
+    sameButText(before, after)
+  );
+}
+
+/// One snapshot that grew the streaming reply's text and changed one other row: the client
+/// publishes once a frame, so a running command's output and the reply's next chunk arrive
+/// together (WebKit L3: every snapshot, so the whole pane redrew 34 times a second). The reply's
+/// row at `at` grew only its text from `received` and from what the pane drew (`drawn`); `other`
+/// is the one other changed row, for its own store to judge (liveToolOutput.ts `toolOutputAt`).
+export function textBesideOneRow(
+  drawn: readonly AcpmuxRow[],
+  received: readonly AcpmuxRow[],
+  next: readonly AcpmuxRow[],
+): { at: number; other: number } | undefined {
+  if (received === next || received.length !== next.length || drawn.length !== next.length) return undefined;
+  const kept = keptPrefix(received, next);
+  let at = -1;
+  let other = -1;
+  for (let index = next.length - 1; index >= kept; index -= 1) {
+    const before = received[index]!;
+    const after = next[index]!;
+    if (before === after) continue;
+    if (at < 0 && textGrew(before, after)) at = index;
+    else if (other < 0) other = index;
+    else return undefined;
+  }
+  if (at < 0 || other < 0 || !textGrew(drawn[at]!, next[at]!)) return undefined;
+  return { at, other };
 }
 
 /// `textOnlyRow` after the pane let other live changes through without a redraw: a running
@@ -196,13 +225,5 @@ export function textOnlyRowPast(
   if (drawn.length !== next.length) return -1;
   const at = textOnlyRow(received, next);
   if (at < 0) return -1;
-  const before = drawn[at]!;
-  const after = next[at]!;
-  return before.id === after.id &&
-    typeof before.text === "string" &&
-    typeof after.text === "string" &&
-    after.text.startsWith(before.text) &&
-    sameButText(before, after)
-    ? at
-    : -1;
+  return textGrew(drawn[at]!, next[at]!) ? at : -1;
 }

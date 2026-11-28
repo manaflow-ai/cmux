@@ -257,7 +257,18 @@ export function toolOutputOnly(
   next: AcpmuxSnapshot,
 ): { id: string; output: string; before: string | undefined } | undefined {
   const index = oneRowChangeFrom(next.rows, previous.rows);
-  if (index === undefined || !sameButRows(previous, next)) return undefined;
+  return index === undefined ? undefined : toolOutputAt(previous, next, index);
+}
+
+/// `toolOutputOnly` for row `index`, when the caller knows the rows changed there and nowhere it
+/// has not accounted for (streamingRow.ts `textBesideOneRow`: the reply's text grew in the same
+/// snapshot).
+export function toolOutputAt(
+  previous: AcpmuxSnapshot,
+  next: AcpmuxSnapshot,
+  index: number,
+): { id: string; output: string; before: string | undefined } | undefined {
+  if (!sameButRows(previous, next)) return undefined;
   const before = previous.rows[index];
   const after = next.rows[index];
   if (!before || !after || before.id !== after.id || after.kind !== "activity") return undefined;
