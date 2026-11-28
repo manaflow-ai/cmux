@@ -75,6 +75,11 @@ if "--suite=memory-agents" in sys.argv:
 if "--suite=cef-resize" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-resize-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-resize"])
+# `--suite=motion-frames`: blank or late frames around Cmd-Shift-Enter, Cmd-P and Cmd-W at the default motion and
+# under Reduce Motion (scripts/ci/frame-pacing/motion_frames_fleet.py, golden.py's motion_frames on this display).
+if "--suite=motion-frames" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci", "frame-pacing", "motion_frames_fleet.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=motion-frames"])
 # `--suite=relaunch`: quit and reopen with the session restored, to the window, the chats live again and the terminals
 # live; `--suite=wake`: the app after every process of it was frozen and resumed, a wake proxy. Both as perf-cron rows
 # (scripts/cmux-next/relaunch-wake-cron.py, which keeps the --suite argument).
