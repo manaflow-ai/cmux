@@ -1274,8 +1274,14 @@ class PathRoutingStructure(unittest.TestCase):
         jobs = load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]
         condition = jobs["push-head-preflight"]["if"]
         self.assertIn("github.event_name != 'pull_request'", condition)
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertNotIn("push-head-preflight.outputs.current == 'true'", text)
+        current = "(github.event_name == 'pull_request' || needs.push-head-preflight.outputs.current == 'true')"
+        for job_id, job in jobs.items():
+            needs = job.get("needs", [])
+            needs = needs if isinstance(needs, list) else [needs]
+            text = str(job.get("if", "")).replace(current, "")
+            with self.subTest(job=job_id):
+                if "push-head-preflight" in needs:
+                    self.assertNotIn("push-head-preflight.outputs.current", text)
 
     def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
         """The rescue's attempts (2 on) must use the Blacksmith fallback instead of a stale mini label."""
