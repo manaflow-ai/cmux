@@ -11,19 +11,17 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { LOCALES } from "../scripts/pages/gen-strings.mjs";
-import { pageError, type PageClient } from "../src/pages/shared/pageClient";
-import { FIXTURE_NOW, mockUsageSummary } from "../src/pages/chief-usage/mockProvider";
-import {
-  formatMs,
-  formatPercent,
-  formatTokens,
-  formatUSD,
-  stackedBars,
-  tokenTotal,
-  type Plot,
-} from "../src/pages/chief-usage/shape";
+import type { PageClient } from "../src/pages/shared/pageClient";
+import type { Plot } from "../src/pages/chief-usage/shape";
 import type { UsageQuery, UsageSummary } from "../src/pages/chief-usage/types";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { pageError } = await importWithDom(() => import("../src/pages/shared/pageClient"));
+const { FIXTURE_NOW, mockUsageSummary } = await importWithDom(() => import("../src/pages/chief-usage/mockProvider"));
+const { formatMs, formatPercent, formatTokens, formatUSD, stackedBars, tokenTotal } = await importWithDom(
+  () => import("../src/pages/chief-usage/shape"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
