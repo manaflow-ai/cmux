@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Exercise the recovery manifest across the artifact upload/download boundary."""
 
+import fnmatch
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -10,6 +12,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import textwrap
 import unittest
 
 
@@ -25,6 +28,84 @@ def manifest_program():
         if "state_path, actual_sha, dmg_path" in body:
             return "\n".join(line.removeprefix("          ") for line in body.splitlines())
     raise AssertionError("DMG recovery manifest generator is missing")
+
+
+class AcceptedPublicationTests(unittest.TestCase):
+    """Run assembly with the layout produced by the pinned download action."""
+
+    def assemble(self, root, channel="nightly", extra_variant=False, invalid=None):
+        workflow = (ROOT / ".github/workflows/auto-resume-nightly-notarization.yml").read_text()
+
+        def step(name):
+            return workflow.split(f"- name: {name}\n", 1)[1].split("\n      - name:", 1)[0]
+
+        download = step("Download all accepted variants").split("        with:\n", 1)[1]
+        inputs = dict(re.findall(r"^          ([\w-]+): (.+)$", download, re.MULTILINE))
+        for key, value in inputs.items():
+            inputs[key] = value.replace("${{ needs.preflight.outputs.channel }}", channel).replace(
+                "${{ needs.preflight.outputs.short_sha }}", "aaaaaaa"
+            )
+        artifact = f"cmux-{channel}-notarization-verified-arm64-aaaaaaa"
+        available = [artifact]
+        if extra_variant:
+            available.append(f"cmux-{channel}-notarization-verified-universal-aaaaaaa")
+        selected = [name for name in available if (
+            name == inputs["name"] if "name" in inputs
+            else fnmatch.fnmatchcase(name, inputs.get("pattern", "*"))
+        )]
+        self.assertIn(artifact, selected, "download must select the accepted arm64 artifact")
+        dmg = b"accepted and launch-tested arm64 DMG"
+        digest = hashlib.sha256(dmg).hexdigest()
+        immutable = f"cmux-{channel}-macos-arm64-123.dmg"
+        feed = "<rss>accepted arm64 feed</rss>"
+        for name in selected:
+            # download-artifact v7 flattens a single match even with merge-multiple=false.
+            destination = root / inputs["path"]
+            if "name" not in inputs and inputs.get("merge-multiple") != "true" and len(selected) > 1:
+                destination /= name
+            destination.mkdir(parents=True, exist_ok=True)
+            if name != artifact:
+                continue
+            (destination / immutable).write_bytes(dmg)
+            (destination / "appcast-arm64.xml").write_text(feed)
+            (destination / "cmux-nightly-notarization-recovery.json").write_text(json.dumps({
+                "build": "123", "immutable_path": immutable,
+                "final_dmg_sha256": "0" * 64 if invalid == "manifest" else digest,
+            }))
+        (root / "tested").mkdir()
+        tested_digest = "0" * 64 if invalid == "tested" else digest
+        (root / "tested/tested-arm64.sha256").write_text(f"{tested_digest}  {immutable}\n")
+        assembly = textwrap.dedent(step("Assemble and verify all accepted publication inputs").split(
+            "        run: |\n", 1
+        )[1])
+        result = subprocess.run(
+            ["bash", "-c", assembly], cwd=root, capture_output=True, text=True, timeout=10,
+            env={**os.environ, "SHORT_SHA": "aaaaaaa", "DMG_PREFIX": f"cmux-{channel}-macos",
+                 "GITHUB_ENV": str(root / "github-env")},
+        )
+        return result, immutable, dmg, feed
+
+    def test_accepted_artifact_download_assembles_publication(self):
+        for channel in ("nightly", "rc"):
+            for extra_variant in (False, True):
+                with self.subTest(channel=channel, extra_variant=extra_variant), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    result, immutable, dmg, feed = self.assemble(root, channel, extra_variant)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual((root / "nightly-out" / immutable).read_bytes(), dmg)
+                    self.assertEqual((root / "nightly-out" / f"cmux-{channel}-macos-arm64.dmg").read_bytes(), dmg)
+                    self.assertEqual((root / "nightly-out/appcast-arm64.xml").read_text(), feed)
+                    self.assertEqual((root / "github-env").read_text(), "NIGHTLY_BUILD=123\n")
+
+    def test_publication_rejects_changed_or_untested_dmg(self):
+        for invalid, message in (("manifest", "SHA-256 mismatch"), ("tested", "not the one verify-stapled launched")):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                result, immutable, _, _ = self.assemble(root, extra_variant=True, invalid=invalid)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertFalse((root / "nightly-out" / immutable).exists())
+                self.assertFalse((root / "github-env").exists())
 
 
 class RecoveryManifestTests(unittest.TestCase):
