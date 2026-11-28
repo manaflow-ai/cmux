@@ -34,16 +34,21 @@ pub struct Kept {
 /// oldest go until all fit `max_total_bytes`, the newest copy always staying (a picture over the
 /// budget is the only entry). Caps under 1 count as 1.
 pub fn record(r: &RecordRequest) -> Kept {
-    let capacity = r.capacity.max(1);
+    let mut kept: Vec<(usize, u64)> = r
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| !row.same)
+        .map(|(i, row)| (i, row.bytes))
+        .take(r.capacity.max(1).saturating_sub(1))
+        .collect();
     let budget = r.max_total_bytes.max(1);
-    let mut keep: Vec<usize> = (0..r.rows.len()).filter(|&i| !r.rows[i].same).collect();
-    keep.truncate(capacity - 1);
-    let mut total = r.bytes + keep.iter().map(|&i| r.rows[i].bytes).sum::<u64>();
+    let mut total = kept.iter().fold(r.bytes, |sum, &(_, bytes)| sum.saturating_add(bytes));
     while total > budget {
-        let Some(last) = keep.pop() else { break };
-        total -= r.rows[last].bytes;
+        let Some((_, bytes)) = kept.pop() else { break };
+        total = total.saturating_sub(bytes);
     }
-    Kept { keep }
+    Kept { keep: kept.into_iter().map(|(i, _)| i).collect() }
 }
 
 /// The pasteboard privacy behavior (`NSPasteboard.accessBehavior`; `noPrivacy` before macOS 15.4).
