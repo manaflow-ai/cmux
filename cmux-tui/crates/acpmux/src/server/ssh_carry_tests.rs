@@ -89,8 +89,7 @@ async fn one_carry_per_host_at_a_time_and_a_hung_login_cools_the_host() {
     }
     let mut config = crate::config::Config::default();
     config.store.mode = crate::config::StoreMode::Memory;
-    let store =
-        crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(config, store);
     let row = json!({"sessionId": "s-lane", "name": "lane", "status": "idle",
                      "turnCount": 1, "updatedAt": 5});
