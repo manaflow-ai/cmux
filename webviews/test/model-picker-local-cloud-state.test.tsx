@@ -482,5 +482,8 @@ test("transition: picks on This Mac and Cloud stay byte-identical through flip, 
     await run();
     expect(savedPicks(), step).toBe(picked);
   }
-  expect(chipFace()).toContain("Sonnet 5.5");
+  // What was kept is what the person picked on each side.
+  const kept = JSON.parse(picked) as { thisMac: string; cloud: string };
+  expect(JSON.parse(kept.thisMac).global).toEqual({ harness: "claude", model: "claude-sonnet-5-5" });
+  expect(JSON.parse(kept.cloud).pick).toEqual({ harness: "codex", model: "gpt-6.1-sol", effort: "low" });
 });
