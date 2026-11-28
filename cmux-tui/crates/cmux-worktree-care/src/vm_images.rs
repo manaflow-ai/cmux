@@ -223,8 +223,9 @@ pub fn oci_path(root: &Path, name: &str) -> PathBuf {
     }
     // The tag is after the last ':' that follows the last '/' (a port has a '/' after it).
     let slash = name.rfind('/').unwrap_or(0);
-    match name[slash..].rfind(':') {
-        Some(at) => root.join(&name[..slash + at]).join(&name[slash + at + 1..]),
+    let (head, tail) = name.split_at_checked(slash).unwrap_or(("", name));
+    match tail.rsplit_once(':') {
+        Some((repo_tail, tag)) => root.join(format!("{head}{repo_tail}")).join(tag),
         None => root.join(name).join("latest"),
     }
 }
