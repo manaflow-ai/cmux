@@ -130,6 +130,17 @@ pub struct RegisterRequest {
     /// `--resume` that conversation, with no code. Anything else gets nothing: no code is ever
     /// delivered for it, so a hook never wakes a session (`renewed_name`).
     pub renew: bool,
+    /// What asked for an automatic first step (`origin`): `hook` (cmux's prompt hook,
+    /// `cli/hook_register.rs`) or `send` (`acpmux send`, `cli/reply_address.rs`). It picks what
+    /// the code's message says asked for it.
+    pub origin: Option<Origin>,
+}
+
+/// What asked for an automatic first step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    Hook,
+    Send,
 }
 
 impl RegisterRequest {
@@ -153,6 +164,11 @@ impl RegisterRequest {
         if renew && code.is_some() {
             return Err(RpcError::invalid_params("renew takes no code"));
         }
+        let origin = match text("origin") {
+            Some("hook") => Some(Origin::Hook),
+            Some("send") => Some(Origin::Send),
+            _ => None,
+        };
         Ok(Self {
             name: name.to_owned(),
             socket: text("socket").map(PathBuf::from),
@@ -160,6 +176,7 @@ impl RegisterRequest {
             code,
             auto,
             renew,
+            origin,
         })
     }
 }
@@ -168,6 +185,80 @@ impl RegisterRequest {
 enum Found {
     Claude(crate::claude_peers::Peer),
 }
+
+/// The process that asked, as the kernel shows it: what a code's message names, so the chat
+/// can tell which of its commands sent (Lawrence, 2026-11-28, of 203 codes no one in the chat
+/// asked for: "who is sending this message get them to stop").
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Caller {
+    pub pid: u32,
+    /// Its command line, cut short.
+    pub command: String,
+    /// The processes between it and its Claude Code process, nearest first: each executable
+    /// and command line.
+    pub between: Vec<(u32, String, Vec<String>)>,
+}
+
+impl Caller {
+    fn read(ancestry: &[u32], claude: u32) -> Self {
+        let args = |pid: u32| crate::claude_peers::launch_args(pid).unwrap_or_default();
+        let pid = ancestry.first().copied().unwrap_or_default();
+        let upto = ancestry.iter().position(|p| *p == claude).unwrap_or(ancestry.len());
+        let between = ancestry
+            .get(1..upto)
+            .unwrap_or_default()
+            .iter()
+            .map(|p| (*p, crate::sender_harness::exe(*p).unwrap_or_default(), args(*p)))
+            .collect();
+        Self { pid, command: short_command(&args(pid)), between }
+    }
+
+    /// `pid 51151 (`acpmux send ...`)`, and the process the chat started that runs it.
+    fn named(&self) -> String {
+        let mut out = format!("pid {} (`{}`)", self.pid, self.command);
+        if let Some((top, _, args)) = self.between.last() {
+            out.push_str(&format!(", under this chat's process {top} (`{}`)", short_command(args)));
+        }
+        out
+    }
+}
+
+/// A command line for a message: its words, at most 100 characters.
+fn short_command(args: &[String]) -> String {
+    let line = args.join(" ").replace(['\n', '\r', '`'], " ");
+    match line.char_indices().nth(100) {
+        Some((at, _)) => format!("{}...", line.get(..at).unwrap_or_default()),
+        None => line,
+    }
+}
+
+/// Shells, by executable name.
+const SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "fish"];
+
+/// acpmux's own launchers: `cmux acp ...` runs acpmux in the cmux binary.
+const LAUNCHERS: &[&str] = &["acpmux", "cmux"];
+
+/// Whether a send came from a command the chat ran itself: every process between the caller
+/// and its Claude Code process is a shell running a command line (`-c`: how Claude Code runs
+/// its Bash tool, and that shell's forks for a pipeline) or acpmux's own launcher. A script
+/// file, an interpreter or any other program a command started is not the chat: it may run
+/// for days with the chat's environment (a deploy loop), and the chat never saw it send.
+pub(crate) fn chat_ran_it(between: &[(u32, String, Vec<String>)]) -> bool {
+    between.iter().all(|(_, exe, args)| {
+        let name = exe.rsplit('/').next().unwrap_or(exe);
+        let command_line = || {
+            args.iter()
+                .skip(1)
+                .take_while(|a| a.starts_with('-') && !a.starts_with("--"))
+                .any(|a| a.contains('c'))
+        };
+        LAUNCHERS.contains(&name) || (SHELLS.contains(&name) && command_line())
+    })
+}
+
+/// Why an automatic step sent no code: the send came from a process the chat did not run
+/// itself ([`chat_ran_it`]).
+pub const NOT_OWN_SEND: &str = "register.not_own_send";
 
 /// The nearest of `ancestry` that `live` lists, with `socket` its inbox when one is given.
 pub(crate) fn nearest_claude(
@@ -219,6 +310,14 @@ impl Hub {
             Ok(v) if v.get("renewed").and_then(Value::as_bool) == Some(false) => {
                 reserved.failed(NOT_RENEWABLE);
             }
+            // No code went (one went before, or the send was not the chat's own): the next
+            // asks are answered from memory, never proven again, for a while.
+            Ok(v) if v.get("offered").and_then(Value::as_bool) == Some(true) => {
+                reserved.failed(auto::OFFERED);
+            }
+            Ok(v) if v.get("offered").and_then(Value::as_bool) == Some(false) => {
+                reserved.failed(NOT_OWN_SEND);
+            }
             Ok(_) => {}
         }
         out
@@ -242,13 +341,17 @@ impl Hub {
                 return Ok(None);
             }
             let live = crate::claude_peers::live(&homes.claude);
-            nearest_claude(&below_daemon(ancestry), &live, socket.as_deref())
-                .map(|peer| Some(Found::Claude(peer)))
+            let ancestry = below_daemon(ancestry);
+            nearest_claude(&ancestry, &live, socket.as_deref())
+                .map(|peer| {
+                    let caller = Caller::read(&ancestry, peer.pid);
+                    Some((Found::Claude(peer), caller))
+                })
                 .ok_or_else(not_found)
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))??;
-        let Some(found) = found else {
+        let Some((found, caller)) = found else {
             return Ok(
                 json!({"renewed": null, "reason": "renewal caller unavailable", "retryable": true}),
             );
@@ -304,7 +407,36 @@ impl Hub {
                         ))
                         .with_data(json!({"reason": "register.name_taken"})));
                     }
-                    auto::Plan::Code(name) => (name, Why::Send(crate::host_pressure::host_name())),
+                    auto::Plan::Code(name) => {
+                        let home = crate::config::home();
+                        let id = claimed.session_id.clone();
+                        let now = auto::now_secs();
+                        // One automatic code per chat a day, whatever restarts between: a
+                        // chat that left it unanswered was not asking.
+                        if crate::qos::off_worker(|| auto::offered_lately(&home, &id, now)) {
+                            return Ok(json!({"offered": true, "name": name}));
+                        }
+                        let (host, by) = (crate::host_pressure::host_name(), caller.named());
+                        let why = match req.origin {
+                            Some(Origin::Hook) => Why::Hook { host, by },
+                            _ if !chat_ran_it(&caller.between) => {
+                                tracing::info!(chat = %id, by = %by, "register: no code for a send the chat did not run");
+                                return Ok(
+                                    json!({"offered": false, "reason": NOT_OWN_SEND, "name": name, "by": by}),
+                                );
+                            }
+                            _ => Why::Send { host, by },
+                        };
+                        tracing::info!(chat = %id, by = %why.by(), "register: an automatic code goes");
+                        let sent =
+                            send_code(claimed, &claude_home, &token, &name, started, why).await?;
+                        if let Err(e) =
+                            crate::qos::off_worker(|| auto::note_offered(&home, &id, now))
+                        {
+                            tracing::warn!(chat = %id, "register: could not keep the offer: {e}");
+                        }
+                        return Ok(sent);
+                    }
                 }
             } else {
                 (req.name.clone(), Why::Asked)
@@ -568,11 +700,23 @@ fn renewable(registered: bool, launched_for: Option<&str>, session_id: &str) -> 
     registered && launched_for == Some(session_id)
 }
 
-/// Why a code goes to a session: `acpmux register NAME` asked, or `acpmux send` from the chat's
-/// own shell, which has no reply address until it registers (on this machine, by its host name).
+/// Why a code goes to a session: `acpmux register NAME` asked; `acpmux send` from the chat's
+/// own shell, which has no reply address until it registers; or cmux's prompt hook, which gives
+/// a terminal chat an address. `host` is this machine's name, `by` the process that asked
+/// ([`Caller::named`]).
 enum Why {
     Asked,
-    Send(String),
+    Send { host: String, by: String },
+    Hook { host: String, by: String },
+}
+
+impl Why {
+    fn by(&self) -> &str {
+        match self {
+            Why::Asked => "acpmux register",
+            Why::Send { by, .. } | Why::Hook { by, .. } => by,
+        }
+    }
 }
 
 /// The message that carries `code`.
@@ -583,12 +727,19 @@ fn code_text(name: &str, code: &str, why: &Why) -> String {
              acpmux register {name} --code {code}\n(If neither you nor the person asked to register \
              this session, ignore it. The code is good for ten minutes.)"
         ),
-        Why::Send(host) => format!(
-            "acpmux register: your `acpmux send` went out from a chat acpmux cannot reach, so its \
-             receiver cannot answer you. Register this session as {name} by running this in your \
-             shell: acpmux register {name} --code {code}\nThen replies reach {host}/{name}, and \
-             every send from this chat names that address: send again what still needs an answer. \
-             (If this session ran no `acpmux send`, ignore it. The code is good for ten minutes.)"
+        Why::Send { host, by } => format!(
+            "acpmux register: an `acpmux send` from this chat's shell, {by}, went out from a chat \
+             acpmux cannot reach, so its receiver cannot answer you. Register this session as \
+             {name} by running this in your shell: acpmux register {name} --code {code}\nThen \
+             replies reach {host}/{name}, and every send from this chat names that address: send \
+             again what still needs an answer. acpmux sends this chat no other code on its own. \
+             (If this session ran no such send, ignore it. The code is good for ten minutes.)"
+        ),
+        Why::Hook { host, by } => format!(
+            "acpmux register: cmux's prompt hook, {by}, offers this chat an acpmux address, so \
+             other sessions can message it as {host}/{name}. To take it, run this in your shell: \
+             acpmux register {name} --code {code}\nIf no one asked for that, ignore this: acpmux \
+             sends this chat no other code on its own. (The code is good for ten minutes.)"
         ),
     }
 }
@@ -680,7 +831,13 @@ async fn send_code(
         name: name.to_owned(),
         at: std::time::Instant::now(),
     };
-    PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(claimed.pid, pending);
+    {
+        let mut codes = PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // A code past its time is kept as the record that it went (`register_auto.rs`
+        // `offered_name`), for a day.
+        codes.retain(|_, p| p.at.elapsed() < auto::OFFER_TTL);
+        codes.insert(claimed.pid, pending);
+    }
     let uuid = uuid::Uuid::now_v7().to_string();
     let from = crate::claude_peers::from_address("register");
     crate::claude_peers::deliver(claude_home, claimed, text.as_str(), &uuid, &from, Some(token))

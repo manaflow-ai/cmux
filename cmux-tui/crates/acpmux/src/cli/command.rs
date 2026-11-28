@@ -452,6 +452,14 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
+    /// A check served from the run the daemon made of it ahead of the lane, while the tree is as
+    /// it was then, or run as asked (harness magic `speculative`, `spec_exec.rs`).
+    #[command(name = "spec-serve", hide = true)]
+    SpecServe {
+        /// The check's command line, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -1040,6 +1048,7 @@ pub enum Command {
         reason: Option<String>,
         status: bool,
         hold_for: Option<String>,
+        thaw_order: Option<Vec<String>>,
     },
     #[command(hide = true)]
     ResumeQueue {
@@ -1357,7 +1366,22 @@ pub enum Command {
         /// then exits 1, never 75, so the unit keeps retrying.
         #[arg(long)]
         take_over: bool,
+        /// A restart's exec in place (`daemon/handoff.rs`): the inherited daemon lock.
+        #[arg(long, hide = true)]
+        handoff_lock_fd: Option<i32>,
+        /// A restart's exec in place: the inherited unix socket listener.
+        #[arg(long, hide = true)]
+        handoff_unix_fd: Option<i32>,
+        /// A restart's exec in place: the inherited WebSocket listener.
+        #[arg(long, hide = true)]
+        handoff_ws_fd: Option<i32>,
+        /// A restart's exec in place: how many restarts this process came through.
+        #[arg(long, hide = true)]
+        handoff_count: Option<u32>,
     },
+    /// `daemon handoff-check`: the build and the restart handoff this binary takes.
+    #[command(hide = true)]
+    DaemonHandoffCheck,
 }
 
 #[derive(Args)]
@@ -1449,7 +1473,23 @@ pub enum DaemonCmd {
         /// then exits 1, never 75, so the unit keeps retrying.
         #[arg(long)]
         take_over: bool,
+        /// A restart's exec in place (`daemon/handoff.rs`): the inherited daemon lock.
+        #[arg(long, hide = true)]
+        handoff_lock_fd: Option<i32>,
+        /// A restart's exec in place: the inherited unix socket listener.
+        #[arg(long, hide = true)]
+        handoff_unix_fd: Option<i32>,
+        /// A restart's exec in place: the inherited WebSocket listener.
+        #[arg(long, hide = true)]
+        handoff_ws_fd: Option<i32>,
+        /// A restart's exec in place: how many restarts this process came through.
+        #[arg(long, hide = true)]
+        handoff_count: Option<u32>,
     },
+    /// Print this build and the restart handoff it takes, as one JSON line: a daemon asks its
+    /// installed path this before a restart execs it in place. Takes no lock, opens no home.
+    #[command(hide = true)]
+    HandoffCheck,
     /// Daemon status, hosts, and the web URL (without its token).
     Status {
         /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
@@ -1707,18 +1747,26 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
-            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
-                Command::SessionHold {
-                    session,
-                    held: true,
-                    fleet,
-                    allow,
-                    set_allow,
-                    reason,
-                    status,
-                    hold_for,
-                }
-            }
+            SessionCmd::Hold {
+                session,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            } => Command::SessionHold {
+                session,
+                held: true,
+                fleet,
+                allow,
+                set_allow,
+                reason,
+                status,
+                hold_for,
+                thaw_order,
+            },
             SessionCmd::Release { session, fleet } => Command::SessionHold {
                 session,
                 held: false,
@@ -1728,6 +1776,7 @@ pub fn flatten(c: Command) -> Command {
                 reason: None,
                 status: false,
                 hold_for: None,
+                thaw_order: None,
             },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
             SessionCmd::Rename { session, new_name, handle, icon } => {
@@ -1836,6 +1885,10 @@ pub fn flatten(c: Command) -> Command {
                 allow_dev_origin,
                 dev,
                 take_over,
+                handoff_lock_fd,
+                handoff_unix_fd,
+                handoff_ws_fd,
+                handoff_count,
             } => Command::DaemonRun {
                 listen,
                 token,
@@ -1847,7 +1900,12 @@ pub fn flatten(c: Command) -> Command {
                 allow_dev_origin,
                 dev,
                 take_over,
+                handoff_lock_fd,
+                handoff_unix_fd,
+                handoff_ws_fd,
+                handoff_count,
             },
+            DaemonCmd::HandoffCheck => Command::DaemonHandoffCheck,
             DaemonCmd::Status { show_token } => Command::Status { show_token },
             DaemonCmd::Start { person_key_fd, show_token } => {
                 Command::DaemonStart { person_key_fd, show_token }

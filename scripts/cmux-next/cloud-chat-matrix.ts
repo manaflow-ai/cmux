@@ -28,6 +28,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { PUSH_STEP, REPLY_STEP } from "./cloud-memory-codeword.ts";
 
 export type Cell = {
   id: string;
@@ -123,6 +124,18 @@ export const CELLS: Cell[] = [
   // 2026-11-10: "I only have ChatGPT and Google ... Or else I ask the company to get me basic accounts later").
   // The `start` cells below need no account: a signed-out agent passes by naming itself.
   ...PICKER_HARNESSES.map(appStartCell),
+  // Agent memory follows the person (hq plans/cloud/agent-memory-follows-user.md step 5, cloud-memory-codeword.ts): a
+  // user CLAUDE.md with this run's codeword, pushed from a device home to the person's AgentHome, then a fresh Cloud
+  // chat started the app's way; it passes only when the first reply names the codeword.
+  {
+    id: "claude-memory-codeword",
+    agent: "claude",
+    signIn: "the machine's own (team gateway): the codeword comes only from the carried CLAUDE.md",
+    proof: "live",
+    args: ["--agent", "claude", "--start-via", "app", "--cmux", "$CMUX_BIN", "--memory-codeword"],
+    needs: { env: "CMUX_BIN", why: "a cmux CLI for the push and the carrier dial the app's start goes over" },
+    must: [PUSH_STEP, REPLY_STEP],
+  },
   // Not a chat: the start bench (cloud-journey.ts --start-bench, cloud-start-bench.ts), create-to-first-command phase
   // by phase on the spare, cold, snapshot and VM API paths, 5 starts each. Dispatch it alone (cells=start-bench): it
   // makes and deletes about 27 machines and runs 30 to 60 minutes. Leo, 2026-11-16: "let's do all those".
