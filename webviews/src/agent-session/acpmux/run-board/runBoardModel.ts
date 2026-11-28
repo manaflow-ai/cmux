@@ -33,6 +33,7 @@ export async function attachWithFreshTicket<T extends AttachTicket>(
   const once = async (): Promise<T | undefined> => {
     const ticket = (await request()) || undefined;
     if (ticket && attachTicketExpired(ticket, now()))
+      // l10n-allow: the run API's error body, shown raw by the board
       throw new RunApiHttpError(410, "This attach ticket has expired.", "run_attach_expired");
     if (ticket) await open(ticket);
     return ticket;

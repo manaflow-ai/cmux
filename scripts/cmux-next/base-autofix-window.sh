@@ -6,7 +6,8 @@
 # NEXT_BASE_AUTOFIX_WINDOW_MINUTES (default 120), repaired or is still in flight. A held run is cancelled by
 # its window job, so it ends cancelled and base-autofix-since.sh passes over it: the next run that repairs
 # diffs from the last successful one and so covers every held push. Runs that never count: cancelled and
-# skipped ones (held runs among them) and the push of this workflow's own repair commit, which repairs nothing.
+# skipped ones (held runs among them), the push of this workflow's own repair commit, which repairs nothing, and a
+# failed run with no repair commit pushed after it (it pushed nothing).
 # Nor does a completed run that took under NEXT_BASE_AUTOFIX_HELD_MAX_SECONDS (default 300): only its window job
 # ran, so it was held and its cancel was refused. 2026-11-27: that cancel 403s whenever the job token's hour is
 # spent, so held runs ended success, each held the next as "ended success", and base autofix repaired nothing
@@ -81,6 +82,15 @@ if [[ -z "$read_ok" ]]; then
   exit 0
 fi
 
+# The newest push run of a repair commit ("chore(next): base autofix at SHA"): a failed run created before it may have
+# pushed that repair; one created after it pushed nothing. 2026-11-28: run 46113326457 failed (lib tests did not
+# compile, its compile-gate push got 403, rounds hit the deadline) having pushed nothing, and the window counted it
+# and held every push run for 120 min, so base autofix repaired nothing for 3 h.
+newest_repair=0
+while IFS=$'\x1f' read -r id _ _ title _; do
+  [[ "$id" =~ ^[0-9]+$ && "$title" == "chore(next): base autofix at "* ]] && (( id > newest_repair )) && newest_repair=$id
+done <<<"$rows"
+
 # Fields split on the unit separator: a tab is whitespace to read, so an empty conclusion would vanish.
 while IFS=$'\x1f' read -r id status conclusion title took; do
   [[ -n "$id" ]] || continue
@@ -98,6 +108,8 @@ while IFS=$'\x1f' read -r id status conclusion title took; do
   esac
   # Held with its cancel refused: it ended success (or failure) having repaired nothing.
   [[ "$took" =~ ^[0-9]+$ ]] && (( took < held_max )) && continue
+  # A failed run that pushed no repair commit after it started repaired nothing: it never holds the next one.
+  [[ "$conclusion" == failure ]] && (( newest_repair < id )) && continue
   say false "run $id ended $conclusion within the last ${window} min"
   exit 0
 done <<<"$rows"
