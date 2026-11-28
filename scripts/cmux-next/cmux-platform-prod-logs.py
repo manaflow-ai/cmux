@@ -117,6 +117,8 @@ PLATFORM_MSGS = frozenset({
     "cloud.allotment.admit",
     "cloud.allotment.admit_failed",
     "cloud.approval.gate",
+    # cmux-platform#2614: each platform machine delete, its carrier site and the frames that asked (callers).
+    "cloud.carrier.delete",
     "cloud.approval.run",
     "cloud.billing.checkout",
     "cloud.bind.rpc",
@@ -1208,7 +1210,7 @@ def public_log(j):
         rev = image_rev(j.get("image"))
         if rev is not None:
             out["image_rev"] = rev
-    if msg == "cloud.rows.scan_large":
+    if msg in ("cloud.rows.scan_large", "cloud.carrier.delete"):
         callers = scan_callers(j.get("at"))
         if callers:
             out["callers"] = callers

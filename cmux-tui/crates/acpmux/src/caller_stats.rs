@@ -13,10 +13,17 @@
 //! in `evicted`). No timer: a bucket is reused when its slot comes round again.
 
 use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use rustc_hash::FxHasher;
 use serde_json::{Map, Value, json};
+
+/// The entry map hashes on every request, so it takes the fast non-keyed hasher (perf book,
+/// "Hashing"); its keys are the daemon's own, never an attacker's flood of distinct keys, as the
+/// map is capped at [`ENTRIES`].
+type Entries = HashMap<(Caller, String), Entry, BuildHasherDefault<FxHasher>>;
 
 /// At most this many (caller, method) pairs remembered.
 pub const ENTRIES: usize = 512;
@@ -124,7 +131,7 @@ impl Sum {
 
 #[derive(Default)]
 struct State {
-    entries: HashMap<(Caller, String), Entry>,
+    entries: Entries,
     evicted: u64,
 }
 
