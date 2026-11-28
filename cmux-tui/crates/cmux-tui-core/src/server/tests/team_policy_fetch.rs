@@ -2,6 +2,7 @@
 //! settings owner's team layer, so the policy is enforced (server/cloud_api.rs
 //! `learn_team_policy`).
 
+use super::super::cloud_api::learn_team_policy;
 use super::*;
 use crate::mux::settings::SettingsPaths;
 
