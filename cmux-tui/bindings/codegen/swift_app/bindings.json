@@ -13,7 +13,9 @@
     "RowHeight": "RowHeightValue",
     "ConversationSummary": "ConversationSummary",
     "ConversationPart": "ConversationPart",
-    "ConversationReactionKind": "ConversationReactionKind"
+    "ConversationReactionKind": "ConversationReactionKind",
+    "NameSource": "WorkspaceNameSource",
+    "SplitDirection": "SplitDirection"
   },
   "families": {
     "Agents": {
@@ -519,7 +521,7 @@
       }
     },
     "Layout": {
-      "$comment": "new-row stays hand-written in Layout/NewRowRequest.swift: it carries the shared SpawnOptions and moves with the Creation family.",
+      "$comment": "new-row shares SpawnOptions with the Creation family.",
       "enums": {
         "ColumnMoveDirection": {
           "doc": [
@@ -688,6 +690,39 @@
             "pane",
             "zoomed",
             "zoomed_pane"
+          ]
+        },
+        "new-row": {
+          "name": "NewRowRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "doc": [
+            "`new-row` (`rows-v1`): a row of `heightPermille` below `pane`'s row, in its column, holding one new pane with one new terminal."
+          ],
+          "order": [
+            "pane",
+            "height_permille",
+            "options"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          },
+          "fields": {
+            "height_permille": {
+              "name": "heightPermille",
+              "type": "Int"
+            }
+          },
+          "initializer": {
+            "labels": {
+              "heightPermille": "height"
+            }
+          },
+          "omit": [
+            "transaction"
           ]
         }
       }
@@ -2244,7 +2279,7 @@
       "enums": {
         "CloseReason": {
           "doc": [
-            "Why `close-tabs` closes its tabs (`close-reason-v1`)."
+            "Why tabs or a workspace close (`close-reason-v1`); `.sessionEnd` keeps them out of closed history."
           ]
         }
       }
@@ -2773,6 +2808,33 @@
               ]
             }
           }
+        }
+      }
+    },
+    "CloudConversations": {
+      "requests": {
+        "cloud-conversation-typing": {
+          "name": "CloudConversationTypingRequest",
+          "response": "EmptyResponse",
+          "order": [
+            "conversation",
+            "on"
+          ],
+          "doc": [
+            "`cloud-conversation-typing {conversation, on}` (`cloud-conversation-typing-v1`): the person is",
+            "typing (`on`) or stopped in a subscribed Cloud conversation. The daemon sends the owner's",
+            "ephemeral typing frame on the conversation's shared socket; nothing is stored. A conversation",
+            "no client subscribes is refused `not_subscribed`."
+          ]
+        },
+        "cloud-selfhost-info": {
+          "name": "CloudSelfHostInfoRequest",
+          "response": "CloudSelfHostInfo",
+          "doc": [
+            "`cloud-selfhost-info` (`cloud-selfhost-v1`): who the self-hosted server",
+            "the lease names says the person is (`GET /v1/selfhost/info`, asked by the",
+            "daemon without a token). Refused (`not_selfhost`) under a bearer lease."
+          ]
         }
       }
     },
@@ -4400,6 +4462,232 @@
         }
       }
     },
+    "Creation": {
+      "$comment": "SpawnOptions, the responses and the DaemonCreatingRequest conformances stay hand-written in Requests/Creation; new-screen's ScreenSpec form and create-terminal's detached form stay hand-written too (a second Swift type on one command).",
+      "enums": {
+        "ColumnSide": {
+          "doc": [
+            "The side of the pane's column a new viewport column opens on (`new-pane-right`)."
+          ]
+        },
+        "PaneKind": {
+          "doc": [
+            "What a new pane holds: a terminal or a browser (`pane-browser-kind-v1`)."
+          ]
+        }
+      },
+      "requests": {
+        "create-terminal": {
+          "allow_unadvertised_capability": "workspace-registry-v1",
+          "name": "CreateTerminalRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "CreateTerminalResult",
+          "mutation": true,
+          "omit": [
+            "detached"
+          ],
+          "doc": [
+            "Spawns a terminal inside a workspace (a new screen/pane when it is empty)."
+          ],
+          "order": [
+            "workspace",
+            "argv",
+            "command",
+            "cwd",
+            "name",
+            "size",
+            "terminal_id",
+            "env",
+            "keep",
+            "mutation"
+          ],
+          "flatten": {
+            "workspace": {
+              "type": "WorkspaceRef"
+            },
+            "size": {
+              "type": "CellSize",
+              "optional": true
+            }
+          },
+          "fields": {
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "env": {
+              "doc": [
+                "Extra environment for the child only (`terminal-env-v1`); stored on disk with the receipt, so never pass secrets."
+              ]
+            }
+          },
+          "initializer": {
+            "explicit": [
+              "mutation"
+            ],
+            "post_init": [
+              "shellArgs",
+              "createWorkspace",
+              "workspaceName"
+            ]
+          }
+        },
+        "new-pane": {
+          "name": "NewPaneRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "doc": [
+            "Adds a pane to the pane's column (vertical stack inside a column)."
+          ],
+          "order": [
+            "pane",
+            "options"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          }
+        },
+        "new-pane-right": {
+          "allow_unadvertised_capability": "viewport-splits-v1",
+          "name": "NewColumnRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "doc": [
+            "Adds a scrolling column after the pane, or before it when `left` is true."
+          ],
+          "order": [
+            "pane",
+            "width",
+            "side",
+            "options"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          },
+          "fields": {
+            "side": {
+              "name": "left",
+              "encode": {
+                "when_true": "left"
+              }
+            }
+          },
+          "omit": [
+            "kind",
+            "url"
+          ]
+        },
+        "new-screen": {
+          "name": "NewScreenRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "order": [
+            "workspace",
+            "size"
+          ],
+          "flatten": {
+            "size": {
+              "type": "CellSize",
+              "optional": true
+            }
+          },
+          "fields": {
+            "workspace": {
+              "type": "WorkspaceHandle"
+            }
+          },
+          "initializer": {
+            "explicit": [
+              "workspace"
+            ]
+          },
+          "omit": [
+            "color",
+            "cwd",
+            "env",
+            "group",
+            "icon",
+            "index",
+            "pinned",
+            "screen_name",
+            "shell_args",
+            "terminal_id"
+          ]
+        },
+        "new-tab": {
+          "name": "NewTabRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "order": [
+            "pane",
+            "options"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          },
+          "initializer": {
+            "explicit": [
+              "pane"
+            ]
+          },
+          "omit": [
+            "place",
+            "transaction"
+          ]
+        },
+        "split": {
+          "name": "SplitRequest",
+          "protocol": "TerminalSpawningRequest",
+          "response": "SurfaceCreated",
+          "doc": [
+            "Splits a pane with a new terminal (`cwd`/`env` with `terminal-env-v1`). Moving an existing tab into a",
+            "new pane is `move-tab-to-split` (`DaemonConnection.split(_:direction:movingTab:)` routes there)."
+          ],
+          "order": [
+            "pane",
+            "dir",
+            "tab",
+            "options",
+            "before"
+          ],
+          "flatten": {
+            "options": {
+              "type": "SpawnOptions",
+              "default": "SpawnOptions()"
+            }
+          },
+          "fields": {
+            "dir": {
+              "name": "direction"
+            },
+            "before": {
+              "encode": "when_true"
+            }
+          },
+          "extra": {
+            "tab": {
+              "type": "SurfaceID?",
+              "default": "nil",
+              "doc": [
+                "Retained for source compatibility. Moving an existing tab uses `move-tab-to-split`; this property is never sent."
+              ]
+            }
+          },
+          "omit": [
+            "kind",
+            "url"
+          ]
+        }
+      }
+    },
     "Shell": {
       "$comment": "Hand-written still: each Response (the schema's result is JsonValue), ShellRunRequest.newRunID and ShellReadRequest.timeout (Shell/ShellRunResponses.swift).",
       "requests": {
@@ -4454,6 +4742,42 @@
           "response": "hand-written"
         }
       }
+    }
+  },
+  "flatten": {
+    "$comment": "Swift values a request binding's flatten may fold schema fields into: the wire names each writes and the statement that writes them into the request's own object.",
+    "CellSize": {
+      "wire": [
+        "cols",
+        "rows"
+      ],
+      "encode": "try {value}.encode(to: encoder)"
+    },
+    "SpawnOptions": {
+      "wire": [
+        "cwd",
+        "cols",
+        "rows",
+        "argv",
+        "command",
+        "name",
+        "env",
+        "keep",
+        "terminal_id",
+        "shell_args",
+        "pane_id",
+        "tab_id",
+        "split_id",
+        "around"
+      ],
+      "encode": "try {value}.encode(to: encoder)"
+    },
+    "WorkspaceRef": {
+      "wire": [
+        "key",
+        "workspace"
+      ],
+      "encode": "try WorkspaceRefFields(ref: {value}).encode(to: encoder)"
     }
   }
 }
