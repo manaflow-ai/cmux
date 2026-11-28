@@ -32,6 +32,7 @@ import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
 import { isRunPart } from "./runPartId";
 import { rowsDrawnNow } from "../liveThought";
+import { keptPrefix } from "./prefixFlatMap";
 import { clearAdaptiveFind, paintAdaptiveFind, type FindColors } from "../../../ui/findPaint";
 
 export { foldFind };
@@ -236,8 +237,78 @@ function searchableText(row: AcpmuxRow, look: PromptLook, key: string): string |
 }
 
 /** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order.
- * Prompts read as they draw in attachment view `view` (the pane's, by default). */
+ * Prompts read as they draw in attachment view `view` (the pane's, by default). While Find is open it
+ * runs on every rows change, a streamed token too: the rows `rows` kept of `previous.rows` come from
+ * the client's note (prefixFlatMap.ts `keptPrefix`, a walk only where none was said), and the kept
+ * matches are found by binary search and handed back whole when the changed rows found the same,
+ * so an update costs the rows it changed, not a walk of the chat (0.3 ms at 100k rows, 8.6 ms at 1M before). */
 export function findMatchesIncremental(
+  rows: readonly AcpmuxRow[],
+  query: string,
+  previous?: FindMatchesCache,
+  view?: AttachmentView,
+): FindMatchesResult {
+  const needle = foldFind(query);
+  const look = promptLook(view);
+  const key = lookKey(look);
+  if (!needle) {
+    return { matches: [], cache: { needle, look: key, rows, matches: [] }, scannedRows: 0 };
+  }
+
+  const same = previous?.needle === needle && previous.look === key;
+  const prefix = same ? keptPrefix(previous.rows, rows) : 0;
+
+  if (same && prefix === rows.length && rows.length === previous.rows.length) {
+    return { matches: previous.matches, cache: { needle, look: key, rows, matches: previous.matches }, scannedRows: 0 };
+  }
+
+  const keep = same ? matchesBefore(previous.matches, prefix) : 0;
+  const tail: FindMatch[] = [];
+  for (let rowIndex = prefix; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
+    const text = searchableText(row, look, key);
+    if (!text) continue;
+    let occurrence = 0;
+    for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length))
+      tail.push({ rowIndex, rowId: row.id, occurrence: occurrence++ });
+  }
+  // The changed rows found what they found before (a token that adds no match, the common update):
+  // the last matches, not a copy of every match in the chat.
+  const matches =
+    same && sameMatches(previous.matches, keep, tail)
+      ? previous.matches
+      : keep > 0
+        ? previous!.matches.slice(0, keep).concat(tail)
+        : tail;
+  return { matches, cache: { needle, look: key, rows, matches }, scannedRows: rows.length - prefix };
+}
+
+/// Whether `matches` from `from` on are `tail`, match for match.
+function sameMatches(matches: readonly FindMatch[], from: number, tail: readonly FindMatch[]): boolean {
+  if (matches.length - from !== tail.length) return false;
+  for (let i = 0; i < tail.length; i += 1) {
+    const a = matches[from + i]!;
+    const b = tail[i]!;
+    if (a.rowIndex !== b.rowIndex || a.rowId !== b.rowId || a.occurrence !== b.occurrence) return false;
+  }
+  return true;
+}
+
+/// How many of `matches` (in row order) lie in rows before `row`.
+function matchesBefore(matches: readonly FindMatch[], row: number): number {
+  let lo = 0;
+  let hi = matches.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (matches[mid]!.rowIndex < row) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** `findMatchesIncremental` as it was: it walked `rows` against `previous.rows` for the kept prefix and
+ * filtered every match, O(rows) per update. Kept as the oracle (test/chat-find-kept-prefix.test.ts). */
+export function findMatchesByWalk(
   rows: readonly AcpmuxRow[],
   query: string,
   previous?: FindMatchesCache,

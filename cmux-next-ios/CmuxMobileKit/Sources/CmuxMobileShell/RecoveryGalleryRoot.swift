@@ -27,6 +27,7 @@ import SwiftUI
 ///   unavailable on this account), then the variants it was picked from, B and C;
 /// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots;
 ///   `cloudmachines-held`: the same with a start and a new machine waiting for approval in the Feed.
+/// - `vault-off`, `vault-pending`, `vault-on`: Settings → Cloud → Vault in each state, fixed data.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
 /// - `chip`: the terminal's connection chip (Leo 2026-11-21: "a symbol or short thing,
 ///   not a sentence. stop layout shifting"): A, the top-center toast the terminal shows,
@@ -60,6 +61,7 @@ import SwiftUI
 /// - `agentmark`: a terminal agent's avatar beside a GUI agent chat's (Leo 2026-11-24: "both of them rn
 ///   are just claude icon"), every variant side by side; `agentmark-a` ... `agentmark-d`, one variant on
 ///   Feed-like rows (`AgentAvatarHostGallery`).
+/// - `githubsignin`: Sign in with GitHub on a Cloud start and a chat's refused GitHub call (`GitHubSignInGallery`).
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -119,6 +121,9 @@ public struct RecoveryGalleryRoot: View {
                 listChips
             case "quiet":
                 QuietUpdatingGallery(variant: variant ?? "a")
+            case "vault-off", "vault-pending", "vault-on":
+                // Settings → Cloud → Vault, off, waiting for an approve, and on (`VaultModel.gallery`).
+                NavigationStack { VaultScreen(model: .gallery(state: String(scene.dropFirst(6)))) }
             case "cloudmachines-held":
                 NavigationStack { CloudMachinesScreen(model: .gallery(held: true), openChats: {}) }
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
@@ -141,6 +146,8 @@ public struct RecoveryGalleryRoot: View {
                 SiteMonogramGallery()
             case "agentmark":
                 AgentAvatarHostGallery(variant: variant)
+            case "githubsignin":
+                GitHubSignInGallery()
             default:
                 states
             }

@@ -4,7 +4,11 @@
 // attachments": a capture showed a tile spinning and could not say why).
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { composerAttachmentsState } from "../src/agent-session/acpmux/composerAttachmentsState";
+import { importWithDom } from "./support/importWithDom";
+
+const { composerAttachmentsState } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composerAttachmentsState"),
+);
 
 const page = (html: string) => new JSDOM(`<!doctype html><div class="acpmux-composer">${html}</div>`).window.document;
 

@@ -17,6 +17,15 @@ export interface ShareGuest {
   joined: boolean;
 }
 
+/** A signed-in account that opened the link without access and asked in (the daemon's pending
+ * `requests` of a share, agent_session_shares.rs `AccessRequest`; a declined one is never listed). */
+export interface ShareAccessRequest {
+  account: string;
+  name: string;
+  avatarUrl: string | null;
+  requestedAt: number;
+}
+
 export interface ShareInvitee {
   account: string;
   role: ShareRole;
@@ -37,6 +46,8 @@ export interface ChatShare {
   usesLeft: number;
   guests: ShareGuest[];
   invitees: ShareInvitee[];
+  /** Pending access requests; missing from a host older than requests. */
+  requests?: ShareAccessRequest[];
 }
 
 /** A person with access, one row of the dialog. */
@@ -59,6 +70,8 @@ export interface ShareView {
   inviteUrl: string | null;
   /** Link guests in the chat now (not invitees). */
   guestsNow: number;
+  /** Accounts asking for access, oldest first, one row per account (above People with access). */
+  requests: ShareAccessRequest[];
 }
 
 const live = (share: ChatShare) => share.state === "active" || share.state === "provisioning";
@@ -87,6 +100,15 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
   const inviteShare = [...open]
     .filter((share) => share.invitees.some((invitee) => invitee.state === "invited"))
     .sort((a, b) => b.createdAt - a.createdAt)[0];
+  // One row per account (it may have asked on two live shares of the chat; the host approves or
+  // declines every one), and none for an account that has access by now.
+  const requests = new Map<string, ShareAccessRequest>();
+  for (const share of open) {
+    for (const request of share.requests ?? []) {
+      if (people.has(request.account) || requests.has(request.account)) continue;
+      requests.set(request.account, request);
+    }
+  }
   const guestsNow = links.reduce((count, share) => count + share.guests.filter((guest) => guest.joined).length, 0);
   return {
     people: [...people.values()],
@@ -94,6 +116,7 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
     links,
     inviteUrl: inviteShare?.inviteUrl ?? null,
     guestsNow,
+    requests: [...requests.values()].sort((a, b) => a.requestedAt - b.requestedAt),
   };
 }
 
@@ -157,6 +180,11 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
       }
       throw new Error("share.restrict_raced");
     },
+    /** Approve: the account is invited as `role` on every share of this chat it asked on (the host's
+     * `agent-session-share-request-approve`). */
+    approve: (account: string, role: ShareRole) => call("approve", { account, role }),
+    /** Decline: silent; the account is not told and cannot ask again (`agent-session-share-request-decline`). */
+    decline: (account: string) => call("decline", { account }),
     manage: () => call("manage"),
   };
 }

@@ -35,6 +35,7 @@ extension HomeService {
         homeWorkspaceStep = "ensure_home"
         chiefTabStep = .notStarted
         let generation = ensure.begin(), settle = services.homeDockSettle; settle.begin(generation) // its dock steps (HomeDockSettle)
+        DebugTimings.markLaunch("home.ensure_home_start")
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             defer { self?.ensureOwner.end(generation); settle.end(generation) }

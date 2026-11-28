@@ -761,7 +761,7 @@ fn terminal_project(
         commit.result.get("value").filter(|value| value.is_object()).cloned().ok_or_else(|| {
             ResourceError::operation_failed(
                 "terminal.project",
-                "terminal could not be added to the destination; refresh the session and try again",
+                "the projection was committed but returned no terminal; refresh the session to see it",
                 json!({}),
             )
         })?;
@@ -773,7 +773,34 @@ fn confirmed_terminal_write(
     bytes: &[u8],
     operation: &str,
 ) -> Result<(), ActionFailure> {
-    surface.write_bytes_confirmed(bytes).map_err(|error| confirmed_input_error(operation, error))
+    confirmed_write_while_busy(|| surface.write_bytes_confirmed(bytes))
+        .map_err(|error| confirmed_input_error(operation, error))
+}
+
+/// How long a receipted write waits for a full input port to drain before
+/// it answers `terminal_input_unavailable`.
+const INPUT_BUSY_PATIENCE: Duration = Duration::from_secs(5);
+
+/// A full input port (`WouldBlock`) refuses the bytes before any of them are
+/// written, so the write is repeated while the writer drains it instead of
+/// asking the person to send it again.
+fn confirmed_write_while_busy(
+    mut write: impl FnMut() -> Result<(), crate::surface::ConfirmedInputFailure>,
+) -> Result<(), crate::surface::ConfirmedInputFailure> {
+    use crate::retry::{Attempt, Patience};
+    use crate::surface::ConfirmedInputFailure;
+    Patience::new("terminal input", INPUT_BUSY_PATIENCE)
+        .quiet()
+        .spaced(Duration::from_millis(10), Duration::from_millis(250))
+        .run(|| match write() {
+            Ok(()) => Ok(()),
+            Err(ConfirmedInputFailure::Known(error))
+                if error.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                Err(Attempt::Retry(ConfirmedInputFailure::Known(error)))
+            }
+            Err(error) => Err(Attempt::Fail(error)),
+        })
 }
 
 fn confirmed_input_error(

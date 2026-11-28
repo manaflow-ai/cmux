@@ -55,10 +55,10 @@ impl RuntimeMessages {
 
 pub(super) const ENGLISH: RuntimeMessages = RuntimeMessages {
     unknown_panic: "unknown panic",
-    terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session, then retry.",
+    terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session to open another.",
     renderer_panicked: "terminal renderer panicked: {message}",
     host_input_failed: "host terminal input failed: {error}",
-    session_transport_lost: "session connection lost. Reconnect and retry.",
+    session_transport_lost: "session connection lost: the session daemon closed it without a shutdown notice. Check the session with `cmux daemon status`.",
     session_reconnecting: "reconnecting to session {session}…",
     session_reconnected: "reconnected to session {session}",
     session_stopped: "session {session} stopped. Its daemon was stopped; run `cmux-tui --session {session}` to start it again.",
@@ -68,10 +68,10 @@ pub(super) const ENGLISH: RuntimeMessages = RuntimeMessages {
 
 pub(super) const JAPANESE: RuntimeMessages = RuntimeMessages {
     unknown_panic: "不明なパニック",
-    terminal_capacity_exhausted: "疑似ターミナルの空きがありません。不要なターミナルセッションを閉じてから再試行してください。",
+    terminal_capacity_exhausted: "疑似ターミナルの空きがありません。新しいターミナルを開くには、不要なターミナルセッションを閉じてください。",
     renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
     host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
-    session_transport_lost: "セッションへの接続が失われました。再接続して再試行してください。",
+    session_transport_lost: "セッションへの接続が失われました。セッションのデーモンが停止通知なしに接続を閉じました。`cmux daemon status` でセッションを確認してください。",
     session_reconnecting: "セッション {session} に再接続しています…",
     session_reconnected: "セッション {session} に再接続しました",
     session_stopped: "セッション {session} は停止しました。デーモンが停止されました。`cmux-tui --session {session}` で再び起動できます。",

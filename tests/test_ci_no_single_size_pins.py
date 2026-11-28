@@ -64,6 +64,16 @@ SELECTIONS_KEPT_LITERAL = {
         "adds a System keychain trust root as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a "
         "pool could name an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
     ),
+    ("ci-macos.yml", "jobs.swift-package-tests.runs-on"): (
+        "needs the macOS 15 image itself: its SDK 15 Ghostty helper Xcode exists only there, and the macos_15 pool "
+        "fails over to macOS 26 when the 15 label stalls (#64925), so a pool read would run it where the helper is "
+        "missing"
+    ),
+    ("ios-e2e.yml", "jobs.mac-ios-e2e.runs-on"): (
+        "joins the tailnet as a fresh host: it takes a macos_26 member only when that is a Blacksmith label, else "
+        "blacksmith-6vcpu-macos-26, because an owned Mac already runs Tailscale and require-fresh-tailnet-host.sh "
+        "stops the job (jobs 141021960654, 141038548635; #65333)"
+    ),
     ("machine-vault-e2e.yml", "jobs.e2e.runs-on"): (
         "adds a macOS user as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a pool could name "
         "an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
@@ -74,6 +84,12 @@ SELECTIONS_KEPT_LITERAL = {
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import holds_signing_material  # noqa: E402
 import workflow_jobs  # noqa: E402
+# A job whose runs-on line says `# frozen-label: <why>` (or ephemeral-required, owned-pool-unfit) was frozen by
+# scripts/ci/one_linux_label.py to the one label it resolved to: a credentialed, provenance or signing job that a
+# shared pool must not run. The literal is its trust rule, like a signing job's; scripts/ci/check_runs_on_pools.py
+# reads the same comment and allows only a Blacksmith label there.
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+from check_runs_on_pools import EPHEMERAL_MARK, marked_jobs  # noqa: E402
 # A fork branch whose operand reads any repository variable, directly or through fromJSON.
 VARS_READ = re.compile(r"\bvars\.")
 # The one Linux label's fork operand (scripts/ci/one_linux_label.py, Leo 2026-11-20: "you shouldn't have to think
@@ -153,10 +169,13 @@ def violations(directory: Path = WORKFLOWS) -> list[str]:
     for workflow in sorted(directory.glob("*.y*ml")):
         document = yaml.load(workflow.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
         jobs = document.get("jobs", {})
+        frozen = marked_jobs(workflow.read_text(encoding="utf-8"), EPHEMERAL_MARK)
         for path, value in selections(jobs, ("jobs",)):
             if (workflow.name, ".".join(path)) in SELECTIONS_KEPT_LITERAL:
                 continue
             if holds_signing_material(jobs.get(path[1])):
+                continue
+            if path[1] in frozen and path[2:] == ("runs-on",):
                 continue
             value = without_fork_hosted_default(value)
             if FORK_READS_POOLS.search(value) or any(
@@ -214,6 +233,17 @@ class NoSingleSizePins(unittest.TestCase):
         self.assertTrue(cells, "a runs-on matrix nothing resolves, or no runs-on")
         for cell in cells:
             self.assertNotIn("RUNNER_POOLS", cell)
+
+    def test_a_frozen_exception_job_keeps_its_literal_and_an_unmarked_one_does_not(self) -> None:
+        import tempfile
+        line = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "w.yml").write_text(
+                "jobs:\n"
+                f"  deploy:\n    runs-on: {line} # frozen-label: credentialed job\n    steps: []\n"
+                f"  plain:\n    runs-on: {line}\n    steps: []\n", encoding="utf-8")
+            found = violations(Path(tmp))
+        self.assertEqual([f.split(" routes")[0] for f in found], ["w.yml: jobs.plain.runs-on"])
 
     def test_the_trusted_selector_keeps_its_literal_and_nothing_else_does(self) -> None:
         trusted = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\","

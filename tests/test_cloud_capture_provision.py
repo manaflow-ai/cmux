@@ -819,6 +819,39 @@ class GrantOnly(unittest.TestCase):
         rotate.assert_not_called()
 
 
+class PlanOnly(unittest.TestCase):
+    TARGET = provision.TARGETS["journey-production"]
+
+    def prod(self, fake):
+        return stack(fake, provision.PRODUCTION_PROJECT_ID)
+
+    def test_it_sets_only_the_plan_and_keeps_the_rest(self):
+        fake = FakeStack([{"id": "u1", "primary_email": self.TARGET.email, "password": PASSWORD,
+                           "client_read_only_metadata": {"cmuxVmPlan": "pro", "keep": 1}}])
+        provision.plan_only(self.prod(fake), self.TARGET, "next_pro", log=lambda _: None)
+        self.assertEqual(fake.users["u1"]["client_read_only_metadata"], {"cmuxVmPlan": "next_pro", "keep": 1})
+        self.assertEqual(fake.users["u1"]["password"], PASSWORD)
+        patches = [b for m, _, _, b in fake.requests if m == "PATCH"]
+        self.assertEqual(patches, [{"client_read_only_metadata": {"cmuxVmPlan": "next_pro", "keep": 1}}])
+
+    def test_other_plans_other_targets_and_missing_accounts_are_refused_without_a_write(self):
+        fake = FakeStack([{"id": "u1", "primary_email": self.TARGET.email, "client_read_only_metadata": {}}])
+        with self.assertRaises(provision.ProvisionError):
+            provision.plan_only(self.prod(fake), self.TARGET, "next_max", log=lambda _: None)
+        with self.assertRaises(provision.ProvisionError):
+            provision.plan_only(self.prod(fake), provision.TARGETS["production"], "next_pro", log=lambda _: None)
+        with self.assertRaises(provision.ProvisionError):
+            provision.plan_only(self.prod(FakeStack()), self.TARGET, "next_pro", log=lambda _: None)
+        self.assertFalse([r for r in fake.requests if r[0] in ("POST", "PATCH")])
+
+    def test_the_workflow_runs_it_only_for_the_journey_account_and_skips_provisioning(self):
+        text = (ROOT / ".github" / "workflows" / "cloud-capture-provision.yml").read_text()
+        step = text.split("- name: Set the journey account's plan only", 1)[1].split("- name:", 1)[0]
+        self.assertIn("inputs.target == 'journey-production'", step)
+        seal = text.split("- name: Provision and seal", 1)[1].split("- name:", 1)[0]
+        self.assertIn("inputs.plan_only == ''", seal)
+
+
 class Guards(unittest.TestCase):
     def test_another_stack_project_is_refused_before_any_request(self):
         fake = FakeStack()

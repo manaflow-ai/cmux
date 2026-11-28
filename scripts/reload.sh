@@ -1865,6 +1865,22 @@ if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
   SWIFT_OTHER_FLAGS+=" $(live_code_swift_flags)"
   echo "==> live code build: $(live_code_targets | wc -l | tr -d ' ') CmuxNext targets at -Onone, testable and a file at a time${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
 fi
+if [[ "${CMUX_LINK_ORDER_PROBE:-0}" == "1" ]]; then
+  # The link order probe build (scripts/measure/link-order.sh): every Swift, C and Objective-C function calls a
+  # coverage guard on its first run (Packages/macOS/CmuxNext/Sources/CmuxNextLinkOrder). Swift takes coverage only
+  # beside a sanitizer: undefined adds no checks to Swift code. The framework defines and exports the guards
+  # (Package.swift reads CMUX_LINK_ORDER_PROBE too); every other image links them as dynamic lookups. Symbols stay
+  # in the binary so link-order.py can name each address. Never a build anyone runs as their app.
+  [[ "$BUILD_CONFIGURATION" == "Release" ]] || { echo "error: CMUX_LINK_ORDER_PROBE=1 needs a Release build (--release or --config bench)" >&2; exit 2; }
+  SWIFT_OTHER_FLAGS+=" -sanitize=undefined -sanitize-coverage=func,trace-pc-guard"
+  # shellcheck disable=SC2016 # Xcode expands $(inherited)
+  XCODEBUILD_ARGS+=(
+    'OTHER_CFLAGS=$(inherited) -DCMUX_LINK_ORDER_PROBE=1 -fsanitize-coverage=func,trace-pc-guard'
+    'OTHER_LDFLAGS=$(inherited) -Wl,-U,___sanitizer_cov_trace_pc_guard -Wl,-U,___sanitizer_cov_trace_pc_guard_init'
+    STRIP_INSTALLED_PRODUCT=NO COPY_PHASE_STRIP=NO DEPLOYMENT_POSTPROCESSING=NO
+  )
+  echo "==> link order probe build: coverage guards on every function's first call"
+fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
   echo "==> Swift frontend workaround enabled for this reload"
@@ -2485,6 +2501,14 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   # that chat is closed (issue 55842).
   if [[ -n "${TAG_SLUG:-}" && -n "${ACPMUX_SESSION_ID:-}" ]]; then
     python3 "$SCRIPT_DIR/dev-build.py" claim --tag "$TAG_SLUG" --quiet || true
+  fi
+  # Every launch also ends the other tags nobody uses any more: an app whose chat closed or has
+  # been idle for CMUX_DEV_BUILD_IDLE_HOURS, or helpers whose app is gone (issue 63351: nothing
+  # ran the sweep, and a Mac kept a 42-hour-idle chat's build and its 83 processes). --detach runs
+  # it in its own session and returns at once (log: ~/.local/state/cmux/dev-builds/sweep.log), so
+  # the launch never waits on it. CMUX_DEV_BUILD_SWEEP=0 skips it.
+  if [[ -n "${TAG_SLUG:-}" && "${CMUX_DEV_BUILD_SWEEP:-1}" != 0 ]]; then
+    python3 "$SCRIPT_DIR/dev-build.py" stop --all-idle --except "$TAG_SLUG" --detach </dev/null || true
   fi
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.

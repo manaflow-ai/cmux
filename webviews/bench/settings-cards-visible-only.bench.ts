@@ -23,7 +23,7 @@ declare global {
     benchReady: boolean;
     benchRowSelector: string;
     benchRowRenders: { mark(): void; since(): number };
-    benchChangeOne(index: number): Promise<void>;
+    benchChangeOne(index?: number): void | Promise<void>;
   }
 }
 

@@ -43,6 +43,24 @@ extension UpdaterService {
         advanceReleasePush()
     }
 
+    /// `debug.updater {action: "push", build}`: the release push for `build`, as the feed's socket
+    /// sends it, without waiting for a real nightly (Leo 2026-11-27: "we should be abel to just sim
+    /// it/signal it without needing to wait 30 + minutes..."). An update-harness copy (a DEV build)
+    /// reads its loopback feed and takes a NIGHTLY's fast check for it. False: `build` is no build number.
+    @discardableResult
+    public func debugReleasePush(_ build: String?) -> Bool {
+        guard let build, let number = Int64(build) else { return false }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let harness = UpdateHarness.current {
+            tipCheck.simulatesNightly = true
+            if testFeedURL == nil { testFeedURL = harness.feedURL }
+        }
+        #endif
+        log.append("release push: simulated build \(number)")
+        releasePushed(number)
+        return true
+    }
+
     /// The flow's phase moved: a pushed build that waited for a check, download or install to end
     /// is read for now.
     func followReleasePush() {

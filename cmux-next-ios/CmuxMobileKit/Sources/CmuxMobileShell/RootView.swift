@@ -199,6 +199,8 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        // Sign in with GitHub on a Cloud start or a chat's card runs the account's GitHub connect.
+        .onAppear { GitHubSignInHook.run = GitHubConnect.signIn }
         // Back in the app: a keyboard the tracker holds as up while nothing
         // takes keys went away unannounced; every composer docked to it rests
         // at the bottom again (MobileKeyboardFrameTracker.dropKeyboardWithoutOwner).
@@ -210,6 +212,14 @@ public struct RootView: View {
                 // Where the person was is on disk before the app may be killed.
                 LastPlaceMemory.shared.flush()
             }
+        }
+        // The vault (Settings → Cloud → Vault): at launch and back in the app, seal the person's
+        // Cloud machines what they should hold, off the main thread and bounded; nothing is sent
+        // when the vault is off on this phone.
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            guard phase == .active else { return }
+            VaultSync.shared.install()
+            VaultTriggers.foreground()
         }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
         .onGeometryChange(for: Bool.self) { proxy in
@@ -915,8 +925,15 @@ private struct LinkSettingsObserver: ViewModifier {
             .onChange(of: blockUDPPreference) { _, _ in
                 shell.live?.setBlockUDP(DeveloperOptions.blockUDP)
             }
-            .onChange(of: scenePhase) { _, phase in
+            .onChange(of: scenePhase) { old, phase in
                 if phase == .active {
+                    // R1: a warm return from the background is a tap whose content marks start again
+                    // (not the cold launch's first activation: process start is that tap).
+                    if old == .background {
+                        LaunchMarks.shared.rearm(tap: "foreground")
+                        // The page kept on screen (memory) is the first content a warm return draws.
+                        LaunchMarks.shared.firstContent("shown", cached: true)
+                    }
                     shell.live?.foreground()
                     // The content extension's replies, and those waiting for the app.
                     PushReplies.shared.drainOutbox()
@@ -1064,13 +1081,20 @@ struct ShellTabs: View {
                     scrollRequest: shell.settingsScrollTarget,
                     directory: shell.deviceDirectory,
                     sizing: shell.sizingService,
+                    tryPullRequests: shell.tryPullRequestService,
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
                     cloudPages: shell.live == nil || ChiefCloudConfig.current(buildSpace: .nightly) == nil ? nil : SettingsCloudPages(
                         machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })
                             .id(ChiefSources.shared.personalListIdentity)) },
                         automations: { AnyView(CloudAutomationsScreen().id(ChiefSources.shared.personalListIdentity)) },
-                        connectGitHub: { AnyView(GitHubConnectRow()) }
+                        connectGitHub: { AnyView(GitHubConnectRow()) },
+                        vault: {
+                            AnyView(Group {
+                                if let model = VaultModel.live() { VaultScreen(model: model) }
+                            }
+                            .id(ChiefSources.shared.vaultKeyAccount))
+                        }
                     ),
                     inviteToTeam: { shell.invite(to: $0) },
                     saveAppearance: { shell.saveAppearance($0, for: $1) }

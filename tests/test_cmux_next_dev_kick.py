@@ -44,9 +44,9 @@ check(len(tick_steps) == 1 and "sha=" not in str(tick_steps[0].get("run")),
 check(len(tick_steps) == 1 and "!cancelled()" in str(tick_steps[0].get("if", "")),
       "a failed DEV dispatch still wakes the tick")
 
-check("vars.LINUX_RUNNER" not in text and "32vcpu" not in text and
-      "|| fromJSON(vars.RUNNER_POOLS).linux_4 }}" in text and "'ubuntu-24.04'" in text,
-      "DEV kick reads the ephemeral_only Linux pool (it holds a write token), never a fixed Blacksmith size that can stall")
+check("vars." not in text.split("runs-on:", 1)[1].split("\n", 1)[0] and "32vcpu" not in text and
+      "|| 'blacksmith-4vcpu-ubuntu-2404' }}" in text and "'ubuntu-24.04'" in text,
+      "DEV kick holds a write token, so it keeps the ephemeral runner its pool resolved to on 2026-11-24, named literally")
 
 # 2026-11-24: every push's kick went red on "HTTP 403: API rate limit exceeded for installation" (runs 45381829805 to
 # 45383131900) with github.token's shared hour spent elsewhere. The kick spends the cmux-bot App's hour first, falls

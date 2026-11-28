@@ -73,7 +73,9 @@ lexical scope tracker (`main_actor_lines` in `check-main-actor-work.py`), and re
    can wait on a prompt), `SecTrustEvaluate*` (can fetch revocation over the network), Accessibility IPC
    (`AXUIElement*`: waits up to 6 s on an app that does not answer), `CGWindowList*` (window-server IPC),
    DNS (`getaddrinfo`), `waitpid`, `fsync`, SQLite statements, and synchronous file writes and file-system
-   changes through `FileManager`. A reviewed exception needs `// main-actor-ok: <reason>`.
+   changes through `FileManager`. A reviewed exception needs `// main-actor-ok(NSView): <what it does>`,
+   naming the AppKit or Core Animation type it touches (Lawrence, 2026-11-27: "The comment should have to name the UI
+   type it touches, not how small the data is"). A bare `main-actor-ok:` is itself a hit, ratcheted down to none.
 3. **`guardrails.py` (pre-push only, under Lawrence's 2026-10-23 rule, since lifted): the diff gate.** Refuses new raw
    blocking primitives and new main-thread seam calls in the lines a push adds.
 

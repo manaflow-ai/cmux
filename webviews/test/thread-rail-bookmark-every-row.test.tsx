@@ -42,6 +42,7 @@ const { createRoot } = await import("react-dom/client");
 const { ThreadMinimap } = await import("../src/agent-session/acpmux/threadMinimap/ThreadMinimap");
 const { setBookmarkTransport, markSeq } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 const { projectInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+const { setChatDisplay } = await import("../src/agent-session/acpmux/chatDisplay");
 const { incomingPrompt } = await import("../src/agent-session/acpmux/conversation/incomingMessage");
 const { inboxText } = await import("../src/agent-session/acpmux/conversation/inboxNotice");
 
@@ -111,6 +112,8 @@ test("the inbox delivery's row keys its mark on the notice's seq", () => {
   expect(markSeq("user-9x")).toBeUndefined();
 });
 
+// The rail ticks only the person's prompts by default (Leo, 2026-11-27: "honestly non-user messages
+// shouldnt appear in the scroll rail anymore"); its "received" choice ticks other chats' messages.
 test("another chat's message on the rail has the card's bookmark, as the person's prompt does", async () => {
   const calls: { seq: number; bookmarked: boolean }[] = [];
   setBookmarkTransport({
@@ -139,17 +142,25 @@ test("another chat's message on the rail has the card's bookmark, as the person'
   );
   await railFrame();
   await settle();
-  expect(host.querySelectorAll("[data-tick]").length).toBe(2);
-  for (const index of [0, 1]) {
-    await act(async () => host.querySelector<HTMLElement>(`[data-tick="${index}"]`)!.focus());
-    expect(host.querySelector(".acpmux-minimap__bookmark")).not.toBeNull();
-  }
-  // Tick 1 is the inbox message: its card names the sender and bookmarks seq 9.
-  expect(host.querySelector(".acpmux-minimap__from")?.textContent).toContain("ux-owner");
-  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!.click());
+  // By default only the person's prompt has a tick, and its card has the bookmark.
+  expect(host.querySelectorAll("[data-tick]").length).toBe(1);
+  await act(async () => host.querySelector<HTMLElement>(`[data-tick="0"]`)!.focus());
+  expect(host.querySelector(".acpmux-minimap__bookmark")).not.toBeNull();
+  await act(async () => setChatDisplay({ "agentPane.display.rail.show": "received" }));
+  await railFrame();
   await settle();
-  expect(calls).toEqual([{ seq: 9, bookmarked: true }]);
-  expect(host.querySelector('[data-tick="1"] .acpmux-minimap__dot')).not.toBeNull();
-  await act(async () => root.unmount());
-  host.remove();
+  try {
+    // The inbox message's tick: its card names the sender and bookmarks seq 9.
+    expect(host.querySelectorAll("[data-tick]").length).toBe(1);
+    await act(async () => host.querySelector<HTMLElement>(`[data-tick="0"]`)!.focus());
+    expect(host.querySelector(".acpmux-minimap__from")?.textContent).toContain("ux-owner");
+    await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-minimap__bookmark")!.click());
+    await settle();
+    expect(calls).toEqual([{ seq: 9, bookmarked: true }]);
+    expect(host.querySelector('[data-tick="0"] .acpmux-minimap__dot')).not.toBeNull();
+  } finally {
+    setChatDisplay({});
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });

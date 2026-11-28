@@ -7,21 +7,28 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
-import { SubagentNavContext, SubagentViewsContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
-import { SubagentReplyContext } from "../src/agent-session/acpmux/subagents/wholeReport";
-import { DoneReportLookContext } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
-import { TurnActionsContext } from "../src/agent-session/acpmux/conversation/turnActions";
-import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
-import {
-  isCappedPreview,
-  shownOfCut,
-  wholeBlocksAfter,
-  wholeBlocksBefore,
-} from "../src/agent-session/acpmux/conversation/markdownCut";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { SubagentDoneLine } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/SubagentDoneLine"),
+);
+const { SubagentNavContext, SubagentViewsContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subagentGroupModel"),
+);
+const { SubagentReplyContext } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/wholeReport"));
+const { DoneReportLookContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/subagents/subagentDoneLineModel"),
+);
+const { TurnActionsContext } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/turnActions"),
+);
+const { SUBAGENT_DONE } = await importWithDom(() => import("../src/agent-session/acpmux/subagents/subagentRows"));
+const { isCappedPreview, shownOfCut, wholeBlocksAfter, wholeBlocksBefore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/markdownCut"),
+);
 
 // The report from Leo's screenshot, long enough that acpmux's 240-character cut lands in the
 // bold span of the first list item.

@@ -195,6 +195,19 @@ export function thumbRatio(width: number, height: number): number {
   return Math.min(2, Math.max(0.7, width / height));
 }
 
+/// Device pixels per CSS pixel a whole thumbnail (a linked file's, shown in the sent bubble) is
+/// drawn at: a Mac's Retina display is 2x. The worker has no `devicePixelRatio` of its own.
+export const WHOLE_THUMB_DENSITY = 2;
+
+/// The scale a whole thumbnail draws a `width` x `height` image at. A linked file shares its preview
+/// with the sent bubble, which shows the whole picture in a box up to `boxHeight` x 480 CSS px
+/// (userBubbleModel.ts `sentImageSize`): drawn at WHOLE_THUMB_DENSITY device pixels per CSS pixel,
+/// so it is sharp on a Retina display, never a 1x picture scaled up, and never past the image's own
+/// pixels (https://github.com/manaflow-ai/cmux/issues/59858).
+export function wholeThumbScale(width: number, height: number, boxHeight = 160): number {
+  return Math.min(1, (WHOLE_THUMB_DENSITY * boxHeight) / height, (WHOLE_THUMB_DENSITY * 480) / width);
+}
+
 /// A thumbnail of an image attachment `height`px tall (as a data: URL), in the image's own shape
 /// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
 /// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
@@ -206,8 +219,7 @@ export async function drawThumb(bitmap: ImageBitmap, height = 160, whole = false
     bitmap.width / bitmap.height > ratio
       ? [bitmap.height * ratio, bitmap.height]
       : [bitmap.width, bitmap.width / ratio];
-  // A linked file shares its preview with the sent bubble, which shows the whole picture.
-  const scale = whole ? Math.min(1, height / sourceHeight, 480 / sourceWidth) : height / sourceHeight;
+  const scale = whole ? wholeThumbScale(sourceWidth, sourceHeight, height) : height / sourceHeight;
   const canvas = new OffscreenCanvas(
     Math.max(1, Math.round(sourceWidth * scale)),
     Math.max(1, Math.round(sourceHeight * scale)),

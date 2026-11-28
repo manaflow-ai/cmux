@@ -337,6 +337,18 @@ fn day_file(date: &str) -> String {
 /// `writeMemory` past its "memory is already there" check: the interleaved old logs (or the copied
 /// one) and then each unlogged human message as a `user` line.
 pub fn memory_lines(sources: &[Source], utc_offset: i64) -> MemoryLines {
+    memory_lines_dated(sources, utc_offset, &[])
+}
+
+/// ``memory_lines`` with each unlogged message dated at its own UTC offset
+/// (`unlogged_offsets[i]`, the zone's offset at that message's time, so a
+/// move across a daylight-saving change dates each line as the clock did);
+/// a message past the list takes `utc_offset`.
+pub fn memory_lines_dated(
+    sources: &[Source],
+    utc_offset: i64,
+    unlogged_offsets: &[i64],
+) -> MemoryLines {
     let plan = plan(sources);
     let mut appends = Vec::new();
     let mut copy_from = None;
@@ -364,7 +376,8 @@ pub fn memory_lines(sources: &[Source], utc_offset: i64) -> MemoryLines {
         }
     };
     for (offset, item) in plan.unlogged.iter().enumerate() {
-        let date = local_date(&item.message.created_at, utc_offset);
+        let item_offset = unlogged_offsets.get(offset).copied().unwrap_or(utc_offset);
+        let date = local_date(&item.message.created_at, item_offset);
         appends.push(Append {
             file: day_file(&date),
             line: log_line((count + offset) as i64, "user", &item.message.text(), &date),

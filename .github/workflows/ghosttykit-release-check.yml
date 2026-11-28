@@ -1,0 +1,54 @@
+name: GhosttyKit release check (post-merge)
+
+# The after-merge run of ci.yml's `GhosttyKit release check` job (cmuxterm-hq docs/rfd/0045-landing-tail.md,
+# Determination 3: "ci.yml is not eligible yet: only its web jobs run after the merge ... Next step, named: give
+# those jobs a batch suite, then ci.yml joins the tier"). On a pull request into feat-cmux-next, ci.yml runs
+# `changes`, `web` (already batch suite `web`) and this check; nothing ran it again after the merge. The post-merge
+# batch (cmux-next-post-merge.yml, suite ghosttykit-release-check of .github/post-merge-batch.json) calls this
+# with the tip once a window when the commits since the last batch touched the files ci.yml's router reads for it.
+#
+# Off by default: the job runs only when the repository variable CI_POST_MERGE_GHOSTTYKIT is `on`. Unset, the
+# batch calls it and the job skips (the batch judge reads a skipped suite job as no red), so nothing changes until
+# that variable is set. ci.yml joins the merge tier in its own PR, once this has run green after merges.
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit to check (the post-merge batch's tip or a bisect probe's commit). Empty: the event's own."
+        type: string
+        default: ""
+      only:
+        description: "The one job id to run (a bisect probe): verify. Empty: every job."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: GhosttyKit release check
+    if: ${{ vars.CI_POST_MERGE_GHOSTTYKIT == 'on' && (inputs.only == '' || inputs.only == 'verify') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || '' }}
+          persist-credentials: false
+
+      - name: Read pinned Ghostty SHA
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git ls-tree HEAD ghostty | awk '$4 == "ghostty" { print $3; exit }')"
+          test -n "$GHOSTTY_SHA"
+          echo "Pinned Ghostty SHA: $GHOSTTY_SHA"
+          echo "GHOSTTY_SHA=$GHOSTTY_SHA" >> "$GITHUB_ENV"
+
+      # The same step and retry budget as ci.yml's job.
+      - name: Verify published GhosttyKit release and checksum
+        env:
+          GHOSTTYKIT_DOWNLOAD_RETRIES: "3"
+          GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "5"
+        run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only

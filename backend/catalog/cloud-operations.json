@@ -2782,6 +2782,49 @@
                     "name": "int64"
                   }
                 }
+              },
+              "included_usd": {
+                "required": false,
+                "type": {
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "primitive",
+                      "name": "float64"
+                    },
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "Infinity",
+                        "-Infinity",
+                        "NaN"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "overage_usd": {
+                "required": false,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
               }
             }
           }
@@ -7838,6 +7881,13 @@
       "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
       "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
     },
+    "PemCertificate": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 50,
+      "max_length": 8192,
+      "description": "An X.509 signing certificate of the IdP, PEM or base64 DER."
+    },
     "Platform": {
       "kind": "enum",
       "values": [
@@ -7904,6 +7954,15 @@
         "cloud.sandboxes",
         "cloud.connectServices",
         "cloud.idlePause",
+        "cloud.providers",
+        "cloud.regions",
+        "cloud.egress",
+        "agents.harnesses",
+        "agents.models",
+        "projection.folders",
+        "projection.readOnly",
+        "projection.syncBack",
+        "sandbox.local",
         "telemetry.level",
         "updates.channel",
         "updates.minimumVersion",
@@ -8426,6 +8485,39 @@
         }
       }
     },
+    "SamlSettings": {
+      "kind": "object",
+      "fields": {
+        "idp_entity_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 500
+          }
+        },
+        "sso_url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 500,
+            "pattern": "^https:\\/\\/[^\\s]+$"
+          }
+        },
+        "certificates": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "PemCertificate"
+            }
+          }
+        }
+      }
+    },
     "ServerCapability": {
       "kind": "primitive",
       "name": "string",
@@ -8630,7 +8722,8 @@
           "type": {
             "kind": "enum",
             "values": [
-              "oidc"
+              "oidc",
+              "saml"
             ]
           }
         },
@@ -8656,7 +8749,7 @@
           }
         },
         "oidc": {
-          "required": true,
+          "required": false,
           "type": {
             "kind": "object",
             "fields": {
@@ -8726,6 +8819,13 @@
                 }
               }
             }
+          }
+        },
+        "saml": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "SamlSettings"
           }
         },
         "secret_set": {
@@ -9417,6 +9517,52 @@
         }
       }
     },
+    "TeamEgress": {
+      "kind": "object",
+      "fields": {
+        "mode": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "full",
+              "allowlist",
+              "none"
+            ]
+          }
+        },
+        "presets": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "enum",
+              "values": [
+                "anthropic",
+                "openai",
+                "openrouter",
+                "opencode",
+                "github",
+                "npm",
+                "pypi",
+                "rust"
+              ]
+            }
+          }
+        },
+        "domains": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+            }
+          }
+        }
+      }
+    },
     "TeamId": {
       "kind": "primitive",
       "name": "string",
@@ -10059,6 +10205,229 @@
                 "type": {
                   "kind": "primitive",
                   "name": "boolean"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "cloud.providers": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "cloud.regions": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "cloud.egress": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamEgress"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "agents.harnesses": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "agents.models": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "projection.folders": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1,
+                    "max_length": 500,
+                    "pattern": "^(~|\\/)"
+                  }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "projection.readOnly": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "projection.syncBack": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "sandbox.local": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "on",
+                    "required"
+                  ]
                 }
               },
               "mode": {
@@ -38003,6 +38372,39 @@
                         "type": "integer",
                         "minimum": -9007199254740991,
                         "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "included_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "overage_usd": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
                       },
                       {
                         "type": "null"
@@ -75069,7 +75471,7 @@
         "expose": "never",
         "group": "team"
       },
-      "docs": "Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team.",
+      "docs": "Activate the connection (owners and admins). OIDC: fetches the issuer's discovery document and needs the secret. SAML: needs a valid IdP certificate. Both need every domain verified by this team.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -75102,6 +75504,41 @@
             "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
+          "PemCertificate": {
+            "type": "string",
+            "minLength": 50,
+            "maxLength": 8192,
+            "description": "An X.509 signing certificate of the IdP, PEM or base64 DER."
+          },
+          "SamlSettings": {
+            "type": "object",
+            "properties": {
+              "idp_entity_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "sso_url": {
+                "type": "string",
+                "maxLength": 500,
+                "pattern": "^https:\\/\\/[^\\s]+$"
+              },
+              "certificates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/PemCertificate"
+                },
+                "minItems": 1,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "idp_entity_id",
+              "sso_url",
+              "certificates"
+            ],
+            "additionalProperties": true
+          },
           "SsoConnection": {
             "type": "object",
             "properties": {
@@ -75111,7 +75548,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "oidc"
+                  "oidc",
+                  "saml"
                 ]
               },
               "state": {
@@ -75195,6 +75633,9 @@
                 ],
                 "additionalProperties": true
               },
+              "saml": {
+                "$ref": "#/$defs/SamlSettings"
+              },
               "secret_set": {
                 "type": "boolean"
               },
@@ -75239,7 +75680,6 @@
               "kind",
               "state",
               "domains",
-              "oidc",
               "secret_set",
               "jit",
               "created_at",
@@ -75455,6 +75895,41 @@
             "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
+          "PemCertificate": {
+            "type": "string",
+            "minLength": 50,
+            "maxLength": 8192,
+            "description": "An X.509 signing certificate of the IdP, PEM or base64 DER."
+          },
+          "SamlSettings": {
+            "type": "object",
+            "properties": {
+              "idp_entity_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "sso_url": {
+                "type": "string",
+                "maxLength": 500,
+                "pattern": "^https:\\/\\/[^\\s]+$"
+              },
+              "certificates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/PemCertificate"
+                },
+                "minItems": 1,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "idp_entity_id",
+              "sso_url",
+              "certificates"
+            ],
+            "additionalProperties": true
+          },
           "SsoConnection": {
             "type": "object",
             "properties": {
@@ -75464,7 +75939,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "oidc"
+                  "oidc",
+                  "saml"
                 ]
               },
               "state": {
@@ -75548,6 +76024,9 @@
                 ],
                 "additionalProperties": true
               },
+              "saml": {
+                "$ref": "#/$defs/SamlSettings"
+              },
               "secret_set": {
                 "type": "boolean"
               },
@@ -75592,7 +76071,403 @@
               "kind",
               "state",
               "domains",
-              "oidc",
+              "secret_set",
+              "jit",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "sso.connection.create_saml": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "idp_entity_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 500
+            }
+          },
+          "sso_url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 500,
+              "pattern": "^https:\\/\\/[^\\s]+$"
+            }
+          },
+          "certificates": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "PemCertificate"
+              }
+            }
+          },
+          "domains": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailDomain"
+              }
+            }
+          },
+          "jit": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "enabled": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "default_role": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "member",
+                      "admin"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SsoConnection"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.invalid",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team sso create-saml",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Create a SAML 2.0 connection in draft (owners and admins) from the IdP's entity id, sign-on URL and signing certificate. Give the IdP the SP metadata at /v1/sso/saml/metadata/{team}/{connection}, then activate it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "idp_entity_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "sso_url": {
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^https:\\/\\/[^\\s]+$"
+          },
+          "certificates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/PemCertificate"
+            },
+            "minItems": 1,
+            "maxItems": 2
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailDomain"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "jit": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "default_role": {
+                "type": "string",
+                "enum": [
+                  "member",
+                  "admin"
+                ]
+              }
+            },
+            "required": [
+              "enabled",
+              "default_role"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "idp_entity_id",
+          "sso_url",
+          "certificates",
+          "domains"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PemCertificate": {
+            "type": "string",
+            "minLength": 50,
+            "maxLength": 8192,
+            "description": "An X.509 signing certificate of the IdP, PEM or base64 DER."
+          },
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/SsoConnection",
+        "$defs": {
+          "SsoConnectionId": {
+            "type": "string",
+            "pattern": "^ssoc_[a-z0-9]{20}$"
+          },
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          },
+          "PemCertificate": {
+            "type": "string",
+            "minLength": 50,
+            "maxLength": 8192,
+            "description": "An X.509 signing certificate of the IdP, PEM or base64 DER."
+          },
+          "SamlSettings": {
+            "type": "object",
+            "properties": {
+              "idp_entity_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "sso_url": {
+                "type": "string",
+                "maxLength": 500,
+                "pattern": "^https:\\/\\/[^\\s]+$"
+              },
+              "certificates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/PemCertificate"
+                },
+                "minItems": 1,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "idp_entity_id",
+              "sso_url",
+              "certificates"
+            ],
+            "additionalProperties": true
+          },
+          "SsoConnection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/SsoConnectionId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "oidc",
+                  "saml"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "disabled"
+                ]
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/EmailDomain"
+                }
+              },
+              "oidc": {
+                "type": "object",
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "pattern": "^https:\\/\\/[^\\s]+$"
+                  },
+                  "client_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 64
+                    }
+                  },
+                  "authorization_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "token_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "jwks_uri": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "issuer",
+                  "client_id",
+                  "scopes",
+                  "authorization_endpoint",
+                  "token_endpoint",
+                  "jwks_uri"
+                ],
+                "additionalProperties": true
+              },
+              "saml": {
+                "$ref": "#/$defs/SamlSettings"
+              },
+              "secret_set": {
+                "type": "boolean"
+              },
+              "secret_generation": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "jit": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "default_role": {
+                    "type": "string",
+                    "enum": [
+                      "member",
+                      "admin"
+                    ]
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "default_role"
+                ],
+                "additionalProperties": true
+              },
+              "created_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "updated_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "state",
+              "domains",
               "secret_set",
               "jit",
               "created_at",
@@ -75704,6 +76579,41 @@
             "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
+          "PemCertificate": {
+            "type": "string",
+            "minLength": 50,
+            "maxLength": 8192,
+            "description": "An X.509 signing certificate of the IdP, PEM or base64 DER."
+          },
+          "SamlSettings": {
+            "type": "object",
+            "properties": {
+              "idp_entity_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "sso_url": {
+                "type": "string",
+                "maxLength": 500,
+                "pattern": "^https:\\/\\/[^\\s]+$"
+              },
+              "certificates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/PemCertificate"
+                },
+                "minItems": 1,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "idp_entity_id",
+              "sso_url",
+              "certificates"
+            ],
+            "additionalProperties": true
+          },
           "SsoConnection": {
             "type": "object",
             "properties": {
@@ -75713,7 +76623,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "oidc"
+                  "oidc",
+                  "saml"
                 ]
               },
               "state": {
@@ -75797,6 +76708,9 @@
                 ],
                 "additionalProperties": true
               },
+              "saml": {
+                "$ref": "#/$defs/SamlSettings"
+              },
               "secret_set": {
                 "type": "boolean"
               },
@@ -75841,7 +76755,6 @@
               "kind",
               "state",
               "domains",
-              "oidc",
               "secret_set",
               "jit",
               "created_at",
@@ -75965,6 +76878,41 @@
             "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
+          "PemCertificate": {
+            "type": "string",
+            "minLength": 50,
+            "maxLength": 8192,
+            "description": "An X.509 signing certificate of the IdP, PEM or base64 DER."
+          },
+          "SamlSettings": {
+            "type": "object",
+            "properties": {
+              "idp_entity_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "sso_url": {
+                "type": "string",
+                "maxLength": 500,
+                "pattern": "^https:\\/\\/[^\\s]+$"
+              },
+              "certificates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/PemCertificate"
+                },
+                "minItems": 1,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "idp_entity_id",
+              "sso_url",
+              "certificates"
+            ],
+            "additionalProperties": true
+          },
           "SsoConnection": {
             "type": "object",
             "properties": {
@@ -75974,7 +76922,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "oidc"
+                  "oidc",
+                  "saml"
                 ]
               },
               "state": {
@@ -76058,6 +77007,9 @@
                 ],
                 "additionalProperties": true
               },
+              "saml": {
+                "$ref": "#/$defs/SamlSettings"
+              },
               "secret_set": {
                 "type": "boolean"
               },
@@ -76102,7 +77054,6 @@
               "kind",
               "state",
               "domains",
-              "oidc",
               "secret_set",
               "jit",
               "created_at",
@@ -76230,6 +77181,41 @@
             "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
+          "PemCertificate": {
+            "type": "string",
+            "minLength": 50,
+            "maxLength": 8192,
+            "description": "An X.509 signing certificate of the IdP, PEM or base64 DER."
+          },
+          "SamlSettings": {
+            "type": "object",
+            "properties": {
+              "idp_entity_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "sso_url": {
+                "type": "string",
+                "maxLength": 500,
+                "pattern": "^https:\\/\\/[^\\s]+$"
+              },
+              "certificates": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/PemCertificate"
+                },
+                "minItems": 1,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "idp_entity_id",
+              "sso_url",
+              "certificates"
+            ],
+            "additionalProperties": true
+          },
           "SsoConnection": {
             "type": "object",
             "properties": {
@@ -76239,7 +77225,8 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "oidc"
+                  "oidc",
+                  "saml"
                 ]
               },
               "state": {
@@ -76323,6 +77310,9 @@
                 ],
                 "additionalProperties": true
               },
+              "saml": {
+                "$ref": "#/$defs/SamlSettings"
+              },
               "secret_set": {
                 "type": "boolean"
               },
@@ -76367,7 +77357,6 @@
               "kind",
               "state",
               "domains",
-              "oidc",
               "secret_set",
               "jit",
               "created_at",
@@ -86413,6 +87402,48 @@
             },
             "maxItems": 2
           },
+          "TeamEgress": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "allowlist",
+                  "none"
+                ]
+              },
+              "presets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "anthropic",
+                    "openai",
+                    "openrouter",
+                    "opencode",
+                    "github",
+                    "npm",
+                    "pypi",
+                    "rust"
+                  ]
+                },
+                "maxItems": 16
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+                },
+                "maxItems": 48
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": true
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -86722,6 +87753,186 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.providers": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.regions": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.egress": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/TeamEgress"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.harnesses": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.models": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.folders": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500,
+                      "pattern": "^(~|\\/)"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.readOnly": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.syncBack": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "sandbox.local": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "on",
+                      "required"
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -87188,6 +88399,48 @@
             },
             "maxItems": 2
           },
+          "TeamEgress": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "allowlist",
+                  "none"
+                ]
+              },
+              "presets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "anthropic",
+                    "openai",
+                    "openrouter",
+                    "opencode",
+                    "github",
+                    "npm",
+                    "pypi",
+                    "rust"
+                  ]
+                },
+                "maxItems": 16
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+                },
+                "maxItems": 48
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": true
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -87497,6 +88750,186 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.providers": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.regions": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.egress": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/TeamEgress"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.harnesses": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.models": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.folders": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500,
+                      "pattern": "^(~|\\/)"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.readOnly": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.syncBack": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "sandbox.local": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "on",
+                      "required"
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -87787,6 +89220,15 @@
               "cloud.sandboxes",
               "cloud.connectServices",
               "cloud.idlePause",
+              "cloud.providers",
+              "cloud.regions",
+              "cloud.egress",
+              "agents.harnesses",
+              "agents.models",
+              "projection.folders",
+              "projection.readOnly",
+              "projection.syncBack",
+              "sandbox.local",
               "telemetry.level",
               "updates.channel",
               "updates.minimumVersion",
@@ -88019,6 +89461,48 @@
               ]
             },
             "maxItems": 2
+          },
+          "TeamEgress": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "allowlist",
+                  "none"
+                ]
+              },
+              "presets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "anthropic",
+                    "openai",
+                    "openrouter",
+                    "opencode",
+                    "github",
+                    "npm",
+                    "pypi",
+                    "rust"
+                  ]
+                },
+                "maxItems": 16
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+                },
+                "maxItems": 48
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": true
           },
           "TeamPolicyValues": {
             "type": "object",
@@ -88329,6 +89813,186 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.providers": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.regions": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.egress": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/TeamEgress"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.harnesses": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.models": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.folders": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500,
+                      "pattern": "^(~|\\/)"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.readOnly": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.syncBack": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "sandbox.local": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "on",
+                      "required"
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -88780,6 +90444,15 @@
               "cloud.sandboxes",
               "cloud.connectServices",
               "cloud.idlePause",
+              "cloud.providers",
+              "cloud.regions",
+              "cloud.egress",
+              "agents.harnesses",
+              "agents.models",
+              "projection.folders",
+              "projection.readOnly",
+              "projection.syncBack",
+              "sandbox.local",
               "telemetry.level",
               "updates.channel",
               "updates.minimumVersion",
@@ -88874,6 +90547,48 @@
               ]
             },
             "maxItems": 2
+          },
+          "TeamEgress": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "allowlist",
+                  "none"
+                ]
+              },
+              "presets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "anthropic",
+                    "openai",
+                    "openrouter",
+                    "opencode",
+                    "github",
+                    "npm",
+                    "pypi",
+                    "rust"
+                  ]
+                },
+                "maxItems": 16
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\\.[a-z0-9-]*[a-z][a-z0-9-]*$"
+                },
+                "maxItems": 48
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "additionalProperties": true
           },
           "TeamPolicyValues": {
             "type": "object",
@@ -89184,6 +90899,186 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.providers": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^(cmux|byoc:[A-Za-z0-9._-]{1,100})$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.regions": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.egress": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/TeamEgress"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.harnesses": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "agents.models": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,198}\\*?$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.folders": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500,
+                      "pattern": "^(~|\\/)"
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.readOnly": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "projection.syncBack": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "sandbox.local": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "enum": [
+                      "on",
+                      "required"
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -90226,7 +92121,30 @@
         "selectors": {},
         "fields": {
           "cap_usd": {
-            "required": true,
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "union",
+                "variants": [
+                  {
+                    "kind": "primitive",
+                    "name": "float64"
+                  },
+                  {
+                    "kind": "enum",
+                    "values": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "overage_usd": {
+            "required": false,
             "type": {
               "kind": "nullable",
               "inner": {
@@ -90298,6 +92216,29 @@
                     ]
                   }
                 }
+              },
+              "overage_usd": {
+                "required": false,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
               }
             }
           }
@@ -90333,7 +92274,7 @@
         "expose": "never",
         "group": "usage"
       },
-      "docs": "Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.",
+      "docs": "Set the team's own monthly hard cap (team admins): `cap_usd` as a total (for automations, the lower of it and the deployment ceiling), or `overage_usd` past the plan's pool (null = overage off).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -90355,11 +92296,26 @@
                 "type": "null"
               }
             ]
+          },
+          "overage_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "required": [
-          "cap_usd"
-        ],
         "additionalProperties": true,
         "$defs": {}
       },
@@ -90377,6 +92333,24 @@
             ]
           },
           "team_cap_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "overage_usd": {
             "anyOf": [
               {
                 "type": "number"

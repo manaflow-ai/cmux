@@ -45,6 +45,13 @@ extension UpdaterService {
                 json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
             }
             actions = [.install]
+            // "What's in this build" (the popover's ``BuildPullRequests``): the staged span's PRs by area.
+            if let prs = stagedPullRequests, !prs.isEmpty,
+               case .object(var members)? = try? JSONValue.parse(JSONEncoder().encode(prs)) {
+                members["title"] = .string(UpdaterStrings.pullRequestsTitle)
+                members["other"] = .string(UpdaterStrings.pullRequestsOther)
+                json["prs"] = .object(members)
+            }
         case .card(let shown):
             let card = Self.settingsQuantized(shown)
             let shown = card.presentation(version: identity.shortVersion, build: identity.build,

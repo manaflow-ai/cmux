@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::super::{AppCommand, parse};
-use super::human;
+use super::{human, page_source_human};
 
 fn english() -> &'static crate::localization::Catalog {
     crate::localization::catalog_for_locale("en_US.UTF-8")
@@ -135,4 +135,59 @@ fn summary_names_frame_owners_by_file() {
     assert!(text.contains("no page code asked for frames"), "{text}");
     // A page from before the owners says so instead of printing nothing.
     assert!(human(&report(), &english().app_control).contains("does not report them"));
+}
+
+/// `cmux app chat perf --page-source` asks the app for its page-source counts alone: no tab, no
+/// window, no `reset`; a tab or seconds beside it is refused.
+#[test]
+fn app_chat_perf_page_source_needs_no_tab() {
+    let command = parse(&args(&["app", "chat", "perf", "--page-source"])).unwrap().unwrap();
+    assert_eq!(command, AppCommand::ChatPageSource { params: json!({"page_source": true}) });
+    for bad in [
+        &["app", "chat", "perf", "--page-source", "--tab", "tab_1"][..],
+        &["app", "chat", "perf", "--page-source", "--seconds", "5"],
+        &["app", "chat", "perf", "--page-source", "--reset"],
+        &["app", "chat", "perf", "--page-source=true"],
+    ] {
+        assert!(parse(&args(bad)).is_err(), "{bad:?} should be refused");
+    }
+}
+
+/// The summary names each source, the spare's misses, and the reasons largest first; an app from
+/// before the counts says so.
+#[test]
+fn page_source_summary_lists_sources_and_reasons() {
+    let report = json!({"page_source": {
+        "spare_adopted": 3, "spare_empty": 1, "spare_unready": 0, "spare_refused": 2,
+        "kept": 1, "cold": 7,
+        "cold_why": {"spare_not_taken": 3, "relaunch_wake": 4},
+        "refused_why": {"touched": 1, "has_session": 1}
+    }, "pages": {"chat": 9, "new_tab": 2, "frozen": 4, "released": 6}});
+    let text = page_source_human(&report, &english().app_control);
+    assert!(
+        text.starts_with("Chat pages made since launch: 3 took the warm spare, 1 reused a kept page, 7 built cold\n"),
+        "{text}"
+    );
+    assert!(text.contains("  Spare not used: 1 none parked, 0 not ready, 2 refused\n"), "{text}");
+    assert!(text.contains("  Built cold because: relaunch_wake 4, spare_not_taken 3\n"), "{text}");
+    assert!(text.contains("  Spare refused because: has_session 1, touched 1\n"), "{text}");
+    assert!(
+        text.contains("Pages now: 9 chat pages built (4 asleep), 2 New Tab pages; 6 chat pages let go while hidden since launch\n"),
+        "{text}"
+    );
+
+    let empty = json!({"page_source": {"spare_adopted": 0, "spare_empty": 0, "spare_unready": 0,
+        "spare_refused": 0, "kept": 0, "cold": 0, "cold_why": {}, "refused_why": {}}});
+    let text = page_source_human(&empty, &english().app_control);
+    assert!(!text.contains("because"), "{text}");
+    assert!(!text.contains("Pages now"), "an app from before the page counts prints none: {text}");
+
+    assert!(
+        page_source_human(&json!({"tab": "x"}), &english().app_control).contains("does not count")
+    );
+    let ja = page_source_human(
+        &report,
+        &crate::localization::catalog_for_locale("ja_JP.UTF-8").app_control,
+    );
+    assert!(!ja.contains('{'), "{ja}");
 }

@@ -411,6 +411,14 @@ impl Session {
         }
     }
 
+    /// Whether the daemon detached this client on someone's request (a kick).
+    pub(crate) fn disconnected_by_peer(&self) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Remote(remote) => remote.disconnected_by_peer(),
+        }
+    }
+
     /// What the daemon's shutdown notice said; `None` for a local session
     /// or when no notice came.
     pub(crate) fn daemon_shutdown_notice(&self) -> Option<DaemonShutdownNotice> {

@@ -305,7 +305,7 @@ impl HttpTransport {
         if !(origin.starts_with("https://") || origin.starts_with("http://127.0.0.1")) {
             bail!("browser sync origin must be https");
         }
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("cmux_browser_sync::records")
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux-browser-sync/", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(30))
@@ -336,3 +336,7 @@ impl Transport for HttpTransport {
         serde_json::from_value(body).context("browser sync answer")
     }
 }
+
+#[cfg(test)]
+#[path = "records_seeded_tests.rs"]
+mod seeded_tests;

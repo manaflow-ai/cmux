@@ -117,11 +117,15 @@ fn steps(list: &Value, value_key: &str) -> Vec<Step> {
 }
 
 /// A family's steps, smallest first, from the app's own scale files.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "embedded design-scale JSON has the documented family paths"
+)]
 pub fn family(name: &str) -> Option<(Vec<Step>, &'static str, &'static str)> {
     let [_, design, type_scale, _, _, motion] = sources();
     let (mut list, unit, source) = match name {
         "spacing" => (
-            steps(&design["spacing"]["steps"], "px"),
+            steps(design.get("spacing").and_then(|s| s.get("steps")).unwrap_or(&Value::Null), "px"),
             "px",
             "schemas/design-scale/design-scale.json spacing.steps",
         ),
@@ -170,6 +174,10 @@ fn instrument() -> &'static Value {
 
 /// Instrument's tokens, each with its group, CSS property and whether the
 /// app draws Instrument's value yet.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "embedded token JSON's today/file path is part of the schema"
+)]
 fn token_rows() -> Vec<Value> {
     instrument()["tokens"]
         .as_array()
@@ -194,7 +202,10 @@ fn token_rows() -> Vec<Value> {
             }
             if let Some(now) = today {
                 row.insert("today".into(), now.clone());
-                row.insert("source".into(), token["today"]["file"].clone());
+                row.insert(
+                    "source".into(),
+                    token.get("today").and_then(|t| t.get("file")).cloned().unwrap_or(Value::Null),
+                );
             }
             if wanted.is_some() {
                 row.insert("css".into(), json!(format!("--instrument-{}", name.replace('.', "-"))));
@@ -306,14 +317,18 @@ pub fn tokens(request: &Request) -> Result<Answer, String> {
     }
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "scale_answer consumes the schema produced by family_json"
+)]
 fn scale_answer(scale: Value) -> Answer {
     let mut human = format!(
         "{} ({}, from {}):\n",
-        number(&scale["family"]),
-        number(&scale["unit"]),
-        number(&scale["source"])
+        number(scale.get("family").unwrap_or(&Value::Null)),
+        number(scale.get("unit").unwrap_or(&Value::Null)),
+        number(scale.get("source").unwrap_or(&Value::Null))
     );
-    for step in scale["steps"].as_array().into_iter().flatten() {
+    for step in scale.get("steps").and_then(Value::as_array).into_iter().flatten() {
         human.push_str(&format!(
             "  {:<10} {:>6}  {}\n",
             number(&step["name"]),
