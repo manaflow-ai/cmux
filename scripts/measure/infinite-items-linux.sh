@@ -135,7 +135,9 @@ if [[ "$musl" == 1 ]]; then
   fi
   tail -n 3 "$build_log"
   bin="$target/$musl_target/release"
-  cp "$bin/acpmux-standalone" "$bin/acpmux"
+  # Copy, then rename: a daemon an earlier run left up may still run $bin/acpmux, and cp onto it fails with "Text
+  # file busy" (run 46155529321's second musl arm); the rename leaves that process its old inode.
+  cp "$bin/acpmux-standalone" "$bin/acpmux.new.$$" && mv -f "$bin/acpmux.new.$$" "$bin/acpmux"
 else
   cargo build --locked --release -p acpmux --bin acpmux -p cmux-tui --bin cmux-tui --bin cmux-tui-host 2>&1 | tail -n 3
   bin="$target/release"
