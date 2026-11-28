@@ -176,6 +176,7 @@ def run_logged(cmd: list[str], env: dict, cwd: Path, out: Path, timeout: int) ->
 # How much of a failed run's log its result carries: the panic and the lines before the exit.
 FAIL_TAIL = 30
 PANIC = re.compile(r"panicked at|^thread '|assertion|^failures:|^---- |FAILED|error(\[E\d+\])?:")
+DIED = re.compile(r"(process didn't exit successfully): `(\S+).*?`\s*(\((?:signal|exit status)[^)]*\))\s*$")
 
 
 def failure_lines(code: int, text: str) -> list[str]:
@@ -187,12 +188,22 @@ def failure_lines(code: int, text: str) -> list[str]:
     lines = text.splitlines()
     picked = [line for line in lines if PANIC.search(line)][:40]
     tail = [line for line in lines[-FAIL_TAIL:] if line not in picked]
-    return [f"exit {code}" + (" (timed out)" if code == 124 else ""), *picked, *tail]
+    # cargo's "process didn't exit successfully: `rustc ...` (signal: 9, SIGKILL: kill)" is a
+    # several-KiB line whose cause sits at its end, past LOG_LINE (runs 46145570589, 46148652685).
+    died = [f"{m.group(1)}: {Path(m.group(2)).name} {m.group(3)}" for line in lines if (m := DIED.search(line))]
+    return [f"exit {code}" + (" (timed out)" if code == 124 else ""), *died, *picked, *tail]
 
 
 def cargo_env(args) -> dict:
     env = dict(os.environ)
     env.setdefault("CARGO_PROFILE_RELEASE_DEBUG", "line-tables-only")
+    # The shipping profile's thin LTO over one codegen unit makes the acpmux lib (and its test
+    # harness) one rustc whose peak outgrew a cmux-linux pool slot's MemoryMax: the kernel killed
+    # it 8 min in, no compiler error, both legs, two runs in a row (46145570589, 46148652685; the
+    # same build passed at 06:39Z, before the slots got a cap). The lab measures bytes, waits and
+    # memory at scale, not codegen, so its build skips LTO and splits the crate.
+    env.setdefault("CARGO_PROFILE_RELEASE_LTO", "off")
+    env.setdefault("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "16")
     if args.target_dir:
         env["CARGO_TARGET_DIR"] = args.target_dir
     env["TMPDIR"] = str(private_tmp(Path(args.out)))
