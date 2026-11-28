@@ -37,19 +37,19 @@
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Las pantallas Linux priorizan el texto nítido sobre la velocidad"
+            "value" : "Las pantallas Linux priorizan texto nítido sobre velocidad"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Les écrans Linux privilégient un texte net plutôt que la vitesse"
+            "value" : "Les écrans Linux privilégient un texte net à la vitesse"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Gli schermi Linux privilegiano il testo nitido rispetto alla velocità"
+            "value" : "Gli schermi Linux preferiscono il testo nitido alla velocità"
           }
         },
         "ja" : {

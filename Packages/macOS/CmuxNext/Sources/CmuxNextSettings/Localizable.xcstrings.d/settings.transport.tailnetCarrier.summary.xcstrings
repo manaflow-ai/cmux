@@ -44,7 +44,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Utiliser les chemins Tailscale directs lorsqu'ils sont disponibles"
+            "value" : "Utiliser les chemins Tailscale directs si disponibles"
           }
         },
         "it" : {

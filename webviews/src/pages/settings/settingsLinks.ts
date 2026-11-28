@@ -141,6 +141,19 @@ function resolveFocus(focus: string, category: string | null, pathSection: strin
       required: false,
     };
   }
+  // `<card>:<N>`: a card opened again with a fresh N (Install an Earlier Nightly… sends
+  // `channels:<id>` each time) keeps the suffix, so the card sees a new focus and scrolls again.
+  const nonce = /^([A-Za-z]+):([A-Za-z0-9-]+)$/.exec(focus);
+  const again = nonce ? cardHome(nonce[1]!, category) : null;
+  if (nonce && again) {
+    return {
+      section: again,
+      focus: `card.${focus}`,
+      card: nonce[1] as CategoryCard,
+      target: cardTarget(nonce[1]!),
+      required: false,
+    };
+  }
   // `connections/<id>`: a hosted connection by its catalog id.
   if (pathSection === "connections" && /^[A-Za-z0-9._-]+$/.test(focus))
     return resolveFocus(`connection.${focus}`, category, undefined);

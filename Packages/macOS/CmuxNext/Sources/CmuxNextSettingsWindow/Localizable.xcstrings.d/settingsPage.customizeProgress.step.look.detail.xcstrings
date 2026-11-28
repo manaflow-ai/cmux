@@ -20,7 +20,7 @@
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cijeli izgled odjednom, spremljen u tvojoj biblioteci prilagodbi."
+            "value" : "Cijeli izgled odjednom, u tvojoj biblioteci prilagodbi."
           }
         },
         "da" : {
@@ -32,25 +32,25 @@
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ein ganzer Look auf einmal, gespeichert in Ihrer Anpassungsbibliothek."
+            "value" : "Ein ganzer Look auf einmal, in Ihrer Anpassungsbibliothek."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Un aspecto completo de una vez, guardado en tu biblioteca de personalización."
+            "value" : "Un aspecto completo, guardado en tu biblioteca."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Un style complet d'un coup, conservé dans votre bibliothèque de personnalisation."
+            "value" : "Un style complet d'un coup, gardé dans votre bibliothèque."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Un aspetto completo in un colpo solo, salvato nella tua libreria di personalizzazione."
+            "value" : "Un aspetto completo in un colpo, salvato nella libreria."
           }
         },
         "ja" : {
@@ -74,25 +74,25 @@
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Et helt utseende på én gang, lagret i tilpasningsbiblioteket ditt."
+            "value" : "Et helt utseende på én gang, i tilpasningsbiblioteket."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cały wygląd naraz, zapisany w Twojej bibliotece personalizacji."
+            "value" : "Cały wygląd naraz, w Twojej bibliotece personalizacji."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Um visual completo de uma vez, guardado na sua Biblioteca de Personalização."
+            "value" : "Um visual completo de uma vez, salvo na sua biblioteca."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Весь стиль сразу, он сохраняется в вашей библиотеке настроек."
+            "value" : "Весь стиль сразу, в вашей библиотеке настроек."
           }
         },
         "th" : {
@@ -104,19 +104,19 @@
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tüm görünüm tek seferde, Özelleştirme Kitaplığınızda saklanır."
+            "value" : "Tüm görünüm tek seferde, Özelleştirme Kitaplığınızda."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Весь вигляд одразу, він зберігається у вашій бібліотеці налаштувань."
+            "value" : "Весь вигляд одразу, у вашій бібліотеці налаштувань."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cả diện mạo cùng lúc, được lưu trong Thư viện tùy chỉnh của bạn."
+            "value" : "Cả diện mạo cùng lúc, lưu trong Thư viện tùy chỉnh."
           }
         },
         "zh-Hans" : {

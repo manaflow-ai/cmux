@@ -26,13 +26,13 @@
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hvornår cmux Cloud starter en agent for dig, og hvad den gør."
+            "value" : "Hvornår cmux Cloud starter en agent, og hvad den gør."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wann cmux Cloud einen Agenten für dich startet und was er tut."
+            "value" : "Wann cmux Cloud einen Agenten startet und was er tut."
           }
         },
         "es" : {
@@ -86,7 +86,7 @@
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Quando o cmux Cloud inicia um agente por você e o que ele faz."
+            "value" : "Quando o cmux Cloud inicia um agente e o que ele faz."
           }
         },
         "ru" : {
@@ -104,7 +104,7 @@
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux Cloud'un sizin için ne zaman bir ajan başlattığı ve ne yaptığı."
+            "value" : "cmux Cloud'un ne zaman ajan başlattığı ve ne yaptığı."
           }
         },
         "uk" : {
