@@ -25,7 +25,7 @@ rounds="${FOLD_ROUNDS:-15}"
 scratch="$(mktemp -d)"
 trees=()
 cleanup() {
-  for tree in "${trees[@]}"; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
+  for tree in ${trees[@]+"${trees[@]}"}; do git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1; done
   rm -rf "$scratch"
 }
 trap cleanup EXIT
