@@ -33,10 +33,14 @@ nonisolated extension DeepLink {
     /// - Returns: The tab ids to try revealing, in order: a tab that fails to
     ///   reveal falls through to the next one showing the session.
     public static func agentTabs(harness: String, session: String, adopted: String?, terminals: [AgentCandidate]) -> [String] {
-        let running = terminals.filter { $0.session == session }
-        let named = running.filter { knownHarness($0.harness) == harness }
-        let unnamed = running.filter { knownHarness($0.harness) == nil }
-        return (adopted.map { [$0] } ?? []) + (named + unnamed).map(\.tab)
+        var request: [String: Any] = ["op": "agentTabs", "harness": harness, "session": session, "terminals": terminals.map { terminal in
+            var row: [String: Any] = ["tab": terminal.tab]
+            if let harness = terminal.harness { row["harness"] = harness }
+            if let session = terminal.session { row["session"] = session }
+            return row
+        }]
+        if let adopted { request["adopted"] = adopted }
+        return RustDeepLink.call(request) as? [String] ?? []
     }
 
     /// ``agentTabs(harness:session:adopted:terminals:)`` over the daemon's harness sessions.
@@ -55,17 +59,5 @@ nonisolated extension DeepLink {
     public static func agentTab(harness: String, session: String, adopted: String?,
                                 harnessSessions: [(tab: String, agent: String?, session: String)]) -> String? {
         agentTabs(harness: harness, session: session, adopted: adopted, harnessSessions: harnessSessions).first
-    }
-
-    /// The harnesses a terminal's reported agent can name. Hooks report
-    /// `agent_type` first, which is not always a harness.
-    static let knownHarnesses: Set<String> = ["claude", "codex", "opencode", "gemini", "muse"]
-
-    /// The harness a reported agent names, or nil when it names none we
-    /// know. Claude Code's hooks may say `claude-code`.
-    static func knownHarness(_ agent: String?) -> String? {
-        guard let agent = agent?.lowercased() else { return nil }
-        if agent == "claude-code" { return "claude" }
-        return knownHarnesses.contains(agent) ? agent : nil
     }
 }
