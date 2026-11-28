@@ -16,7 +16,8 @@ use std::time::Instant;
 /// when no daemon answers). Blocking: it reads the probe and the override file
 /// unless the last verdict is fresh. `None` while another read is in flight.
 pub fn local_verdict() -> Option<String> {
-    let verdict = Meter::shared().sample_at(Instant::now())?;
+    let mut verdict = serde_json::to_value(Meter::shared().sample_at(Instant::now())?).ok()?;
+    crate::gauges::with_gauges(&mut verdict);
     serde_json::to_string(&verdict).ok()
 }
 
@@ -25,7 +26,9 @@ pub fn local_verdict() -> Option<String> {
 /// 1 normal, 2 warn, 4 critical; any other is unknown). [`with_pressure`].
 pub fn verdict_with_pressure(verdict: &str, level: u32) -> Option<String> {
     let verdict: Value = serde_json::from_str(verdict).ok()?;
-    serde_json::to_string(&with_pressure(&verdict, pressure_word(level))?).ok()
+    let mut judged = with_pressure(&verdict, pressure_word(level))?;
+    crate::gauges::with_gauges(&mut judged);
+    serde_json::to_string(&judged).ok()
 }
 
 /// What [`judge`] reads: a host, its numbers and the swap rate.

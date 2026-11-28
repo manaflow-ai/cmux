@@ -35,6 +35,20 @@ public nonisolated enum HostPressureIndicatorStyle: String, Sendable, CaseIterab
     }
 }
 
+/// The popover's pressure gauges (RFD 0182 B10): off (the default) or one of three design versions.
+public nonisolated enum HostPressureGaugeStyle: String, Sendable, CaseIterable, TunableChoice {
+    case off, bars, meters, compact
+
+    public var tunableTitle: String {
+        switch self {
+        case .off: "Off"
+        case .bars: "Bars with their numbers"
+        case .meters: "Segmented meters"
+        case .compact: "Compact chips"
+        }
+    }
+}
+
 /// Debug Settings of the host pressure indicator (DEV and NIGHTLY; Release and RC never activate
 /// the store, so they keep the defaults). English developer text, as every Debug Settings section.
 public nonisolated struct HostPressureTunables {
@@ -65,5 +79,13 @@ public nonisolated struct HostPressureTunables {
         help: "Off by default. With the indicator on, at critical a banner names acpmux's reasons and offers Show Details. Off: the indicator only.",
         default: false, code: "HostPressureTunables.banner")
 
-    public static var all: [TunableDescriptor] { [enabled.descriptor, force.descriptor, style.descriptor, banner.descriptor] }
+    /// The pressure gauges, a new dev surface: off by default, and inert while off.
+    public static let gauges = Tunable<HostPressureGaugeStyle>.choice(
+        "hostPressure.gauges", section, "Pressure gauges",
+        help: "Off by default. With the indicator on, the popover shows one gauge per pressure the host reports (CPU, memory, and tokens, cache and Mac slots where acpmux has a reading), as bars, segmented meters or compact chips. Off: no gauges.",
+        default: .off, code: "HostPressureTunables.gauges")
+
+    public static var all: [TunableDescriptor] {
+        [enabled.descriptor, force.descriptor, style.descriptor, banner.descriptor, gauges.descriptor]
+    }
 }
