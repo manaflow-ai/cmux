@@ -1504,6 +1504,53 @@ class Backlog(unittest.TestCase):
         self.assertIn(("cancel", 9000), backlog_mutations(fake))
         self.assertLessEqual(passes, 8)
 
+    def until_cancelled(self, fake: BacklogFake, run_id: int, passes: int) -> int:
+        """Passes ten minutes apart until one cancels `run_id`; how many it took (fails after `passes`)."""
+        for done in range(1, passes + 1):
+            _, counts = backlog(fake, now=NOW + dt.timedelta(minutes=10 * (done - 1)))
+            self.assertLessEqual(counts["requests"], rescue.BACKLOG_READS)
+            if ("cancel", run_id) in backlog_mutations(fake):
+                return done
+        self.fail(f"run {run_id} was not cancelled in {passes} passes")
+
+    def test_a_stalled_run_on_a_middle_page_is_reached_within_a_few_hours(self):
+        # cmux#47786 review F1: with 790 queued runs the middle page and the scan rotation both came round every five
+        # passes, so each middle page was read from the same place every time and 364 runs never had their jobs read.
+        old = [backlog_run(5000 + i, age_min=40 + i * 1.5, pr=1) for i in range(790)]
+        stuck = old[234]
+        fake = BacklogFake(old, {**{r["id"]: [job("x", labels=("blacksmith-4vcpu-ubuntu-2404",), waited=36000)]
+                                    for r in old}, stuck["id"]: [job("x", waited=391 * 60)]},
+                           pulls={1: OPEN_AT_HEAD})
+        self.until_cancelled(fake, stuck["id"], 24)
+
+    def test_over_a_thousand_runs_the_newest_page_is_kept(self):
+        # cmux#47786 review F2: above 1,000 runs the pass dropped the newest page it had read and searched only the
+        # oldest pages of the oldest slice, so with 1,001 runs in one slice 200 of them were ever read.
+        old = [backlog_run(6000 + i, age_min=40 + i * 0.13, pr=1) for i in range(1001)]
+        newest = old[0]
+        fake = BacklogFake(old, {**{r["id"]: [job("x", labels=("blacksmith-4vcpu-ubuntu-2404",), waited=36000)]
+                                    for r in old}, newest["id"]: [job("x", waited=39 * 60)]},
+                           pulls={1: OPEN_AT_HEAD})
+        self.until_cancelled(fake, newest["id"], 12)
+
+    def test_over_a_thousand_runs_the_newer_slices_are_read_in_turn(self):
+        # cmux#47786 review F2: the slice walk stopped once the oldest slices filled the pass, so a run in a newer
+        # slice, off the newest page, was never listed.
+        old = [backlog_run(7000 + i, age_min=1300 - i * 1.1, pr=1) for i in range(1150)]
+        stuck = old[600]
+        fake = BacklogFake(old, {**{r["id"]: [job("x", labels=("blacksmith-4vcpu-ubuntu-2404",), waited=36000)]
+                                    for r in old}, stuck["id"]: [job("x", waited=600 * 60)]},
+                           pulls={1: OPEN_AT_HEAD})
+        self.until_cancelled(fake, stuck["id"], 24)
+
+    def test_a_stalled_pending_run_in_a_declared_workflow_is_the_backlog_passs(self):
+        # cmux#47786 review F3: the minute pass lists queued and in-progress runs only, so a pending run left to it
+        # went unread until it was WINDOW (90 min) old.
+        fake = BacklogFake([backlog_run(71, age_min=60, status="pending", pr=1, workflow="pr-checks.yml")],
+                           {71: [job("x", waited=55 * 60)]}, pulls={1: OPEN_AT_HEAD})
+        backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [("cancel", 71)])
+
     def test_the_rotation_keeps_the_oldest_waiting_runs_first(self):
         waiting = [{"id": i} for i in range(rescue.BACKLOG_OLDEST_FIRST + 100)]
         for minutes in (0, 10, 20, 30):
