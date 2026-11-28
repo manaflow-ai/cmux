@@ -62,7 +62,9 @@ jobs:
             exit 1
           fi
           git cat-file -e "$TARGET_SHA^{commit}"
-          if ! git diff-tree --root --no-commit-id --name-only -r "$TARGET_SHA" | grep -q '^\.github/workflows/'; then
+          # Read the whole list first: under pipefail `diff-tree | grep -q` fails on a large commit when grep exits early.
+          changed="$(git diff-tree --root --no-commit-id --name-only -r "$TARGET_SHA")"
+          if ! grep -q '^\.github/workflows/' <<<"$changed"; then
             echo "target_sha must directly change a workflow file" >&2
             exit 1
           fi

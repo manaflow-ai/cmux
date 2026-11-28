@@ -20,7 +20,7 @@ import tarfile
 import tempfile
 import textwrap
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 import zlib
 from pathlib import Path
@@ -70,6 +70,28 @@ class Verdict(unittest.TestCase):
         found = hv.verdict(json.dumps({"layers": ["web"], "needs_build": True}))
         self.assertFalse(found["eligible"])
         self.assertIn("needs a build", found["reason"])
+
+    def test_a_swift_change_is_an_app_look(self) -> None:
+        # cmux#61533 (2026-11-27): rust beside two Swift files planned needs_build and got no request for 9 h.
+        plan = {"layers": ["rust"], "needs_build": True,
+                "build": {"Swift": ["Sources/WindowRules+UpdateIdle.swift"],
+                          "Swift, resources or manifests": ["Sources/UpdateIdleGate.swift"]}}
+        found = hv.verdict(json.dumps(plan))
+        self.assertEqual(found["layers"], ["app", "rust"])
+        self.assertTrue(found["eligible"])
+        self.assertTrue(found["needs_build"])
+        self.assertIn("fleet app build", found["reason"])
+        only = hv.verdict(json.dumps({"layers": [], "needs_build": True,
+                                      "build": {"Swift": ["A.swift"], "strings": ["Localizable.xcstrings"]}}))
+        self.assertEqual((only["eligible"], only["layers"]), (True, ["app"]))
+
+    def test_other_builds_stay_build_required(self) -> None:
+        for build in ({"Swift": ["Package.swift"]}, {"Swift": ["A.swift"], "web ABI": ["x"]},
+                      {"strings": ["A.swift"]}, {}, {"Swift": []}):
+            with self.subTest(build=build):
+                found = hv.verdict(json.dumps({"layers": ["web"], "needs_build": True, "build": build}))
+                self.assertFalse(found["eligible"])
+                self.assertNotIn("app", found["layers"])
 
     def test_no_layer_is_not_eligible(self) -> None:
         found = hv.verdict(json.dumps({"layers": [], "needs_build": False}))
@@ -248,6 +270,36 @@ class Result(unittest.TestCase):
         self.assertEqual(hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt"),
                          {"needs_build": True, "staged": [], "withheld": []})
 
+    def test_an_app_look_is_staged(self) -> None:
+        # The look built the head's app: its plan says needs_build, its marker names layer app, and it is published.
+        files = look_files(marker=f"<!-- cmux-hot-verify sha={HEAD} app={APP} layers=app,rust source=pr -->")
+        receipt = json.loads(files["out/receipt.json"])
+        receipt["plan"] = {"needs_build": True, "build": {"Swift": ["A.swift"]}}
+        files["out/receipt.json"] = json.dumps(receipt).encode()
+        plan = hv.stage(self.unpacked(files), 43000, HEAD, self.tmp / "m", self.tmp / "t.txt")
+        self.assertFalse(plan["needs_build"])
+        self.assertTrue(plan["staged"])
+        receipt["marker"] = MARKER
+        files["out/receipt.json"] = json.dumps(receipt).encode()
+        write_tar(self.tmp / "b.tar", files)
+        plain = hv.unpack(self.tmp / "b.tar", self.tmp / "b")
+        self.assertEqual(hv.stage(plain, 43000, HEAD, self.tmp / "m2", self.tmp / "t2.txt"),
+                         {"needs_build": True, "staged": [], "withheld": []})
+
+    def test_a_look_with_nothing_to_look_at_stages_nothing(self) -> None:
+        # Runs 46054808380, 46008620288, 46007530167 (2026-11-27): a merge look whose nightly already contained the
+        # merge; the worker's step.json said nothing, no receipt, and `post the look` failed on the missing marker.
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": False, "nothing": True,
+                                                          "error": None}).encode(),
+                             "out/plan.json": json.dumps({"notes": ["the app already contains SHA"]}).encode()})
+        self.assertEqual(hv.stage(out, 43000, HEAD, self.tmp / "m", self.tmp / "t.txt"),
+                         {"needs_build": False, "nothing": True, "reason": "the app already contains SHA",
+                          "staged": [], "withheld": []})
+        argv = ["stage", str(out), "--pr", "43000", "--head", HEAD, "--stage", str(self.tmp / "m"),
+                "--text", str(self.tmp / "t.txt")]
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(hv.main(argv), 0)
+
     def test_render(self) -> None:
         out = self.unpacked(look_files())
         plan = hv.stage(out, 43000, HEAD, self.tmp / "hv" / "media", self.tmp / "hv" / "t.txt")
@@ -413,6 +465,31 @@ class Comment(unittest.TestCase):
             with self.assertRaises(hv.Refused):
                 hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
             self.assertEqual(slept, [])
+
+    def test_a_read_timeout_retries_with_an_alternate_token(self) -> None:
+        calls = []
+        timed_out = subprocess.TimeoutExpired(["gh", "api"], hv.GH_TIMEOUT_SECONDS)
+
+        def run(argv, **kw):
+            calls.append((argv, kw))
+            if len(calls) == 1:
+                raise timed_out
+            return subprocess.CompletedProcess(argv, 0, "ok\n", "")
+
+        with mock.patch.dict(hv.os.environ, {"GH_TOKEN": "primary", "GH_TOKEN_SPARE": "spare",
+                                              "GH_TOKEN_SPARES": "spare third"}, clear=True), \
+                mock.patch.object(hv.subprocess, "run", side_effect=run), redirect_stderr(io.StringIO()):
+            self.assertEqual(hv.gh("api", "repos/manaflow-ai/cmux/pulls/7"), "ok\n")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][1]["env"], None)
+        self.assertEqual(calls[1][1]["env"]["GH_TOKEN"], "spare")
+
+    def test_a_write_timeout_is_refused_without_a_retry(self) -> None:
+        timed_out = subprocess.TimeoutExpired(["gh", "api"], hv.GH_TIMEOUT_SECONDS)
+        with mock.patch.object(hv.subprocess, "run", side_effect=timed_out) as run:
+            with self.assertRaisesRegex(hv.Refused, "timed out"):
+                hv.gh("api", "-X", "POST", "repos/manaflow-ai/cmux/issues/7/comments", body="{}")
+        self.assertEqual(run.call_count, 1)
 
 
 class Workflow(unittest.TestCase):
@@ -758,7 +835,9 @@ class Workflow(unittest.TestCase):
                 self.assertLess(first, drop)
                 self.assertLess(drop, again)
                 # Both checkouts take the same inputs.
-                withs = [w.split("\n      - ", 1)[0].split("\n      # ", 1)[0] for w in block.split("uses: actions/checkout@")[1:]]
+                withs = [w.split("\n      - ", 1)[0].split("\n      # ", 1)[0]
+                         .replace("sparse-checkout: &publisher-sparse", "sparse-checkout:")
+                         for w in block.split("uses: actions/checkout@")[1:]]
                 self.assertEqual(withs[0], withs[1])
 
     def test_the_plan_fetch_tries_a_stalled_transport_again(self) -> None:
@@ -890,12 +969,12 @@ class PullRequestRead(unittest.TestCase):
             gh.chmod(0o755)
             out = t / "out"
             out.write_text("")
-            env = {
+            env = git_fixture_env.fixture_env({
                 "PATH": f"{wrap}:/usr/bin:/bin", "PR": "42", "HEAD_SHA": HEAD, "LAYERS": "web",
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(out),
                 "GITHUB_STEP_SUMMARY": str(t / "summary"), "RUNNER_TEMP": str(t),
                 "GH_TOKEN": "t0", "GH_BUDGET_WAIT_MAX_SECONDS": "0",
-            }
+            })
             done = subprocess.run(["bash", str(PR_SH)], env=env, capture_output=True, text=True, timeout=60)
             lines = dict(l.split("=", 1) for l in out.read_text().splitlines() if "=" in l)
             return done, lines, calls.read_text() if calls.exists() else ""
@@ -907,6 +986,8 @@ class PullRequestRead(unittest.TestCase):
             """)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["publish_web"], "true")
+        self.assertEqual(out["layers"], "web")
         self.assertNotIn("graphql", calls)
 
     def test_spent_rest_hour_reads_graphql_without_sleeping(self) -> None:
@@ -932,6 +1013,8 @@ class PullRequestRead(unittest.TestCase):
             """)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["publish_web"], "false")
+        self.assertEqual(out["layers"], "web")
 
     def test_graphql_jq_maps_the_states(self) -> None:
         text = PR_SH.read_text()
@@ -951,7 +1034,7 @@ class PullRequestRead(unittest.TestCase):
         self.assertEqual(text.count("- name: Mint the pull request read's spare token"), 2)
         # plan's dispatch, web layer's dispatch, the two pull request reads, and publish's gallery read and
         # one-more-look dispatch.
-        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 6)
+        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 7)
         target = text.split("  target:", 1)[1].split("\n  web:", 1)[0]
         self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 120", target)
         self.assertIn("permission-pull-requests: read", target)

@@ -88,7 +88,7 @@ form on the host Mac. The verbs are:
 | Verb | Does |
 | --- | --- |
 | `build` | builds its host and viewer into `EVAL_BIN` |
-| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. `latency-only` (`iphone-sim`) is the reverse: the latency stage, and no window or OCR repeats. A target without the verb runs both stages |
+| `caps` (optional) | prints `window-only` for a target with no input path to time (`cu-png`, `rd-window`): the harness then skips its latency stage and judges it on its window rows alone. `latency-only` (`iphone-sim`) is the reverse: the latency stage, and no window or OCR repeats. A target without the verb runs both stages. `owes-ocr`, `owes-skips` and `owes-budget-bpp` lines name the numbers every run of it owes (`rd`: OCR error and encoder skips, plus budget bits per pixel with the ladder on, `rd-ladder`; `apple-*`: OCR error). A requested target that did not bring one (its scene did not start, its OCR calibration did not hold, a repeat lacks the number) makes the run exit 6, and its last line names the target and the field (`eval.py owed`); results.json is still written |
 | `host-start`, `host-stop` | starts its host on this Mac's main display at its defaults, and returns once the host is ready; stops it |
 | `latency-view INPUT SAMPLES RAW`, `latency-report INPUT RAW OUT` | INPUT `key` or `pointer`: SAMPLES inputs on the marker through its viewer; OUT gets `{"g2g_ms": {"n", "p50", "p95", ...}, "lost", "split": {"input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method"}}` (transport: what is left between encode and decode, by each target's own method; not comparable across targets). rd's split also has `input_to_capture_parts`: `{"render_ms", "sck_ms", "to_arrived_ms", "pickup_ms", "gate_ms", "arrived_to_release_ms", "encode_ms", "sck_all_frames_ms", "draw_ms", "commit_to_vsync_ms"}`, each `{"n", "p50", "p95"}`, from the host's per-frame timing log, plus `frame_before_commit` (a count) and `refresh_hz`. `draw_ms` and `commit_to_vsync_ms` come from the marker's `commit COUNTER T_US` lines (it logs them with `--verbose`). `sck_ms`, `sck_all_frames_ms` and `commit_to_vsync_ms` are signed: ScreenCaptureKit's display time is the vsync the frame is shown at, usually after the callback |
 | `window-view SECONDS FRAME GO RAW`, `window-report RAW OUT` | a viewer that sends nothing for SECONDS. It creates GO once its first frame shows, which starts the scene's timeline (the scene then holds its last screen until the harness stops it). FRAME gets the last decoded frame (PNG or PPM), and OUT gets `{"series": [{"unix_ms", "bytes", "frames", "decode_ms", "encode_ms"}], "extra"}`, one row a second, each row stamped at the end of its second |
@@ -378,7 +378,7 @@ It needs root for `ip netns` and `tc` and a kernel with `sch_netem`, so on the f
 HQ's netem route (cmuxterm-hq `docs/handbook/netem-route-without-host-module.md`), from an HQ checkout:
 
 ```
-cmux-ci test --setup netem --timeout 7200 --artifact DIR -- 'set -e; d=$(mktemp -d);
+cmux-ci test --setup netem --timeout 7200 --artifact DIR -- bash -c 'set -e; d=$(mktemp -d);
   git -C "$d" init -q; git -C "$d" fetch -q --depth=1 https://github.com/manaflow-ai/cmux.git DRIVER_SHA;
   git -C "$d" checkout -q FETCH_HEAD -- scripts/measure/screen-stream-eval/rd-netem-linux.py;
   python3 "$d/scripts/measure/screen-stream-eval/rd-netem-linux.py" --deps --out "$FAST_CHECKS_OUT" \
@@ -537,6 +537,13 @@ CmuxScreenEvalLauncher in System Settings > Privacy & Security. The first run li
 (`launcher --request`). Until then the run writes `run.blocked`, naming the app, and exits 3.
 macOS 15 and later may ask again, after some weeks, to keep allowing screen capture. A run blocked
 again on a mini that ran before is that prompt waiting at its console.
+
+On a dedicated fleet Mac the step can skip that console visit: `seed-grants=1`, inside a fleet console
+step only (`CMUX_CI_CONSOLE_SESSION=1` with `CMUX_CI_STEP_KEY`, after `person_guard.py` has refused a
+person's Mac), runs `launcher/seed-grants.sh`. It writes the two rows that console grant makes into the system
+TCC database with `sudo -n sqlite3`, keyed to the launcher's designated requirement. That is the same write the
+zero-touch screen-share probe makes for the app's helper. The step log prints one
+`SCREEN-STREAM-EVAL-LAUNCHER-SEED` line with each grant `held`, `seeded` or `refused: WHY`.
 
 **Trust.** The app holds both grants and runs the harness for any process of its user that asks:
 the path check only guards against a wrong path, since that user can edit its own checkout anyway.

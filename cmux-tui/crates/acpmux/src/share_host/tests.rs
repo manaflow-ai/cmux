@@ -1380,6 +1380,46 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `cmux remote-host share off` on a joined Mac turns the share host's own device off at the hub,
+/// with no app; a machine with no share host keeps the caller's path; a joined Linux machine
+/// names cmux-rd's switch; a failed hub call says why and what to do (design Z4).
+#[test]
+fn share_off_reaches_the_share_hosts_device_only_on_a_joined_mac() {
+    use super::NotRunning;
+    use super::cli::{OffHere, off_outcome};
+    let joined = || -> Result<(), NotRunning> { Ok(()) };
+    let not_joined = || -> Result<(), NotRunning> {
+        Err(NotRunning::new("not_joined", "this machine is not joined"))
+    };
+    let hub_ok = || Ok::<_, NotRunning>("hub");
+    let off = |hub: &&str| {
+        assert_eq!(*hub, "hub");
+        Ok(json!({"shared": false}))
+    };
+    let unreachable = |_: &&str| -> Result<Value, String> { panic!("no hub call expected") };
+
+    assert_eq!(off_outcome(false, joined(), hub_ok, off), OffHere::Off(json!({"shared": false})));
+    for linux in [false, true] {
+        assert_eq!(off_outcome(linux, not_joined(), hub_ok, unreachable), OffHere::NoHost);
+    }
+    let OffHere::Failed(line) = off_outcome(true, joined(), hub_ok, unreachable) else {
+        panic!("a joined Linux machine names cmux-rd's switch")
+    };
+    assert!(line.contains("cmux-rd linux-host share off"), "{line}");
+    let unregistered = || Err::<&str, _>(NotRunning::new("not_registered", "no device yet"));
+    assert_eq!(off_outcome(false, joined(), unregistered, unreachable), OffHere::NoHost);
+    let unreadable = || Err::<&str, _>(NotRunning::new("identity_unreadable", "bad key"));
+    let OffHere::Failed(line) = off_outcome(false, joined(), unreadable, unreachable) else {
+        panic!("an unreadable device is a failure")
+    };
+    assert!(line.contains("bad key") && line.contains("Allow Mac Screen"), "{line}");
+    let refused = |_: &&str| -> Result<Value, String> { Err("hub unreachable".to_owned()) };
+    let OffHere::Failed(line) = off_outcome(false, joined(), hub_ok, refused) else {
+        panic!("a failed hub call is a failure")
+    };
+    assert!(line.contains("hub unreachable") && line.contains("run it again"), "{line}");
+}
+
 /// What `peers` lists as `deviceHub` on a machine only the mesh hub reaches: the device hub's
 /// record of its name (its first label, any case), or that there is none; nothing before the
 /// list was read.
@@ -1420,6 +1460,34 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
     shared.set_devices(&json!({"devices": [
         {"id": own, "name": "Mac", "platform": "macos"},
     ]}));
+    // This device's own record is never another machine's.
+    assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
+}
+
+/// A Mac's screen host registers its computer name ("Studio One"); the mesh lists its host label
+/// (`studio-one`). Both name the same machine.
+#[test]
+fn the_device_hub_matches_a_computer_name_to_its_host_label() {
+    let home = tempfile::tempdir().unwrap();
+    let shared = shared(home.path());
+    let own = shared.hub().device.id.clone();
+    shared.set_devices(&json!({"devices": [
+        {"id": own, "name": "Mac", "platform": "macos", "macScreenShared": true},
+        {"id": "d1", "name": "Studio One", "platform": "macos", "online": true,
+         "macScreenShared": true},
+        {"id": "d2", "name": "Work_Box ", "platform": "macos", "online": true},
+    ]}));
+    assert_eq!(
+        shared.device_hub_of("studio-one"),
+        Some(json!({"listed": true, "id": "d1", "platform": "macos", "online": true,
+            "screenShared": true}))
+    );
+    assert_eq!(
+        shared.device_hub_of("work-box.example.ts.net"),
+        Some(json!({"listed": true, "id": "d2", "platform": "macos", "online": true,
+            "screenShared": false}))
+    );
+    assert_eq!(shared.device_hub_of("studioone"), Some(json!({"listed": false})));
     // This device's own record is never another machine's.
     assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
 }
@@ -1554,4 +1622,20 @@ fn a_watching_app_hears_each_time_the_daemon_comes_online_signed_in() {
     let unsigned = shared(home.path());
     unsigned.update_link(|link| link.state = "online");
     assert!(unsigned.online_event().is_none());
+}
+
+#[test]
+fn a_stopped_link_offers_no_account_so_the_app_keeps_its_own_device() {
+    let home = tempfile::tempdir().unwrap();
+    let hub =
+        Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("user-1".into()))
+            .unwrap();
+    let shared = Shared::new(home.path().to_path_buf(), hub);
+    let (signed_in, _) = ask(&shared, json!({"id": 1, "method": "device.identity"}));
+    assert_eq!(signed_in["result"]["user_id"], "user-1");
+    // The hub removed this device (socket close 4001): the link stops until the Mac joins again.
+    shared.update_link(|link| link.state = "stopped");
+    let (stopped, _) = ask(&shared, json!({"id": 2, "method": "device.identity"}));
+    assert_eq!(stopped["ok"], true);
+    assert!(stopped["result"].get("user_id").is_none());
 }

@@ -20,7 +20,7 @@ const needed: CloudStartProgress = {
 };
 const { code: _code, message: _message, ...asked } = needed;
 const waiting: CloudStartProgress = { ...asked, state: "starting", signingIn: true };
-const actions = { onSetUp: () => undefined, onSetUpDismiss: () => undefined };
+const actions = { onSetUp: () => undefined, onRunHere: () => undefined, onSetUpDismiss: () => undefined };
 
 export default componentEntry<ComponentProps<typeof CloudStartView>>({
   id: "agent-pane.cloud-setup",
@@ -39,11 +39,11 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
   height: 280,
   variants: {
     claude: {
-      note: "A Claude model: the message, then Set up Cloud naming the model, Sign in to Claude first, Continue with ChatGPT, Add an API key, Open Settings and Not now.",
+      note: "A Claude model with Connect Claude, Run on This Mac and Not now.",
       props: { start: needed, ...actions },
     },
     codex: {
-      note: "A Codex model: Continue with ChatGPT leads.",
+      note: "Connect Codex opens the OpenAI key form.",
       props: { start: { ...needed, cloudSetup: { family: "codex", model: "gpt-5.5-codex" } }, ...actions },
     },
     "no-model": {
@@ -51,11 +51,15 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       props: { start: { ...needed, cloudSetup: { family: "claude" } }, ...actions },
     },
     waiting: {
-      note: "A button's way in is out (the browser sign-in, or Settings): the card waits for a connection with its buttons at rest; Not now withdraws the wait.",
+      note: "Only Not now remains while the chat waits for a connection.",
       props: {
         start: waiting,
         ...actions,
       },
+    },
+    "timed-out": {
+      note: "After the wait expires, Connect and the local option return.",
+      props: { start: { ...needed, cloudSetup: { family: "claude", timedOut: true } }, ...actions },
     },
     "long-model": {
       note: "A long model id wraps in the body without pushing the buttons off the card.",

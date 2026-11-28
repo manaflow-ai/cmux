@@ -114,8 +114,18 @@ impl WsShutdown {
 /// kernel keeps completing handshakes until the last copy closes, so dropping ours alone could
 /// let an immediate retry connect to this dying listener. Linux stops a listening socket on
 /// shutdown, whatever copies remain; other systems refuse that, and only the drop applies.
+///
+/// A stop that execs in place (`daemon/handoff.rs`) keeps a copy for the next image, and that
+/// shutdown would stop the copy too: there only the drop applies, and a retry waits in the
+/// listener's queue for the next image's first accept.
 pub(super) fn close_admission(listener: tokio::net::TcpListener) {
-    close_admission_unless_kept(listener, crate::daemon::listener_handover::listeners_live_on());
+    // The handover is unix-only; keeps_listeners is false off Unix.
+    #[cfg(unix)]
+    let kept =
+        crate::daemon::keeps_listeners() || crate::daemon::listener_handover::listeners_live_on();
+    #[cfg(not(unix))]
+    let kept = crate::daemon::keeps_listeners();
+    close_admission_unless_kept(listener, kept);
 }
 
 fn close_admission_unless_kept(listener: tokio::net::TcpListener, kept: bool) {
@@ -172,6 +182,11 @@ pub(super) async fn write_link<S>(
     S: Sink<Frame> + Unpin,
 {
     let mut streak = 0;
+    let mut pings = tokio::time::interval_at(
+        tokio::time::Instant::now() + super::ws_read_ahead::PING_EVERY,
+        super::ws_read_ahead::PING_EVERY,
+    );
+    pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tokio::select! {
         biased;
         () = shutdown.normal() => {},
@@ -187,6 +202,16 @@ pub(super) async fn write_link<S>(
                         line = next => line,
                         _ = &mut stopped => {
                             deadline = Some(tokio::time::Instant::now() + LAST_FRAMES_WAIT);
+                            continue;
+                        }
+                        // A client that answers no ping is ended by the reader's idle bound.
+                        _ = pings.tick() => {
+                            if !matches!(
+                                tokio::time::timeout(CLOSE_BUDGET, sink.send(Frame::Ping(Default::default()))).await,
+                                Ok(Ok(()))
+                            ) {
+                                break;
+                            }
                             continue;
                         }
                     },
