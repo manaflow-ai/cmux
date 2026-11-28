@@ -249,22 +249,26 @@ test("a set up past its limit shows the card again, naming the same model", asyn
 test("a set up whose sign-in failed shows the card again with its reason and Try again", async () => {
   const call = (method: string) =>
     method === "cloud.setUp"
-      ? Promise.reject({ code: "cloud_setup_failed", userMessage: "this Mac could not reach the sign-in service" })
+      ? Promise.reject({ code: "cloud_setup_failed", userMessage: "network" })
       : Promise.resolve();
-  const wait = waitForCloudSetUp(call, "k", "setUpClaude", { family: "claude", model: "claude-opus-5-5", error: "earlier" });
+  const wait = waitForCloudSetUp(call, "k", "setUpClaude", {
+    family: "claude",
+    model: "claude-opus-5-5",
+    error: "earlier",
+  });
   const end = await wait.ended;
   expect(end).not.toBe("signedIn");
   const ended = cloudStartEnded(begun, "k", end as Exclude<typeof end, "signedIn">)!;
   expect(ended.cloudSetup).toEqual({
     family: "claude",
     model: "claude-opus-5-5",
-    error: "this Mac could not reach the sign-in service",
+    error: "the sign-in didn’t finish (network)",
   });
   const mount = installDom();
   root = createRoot(mount);
   await act(async () => root!.render(<CloudStartView start={ended} onSetUp={() => undefined} />));
   const status = mount.querySelector('[data-state="error"]');
-  expect(status?.textContent).toContain("this Mac could not reach the sign-in service");
+  expect(status?.textContent).toContain("the sign-in didn’t finish (network)");
   expect(mount.querySelector('[data-connect-action="retry"]')).not.toBeNull();
   expect(mount.querySelector('[aria-busy="true"]')).toBeNull();
   // A timed-out or withdrawn wait carries no earlier attempt's error.

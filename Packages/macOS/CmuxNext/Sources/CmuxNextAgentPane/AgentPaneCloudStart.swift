@@ -562,11 +562,11 @@ extension AgentPaneModel {
         return AgentPaneReply.success(["ready": true])
     }
 
-    /// A set up whose in-place sign-in failed (cmux#63349): `cloud_setup_failed` with the words the card
-    /// shows, so it stops waiting and offers Try again. Nil for any other end.
+    /// A set up whose in-place sign-in failed (cmux#63349): `cloud_setup_failed` with acpmux's code, so the card
+    /// stops waiting, says why and offers Try again. Nil for any other end.
     static func setUpFailure(_ result: Result<CloudSetup.SetupCompletion, CloudSetup.SetUpEnd>) -> [String: Any]? {
-        guard case .failure(let end) = result, let text = end.failureText else { return nil }
-        return AgentPaneReply.failure(code: "cloud_setup_failed", message: text)
+        guard case .failure(.failed(let code)) = result else { return nil }
+        return AgentPaneReply.failure(code: "cloud_setup_failed", message: code)
     }
 
     /// How long the picker's set up waits for a connection: the Set up Cloud card's (cloudSetup.ts `CLOUD_SETUP_LIMIT_MS`).

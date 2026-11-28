@@ -466,8 +466,6 @@ struct CloudSetupTests {
         rule.signInFailed("network", family: "codex")
         let result = await ready.value
         #expect(result == .failure(.failed("network")))
-        #expect(CloudSetup.SetUpEnd.failed("network").failureText == "this Mac could not reach the sign-in service")
-        #expect(CloudSetup.SetUpEnd.withdrawn.failureText == nil)
 
         inPlace = false
         let settings = Task { await rule.setUpResult(.connectChatGPT, family: "codex") }

@@ -1,6 +1,7 @@
 import { CLOUD_CHATGPT_SIGN_IN_READY } from "../shared/cloudModelConnections";
 import { CLOUD_SIGN_IN_ANSWERS, type CloudSignInWait } from "./cloudSignIn";
 import type { CloudStartAnswer } from "./cloudRun";
+import { translate } from "./i18n";
 
 /// Cloud first use (cmux-tui/docs/model-connections.md, "Cloud first use"): the host refused a Cloud
 /// start with `cloud_setup_required` because no connection serves the picker's model (CloudSetup.swift).
@@ -132,11 +133,21 @@ export function waitForCloudSetUp(
   }).then(
     () => end("signedIn"),
     (error: unknown) => {
-      const { code, userMessage, message } = (error ?? {}) as { code?: unknown; userMessage?: unknown; message?: unknown };
+      const { code, userMessage, message } = (error ?? {}) as {
+        code?: unknown;
+        userMessage?: unknown;
+        message?: unknown;
+      };
       if (code === "cloud_sign_in_cancelled") return end(CLOUD_SIGN_IN_ANSWERS.withdrawn);
-      // The sign-in the button ran failed (cmux#63349): the card again, saying why, with Try again.
-      const why = code === CLOUD_SETUP_FAILED ? (typeof userMessage === "string" ? userMessage : message) : undefined;
-      end(typeof why === "string" && why.trim() ? { ...notReady, details: { ...details, error: why.trim() } } : notReady);
+      // The sign-in the button ran failed (cmux#63349): the card again, saying why (acpmux's code), with Try again.
+      const failed =
+        code === CLOUD_SETUP_FAILED ? (typeof userMessage === "string" ? userMessage : message) : undefined;
+      const why = typeof failed === "string" ? failed.trim().slice(0, 64) : "";
+      end(
+        why
+          ? { ...notReady, details: { ...details, error: translate("cloudSetup.signInFailed", { code: why }) } }
+          : notReady,
+      );
     },
   );
   const withdraw = () => {
