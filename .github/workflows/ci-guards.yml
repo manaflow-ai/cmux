@@ -881,7 +881,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: |
           python3 tests/test_auto_journal_nightly_artifact.py
-          bun test scripts/cmux-next/auto-journal-nightly-recovery.test.ts scripts/cmux-next/auto-journey-socket.test.ts scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
+          bun test scripts/cmux-next/auto-journal-nightly-recovery.test.ts scripts/cmux-next/auto-journey-socket.test.ts scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/autocloud-sync-probe.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
       # The staging test account sweep's picker: age, state, activity and creator decide what goes (pure; no
       # network, no secret).
@@ -2777,8 +2777,15 @@ jobs:
           python3 tests/test_ci_checkout_lean.py
           python3 tests/test_ci_sparse_checkout_imports.py
           python3 tests/test_ci_sparse_cargo_path_deps.py
+          python3 tests/test_web_cas_upload_rerun.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
+
+      # A script fetched or checked out with a few files (a workflow's sparse list, a fleet probe's single-file
+      # fetch in .github/standalone-files.json) loads with just those files (cmux#62040, #63419).
+      - name: Validate single-file-run scripts carry what they read
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_standalone_files.py
 
       - name: Validate unsigned nightly resume provenance and routing
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
