@@ -40,9 +40,7 @@ test("a retarget switches once; the same session again is a no-op", async () => 
 test("the latest retarget wins over one still switching", async () => {
   const { page, call } = fakePage();
   let release!: () => void;
-  const pool = servePoolRetarget(page, (s) =>
-    s === "slow" ? new Promise<void>((r) => (release = r)) : undefined,
-  );
+  const pool = servePoolRetarget(page, (s) => (s === "slow" ? new Promise<void>((r) => (release = r)) : undefined));
   const first = call({ session: "slow" });
   const second = await call({ session: "fast" });
   release();
