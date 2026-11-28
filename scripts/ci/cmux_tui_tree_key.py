@@ -38,18 +38,60 @@ def git(*args: str) -> str:
     ).strip()
 
 
+def promisor_remote() -> str:
+    """The remote a partial clone fetches missing objects from (remote.NAME.promisor), else origin."""
+    try:
+        found = subprocess.check_output(["git", "-C", str(ROOT), "config", "--get-regexp", r"^remote\..*\.promisor$"],
+                                        text=True, stderr=subprocess.DEVNULL, env=GIT_ENV,
+                                        timeout=GIT_TIMEOUT_SECONDS)
+    except subprocess.SubprocessError:
+        return "origin"
+    for line in found.splitlines():
+        name, _, value = line.partition(" ")
+        if value.strip().lower() == "true":
+            return name[len("remote."):-len(".promisor")]
+    return "origin"
+
+
 def inputs_text(revision: str) -> str:
     """The inputs list a revision is keyed by: the revision's own, as CI keys it (cmux-tui-artifacts.yml runs
     this script in a checkout of the commit it publishes). A checkout's newer list gave every older commit
     another key, one nothing was published under: #43477 added an input, and hot-apply then found no
     build for any commit before it. A revision without the file, or an INPUTS a caller set (a test's
-    fixture), reads INPUTS."""
+    fixture), reads INPUTS.
+
+    In a blob-less clone the revision's list is often not local (lazy fetch is off here). Reading the checkout's
+    list then keyed an older revision by inputs it never had: after #56351 named the
+    Localizable.xcstrings.d tree, every commit before it failed with "has no tree input ...xcstrings.d" (15
+    hot-verify looks in 24 h, 2026-11-25, holding display Macs for 1,661 s). So when the revision's tree names
+    the list, its one blob is fetched (bounded), and a list that still cannot be read is an error, never
+    another revision's list."""
     if INPUTS == ROOT / INPUTS_PATH:
         try:
             return subprocess.check_output(["git", "-C", str(ROOT), "show", f"{revision}:{INPUTS_PATH}"], text=True,
                                            stderr=subprocess.DEVNULL, env=GIT_ENV, timeout=GIT_TIMEOUT_SECONDS)
         except subprocess.CalledProcessError:
             pass
+        try:
+            listed = subprocess.check_output(["git", "-C", str(ROOT), "ls-tree", revision, "--", INPUTS_PATH],
+                                             text=True, stderr=subprocess.DEVNULL, env=GIT_ENV,
+                                             timeout=GIT_TIMEOUT_SECONDS).split()
+        except subprocess.SubprocessError:
+            listed = []  # the tree itself is not readable: as before, the checkout's list
+        if listed[1:2] == ["blob"]:
+            # One blob from the promisor remote, fetched by its id (a blob has no history to pull, unlike a lazy
+            # fetch, which runs the noop negotiator): the list this revision is keyed by.
+            try:
+                subprocess.run(["git", "-C", str(ROOT), "fetch", "-q", "--no-tags", "--no-write-fetch-head",
+                                "--recurse-submodules=no", "--filter=blob:none", promisor_remote(), listed[2]],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=GIT_ENV,
+                               timeout=GIT_TIMEOUT_SECONDS, check=True)
+                return subprocess.check_output(["git", "-C", str(ROOT), "cat-file", "blob", listed[2]], text=True,
+                                               stderr=subprocess.DEVNULL, env=GIT_ENV,
+                                               timeout=GIT_TIMEOUT_SECONDS)
+            except subprocess.SubprocessError:
+                raise RuntimeError(f"{revision}'s own {INPUTS_PATH} ({listed[2][:12]}) is not local and could "
+                                   "not be fetched") from None
     return INPUTS.read_text(encoding="utf-8")
 
 

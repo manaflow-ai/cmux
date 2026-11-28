@@ -479,7 +479,21 @@ fn turn_tools_stop_ends_the_turn_with_no_final_text_and_no_failure() {
 /// (Oct 20-26, chief_health.py).
 #[test]
 fn turn_tools_a_turn_the_chief_stops_is_traced_as_stopped_not_cancelled() {
+    assert_tool_stop_trace(false);
+}
+
+#[test]
+fn turn_tools_accepted_stop_is_traced_when_normal_completion_wins() {
+    assert_tool_stop_trace(true);
+}
+
+fn assert_tool_stop_trace(normal_completion: bool) {
     let mut h = Harness::new(endless_first_turn());
+    if normal_completion {
+        // Force the harness to finish normally after the accepted stop,
+        // regardless of whether the runner has sent cancellation yet.
+        h.agents.inner.lock().unwrap().ignore_cancels = usize::MAX;
+    }
     let traces = h.dir.path().join("traces");
     h.brain
         .set_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
@@ -487,7 +501,8 @@ fn turn_tools_a_turn_the_chief_stops_is_traced_as_stopped_not_cancelled() {
     let sp = spawner(&h);
     run(&mut h, move || sp.send(send("On it."))).expect("send answers");
     let sp = spawner(&h);
-    run(&mut h, move || sp.stop_turn()).expect("stop answers");
+    let stopped = run(&mut h, move || sp.stop_turn()).expect("stop answers");
+    assert!(stopped.contains("outcome: done"), "{stopped}");
     h.agents.hold(false);
     h.settle_posts();
     let ends: Vec<serde_json::Value> = std::fs::read_dir(&traces)
