@@ -87,23 +87,6 @@ function returnHref(html: string): string {
   return match![1].replaceAll("&amp;", "&");
 }
 
-/**
- * A verified handoff's page: it opens the app by itself and keeps the
- * "Return to cmux" button for a browser that refused the launch. Returns the
- * callback both carry.
- */
-async function verifiedHandoffCallback(response: Response): Promise<URL> {
-  expect(response.status).toBe(200);
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  expect(response.headers.get("location")).toBeNull();
-  const html = await response.text();
-  const refresh = html.match(/<meta http-equiv="refresh" content="0;url=([^"]+)">/);
-  expect(refresh).toBeTruthy();
-  const autoOpen = refresh![1].replaceAll("&amp;", "&");
-  expect(returnHref(html)).toBe(autoOpen);
-  return new URL(autoOpen);
-}
-
 function switchAccountHref(html: string): string {
   const match = html.match(/<a class="secondary" href="([^"]+)">Use a different account<\/a>/);
   expect(match).toBeTruthy();
@@ -163,17 +146,18 @@ describe("after sign-in native handoff", () => {
     expect(clearedCookie).toContain("Max-Age=0");
   });
 
-  // https://github.com/manaflow-ai/cmux/issues/49412: a bare redirect to the
-  // app's scheme left the sign-in page spinning whenever the browser launched
-  // the app quietly or refused the launch (Chrome refuses one with no fresh
-  // user gesture, as after an OAuth return), with nothing left to click.
-  test("answers verified native handoffs with a page that opens the app and keeps a button", async () => {
+  test("redirects verified native handoffs directly to the native callback", async () => {
     handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
 
     const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
 
-    const callbackURL = await verifiedHandoffCallback(response);
+    expect(response.status).toBe(307);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+
+    const location = response.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackURL = new URL(location!);
     expect(callbackURL.protocol).toBe("cmux:");
     expect(callbackURL.hostname).toBe("auth-callback");
     expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-123");
@@ -187,19 +171,22 @@ describe("after sign-in native handoff", () => {
     expect(setCookie).toContain("Path=/handler/after-sign-in");
   });
 
-  test("hands verified release-candidate handoffs to cmux-rc", async () => {
+  test("redirects verified release-candidate handoffs directly to cmux-rc", async () => {
     handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux-rc://auth-callback?cmux_auth_state=state-rc";
 
     const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
 
-    const callbackURL = await verifiedHandoffCallback(response);
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackURL = new URL(location!);
     expect(callbackURL.protocol).toBe("cmux-rc:");
     expect(callbackURL.hostname).toBe("auth-callback");
     expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-rc");
   });
 
-  test("hands verified cmux NEXT handoffs to cmux-next", async () => {
+  test("redirects verified cmux NEXT handoffs directly to cmux-next", async () => {
     // nightly-next installs beside classic NIGHTLY as cmux NEXT with its own
     // scheme, so its sign-in never lands in the NIGHTLY app.
     handoffCookie = "handoff-nonce";
@@ -207,7 +194,8 @@ describe("after sign-in native handoff", () => {
 
     const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
 
-    const callbackURL = await verifiedHandoffCallback(response);
+    expect(response.status).toBe(307);
+    const callbackURL = new URL(response.headers.get("location")!);
     expect(callbackURL.protocol).toBe("cmux-next:");
     expect(callbackURL.hostname).toBe("auth-callback");
     expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-next");
@@ -217,13 +205,14 @@ describe("after sign-in native handoff", () => {
   // returns through the same hosted page on the deployed host, with a
   // per-build scheme no server allowlist can know in advance.
   for (const scheme of ["cmux-dev", "cmux-dev-cloud-firstsend", `cmux-dev-${"a".repeat(64)}`]) {
-    test(`hands verified handoffs to the ${scheme} DEV build on the deployed host`, async () => {
+    test(`redirects verified handoffs to the ${scheme} DEV build on the deployed host`, async () => {
       handoffCookie = "handoff-nonce";
       const nativeReturnTo = `${scheme}://auth-callback?cmux_auth_state=state-dev`;
 
       const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
 
-      const callbackURL = await verifiedHandoffCallback(response);
+      expect(response.status).toBe(307);
+      const callbackURL = new URL(response.headers.get("location")!);
       expect(callbackURL.protocol).toBe(`${scheme}:`);
       expect(callbackURL.hostname).toBe("auth-callback");
       expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-dev");
@@ -282,9 +271,7 @@ describe("after sign-in native handoff", () => {
     const html = await response.text();
     expect(html).toContain("Signed in to cmux");
     expect(html).toContain("Return to cmux");
-    // Unverified: only the person's click may hand the session to the app.
     expect(html).not.toContain("window.location.replace");
-    expect(html).not.toContain('http-equiv="refresh"');
     expect(returnHref(html)).toContain("cmux://auth-callback");
 
     const switchURL = new URL(switchAccountHref(html), "https://cmux.test");
