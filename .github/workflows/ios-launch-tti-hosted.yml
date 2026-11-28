@@ -66,7 +66,9 @@ jobs:
           persist-credentials: false
           ref: 3281c18ad94f0e8ba5d8ddffeaa7ab5227c8015c
           path: .harness
-          sparse-checkout: scripts/ci/cmux-next-ios-sim.sh
+          sparse-checkout: |
+            scripts/ci/cmux-next-ios-sim.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The simctl arm's script from this workflow's own commit (a leg's ref may predate it).
@@ -169,5 +171,7 @@ jobs:
             artifacts/ios-sim/simctl-first-connect.json
             artifacts/ios-sim/simctl-launch-marks.ndjson
             artifacts/ios-sim/simctl.log
+            artifacts/ios-sim/simctl-launch-cold.png
+            artifacts/ios-sim/simctl-launch-warm.png
           retention-days: 3
           if-no-files-found: warn

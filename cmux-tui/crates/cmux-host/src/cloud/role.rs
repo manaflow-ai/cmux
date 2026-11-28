@@ -51,6 +51,8 @@ pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
 /// Where a trajectory restore stages its bundles (the work user's, 0700).
 pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
 const MAX_LINE: usize = 64 * 1024;
+/// The ceiling of the activity stream's reconnect backoff (`Worker::activity_reset`).
+const ACTIVITY_RETRY_MAX_MS: u64 = 5_000;
 
 fn log(line: &str) {
     eprintln!("cmux-host: cloud: {line}");
@@ -676,7 +678,7 @@ impl Worker {
                 buf: Vec::new(),
                 connected: false,
                 retry_at: None,
-                backoff: Backoff::new(1_000, 60_000),
+                backoff: Backoff::new(500, ACTIVITY_RETRY_MAX_MS),
                 unsupported: false,
             },
             live: None,
@@ -1219,7 +1221,10 @@ impl Worker {
             buf: Vec::new(),
             connected: false,
             retry_at: None,
-            backoff: Backoff::new(1_000, 60_000),
+            // Until the stream is live the Cloud reads the machine as `blind_report` and never pauses
+            // it, and a start's session host comes up seconds after the agent: a 60 s ceiling left a
+            // stream up to a minute late. A connect to an absent socket costs nothing, so 5 s at most.
+            backoff: Backoff::new(500, ACTIVITY_RETRY_MAX_MS),
             unsupported: false,
         }
     }
