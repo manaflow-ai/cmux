@@ -1,0 +1,29 @@
+[package]
+name = "cmux-next-linux"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+publish = false
+description = "cmux NEXT on Linux, developer preview: one desktop window (WebKitGTK through wry) showing the cmux NEXT agent pane against a private acpmux daemon"
+
+# Own workspace: the window links GTK and WebKitGTK, which the cmux-tui workspace build
+# (macOS, musl Linux release legs) does not have. Same reason as cmux-rd-host.
+[workspace]
+
+[features]
+default = ["window"]
+# The desktop window. Off (`--no-default-features`), the crate is the launch plan alone and
+# its tests run on a runner without GTK.
+window = ["dep:tao", "dep:wry"]
+
+[dependencies]
+cmux-process = { path = "../cmux-process" }
+getrandom = "0.3"
+tao = { version = "0.34", optional = true }
+wry = { version = "0.53", optional = true }
+
+[[bin]]
+name = "cmux-next-linux"
+path = "src/main.rs"
