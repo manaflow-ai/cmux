@@ -30,6 +30,10 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     /// The team's forum page (`experiments.forum`, off by default): threads from people and their agents. Not in
     /// the default layout; Add to Sidebar adds it, and it stays hidden while the experiment is off.
     case forum
+    /// Every update in one list (`experiments.feed`, off by default): agent turns, approvals, PRs, CI and
+    /// notifications, the Feed page as its own page (hq docs/design/feed-sidebar.md). Not in the default layout;
+    /// Add to Sidebar adds it, and it stays hidden while the experiment is off.
+    case feed
 }
 
 /// What an item points at: a kind and a string value. Kinds this client

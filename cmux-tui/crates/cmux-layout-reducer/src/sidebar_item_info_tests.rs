@@ -9,21 +9,34 @@ fn item(id: &str, kind: &str, value: &str, label: Option<&str>) -> Item {
     Item { id: id.into(), reference: r(kind, value), label: label.map(Into::into) }
 }
 
+// FeedEntryTests: the Feed hides while experiments.feed is off.
+#[test]
+fn the_feed_hides_while_its_experiment_is_off() {
+    let off = built_in_named("feed").map(|b| built_in_look(b, true, true, false));
+    assert!(off.is_some_and(|l| l.is_hidden));
+    let on = built_in_named("feed").map(|b| built_in_look(b, true, false, true));
+    assert!(
+        on.is_some_and(|l| !l.is_hidden && l.symbol == "list.bullet.rectangle" && l.icon.is_none())
+    );
+    let forum = built_in_named("forum").map(|b| built_in_look(b, true, true, false));
+    assert!(forum.is_some_and(|l| !l.is_hidden), "the Feed's flag leaves the Forum alone");
+}
+
 // ForumEntryTests: the Forum hides while its experiment is off; Automations never does.
 #[test]
 fn the_forum_hides_while_its_experiment_is_off() {
-    let forum = built_in_named("forum").map(|b| built_in_look(b, true, false));
+    let forum = built_in_named("forum").map(|b| built_in_look(b, true, false, false));
     assert!(forum.is_some_and(|l| l.is_hidden));
-    let shown = built_in_named("forum").map(|b| built_in_look(b, true, true));
+    let shown = built_in_named("forum").map(|b| built_in_look(b, true, true, false));
     assert!(shown.is_some_and(|l| !l.is_hidden));
-    let automations = built_in_named("automations").map(|b| built_in_look(b, true, false));
+    let automations = built_in_named("automations").map(|b| built_in_look(b, true, false, false));
     assert!(automations.is_some_and(|l| !l.is_hidden));
 }
 
 // AppStoreHiddenUntilReadyTests: the App Store hides until Labs shows it, and keeps its caption.
 #[test]
 fn the_app_store_hides_until_it_shows_and_keeps_its_caption() {
-    let hidden = built_in_named("app_store").map(|b| built_in_look(b, false, false));
+    let hidden = built_in_named("app_store").map(|b| built_in_look(b, false, false, false));
     assert_eq!(
         hidden,
         Some(BuiltInLook {
@@ -33,7 +46,10 @@ fn the_app_store_hides_until_it_shows_and_keeps_its_caption() {
             is_hidden: true
         })
     );
-    assert!(built_in_named("app_store").is_some_and(|b| !built_in_look(b, true, false).is_hidden));
+    assert!(
+        built_in_named("app_store")
+            .is_some_and(|b| !built_in_look(b, true, false, false).is_hidden)
+    );
 }
 
 // The Chief draws the sparkles symbol, not the icon pack's crown (Lawrence 2026-11-23).
