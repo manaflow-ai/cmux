@@ -1,0 +1,14 @@
+/mnt/lane-data/checkouts/cmux/lane--acpmux-windows-tests/target-win/debug/deps/thiserror-f9fa702d17c50714.d: /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/lib.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/aserror.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/display.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/var.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/private.rs /mnt/lane-data/checkouts/cmux/lane--acpmux-windows-tests/target-win/debug/build/thiserror-d97644666291596f/out/private.rs
+
+/mnt/lane-data/checkouts/cmux/lane--acpmux-windows-tests/target-win/debug/deps/libthiserror-f9fa702d17c50714.rlib: /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/lib.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/aserror.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/display.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/var.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/private.rs /mnt/lane-data/checkouts/cmux/lane--acpmux-windows-tests/target-win/debug/build/thiserror-d97644666291596f/out/private.rs
+
+/mnt/lane-data/checkouts/cmux/lane--acpmux-windows-tests/target-win/debug/deps/libthiserror-f9fa702d17c50714.rmeta: /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/lib.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/aserror.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/display.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/var.rs /home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/private.rs /mnt/lane-data/checkouts/cmux/lane--acpmux-windows-tests/target-win/debug/build/thiserror-d97644666291596f/out/private.rs
+
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/lib.rs:
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/aserror.rs:
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/display.rs:
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/var.rs:
+/home/cmux/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.21/src/private.rs:
+/mnt/lane-data/checkouts/cmux/lane--acpmux-windows-tests/target-win/debug/build/thiserror-d97644666291596f/out/private.rs:
+
+# env-dep:OUT_DIR=/mnt/lane-data/checkouts/cmux/lane--acpmux-windows-tests/target-win/debug/build/thiserror-d97644666291596f/out
