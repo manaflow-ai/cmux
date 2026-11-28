@@ -293,6 +293,8 @@ mod peer_list_slot_tests;
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod peer_refresh_cost_tests;
+#[cfg(test)]
+mod peer_rewound_tests;
 mod peer_row;
 pub(crate) mod peer_snapshot;
 mod peer_table;
@@ -666,7 +668,8 @@ pub fn peer_snapshot_bound(n: usize) {
 pub(crate) use crate::questions;
 pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
 pub(crate) use peers::{
-    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET, is_permission_ask,
+    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_REWOUND, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET,
+    is_permission_ask,
 };
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub(crate) use permissions::drop_display_lines;

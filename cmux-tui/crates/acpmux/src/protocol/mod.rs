@@ -759,6 +759,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
+        untyped(method::MUX_REWOUND, Notification),
         untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
         untyped(method::MUX_ADMISSION_WAITING, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
