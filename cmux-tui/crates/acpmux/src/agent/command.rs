@@ -43,6 +43,7 @@ fn claude_name_args(
 }
 
 #[derive(Debug, thiserror::Error)]
+// retry-prompt-ok: only the person can sign in to GitHub Copilot again
 #[error("Reconnect GitHub Copilot in Settings > Models.")]
 pub(crate) struct CopilotReconnect;
 

@@ -13507,7 +13507,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This connection is offline. Try again when you are connected."
+            "value": "This connection is offline."
           }
         },
         "ar": {

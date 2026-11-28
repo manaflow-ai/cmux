@@ -979,12 +979,13 @@ fn subscription_error(reason: &'static str) -> RpcError {
 
 fn connection_error(reason: &str, provider: &str) -> RpcError {
     let message = match reason {
+        // retry-prompt-ok: only the person can sign in again
         "reauth_required" | "signed_out" => format!("Reconnect {provider} in Settings > Models."),
         "keychain_locked" => format!("Unlock your Mac's keychain to use {provider}."),
         "keychain_other_build" => {
             crate::subscription_store::Error::KeychainOtherBuild.message().into()
         }
-        "network" => format!("{provider} is offline. Try again when you are connected."),
+        "network" => format!("{provider} is offline."),
         _ => format!("{provider} is temporarily unavailable."),
     };
     RpcError::invalid_params(message).with_data(json!({"reason": reason}))

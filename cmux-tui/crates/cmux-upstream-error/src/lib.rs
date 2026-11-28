@@ -58,6 +58,7 @@ pub fn retry_after(message: &str) -> Option<Duration> {
     // retry-prompt-ok: upstream Retry-After keys this parser reads, not a prompt
     [
         "retry after ",
+        // retry-prompt-ok: header and body keys the parser reads, not a prompt
         "retry-after: ",
         "retry-after ",
         "\"retry_after\":",
