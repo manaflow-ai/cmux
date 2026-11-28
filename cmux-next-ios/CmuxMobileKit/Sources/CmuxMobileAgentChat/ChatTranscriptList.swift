@@ -397,9 +397,11 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         let delta = preferred.size.height - heights[row]
         heights[row] = preferred.size.height
         markDirty(row)
-        // A row above what the reader sees grew or shrank: keep what they see in place.
+        // A row above what the reader sees grew or shrank: keep what they see in place. So too a
+        // row that starts above it (a streamed answer the reader is partway down): its growth
+        // keeps the rows under it still and its own bottom where it was, instead of pushing them.
         let visibleTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        if !followsBottom(), row < tops.count, tops[row] + heights[row] - delta <= visibleTop {
+        if !followsBottom(), row < tops.count, tops[row] < visibleTop - 0.5 {
             context.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
         }
         return context

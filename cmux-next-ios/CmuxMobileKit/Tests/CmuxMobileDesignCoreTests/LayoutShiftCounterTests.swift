@@ -128,6 +128,45 @@ struct LayoutShiftCounterTests {
         #expect(counter.moves == ["3:c 216/60->211/60 dy -5.9 dh 0.0 scroll -2.9"])
     }
 
+    /// The workspaces flow at 123de7a6 under duress=heavy: a streamed answer alone on screen,
+    /// followed, grew 76 -> 157 pt while the list scrolled 42 pt; with no other row to read the
+    /// scroll from, it counted. Its list's own scroll says what moved it.
+    @Test func aFollowedAnswerAloneOnScreenIsReadAgainstItsListsScroll() {
+        var counter = LayoutShiftCounter()
+        counter.frame(["m": .init(CGRect(x: 0, y: 623, width: 390, height: 76), .window, content: 1, scrolled: .zero)])
+        counter.frame(["m": .init(CGRect(x: 0, y: 581, width: 390, height: 157), .window, content: 2, scrolled: CGPoint(x: 0, y: -42))])
+        #expect(counter.shiftFrames == 0)
+        // Without the list's scroll, the same frame counts (both edges moved).
+        var blind = LayoutShiftCounter()
+        blind.frame(["m": streamed(623, h: 76, 1)])
+        blind.frame(["m": streamed(581, h: 157, 2)])
+        #expect(blind.shiftFrames == 1)
+    }
+
+    /// A row alone on screen moving by its list's scroll is the scroll; moving otherwise, or the
+    /// list not scrolling, is a shift.
+    @Test func aLoneRowIsTheScrollOnlyWhenItMovedByItsListsScroll() {
+        var counter = LayoutShiftCounter()
+        let lone = { (y: CGFloat, by: CGFloat) in ["a": LayoutShiftCounter.Row(CGRect(x: 0, y: y, width: 390, height: 44), .window, scrolled: CGPoint(x: 0, y: by))] }
+        counter.frame(lone(700, 0))
+        counter.frame(lone(650, -50))
+        #expect(counter.shiftFrames == 0)
+        // Pushed down 54 pt with the list still: content landed above it.
+        counter.frame(lone(704, 0))
+        #expect(counter.shiftFrames == 1)
+        // Moved 30 pt against a 10 pt scroll.
+        counter.frame(lone(664, -10))
+        #expect(counter.shiftFrames == 2)
+    }
+
+    /// A pushed row's record names what landed above it, so a run's log says the cause.
+    @Test func aPushedRowsRecordNamesWhatLandedAboveIt() {
+        var counter = LayoutShiftCounter()
+        counter.frame(["a": row(0), "b": row(60)])
+        counter.frame(["a": row(0), "card": row(60, h: 54), "b": row(114)])
+        #expect(counter.moves == ["2:b 60/60->114/60 under new card"])
+    }
+
     @Test func aRowThatLeavesAndComesBackIsComparedOnlyWhileDrawn() {
         var counter = LayoutShiftCounter()
         counter.frame(["a": row(0)])

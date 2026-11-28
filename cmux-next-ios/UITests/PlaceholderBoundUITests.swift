@@ -145,7 +145,10 @@ final class PlaceholderBoundUITests: XCTestCase {
             XCTFail("\(flow): no layout-shift count (debug.layout-shift missing or no marked row drawn)")
         } else if shifts > (ceiling?.maxShiftFrames ?? 0) {
             let bound = ceiling.map { "its ceiling of \($0.maxShiftFrames) in known_layout_shifts (\($0.issue))" } ?? "zero"
-            XCTFail("\(flow): \(shifts) frame(s) after first paint moved or resized a drawn row, past \(bound) (last: \(counts["lastMoved"] ?? ""))")
+            // Every counted move (frame:id y/h->y/h, its scroll and what it moved under), in the
+            // failure itself: the step's log keeps it when its attachments do not come back.
+            let moves = (counts["moves"] as? [String] ?? []).joined(separator: "; ")
+            XCTFail("\(flow): \(shifts) frame(s) after first paint moved or resized a drawn row, past \(bound) (last: \(counts["lastMoved"] ?? ""); moves: \(moves))")
         } else if let ceiling, shifts < ceiling.maxShiftFrames {
             let next = shifts == 0 ? "drop its known_layout_shifts entry" : "lower its max_shift_frames to \(shifts)"
             print("LAYOUT_SHIFTS_RATCHET flow=\(flow) shift_frames=\(shifts) ceiling=\(ceiling.maxShiftFrames) issue=\(ceiling.issue): \(next) in cmux-next-ios/design/placeholders.json")
