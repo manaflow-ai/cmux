@@ -30,6 +30,7 @@ import fnmatch
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -281,6 +282,28 @@ def read_error(error: Exception) -> str:
                 details[field] = value
     print(json.dumps(details, sort_keys=True), file=sys.stderr)
     return kind
+
+
+# A lane VM's gh is the lane-gh broker, which refuses to rerun a job that passed ("a rerun only repeats its answer";
+# `--force` sends it). A new proof record is exactly when the gate's rerun changes its answer: cmux#61741
+# (2026-11-28) passed its look, its record was posted, and the ui proof status job, passed at the old record, was
+# refused, so cmux/ui-proof stayed at the cancelled look's failure and glaeda land stopped red_not_excused. GitHub's
+# own gh has no --force, so it is asked only after the broker named it.
+BROKER_FORCE = "--force"
+
+
+def rerun_gate_job(repo: str, run_id: int | str, job_id: int | str, run=subprocess.run) -> str:
+    """Rerun job JOB_ID of RUN_ID in REPO so the gate reads a new record; again with --force when the broker refused a
+    passed job's rerun. Raises subprocess.CalledProcessError (its stderr kept) when neither took."""
+    cmd = ["gh", "run", "rerun", str(run_id), "--job", str(job_id), "--repo", repo]
+    done = run(cmd, capture_output=True, text=True)
+    if done.returncode and BROKER_FORCE in (done.stderr or ""):
+        done = run([*cmd, BROKER_FORCE], capture_output=True, text=True)
+        if done.returncode == 0:
+            return f"reran with {BROKER_FORCE} (the broker refuses a passed job's plain rerun)"
+    if done.returncode:
+        raise subprocess.CalledProcessError(done.returncode, cmd, done.stdout, (done.stderr or "").strip()[-400:])
+    return "reran"
 
 
 # Exit status of `gate` when the record could not be read: the caller fails its job (rerunnable) rather than post

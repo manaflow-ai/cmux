@@ -2530,6 +2530,26 @@
           ]
         },
         {
+          "id": "workspace.openInEditor",
+          "title": {
+            "en": "Open Workspace in Editor"
+          },
+          "shortcut": null,
+          "chord": [
+            {
+              "key": "j",
+              "modifiers": [
+                "cmd"
+              ]
+            },
+            {
+              "key": "i",
+              "modifiers": []
+            }
+          ],
+          "aliases": []
+        },
+        {
           "id": "saveLayoutTemplate",
           "title": {
             "en": "Save Layout as Template…",
@@ -2698,80 +2718,6 @@
             "key": ".",
             "modifiers": [
               "ctrl",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
-          "id": "nextWorkspaceGroup",
-          "title": {
-            "en": "Next Workspace Group",
-            "ar": "مجموعة مساحات العمل التالية",
-            "bs": "Sljedeća grupa radnih prostora",
-            "da": "Næste arbejdsområdegruppe",
-            "de": "Nächste Arbeitsbereichsgruppe",
-            "es": "Siguiente grupo de espacios de trabajo",
-            "fr": "Groupe d’espaces de travail suivant",
-            "it": "Gruppo di aree di lavoro successivo",
-            "ja": "次のワークスペースグループ",
-            "km": "ក្រុមកន្លែងធ្វើការបន្ទាប់",
-            "ko": "다음 작업 공간 그룹",
-            "no": "Neste arbeidsområdegruppe",
-            "pl": "Następna grupa przestrzeni roboczych",
-            "pt-BR": "Próximo Grupo de Áreas de Trabalho",
-            "ru": "Следующая группа рабочих пространств",
-            "th": "กลุ่มเวิร์กสเปซถัดไป",
-            "tr": "Sonraki çalışma alanı grubu",
-            "uk": "Наступна група робочих областей",
-            "vi": "Nhóm không gian làm việc tiếp theo",
-            "zh-CN": "下一个工作区组",
-            "zh-TW": "下一個工作區群組"
-          },
-          "shortcut": {
-            "key": "]",
-            "modifiers": [
-              "ctrl",
-              "opt",
-              "shift",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
-          "id": "prevWorkspaceGroup",
-          "title": {
-            "en": "Previous Workspace Group",
-            "ar": "مجموعة مساحات العمل السابقة",
-            "bs": "Prethodna grupa radnih prostora",
-            "da": "Forrige arbejdsområdegruppe",
-            "de": "Vorherige Arbeitsbereichsgruppe",
-            "es": "Anterior grupo de espacios de trabajo",
-            "fr": "Groupe d’espaces de travail précédent",
-            "it": "Gruppo di aree di lavoro precedente",
-            "ja": "前のワークスペースグループ",
-            "km": "ក្រុមកន្លែងធ្វើការមុន",
-            "ko": "이전 작업 공간 그룹",
-            "no": "Forrige arbeidsområdegruppe",
-            "pl": "Poprzednia grupa przestrzeni roboczych",
-            "pt-BR": "Anterior Grupo de Áreas de Trabalho",
-            "ru": "Предыдущая группа рабочих пространств",
-            "th": "กลุ่มเวิร์กสเปซก่อนหน้า",
-            "tr": "Önceki çalışma alanı grubu",
-            "uk": "Попередня група робочих областей",
-            "vi": "Nhóm không gian làm việc trước",
-            "zh-CN": "上一个工作区组",
-            "zh-TW": "上一個工作區群組"
-          },
-          "shortcut": {
-            "key": "[",
-            "modifiers": [
-              "ctrl",
-              "opt",
-              "shift",
               "cmd"
             ]
           },
@@ -5449,6 +5395,21 @@
           "aliases": []
         },
         {
+          "id": "insertPath",
+          "title": {
+            "en": "Insert Path…"
+          },
+          "shortcut": {
+            "key": "i",
+            "modifiers": [
+              "ctrl",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "clearScreenKeepScrollback",
           "title": {
             "en": "Clear Screen (Keep Scrollback)",
@@ -5544,6 +5505,21 @@
           },
           "shortcut": {
             "key": "f",
+            "modifiers": [
+              "shift",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "terminal.goToDirectory",
+          "title": {
+            "en": "Go to Directory…"
+          },
+          "shortcut": {
+            "key": "g",
             "modifiers": [
               "shift",
               "cmd"
@@ -8334,6 +8310,40 @@
           "aliases": []
         },
         {
+          "id": "agentPaneReload",
+          "title": {
+            "en": "Agent Chat: Reload",
+            "ar": "دردشة الوكيل: إعادة التحميل",
+            "bs": "Chat s agentom: Ponovo učitaj",
+            "da": "Agentchat: Genindlæs",
+            "de": "Agent-Chat: Neu laden",
+            "es": "Chat del agente: Recargar",
+            "fr": "Chat de l’agent : Recharger",
+            "it": "Chat dell’agente: Ricarica",
+            "ja": "エージェントチャット: 再読み込み",
+            "km": "ការជជែកជាមួយភ្នាក់ងារ៖ ផ្ទុកឡើងវិញ",
+            "ko": "에이전트 채팅: 새로고침",
+            "no": "Agentchat: Last inn på nytt",
+            "pl": "Czat z agentem: Odśwież",
+            "pt-BR": "Chat do agente: Recarregar",
+            "ru": "Чат с агентом: Перезагрузить",
+            "th": "แชตเอเจนต์: โหลดใหม่",
+            "tr": "Ajan sohbeti: Yeniden Yükle",
+            "uk": "Чат з агентом: Перезавантажити",
+            "vi": "Trò chuyện với tác tử: Tải lại",
+            "zh-CN": "智能体聊天：重新加载",
+            "zh-TW": "代理聊天：重新載入"
+          },
+          "shortcut": {
+            "key": "r",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "palette.newAgentChat",
           "title": {
             "en": "New Agent Chat",
@@ -8368,6 +8378,46 @@
             },
             {
               "key": "s",
+              "modifiers": []
+            }
+          ],
+          "aliases": []
+        },
+        {
+          "id": "agentPane.openLastTurnChanges",
+          "title": {
+            "en": "Open Last Turn's Changes",
+            "ar": "فتح تغييرات الدور الأخير",
+            "bs": "Otvori promjene zadnjeg poteza",
+            "da": "Åbn sidste turs ændringer",
+            "de": "Änderungen des letzten Zugs öffnen",
+            "es": "Abrir cambios del último turno",
+            "fr": "Ouvrir les modifications du dernier tour",
+            "it": "Apri le modifiche dell’ultimo turno",
+            "ja": "最後のターンの変更を開く",
+            "km": "បើកការផ្លាស់ប្ដូរនៃវេនចុងក្រោយ",
+            "ko": "마지막 턴의 변경 사항 열기",
+            "no": "Åpne endringene fra siste tur",
+            "pl": "Otwórz zmiany z ostatniej tury",
+            "pt-BR": "Abrir alterações do último turno",
+            "ru": "Открыть изменения последнего хода",
+            "th": "เปิดการเปลี่ยนแปลงของรอบล่าสุด",
+            "tr": "Son turun değişikliklerini aç",
+            "uk": "Відкрити зміни останнього ходу",
+            "vi": "Mở thay đổi của lượt gần nhất",
+            "zh-CN": "打开上一轮的更改",
+            "zh-TW": "開啟上一輪的變更"
+          },
+          "shortcut": null,
+          "chord": [
+            {
+              "key": "j",
+              "modifiers": [
+                "cmd"
+              ]
+            },
+            {
+              "key": "g",
               "modifiers": []
             }
           ],
@@ -8898,7 +8948,18 @@
             "zh-TW": "搜尋代理聊天"
           },
           "shortcut": null,
-          "chord": null,
+          "chord": [
+            {
+              "key": "j",
+              "modifiers": [
+                "cmd"
+              ]
+            },
+            {
+              "key": "k",
+              "modifiers": []
+            }
+          ],
           "aliases": [
             {
               "keys": [
@@ -9261,6 +9322,71 @@
       ]
     },
     {
+      "id": "category.remote",
+      "order": 111,
+      "title": {
+        "en": "Remote Machines",
+        "ar": "الأجهزة البعيدة",
+        "bs": "Udaljene mašine",
+        "da": "Fjernmaskiner",
+        "de": "Entfernte Maschinen",
+        "es": "Máquinas remotas",
+        "fr": "Machines distantes",
+        "it": "Macchine remote",
+        "ja": "リモートマシン",
+        "km": "ម៉ាស៊ីនពីចម្ងាយ",
+        "ko": "원격 머신",
+        "no": "Eksterne maskiner",
+        "pl": "Maszyny zdalne",
+        "pt-BR": "Máquinas remotas",
+        "ru": "Удалённые машины",
+        "th": "เครื่องระยะไกล",
+        "tr": "Uzak makineler",
+        "uk": "Віддалені машини",
+        "vi": "Máy từ xa",
+        "zh-CN": "远程机器",
+        "zh-TW": "遠端機器"
+      },
+      "shortcuts": [
+        {
+          "id": "macScreen.stopSharing",
+          "title": {
+            "en": "Stop Sharing This Mac",
+            "ar": "إيقاف مشاركة جهاز Mac هذا",
+            "bs": "Zaustavi dijeljenje ovog Mac računara",
+            "da": "Stop deling af denne Mac",
+            "de": "Teilen dieses Mac beenden",
+            "es": "Dejar de compartir este Mac",
+            "fr": "Arrêter de partager ce Mac",
+            "it": "Interrompi condivisione di questo Mac",
+            "ja": "このMacの共有を停止",
+            "km": "បញ្ឈប់ការចែករំលែក Mac នេះ",
+            "ko": "이 Mac 공유 중단",
+            "no": "Slutt å dele denne Macen",
+            "pl": "Przestań udostępniać tego Maca",
+            "pt-BR": "Parar de Compartilhar Este Mac",
+            "ru": "Прекратить общий доступ к этому Mac",
+            "th": "หยุดแชร์ Mac เครื่องนี้",
+            "tr": "Bu Mac’i Paylaşmayı Durdur",
+            "uk": "Припинити спільний доступ до цього Mac",
+            "vi": "Dừng chia sẻ máy Mac này",
+            "zh-CN": "停止共享这台 Mac",
+            "zh-TW": "停止共享這台 Mac"
+          },
+          "shortcut": {
+            "key": "s",
+            "modifiers": [
+              "opt",
+              "shift",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        }
+      ]
+    },
+    {
       "id": "category.settings",
       "order": 112,
       "title": {
@@ -9362,6 +9488,42 @@
               ]
             }
           ],
+          "aliases": []
+        },
+        {
+          "id": "customize.revert",
+          "title": {
+            "en": "Undo Look Change",
+            "ar": "التراجع عن تغيير المظهر",
+            "bs": "Poništi promjenu izgleda",
+            "da": "Fortryd ændring af udseende",
+            "de": "Darstellungsänderung rückgängig machen",
+            "es": "Deshacer cambio de aspecto",
+            "fr": "Annuler le changement d’apparence",
+            "it": "Annulla modifica dell’aspetto",
+            "ja": "見た目の変更を元に戻す",
+            "km": "មិនធ្វើវិញនូវការប្ដូររូបរាង",
+            "ko": "모양 변경 취소",
+            "no": "Angre utseendeendring",
+            "pl": "Cofnij zmianę wyglądu",
+            "pt-BR": "Desfazer mudança de aparência",
+            "ru": "Отменить изменение вида",
+            "th": "เลิกทำการเปลี่ยนรูปลักษณ์",
+            "tr": "Görünüm Değişikliğini Geri Al",
+            "uk": "Скасувати зміну вигляду",
+            "vi": "Hoàn tác thay đổi giao diện",
+            "zh-CN": "撤销外观更改",
+            "zh-TW": "還原外觀變更"
+          },
+          "shortcut": {
+            "key": "z",
+            "modifiers": [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
           "aliases": []
         },
         {

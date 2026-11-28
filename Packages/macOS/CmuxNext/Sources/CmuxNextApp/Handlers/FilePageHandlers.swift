@@ -76,7 +76,7 @@ enum FilePageHandlers {
             let look = services.viewers.editorPages.look
             let writer = SettingWriter(invocation.origin)
             registry.track(Task { @MainActor in
-                guard let from = look.importedFrom?.name else { return ActionWorkFailure(FilePageStrings.noEditorSettings) }
+                guard let from = look.importedFrom else { return ActionWorkFailure(FilePageStrings.noEditorSettings) }
                 do {
                     let written = try await settings.copyEditorSettings(look.importedSection, by: writer)
                     if let window = services.windows.active?.window {

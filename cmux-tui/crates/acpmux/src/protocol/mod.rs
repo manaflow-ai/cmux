@@ -362,6 +362,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
         untyped(method::MUX_BG_STOP, Request),
+        untyped(method::MUX_WAIT_PARK, Request),
+        untyped(method::MUX_WAIT_UNPARK, Request),
         untyped(method::MUX_BG_REARM, Request),
         untyped(method::MUX_RUN_ELSEWHERE_PLAN, Request),
         untyped(method::MUX_RUN_ELSEWHERE_START, Request),
