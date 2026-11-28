@@ -638,7 +638,27 @@ except OSError as e:
   export EVAL_BIND="$lan"
 fi
 # view VERB ARG... RAW: a target's view verb, on this Mac or (two Macs) on the viewer Mac.
+# Its stderr (on two Macs, the viewer Mac's, which peer.py relays) is kept in EVAL_STATE/view.err as
+# well, so view_why can put the reason in the err line: under the launcher app only stdout and
+# results.json leave the worker, and a bare "window 1 failed" hid why (ssqc-1141, 2026-11-28).
 view() {
+  local errf="$EVAL_STATE/view.err" vrc=0
+  : >"$errf"
+  view_run "$@" 2>"$errf" || vrc=$?
+  cat "$errf" >&2
+  return "$vrc"
+}
+# view_why: ": REASON" from the last view's stderr (its last lines, at most 600 characters, with no
+# pairing link, QR code or vnc:// password), or nothing.
+view_why() {
+  local errf="$EVAL_STATE/view.err" why
+  [[ -s "$errf" ]] || return 0
+  why=$(LC_ALL=en_US.UTF-8 grep -v -E 'cmux-vnc://|[█▀▄]' "$errf" | sed -E 's#(vnc://[^:/@[:space:]]*:)[^@[:space:]]*@#\1***@#g' |
+    tail -n 6 | tr '\n' ' ' | sed -E 's/ +$//' | cut -c1-600)
+  [[ -n "$why" ]] && printf ': %s' "$why"
+  return 0
+}
+view_run() {
   if [[ -n "$lan" ]]; then
     EVAL_PEER_STREAM_TOKEN="$EVAL_STATE/token" \
       CMUX_VNC_STREAM_LINK="$(grep -m1 -o 'cmux-vnc://pair[^ ]*' "$EVAL_STATE/host.log" 2>/dev/null)" \
@@ -758,7 +778,7 @@ PY
     for input in pointer key; do
       raw="$EVAL_STATE/latency-$input.raw"
       rm -f "$raw" "$raw.first" "$raw.clock" "$raw.span"
-      view latency-view "$input" "$samples" "$raw" || err "latency $input failed"
+      view latency-view "$input" "$samples" "$raw" || err "latency $input failed$(view_why)"
       with_offsets "$raw" bash "$script" latency-report "$input" "$raw" "$dir/latency-$input.json" || err "latency $input: no report"
     done
   else
@@ -811,7 +831,7 @@ PY
     if why=$(host_start); then
       raw="$EVAL_STATE/window-$rep.raw"
       rm -f "$raw" "$raw.clock" "$raw.span"
-      view window-view "$window_s" "$dir/viewer-frame-$rep" "$go" "$raw" || err "window $rep failed"
+      view window-view "$window_s" "$dir/viewer-frame-$rep" "$go" "$raw" || err "window $rep failed$(view_why)"
       with_offsets "$raw" bash "$script" window-report "$raw" "$dir/window-$rep.json" || err "window $rep: no report"
     else
       err "host did not start for window $rep: $why"
@@ -857,15 +877,10 @@ print(f"{y} {x} {min(h, host[1] - y)} {min(w, host[0] - x)}")
 PY
       ); then
       # Same pixels on both sides, so no calibration: crop both to the text and compare them whole.
+      # screen-eval-ocr cuts the decoded pixels itself (not sips: ocr.swift, --cut-host).
       read -r cy cx ch cw <<<"$crop"
-      for side in host viewer; do
-        src="$dir/host-$rep.png"
-        [[ "$side" == viewer ]] && src="$dir/viewer-frame-$rep"
-        sips --cropOffset "$cy" "$cx" --cropToHeightWidth "$ch" "$cw" "$src" --out "$EVAL_STATE/ocr-$side-$rep.png" >/dev/null 2>&1 ||
-          err "ocr $rep: could not crop the $side image"
-      done
-      "$EVAL_BIN/screen-eval-ocr" "$EVAL_STATE/ocr-host-$rep.png" "$EVAL_STATE/ocr-viewer-$rep.png" "$dir/truth.txt" \
-        >"$dir/ocr-$rep.json" || err "ocr $rep failed"
+      "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" \
+        --cut-host "$cx,$cy,$cw,$ch" --cut-viewer "$cx,$cy,$cw,$ch" >"$dir/ocr-$rep.json" || err "ocr $rep failed"
       # The crop receipt: same pixels on both sides, sizes checked above.
       python3 -I "$here/same_pixels.py" "$dir/ocr-$rep.json" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$cx,$cy,$cw,$ch" ||
         err "ocr $rep: same-pixel receipt failed"
@@ -898,15 +913,11 @@ PY
       if crops=$(python3 -I "$here/rd_marker_calibration.py" calibrate "$dir/source-scene-$rep.json" "$EVAL_SCENE_NONCE" \
         "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/ocr-calibration-$rep.json" "$EVAL_STATE/ocr-viewer-$rep.ppm" \
         2>"$EVAL_STATE/ocr-calibration-$rep.err"); then
+        # The viewer crop is the PPM calibrate wrote; the host screenshot is cut by screen-eval-ocr on
+        # its decoded pixels (not sips: ocr.swift, --cut-host), and the receipt checks the size it read.
         read -r host_crop viewer_crop <<<"$crops"
-        IFS=, read -r cx cy cw ch <<<"$host_crop"
-        if sips --cropOffset "$cy" "$cx" --cropToHeightWidth "$ch" "$cw" "$dir/host-$rep.png" \
-          --out "$EVAL_STATE/ocr-host-$rep.png" >/dev/null 2>&1; then
-          "$EVAL_BIN/screen-eval-ocr" "$EVAL_STATE/ocr-host-$rep.png" "$EVAL_STATE/ocr-viewer-$rep.ppm" "$dir/truth.txt" \
-            >"$dir/ocr-$rep.json" || err "ocr $rep failed"
-        else
-          err "ocr $rep: could not crop the host image"
-        fi
+        "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$EVAL_STATE/ocr-viewer-$rep.ppm" "$dir/truth.txt" \
+          --cut-host "$host_crop" >"$dir/ocr-$rep.json" || err "ocr $rep failed"
       fi
       # The receipt says not ready, and why, for every refusal above.
       python3 -I "$here/rd_marker_calibration.py" receipt "$dir/ocr-$rep.json" "$dir/ocr-calibration-$rep.json" ||
