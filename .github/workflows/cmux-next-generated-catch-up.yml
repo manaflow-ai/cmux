@@ -88,7 +88,7 @@ jobs:
       name: ci-routing-agent
       deployment: false
     needs: select
-    if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
+    if: ${{ !cancelled() && !failure() && needs.select.result == 'success' && (needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]') }}
     name: catch up #${{ matrix.pr.number }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a write token for a pull request branch; ephemeral Blacksmith VM, reads no variable
     timeout-minutes: 20

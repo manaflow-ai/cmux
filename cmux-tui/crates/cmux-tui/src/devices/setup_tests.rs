@@ -947,3 +947,24 @@ fn every_answer_to_allow_agents_is_a_line_and_none_is_a_fail() {
     assert_eq!(closed.state, StepState::Warn);
     assert_eq!(closed.fix, "open cmux on this computer");
 }
+
+/// The NIGHTLY feed read is a bare GET of a public file: no credential, cookie or person header rides with it.
+#[cfg(unix)]
+#[test]
+fn seeded_feed_read_sends_no_credential() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    assert_eq!(super::verbs::http_get(FEED).unwrap(), b"{}");
+    let sent: Vec<_> = cmux_egress::capture::requests_to("files-next.cmux.com")
+        .into_iter()
+        .filter(|r| r.target == "/nightly-next/appcast-arm64.xml")
+        .collect();
+    assert!(!sent.is_empty());
+    let allowed = ["host", "accept", "user-agent", "accept-encoding", "content-length"];
+    for request in &sent {
+        for (name, _) in &request.headers {
+            assert!(allowed.contains(&name.to_ascii_lowercase().as_str()), "{name}: {sent:?}");
+        }
+        assert!(request.body.is_empty());
+    }
+}
