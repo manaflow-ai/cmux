@@ -19,6 +19,9 @@
 //! - [`driver`], [`frames`]: a driver call's params and deadline, where its new tab opens and a
 //!   tab's frame tree (`DriverParams`, `CallDeadline`, `AutomationTabPlace`, `FrameTree`), ops in
 //!   [`automation_ops`].
+//! - [`page_events`]: a driven tab's console and pageerror events, its JavaScript dialogs, and the
+//!   cookie backup key's Keychain answers (`PageConsole`, `DialogBroker`, `CookieBackupKeys`), ops
+//!   in [`automation_ops`].
 //! - [`links`]: what a link click does (the gesture of a click, the person's
 //!   `browser.links.*` mapping), where Chromium's link requests go (`CEFLinkClicks`) and the one
 //!   decision for every window Chromium wants to open (`CEFWindowPolicy`).
@@ -41,6 +44,7 @@ pub mod frames;
 pub mod links;
 pub mod load_waits;
 pub mod ops;
+pub mod page_events;
 pub mod password_fill;
 pub mod tab_state;
 pub mod tab_watcher;
@@ -68,6 +72,8 @@ mod frames_tests;
 mod links_tests;
 #[cfg(test)]
 mod load_waits_tests;
+#[cfg(test)]
+mod page_events_tests;
 #[cfg(test)]
 mod password_fill_tests;
 #[cfg(test)]

@@ -29,6 +29,7 @@ dependencies = [
  "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
+ "cmux-bytes",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -114,6 +115,7 @@ dependencies = [
  "ignore",
  "imbl",
  "inotify",
+ "iroh",
  "jpeg-encoder",
  "jsonschema",
  "libc",
@@ -255,6 +257,7 @@ dependencies = [
  "cmux-bounded",
  "cmux-json",
  "cmux-scope",
+ "cmux-view-rows",
  "crossterm",
  "dirs",
  "futures-util",
@@ -2767,6 +2770,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "wait-timeout",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3580,6 +3584,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vault-e2e",
+ "cmux-view-rows",
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
