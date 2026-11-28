@@ -80,6 +80,53 @@ class GuardStepsReachedTest(unittest.TestCase):
                     self.assertNotIn(".github/workflows/**", step.inputs)
 
 
+class RegistryRowGuardsTest(unittest.TestCase):
+    """A change that adds a registry row's source without its row runs the row's guard on its landing head
+    (registry-row-missing class, land_gate). 11-21 to 11-28: four selector-table reds (culprit e06d1661da88, a
+    Sources-only change; cmux-next-crash-class's `**` Sources input drops under --pr-scope) and four settings-export
+    reds (#51725, #54442; settings-published-keys was push tier and named no Swift settings source)."""
+
+    CULPRITS = {
+        "objc-selector-table": {
+            "e06d1661da88": [
+                "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonLook.swift",
+                "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonView.swift",
+            ],
+        },
+        "settings-published-keys": {
+            "#51725": ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+                       "Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations/SettingsAgentTools.swift",
+                       "schemas/settings/source/agent-defaults.json"],
+            "#54442": ["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"],
+            "#52837": ["schemas/settings/published-keys.txt"],
+        },
+    }
+
+    def test_each_culprit_routes_its_row_guard_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for step, culprits in self.CULPRITS.items():
+            self.assertTrue(t.steps[step].land_gate, step)
+            self.assertTrue(t.steps[step].blocks, step)
+            for culprit, paths in culprits.items():
+                with self.subTest(step=step, culprit=culprit):
+                    self.assertIn(step, ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+
+    def test_a_product_change_does_not_route_them(self) -> None:
+        t = ci_steps.load()
+        routed = ci_steps.nightly_gate_steps(t, ["webviews/src/app.ts", "cmux-tui/crates/x/src/lib.rs"], ["linux"])
+        for step in self.CULPRITS:
+            self.assertNotIn(step, routed)
+
+    def test_each_wraps_its_check_in_new_red_only(self) -> None:
+        t = ci_steps.load()
+        for step in self.CULPRITS:
+            with self.subTest(step=step):
+                self.assertIn("scripts/ci/new_red_only.sh", t.steps[step].run)
+                self.assertIn("scripts/ci/new_red_only.sh", t.steps[step].inputs)
+
+
 class SwiftTestCompileGateTest(unittest.TestCase):
     """A Swift change's test targets compile on its landing head (swift-test-compile, land_gate). Since 2026-11-21 no
     pull request into feat-cmux-next compiled a test target (fleet-test-compile.yml cut, then retired by #61890; swift
@@ -279,7 +326,7 @@ class NightlyGateTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertTrue(steps[name].nightly)
                 # The land_gate steps a path also routes run beside the nightly's (next-state-roots scans
-                # scripts/cmux-next/*.sh for Classic ids; cmux-next-idle-wakeups reads Cargo.lock, cmux#63822): only
+                # scripts/cmux-next/*.sh for Classic ids): only
                 # the steps with a nightly twin are the nightly's causes.
                 self.assertEqual([n for n in ci_steps.nightly_gate_steps(ci_steps.load(), paths)
                                   if steps[n].nightly], [name])
@@ -307,8 +354,8 @@ class NightlyGateTest(unittest.TestCase):
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
         # page.tsx routes web-typecheck, a `land_gate` step; a plain web step (web-lint, web tests) stays off.
-        # Cargo.lock also reaches the idle daemon tests (cmux-next-idle-wakeups, a land_gate step).
-        self.assertEqual(only, ["web-typecheck", "cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"])
+        # The idle daemon tests (cmux-next-idle-wakeups) read Cargo.lock but are tier B since 2026-11-28: post-merge.
+        self.assertEqual(only, ["web-typecheck", "rust-notices", "phone-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only next-state-roots, rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["next-state-roots", "rust-notices"]))
@@ -391,11 +438,11 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
                 # A crate's Rust source also reaches the persisted-formats registry, next-state-roots, the
-                # spawn-owner ratchet (#64665) and next-crash-safety (land_gate steps on every cmux-tui/crates/*/src .rs);
-                # Cargo.lock reaches the idle daemon tests.
+                # spawn-owner ratchet (#64665) and next-crash-safety (land_gate steps on every cmux-tui/crates/*/src .rs).
+                # The idle daemon tests read Cargo.lock but are tier B: post-merge.
                 expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
                                 ["persisted-formats", "next-state-roots", "next-spawn-owner-ratchet", "next-crash-safety", "phone-speed-icount"],
-                            "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]
+                            "cmux-tui/Cargo.lock": ["rust-notices", "phone-speed-icount"]
                             }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
 
@@ -2584,16 +2631,17 @@ class WebBrowserStepsTest(unittest.TestCase):
 class RustToolCompileCacheTest(unittest.TestCase):
     """The rust tool's cargo compiles through the runner's own sccache on a persistent GHA pool runner (its
     SCCACHE_DIR outlives the job; the job-done hook wipes target/, so with no wrapper every cmux_next_ daemon test
-    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), and changes nothing elsewhere."""
+    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), keeps a wrapper its caller sets on
+    cargo (cargo-giant-lock.sh, with sccache inside it), and changes nothing elsewhere."""
 
-    def run_tool(self, **env: str) -> tuple[str, str]:
+    def run_tool(self, call_env: dict[str, str] | None = None, **env: str) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             cargo_home, tools, stub_bin, cache = base / "cargo", base / "tools", base / "stub", base / "sccache"
             for d in (cargo_home / "bin", tools, stub_bin, cache):
                 d.mkdir(parents=True)
             (cargo_home / "bin" / "rustup").write_text("#!/bin/sh\nexit 0\n")
-            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} args=$*"\n')
+            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} inner=${CARGO_GROUPS_INNER_WRAPPER:-none} args=$*"\n')
             (stub_bin / "sccache").write_text("#!/bin/sh\nexit 0\n")
             for f in (cargo_home / "bin" / "rustup", cargo_home / "bin" / "cargo", stub_bin / "sccache"):
                 f.chmod(0o755)
@@ -2603,23 +2651,31 @@ class RustToolCompileCacheTest(unittest.TestCase):
             full = {k: v for k, v in full.items() if v != ""}
             subprocess.run(["bash", "-euo", "pipefail", "-c", ci_steps.load().tools["rust"]], env=full, check=True,
                            capture_output=True, text=True, cwd=ROOT)
-            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env=full, check=True,
+            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env={**full, **(call_env or {})},
+                                  check=True,
                                   capture_output=True, text=True).stdout.strip()
             return said, str(stub_bin / "sccache")
 
     def test_a_pool_runner_with_sccache_compiles_through_it(self) -> None:
         said, sccache = self.run_tool()
-        self.assertEqual(said, f"wrapper={sccache} args=test -p x")
+        self.assertEqual(said, f"wrapper={sccache} inner=none args=test -p x")
 
     def test_a_wrapper_already_set_is_kept(self) -> None:
         said, _ = self.run_tool(RUSTC_WRAPPER="/opt/kache/kache")
-        self.assertEqual(said, "wrapper=/opt/kache/kache args=test -p x")
+        self.assertEqual(said, "wrapper=/opt/kache/kache inner=none args=test -p x")
 
     def test_no_sccache_dir_or_not_actions_is_as_before(self) -> None:
         for env in ({"SCCACHE_DIR": ""}, {"GITHUB_ACTIONS": ""}):
             with self.subTest(env=env):
                 said, _ = self.run_tool(**env)
-                self.assertEqual(said, "wrapper=none args=test -p x")
+                self.assertEqual(said, "wrapper=none inner=none args=test -p x")
+
+    def test_a_callers_giant_lock_is_kept_with_sccache_inside(self) -> None:
+        # cmux-next-member-tests.sh and cargo-groups.sh set RUSTC_WRAPPER to the giant lock before running cargo; the
+        # shim used to overwrite it with sccache, dropping the lock.
+        lock = "/repo/scripts/ci/cargo-giant-lock.sh"
+        said, sccache = self.run_tool(call_env={"RUSTC_WRAPPER": lock})
+        self.assertEqual(said, f"wrapper={lock} inner={sccache} args=test -p x")
 
 
 class IosJobTest(unittest.TestCase):
