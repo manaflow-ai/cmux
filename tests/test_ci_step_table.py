@@ -1133,6 +1133,68 @@ class StepResultsTest(unittest.TestCase):
             self.assertEqual(len(keys), len(names), "every step has its own key")
 
 
+
+class JobBlockKeyTest(unittest.TestCase):
+    """CI_STEP_KEY_JOB_BLOCK=1: pr-pipeline.yml enters a step's key as its own job block, so the post-merge batch
+    reuses passes across workflow edits that cannot change the step (11-28: 34 edits in 34 h, mostly the linux job's
+    timeout-minutes; five batches in a row reused 0 of 80-91 linux steps)."""
+
+    WF = textwrap.dedent("""\
+        name: pr-pipeline
+        on: [push]
+        jobs:
+          linux:  # the linux job
+            runs-on: big
+            timeout-minutes: 674
+            env:
+              A: "1"
+            steps:
+              - run: ci/run run --job linux  # routed
+          mac:
+            runs-on: mac
+            steps:
+              - run: ci/run run --job mac
+        """)
+
+    def test_only_what_the_job_runs_moves_its_hash(self) -> None:
+        h = ci_steps.job_block_hash
+        base = h(self.WF, "linux")
+        self.assertIsNotNone(base)
+        self.assertIsNone(h(self.WF, "nope"))
+        self.assertIsNone(h(self.WF, "name"), "a top-level key is not a job")
+        self.assertEqual(h(self.WF.replace("674", "1171"), "linux"), base, "the job's timeout leaves it")
+        self.assertEqual(h(self.WF.replace("# routed", "# routed by the table"), "linux"), base)
+        self.assertEqual(h(self.WF.replace("        env:", "\n        # why\n        env:"), "linux"), base)
+        self.assertEqual(h(self.WF.replace("runs-on: mac", "runs-on: mac2"), "linux"), base, "another job's edit")
+        self.assertNotEqual(h(self.WF.replace("runs-on: mac", "runs-on: mac2"), "mac"), h(self.WF, "mac"))
+        self.assertNotEqual(h(self.WF.replace('A: "1"', 'A: "2"'), "linux"), base, "its env moves it")
+        self.assertNotEqual(h(self.WF.replace("--job linux", "--job linux -v"), "linux"), base, "its run moves it")
+        self.assertNotEqual(h(self.WF.replace("runs-on: big", "runs-on: small"), "linux"), base)
+
+    def test_the_variable_gates_it_and_off_keeps_todays_key(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ci_steps.WORKFLOW_PATH).write_text(self.WF)
+            self.assertEqual(ci_steps.job_blocks(root, {}, ["linux"]), {})
+            self.assertEqual(ci_steps.job_blocks(root, {"CI_STEP_KEY_JOB_BLOCK": "0"}, ["linux"]), {})
+            on = ci_steps.job_blocks(root, {"CI_STEP_KEY_JOB_BLOCK": "1"}, ["linux", "linux", "advisory"])
+            self.assertEqual(list(on), ["linux"], "a job with no block in the file keeps the blob id")
+            self.assertEqual(ci_steps.job_blocks(root / "missing", {"CI_STEP_KEY_JOB_BLOCK": "1"}, ["linux"]), {})
+        real = ci_steps.load()
+        step = next(s for s in real.steps.values() if ci_steps.reusable(s) and s.job == "linux")
+        files = [(ci_steps.WORKFLOW_PATH, "100644", "aaa"), ("ci/run", "100755", "bbb")]
+        today = ci_steps.step_key(step, real, files, "t", None, {})
+        self.assertEqual(ci_steps.step_key(step, real, files, "t", None, {}, {}), today)
+        self.assertEqual(ci_steps.step_key(step, real, files, "t", None, {}, {"mac": "m"}), today)
+        moved = ci_steps.step_key(step, real, files, "t", None, {}, {"linux": "x"})
+        self.assertNotEqual(moved, today)
+        edited = [(ci_steps.WORKFLOW_PATH, "100644", "ccc"), ("ci/run", "100755", "bbb")]
+        self.assertEqual(ci_steps.step_key(step, real, edited, "t", None, {}, {"linux": "x"}), moved,
+                         "with the block, the file's blob id leaves the key")
+        self.assertNotEqual(ci_steps.step_key(step, real, edited, "t", None, {}), today)
+
+
 class StepEnvTest(unittest.TestCase):
     """A GitHub Actions Linux job builds Rust into a fresh target: rustc's incremental state is never read again and
     filled a pool VM's disk (run 45531606824), so steps there run with CARGO_INCREMENTAL=0."""
