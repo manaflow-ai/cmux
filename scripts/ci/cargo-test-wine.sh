@@ -51,7 +51,7 @@ export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=$wine
 # inside its own per-test time.
 if [[ ! -f "$WINEPREFIX/system.reg" ]]; then
   mkdir -p "$WINEPREFIX"
-  timeout 300 "${wine}boot" -i >/dev/null 2>&1 || timeout 300 "$wine" wineboot -i >/dev/null 2>&1 || {
+  bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" 300 "${wine}boot" -i >/dev/null 2>&1 || bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" 300 "$wine" wineboot -i >/dev/null 2>&1 || {
     echo "::error::cargo-test-wine.sh: wineboot could not create $WINEPREFIX" >&2
     exit 1
   }
