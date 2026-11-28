@@ -26,8 +26,16 @@ runs:
         client_dir="$RUNNER_TEMP/fleet-client"
         mkdir -p "$client_dir"
         ok=0
+        # rc 7 (refused) or 28 (no connection within --connect-timeout) on every try is a runner with no route
+        # to the controller, which answers on the tailnet only: the cmux-runner-pool-* VMs are not members
+        # (cmuxterm-hq docs/handbook/fleet-waiter-job-holds-its-mini.md, "The cmux-linux pool is off the
+        # tailnet"; runs 46106977634, 46107673810, 46109407911 timed out 3 x 30 s on four zones' VMs).
+        no_route=0
         for try in 1 2 3; do
-          if curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client_dir/manifest.json" &&
+          rc=0
+          curl -fsS --connect-timeout 10 -m 30 "$CONTROLLER/v1/client/manifest" -o "$client_dir/manifest.json" || rc=$?
+          if [[ "$rc" == 7 || "$rc" == 28 ]]; then no_route=$((no_route + 1)); fi
+          if [[ "$rc" == 0 ]] &&
             python3 -I - "$client_dir" "$CONTROLLER" <<'PY'
         import hashlib, json, sys, urllib.request
         from pathlib import Path
@@ -43,6 +51,10 @@ runs:
           then ok=1; break; fi
           sleep $((try * 5))
         done
+        if [[ "$ok" != 1 && "$no_route" == 3 ]]; then
+          echo "::error title=fleet client::runner ${RUNNER_NAME:-?} has no route to the controller (3 connects failed): it is not on the tailnet. The cmux-linux pool's VMs are not tailnet members; see cmuxterm-hq docs/handbook/fleet-waiter-job-holds-its-mini.md#the-cmux-linux-pool-is-off-the-tailnet-2026-11-28"
+          exit 1
+        fi
         if [[ "$ok" != 1 || ! -f "$client_dir/ci-client.py" ]]; then
           echo "::error title=fleet client::the controller's client could not be fetched after 3 tries"
           exit 1
