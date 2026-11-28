@@ -112,7 +112,8 @@ async fn a_cut_primary_fails_over_to_the_standby_within_two_silence_windows_and_
 /// (https://github.com/manaflow-ai/cmux/pull/54697) held it to the 30 s refresh and kept a
 /// dead direct route in use for half a minute or more.
 #[tokio::test(start_paused = true)]
-async fn a_primary_that_still_hears_the_peer_but_drops_our_sends_fails_over_within_one_ping_turn() {
+async fn a_primary_that_still_hears_the_peer_but_drops_our_sends_fails_over_within_two_ping_turns()
+{
     let mut set = three(Instant::now());
     let lan = set.id_of(&LAN).unwrap();
     let started = Instant::now();
@@ -127,7 +128,7 @@ async fn a_primary_that_still_hears_the_peer_but_drops_our_sends_fails_over_with
     }
     assert_eq!(set.primary(), Some(&LAN));
     let cut = Instant::now();
-    let mut relayed = None;
+    let (mut sprayed, mut relayed) = (None, None);
     while relayed.is_none() && Instant::now() < cut + Duration::from_secs(40) {
         // Our datagrams and pings on the LAN are lost; the peer's still arrive on it.
         if let Some(path) = set.by_id_mut(lan) {
@@ -135,18 +136,33 @@ async fn a_primary_that_still_hears_the_peer_but_drops_our_sends_fails_over_with
             path.watch.heard();
         }
         round(&mut set, &[RELAY], ms(1)).await;
+        if sprayed.is_none() && set.primary() != Some(&LAN) {
+            sprayed = Some(Instant::now() - cut);
+        }
         if set.primary() == Some(&RELAY) {
             relayed = Some(Instant::now() - cut);
         }
         tokio::time::advance(ms(9)).await;
     }
+    let sprayed = sprayed.expect("stops trusting the LAN alone");
     let relayed = relayed.expect("fails over to the relay");
     let turn = ProbeConfig::default().current_interval;
-    eprintln!("ONE_WAY_CUT_UNDER_TRAFFIC relay after {relayed:?} (route check every {turn:?})");
+    eprintln!(
+        "ONE_WAY_CUT_UNDER_TRAFFIC every path after {sprayed:?}, relay alone after {relayed:?} \
+         (route check every {turn:?})"
+    );
+    // The first missed route check makes the LAN suspect: datagrams go on every path, so the
+    // session recovers within one turn and the probe timeout.
     assert!(
-        relayed <= turn + Duration::from_secs(2),
-        "a one-way cut under traffic moved to the relay after {relayed:?}, past the {turn:?} \
-         route check plus its verdict"
+        sprayed <= turn + Duration::from_secs(1),
+        "a one-way cut under traffic kept the LAN alone for {sprayed:?}, past one {turn:?} \
+         route check and its verdict"
+    );
+    // Dead takes the suspect's next probe (still on the turn it was scheduled at) and its
+    // fast follow-ups: within two turns, never the 30 s refresh.
+    assert!(
+        relayed <= 2 * turn + Duration::from_secs(2),
+        "a one-way cut under traffic reached the relay alone after {relayed:?}"
     );
     assert_eq!(set.view(lan).unwrap().state, PathState::Dead);
 }
