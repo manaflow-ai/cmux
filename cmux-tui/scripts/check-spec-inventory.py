@@ -651,15 +651,31 @@ SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
 )
 
 
+# Modules of cmux-tui-core that hold control-protocol serializers outside
+# src/server/ (the tree JSON, `tree_wire`: RFD 0174 server cycle step 2).
+WIRE_MODULES_BELOW_SERVER = ("tree_wire",)
+
+
 def server_module_sources() -> list[str]:
     """Production source of every Rust file under src/server/ (server.rs's
     child modules), sorted by path. server.rs moves code into these files, so
     they are read the same way as server.rs; test files, inline test modules
     and SERVER_MODULES_OUTSIDE_RAW_SDK are left out."""
+    sources = []
+    # Wire modules below `server` (RFD 0174: breaking cmux-tui-core's cycle at
+    # `server` moves serializers mux needs out of it) are read the same way.
+    for name in WIRE_MODULES_BELOW_SERVER:
+        module = TUI / "crates/cmux-tui-core/src" / f"{name}.rs"
+        if module.is_file():
+            sources.append(strip_rust_test_modules(module.read_text()))
+        directory = module.with_suffix("")
+        if directory.is_dir():
+            for path in sorted(directory.rglob("*.rs")):
+                if not path.name.endswith("_tests.rs") and "tests" not in path.parts:
+                    sources.append(strip_rust_test_modules(path.read_text()))
     root = TUI / "crates/cmux-tui-core/src/server"
     if not root.is_dir():
-        return []
-    sources = []
+        return sources
     for path in sorted(root.rglob("*.rs")):
         parts = path.relative_to(root).parts
         if (
@@ -758,7 +774,7 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
     add(function_event_names(server, "subscribed_event_json"), "subscribe")
     add(function_event_names(server, "tree_delta_json"), "subscribe-deltas")
     # tree-selection-deltas-v1 (#32408): a delta subscriber that also says it reads them gets the
-    # workspace's whole selection and its presentation in their own serializers (tree_json.rs).
+    # workspace's whole selection and its presentation in their own serializers (tree_wire/tree_json.rs).
     for serializer in ("selection_changed_json", "workspace_presentation_changed_json"):
         if re.search(rf"\bfn\s+{serializer}(?:\s*<[^>]*>)?\s*\(", server):
             add(function_event_names(server, serializer), "subscribe-deltas")

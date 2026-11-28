@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 
 use super::chat::is_path_id;
-use super::previews::{answered, client};
+use super::previews::{answered, platform_client};
 use super::{Failure, Request};
 
 /// A delete stops the machine and frees its disk; it answers well under this.
@@ -17,7 +17,7 @@ pub async fn destroy_machine(request: &Request, machine: &str) -> Result<bool, F
     if !is_path_id(machine) {
         return Err(Failure::Transport("not a machine id".into()));
     }
-    let client = client(request)?;
+    let client = platform_client(request)?;
     let on =
         machine.parse().map_err(|_| Failure::Transport(format!("not a path id: {machine}")))?;
     let sent = async { client.machines_destroy(&on).await.map(|r| json!(r.into_inner())) };
