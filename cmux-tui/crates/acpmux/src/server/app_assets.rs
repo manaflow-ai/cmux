@@ -42,6 +42,14 @@ pub(super) async fn serve(path: &str) -> Response {
     }
     let exe = std::env::current_exe().unwrap_or_default();
     let configured = std::env::var_os("ACPMUX_APP_ASSETS_DIR").map(PathBuf::from);
+    // A signed patch bundle's file wins over the shipped copy (RFD 0224 phase 5); a missing
+    // or partial patch root falls back file by file, so it never fails a page.
+    if configured.is_none()
+        && let Some(patched) = patch_web_root(&crate::config::default_home())
+        && let Some(response) = patched_file(&patched, relative, kind).await
+    {
+        return response;
+    }
     if configured.is_none() && !SHIPPED.is_empty() {
         return shipped(relative, kind);
     }
@@ -55,6 +63,27 @@ pub(super) async fn serve(path: &str) -> Response {
         b"NEXT pane assets are not installed with this daemon".to_vec(),
         "text/plain",
     )
+}
+
+/// Where `host self-update` writes a patch bundle's `web/` files for this host's release
+/// target (`host_self_update_bundle.rs`: `<home>/patches/<target>/files`). Bundles ship to
+/// the Linux hosts self-update keeps; anywhere else there is none.
+fn patch_web_root(home: &Path) -> Option<PathBuf> {
+    let target = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("linux", "x86_64") => "x86_64-unknown-linux-musl",
+        ("linux", "aarch64") => "aarch64-unknown-linux-musl",
+        _ => return None,
+    };
+    Some(home.join("patches").join(target).join("files").join("web"))
+}
+
+/// The patched copy of `relative`, when the patch root has that file; None falls back.
+async fn patched_file(root: &Path, relative: &str, kind: &'static str) -> Option<Response> {
+    if !tokio::fs::metadata(root.join(relative)).await.is_ok_and(|m| m.is_file()) {
+        return None;
+    }
+    let response = read(root, relative, kind).await;
+    (response.0 == "200 OK").then_some(response)
 }
 
 fn shipped(relative: &str, kind: &'static str) -> Response {
