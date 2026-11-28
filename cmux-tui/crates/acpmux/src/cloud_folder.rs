@@ -48,21 +48,21 @@ fn describe_found(
     found: &[Checkout],
 ) -> Value {
     let git_root = git.map(|root| root.to_string_lossy().into_owned());
-    let mut answer = json!({
-        "path": path,
-        "projected": projection.is_some(),
-        "git": git_root.is_some(),
-        "git_root": git_root,
-    });
+    let is_git = git_root.is_some();
+    let mut answer = serde_json::Map::new();
+    answer.insert("path".into(), json!(path));
+    answer.insert("projected".into(), json!(projection.is_some()));
+    answer.insert("git".into(), json!(is_git));
+    answer.insert("git_root".into(), json!(git_root));
     let summary = match &projection {
         Some((mount, mac)) => {
             let source = match mac {
                 Some(mac) => format!("the folder {mac} on the person's Mac"),
                 None => "a folder on the person's Mac".to_owned(),
             };
-            answer["mount_point"] = json!(mount);
-            answer["mac_folder"] = json!(mac);
-            answer["edits_reach_mac"] = json!("on_bring_back");
+            answer.insert("mount_point".into(), json!(mount));
+            answer.insert("mac_folder".into(), json!(mac));
+            answer.insert("edits_reach_mac".into(), json!("on_bring_back"));
             format!(
                 "{} is a live projection of {source}{}: every file there reads here, fetched from the Mac \
                  on first use. What you write stays on this machine, over the Mac's files, until the person \
@@ -74,20 +74,16 @@ fn describe_found(
                 } else {
                     format!(" (mounted at {})", mount.display())
                 },
-                if answer["git"] == json!(true) {
-                    "a git repository"
-                } else {
-                    "not a git repository"
-                },
+                if is_git { "a git repository" } else { "not a git repository" },
             )
         }
         None => {
-            answer["edits_reach_mac"] = json!("never");
+            answer.insert("edits_reach_mac".into(), json!("never"));
             format!(
                 "{} is this machine's own folder, not a projection of the person's Mac: its files stay on the \
                  machine until it is deleted, and nothing here is copied to the Mac. It is {}.",
                 path.display(),
-                if answer["git"] == json!(true) {
+                if is_git {
                     "a git repository: push to keep work anywhere else"
                 } else {
                     "not a git repository"
@@ -97,7 +93,8 @@ fn describe_found(
     };
     let mut summary = summary;
     if projection.is_some() && !found.is_empty() {
-        answer["repositories"] = json!(found.iter().map(Checkout::to_json).collect::<Vec<_>>());
+        let repositories: Vec<Value> = found.iter().map(Checkout::to_json).collect();
+        answer.insert("repositories".into(), json!(repositories));
         let listed: Vec<String> = found.iter().map(Checkout::line).collect();
         summary.push_str(&format!(
             " Its git {}: {}. Each is the person's own checkout exactly as it is on their Mac now, \
@@ -109,8 +106,8 @@ fn describe_found(
             listed.join("; "),
         ));
     }
-    answer["summary"] = json!(summary);
-    answer
+    answer.insert("summary".into(), json!(summary));
+    Value::Object(answer)
 }
 
 /// The most repositories [`checkouts`] names.
@@ -245,16 +242,20 @@ fn unescape(field: &str) -> String {
     let bytes = field.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
-    while i < bytes.len() {
+    while let Some(&byte) = bytes.get(i) {
         let octal = bytes
-            .get(i + 1..i + 4)
-            .filter(|d| bytes[i] == b'\\' && d.iter().all(|b| (b'0'..=b'7').contains(b)));
+            .get(i.saturating_add(1)..i.saturating_add(4))
+            .filter(|d| byte == b'\\' && d.iter().all(|b| (b'0'..=b'7').contains(b)));
         if let Some(digits) = octal {
-            out.push(digits.iter().fold(0u8, |n, d| n.wrapping_mul(8).wrapping_add(d - b'0')));
-            i += 4;
+            out.push(
+                digits
+                    .iter()
+                    .fold(0u8, |n, d| n.wrapping_mul(8).wrapping_add(d.wrapping_sub(b'0'))),
+            );
+            i = i.saturating_add(4);
         } else {
-            out.push(bytes[i]);
-            i += 1;
+            out.push(byte);
+            i = i.saturating_add(1);
         }
     }
     String::from_utf8_lossy(&out).into_owned()
@@ -265,14 +266,15 @@ fn percent_decode(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+    while let Some(&byte) = bytes.get(i) {
+        if byte == b'%' {
+            let hex =
+                std::str::from_utf8(bytes.get(i.saturating_add(1)..i.saturating_add(3))?).ok()?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
-            i += 3;
+            i = i.saturating_add(3);
         } else {
-            out.push(bytes[i]);
-            i += 1;
+            out.push(byte);
+            i = i.saturating_add(1);
         }
     }
     String::from_utf8(out).ok()
