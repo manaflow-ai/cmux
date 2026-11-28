@@ -31,7 +31,14 @@ import {
   rememberResolvedDefault,
   resolvedModel,
 } from "./defaultChoice";
-import { loadLastChips, rememberLastChips, type ChipPlace, lastChipsKey } from "./chipMemory";
+import {
+  type ChipPlace,
+  lastChipsKey,
+  levelPicked,
+  loadLastChips,
+  noteLevelPicked,
+  rememberLastChips,
+} from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
 import { useComposerContribution } from "./composer/extensionCommands";
 import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
@@ -239,7 +246,7 @@ export function ComposerPickers({
   snapshot,
   onModel,
   onMode,
-  onEffort,
+  onEffort: sendOption,
   onHarness,
   fork,
   onHarnessHint,
@@ -310,6 +317,19 @@ export function ComposerPickers({
   const sessionId = summary?.sessionId;
   const forks = locked && fork === true && !!sessionId;
   const onCloud = pickerOnCloud(snapshot);
+  // A level the person picked (a chip, a menu row, a model's level) is the only writer of the level a new
+  // chat draws (chipMemory.ts): a level the session reports on its own (a backend option list, a model's
+  // default) never is (Leo 2026-11-28: "Backend option lists must not overwrite them."). Fast mode and the
+  // other options go through `sendOption` directly. `levelPlace` is this render's `chipHarness`/`chipPlace`.
+  const levelPlace = useRef<{ harness?: string; place?: ChipPlace }>({});
+  const onEffort = useCallback(
+    (configId: string, value: string) => {
+      const { harness: picked, place } = levelPlace.current;
+      if (picked && place) noteLevelPicked(picked, place, value);
+      sendOption(configId, value);
+    },
+    [sendOption],
+  );
   const cloudSetup = useContext(CloudServedContext);
   const cloudServed = cloudSetup?.served;
   const cloudSwitch = onCloud && locked && !forks;
@@ -499,7 +519,7 @@ export function ComposerPickers({
           choices: fastOption.options,
           lastOnValue:
             fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
-          onPick: (value: string) => onEffort(fastOption.id, value),
+          onPick: (value: string) => sendOption(fastOption.id, value),
         }
       : undefined;
   // Fast mode is offered where the running model honors it, or while it is still on.
@@ -697,11 +717,11 @@ export function ComposerPickers({
     if (!picked.fast) return;
     // The model already runs: fast mode changes now; else once the agent reports the model.
     if (picked.model === current && fastMode) {
-      if (comboFast && fastMode.currentValue !== comboFast.value) onEffort(comboFast.configId, comboFast.value);
+      if (comboFast && fastMode.currentValue !== comboFast.value) sendOption(comboFast.configId, comboFast.value);
     } else if (presession)
       // Held as what it means on the option drawn now (a catalog's priority tier, pendingSpeed.ts),
       // else as plain on: the switch maps either onto the names the session reports.
-      onEffort(comboFast?.configId ?? fastOption?.id ?? HELD_FAST_ID, comboFast?.value ?? HELD_FAST_ON);
+      sendOption(comboFast?.configId ?? fastOption?.id ?? HELD_FAST_ID, comboFast?.value ?? HELD_FAST_ON);
     else fastWanted.current = { sessionId: summary?.sessionId, model: picked.model };
   };
   // A pick of a model whose harness this Mac cannot run yet (Lawrence 2026-11-07: "search for any
@@ -802,7 +822,7 @@ export function ComposerPickers({
     }
     if (current !== wanted.model || !fastMode) return;
     fastWanted.current = undefined;
-    if (comboFast && fastValue !== comboFast.value) onEffort(comboFast.configId, comboFast.value);
+    if (comboFast && fastValue !== comboFast.value) sendOption(comboFast.configId, comboFast.value);
   });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else the model placeholder.
@@ -977,6 +997,9 @@ export function ComposerPickers({
     : snapshot.origin === "remote" || snapshot.origin === "peer" || summary?.peer || summary?.host
       ? undefined
       : "local";
+  useEffect(() => {
+    levelPlace.current = { harness: chipHarness, place: chipPlace };
+  }, [chipHarness, chipPlace]);
   const lastChips =
     awaiting && chipHarness && !opensListed && chipPlace
       ? loadLastChips()[lastChipsKey(chipHarness, chipPlace)]
@@ -1309,9 +1332,12 @@ export function ComposerPickers({
   // never the one this Mac's next chat draws before it reports. A Cloud start's chips draw Cloud's own
   // pick (cloudStartChip below), never this memory.
   useEffect(() => {
-    if (!awaiting && chipHarness && chipPlace && summary?.sessionId && effortShown)
-      rememberLastChips(chipHarness, { effort: effortShown }, chipPlace);
-  }, [awaiting, chipHarness, chipPlace, summary?.sessionId, effortShown]);
+    // Only the level the person picked here: a level the session reports on its own is not kept.
+    const picked = chipHarness && chipPlace ? levelPicked(chipHarness, chipPlace) : undefined;
+    if (!awaiting && chipHarness && chipPlace && summary?.sessionId && effortShown && picked !== undefined)
+      if (picked === (ultracodeOn ? "ultracode" : effortValue))
+        rememberLastChips(chipHarness, { effort: effortShown }, chipPlace);
+  }, [awaiting, chipHarness, chipPlace, summary?.sessionId, effortShown, effortValue, ultracodeOn]);
   // The controls row's short forms (composerRowFit.ts): the model's name without its vendor
   // ("Opus 5.5": the catalog's short name, else the name less its harness's vendor word), its
   // family for a narrow row ("Opus"), and the effort level's short name ("Med").
@@ -1619,7 +1645,7 @@ export function ComposerPickers({
         options={opening || snapshot.switching?.phase === "starting" ? [] : extraOptions}
         managed={fullAccessManaged}
         managedReason={t(PICKER_LABELS.fullAccessManaged)}
-        onPick={(configId, value) => onEffort(configId, value)}
+        onPick={(configId, value) => sendOption(configId, value)}
       />
     </div>
   );
