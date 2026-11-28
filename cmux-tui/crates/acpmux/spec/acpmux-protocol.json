@@ -3442,6 +3442,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/prompt_held",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/cancel_refused",
       "params": true
     },
@@ -3615,6 +3620,7 @@
         "topic": true,
         "via": true,
         "vmBoundary": true,
+        "waitForLink": true,
         "waitStart": true,
         "workflowAllowedTools": true,
         "workspaceId": true,

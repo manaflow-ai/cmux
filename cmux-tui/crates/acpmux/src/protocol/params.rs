@@ -170,6 +170,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "topic",
     "via",
     "vmBoundary",
+    "waitForLink",
     "waitStart",
     "workflowAllowedTools",
     "workspaceId",

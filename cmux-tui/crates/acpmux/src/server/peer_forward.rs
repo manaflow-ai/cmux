@@ -425,7 +425,7 @@ async fn gated(
     };
     let mut hold = None;
     'held: loop {
-        match wait_for_prompt_link(hub, conn, &peer, params, &mut hold).await {
+        match wait_for_prompt_link(hub, conn, &peer, &id, params, &mut hold).await {
             Ok(Some(queued)) => return Some(Ok(queued)),
             Ok(None) => {}
             Err(e) => return Some(Err(e)),
@@ -1437,3 +1437,7 @@ mod peer_read_tests;
 #[cfg(test)]
 #[path = "prompt_link_wait_tests.rs"]
 mod prompt_link_wait_tests;
+
+#[cfg(test)]
+#[path = "prompt_held_tests.rs"]
+mod prompt_held_tests;
