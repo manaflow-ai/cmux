@@ -70,6 +70,24 @@ MAC_JOB = """
 
 
 class RoutingTableTests(unittest.TestCase):
+    def test_the_unified_nightly_slot_is_a_nightly_overflow(self):
+        """#61222 (RFD 0185 phase 2) renamed glaeda-nightly-std-xcode-26.6 to mac-nightly; the same slots carry both
+        (.github/single-host-fallbacks.json "mac-nightly"), so either literal ends a nightly reservation. Blacksmith
+        and an unknown label still do not."""
+        for term, accepted in (("'mac-nightly'", True), ("'glaeda-nightly-std-xcode-26.6'", True),
+                               ("'glaeda-nightly-only-m4pro'", True), ("'blacksmith-6vcpu-macos-26'", False),
+                               ("'mac-std'", False), ("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", False)):
+            with self.subTest(term=term):
+                self.assertEqual(table.nightly_overflow_term(term), accepted)
+
+    def test_the_gateway_runner_is_not_macos(self):
+        """mac-gateway is the Linux gateway runner that hands a step to the controller with cmux-ci run
+        (test_ci_gateway_jobs_on_linux.py); a job on it alone does not route to macOS. cmux-mac still does."""
+        self.assertFalse(table.routes_to_macos({"runs-on": "mac-gateway"}))
+        self.assertFalse(table.routes_to_macos({"runs-on": "${{ vars.X != '' && 'mac-gateway' || 'mac-gateway' }}"}))
+        self.assertTrue(table.routes_to_macos({"runs-on": "cmux-mac"}))
+        self.assertTrue(table.routes_to_macos({"runs-on": "${{ vars.CI_GATEWAY || 'mac-gateway-x' }}"}))
+
     def test_nightly_reservation_requires_exact_scope_and_label(self):
         term = ("github.repository == 'manaflow-ai/cmux' && "
                 "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && "
