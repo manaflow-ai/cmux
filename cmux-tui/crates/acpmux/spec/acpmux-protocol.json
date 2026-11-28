@@ -1550,6 +1550,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/team/customization",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/customize",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/team/handoff",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/history",
       "params": true,
       "result": true
@@ -2278,6 +2296,12 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_preflight",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_interrupts",
       "params": true,
       "result": true
     },
