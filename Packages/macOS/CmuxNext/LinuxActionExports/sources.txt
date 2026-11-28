@@ -75,3 +75,4 @@ DeepLink/DeepLink+GroupPlan.swift
 DeepLink/DeepLink+Parse.swift
 DeepLink/DeepLink.swift
 DeepLink/DeepLinkExport.swift
+DeepLink/RustDeepLink.swift
