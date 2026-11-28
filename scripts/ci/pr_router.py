@@ -674,7 +674,8 @@ def run_jobs(run: dict | None, repo: str, token: str) -> list | None:
                 f"{head_tier.API}/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100&page={page}",
                 headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                          "X-GitHub-Api-Version": "2022-11-28"})
-            status, body, _ = deadline_http.request(req, head_tier.VERDICT_SECONDS)
+            status, body, _ = head_tier.read_with_spares(
+                req, lambda r: deadline_http.request(r, head_tier.VERDICT_SECONDS))
             data = json.loads(body) if status == 200 else None
             if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
                 return None
