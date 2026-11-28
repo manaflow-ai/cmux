@@ -1012,17 +1012,17 @@ impl Hub {
         if open {
             self.set_retry_open(session, true);
         }
-        let mut entry = json!({"id": id, "parent": null, "state": state,
-            "agentId": failure.agent_id, "retry": retry, "retryInFlight": in_flight,
-            "retryable": retryable});
         // One daemon-owned reading for every surface. Preserve the diagnostic error, but a
         // helper the daemon will resume is held, not an unrecoverable red failure.
-        entry["capacityWait"] = if open && matches!(failure.reason, "capacity" | "rate_limit") {
-            json!({"reason": failure.reason, "resumesAt": entry["retry"]["nextAt"],
+        let capacity_wait = if open && matches!(failure.reason, "capacity" | "rate_limit") {
+            json!({"reason": failure.reason, "resumesAt": retry.get("nextAt"),
                 "since": failure.at, "error": clip_error(&failure.error)})
         } else {
             Value::Null
         };
+        let mut entry = json!({"id": id, "parent": null, "state": state,
+            "agentId": failure.agent_id, "retry": retry, "retryInFlight": in_flight,
+            "retryable": retryable, "capacityWait": capacity_wait});
         // What names it and why it failed, on every entry: a pane whose history starts after its
         // spawn names its line from this one (cmux#52916).
         let name = {
