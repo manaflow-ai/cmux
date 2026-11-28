@@ -8,127 +8,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا يمكن لـ OpenCode الالتزام بسياسة الأذونات لهذه الدردشة ({policy}): إعداداته الخاصة تحدد ما يسأل عنه"
+            "value" : "إعدادات OpenCode الخاصة تحدد ما يسأل عنه، لذا لا أثر لـ «{policy}»"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode ne može poštovati pravila dozvola ovog chata ({policy}): njegove vlastite postavke određuju šta pita"
+            "value" : "OpenCode o pitanjima odlučuje prema vlastitim postavkama, pa „{policy}” nema učinka"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode kan ikke overholde denne chats tilladelsespolitik ({policy}): dens egne indstillinger afgør, hvad den spørger om"
+            "value" : "OpenCodes egne indstillinger bestemmer, hvad den spørger om, så “{policy}” har ingen virkning"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode kann die Berechtigungsrichtlinie dieses Chats ({policy}) nicht einhalten: Seine eigenen Einstellungen bestimmen, was es fragt"
+            "value" : "OpenCodes eigene Einstellungen bestimmen, was es fragt, daher hat „{policy}“ keine Wirkung"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "OpenCode can't keep this chat's permission policy ({policy}): its own settings decide what it asks"
+            "value" : "OpenCode's own settings decide what it asks, so “{policy}” has no effect"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode no puede mantener la política de permisos de este chat ({policy}): su propia configuración decide qué pregunta"
+            "value" : "La configuración propia de OpenCode decide qué pregunta, así que «{policy}» no tiene efecto"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode ne peut pas respecter la politique d’autorisations de ce chat ({policy}) : ses propres réglages décident de ce qu’il demande"
+            "value" : "Les réglages propres d’OpenCode décident de ce qu’il demande, donc « {policy} » n’a aucun effet"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode non può rispettare il criterio di autorizzazione di questa chat ({policy}): sono le sue impostazioni a decidere cosa chiede"
+            "value" : "Le impostazioni di OpenCode decidono cosa chiede, quindi «{policy}» non ha effetto"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode はこのチャットの権限ポリシー（{policy}）を守れません。何を確認するかはそれ自身の設定で決まります"
+            "value" : "OpenCode は自身の設定で確認内容を決めるため、「{policy}」は適用されません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode មិនអាចរក្សាគោលការណ៍សិទ្ធិរបស់ការជជែកនេះ ({policy}) បានទេ៖ ការកំណត់ផ្ទាល់ខ្លួនរបស់វាសម្រេចថាវាសួរអ្វី"
+            "value" : "ការកំណត់ផ្ទាល់របស់ OpenCode សម្រេចថាវាសួរអ្វី ដូច្នេះ “{policy}” គ្មានប្រសិទ្ធភាព"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode은(는) 이 채팅의 권한 정책({policy})을 지킬 수 없음: 무엇을 물을지는 자체 설정이 정함"
+            "value" : "OpenCode는 자체 설정에 따라 묻기 때문에 “{policy}”는 적용되지 않습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode kan ikke overholde tillatelsespolicyen for denne chatten ({policy}): dens egne innstillinger avgjør hva den spør om"
+            "value" : "OpenCodes egne innstillinger avgjør hva den spør om, så «{policy}» har ingen virkning"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode nie może przestrzegać zasad uprawnień tego czatu ({policy}): o tym, o co pyta, decydują jego własne ustawienia"
+            "value" : "OpenCode pyta według własnych ustawień, więc „{policy}” nie działa"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode não consegue manter a política de permissões deste chat ({policy}): as próprias configurações dele decidem o que ele pergunta"
+            "value" : "As configurações do próprio OpenCode decidem o que ele pergunta, então “{policy}” não tem efeito"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode не может соблюдать политику разрешений этого чата ({policy}): что спрашивать, решают его собственные настройки"
+            "value" : "OpenCode решает, о чём спрашивать, по своим настройкам, поэтому «{policy}» не действует"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode ไม่สามารถทำตามนโยบายสิทธิ์ของแชทนี้ ({policy}) ได้: การตั้งค่าของตัวเองเป็นตัวกำหนดว่าจะถามอะไร"
+            "value" : "การตั้งค่าของ OpenCode เองเป็นตัวกำหนดว่าจะถามอะไร ดังนั้น “{policy}” จึงไม่มีผล"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode bu sohbetin izin politikasını ({policy}) uygulayamıyor: neyi soracağına kendi ayarları karar veriyor"
+            "value" : "OpenCode neyi soracağına kendi ayarlarıyla karar verir, bu yüzden “{policy}” etkisizdir"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode не може дотримуватися політики дозволів цього чату ({policy}): що питати, вирішують його власні налаштування"
+            "value" : "OpenCode вирішує, про що питати, за власними налаштуваннями, тому «{policy}» не діє"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode không thể giữ chính sách quyền của cuộc trò chuyện này ({policy}): cài đặt riêng của nó quyết định nó hỏi gì"
+            "value" : "Cài đặt riêng của OpenCode quyết định nó hỏi gì, nên “{policy}” không có tác dụng"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode 无法遵守此聊天的权限策略（{policy}）：它问什么由它自己的设置决定"
+            "value" : "OpenCode 按自身设置决定询问什么，因此“{policy}”不起作用"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "OpenCode 無法遵守此聊天的權限原則（{policy}）：它問什麼由它自己的設定決定"
+            "value" : "OpenCode 依自身設定決定詢問什麼，因此「{policy}」不起作用"
           }
         }
       }
