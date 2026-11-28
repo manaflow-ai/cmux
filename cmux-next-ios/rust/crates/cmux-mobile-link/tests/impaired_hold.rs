@@ -282,5 +282,10 @@ async fn a_phone_link_holds_60s_on_a_flapping_direct_path_with_slow_turn() {
 async fn the_path_label_settles_on_a_flapping_direct_path_with_slow_turn() {
     let run = hold().await;
     eprintln!("IMPAIRED_HOLD_FLIPS secs={} path_flips={} {run:?}", run.secs, run.path_flips);
-    assert!(run.path_flips <= 2, "the path label flipped {} times in {} s: {run:?}", run.path_flips, run.secs);
+    assert!(
+        run.path_flips <= 2,
+        "the path label flipped {} times in {} s: {run:?}",
+        run.path_flips,
+        run.secs
+    );
 }
