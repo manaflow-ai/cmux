@@ -282,7 +282,8 @@ struct FileExternalOpenMenu: View {
         case .header:
             PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
         case .chrome:
-            Image(systemName: "square.and.arrow.up")
+            // The PDF chrome already shows Share with square.and.arrow.up.
+            Image(systemName: "arrow.up.forward.app")
                 .cmuxFont(size: 16, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .frame(width: style.buttonSize.width, height: style.buttonSize.height)
@@ -2727,7 +2728,7 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
         static let maximumSidebarWidth = FilePreviewPDFSizing.maximumSidebarWidth
         static let floatingChromeHeight: CGFloat = 40
-        static let floatingControlsWidth: CGFloat = 394
+        static let floatingControlsWidth: CGFloat = 444
         static let floatingChromeCornerRadius: CGFloat = 20
     }
 
