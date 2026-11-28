@@ -43,7 +43,7 @@ on:
         type: string
         default: ""
       base:
-        description: "The batch window's base or the probe's known-good commit. Empty compiles all test targets."
+        description: "The batch window's base, --all for the first batch, or the probe's known-good commit."
         type: string
         default: ""
   workflow_dispatch:
@@ -101,7 +101,7 @@ jobs:
           if [ -n "$BATCH_SHA" ]; then
             # The caller already resolved the range. An API refusal here used to
             # narrow it to HEAD^, skipping Swift changes earlier in the batch.
-            base="${FORCED_BASE:---all}"
+            base="${FORCED_BASE:-$(git rev-parse HEAD^1)}"
           else
             base="$FORCED_BASE"
             if [ -z "$base" ]; then

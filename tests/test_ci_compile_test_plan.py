@@ -327,19 +327,30 @@ class CompileTestsPhaseTests(unittest.TestCase):
         output = self.tmp / "outputs"
         env = {**os.environ, "HEAD_SHA": head, "BATCH_SHA": head, "RUNNER_TEMP": str(self.tmp),
                "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(self.tmp / "summary"),
-               "FAKE_SEEN": str(self.seen), "FAKE_PLAN": "Packages/macOS/Alpha AlphaTests"}
-        for base, expected in ((self.base, "Packages/macOS/Alpha/A.swift"), ("", "Packages/macOS/Beta/Package.swift")):
+               "FAKE_SEEN": str(self.seen)}
+        cases = (
+            (self.base, self.base, "Packages/macOS/Alpha/A.swift"),
+            ("--all", "--all", "Packages/macOS/Beta/Package.swift"),
+            ("", subprocess.check_output([*git, "rev-parse", "HEAD^1"], text=True).strip(), None),
+        )
+        for base, expected_base, expected_path in cases:
             with self.subTest(base=base):
                 self.seen.write_text("")
                 output.write_text("")
+                env["FAKE_PLAN"] = "Packages/macOS/Alpha AlphaTests" if expected_path else ""
                 done = subprocess.run(
                     ["bash", "-c", "gh() { echo unexpected GitHub read >&2; return 1; };\n" + script],
                     cwd=self.repo, env={**env, "FORCED_BASE": base}, capture_output=True, text=True, timeout=15,
                 )
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 self.assertNotIn("unexpected GitHub read", done.stderr)
-                self.assertIn(expected, self.seen.read_text().splitlines())
-                self.assertEqual(output.read_text().splitlines(), [f"base={base or '--all'}", "needed=true"])
+                changed = (self.tmp / "changed.txt").read_text().splitlines()
+                if expected_path:
+                    self.assertIn(expected_path, changed)
+                else:
+                    self.assertEqual(changed, [])
+                needed = "true" if expected_path else "false"
+                self.assertEqual(output.read_text().splitlines(), [f"base={expected_base}", f"needed={needed}"])
 
     def test_a_target_that_does_not_compile_is_red(self) -> None:
         done = self.lane("Packages/macOS/Alpha AlphaTests BadTests;Packages/macOS/Beta", bad="BadTests")
@@ -401,7 +412,7 @@ class RetainedCompileCoverageTests(unittest.TestCase):
         self.assertIn("Packages/**", suite["paths"])
         batch = (ROOT / ".github" / "workflows" / "cmux-next-post-merge.yml").read_text()
         job = batch.split("\n  tip-test-compile:\n", 1)[1].split("\n  fast-tier:", 1)[0]
-        self.assertIn("base: ${{ needs.plan.outputs.base }}", job)
+        self.assertIn("base: ${{ needs.plan.outputs.base || (inputs.mode != 'probe' && '--all') || '' }}", job)
 
 
 if __name__ == "__main__":
