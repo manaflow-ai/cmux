@@ -11,7 +11,12 @@
 //
 // Two timers: the idle one, armed on a keystroke and cleared on off, on a chat switch and on close;
 // and a refused off's retry, cleared when it lands, gives up, or typing starts again.
+//
+// It also watches the open chat's room (`_acpmux/rooms`, RFD 0141 phase 2) and keeps the avatar
+// strip each `_acpmux/room` note carries; a daemon without rooms refuses the call and the pane
+// draws `viewing` and `typing` as before.
 import { chatPresence, type ChatPresence } from "./participants";
+import { noteChat, roomStrip } from "./roomStrip";
 
 /// acpmux drops an `on` after 8 s; a pane still typing says so again before that.
 export const TYPING_REFRESH_MS = 5_000;
@@ -22,7 +27,9 @@ export const TYPING_IDLE_MS = 5_000;
 export const STOP_RETRY_MS = 600;
 export const STOP_RETRIES = 3;
 
-type Send = (method: "_acpmux/typing", params: { sessionId: string; on: boolean }) => Promise<unknown> | void;
+type Typing = { sessionId: string; on: boolean };
+type Rooms = { chats: string[]; workspaces: string[] };
+type Send = (method: "_acpmux/typing" | "_acpmux/rooms", params: Typing | Rooms) => Promise<unknown> | void;
 
 const rateLimited = (error: unknown) => (error as { reason?: unknown } | null)?.reason === "typing.rate_limited";
 
@@ -32,6 +39,8 @@ export class PresenceClient {
   /// admitted), else the one the pane was made with.
   private self: string;
   private supported = false;
+  /// This pane asked acpmux for the open chat's room, so leaving it says so.
+  private watching = false;
   private current: ChatPresence = { viewing: [], typing: [] };
   private typingOn = false;
   private sentAt = 0;
@@ -57,7 +66,9 @@ export class PresenceClient {
 
   /// The open chat's presence, or undefined when nobody else is here.
   get presence(): ChatPresence | undefined {
-    return this.current.viewing.length > 0 || this.current.typing.length > 0 ? this.current : undefined;
+    const { viewing, typing, strip } = this.current;
+    const drawn = strip !== undefined && (strip.faces.length > 0 || strip.more > 0 || strip.line !== undefined);
+    return viewing.length > 0 || typing.length > 0 || drawn ? this.current : undefined;
   }
 
   /// The chat this presence is for: the one attached, which a switch's attach makes the next chat
@@ -81,6 +92,22 @@ export class PresenceClient {
     // Always told, even when nobody else is here: the pane then draws this chat's (empty) set,
     // never a presence its snapshot kept from before.
     this.set(this.supported ? chatPresence(presence, this.self) : { viewing: [], typing: [] }, true);
+    if (this.supported) this.watchRoom(sessionId);
+  }
+
+  /// Watch the chat's room; a refusal (a daemon before rooms) leaves the strip unset.
+  private watchRoom(sessionId: string): void {
+    this.watching = true;
+    void Promise.resolve(this.send("_acpmux/rooms", { chats: [sessionId], workspaces: [] })).catch(() => {
+      if (this.sessionId === sessionId) this.watching = false;
+    });
+  }
+
+  /// `_acpmux/room`: the open chat's room changed; its strip replaces the last one.
+  room(params: unknown): void {
+    if (!this.supported || !this.sessionId || noteChat(params) !== this.sessionId) return;
+    const strip = roomStrip((params as { strip?: unknown }).strip);
+    if (strip) this.set({ ...this.current, strip });
   }
 
   /// `_acpmux/presence` for any chat; only the open chat's counts, and only when its attach reply
@@ -88,7 +115,7 @@ export class PresenceClient {
   notification(params: unknown): void {
     const sessionId = (params as { sessionId?: unknown } | undefined)?.sessionId;
     if (!this.supported || sessionId !== this.sessionId) return;
-    this.set(chatPresence(params, this.self));
+    this.set({ ...chatPresence(params, this.self), strip: this.current.strip });
   }
 
   /// The composer's text changed: typing while it holds text, stopped when it is empty. `shown` is
@@ -149,6 +176,8 @@ export class PresenceClient {
     this.stopTyping();
     this.attachment += 1;
     this.cancelStopRetry();
+    if (this.watching) void Promise.resolve(this.send("_acpmux/rooms", { chats: [], workspaces: [] })).catch(() => {});
+    this.watching = false;
     this.sessionId = undefined;
     this.supported = false;
     this.set({ viewing: [], typing: [] }, true);
@@ -157,7 +186,8 @@ export class PresenceClient {
   private set(next: ChatPresence, always = false): void {
     const same = (a: ChatPresence, b: ChatPresence) =>
       a.viewing.map((p) => `${p.id}:${p.name}`).join() === b.viewing.map((p) => `${p.id}:${p.name}`).join() &&
-      a.typing.map((p) => p.id).join() === b.typing.map((p) => p.id).join();
+      a.typing.map((p) => p.id).join() === b.typing.map((p) => p.id).join() &&
+      JSON.stringify(a.strip) === JSON.stringify(b.strip);
     if (!always && same(this.current, next)) return;
     this.current = next;
     this.changed();

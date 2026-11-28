@@ -92,6 +92,10 @@
 .cv-presence__more {
   margin-left: var(--ds-space-1);
 }
+/* A room strip's away face (RFD 0141): there, but not at the screen. */
+.cv-presence__person[data-status="away"] .cv-face {
+  opacity: 0.45;
+}
 
 /* Who is typing, over the composer, on the composer card's edge (the column's gutter). */
 .cv-typing {

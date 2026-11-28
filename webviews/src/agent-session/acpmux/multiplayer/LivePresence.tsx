@@ -2,9 +2,10 @@
 // typing redraws only the header faces and the typing line, never the transcript (the snapshot
 // listener rebuilds the whole pane). The direct client sets it (direct.ts `presence`) with the chat
 // it is for, and it draws only over that chat: during a switch the next chat attaches before the
-// pane shows it. A snapshot's own `presence` (a gallery fixture) draws while no client has set one.
+// pane shows it. A room's strip (RFD 0141), when the daemon sends one, draws in place of the
+// viewing and typing lists. A snapshot's own `presence` (a gallery fixture) draws while no client has set one.
 import { useSyncExternalStore } from "react";
-import { PresenceStack, TypingLine } from "./Faces";
+import { ActivityLine, PresenceStack, StripStack, TypingLine } from "./Faces";
 import type { ChatPresence } from "./participants";
 import { shownPresence } from "./livePresenceModel";
 type Props = { sessionId?: string; fallback?: ChatPresence };
@@ -18,11 +19,13 @@ const useShown = ({ sessionId, fallback }: Props) => {
 /// Who else has the chat open, in the header.
 export function LivePresenceStack(props: Props) {
   const presence = useShown(props);
+  if (presence?.strip) return <StripStack strip={presence.strip} />;
   return presence ? <PresenceStack viewing={presence.viewing} /> : null;
 }
 
 /// Who else types, over the composer.
 export function LiveTypingLine(props: Props) {
   const presence = useShown(props);
+  if (presence?.strip) return <ActivityLine strip={presence.strip} />;
   return presence ? <TypingLine typing={presence.typing} /> : null;
 }

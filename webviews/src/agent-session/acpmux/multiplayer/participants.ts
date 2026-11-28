@@ -8,12 +8,16 @@
 // `answeredBy {id, name}` (a paired device's is `{device, feedItem}`, a question's ancestor
 // `{session, name}`). Presence and typing are ephemeral (`_acpmux/presence`), never in the log.
 
+import type { RoomStrip } from "./roomStrip";
+
 /// One person in a chat. `avatar` is a picture's data URL, or the https profile picture the daemon
 /// stamped on a signed-in author (`fromAvatar`); none draws their initials.
 export type Participant = { id: string; name: string; avatar?: string };
 
 /// Who else has the chat open, and who of them is typing; this reader is never in either list.
-export type ChatPresence = { viewing: Participant[]; typing: Participant[] };
+/// `strip`: the room's avatar strip the daemon computed for this reader (`_acpmux/room`, RFD 0141),
+/// which the header and the activity line draw in place of `viewing` and `typing` when present.
+export type ChatPresence = { viewing: Participant[]; typing: Participant[]; strip?: RoomStrip };
 
 /// Longest name the pane draws, as acpmux bounds a surface's name.
 const MAX_NAME = 64;
