@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf" as const;
+export const SDK_IR_SHA256 = "90b14bd1cb861733cffbec3c463c9bf4364d82ad029be9786efeee047fe5be40" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1827,6 +1827,10 @@ export const COMMAND_METADATA = {
       "limit": {
         "since": 12,
         "capability": "list-workspaces-limit-v1"
+      },
+      "rows": {
+        "since": 12,
+        "capability": "list-workspaces-slim-v1"
       },
       "since": {
         "since": null,
@@ -17150,6 +17154,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "array"
         }
       },
+      "rows": {
+        "capability": "list-workspaces-slim-v1",
+        "constraints": [
+          "\"slim\" when the request asked for slim rows: the rows are slim, the page is not a tree to hold."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "seq": {
         "capability": "workspace-list-delta-v1",
         "constraints": [
@@ -25222,6 +25239,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "rows": {
+          "capability": "list-workspaces-slim-v1",
+          "constraints": [
+            "With limit: \"slim\" for slim rows, only what a phone's Home and Workspaces rows draw (no layouts, ids or tab details; no null fields). A slim page carries rows: \"slim\" and never tree_revision. Ignored without limit, with since, or for any other value."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "since": {

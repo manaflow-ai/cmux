@@ -18166,6 +18166,11 @@ Result<Json> Codec<Tree>::encode(const Tree& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("removed", std::move(encoded).value());
     }
+    if (value.rows) {
+        auto encoded = encode_value(*value.rows);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("rows", std::move(encoded).value());
+    }
     if (value.seq) {
         auto encoded = encode_value(*value.seq);
         if (!encoded) return std::move(encoded).error();
@@ -18271,6 +18276,12 @@ Result<Tree> Codec<Tree>::decode(const Json& value) {
         auto decoded = decode_value<std::vector<Id>>(*field_removed);
         if (!decoded) return std::move(decoded).error();
         result.removed = std::move(decoded).value();
+    }
+    const Json* field_rows = value.find("rows");
+    if (field_rows) {
+        auto decoded = decode_value<std::string>(*field_rows);
+        if (!decoded) return std::move(decoded).error();
+        result.rows = std::move(decoded).value();
     }
     const Json* field_seq = value.find("seq");
     if (field_seq) {
@@ -29397,6 +29408,11 @@ Result<Json> Codec<ListWorkspacesRequest>::encode(const ListWorkspacesRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("limit", std::move(encoded).value());
     }
+    if (!value.rows.is_absent()) {
+        auto encoded = encode_value(value.rows);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("rows", std::move(encoded).value());
+    }
     if (!value.since.is_absent()) {
         auto encoded = encode_value(value.since);
         if (!encoded) return std::move(encoded).error();
@@ -29437,6 +29453,16 @@ Result<ListWorkspacesRequest> Codec<ListWorkspacesRequest>::decode(const Json& v
             auto decoded = decode_value<std::uint64_t>(*field_limit);
             if (!decoded) return std::move(decoded).error();
             result.limit = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_rows = value.find("rows");
+    if (field_rows) {
+        if (field_rows->is_null()) {
+            result.rows = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_rows);
+            if (!decoded) return std::move(decoded).error();
+            result.rows = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_since = value.find("since");
@@ -50287,10 +50313,11 @@ constexpr std::array<CommandFieldRequirement, 3> kCommand135FieldRequirements{{
     {"restore_progress", 12U, ""},
     {"revisions", 12U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 4> kCommand151FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand151FieldRequirements{{
     {"after", 12U, "list-workspaces-page-v1"},
     {"known", 12U, "list-workspaces-known-v1"},
     {"limit", 12U, "list-workspaces-limit-v1"},
+    {"rows", 12U, "list-workspaces-slim-v1"},
     {"since", 0U, "workspace-list-delta-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand164FieldRequirements{{

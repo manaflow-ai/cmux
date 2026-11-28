@@ -1596,6 +1596,7 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
   "after"?: (bigint) | null;
   "known"?: (T.ListWorkspacesKnown) | null;
   "limit"?: (bigint) | null;
+  "rows"?: (string) | null;
   "since"?: (T.ListWorkspacesSince) | null;
 }
 export type ListWorkspacesResult = T.Tree;

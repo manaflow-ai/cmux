@@ -15,12 +15,14 @@ public final class ListWorkspacesRequest implements WireValue {
     private final Field<UInt64> after;
     private final Field<ListWorkspacesKnown> known;
     private final Field<UInt64> limit;
+    private final Field<String> rows;
     private final Field<ListWorkspacesSince> since;
 
     private ListWorkspacesRequest(Builder builder) {
         this.after = builder.after;
         this.known = builder.known;
         this.limit = builder.limit;
+        this.rows = builder.rows;
         this.since = builder.since;
     }
 
@@ -29,6 +31,7 @@ public final class ListWorkspacesRequest implements WireValue {
     public Field<UInt64> after() { return after; }
     public Field<ListWorkspacesKnown> known() { return known; }
     public Field<UInt64> limit() { return limit; }
+    public Field<String> rows() { return rows; }
     public Field<ListWorkspacesSince> since() { return since; }
 
     public static ListWorkspacesRequest fromWire(Object value) {
@@ -46,6 +49,10 @@ public final class ListWorkspacesRequest implements WireValue {
         if (!Wire.isMissing(rawLimit)) {
             builder.limit(rawLimit == null ? null : Wire.uint64(rawLimit, "ListWorkspacesRequest.limit"));
         }
+        Object rawRows = Wire.optional(object, "rows");
+        if (!Wire.isMissing(rawRows)) {
+            builder.rows(rawRows == null ? null : Wire.string(rawRows, "ListWorkspacesRequest.rows"));
+        }
         Object rawSince = Wire.optional(object, "since");
         if (!Wire.isMissing(rawSince)) {
             builder.since(rawSince == null ? null : ListWorkspacesSince.fromWire(rawSince));
@@ -59,6 +66,7 @@ public final class ListWorkspacesRequest implements WireValue {
         Wire.put(object, "after", after);
         Wire.put(object, "known", known);
         Wire.put(object, "limit", limit);
+        Wire.put(object, "rows", rows);
         Wire.put(object, "since", since);
         return Collections.unmodifiableMap(object);
     }
@@ -66,11 +74,11 @@ public final class ListWorkspacesRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ListWorkspacesRequest that)) return false;
-        return Objects.equals(after, that.after) && Objects.equals(known, that.known) && Objects.equals(limit, that.limit) && Objects.equals(since, that.since);
+        return Objects.equals(after, that.after) && Objects.equals(known, that.known) && Objects.equals(limit, that.limit) && Objects.equals(rows, that.rows) && Objects.equals(since, that.since);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(after, known, limit, since); }
+    public int hashCode() { return Objects.hash(after, known, limit, rows, since); }
 
     @Override
     public String toString() { return "ListWorkspacesRequest" + toWire(); }
@@ -79,6 +87,7 @@ public final class ListWorkspacesRequest implements WireValue {
         private Field<UInt64> after = Field.omitted();
         private Field<ListWorkspacesKnown> known = Field.omitted();
         private Field<UInt64> limit = Field.omitted();
+        private Field<String> rows = Field.omitted();
         private Field<ListWorkspacesSince> since = Field.omitted();
 
         public Builder after(UInt64 value) {
@@ -91,6 +100,10 @@ public final class ListWorkspacesRequest implements WireValue {
         }
         public Builder limit(UInt64 value) {
             this.limit = Field.ofNullable(value);
+            return this;
+        }
+        public Builder rows(String value) {
+            this.rows = Field.ofNullable(value);
             return this;
         }
         public Builder since(ListWorkspacesSince value) {

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4fec002cc50074d54cc2ceb3cce0c5793558740f152e0e38234067f26eb505bf";
+inline constexpr std::string_view kProtocolIrSha256 = "90b14bd1cb861733cffbec3c463c9bf4364d82ad029be9786efeee047fe5be40";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -4037,6 +4037,7 @@ struct ListWorkspacesRequest {
     Field<std::uint64_t> after{};
     Field<ListWorkspacesKnown> known{};
     Field<std::uint64_t> limit{};
+    Field<std::string> rows{};
     Field<ListWorkspacesSince> since{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
 };
@@ -6745,6 +6746,7 @@ struct Tree {
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
     std::optional<std::vector<Id>> removed{};
+    std::optional<std::string> rows{};
     std::optional<std::uint64_t> seq{};
     std::optional<std::uint64_t> terminal_revision{};
     std::optional<std::uint64_t> total{};
