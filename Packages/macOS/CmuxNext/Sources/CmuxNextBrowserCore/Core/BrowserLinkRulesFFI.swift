@@ -1,5 +1,5 @@
 import CCmuxLayoutReducerFFI
-import Foundation
+package import Foundation
 
 /// The link routing rules answered by the app's Rust library (cmux-tui/crates/cmux-browser-rules,
 /// `link_routes.rs`, with their tests) over the app FFI's JSON channel (`cmux_layout_reducer_json`,
