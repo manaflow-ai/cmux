@@ -1138,6 +1138,24 @@ class SettledEvidence(unittest.TestCase):
             first = self.judge()
             self.assertEqual(self.judge(), first)
 
+    def test_a_one_attempt_run_serves_both_filters_from_one_kept_list(self):
+        # last_real_jobs reads filter=all, base_run_jobs filter=latest: with one attempt they are the same jobs, so
+        # one kept list answers both (forge-land-no-github-read, 2026-11-28); a run re-run since reads live again.
+        state = excuse.completed_state(self.state)
+        kept = [{"total_count": 1, "jobs": [{"id": 3, "run_id": 20, "run_attempt": 1, "status": "completed"}]}]
+        both = {f: f"repos/{REPO}/actions/runs/20/jobs?filter={f}&per_page=100" for f in ("all", "latest")}
+        for wrote, asked in (("all", "latest"), ("latest", "all")):
+            with self.subTest(wrote=wrote):
+                for route in both.values():
+                    path = excuse.settled_file(route, state)
+                    if path.exists():
+                        path.unlink()
+                excuse.settled_put(both[wrote], kept, state)
+                self.assertEqual(excuse.settled_answer(both[asked]), kept)
+        self.glaeda["runs"][f"run:{REPO}/20"].update(run_attempt=2, updated_at="2026-11-17T09:00:00Z")
+        self.hold()
+        self.assertIs(excuse.settled_answer(both["all"]), excuse.NOT_KEPT)
+
     def test_an_unfinished_job_is_never_served_from_the_store(self):
         route = f"repos/{REPO}/actions/jobs/5"
         excuse.settled_put(route, {"id": 5, "status": "in_progress"})
