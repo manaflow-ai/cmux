@@ -68,6 +68,9 @@ async fn a_peer_chats_fork_is_left_for_the_peer() {
     assert_eq!(live["_meta"]["acpmux"]["harness"], "codex");
     assert_eq!(live["_meta"]["acpmux"]["model"], "m");
     assert_eq!(live["_meta"]["acpmux"]["startLater"], true);
+    let mut named = json!({"sessionId": "hb/peer-chat-1", "live": true, "name": "fh-x"});
+    as_session_fork(&hub, method::ACP_SESSION_FORK, &mut named).await.unwrap();
+    assert_eq!(named["_meta"]["acpmux"]["name"], "fh-x");
     // A chat neither here nor on a peer is still this daemon's unknown session.
     let mut params = json!({"sessionId": "nowhere", "live": true});
     assert!(as_session_fork(&hub, method::ACP_SESSION_FORK, &mut params).await.is_err());
@@ -136,4 +139,76 @@ fn a_switch_model_is_one_model_id() {
     for bad in ["m;id", "--dangerously-skip-permissions", "a b", "$(x)", "m`x`"] {
         assert!(retarget(&with(bad)).is_err(), "{bad}");
     }
+}
+
+/// A fork's top-level `name` goes to a peer as `_meta.acpmux.name`: forwarded, the top-level
+/// one is dropped as a session selector, and the child took `<parent>-fork` (cmux#50023).
+#[test]
+fn a_forks_name_survives_the_forward() {
+    let mut p = json!({"sessionId": "c", "name": "fh-x"});
+    name_to_meta(&mut p);
+    assert_eq!(p["_meta"]["acpmux"]["name"], "fh-x");
+    // A name in `_meta` wins; a name alone is the selector, not the child's.
+    let mut p = json!({"sessionId": "c", "name": "top", "_meta": {"acpmux": {"name": "m"}}});
+    name_to_meta(&mut p);
+    assert_eq!(p["_meta"]["acpmux"]["name"], "m");
+    let mut p = json!({"name": "chat"});
+    name_to_meta(&mut p);
+    assert!(p.get("_meta").is_none());
+}
+
+/// A hub with one local harness, `fake`, that cannot cut its chat at a turn.
+fn local_hub() -> Arc<Hub> {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut config: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+        "titles": {"generate": false}
+    }))
+    .unwrap();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    Hub::new(config, store)
+}
+
+/// A fork through a turn of a working chat whose agent cannot cut there is refused, not widened
+/// to the whole chat (a fork through turn 64 of a running pi chat held every later turn,
+/// cmux#50095); a live fork of it keeps its name (cmux#50023).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_working_chats_cut_is_refused_not_widened_and_a_live_fork_keeps_its_name() {
+    let hub = local_hub();
+    let chat = hub
+        .new_session(crate::hub::NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(&chat, vec![json!({"type": "text", "text": "ONE"})], "test", false).await.unwrap();
+    let turn = {
+        let (hub, chat) = (hub.clone(), chat.clone());
+        tokio::spawn(async move {
+            let until = vec![json!({"type": "text", "text": "until-cancel"})];
+            let _ = hub.prompt(&chat, until, "test", false).await;
+        })
+    };
+    let started = std::time::Instant::now();
+    while !matches!(chat.meta().status, SessionStatus::Running | SessionStatus::Waiting) {
+        assert!(started.elapsed().as_secs() < 20, "the turn never started");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let refused =
+        to_session_fork(&hub, &json!({"sessionId": chat.id, "throughSeq": 1, "name": "fh-mid"}))
+            .await
+            .unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "fork.cut_unavailable");
+    let live =
+        to_session_fork(&hub, &json!({"sessionId": chat.id, "live": true, "name": "fh-live"}))
+            .await
+            .unwrap();
+    assert_eq!(live["_meta"]["acpmux"]["name"], "fh-live");
+    assert!(live["_meta"]["acpmux"].get("throughSeq").is_none());
+    hub.cancel(&chat).await.unwrap();
+    let _ = turn.await;
+    hub.shutdown_all().await;
 }
