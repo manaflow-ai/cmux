@@ -842,16 +842,19 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         sources.current.set(chip.id, { make, name, failure, stop });
         making.current.set(chip.id, stop);
         batches.current.add(batch);
-        flushSync(() =>
+        // Its node goes in at the caret in the same commit that first draws its tile: placed after
+        // that commit, the inline view's strip drew the tile for one frame before its node was in
+        // the text (composer-paste-instant.test.tsx, a recording the host makes).
+        flushSync(() => {
           setPending((chips) =>
             again !== undefined && chips.some((shown) => shown.id === again)
               ? chips.map((shown) =>
                   shown.id === again ? { ...chip, ...(shown.retrying ? { retrying: shown.retrying } : {}) } : shown,
                 )
               : [...chips, chip],
-          ),
-        );
-        if (again === undefined) live.current.options.place?.([chip]);
+          );
+          if (again === undefined) live.current.options.place?.([chip]);
+        });
         void make()
           .catch(() => undefined)
           .then((made) => {
