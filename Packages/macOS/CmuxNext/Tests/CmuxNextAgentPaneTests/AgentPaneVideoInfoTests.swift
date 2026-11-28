@@ -634,23 +634,24 @@ struct AgentPaneVideoInfoTests {
             let took = (ContinuousClock.now - since).components
             return Double(took.seconds) * 1000 + Double(took.attoseconds) / 1e15
         }
-        await withTaskGroup(of: Void.self) { group in
-            for clip in [first, second] {
-                let src = clip.path, name = clip.lastPathComponent
-                group.addTask { @MainActor in
-                    let info = await Self.ask(model, "video.info", ["src": src])
-                    #expect((info["value"] as? [String: Any])?["width"] as? Int == 1920, "\(info)")
-                    log.posters[name] = ms(started)
-                    async let probes = Self.ask(model, "video.probes", ["src": src])
-                    async let speech = Self.ask(model, "video.transcript", ["src": src])
-                    _ = await probes
-                    let frames = await Self.ask(model, "video.frames", ["src": src, "times": picked])
-                    #expect(((frames["value"] as? [String: Any])?["frames"] as? [Any])?.count == 16, "\(frames)")
-                    _ = await speech
-                    log.done[name] = ms(started)
-                }
+        // Unstructured main-actor Tasks, not a task group: the group's addTask closure trips the
+        // region-based isolation checker ("pattern ... does not understand") in Swift 6.
+        let reads = [first, second].map { clip in
+            let src = clip.path, name = clip.lastPathComponent
+            return Task { @MainActor in
+                let info = await Self.ask(model, "video.info", ["src": src])
+                #expect((info["value"] as? [String: Any])?["width"] as? Int == 1920, "\(info)")
+                log.posters[name] = ms(started)
+                let probes = Task { @MainActor in _ = await Self.ask(model, "video.probes", ["src": src]) }
+                let speech = Task { @MainActor in _ = await Self.ask(model, "video.transcript", ["src": src]) }
+                await probes.value
+                let frames = await Self.ask(model, "video.frames", ["src": src, "times": picked])
+                #expect(((frames["value"] as? [String: Any])?["frames"] as? [Any])?.count == 16, "\(frames)")
+                await speech.value
+                log.done[name] = ms(started)
             }
         }
+        for read in reads { await read.value }
         log.running = false
         await ticker.value
         let stalls = log.stalls, posters = log.posters, done = log.done
