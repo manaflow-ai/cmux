@@ -714,7 +714,7 @@ impl LocalStore {
                 parsed = false;
             } else if !blank
                 && (scan.strict || stamp.is_some())
-                && let Err(e) = check_record(&line)
+                && let Err(e) = parse_record(&line)
             {
                 if scan.strict {
                     anyhow::bail!("{}: a record could not be read: {e}", path.display());

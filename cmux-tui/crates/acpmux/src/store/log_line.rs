@@ -91,37 +91,6 @@ pub(super) fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
     serde_json::from_slice(line)
 }
 
-/// Whether one log line reads as [`parse_record`] reads it, without building the record: its
-/// head fields are typed as [`EventRecord`]'s and its `msg` is read and dropped, never made a
-/// `Value`. A scan that makes a segment's kind copy, or a strict one, reads every line only to
-/// learn whether it reads (`kind_index.rs` `scan_segment`), and the `Value` trees it built and
-/// dropped were the most of the daemon's allocation on a 1 GB chat: 6.1 GB of 12.5 GB allocated
-/// on its first load, against 0.47 GB on a 1 MB one, and their churn left the daemon's idle
-/// memory 37% over the small chat's (goal infinite-chats, `chat_size_sweep`, 2026-11-27). The
-/// line is checked to be UTF-8 first, as a `Value`'s strings would be.
-pub(super) fn check_record(line: &[u8]) -> serde_json::Result<()> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    #[allow(dead_code)]
-    struct Checked<'a> {
-        seq: u64,
-        at: u64,
-        #[serde(borrow)]
-        dir: std::borrow::Cow<'a, str>,
-        #[serde(borrow)]
-        kind: std::borrow::Cow<'a, str>,
-        msg: serde::de::IgnoredAny,
-        #[serde(default)]
-        host_seq: Option<u64>,
-    }
-    #[cfg(test)]
-    PARSED_LINES.with(|n| n.set(n.get() + 1));
-    if let Err(e) = std::str::from_utf8(line) {
-        return Err(serde::de::Error::custom(format!("not UTF-8: {e}")));
-    }
-    serde_json::from_slice::<Checked<'_>>(line).map(drop)
-}
-
 /// The seq of a segment's first readable record.
 /// The `kind` of one serialized record, read without parsing it: records are written
 /// `{"seq":..,"at":..,"dir":"..","kind":"..","msg":..}`, so the first `"kind":"` is the
@@ -442,35 +411,3 @@ pub(super) fn first_seq(path: &Path) -> Result<Option<u64>> {
 #[cfg(test)]
 #[path = "log_line_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-mod check_record_tests {
-    use super::*;
-
-    /// `check_record` takes and refuses the lines `parse_record` does.
-    #[test]
-    fn check_record_reads_as_parse_record_does() {
-        let lines: &[&[u8]] = &[
-            br#"{"seq":1,"at":2,"dir":"mux","kind":"git","msg":{"gitBranch":"main","n":[1,2.5,null]}}"#,
-            br#"{"seq":1,"at":2,"dir":"in","kind":"x\\u00e9","msg":"text","hostSeq":7}"#,
-            br#"{"seq":1,"at":2,"dir":"mux","kind":"x","msg":null,"extra":{"a":1}}"#,
-            br#"{"seq":1,"at":2,"dir":"mux","kind":"x"}"#,
-            br#"{"seq":-1,"at":2,"dir":"mux","kind":"x","msg":{}}"#,
-            br#"{"seq":1,"at":2,"dir":7,"kind":"x","msg":{}}"#,
-            br#"{"seq":1,"at":2,"dir":"mux","kind":"x","msg":{"a":"#,
-            br#"{"seq":1,"at":2,"dir":"mux","kind":"x","msg":{},"hostSeq":"no"}"#,
-            br#"{"seq":1,"seq":1,"at":2,"dir":"mux","kind":"x","msg":{}}"#,
-            b"{\"seq\":1,\"at\":2,\"dir\":\"mux\",\"kind\":\"x\",\"msg\":\"\xff\"}",
-            b"",
-            b"not json",
-        ];
-        for line in lines {
-            assert_eq!(
-                check_record(line).is_ok(),
-                parse_record(line).is_ok(),
-                "{}",
-                String::from_utf8_lossy(line)
-            );
-        }
-    }
-}
