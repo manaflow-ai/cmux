@@ -795,7 +795,8 @@ sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).
         self.assertLess(names.index("Check the settings exports"), names.index(pack["name"]))
         self.assertEqual(steps[names.index(pack["name"]) + 1]["name"], px.UPLOAD_STEP)
         self.assertEqual(NEXT["jobs"]["daemon-test"]["name"], px.DAEMON_JOB)
-        self.assertEqual(NEXT["jobs"]["generated-files"]["name"], px.GENERATED_JOB)
+        # The fleet Linux job holds the name; the Mac job is its logged fallback.
+        self.assertEqual(NEXT["jobs"]["generated-files-linux"]["name"], px.GENERATED_JOB)
 
     def test_both_workflows_start_on_changes_to_the_scripts(self):
         autofix_paths = AUTOFIX[True]["push"]["paths"]
@@ -877,7 +878,7 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
 
     def lookup(self, api, **kw):
         return px.pr_lookup(api, MERGE, MERGE_TREE, PR_HEAD, PR_NUMBER, ENV, NAMES, self.into, poll=60,
-                            first_run_grace=kw.get("grace", 0))
+                            first_run_grace=kw.get("grace", 0), defer=kw.get("defer", False))
 
     def done_api(self, blob: bytes, **overrides) -> FakePrApi:
         return FakePrApi(runs=[pr_run(5, **overrides)], jobs={5: [generated_job("completed", "failure")]},
@@ -1028,15 +1029,29 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         self.assertEqual(upload["with"]["name"], "${{ steps.pr-exports.outputs.name }}")
 
     def test_the_mac_job_is_skipped_when_a_matching_pack_exists_and_runs_otherwise(self):
+        for name in ("action-exports-linux", "settings-exports-linux"):
+            self.assertEqual(PR_AUTOFIX["jobs"][name]["outputs"]["fallback"],
+                             "${{ steps.regenerate.outcome == 'failure' && 'true' || 'false' }}", name)
         mac = PR_AUTOFIX["jobs"]["action-exports"]
         self.assertIn("generated-exports", mac["needs"])
         condition = mac["if"].removeprefix("${{ ").removesuffix(" }}")
         # The draft-head term (tests/test_head_tier.py) is tested there; this test is about the pack.
-        condition = condition.split(") && ", 1)[1]
+        # Cut at the job's own term: the tier term holds ") && " pairs of its own (ready-to-land with
+        # CI_LAND_FULL_PER_PR), so the first ") && " no longer ends it.
+        condition = condition[condition.index("(!cancelled()"):]
+        # So is the label guard (tests/test_ci_label_events_skip_full_ci.py).
+        condition = condition.split(" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref", 1)[0]
 
-        def runs(hit: str, result: str = "success", actions: str = "true") -> bool:
-            values = {"needs.generated-exports.outputs.hit": hit, "needs.action-areas.result": result,
-                      "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false"}
+        def runs(hit: str, result: str = "success", actions: str = "true", coming: str = "false",
+                 linux: str = "success", fallback: str = "true") -> bool:
+            values = {"needs.generated-exports.outputs.hit": hit, "needs.generated-exports.outputs.coming": coming,
+                      "needs.action-areas.result": result,
+                      "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false",
+                      # action-exports-linux's exporter ran and could not decide: this Mac job is its fallback.
+                      "needs.action-exports-linux.result": linux,
+                      "needs.action-exports-linux.outputs.fallback": fallback,
+                      "needs.settings-exports-linux.result": "skipped",
+                      "needs.settings-exports-linux.outputs.fallback": "false"}
             expression = condition.replace("!cancelled()", "True")
             for key, value in values.items():
                 expression = expression.replace(key, repr(value))
@@ -1046,13 +1061,27 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         self.assertTrue(runs(""))  # generated-exports skipped (a fork) or failed: the Mac job regenerates
         self.assertFalse(runs("false", actions="false"))
         self.assertFalse(runs("false", result="failure"))
+        # This head's generated-files job regenerates the same exports: no second Mac build.
+        self.assertFalse(runs("false", coming="true"))
+        self.assertTrue(runs("", coming=""))  # generated-exports skipped (a fork): the Mac job regenerates
+        # Leo, 2026-11-26: "How about freeing up the Mac's from doing things that don't need Mac's asap?" The Mac
+        # makes the action exports only when the Linux exporter ran and could not decide, or the Linux job did not
+        # run (CMUX_ACTION_EXPORTS_LINUX=0). A Linux job that failed before its exporter (the pool's GitHub fetch
+        # stalling) leaves the exports unverified, and the Mac, which failed the same way in 282 of 290 runs
+        # (2026-11-25), stays free.
+        self.assertTrue(runs("false", linux="skipped", fallback=""))
+        self.assertFalse(runs("false", linux="failure", fallback="false"))
+        self.assertFalse(runs("false", linux="success", fallback="false"))
+        self.assertTrue(runs("false", linux="success", fallback="true"))
 
     def test_the_consumer_reads_only_waits_on_the_app_token_and_feeds_repair(self):
         job = PR_AUTOFIX["jobs"]["generated-exports"]
         self.assertEqual(job["permissions"], {"contents": "read"})
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", job["if"])
         lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
-        self.assertEqual(lookup["env"]["GH_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        # cmux-bot's read token first (its own installation budget), the routing App's when it is not minted.
+        self.assertEqual(lookup["env"]["GH_TOKEN"],
+                         "${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}")
         self.assertIn("pr-lookup", lookup["run"])
         # One look, no wait: a 10-minute wait hit 1 of 224 lookups (2026-11-20 21:30Z to 11-21 19:40Z).
         self.assertIn("--wait 0 ", lookup["run"])
@@ -1068,6 +1097,66 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         download = next(s for s in repair["steps"] if s.get("name") == "Download the regenerated action exports")
         self.assertIn("needs.generated-exports.outputs.exports == 'true'", download["if"])
         self.assertIn("generated-exports", PR_AUTOFIX["jobs"]["push"]["needs"])
+
+
+class PrAutofixLeavesTheExportsToAComingGeneratedFilesJob(unittest.TestCase):
+    """A pull request's cmux-next generated-files job takes 20-70 min and starts with the PR autofix, so the
+    10-minute lookup missed on nearly every head (74 of 74, 2026-11-21 14:30-20:31Z) and action-exports
+    built the same package again on a second Mac (~20 min each, 124-174 runner-h/day), only for a copy in
+    pr-autofix-patch: push never runs for a pull_request event. With --defer-to-producer a coming
+    generated-files job ends the lookup at once and the Mac job does not run."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.into = Path(self.tmp.name) / "staged"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def lookup(self, api, defer=True, grace=0):
+        return px.pr_lookup(api, MERGE, MERGE_TREE, PR_HEAD, PR_NUMBER, ENV, NAMES, self.into, poll=60,
+                            first_run_grace=grace, defer=defer)
+
+    def test_a_queued_running_or_unlisted_job_is_coming_at_once(self):
+        for jobs in ([generated_job("queued")], [generated_job("in_progress")], []):
+            with self.subTest(jobs=jobs):
+                api = FakePrApi(runs=[pr_run(5)], jobs={5: jobs})
+                out = self.lookup(api)
+                self.assertEqual((out["hit"], out["coming"], out["source_run_id"]), ("false", "true", "5"))
+                self.assertEqual(api.now, 0)
+                self.assertFalse(any("/artifacts" in call for call in api.calls))
+
+    def test_a_finished_pack_is_still_taken(self):
+        api = FakePrApi(runs=[pr_run(5)], jobs={5: [generated_job("in_progress", uploaded=True)]},
+                        artifacts={5: [pr_artifact(5, 50)]}, blobs={50: pack_zip(MERGE_TREE, 5, MERGE)})
+        out = self.lookup(api)
+        self.assertEqual(out["hit"], "true")
+        self.assertNotIn("coming", out)
+
+    def test_a_job_that_will_not_regenerate_is_still_a_miss(self):
+        for jobs, status in (([generated_job("completed", "skipped")], "in_progress"), ([], "completed"),
+                             ([generated_job("completed", "success")], "completed")):
+            with self.subTest(status=status, jobs=jobs):
+                with self.assertRaises(px.Miss):
+                    self.lookup(FakePrApi(runs=[pr_run(5, status=status)], jobs={5: jobs}))
+
+    def test_no_run_listed_yet_waits_its_grace_then_misses(self):
+        with self.assertRaises(px.Miss):
+            self.lookup(FakePrApi(), grace=180)
+
+    def test_without_defer_it_waits_as_before(self):
+        api = FakePrApi(runs=[pr_run(5)], jobs={5: [generated_job("queued")]}, wait=600)
+        with self.assertRaises(px.Miss):
+            self.lookup(api, defer=False)
+        self.assertGreater(api.now, 0)
+
+    def test_the_workflow_defers_only_with_a_base_lookup_that_knows_the_flag(self):
+        job = PR_AUTOFIX["jobs"]["generated-exports"]
+        lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
+        self.assertIn("vars.CMUX_NEXT_PR_EXPORTS_DEFER", lookup["env"]["DEFER"])
+        self.assertIn("grep -q -- '--defer-to-producer' \"$lookup\"", lookup["run"])
+        self.assertIn("steps.lookup.outputs.coming == 'true'", job["outputs"]["coming"])
+        self.assertIn("needs.generated-exports.outputs.coming != 'true'", PR_AUTOFIX["jobs"]["action-exports"]["if"])
 
 
 if __name__ == "__main__":

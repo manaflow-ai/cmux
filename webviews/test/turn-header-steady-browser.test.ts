@@ -3,6 +3,8 @@
 // agent-pane.turn-header-steady the header line ("Working for …", then "Worked for …") is there from
 // the first state and keeps its top and height, the prompt and the folded message run keep theirs,
 // the sender chip sits on the preview's baseline, and the timer keeps its width as its digits change.
+// The header is one row (one id, kind and element) in every state, its chevron's slot held right
+// after its words from the start, and the sender's mark keeps one box.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -19,14 +21,10 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
   const RUNNING: State[] = STATES.filter((state) => state !== "ended");
   const WIDTHS = [640, 420] as const;
   const HEIGHT = 420;
-  const ROW_IDS = [
-    "steady-prompt",
-    "working-steady-prompt",
-    "worked-steady-prompt",
-    "messageRun-steady-send",
-    "thinking-live",
-  ];
-  const headerId = (state: State) => (state === "ended" ? "worked-steady-prompt" : "working-steady-prompt");
+  const ROW_IDS = ["steady-prompt", "worked-steady-prompt", "messageRun-steady-send", "thinking-live"];
+  // One row from the turn's start to its end: the running "Working for" and the ended "Worked for"
+  // are the same row (one id, kind and element) in two phases.
+  const headerId = (_state: State) => "worked-steady-prompt";
 
   type Box = { top: number; height: number };
   type Measured = {
@@ -36,8 +34,15 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
     worked: Box | null;
     /** The prompt row's chip and preview line. */
     baseline: { label: number; preview: number; chipMid: number; lineMid: number } | null;
-    /** `.cv-worked__label-time` widths: as rendered, then with each substituted text. */
-    timer: { text: string; width: number }[] | null;
+    /** Per text size and density (`SCALES`), the header's toggle as rendered and then with each
+     *  substituted time: its width, and the room from the time's last digit to its chevron's glyph. */
+    timer: { scale: string; text: string; width: number; gap: number }[] | null;
+    /** The header row's kind class and its chevron's slot (there, hidden or not, in every state). */
+    headerKind: string | null;
+    /** `left`: from the words' right edge. */
+    chevron: { left: number; width: number } | null;
+    /** The prompt's sender mark: one fixed box, whatever picture comes. */
+    mark: { width: number; height: number } | null;
   };
 
   let server: Awaited<ReturnType<typeof import("vite").createServer>>;
@@ -73,7 +78,23 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
     })}`;
 
   /** Texts the timer is re-rendered with, per state (check 5). */
-  const TIMER_TEXTS: Partial<Record<State, string[]>> = { ticking: ["9s", "59s"], minutes: ["1m 7s", "9m 59s"] };
+  const TIMER_TEXTS: Partial<Record<State, string[]>> = {
+    ticking: ["9s", "59s"],
+    minutes: ["1m 7s", "9m 59s"],
+  };
+  /** The host's scales at Compact, Default and Spacious, at Text Size over 1 (chat-text-density-browser.test.ts),
+   *  and the person's own smallest and a large chat font size (`--cv-font-size`). */
+  const SCALES = [
+    { name: "default", interface: 1, densityText: 1, chat: 1 },
+    { name: "compact", interface: 1, densityText: 0.9, chat: 1 },
+    { name: "spacious", interface: 1.2, densityText: 1.2, chat: 1 },
+    { name: "text-size", interface: 1.2, densityText: 1.2, chat: 1.25 },
+    { name: "font-10", interface: 1, densityText: 1, chat: 1, font: 10 },
+    { name: "font-24", interface: 1, densityText: 1, chat: 1, font: 24 },
+  ];
+  /** The farthest a chevron's glyph may start after the time's last digit (#55615), in CSS px at scale 1:
+   *  the ended "Worked for" line's room (transcript-chevron-after-label.test.ts's 8). */
+  const MAX_CHEVRON_GAP = 8;
 
   async function measure(page: Page, state: State, width: number): Promise<Measured> {
     await page.goto(frame(state, width));
@@ -123,7 +144,18 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
                 lineMid: line.top + line.height / 2,
               }
             : null;
-        return { rows, worked, baseline };
+        const headerRow = document.querySelector<HTMLElement>(`[data-row-id="${header}"]`);
+        const headerKind = headerRow
+          ? ([...headerRow.classList].find((name) => /^acpmux-(worked|working)$/.test(name)) ?? null)
+          : null;
+        const chevronBox = headerRow?.querySelector(".cv-worked__chevron")?.getBoundingClientRect();
+        const labelBox = headerRow?.querySelector(".cv-worked__label")?.getBoundingClientRect();
+        // The chevron sits right after the words (conversation.css), so its slot is read from them.
+        const chevron =
+          chevronBox && labelBox ? { left: chevronBox.left - labelBox.right, width: chevronBox.width } : null;
+        const markBox = prompt?.querySelector(".cv-received__mark")?.getBoundingClientRect();
+        const mark = markBox ? { width: markBox.width, height: markBox.height } : null;
+        return { rows, worked, baseline, headerKind, chevron, mark };
       },
       { header: headerId(state) },
     );
@@ -133,18 +165,56 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
       timer = [];
       const span = page.locator(`[data-row-id="${headerId(state)}"] .cv-worked__label-time`).first();
       if ((await span.count()) > 0) {
-        const widthNow = (text: string | null) =>
-          page.evaluate(
-            async ({ header, text }) => {
-              const el = document.querySelector<HTMLElement>(`[data-row-id="${header}"] .cv-worked__label-time`)!;
-              if (text !== null) el.textContent = text;
-              await window.cmuxPaintFrame();
-              return { text: el.textContent ?? "", width: el.getBoundingClientRect().width };
-            },
-            { header: headerId(state), text },
-          );
-        timer.push(await widthNow(null));
-        for (const text of texts) timer.push(await widthNow(text));
+        for (const scale of SCALES) {
+          // The scale once, as the host sets it: its variables, then its event (chatDisplay.ts re-applies the
+          // chat's own `--cv-font-size` on it), then the person's font size over that. Set per text, the event's
+          // re-apply would undo an override after the first text.
+          await page.evaluate(async (scale) => {
+            const root = document.documentElement.style;
+            root.setProperty("--cmux-interface-scale", String(scale.interface));
+            root.setProperty("--cmux-density-text-scale", String(scale.densityText));
+            root.setProperty("--cmux-chat-text-scale", String(scale.chat));
+            root.removeProperty("--cv-font-size");
+            window.dispatchEvent(new Event("cmux-ui-scale-change"));
+            if (scale.font) root.setProperty("--cv-font-size", `${scale.font}px`);
+            await window.cmuxPaintFrame();
+          }, scale);
+          const widthNow = (text: string | null) =>
+            page.evaluate(
+              async ({ header, text, scale }) => {
+                const row = document.querySelector<HTMLElement>(`[data-row-id="${header}"]`)!;
+                const el = row.querySelector<HTMLElement>(".cv-worked__label-time")!;
+                if (text !== null) el.textContent = text;
+                await window.cmuxPaintFrame();
+                await window.cmuxPaintFrame();
+                const toggle = row.querySelector(".cv-worked__toggle") ?? row.querySelector(".cv-worked")!;
+                const glyph = row.querySelector(".cv-worked__chevron:not(.is-reserved) path")?.getBoundingClientRect();
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                return {
+                  scale,
+                  text: el.textContent ?? "",
+                  width: toggle.getBoundingClientRect().width,
+                  gap: glyph ? glyph.left - range.getBoundingClientRect().right : Number.NaN,
+                };
+              },
+              { header: headerId(state), text, scale: scale.name },
+            );
+          timer.push(await widthNow(null));
+          for (const text of texts) timer.push(await widthNow(text));
+        }
+        await page.evaluate(async () => {
+          const root = document.documentElement.style;
+          for (const name of [
+            "--cmux-interface-scale",
+            "--cmux-density-text-scale",
+            "--cmux-chat-text-scale",
+            "--cv-font-size",
+          ])
+            root.removeProperty(name);
+          window.dispatchEvent(new Event("cmux-ui-scale-change"));
+          await window.cmuxPaintFrame();
+        });
       }
     }
     return { ...read, timer };
@@ -155,7 +225,10 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
     let pending = measured.get(width);
     if (!pending) {
       pending = (async () => {
-        const page = await browser.newPage({ viewport: { width, height: HEIGHT }, colorScheme: "dark" });
+        const page = await browser.newPage({
+          viewport: { width, height: HEIGHT },
+          colorScheme: "dark",
+        });
         try {
           await installPaintedFrames(page);
           const out = new Map<State, Measured>();
@@ -226,6 +299,21 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         "header .cv-worked",
         STATES.map((state) => [state, all.get(state)!.worked]),
       );
+      // One kind in every state, and the chevron's slot held from the start, right after the words.
+      for (const state of STATES) {
+        const m = all.get(state)!;
+        if (m.headerKind !== "acpmux-worked") failures.push(`header kind in ${state}: ${m.headerKind}`);
+        if (!m.chevron) failures.push(`header chevron slot: missing in ${state}`);
+      }
+      const chevrons = STATES.flatMap((state) => {
+        const c = all.get(state)!.chevron;
+        return c ? [[state, c] as const] : [];
+      });
+      for (const [state, c] of chevrons.slice(1))
+        if (Math.abs(c.left - chevrons[0]![1].left) > 0.5 || Math.abs(c.width - chevrons[0]![1].width) > 0.5)
+          failures.push(
+            `header chevron: left ${fmt(c.left)} in ${state} vs ${fmt(chevrons[0]![1].left)} in ${chevrons[0]![0]}`,
+          );
       settle(all, width, failures);
     });
 
@@ -276,10 +364,17 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
         if (Math.abs(b.chipMid - b.lineMid) > 1)
           failures.push(`chip centre in ${state}: ${fmt(b.chipMid)} vs line centre ${fmt(b.lineMid)}`);
       }
+      // The sender's mark is one fixed box in every state, so a picture that comes later swaps in place.
+      const marks = RUNNING.map((state) => [state, all.get(state)!.mark] as const);
+      for (const [state, m] of marks)
+        if (!m || Math.abs(m.width - marks[0]![1]!.width) > 0.5 || Math.abs(m.height - marks[0]![1]!.height) > 0.5)
+          failures.push(`sender mark in ${state}: ${m ? `${fmt(m.width)}x${fmt(m.height)}` : "missing"}`);
       settle(all, width, failures);
     });
 
-    test(`${width}px: the timer reserves its width as its digits change`, async () => {
+    // The toggle holds its width as the digits change, and its chevron follows the time's last digit
+    // at every text size and density, never a reserved "00m 00s" later (#55615).
+    test(`${width}px: the timer holds the toggle's width as its digits change, its chevron right after the time`, async () => {
       const all = await measureWidth(width);
       const failures: string[] = [];
       for (const state of ["ticking", "minutes"] as State[]) {
@@ -288,12 +383,21 @@ await requireBrowserLane("turn-header-steady-browser.test.ts", async () => {
           failures.push(`timer: no .cv-worked__label-time in the ${state} header`);
           continue;
         }
-        const [first, ...rest] = timer;
-        for (const t of rest)
-          if (Math.abs(t.width - first.width) > 0.5)
-            failures.push(
-              `timer in ${state}: "${t.text}" is ${fmt(t.width)}px wide vs "${first.text}" ${fmt(first.width)}px`,
-            );
+        for (const scale of SCALES) {
+          const [first, ...rest] = timer.filter((t) => t.scale === scale.name);
+          if (!first) continue;
+          for (const t of rest)
+            if (Math.abs(t.width - first.width) > 0.5)
+              failures.push(
+                `toggle in ${state} at ${scale.name}: ${fmt(t.width)}px wide at "${t.text}" vs ${fmt(first.width)}px at "${first.text}"`,
+              );
+          const most = MAX_CHEVRON_GAP * Math.max(scale.chat, (scale.font ?? 14) / 14) + 0.5;
+          for (const t of [first, ...rest])
+            if (!(t.gap >= -0.5 && t.gap <= most))
+              failures.push(
+                `chevron in ${state} at ${scale.name}: ${fmt(t.gap)}px after "${t.text}" (at most ${fmt(most)})`,
+              );
+        }
       }
       settle(all, width, failures);
     });

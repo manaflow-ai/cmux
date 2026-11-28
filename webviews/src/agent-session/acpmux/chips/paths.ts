@@ -39,6 +39,15 @@ export function codePath(text: string): string | undefined {
   return isPathShape(path) ? path : undefined;
 }
 
+/// An inline code span that is a path from the session's folder with no `./` (`outputs/lab/a.html`,
+/// `.github/workflows/ci.yml`): folders, a name and an extension, no line. `owner/name.js` reads the
+/// same, so it draws as a chip only when the host finds the file (SiblingFileChip), else as code.
+/// Its first folder has no dot inside, so `example.com/a.js` is not one.
+export function relativeCodePath(text: string): string | undefined {
+  const value = text.trim();
+  return /^\.?[\w@+-]+\/(?:[\w.@+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}$/.test(value) ? value : undefined;
+}
+
 /// The one shape every written path has, in prose, code and links alike (D4): `/`, `~/`, `./` or
 /// `../` first; a folder and a name (one name after `./`); and a file extension or a trailing
 /// slash (a folder). `/usr`, `and/or` and `~/notes` stay text.
@@ -119,9 +128,10 @@ export function foreignFileId(text: string): string | undefined {
 }
 
 /// The line of a `:12` or `:12:4` suffix.
-function lineOf(value: string): number | undefined {
+export function lineOf(value: string): number | undefined {
   const match = /:(\d+)(?::\d+)?$/.exec(value);
-  return match ? Number(match[1]) : undefined;
+  const line = match && Number(match[1]);
+  return line && line > 0 && line <= 10_000_000 ? line : undefined;
 }
 
 /// A raster image the pane draws as a thumbnail: PNG, JPEG, GIF or WebP, by file extension.

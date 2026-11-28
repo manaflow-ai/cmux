@@ -7,7 +7,7 @@ export const L = {
   loading: "page.loading",
   failed: "page.failed",
   disconnected: "page.disconnected",
-  retry: "page.retry",
+  stillOpening: "page.stillOpening",
   modeLabel: "mode.label",
   edit: "edit.button",
   rich: "mode.rich",
@@ -111,4 +111,8 @@ export const L = {
   findMatchCase: "find.matchCase",
   findCount: "find.count",
   findNoMatches: "find.noMatches",
+  outlineLabel: "outline.label",
+  outlineShow: "outline.show",
+  print: "print.button",
+  printTitle: "print.title",
 } as const;

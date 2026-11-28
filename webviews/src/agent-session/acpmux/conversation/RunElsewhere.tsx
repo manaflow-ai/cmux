@@ -23,6 +23,7 @@ import {
   type RunPlan,
   type RunState,
 } from "./runElsewhereModel";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 const CHIP_ICON = rowIconSize(12);
 /** The untracked paths the panel names; the rest are counted. */
@@ -130,21 +131,26 @@ export function RunElsewhereChip({
     openPanel(runs, toolCallId, command);
   };
   return (
-    <span
-      className="cv-run-elsewhere-chip"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a <button> may not sit in the row's <button>
-      role="button"
-      tabIndex={0}
-      aria-description={t("runElsewhere.chipHint")}
-      data-find-skip
-      onClick={open}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") open(event);
-      }}
-    >
-      <Icon name="machine.remote" size={CHIP_ICON} row fit />
-      <span className="cv-run-elsewhere-chip__label">{t("runElsewhere.chip")}</span>
-    </span>
+    // retry-prompt-ok: runs the command again on another machine, a command with side effects.
+    <WithFacts facts={[{ value: t("runElsewhere.chipHint") }]}>
+      {(facts) => (
+        <span
+          {...facts}
+          className="cv-run-elsewhere-chip"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a <button> may not sit in the row's <button>
+          role="button"
+          tabIndex={0}
+          data-find-skip
+          onClick={open}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") open(event);
+          }}
+        >
+          <Icon name="machine.remote" size={CHIP_ICON} row fit />
+          <span className="cv-run-elsewhere-chip__label">{t("runElsewhere.chip")}</span>
+        </span>
+      )}
+    </WithFacts>
   );
 }
 
@@ -231,20 +237,19 @@ function RunElsewherePanel({
       <div className="cv-run-elsewhere__head">
         <span className="cv-run-elsewhere__title">{t("runElsewhere.title")}</span>
         {tree && (
-          <span className="cv-run-elsewhere__base" aria-description={tree.origin}>
-            {t("runElsewhere.base", { commit: tree.base.slice(0, 9) })}
-          </span>
+          <WithFacts facts={[{ value: tree.origin, code: true }]}>
+            {(facts) => (
+              <span {...facts} className="cv-run-elsewhere__base">
+                {t("runElsewhere.base", { commit: tree.base.slice(0, 9) })}
+              </span>
+            )}
+          </WithFacts>
         )}
       </div>
       {plan.machines.length > 0 && (
         <div className="cv-run-elsewhere__machines" role="radiogroup" aria-label={t("runElsewhere.machine")}>
           {plan.machines.map((m) => (
-            <label
-              key={m.name}
-              className="cv-run-elsewhere__machine"
-              data-checked={m.name === machine || undefined}
-              aria-description={m.ok ? undefined : m.why}
-            >
+            <label key={m.name} className="cv-run-elsewhere__machine" data-checked={m.name === machine || undefined}>
               <input
                 type="radio"
                 aria-label={m.name}
@@ -256,6 +261,8 @@ function RunElsewherePanel({
               />
               <Icon name="machine.remote" size={CHIP_ICON} row fit />
               <span>{m.name}</span>
+              {/* Why it cannot run here, as text: a disabled choice gets no hover (Chief, 2026-11-21). */}
+              {!m.ok && m.why && <span className="cv-run-elsewhere__why">{m.why}</span>}
             </label>
           ))}
         </div>

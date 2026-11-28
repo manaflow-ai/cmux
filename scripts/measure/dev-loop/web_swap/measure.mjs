@@ -112,7 +112,17 @@ const receive = (event, timeoutMs = 20_000) =>
   });
 
 // Server-side boundaries, by file: watcher change events, HMR update sends, module transforms.
-const marks = { change: [], send: [], transform: [], hooks: [] };
+const marks = { change: [], send: [], transform: [], hooks: [], all: [], arrive: [], phase: [], stall: [] };
+// Event-loop stalls: a 1 ms timer whose late firings (over 4 ms) are recorded, so a wait inside a stage can be
+// told apart from work on this thread that the stage queued behind.
+{
+  let last = now();
+  setInterval(() => {
+    const at = now();
+    if (at - last > 4) marks.stall.push({ start: last, end: at });
+    last = at;
+  }, 1).unref();
+}
 const timing = {
   name: "dev-loop-timing",
   configureServer(viteServer) {
@@ -157,9 +167,31 @@ const timing = {
     client.transformRequest = async (url, options) => {
       const start = now();
       const result = await transformRequest(url, options);
-      marks.transform.push({ url, start, end: now() });
+      const mark = { url, start, end: now() };
+      marks.all.push(mark);
+      if (url.includes("ComposerFoot")) marks.transform.push(mark);
       return result;
     };
+    // The edited module's phases inside transformRequest (resolve, load, the plugin transform), each [start, end].
+    const container = client.pluginContainer;
+    for (const method of ["resolveId", "load", "transform"]) {
+      const original = container[method].bind(container);
+      container[method] = async (...callArgs) => {
+        const subject = method === "transform" ? callArgs[1] : callArgs[0];
+        if (typeof subject !== "string" || !subject.includes("ComposerFoot")) return original(...callArgs);
+        const start = now();
+        try {
+          return await original(...callArgs);
+        } finally {
+          marks.phase.push({ method, start, end: now() });
+        }
+      };
+    }
+    // When the page's request for the module reaches the server (before Vite's own middlewares).
+    viteServer.middlewares.use((request, _response, next) => {
+      if (request.url?.includes("ComposerFoot")) marks.arrive.push({ url: request.url, at: now() });
+      next();
+    });
     // The apply floor's pre-transformed copies of the component, under /__dev_loop_variant/N.js.
     viteServer.middlewares.use((request, response, next) => {
       const match = request.url?.match(/^\/__dev_loop_variant\/(\d+)\.js/);
@@ -178,6 +210,30 @@ const timing = {
   },
 };
 const variants = new Map();
+
+const startProfile = async () => {
+  const inspector = await import("node:inspector/promises");
+  const session = new inspector.Session();
+  session.connect();
+  await session.post("Profiler.enable");
+  await session.post("Profiler.setSamplingInterval", { interval: 100 });
+  await session.post("Profiler.start");
+  return session;
+};
+const stopProfile = async (session, value) => {
+  const { profile } = await session.post("Profiler.stop");
+  session.disconnect();
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const self = new Map();
+  const deltas = profile.timeDeltas;
+  profile.samples.forEach((id, i) => {
+    const frame = byId.get(id).callFrame;
+    const key = `${frame.functionName || "(anon)"} ${frame.url.replace(/^.*node_modules\//, "").replace(/^file:\/\/.*\/webviews\//, "")}:${frame.lineNumber}`;
+    self.set(key, (self.get(key) ?? 0) + (deltas[i + 1] ?? 0) / 1000);
+  });
+  const top = [...self].sort((a, b) => b[1] - a[1]).slice(0, 30);
+  console.error(`profile ${value}: ${r1((profile.endTime - profile.startTime) / 1000)} ms\n${top.map(([k, ms]) => `  ${r1(ms)} ms ${k}`).join("\n")}`);
+};
 
 const status = { measured: false };
 try {
@@ -237,11 +293,20 @@ try {
   console.error(`web_swap: pane ready (${ready.href}, ${JSON.stringify(ready.modules)})`);
 
   // Clock: page offset from round trips over the HMR socket; the minimum round trip's sample is the truest.
+  // A ping can land while the page reloads (a cold dep optimizer full-reloads it once it finds a
+  // late dependency), so a lost one is sent again; a late pong of an earlier id is dropped.
   const pings = [];
-  for (let id = 0; id < Math.max(20, 4 * N); id += 1) {
+  for (let id = 0, lost = 0; id < Math.max(20, 4 * N); id += 1) {
     const hot = server.environments.client.hot;
     hot.send("dev-loop:ping", { id, sent: now() });
-    const pong = await receive("pong", 5_000);
+    let pong = null;
+    while (!pong) {
+      const got = await receive("pong", 2_000).catch(() => null);
+      if (got && got.id !== id) continue;
+      if (got) pong = got;
+      else if (++lost > 15) throw new Error(`no pong from the page in ${lost} tries of 2000 ms`);
+      else hot.send("dev-loop:ping", { id, sent: now() });
+    }
     const back = now();
     pings.push({ rtt: back - pong.sent, offset: pong.received - (pong.sent + back) / 2 });
     await sleep(20);
@@ -265,11 +330,18 @@ try {
     const fromSend = marks.send.length;
     const fromTransform = marks.transform.length;
     const fromHooks = marks.hooks.length;
+    const fromAll = marks.all.length;
+    const fromArrive = marks.arrive.length;
+    const fromPhase = marks.phase.length;
+    const fromStall = marks.stall.length;
     server.environments.client.hot.send("dev-loop:expect", { value, since: now() + offset - 5 });
     await sleep(30);
+    // DEV_LOOP_PROFILE=1: a CPU profile of this process from the write to the page's commit, top self time printed.
+    const profiler = process.env.DEV_LOOP_PROFILE ? await startProfile() : null;
     const write = now();
     await fs.writeFile(absolute, edited(value));
     const seen = await receive("round", 20_000);
+    if (profiler) await stopProfile(profiler, value);
     if (seen.error)
       throw new Error(
         `round ${value}: ${seen.error} (changes ${JSON.stringify(marks.change.slice(fromChange))}, sends ${JSON.stringify(marks.send.slice(fromSend))}, transforms ${JSON.stringify(marks.transform.slice(fromTransform).map((mark) => mark.url))})`,
@@ -281,6 +353,7 @@ try {
     const transforms = marks.transform.slice(fromTransform).filter((mark) => mark.url.includes("ComposerFoot.tsx"));
     // The transform that answered the page's own request for this update (its ?t= URL), else the first.
     const fetched = seen.fetch?.url ? new URL(seen.fetch.url) : null;
+    const arrive = marks.arrive.slice(fromArrive).find((mark) => fetched && mark.url === `${fetched.pathname}${fetched.search}`)?.at;
     const transform =
       transforms.find((mark) => fetched && mark.url === `${fetched.pathname}${fetched.search}`) ?? transforms[0];
     const before = pageTime(seen.beforeUpdate);
@@ -320,6 +393,26 @@ try {
         after_update_to_commit: after !== null ? r1(commit - after) : null,
         commit_to_raf: r1(pageTime(seen.raf) - commit),
         transforms_of_module: transforms.length,
+        // Request arrival at the server, after the page's fetchStart and before transform start.
+        fetch_to_arrive: fetchStart !== null && arrive !== undefined ? r1(arrive - fetchStart) : null,
+        arrive_to_transform_start: arrive !== undefined ? r1(transform.start - arrive) : null,
+        // The page's transform split: [phase, start, end] after its transformRequest start.
+        transform_phases: marks.phase
+          .slice(fromPhase)
+          .filter((mark) => mark.start >= transform.start && mark.end <= transform.end + 0.5)
+          .map((mark) => [mark.method, r1(mark.start - transform.start), r1(mark.end - transform.start)]),
+        // Other modules transformed while the edited one was asked for (fetch start to transform end).
+        concurrent_transforms: marks.all
+          .slice(fromAll)
+          .filter((mark) => !mark.url.includes("ComposerFoot") && mark.end > (fetchStart ?? transform.start) && mark.start < transform.end)
+          .map((mark) => [mark.url.slice(0, 80), r1(mark.start - change), r1(mark.end - change)]),
+        // Event-loop stalls over 4 ms from the file event to the commit, [start, end] after the file event.
+        stalls: marks.stall
+          .slice(fromStall)
+          .filter((mark) => mark.end > change && mark.start < commit)
+          .map((mark) => [r1(mark.start - change), r1(mark.end - change)]),
+        // Each transformRequest of the module this round, [start, end] after the file event (the page's has `?t=`).
+        transform_calls: transforms.map((mark) => ({ url: mark.url.replace(/^.*ComposerFoot/, "ComposerFoot"), start: r1(mark.start - change), end: r1(mark.end - change) })),
         // Each plugin's own hook time on the edited module this round: update hooks (inside watch to HMR
         // send) and transform/load (inside transform), summed per plugin and hook.
         plugin_hooks: Object.fromEntries(
@@ -349,10 +442,14 @@ try {
   // fs_event: a raw fs.watch on a fresh directory beside the edited file, write to callback.
   const probeDir = await fs.mkdtemp(path.join(webviews, PANE, ".dev-loop-fs-"));
   for (let i = 0; i < Math.max(N, 10); i += 1) {
-    const file = path.join(probeDir, "probe.txt");
+    // A fresh name per round, and no callback counts before the write starts: FSEvents can deliver the
+    // previous round's write late, which with start still 0 read as an epoch (1.8e12 ms) floor.
+    const name = `probe-${i}.txt`;
+    const file = path.join(probeDir, name);
     const sample = await new Promise((resolve, reject) => {
       let start = 0;
-      const watcher = fsWatch(probeDir, () => {
+      const watcher = fsWatch(probeDir, (_event, changed) => {
+        if (start === 0 || (changed && path.basename(String(changed)) !== name)) return;
         watcher.close();
         clearTimeout(timer);
         resolve(now() - start);

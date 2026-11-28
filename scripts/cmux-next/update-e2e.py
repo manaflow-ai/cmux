@@ -32,6 +32,7 @@ state dirs) is removed at the end; anything that existed before is kept.
   scripts/cmux-next/update-e2e.py [--feed URL] [--from BUILD] [--to BUILD] [--click] [--idle] [--keep]
 """
 import argparse, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
+from collections import deque
 
 # nightly-next ships as cmux NEXT (cx-x7hwx): a tagged nightly id with its
 # own socket, daemon session (cmux-app-cmux-next) and acpmux home.
@@ -428,34 +429,41 @@ def release_gate(fifo):
     return wait(write, 20)
 
 
-def staged(app):
-    s = app.status()
-    return s if s.get("phase") == "installing" else None
-
-
 def stage_update(app, label, expected_build=None):
-    app.rpc("action.run", {"id": "palette.checkForUpdates"})
+    # Keep distinct recent responses, including RPC errors and lost sockets. The
+    # last read alone can be empty after a failure or an automatic relaunch.
+    states = deque(maxlen=12)
+    def observe():
+        state = app.status()
+        if not states or state != states[-1]:
+            states.append(state)
+        return state
+
+    observe()
+    check_result = app.rpc("action.run", {"id": "palette.checkForUpdates"})
     def ready():
-        state = staged(app)
-        if state:
+        state = observe()
+        if state.get("phase") == "installing":
             return state
         if expected_build and bundle_build(app.path) == expected_build:
             return {"phase": "replaced", "build": expected_build}
         return None
     s = wait(ready, 900, 2)
-    log = "\n".join(app.status().get("log", []))
+    log = "\n".join(observe().get("log", []))
+    print("[DIAGNOSTIC] " + json.dumps({"label": label, "check_result": check_result,
+                                      "states": list(states)}), flush=True)
     record(f"{label}: update downloaded, verified and staged", bool(s), f"detected {s.get('detected_version') if s else None}")
-    # A staged update is the footer pill ("badge" = its label), never a card
-    # (Lawrence 2026-10-05, "more minimal").
+    # `badge` describes staged availability. `card` is the separate notice
+    # card, not the staged update card; this does not prove rendered placement.
     if label == "idle path" and s is not None and s.get("phase") == "replaced":
         record(f"{label}: update installed before a staged card was observed", True,
                f"bundle build {s.get('build')}")
     elif s is not None and "badge" in s:
         ok = bool(s.get("badge")) and s.get("card") is None
-        record(f"{label}: the footer pill shows the staged update, no card", ok,
+        record(f"{label}: status reports a staged badge and no notice card", ok,
                json.dumps({"badge": s.get("badge"), "card": s.get("card")}))
     elif s is not None:
-        record(f"{label}: the footer pill shows the staged update, no card", "PENDING", "this build predates the pill")
+        record(f"{label}: status reports a staged badge and no notice card", "PENDING", "this build predates the pill")
     return s, log
 
 
@@ -610,7 +618,10 @@ def main():
         try:
             with open(config, "w") as f:
                 json.dump({"app": {"quitBehavior": "end-everything"}}, f)
-            time.sleep(1)  # the app reloads cmux.json from its file watcher
+            # The app reloads cmux.json from its file watcher: wait until it reports the new quit behavior.
+            # Best effort (the quit below asks for End Everything outright too).
+            if not wait(lambda: (app.rpc("settings.get", {"path": "app.quitBehavior"}) or {}).get("value") not in (None, "keep"), 10, 0.1):
+                print("final quit: the app never reported the new app.quitBehavior in 10 s; quitting anyway")
             app.quit(end_everything=True)
         except Exception as error:  # noqa: BLE001 - cleanup continues
             print(f"final quit: {error}")

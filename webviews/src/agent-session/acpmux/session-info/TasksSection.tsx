@@ -33,6 +33,7 @@ import { useFoldMotion } from "./foldMotion";
 import { COMMAND_STATE } from "./tasksSectionModel";
 import { WindowedRows } from "./WindowedRows";
 import { Clock } from "../../../ui/Typography";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -74,7 +75,9 @@ export function TasksSection({
   const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
     const toolCallId = command.toolCallId;
     // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
-    // elsewhere; with neither, the row is not a button and its tooltip says why.
+    // elsewhere; with neither, the row is not a button and says why in its tooltip and to VoiceOver,
+    // so the command keeps the row (as text the reason squeezed "bun test …" to "bun t…",
+    // cmuxterm-hq#19495).
     const shows = !!toolCallId && !!onShowCall && (calls?.has(toolCallId) ?? false);
     const why: StringKey | undefined = !toolCallId
       ? "sessionInfo.tasks.noTerminal.noCall"
@@ -89,8 +92,10 @@ export function TasksSection({
         key={arrivalKey(command)}
         className="acpmux-session-info-task acpmux-session-info-task--command"
         data-state={command.state}
+        data-closed={why !== undefined ? "" : undefined}
+        // On the row, not the button: a disabled button takes no hover, so its own tooltip never shows.
+        title={why && t(why)}
         data-enter={enters ? "top" : undefined}
-        aria-description={why && t(why)}
         onAnimationEnd={
           enters ? (event) => event.target === event.currentTarget && played(arrivalKey(command)) : undefined
         }
@@ -99,6 +104,7 @@ export function TasksSection({
           type="button"
           className="acpmux-session-info-task__open"
           disabled={why !== undefined}
+          aria-description={why && t(why)}
           onClick={() => {
             if (local && openTasks && toolCallId) openTasks(toolCallId);
             else void openCommand(toolCallId, { local, showCall: onShowCall });
@@ -106,7 +112,9 @@ export function TasksSection({
         >
           <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
+          {time !== undefined && (
+            <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />
+          )}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
@@ -137,21 +145,27 @@ export function TasksSection({
       </>
     );
     return (
-      <li
+      <WithFacts
         key={`scheduled:${entry.item.id}`}
-        className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
-        data-kind={entry.item.kind}
-        data-state={entry.status.state}
-        aria-description={entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text}
+        facts={[{ value: entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text }]}
       >
-        {shows ? (
-          <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall(call)}>
-            {body}
-          </button>
-        ) : (
-          body
+        {(facts) => (
+          <li
+            {...facts}
+            className={`acpmux-session-info-task${shows ? " acpmux-session-info-task--opens" : ""}`}
+            data-kind={entry.item.kind}
+            data-state={entry.status.state}
+          >
+            {shows ? (
+              <button type="button" className="acpmux-session-info-task__open" onClick={() => onShowCall(call)}>
+                {body}
+              </button>
+            ) : (
+              body
+            )}
+          </li>
         )}
-      </li>
+      </WithFacts>
     );
   };
   // The ended commands and scheduled items as one list, latest first.
@@ -168,7 +182,7 @@ export function TasksSection({
               command,
               // A task only the transcript knows may not say when it started.
               command.startedAt !== undefined
-                ? formatDuration(Math.max(0, now - command.startedAt))
+                ? runningTime(Math.max(0, now - command.startedAt))
                 : t(COMMAND_STATE.running),
               undefined,
               arrived.has(arrivalKey(command)),
@@ -249,4 +263,22 @@ export function StopButton({
       <Icon name="action.stop" size={12} selected={solid} />
     </button>
   );
+}
+
+/// A running command's time: as `formatDuration` under an hour ("5m 41s"), to the minute past it
+/// ("1h 2m"). Seconds on an hour-long watch say nothing, and their reserve ("00h 00m 00s") cut the
+/// command it times: at 420 px "bun test test/session-info-tasks.test.tsx --watch"
+/// read "bun test …tsx …" beside "1h 2m 1s" and a third of a box of nothing
+/// (TaskRowReason.gallery.tsx, `commandKeepsTheRow`).
+export function runningTime(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  if (total < 3600) return formatDuration(ms);
+  return `${Math.floor(total / 3600)}h ${Math.floor((total % 3600) / 60)}m`;
+}
+
+/// The box a running command's time keeps: under an hour the steady "00m 00s" `Clock` reserves
+/// itself, so a ticking count never moves the command's end; past it the time's own digits, which
+/// change width once in ten minutes at most, so the hour form reserves no room it does not show.
+function runningClockSize(time: string): string | undefined {
+  return /^\d+h \d+m$/.test(time) ? time.replace(/\d/g, "0") : undefined;
 }

@@ -58,8 +58,11 @@ export function cloudSendAgent(
   family: string | undefined,
   harness: string,
   model: string | undefined,
-): { harness?: string; model?: string; mode?: string } {
-  const pick = cloudStartModePick(harness);
-  if (!cloudStartAgent(family, harness).named) return pick;
-  return { harness, ...(model ? { model } : {}), ...pick };
+  cloudOnly = false,
+): { harness?: string; model?: string; mode?: string; cloudOnly?: true } {
+  const pick = { ...cloudStartModePick(harness), ...(cloudOnly ? { cloudOnly: true as const } : {}) };
+  const agent = cloudStartAgent(family, harness);
+  if (!agent.named) return pick;
+  // The agent the machine runs: a Mac-only profile (claude-sr2) starts its base agent there, with its model.
+  return { harness: agent.harness ?? harness, ...(model ? { model } : {}), ...pick };
 }

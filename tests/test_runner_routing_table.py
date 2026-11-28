@@ -95,7 +95,7 @@ class RoutingTableTests(unittest.TestCase):
             route = ("${{ github.run_attempt == 1 && 'ubuntu-24.04' || "
                      "fromJSON(vars.RUNNER_POOLS).linux_2 }}")
             job = {"runs-on": route, "permissions": {"contents": "read"},
-                   "steps": [{"run": "python3 scripts/ci/portable_job_placement.py"}]}
+                   "steps": [{"run": "python3 scripts/ci/side_lane_placement.py"}]}
             for changed, accepted in (({}, True), ({"permissions": {"contents": "write"}}, False),
                                       ({"environment": "release"}, False),
                                       ({"runs-on": route.replace("github.run_attempt == 1", "vars.CI_LIGHT_LANE_RUNNER || github.run_attempt == 1")}, False),
@@ -199,7 +199,9 @@ class RoutingTableTests(unittest.TestCase):
                                   ({"runs-on": route.replace("'ubuntu-24.04' || github.run_attempt", "'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt").replace(" || 'blacksmith-16vcpu", " || contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, False),
                                   ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || contains(fromJSON('[\"glaeda-std\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, True),
                                   ({"runs-on": route.replace(" || 'blacksmith-16vcpu", " || vars.LINUX_RUNNER || 'blacksmith-16vcpu")}, True),
-                                  # A secretless job may retry on the reconciled pool.
+                                  # Any job may retry on the reconciled pool (Leo, 2026-11-19: "if 99.99999% of the code is
+                                  # ours, there's literally nothing to be concerned about"); a secret it never declared is
+                                  # still refused (the declared one: the trusted selector test below).
                                   ({"runs-on": route.replace("'blacksmith-16vcpu-ubuntu-2404'", "fromJSON(vars.RUNNER_POOLS).linux")}, False),
                                   ({"runs-on": route.replace("'blacksmith-16vcpu-ubuntu-2404'", "fromJSON(vars.RUNNER_POOLS).linux"),
                                     "env": {"KEY": "${{ secrets.GLAEDA_ROUTE_APP_KEY }}"}}, True),
@@ -236,15 +238,17 @@ class RoutingTableTests(unittest.TestCase):
             self.assertEqual(problems, [])
             self.assertEqual(len(allowed), 1)
 
-    def test_hosted_light_policy_takes_the_trusted_selector_retry_only_without_secrets(self):
-        # A reusable workflow cannot fromJSON a variable, so its secretless light job may retry on
-        # the reviewed CI_TRUSTED_RUNNER selector (resolve-runners.yml#resolve).
+    def test_hosted_light_policy_takes_the_trusted_selector_retry(self):
+        # A reusable workflow cannot fromJSON a variable, so its light job may retry on the reviewed
+        # CI_TRUSTED_RUNNER selector (resolve-runners.yml#resolve), with its declared secrets too.
         import yaml
         route = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || "
                  "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
                  "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
         widened = route.replace('\"blacksmith-2vcpu-ubuntu-2404\",', '\"self-hosted\",\"blacksmith-2vcpu-ubuntu-2404\",')
-        for runs_on, env, accepted in ((route, {}, True), (route, {"T": "${{ secrets.T }}"}, False), (widened, {}, False)):
+        pooled = route.replace(" || contains(", " || fromJSON(vars.RUNNER_POOLS).linux || contains(").split(" || contains(")[0] + " }}"
+        for runs_on, env, accepted in ((route, {}, True), (route, {"T": "${{ secrets.T }}"}, True),
+                                       (pooled, {"T": "${{ secrets.T }}"}, True), (widened, {}, False)):
             with self.subTest(runs_on=runs_on, env=env), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory); workflows = root / "workflows"; workflows.mkdir()
                 policy = root / "runners.json"
@@ -594,7 +598,8 @@ class RoutingTableTests(unittest.TestCase):
         document = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))
         for fleet in document["fleets"].values():
             for key in ("linux", "linux_16", "linux_32"):
-                self.assertIn("ubuntu", fleet[key])
+                # An Ubuntu image, or the one owned Linux label (Ubuntu VMs) the `owned` fleet names.
+                self.assertTrue("ubuntu" in fleet[key] or fleet[key] == "cmux-linux", fleet[key])
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
-// Failed sends by cause (Leo 2026-10-21): every failed message had its own Retry, Edit, Remove and
-// Details row, and a trust failure's Retry could only be refused again. Prompts that failed in a
-// row for one cause share one card under the last of them, its actions name every prompt of the
-// run, and a trust failure's card offers Trust folder and holds Retry while the folder's
-// question is open.
+// Failed sends (Leo 2026-10-21): every failed message had its own Retry, Edit, Remove and Details
+// row. Leo, 2026-11-24, on the "Not sent" card and its four links: "these 4 buttons are really bad
+// tho. i dont ever want to see these, it should just fix itself automtically. recovery for this
+// stuff is wack". A send that did not get there for a reason that passes draws no card (its row stays
+// the pending row and goes again by itself); a refusal that would come back the same says why in one
+// line under the last prompt of its run, with Trust folder where that fixes it, and no links.
 import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -91,40 +92,70 @@ function transcript(rows: AcpmuxRow[], sends: Omit<FailedSends, "runs">) {
 const button = (container: HTMLElement, name: string) =>
   [...container.querySelectorAll("button")].find((node) => node.textContent === name) as HTMLButtonElement | undefined;
 
-test("failed prompts in a row with one cause share one card, whose actions name every prompt of the run", async () => {
+const linkNames = ["Retry", "Edit", "Remove", "Details"];
+
+test("a refusal that would come back the same says one line under its run, with no Retry, Edit, Remove or Details", async () => {
   const rows = [
     failed("a", "ship it", trustPending),
     failed("b", "and the tests", trustPending),
     failed("c", "open a PR", trustPending),
-    // Another cause starts its own card.
-    failed("d", "deploy", { code: "timeout", error: "no answer" }),
+    // Another refusal starts its own line.
+    failed("d", "deploy", { code: "-32000", reason: "agent.refused", error: "the agent refused this prompt" }),
   ];
-  const calls: { name: string; params: Record<string, unknown> }[] = [];
   const container = await render(transcript(rows, {}));
-  window.cmuxAcpmuxActions = Object.fromEntries(
-    ["chat.retryPrompt", "chat.editFailedPrompt", "chat.removeFailedPrompt"].map((name) => [
-      name,
-      async (params: Record<string, unknown>) => void calls.push({ name, params }),
-    ]),
-  );
   const cards = container.querySelectorAll(".cv-user__status--failed");
   expect(cards).toHaveLength(2);
-  // The run's card sits under its last prompt; the others draw none.
+  // The run's line sits under its last prompt; the others draw none.
   expect(container.querySelector('[data-row="a"] .cv-user__status--failed')).toBeNull();
   expect(container.querySelector('[data-row="b"] .cv-user__status--failed')).toBeNull();
   expect(container.querySelector('[data-row="c"] .cv-user__status--failed')).not.toBeNull();
-  expect(container.querySelector('[data-row="d"] .cv-user__status--failed')).not.toBeNull();
-  expect([...container.querySelectorAll("button")].filter((node) => node.textContent === "Retry")).toHaveLength(2);
-  const card = container.querySelector<HTMLElement>('[data-row="c"]')!;
-  await act(async () => button(card, "Retry")!.click());
-  await act(async () => button(card, "Remove")!.click());
-  expect(calls.map((call) => [call.name, call.params.rowIds])).toEqual([
-    ["chat.retryPrompt", ["a", "b", "c"]],
-    ["chat.removeFailedPrompt", ["a", "b", "c"]],
-  ]);
+  for (const card of cards) {
+    expect(card.querySelectorAll(".cv-user__failure-text")).toHaveLength(1);
+    for (const name of linkNames) expect(button(card as HTMLElement, name)).toBeUndefined();
+  }
+  expect(container.querySelector(".cv-user__delivery-details")).toBeNull();
 });
 
-test("a trust failure's card says one plain sentence with Trust folder, and its raw code only under Details", async () => {
+test("a refused run's one control is the pending row's X, which takes the whole run back into the composer", async () => {
+  const calls: { name: string; rowIds: unknown }[] = [];
+  const rows = [
+    failed("a", "ship it", { reason: "agent.refused" }),
+    failed("b", "and the tests", { reason: "agent.refused" }),
+  ];
+  const container = await render(transcript(rows, {}));
+  // The page's window, which the row reads its actions from when clicked.
+  const scope = (globalThis as { window?: unknown }).window as {
+    cmuxAcpmuxActions?: Record<string, (args: { rowIds: unknown }) => void>;
+  };
+  const before = scope.cmuxAcpmuxActions;
+  scope.cmuxAcpmuxActions = {
+    "chat.editFailedPrompt": ({ rowIds }) => calls.push({ name: "chat.editFailedPrompt", rowIds }),
+  };
+  try {
+    const card = container.querySelector('[data-row="b"] .cv-user__status--failed') as HTMLElement;
+    const buttons = [...card.querySelectorAll("button")];
+    expect(buttons.map((each) => each.getAttribute("aria-label"))).toEqual([translate("composer.queueEditMessage")]);
+    buttons[0]!.click();
+    expect(calls).toEqual([{ name: "chat.editFailedPrompt", rowIds: ["a", "b"] }]);
+  } finally {
+    scope.cmuxAcpmuxActions = before;
+  }
+});
+
+test("a send that did not get there for a reason that passes draws no failure line at all", async () => {
+  const rows = [
+    failed("a", "deploy", { code: "timeout", error: "no answer" }),
+    failed("b", "ship", { code: "native.not_connected", error: "not connected" }),
+    failed("c", "tests", { code: "transport.closed", error: "WebSocket is not open: readyState 3 (CLOSED)" }),
+    failed("d", "lint", { code: "-32000", reason: "provider.overloaded", error: "overloaded" }),
+  ];
+  const container = await render(transcript(rows, {}));
+  expect(container.querySelector(".cv-user__status--failed")).toBeNull();
+  expect(container.textContent).not.toContain("Not sent");
+  for (const name of linkNames) expect(button(container, name)).toBeUndefined();
+});
+
+test("a trust refusal says one plain sentence with Trust folder, and never its raw code", async () => {
   let trusted = 0;
   const container = await render(
     transcript([failed("a", "ship it", trustPending)], {
@@ -137,38 +168,13 @@ test("a trust failure's card says one plain sentence with Trust folder, and its 
   expect(card.textContent).not.toContain("trust.pending");
   await act(async () => button(card, "Trust folder")!.click());
   expect(trusted).toBe(1);
-  await act(async () => button(card, "Details")!.click());
-  expect(card.querySelector(".cv-user__delivery-details")!.textContent).toContain(
-    "trust.pending: answer the trust question for the folder first (trust.pending)",
-  );
-});
-
-test("Retry waits while the folder's trust question is open, and comes back once it is answered", async () => {
-  const rows = [failed("a", "ship it", trustPending)];
-  const container = await render(transcript(rows, { trustBlock: "trust.answerFirst", trustFolder: () => undefined }));
-  expect(button(container, "Retry")!.disabled).toBe(true);
-  expect(button(container, "Retry")!.getAttribute("aria-description")).toBe("Answer the trust question first");
-  await act(async () => root!.render(transcript(rows, {})));
-  expect(button(container, "Retry")!.disabled).toBe(false);
-  // Trusted: nothing left to fix.
-  expect(button(container, "Trust folder")).toBeUndefined();
-  // Any other cause never waits on the trust question.
-  await act(async () =>
-    root!.render(
-      transcript([failed("b", "deploy", { code: "timeout", error: "no answer" })], {
-        trustBlock: "trust.answerFirst",
-        trustFolder: () => undefined,
-      }),
-    ),
-  );
-  expect(button(container, "Retry")!.disabled).toBe(false);
-  expect(button(container, "Trust folder")).toBeUndefined();
+  for (const name of linkNames) expect(button(card, name)).toBeUndefined();
 });
 
 /// A prompt past one message (`message.too_large`, acpmux's `rpc::MAX_MESSAGE_BYTES`) is refused the
 /// same way at every Retry (Leo, 2026-10-31: "this is completely hardlocked bc of message size"): its
-/// card names the attachment to take out and offers Edit, never Retry.
-test("a prompt too large to send names its largest attachment and offers Edit, not Retry", async () => {
+/// line names the attachment to take out, and its message menu offers no Retry.
+test("a prompt too large to send names its largest attachment in one line, and its menu offers no Retry", async () => {
   const tooLarge = { code: -32000, reason: "message.too_large", message: "message too large to send: 16907300 bytes" };
   const attachment = (id: string, name: string, bytes: number): ComposerAttachment => ({
     id,
@@ -198,8 +204,7 @@ test("a prompt too large to send names its largest attachment and offers Edit, n
   const card = container.querySelector<HTMLElement>(".cv-user__status--failed")!;
   expect(card.dataset.failureCause).toBe("too-large");
   expect(card.querySelector(".cv-user__failure-text")!.textContent).toBe(sentence);
-  expect(button(card, "Retry")).toBeUndefined();
-  expect(button(card, "Edit")).toBeDefined();
+  for (const name of linkNames) expect(button(card, name)).toBeUndefined();
   // Nor from the message's menu (the native context menu offers Retry for `retryRowId`).
   const other = failed("b", "deploy", { code: "timeout", error: "no answer" });
   const snapshot = { rows: [row, other], connection: "connected" } as unknown as AcpmuxSnapshot;

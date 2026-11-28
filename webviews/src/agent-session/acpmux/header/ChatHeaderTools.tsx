@@ -1,13 +1,22 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
 // whether each toggles or opens; by default Changes, while it applies, then Terminal and Browser, which
-// split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT; Browser opens the chat's
-// local page when there is one, the job of the Preview button a person can still show); the
+// split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT; Browser always opens a
+// blank browser, and the chat's local page is Preview's, a button or a "..." row); the
 // summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu,
 // which starts with the quick actions not shown as buttons ([+] New tab, which reads Hide tabs in place,
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { memo, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { KeyHint } from "../../../ui/KeyHint";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useContext,
+} from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
@@ -26,6 +35,7 @@ import { motionMode } from "../../../ui/motion/motionMode";
 import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools, type HeaderQuickTool } from "./headerQuickTools";
+import { headerRelevance } from "./headerRelevance";
 import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
@@ -35,7 +45,7 @@ import type { NeedsYouItem } from "../needsYou/model";
 import { newKinds, type HeaderControls, type NewKind } from "./headerTrio";
 import { HeaderNewButton } from "./HeaderNewButton";
 import { useShortcut } from "../shortcuts";
-import { registerPicker } from "../pickerOpeners";
+import { registerPicker, ChatViewParked } from "../pickerOpeners";
 import {
   Menu,
   MenuButton,
@@ -50,6 +60,7 @@ import {
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
+import { TopRightLayouts } from "./TopRightLayouts";
 import { WorktreePill } from "./WorktreePill";
 import { useWorktree } from "./worktreePillModel";
 import { useWorktreeOps } from "./worktreeOps";
@@ -75,6 +86,7 @@ import {
   menuItemForShortcut,
 } from "./chatHeaderToolsModel";
 import { tooltipProps } from "../shortcuts";
+import { usePaneView } from "../paneViewStore";
 import { experimentArm } from "../../../experiments/experiment";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import {
@@ -95,7 +107,16 @@ import {
 /// `chat` names the chat the props are for: on a switch every callback is new, so a menu kept open
 /// across it runs the chat it opened for (through that chat's guardedChatMenu), never the new one's.
 export function ChatHeaderTools({ chat, ...props }: ChatHeaderToolsProps & { chat?: string }) {
-  const stable = useStableProps(props, { menu: [[]], summary: [[true], [false]] }, chat);
+  // A web row whose menu surely has rows reads them only as it opens (ChatMenu's `items`), so the
+  // pane's render builds none: chatMenuItems was ~6.5 ms of each attach's renders, twice (here and
+  // in the view). The native row publishes its rows, and a menu that may be empty is drawn
+  // disabled, so those still read them on every render.
+  const lazyMenu = props.menuHasRows === true && props.nativeRowTools?.enabled !== true;
+  const stable = useStableProps(
+    props,
+    lazyMenu ? { summary: [[true], [false]] } : { menu: [[]], summary: [[true], [false]] },
+    chat,
+  );
   return <ChatHeaderToolsMemo {...stable} />;
 }
 
@@ -117,6 +138,7 @@ function ChatHeaderToolsView({
   tabTools = true,
   summary,
   menu,
+  menuHasRows = false,
   onMenuOpen,
   expand,
   onExpanded,
@@ -167,6 +189,9 @@ function ChatHeaderToolsView({
   summary: ReactNode | ((native: boolean) => ReactNode);
   /// The menu's rows, read when it opens.
   menu: () => ChatMenuItem[];
+  /// The menu has rows whatever the chat's state (chatMenuHasRows): a header without the native row
+  /// then reads them only when the menu opens, never while it renders.
+  menuHasRows?: boolean;
   /// Runs before the menu opens; the menu shows once it settles.
   onMenuOpen?: () => Promise<unknown>;
   /// A row with children to show open (the palette's Continue In…); `onExpanded` clears it.
@@ -224,7 +249,7 @@ function ChatHeaderToolsView({
   // header never moves its controls from Swift into the web page when the experiment is enabled.
   const glassSwitch = useExperimentSwitch(GLASS_TOOLBAR_SWITCH);
   const glassLook = glass ?? (glassSwitch ? experimentArm(glassToolbarLook) : "off");
-  const { lit, pullRequest, headerControls, headerMotion } = useHeaderState();
+  const { lit, pullRequest, headerControls, headerMotion, headerIcons: iconsPicked, topRightLayout } = useHeaderState();
   const style = motion ?? headerMotion;
   // The glass capsule holds every split action (Split Down and New tab too, which the plain row keeps in
   // "..." by default); the saved list itself is not changed.
@@ -268,6 +293,7 @@ function ChatHeaderToolsView({
   // Changes is listed there with its button too.
   // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
   // render, and the lit splits as the App last pushed them.
+  const paneView = usePaneView();
   const live = useRef({
     actions,
     tabTools,
@@ -309,7 +335,7 @@ function ChatHeaderToolsView({
       overflow,
     } = live.current;
     if (!tabTools) return [];
-    const { lit } = headerState();
+    const { lit } = headerState(paneView);
     const shownIds = new Set(actions.map((action) => action.id));
     // The buttons the pane is too narrow for come first, in their order: Changes keeps its own row below.
     const folded: ChatMenuItem[] = overflow
@@ -331,13 +357,9 @@ function ChatHeaderToolsView({
         shortcutAction: HEADER_ACTIONS.changes,
         onSelect: () => onChanges("toggle"),
       });
-    // Browser opens the chat's page itself, so Preview folds only without a Browser button.
-    if (
-      onPreview &&
-      !shownIds.has("preview") &&
-      !shownIds.has("browser") &&
-      (previewUrl || lit.includes(HEADER_ACTIONS.preview))
-    )
+    // Preview folds whenever it is not a button: Browser always opens a blank browser
+    // (https://github.com/manaflow-ai/cmux/issues/49623).
+    if (onPreview && !shownIds.has("preview") && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
       folded.push({
         key: "quick-preview",
         label: t("header.preview"),
@@ -385,11 +407,28 @@ function ChatHeaderToolsView({
     onSideTabs,
     t,
   });
+  // A consolidated layout picked in Debug Settings (`agentChat.topRight.consolidate`) wins over the
+  // contextual styles, which apply to the plain row; the three controls and the glass toolbar draw their own.
+  // The native row never draws a consolidated layout, so it keeps the contextual style picked.
+  const layoutPicked =
+    topRightLayout !== "row" &&
+    nativeRowTools?.enabled !== true &&
+    glassLook === "off" &&
+    (controls ?? headerControls) !== "trio" &&
+    tabTools &&
+    actions.length > 0;
+  const headerIcons =
+    glassLook === "off" && (controls ?? headerControls) !== "trio" && !layoutPicked ? iconsPicked : "standard";
+  // The contextual styles draw only the icons relevant to the chat now (headerRelevance.ts).
+  const relevance = headerRelevance({ style: headerIcons, tools, lit, previewUrl });
   const customize = onCustomize
     ? new Map(tools.map(({ id }) => [id, nativeCustomizeMenu(customizeItems(actions, id, onCustomize, t, true))]))
     : undefined;
-  const chatRows = rows();
-  const chatMenu = nativeChatMenu(chatRows);
+  // The native row's "..." is built now, so its dormant icons go in before it is; the web row resets
+  // this below once it knows what folds. `standard` keeps today's order untouched.
+  if (headerIcons !== "standard") live.current.overflow = relevance.dormant;
+  const chatRows = menuHasRows && nativeRowTools?.enabled !== true ? undefined : rows();
+  const chatMenu = chatRows && nativeChatMenu(chatRows);
   const nativeSearch: RowToolBinding[] =
     glassLook !== "off" && onSearch
       ? [
@@ -406,7 +445,7 @@ function ChatHeaderToolsView({
           },
         ]
       : [];
-  const native = useNativeRowTools(nativeRowTools, tools, {
+  const native = useNativeRowTools(nativeRowTools, relevance.shown, {
     customize,
     glass: glassLook !== "off",
     extra: [
@@ -447,16 +486,38 @@ function ChatHeaderToolsView({
   // actions wait in "..."; Terminal, Browser and [+] are New's.
   const trio =
     glassLook === "off" && (controls ?? headerControls) === "trio" && !native && tabTools && newButton !== undefined;
+  // A consolidated layout (Debug Settings `agentChat.topRight.consolidate`) draws its own web controls in
+  // place of the web row's buttons. The native tab row keeps its tools (nativeRowStaysNative.test.ts), and
+  // the glass toolbar and the three controls, when picked, keep their own layout.
+  const consolidated =
+    topRightLayout !== "row" &&
+    !native &&
+    glassLook === "off" &&
+    (controls ?? headerControls) !== "trio" &&
+    tabTools &&
+    actions.length > 0
+      ? topRightLayout
+      : undefined;
   // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
   const toolsRef = useRef<HTMLDivElement>(null);
   const webButtons = !native && !trio && tabTools && actions.length > 0;
-  const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
+  // The plain row's own buttons: a consolidated layout draws its set instead.
+  const rowButtons = webButtons && !consolidated;
+  // Peek draws the rest hidden at the row's leading end, shown on hover; the native row has no hover
+  // layer of its own, so there they wait in "..." as in `contextual`.
+  const peek = headerIcons === "contextualPeek" && !native;
+  // Peek's dormant icons take room too: a narrow pane folds them first, then the trailing shown ones.
+  const candidates = peek ? [...relevance.shown, ...relevance.dormant] : relevance.shown;
+  const fold = useHeaderFold(toolsRef, rowButtons ? candidates.length : 0);
+  const drawn = new Set(rowButtons ? candidates.slice(0, candidates.length - fold) : []);
+  const folded = rowButtons ? candidates.filter((tool) => !drawn.has(tool)) : [];
+  // Dormant icons wait at the top of "..." unless Peek draws them.
   live.current.overflow = trio
     ? tools.filter((tool) => tool.id !== "terminal" && tool.id !== "browser" && tool.id !== "newTab")
-    : webButtons && fold > 0
-      ? tools.slice(tools.length - fold)
-      : [];
-  const shown = webButtons ? tools.slice(0, tools.length - fold) : [];
+    : peek
+      ? folded
+      : [...relevance.dormant, ...folded];
+  const shown = relevance.shown.filter((tool) => drawn.has(tool));
   const shownIds = shown.map((tool) => tool.id);
   // Motion styles (headerMotion.ts): `still`, the default, adds nothing to the buttons.
   useIconArrivals(toolsRef, style, shownIds);
@@ -520,20 +581,31 @@ function ChatHeaderToolsView({
       >
         <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
         {inCapsule && glassLook === "labels" && <span className="acpmux-glass-label">{tool.label}</span>}
-        {keycap && (
-          <kbd className="acpmux-glass-keycap" aria-hidden="true">
-            {keycap}
-          </kbd>
-        )}
+        {keycap && <KeyHint keys={keycap} className="acpmux-glass-key" aria-hidden="true" />}
       </button>
     );
   };
-  const buttons = webButtons && shown.length > 0 && shown.map(renderTool);
+  const buttons = consolidated ? (
+    <TopRightLayouts layout={consolidated} tools={tools} shortcuts={shortcuts} />
+  ) : (
+    webButtons && shown.length > 0 && shown.map(renderTool)
+  );
+  // The inbox with no open asks is dormant too in the contextual styles.
+  const inboxDormant = headerIcons !== "standard" && !inboxRelevant;
+  const dormantTools = peek ? relevance.dormant.filter((tool) => drawn.has(tool)).map(renderTool) : [];
+  const dormant =
+    peek && (dormantTools.length > 0 || (inboxDormant && inbox)) ? (
+      // At the leading end, so the icons at rest never move when these fade in.
+      <div className="acpmux-header-tool-group acpmux-header-dormant" data-header-dormant="">
+        {inboxDormant && inbox}
+        {dormantTools}
+      </div>
+    ) : null;
   const chatMenuButton =
     native && glassLook !== "off" ? null : (
       <ChatMenu
         items={rows}
-        disabled={chatRows.length === 0}
+        disabled={chatRows?.length === 0}
         onOpen={onMenuOpen}
         nativeOpen={
           native && chatMenu
@@ -586,11 +658,7 @@ function ChatHeaderToolsView({
             onClick={onSearch}
           >
             <HeaderIcon name="search" size={HEADER_GLYPH} />
-            {searchKey && (
-              <kbd className="acpmux-glass-keycap" aria-hidden="true">
-                {searchKey}
-              </kbd>
-            )}
+            {searchKey && <KeyHint keys={searchKey} className="acpmux-glass-key" aria-hidden="true" />}
           </button>
         )}
       </div>
@@ -615,13 +683,16 @@ function ChatHeaderToolsView({
     <div
       ref={toolsRef}
       className="acpmux-header-tools"
+      data-top-right={consolidated}
       onPointerEnter={onPointerEnter}
+      data-header-icons={headerIcons === "standard" ? undefined : headerIcons}
       data-header-motion={style === "still" ? undefined : style}
       data-motion-mode={style === "still" ? undefined : motionMode()}
       data-activity={cue?.cue}
       data-activity-on={cue?.on}
     >
       {preview && <HeaderToolPreview target={preview} />}
+      {dormant}
       {!native && worktree && (
         <WorktreePill ops={worktreeOps} worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />
       )}
@@ -631,7 +702,7 @@ function ChatHeaderToolsView({
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
-      {(!native || !nativeNeedsYouMenu) && inbox}
+      {(!native || !nativeNeedsYouMenu) && !inboxDormant && inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
@@ -832,11 +903,12 @@ export function ChatMenu({
   }, [expand, onExpanded]);
   // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
   const label = t("chatMenu.open");
+  const parked = useContext(ChatViewParked);
   useEffect(() => {
     const pickerLabel = registerPickerLabel === undefined ? label : registerPickerLabel;
-    if (pickerLabel === null) return;
+    if (pickerLabel === null || parked) return;
     return registerPicker(pickerLabel, () => showRef.current());
-  }, [label, registerPickerLabel]);
+  }, [label, registerPickerLabel, parked]);
   const onOpenChange = (next: boolean) => {
     if (next) return show();
     opening.current++;
@@ -917,7 +989,7 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
         <Icon name={item.icon} size={14} />
       )}
       <span className="acpmux-chat-menu-label">{item.label}</span>
-      {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
+      {shortcut && <KeyHint keys={shortcut} className="acpmux-chat-menu-key" />}
     </MenuItem>
   );
 }
@@ -993,7 +1065,7 @@ function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={child.disabled} onSelect={child.onSelect}>
       <span className="acpmux-chat-menu-label">{child.label}</span>
-      {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
+      {shortcut && <KeyHint keys={shortcut} className="acpmux-chat-menu-key" />}
     </MenuItem>
   );
 }

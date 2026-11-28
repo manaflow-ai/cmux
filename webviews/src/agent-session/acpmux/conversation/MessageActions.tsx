@@ -11,17 +11,21 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
-import { AlertCircle, Check, DoubleCheck, Pin, Speaker, Spinner, StopReading, TurnFork, Undo } from "./icons";
+import { AlertCircle, Check, DoubleCheck, Pin, Speaker, StopReading, TurnFork, Undo } from "./icons";
+import { WaitSpinner } from "./WaitSpinner";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, messageAge, messageAgeWidest, nextMessageAge } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
-import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
+import { hasMessageMenuHost, openMessageMenu, openForkMenu, releaseMessagePopupOnUnmount } from "./messageMenu";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
 import { intl } from "../../../ui/intl";
+import { Described } from "../chips/FactsHoverCard";
+import { Slot } from "../../../slots/Slot";
+import { rowHoverSlot } from "../../../slots/rowHover";
 /// The message's age, relative and live ("just now", "8 minutes ago", "yesterday", "Oct 18" past a
 /// week: messageAge), the exact date and time above it on hover, as Claude's. A prompt's, another
 /// agent's and a reply's rows all draw this one label (Leo, 2026-11-08: "the timestamps for the agent
@@ -37,9 +41,10 @@ export function MessageTime({ at, className, detail }: { at: number; className: 
     <time
       className={className}
       dateTime={new Date(at).toISOString()}
-      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exact}
+      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={
+        detail ? `${exact} · ${detail}` : exact
+      }
       data-tooltip-side="top"
-      data-tooltip-detail={detail}
       /* Every age of its first hour, in this language, one per line: the prompt row reserves the
          widest in the real font (conversation.css .cv-user__time::before), so the minute's words
          change in place. */
@@ -55,7 +60,7 @@ export function MessageTime({ at, className, detail }: { at: number; className: 
 /// hover it reveals the exact timestamp"): the same relative age a prompt's row writes, its exact
 /// date and time on hover (Leo, 2026-11-08: "Right now it's just, like in our app, only the user has
 /// that sort of relative time thing. The agent in ours only has the exact timestamp."), with
-/// `detail` (the turn's time and tokens) on the tooltip's second line when given.
+/// `detail` (the turn's time and tokens) after it on the tooltip's one line when given.
 export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
   return <MessageTime at={at} className="cv-turn-time" detail={detail} />;
 }
@@ -95,7 +100,17 @@ export function MessageCopy({ text }: { text: string }) {
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host
 /// operation can take long enough to look inert, so press feedback starts before the promise is
 /// dispatched and a ref closes the same-frame duplicate-click window.
-export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughSeq?: number }) {
+/// `unavailable`: why this message cannot be forked (its agent forks only from its latest reply):
+/// the control stays, dimmed, and says so, rather than vanishing from some messages only.
+export function ForkButton({
+  onFork,
+  throughSeq,
+  unavailable,
+}: {
+  onFork(): unknown;
+  throughSeq?: number;
+  unavailable?: string;
+}) {
   const t = useT();
   const inFlight = useRef(false);
   const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
@@ -137,31 +152,49 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
     );
   };
   if (readOnly) return null;
-  return (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
-      aria-label={label}
-      title={label}
-      aria-busy={state === "pending"}
-      data-fork-state={state}
-      disabled={state === "pending"}
-      data-tooltip-detail={t("turn.forkDetail")}
-      onClick={(event) => {
-        if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
-        fork();
-      }}
-    >
-      {state === "pending" ? (
-        <Spinner size={ROW_ICON} loading />
-      ) : state === "done" ? (
-        <Check size={ROW_ICON} />
-      ) : state === "failed" ? (
-        <AlertCircle size={ROW_ICON} />
-      ) : (
+  if (unavailable)
+    return (
+      <button
+        type="button"
+        className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
+        aria-label={`${t("turn.fork")}: ${unavailable}`}
+        title={unavailable}
+        aria-disabled="true"
+        data-fork-state="unavailable"
+      >
         <TurnFork size={ROW_ICON} />
+      </button>
+    );
+  return (
+    <Described text={t("turn.forkDetail")}>
+      {(described) => (
+        <button
+          {...described}
+          type="button"
+          ref={releaseMessagePopupOnUnmount}
+          className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
+          aria-label={label}
+          title={label}
+          aria-busy={state === "pending"}
+          data-fork-state={state}
+          disabled={state === "pending"}
+          onClick={(event) => {
+            if (event.altKey && throughSeq !== undefined && openForkMenu(throughSeq, event.currentTarget)) return;
+            fork();
+          }}
+        >
+          {state === "pending" ? (
+            <WaitSpinner size={ROW_ICON} until={<TurnFork size={ROW_ICON} />} />
+          ) : state === "done" ? (
+            <Check size={ROW_ICON} />
+          ) : state === "failed" ? (
+            <AlertCircle size={ROW_ICON} />
+          ) : (
+            <TurnFork size={ROW_ICON} />
+          )}
+        </button>
       )}
-    </button>
+    </Described>
   );
 }
 
@@ -223,7 +256,7 @@ export function RewindButton({ rowId }: { rowId: string }) {
       onClick={go}
     >
       {state.kind === "pending" ? (
-        <Spinner size={ROW_ICON} loading />
+        <WaitSpinner size={ROW_ICON} until={<Undo size={ROW_ICON} />} />
       ) : state.kind === "done" ? (
         <Check size={ROW_ICON} />
       ) : state.kind === "failed" ? (
@@ -288,6 +321,7 @@ export function MessageMore({ rowId }: { rowId: string }) {
     <button
       type="button"
       className="cv-iconbtn cv-iconbtn--compact"
+      ref={releaseMessagePopupOnUnmount}
       aria-haspopup="menu"
       aria-label={label}
       title={label}
@@ -410,18 +444,24 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
 export function ReplyActions({ row }: { row: AcpmuxRow }) {
   const text = row.text ?? "";
   return (
-    // Over a status row this line is the reply's whole bottom room (conversation.css
-    // `--cv-status-gap`), so its own blank box, never its buttons, is a transcript gap a drag
-    // can start from (gutterSelect.ts).
-    <div className="cv-turn-actions cv-reply-actions" data-transcript-gap="blank">
-      <span className="cv-turn-action-group">
-        <MessageCopy text={text} />
-        <PinButton rowId={row.id} />
-        <ReadAloudButton id={row.id} text={text} />
-        <RowReplyButton text={text} />
-        <MessageMore rowId={row.id} />
-      </span>
-      <ReplyTime at={row.at} />
-    </div>
+    // The row is the theme slot `row.hover` (slots/rowHover): its default draws the reserved line this
+    // drew before, a transcript gap a drag can start from.
+    <Slot
+      slot={rowHoverSlot}
+      props={{
+        children: (
+          <>
+            <span className="cv-turn-action-group">
+              <MessageCopy text={text} />
+              <PinButton rowId={row.id} />
+              <ReadAloudButton id={row.id} text={text} />
+              <RowReplyButton text={text} />
+              <MessageMore rowId={row.id} />
+            </span>
+            <ReplyTime at={row.at} />
+          </>
+        ),
+      }}
+    />
   );
 }

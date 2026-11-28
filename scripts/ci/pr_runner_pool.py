@@ -490,6 +490,20 @@ SNAPSHOT_BRANCH = "main"
 CI_WORKFLOW = "ci.yml"
 MAX_SNAPSHOT_MINUTES = 45
 PAGE_SIZE = 100
+# A live runner listing (GitHub.runner_pages, read only while the CI_RUNNER_STATE census is stale) pages until the
+# listing's total_count, up to this many pages. GitHub lists registrations oldest first, and the old stop at 5 pages
+# (500) read none of the online runners of the ~3,700 cmux-fleet-linux registrations (cmux#62792, run 46049698131):
+# every reader then saw "no online fleet runner" and took Blacksmith. 50 pages is 5,000 registrations, the
+# simple_pool_picker org fallback's bound; the request cost is total_count / 100 and stays inside the caller's
+# deadline and _keep_reserve. The repository variable/env CI_RUNNER_LIST_MAX_PAGES=5 restores the old stop.
+RUNNER_LIST_MAX_PAGES = 50
+RUNNER_LIST_PAGES_VARIABLE = "CI_RUNNER_LIST_MAX_PAGES"
+
+
+def runner_list_max_pages(env: Mapping[str, str] | None = None) -> int:
+    """The page bound of a live runner listing: CI_RUNNER_LIST_MAX_PAGES when a positive whole number, else 50."""
+    raw = str((os.environ if env is None else env).get(RUNNER_LIST_PAGES_VARIABLE) or "").strip()
+    return int(raw) if raw.isdigit() and int(raw) > 0 else RUNNER_LIST_MAX_PAGES
 # The marker ci.yml's changes job uploads when it puts a run on an owned pool.
 # Its name is ...-<jobs>p<placed>-<pool> (queue_janitor.py reads <placed>); the
 # E2E and iOS markers, and older ones, omit p<placed>.
@@ -2330,15 +2344,15 @@ def census_runners(document: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def runner_state(repository: str, *, raw: str | None = None,
-                 now: dt.datetime | None = None) -> Mapping[str, Any] | None:
+                 now: dt.datetime | None = None,
+                 max_age_seconds: float = RUNNER_STATE_MAX_AGE_SECONDS) -> Mapping[str, Any] | None:
     """A complete, fresh registration census, or None to retain the live API path.
 
     The variable contains gzip/base64 JSON. Never accept desired manifest labels,
     arbitrary scopes, partial pages or a timestamp refreshed after a source error.
     A workflow's input is not a document source: callers use repository context.
     """
-    return _runner_state_document(repository, raw=raw, now=now,
-                                  max_age_seconds=RUNNER_STATE_MAX_AGE_SECONDS)
+    return _runner_state_document(repository, raw=raw, now=now, max_age_seconds=max_age_seconds)
 
 
 def _runner_state_document(repository: str, *, max_age_seconds: float,
@@ -2724,12 +2738,27 @@ class GitHub:
         return list(found.values())
 
     def _runner_pages(self, path: str) -> list[Mapping[str, Any]]:
+        """Every registration of a runner listing: pages until its total_count (see RUNNER_LIST_MAX_PAGES).
+
+        A listing longer than the bound is read to the bound and named in a warning, never silently cut."""
         found: list[Mapping[str, Any]] = []
-        for page in range(1, 6):
-            batch = self.get_api(f"{path}?per_page={PAGE_SIZE}&page={page}").get("runners") or []
+        limit = runner_list_max_pages()
+        total: int | None = None
+        for page in range(1, limit + 1):
+            if page > 1:
+                self._keep_reserve()
+            listing = self.get_api(f"{path}?per_page={PAGE_SIZE}&page={page}") or {}
+            batch = listing.get("runners") or []
             found.extend(runner for runner in batch if isinstance(runner, Mapping))
-            if len(batch) < PAGE_SIZE:
+            if type(listing.get("total_count")) is int:
+                total = listing["total_count"]
+            if len(batch) < PAGE_SIZE or (total is not None and len(found) >= total):
                 break
+        else:
+            if total is None or len(found) < total:
+                print(f"::warning title=live runner listing::{path.split('?')[0]}: read {len(found)} of "
+                      f"{total if total is not None else 'more'} registrations ({limit} pages, "
+                      f"{RUNNER_LIST_PAGES_VARIABLE}); the newest are unread", file=sys.stderr)
         return found
 
     def pull_request_runs_since(self, since: str, *, exclude_run_id: int | None) -> int:

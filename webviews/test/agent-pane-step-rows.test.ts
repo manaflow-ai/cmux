@@ -19,6 +19,7 @@
 //
 // This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: its steps are finished
 // calls and thoughts of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -217,7 +218,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     );
     // The finished thought is folded to one line too.
-    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 22));
+    expect(rows.map((row) => row.height)).toEqual(rows.map(() => ROW_METRIC.height));
     expect(new Set(rows.map((row) => row.fontSize)).size).toBe(1);
     const pairs = rows.slice(1).map((row, index) => ({
       above: rows[index]!,
@@ -243,16 +244,19 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     const page = await open();
     await openRun(page);
     const toggle = page.locator("button.cv-thought");
-    // Closed, its brain glyph and its words on one line (Codex parity); open, "Thought" over its text.
-    expect((await toggle.textContent())?.trim()).toBe(THOUGHT);
+    // Closed, its brain glyph and its own first line cut to one line (Codex parity); open, the same
+    // line wrapped, with no "Thought" over it (Leo, 2026-11-22: "had the whole line be the line").
+    expect((await toggle.locator(".cv-thought__preview").textContent())?.trim()).toBe(THOUGHT);
     expect(await toggle.locator(".cv-tool__icon svg").count()).toBe(1);
     expect(await page.locator(".cv-thought__body, .cv-thought__text").count()).toBe(0);
     await toggle.click();
-    await page.locator("button.cv-thought .cv-thought__label", { hasText: /^Thought/ }).waitFor();
-    // The fold plays, then the text has its height.
-    const thought = page.locator(".cv-thought__body");
+    await page.locator('button.cv-thought[aria-expanded="true"]').waitFor();
+    expect(await page.locator("button.cv-thought .cv-thought__label").count()).toBe(0);
+    // The line grows, then the wrapped words have their height.
+    const thought = page.locator("button.cv-thought .cv-thought__preview");
     await page.waitForFunction(
-      () => (document.querySelector(".cv-thought__body")?.getBoundingClientRect().height ?? 0) > 26,
+      () =>
+        (document.querySelector("button.cv-thought .cv-thought__preview")?.getBoundingClientRect().height ?? 0) > 26,
       undefined,
       { timeout: 5_000 },
     );

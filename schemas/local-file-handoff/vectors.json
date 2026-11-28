@@ -1,5 +1,5 @@
 {
-  "description": "Shared test vectors for the local file handoff: a main-frame navigation to a local file that a browser tab hands to cmux's file opener instead of loading. A CEF tab hands off Markdown (the markdown page) and the video and audio its build cannot decode (H.264/HEVC .mp4 .mov .m4v and AAC .m4a .aac; the fork builds without proprietary codecs), which open in a WebKit tab; a WebKit tab hands off Markdown only. Swift LocalFileHandoff (CmuxNextBrowserCore/Core/LocalFileHandoff.swift, LocalFileHandoffVectorTests) and C++ CEFHandsOffLocalFile (CEFShim/src/local_file_handoff.h, scripts/cmux-next/test-local-file-handoff-cpp.sh) both read this file. Change both together.",
+  "description": "Shared test vectors for the local file handoff: a main-frame navigation to a local file that a browser tab hands to cmux's file opener instead of loading. A tab of either engine hands off Markdown (the markdown page); video and audio (.mp4 .mov .m4v .m4a .aac) stay in the tab, since the fork builds with proprietary_codecs=true ffmpeg_branding=Chrome. Swift LocalFileHandoff (CmuxNextBrowserCore/Core/LocalFileHandoff.swift, LocalFileHandoffVectorTests) and C++ CEFHandsOffLocalFile (CEFShim/src/local_file_handoff.h, scripts/cmux-next/test-local-file-handoff-cpp.sh) both read this file. Change both together.",
   "cases": [
     {
       "url": "file:///Users/me/notes.md",
@@ -18,42 +18,42 @@
     },
     {
       "url": "file:///Users/me/clip.mp4",
-      "cef": true,
+      "cef": false,
       "webkit": false
     },
     {
       "url": "file:///Users/me/clip.MOV",
-      "cef": true,
+      "cef": false,
       "webkit": false
     },
     {
       "url": "file:///Users/me/clip.m4v",
-      "cef": true,
+      "cef": false,
       "webkit": false
     },
     {
       "url": "file:///Users/me/song.m4a",
-      "cef": true,
+      "cef": false,
       "webkit": false
     },
     {
       "url": "file:///Users/me/song.aac",
-      "cef": true,
+      "cef": false,
       "webkit": false
     },
     {
       "url": "file:///Users/me/clip.mp4?t=3",
-      "cef": true,
+      "cef": false,
       "webkit": false
     },
     {
       "url": "file:///Users/me/my%20clip.mp4",
-      "cef": true,
+      "cef": false,
       "webkit": false
     },
     {
       "url": "FILE:///Users/me/clip.mp4",
-      "cef": true,
+      "cef": false,
       "webkit": false
     },
     {
