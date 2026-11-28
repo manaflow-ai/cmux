@@ -85,6 +85,15 @@ public final class CloudPlaceFlows {
 
     /// Each session's flow, as the reducer last returned it.
     @ObservationIgnored private var flows: [String: Data] = [:]
+    /// Each session's ``views`` entry, parsed once when it is set: a header, Auto's sweep and the move menu read it per chat.
+    @ObservationIgnored private var parsedViews: [String: [String: Any]] = [:]
+    /// The control facts last asked of Rust (`cloud_move_place_control`) and its answer per session under them: a header
+    /// read with the same facts makes no encode and no FFI call. New facts (a turn, a pin, a plan) drop every answer.
+    @ObservationIgnored private var controlAsked: (facts: ControlFacts, answers: [String: [String: Any]])?
+    /// Each session's last `ComputerStatus`, kept while its facts (`at`, `start`) are the same and no move is in them.
+    @ObservationIgnored private var statuses: [String: (at: String, start: Int, status: Any?)] = [:]
+    /// Sessions whose hybrid start is being read off the main actor (``readStart(_:stateDir:session:)``).
+    @ObservationIgnored private var startReads: Set<String> = []
     /// What stops each session's running move (its Task), set by the action that runs it.
     @ObservationIgnored private var stoppers: [String: () -> Void] = [:]
     /// Sessions whose move Cancel stopped: the stop is no failure and offers no Retry.
@@ -110,6 +119,8 @@ public final class CloudPlaceFlows {
     @ObservationIgnored private var startState: URL?
     /// Each session's `start` as of a revision, so a header read costs one FFI read per Show, not per read.
     @ObservationIgnored private var starts: [String: (revision: Int, start: Any?)] = [:]
+    /// Bumped once per off-main start read that landed; `placeJSON` reads it, so the header shows the new `start`.
+    public private(set) var startsLanded = 0
     @ObservationIgnored private var startWatch: Task<Void, Never>?
     @ObservationIgnored private let core: Core
     @ObservationIgnored private let defaults: UserDefaults
@@ -300,23 +311,23 @@ public final class CloudPlaceFlows {
 
     /// The session's view state (`moving`, `live`, `failed`, `cancelled`), nil with no flow.
     public func state(of session: String) -> String? {
-        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
-        guard let data = views[session], let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return object["state"] as? String
+        _ = views[session] // observed: a new view re-reads the state
+        return parsedViews[session]?["state"] as? String
     }
 
     /// The session's last move as Rust's reducer drew it (its `View`: `state`, `step`, `elapsedMs` and `steps`, each finished
     /// step's ms), a landed one too: a settled card leaves only the header, not this. Nil with no move kept. `cloud.place.get`
     /// answers it, for the move journey probe's per-step times (`move_stages_ms`), which no move action's answer carries.
     public func moveView(of session: String) -> Any? {
-        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
-        views[session].flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        _ = views[session] // observed
+        return parsedViews[session]
     }
 
     /// Drops the session's flow and view (a Live move's card goes once the chat shows it).
     public func clear(_ session: String) {
         flows[session] = nil
         views[session] = nil
+        parsedViews[session] = nil
     }
 
     private func report(_ session: String, _ event: [String: Any]) -> Next {
@@ -339,6 +350,8 @@ public final class CloudPlaceFlows {
         // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes and a clock reading.
         if let viewRequest = try? JSONSerialization.data(withJSONObject: ["flow": flow, "nowMs": nowMs] as [String: Any]),
            let view = core("cloud_move_place_view", viewRequest) {
+            // main-actor-ok: one chat's view, a fixed-shape object of a few hundred bytes, parsed once per step, not per read.
+            parsedViews[session] = try? JSONSerialization.jsonObject(with: view) as? [String: Any]
             views[session] = view
         }
         return (answer["next"] as? String).flatMap(Next.init(rawValue:)) ?? .go
@@ -367,20 +380,40 @@ public final class CloudPlaceFlows {
     }
 
     /// The session's `start` (`{cloud, reason?, sinceMs?}`), as Rust reads its driver's newest Show; nil with none.
+    /// Rust reads the driver's Show files from disk, so the read runs off the main actor: until it lands the header keeps the
+    /// last answer, and ``startsLanded`` brings the new one in.
     func start(of session: String) -> Any? {
+        _ = startsLanded // observed: a read that landed re-reads the header
         let revision = startRevision
-        if let kept = starts[session], kept.revision == revision { return kept.start }
-        var start: Any?
-        // main-actor-ok: once per Show per chat; a folder path and a session id.
-        if let startState, let request = try? JSONSerialization.data(withJSONObject: ["stateDir": startState.path, "session": session]),
-           let reply = core("cloud_hybrid_start", request),
-           // main-actor-ok: that chat's `{start: {cloud, reason?, sinceMs?}}`.
-           let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
-           let value = answer["start"] as? [String: Any], JSONSerialization.isValidJSONObject(value) {
-            start = value
+        let kept = starts[session]
+        if let kept, kept.revision == revision { return kept.start }
+        guard let startState else {
+            starts[session] = (revision, nil)
+            return nil
         }
-        starts[session] = (revision, start)
-        return start
+        guard startReads.insert(session).inserted else { return kept?.start }
+        let core = core, stateDir = startState.path
+        Task { @MainActor [weak self] in
+            let reply = await Self.readStart(core, stateDir: stateDir, session: session)
+            guard let self else { return }
+            startReads.remove(session)
+            var start: Any?
+            // main-actor-ok: that chat's `{start: {cloud, reason?, sinceMs?}}`, a few scalars, once per Show.
+            if let reply, let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+               let value = answer["start"] as? [String: Any], JSONSerialization.isValidJSONObject(value) {
+                start = value
+            }
+            // A read under an older revision still shows; the header's next read asks again.
+            starts[session] = (revision, start)
+            startsLanded &+= 1
+        }
+        return kept?.start
+    }
+
+    /// `cloud_hybrid_start` off the main actor: Rust reads the session's newest Show from disk.
+    @concurrent nonisolated private static func readStart(_ core: Core, stateDir: String, session: String) async -> Data? {
+        guard let request = try? JSONSerialization.data(withJSONObject: ["stateDir": stateDir, "session": session]) else { return nil }
+        return core("cloud_hybrid_start", request)
     }
 
     // MARK: The chat's place, for pane.tabState
@@ -396,22 +429,46 @@ public final class CloudPlaceFlows {
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
         if let cloudName { place["cloudName"] = cloudName }
-        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
-        if !settled.contains(session), let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
-        // main-actor-ok: one row of eight scalars per open chat, sent only signed in with a plan.
-        if let control, let request = try? JSONEncoder().encode(control.with(session: session)), let reply = core("cloud_move_place_control", request),
-           // main-actor-ok: Rust's `{blocked, holders, keep}` for this chat's control.
-           let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] {
+        _ = views[session] // observed: a new view re-sends the header
+        if !settled.contains(session), let move = parsedViews[session] { place["move"] = move }
+        if let control, let answer = controlAnswer(session: session, control: control) {
             if let blocked = answer["blocked"] { place["blocked"] = blocked }
             if let holders = answer["holders"] { place["holders"] = holders }
             if let keep = answer["keep"] { place["keep"] = keep }
         }
         if let start = start(of: session) { place["start"] = start }
-        if let status = computerStatus(session: session, place: place) { place["status"] = status }
+        if let status = keptStatus(session: session, place: place) { place["status"] = status }
         // The chat's AutoSize rows, off unless the person turns them on (`defaults write … cmux.cloud.autosizeRows -bool YES`).
         if let machine, defaults.bool(forKey: "cmux.cloud.autosizeRows"), let rows = autoSizeRows(machine: machine) { place["autosize"] = rows }
         // main-actor-ok: this one chat's header place; the order is read: AgentPaneHeaderState compares placeData bytes.
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
+    }
+
+    /// Rust's `{blocked, holders, keep}` for `session` under `control`, asked once per change of the facts: the same facts
+    /// (one row per open chat) read for every header would cost an encode and an FFI call per header, O(chats²) per sweep.
+    func controlAnswer(session: String, control: ControlFacts) -> [String: Any]? {
+        if controlAsked?.facts != control { controlAsked = (control, [:]) }
+        if let known = controlAsked?.answers[session] { return known }
+        // main-actor-ok: one row of eight scalars per open chat, sent once per change of the facts per chat, not per read.
+        guard let request = try? JSONEncoder().encode(control.with(session: session)), let reply = core("cloud_move_place_control", request),
+              // main-actor-ok: Rust's `{blocked, holders, keep}` for this chat's control.
+              let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return nil }
+        controlAsked?.answers[session] = answer
+        return answer
+    }
+
+    /// ``computerStatus(session:place:)``, reused while the chat's `at` and `start` are unchanged; a chat with a move in its
+    /// place asks every read, since the move's facts carry the clock.
+    func keptStatus(session: String, place: [String: Any]) -> Any? {
+        guard place["move"] == nil else {
+            statuses[session] = nil
+            return computerStatus(session: session, place: place)
+        }
+        let at = place["at"] as? String ?? "", start = starts[session].map { $0.revision &* 2 &+ ($0.start == nil ? 0 : 1) } ?? -1
+        if let kept = statuses[session], kept.at == at, kept.start == start { return kept.status }
+        let status = computerStatus(session: session, place: place)
+        statuses[session] = (at, start, status)
+        return status
     }
 
     /// The chat's one `ComputerStatus` (RFD 0080's status line and popover rows), as Rust folds `place`'s `at`, `move` and

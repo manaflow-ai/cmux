@@ -392,7 +392,7 @@ import Testing
     }
 
     /// A hybrid start's state rides on `place.start` as Rust answers it, read once per drivers' folder change (RFD 0078).
-    @Test func placeCarriesTheHybridStart() throws {
+    @Test func placeCarriesTheHybridStart() async throws {
         let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
         let calls = Calls()
         let place = CloudPlaceFlows(defaults: defaults, core: { operation, request in
@@ -405,12 +405,43 @@ import Testing
         #expect(calls.count == 0)
         let sessions = FileManager.default.temporaryDirectory.appending(path: "hybrid-\(UUID().uuidString)/sessions")
         defer { place.watchStarts(state: nil) }
-        let start = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, starts: sessions).flatMap(Self.start))
+        // The read runs off the main actor: the first header has none yet, the one after it lands carries it.
+        #expect(place.placeJSON(session: "s", onCloud: false, cloudName: nil, starts: sessions).flatMap(Self.start) == nil)
+        for _ in 0..<500 where place.startsLanded == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        let start = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil).flatMap(Self.start))
         #expect(start["cloud"] as? String == "booting")
         #expect(start["sinceMs"] as? Int == 5)
         _ = place.placeJSON(session: "s", onCloud: false, cloudName: nil)
         #expect(calls.count == 1) // the same revision reads once
+        _ = place.placeJSON(session: "t", onCloud: false, cloudName: nil)
+        for _ in 0..<500 where place.startsLanded < 2 { try await Task.sleep(for: .milliseconds(5)) }
         #expect(place.placeJSON(session: "t", onCloud: false, cloudName: nil).flatMap(Self.start) == nil) // no hybrid start: no key
+    }
+
+    /// Ten header reads with the same control facts ask Rust once for the control and once for the status; a changed pin asks again.
+    @Test func sameFactsAskRustOnce() throws {
+        let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
+        let control = Calls(), status = Calls()
+        let place = CloudPlaceFlows(defaults: defaults, core: { operation, _ in
+            switch operation {
+            case "cloud_move_place_control": control.add(); return Data(#"{"blocked":{"why":"signed-out"}}"#.utf8)
+            case "cloud_computer_status_live": status.add(); return Data(#"{"line":"This Mac"}"#.utf8)
+            default: return nil
+            }
+        }, clock: { 1 })
+        let chats = [CloudPlaceChat(id: "t", session: "s", title: "Chat", onCloud: false, turnRunning: false, turnStartedAtMs: nil, moving: false)]
+        let facts = place.controlFacts(signedIn: true, restoring: false, planId: "next_plus") { chats }
+        for _ in 0..<10 {
+            let object = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, control: facts)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+            #expect((object["blocked"] as? [String: Any])?["why"] as? String == "signed-out")
+            #expect((object["status"] as? [String: Any])?["line"] as? String == "This Mac")
+        }
+        #expect(control.count == 1 && status.count == 1)
+        place.setMode("cloud", of: "s")
+        let pinned = place.controlFacts(signedIn: true, restoring: false, planId: "next_plus") { chats }
+        _ = place.placeJSON(session: "s", onCloud: false, cloudName: nil, control: pinned)
+        #expect(control.count == 2)
     }
 
     nonisolated final class Calls: @unchecked Sendable {
