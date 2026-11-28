@@ -229,7 +229,25 @@ def press_cmd_q(app: App) -> str | None:
     done = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], capture_output=True, text=True, timeout=20)
     if "posted" in done.stdout:
         return None
+    if "untrusted" in done.stdout and startup.cua_argv():
+        # A fleet measure step lacks the Accessibility grant (every cmdq row not run, startup-matrix gamut
+        # 2026-11-28); the console's CuaDriver holds it, as for the first-launch prompt's Open.
+        return cua_cmd_q(pid)
     return f"Cmd-Q could not be pressed: {(done.stdout + done.stderr).strip()[:200]} (this process lacks Accessibility)"
+
+
+def cua_cmd_q(pid: int) -> str | None:
+    """Cmd-Q through CuaDriver to the app's largest window, delivered with the app frontmost (as a person presses
+    it). None when pressed."""
+    area = lambda w: (w.get("bounds") or {}).get("width", 0) * (w.get("bounds") or {}).get("height", 0)
+    wins = startup.walk(startup.cua("list_windows", {"pid": pid}), lambda o: isinstance(o, dict) and "window_id" in o)
+    if not wins:
+        return "Cmd-Q could not be pressed: CuaDriver lists no window of the app (this process lacks Accessibility)"
+    reply = startup.cua("hotkey", {"pid": pid, "window_id": max(wins, key=area)["window_id"], "keys": ["cmd", "q"],
+                                   "delivery_mode": "foreground"})
+    if reply.get("error"):
+        return f"Cmd-Q could not be pressed: CuaDriver hotkey: {str(reply['error'])[:200]}"
+    return None
 
 
 # ---- chats -----------------------------------------------------------------------------------
