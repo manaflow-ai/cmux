@@ -353,6 +353,17 @@ fn stats_due(frames: u64, frames_sent: u64, now_ns: u64, sent_at_ns: u64) -> boo
         || now_ns.saturating_sub(sent_at_ns) >= STILL_STATS_EVERY_NS
 }
 
+/// How long a viewer may be silent before the host holds its stats lines ([`stats_held`]).
+/// Well past a live viewer's feedback gap, and short enough that a drop of any length queues
+/// only a few: at most `STATS_HOLD_AFTER_US / stats period` records, far under the link's
+/// window of 128 unacknowledged records.
+const STATS_HOLD_AFTER_US: u64 = 5_000_000;
+
+/// Whether the host holds stats lines because the viewer has been silent too long to hear them.
+fn stats_held(silent_us: u64) -> bool {
+    silent_us >= STATS_HOLD_AFTER_US
+}
+
 fn viewer_silent_too_long(silent_us: u64) -> bool {
     silent_us > REATTACH_GRACE_NS / 1000
 }
@@ -1175,6 +1186,13 @@ impl MediaSession {
         // Every period while frames flow; on a still screen (damage-driven capture sends no
         // frame) a heartbeat every STILL_STATS_EVERY_NS, so the viewer can tell a screen that
         // did not change (host `frames` equal to what it decoded) from a stall.
+        // A viewer that hears nothing gets no stats: each one is a reliable control record
+        // that waits for an ack, and a 5 min drop queued past the link's window (128), which
+        // ended the session ("the peer stopped acknowledging control messages"). The first
+        // line after the viewer is back carries the current numbers.
+        if stats_held(self.engine.silent_for_us(now / 1000)) {
+            return;
+        }
         let stats = self.engine.stats();
         if !stats_due(stats.frames, self.stats_frames_sent, now, self.stats_sent_ns) {
             return;
@@ -1228,7 +1246,8 @@ fn idr_reason(req: &EncodeRequest, cause: Option<&'static str>) -> &'static str 
 #[cfg(test)]
 mod tests {
     use super::{
-        idr_reason, stats_due, viewer_silent_too_long, wants_ladder, STILL_STATS_EVERY_NS,
+        idr_reason, stats_due, stats_held, viewer_silent_too_long, wants_ladder,
+        STILL_STATS_EVERY_NS,
     };
     use cmux_rd_core::flow::Rect;
     use cmux_rd_engine::{EncodeRequest, IdrReason};
@@ -1253,6 +1272,16 @@ mod tests {
         // Still bounded: 10 min of silence ends the session.
         assert!(!viewer_silent_too_long(600_000_000));
         assert!(viewer_silent_too_long(600_000_001));
+    }
+
+    #[test]
+    fn a_silent_viewer_gets_no_stats_so_a_long_drop_cannot_fill_the_control_window() {
+        assert!(!stats_held(0));
+        assert!(!stats_held(4_999_999));
+        assert!(stats_held(5_000_000));
+        assert!(stats_held(300_000_000));
+        // At most one line per 100 ms (`send_stats`' floor) before the hold: under the window.
+        assert!(super::STATS_HOLD_AFTER_US / 100_000 < 128);
     }
 
     #[cfg(feature = "link")]
