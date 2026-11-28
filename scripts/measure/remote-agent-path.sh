@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# bash32-parse: skip (coproc needs bash 4; run it with a bash 4+ first on PATH)
 # What an agent on another machine feels through cmux Remote, against one enrolled daemon:
 #   scripts/measure/remote-agent-path.sh BIN ROUTE STATE_DIR [n=20] [mib=64]
 # REMOTE_ROUTE_FLAGS adds route options to every call, split on spaces, e.g.

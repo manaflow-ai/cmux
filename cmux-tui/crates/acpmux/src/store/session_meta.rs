@@ -569,6 +569,11 @@ pub struct SessionMeta {
     /// `hub/place_migrate.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place_mode: Option<crate::place_mode::PlaceMode>,
+    /// What the session sees, recorded once at its first start (`session_manifest.rs`, RFD 0181
+    /// B7): a move carries it in this file and a fork copies it, so the next start reads it
+    /// instead of deriving it. None while `ACPMUX_SESSION_MANIFEST` is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<crate::session_manifest::SessionManifest>,
 }
 
 /// A fork of a chat's subagent: the chat, and the subagent as its `_meta.acpmux.subagents`
