@@ -14,7 +14,8 @@
 // it never blocks a send. design/composer-status-dot.md.
 import { useCallback, useEffect, useId, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { experimentArm } from "../../experiments/experiment";
-import { HOVER_INTENT, HoverBridge, StatusCard, focusAfterEscape, tooltipsWarm, KeyHint } from "./composerStatusCard";
+import { StatusCard } from "./composerStatusCard";
+import { HOVER_INTENT, HoverBridge, KeyHint, focusAfterEscape, tooltipsWarm } from "./composerStatusHover";
 import { composerFooterFacts } from "./composerFooterFacts.experiment";
 import { composerMachineAtRest } from "./composerMachineAtRest.experiment";
 import {
@@ -28,26 +29,27 @@ import {
   shown,
   statusDueAt,
   statusWordsKey,
-  withPauseReason,
   worstLevel,
   type FooterFact,
   type HostRecovery,
   type StatusAction,
   type StatusItem,
+  withPauseReason,
 } from "./composerStatusModel";
 import { useHostRecovery } from "./composerStatusStore";
 import { relativeTime } from "./conversation/relativeTime";
 import { waitedText } from "./hostErrorModel";
 import { useT, usePaneLanguage, type StringKey, type StringValues, type Translate } from "./i18n";
 import { Icon } from "./icons/Icon";
-import type { PeerLinkDetail } from "./linkState";
-import { MachineLinkStatus, useLinkRedial } from "./MachineLinkStatus";
+import { MachineLinkStatus } from "./MachineLinkStatus";
+import { useLinkRedial } from "./useLinkRedial";
 import { peekPin, peekPinOpen, type PeekPinEvent, type PeekPinState } from "./peekPin";
 import type { PeerLink } from "./peerLink";
 import { useNow } from "./subagents/subagentGroupModel";
 import { focusRingShown } from "../../ui/focusModality";
 import { focusRoute } from "../../ui/focusRoute";
 import { intl } from "../../ui/intl";
+import { statusDotMounts, type StatusSnapshot } from "./composerStatusDotModel";
 import "./composerStatusDot.css";
 
 /// A focus move inside the footer never scrolls the pane.
@@ -60,29 +62,6 @@ export type MachineAtRestArm = "off" | "on";
 
 /// The gallery's alternates (not shipped): a count of items on the dot, or a warning glyph.
 export type DotLook = "dot" | "count" | "glyph";
-
-/// What the composer passes: the chat's snapshot pieces the dot reads.
-type StatusSnapshot = {
-  summary?: { peer?: string; composerStatus?: unknown } | undefined;
-  peerLinks?: Record<string, PeerLinkDetail> | undefined;
-};
-
-/// Whether the chat gets the dot: every chat but a remote one from an older acpmux, which says
-/// neither `composerStatus` nor a link `status` (MachineLinkStatus keeps that one's row).
-export function statusDotMounts(snapshot: StatusSnapshot): boolean {
-  const peer = snapshot.summary?.peer;
-  if (!peer) return true;
-  return readComposerStatus(snapshot.summary?.composerStatus) !== undefined || !!snapshot.peerLinks?.[peer]?.status;
-}
-
-/// Whether the dot says the chat's queue is paused (acpmux's `queuePaused` item, with its Resume):
-/// then the queue's own paused note stays out (ComposerQueue `pauseSaid`). An older acpmux sends no
-/// item and a remote chat from one gets no dot: the note says it as before.
-export function dotSaysQueuePaused(snapshot: StatusSnapshot): boolean {
-  if (!statusDotMounts(snapshot)) return false;
-  const items = readComposerStatus(snapshot.summary?.composerStatus)?.items ?? [];
-  return items.some((item) => item.kind === "queuePaused" && statusWordsKey(item) !== undefined);
-}
 
 /// The composer footer's status slot (Composer.tsx `chips`): the dot with the session's items, its
 /// machine link's item, and the pane's own (its connection to acpmux, a held send), or an older
@@ -161,7 +140,7 @@ const COUNTERS = [
 const STRIP_KINDS = ["machine", "folder", "branch", "context", "turn"] as const;
 
 /// An item's words, or undefined for a key this build does not know (never the raw key).
-export function itemWords(item: StatusItem, t: Translate, lang: string): string | undefined {
+function itemWords(item: StatusItem, t: Translate, lang: string): string | undefined {
   const key = statusWordsKey(item);
   if (!key) return undefined;
   const values: StringValues = {};

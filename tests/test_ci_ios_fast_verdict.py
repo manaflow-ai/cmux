@@ -615,7 +615,17 @@ class WorkflowTest(unittest.TestCase):
         # A pass on the same inputs (ios-fast-runner's reuse lookup) skips the Mac.
         self.assertEqual(job["if"], "${{ needs.ios-fast-runner.outputs.run == 'true' && needs.ios-fast-runner.outputs.reused != 'true' }}")
         self.assertIn("needs.ios-fast-runner.outputs.runs_on", job["runs-on"])
-        self.assertIs(job["steps"][0]["with"]["clean"], False)
+        owned = next(s for s in job["steps"] if s.get("name") == "Checkout the merge commit")
+        self.assertIs(owned["with"]["clean"], False)
+        # A hosted Mac starts empty: it fetches blobless and leaves out only the verify/ proof media (47 of 54 s
+        # was the fetch, run 46185444100); an owned Mac's reused workspace keeps the full checkout.
+        hosted = job["steps"][0]
+        self.assertIn("hosted Mac", hosted["name"])
+        self.assertIn("startsWith(runner.name, 'blacksmith')", hosted["if"])
+        self.assertIn("CI_IOS_FAST_SPARSE_CHECKOUT", hosted["if"])
+        self.assertEqual(owned["if"], "${{ !(" + hosted["if"][4:-3] + ") }}")
+        self.assertEqual(hosted["with"]["filter"], "blob:none")
+        self.assertEqual(hosted["with"]["sparse-checkout"].split(), ["/*", "!/cmux-next-ios/verify/"])
         names = [s.get("name") for s in job["steps"]]
         run = next(s for s in job["steps"] if "ios_fast_verdict.sh" in s.get("run", ""))
         # owned_pool_rescue.py reads "Select Xcode" by name; the run needs the selected Xcode.
