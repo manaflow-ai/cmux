@@ -41,7 +41,7 @@ jobs:
     if: >-
       ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request'
       || (github.event.pull_request.draft != true && github.event.pull_request.head.repo.full_name == github.repository)) }}
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (linux-pickers-gone host pins)
     timeout-minutes: 240
     permissions:
       contents: read
