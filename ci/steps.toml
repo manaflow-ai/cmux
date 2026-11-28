@@ -520,8 +520,8 @@ python3 -I scripts/ci/workflow_twins.py --other-dir "$repo"
 # feat-cmux-next push, and the push's reds were left standing (the twin drift cmux#64088 fixes, a sweep job that
 # went red on main's fast guards after the merge). A change to a workflow, the pool rescue or these tests now runs
 # them before the merge: every owned-pool workflow is watched by the rescue, main twins keep their twin's runs-on
-# and token floor (MainTwinsAgree), and stalled CI paths take the runner set. test_ci_fork_runner_routing.py and
-# test_ci_paid_queue_pin.py join this step once they are green on feat-cmux-next (31 base reds on 11-28).
+# and token floor (MainTwinsAgree), and stalled CI paths take the runner set. test_ci_paid_queue_pin.py joined
+# once green on feat-cmux-next (#64401); test_ci_fork_runner_routing.py (115 s) stays out of this 120 s step.
 [step.workflow-runner-guards]
 job = "linux"
 # 22 s on the pool (11-28), the main tip fetched at depth 1.
@@ -535,6 +535,7 @@ inputs = [
   "scripts/ci/check_runs_on_pools.py",
   "tests/test_ci_owned_pool_sources.py",
   "tests/test_ci_runner_set.py",
+  "tests/test_ci_paid_queue_pin.py",
   "tests/workflow_jobs.py",
   "tests/git_fixture_env.py",
 ]
@@ -542,6 +543,7 @@ run = '''
 status=0
 python3 tests/test_ci_owned_pool_sources.py || status=1
 python3 tests/test_ci_runner_set.py || status=1
+python3 tests/test_ci_paid_queue_pin.py || status=1
 exit "$status"
 '''
 
@@ -567,6 +569,33 @@ inputs = [
   "tests/*",
 ]
 run = "scripts/ci/guards_reached.sh"
+
+# tests/test_ci_owned_mac_jobs_no_sudo.py counts the sudo calls in every script a job that can reach an owned Mac
+# runs, but it was only in ci-guards.yml's ci group, which a feat-cmux-next pull request skips (cdn-user-agent,
+# above). #64195 added four `sudo -n` calls to scripts/cmux-next/cloud-journey.ts and the guard went red only on
+# the feat-cmux-next push. A change to a workflow or to a script such a job can run (the guard's RUN_PATH folders)
+# now runs it before the merge.
+[step.owned-mac-no-sudo]
+job = "linux"
+# 5 s locally (11-28). pr_scope = false: every input is a whole-tree glob, which --pr-scope leaves to the
+# post-merge batch, the very gap this step closes; at 5 s it costs nothing on the pull request.
+pr_scope = false
+timeout = 120
+title = "No new sudo on jobs that can reach an owned Mac"
+about = "a job that can land on an owned mini, and every script it runs, adds no sudo call beyond the counted, explained ones in tests/test_ci_owned_mac_jobs_no_sudo.py"
+inputs = [
+  ".github/workflows/**",
+  "tests/test_ci_owned_mac_jobs_no_sudo.py",
+  "scripts/**/*.py", "scripts/**/*.sh", "scripts/**/*.ts", "scripts/**/*.js", "scripts/**/*.mjs", "scripts/**/*.rb",
+  "tests/**/*.py", "tests/**/*.sh", "tests/**/*.ts", "tests/**/*.js",
+  "tools/**",
+  "Native/**/*.sh", "Native/**/*.py",
+  "cmux-tui/**/*.sh", "cmux-tui/**/*.py",
+  "webviews/**/*.sh", "webviews/**/*.mjs",
+]
+run = '''
+python3 tests/test_ci_owned_mac_jobs_no_sudo.py
+'''
 
 [step.skill-contracts]
 job = "linux"
@@ -2838,7 +2867,7 @@ exit "$rc"
 job = "linux"
 tier = "push"
 land_gate = true
-timeout = 600
+timeout = 360
 title = "Webviews checks (check:*, new findings only)"
 about = "webviews' check:* ratchets (surface-bypass, catalog keys, fixed waits, design tokens, layers, ...) add no finding the base lacks"
 needs = ["bun", "node"]
@@ -3152,6 +3181,7 @@ inputs = [
   "cmux-tui/crates/acpmux/src/review_brief_fixtures/*",
   "cmux-tui/crates/acpmux/src/rows/*",
   "cmux-tui/crates/acpmux/src/server/*",
+  "cmux-tui/crates/acpmux/src/server/pull_request_actions/*",
   "cmux-tui/crates/acpmux/src/server/account_sign_in/*",
   "cmux-tui/crates/acpmux/src/server/accounts/*",
   "cmux-tui/crates/acpmux/src/server/chats/*",
