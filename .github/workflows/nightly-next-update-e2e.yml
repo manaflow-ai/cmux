@@ -11,7 +11,8 @@ name: nightly-next update e2e
 # that froze on 2026-11-05, so nothing noticed when an update stopped working. This runs it on every
 # change to it and every 6 hours.
 #
-# GitHub runs a schedule only from the default branch, so the schedule takes effect once this file is on main.
+# GitHub runs a schedule only from the default branch, so this file is on main too (its twin on feat-cmux-next is
+# the same file); NOW pages kind nightly-autoupdate when the scheduled runs fail, go stale or this file leaves main.
 
 on:
   schedule:
@@ -31,12 +32,15 @@ on:
 permissions: {}
 
 concurrency:
-  group: nightly-next-update-e2e-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'feed' }}
+  # The scheduled tick shares 'feed' (each tests the feed's newest build when it starts, so a waiting tick
+  # does the work of one it replaced); a dispatch (maybe for one from_build) has its own run id.
+  group: nightly-next-update-e2e-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'schedule' && 'feed' || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # A pull request tests its own head; every other run takes feat-cmux-next's harness.
-  TOOLING_REF: ${{ github.event_name == 'pull_request' && github.sha || 'feat-cmux-next' }}
+  # A pull request to feat-cmux-next tests its own head; every other run (the schedule, which GitHub runs only from
+  # main, and a PR to main, which has no harness) takes feat-cmux-next's harness.
+  TOOLING_REF: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.sha || 'feat-cmux-next' }}
 
 jobs:
   update:
