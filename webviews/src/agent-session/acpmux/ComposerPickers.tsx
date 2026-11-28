@@ -953,26 +953,20 @@ export function ComposerPickers({
   const effortValue = effort && (effortDefaulted ? defaultEffort : effort.currentValue);
   const effortChoice = efforts.find((choice) => choice.id === effortValue);
   const ultracodeOn = ultracode !== undefined && ultracode.current === ultracode.on;
-  // Attachment reports the session id before its options. Keep drawing the same cached
-  // Rust start answer until options arrive, including the compact label in a narrow row.
-  // A remote chat has its own start values; a reported options list without effort is final.
-  const effortComing =
-    fresh &&
-    snapshot.origin !== "remote" &&
-    snapshot.origin !== "peer" &&
-    !snapshot.startsOnCloud &&
-    summary?.configOptions === undefined &&
-    (catalogModel?.efforts === undefined || catalogModel.efforts.length > 1);
-  const effortAwaited = awaiting || effortComing;
-  const lastChips = effortAwaited && !opensListed && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  // The owning daemon carries the resolved start effort across the attach gap. It clears
+  // the answer when options arrive; the pane does not infer it from origin or catalog state.
+  const effortAwaited = awaiting || summary?.pendingEffort !== undefined;
+  const lastChips = awaiting && !opensListed && chipHarness ? loadLastChips()[chipHarness] : undefined;
   // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
   // level acpmux starts it on (`_acpmux/harnesses` start).
   // An opened chat that ran before names the level its listed row reports, never a start level.
-  const startEffort = !effortAwaited
-    ? undefined
-    : opensListed
-      ? openingEntry?.effort
-      : snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort;
+  const startEffort =
+    summary?.pendingEffort ??
+    (!effortAwaited
+      ? undefined
+      : opensListed
+        ? openingEntry?.effort
+        : snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort);
   const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
   const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
   // The button names a level, never the word Reasoning (Leo 2026-10-20): the listed level, else the

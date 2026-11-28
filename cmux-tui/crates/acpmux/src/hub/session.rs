@@ -351,6 +351,9 @@ pub struct Session {
     /// start values or a client's set), so a repeated set is no new pick
     /// (`start_defaults.rs`).
     pub(super) applied: OnFirstUse<StdMutex<Applied>>,
+    /// The resolved first-start effort, set before publishing a newly created session. Memory
+    /// only: restored and adopted chats must never borrow a current start default.
+    pub(super) pending_start_effort: std::sync::OnceLock<String>,
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed. Shared with the audit writer, which drops an
     /// entry of this copy that reaches it after the purge, even once a new chat took the id.
