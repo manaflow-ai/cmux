@@ -324,7 +324,8 @@ jobs:
           # The login pool (feat-cmux-next scripts/cmux-next/claude-login-pool.ts): CMUX_JOURNEY_CLAUDE_OAUTH_POOL is one
           # setup-token per line, asked first; then the login above, then the repository's. The run takes the first slot
           # with quota (one max_tokens 1 request each, before any machine) and writes only the slot index to probe.json;
-          # with every slot spent the row says so (an infra skip in NOW) and no machine is made. Unset: the login above alone.
+          # with every slot spent the run falls back to team mode (no login copied, the team's model route, login_kind=team
+          # in probe.json); a team with no route there reads as an infra skip in NOW. Unset: the login above alone.
           CMUX_JOURNEY_CLAUDE_OAUTH_POOL: ${{ matrix.agent == 'claude' && matrix.model == 'real' && steps.gate.outputs.route != 'machine' && secrets.CMUX_JOURNEY_CLAUDE_OAUTH_POOL || '' }}
           CLAUDE_CODE_OAUTH_TOKEN_FALLBACK: ${{ matrix.agent == 'claude' && matrix.model == 'real' && steps.gate.outputs.route != 'machine' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           REAL_ROUTE: ${{ steps.gate.outputs.route || 'login' }}
