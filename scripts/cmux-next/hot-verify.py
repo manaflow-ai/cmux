@@ -164,9 +164,10 @@ APPLY_SECONDS = 900
 # p50, 2672 s at p90 and 3331 s at most, after a 593 s p90 queue, so a Swift look stopped waiting with its build
 # still running and no look (cmux#44800, #62151). When the controller gives no reading: APP_BUILD_UNREAD, that
 # day's queue_p90 + run_p90 (3265 s) with the margin. The fleet look's own run bound (cmuxterm-hq
-# build-fleet/pr_capture/hot_verify_run.py RUN_SECONDS) leaves room for APP_BUILD_CAP after a daemon build.
+# build-fleet/pr_capture/hot_verify_run.py APP_RUN_SECONDS, inside the controller's 120 min look-step bound) leaves
+# room for APP_BUILD_CAP after a daemon build.
 APP_BUILD_MARGIN = 1.25
-APP_BUILD_FLOOR, APP_BUILD_CAP = APPLY_SECONDS, 5400
+APP_BUILD_FLOOR, APP_BUILD_CAP = APPLY_SECONDS, 4500
 APP_BUILD_UNREAD = 4080
 DEFAULT_CONTROLLER = "http://100.89.225.106:18765"
 FLEET_CLIENT_CONFIG = Path.home() / ".local/share/cmux-fleet-client/client.json"
