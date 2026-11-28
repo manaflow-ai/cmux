@@ -66,6 +66,67 @@ test("the staged update offers one Restart to Update, which sends install", asyn
   page.unmount();
 });
 
+test("a staged update lists what's in it, grouped by area, each PR linked with its number and author", async () => {
+  const page = await show({
+    ...ready,
+    prs: {
+      title: "What's in this build",
+      other: "Other",
+      internalCount: 1,
+      groups: [
+        {
+          area: "Mac app",
+          items: [
+            {
+              pr: 12,
+              title: "Pinned tabs keep their order",
+              author: "lawrence",
+              url: "https://github.com/manaflow-ai/cmux/pull/12",
+              build: "999",
+            },
+            {
+              pr: 11,
+              title: "Rows fade on hover",
+              author: "austin",
+              url: "https://github.com/manaflow-ai/cmux/pull/11",
+              build: "998",
+            },
+          ],
+        },
+        {
+          area: null,
+          items: [
+            {
+              pr: 10,
+              title: "Faster cold start",
+              author: null,
+              url: "https://github.com/manaflow-ai/cmux/pull/10",
+              build: "998",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const list = card(page.container)!.querySelector<HTMLDetailsElement>("[data-app-update-prs]")!;
+  expect(list.querySelector("summary")!.textContent).toBe("What's in this build (3)");
+  const areas = [...list.querySelectorAll<HTMLElement>("[data-app-update-prs-area]")];
+  expect(areas.map((area) => area.dataset.appUpdatePrsArea)).toEqual(["Mac app", ""]);
+  expect(areas[0].querySelector("h4")!.textContent).toBe("Mac app");
+  const link = areas[0].querySelector<HTMLAnchorElement>('[data-app-update-pr="12"]')!;
+  expect(link.getAttribute("href")).toBe("https://github.com/manaflow-ai/cmux/pull/12");
+  expect(link.parentElement!.textContent).toBe("Pinned tabs keep their order #12 · lawrence");
+  expect(areas[1].querySelector("h4")!.textContent).toBe("Other");
+  expect(areas[1].textContent).toContain("Faster cold start #10");
+  page.unmount();
+});
+
+test("no PRs: no list", async () => {
+  const page = await show(ready);
+  expect(card(page.container)!.querySelector("[data-app-update-prs]")).toBeNull();
+  page.unmount();
+});
+
 const previous: PreviousBuild = {
   build: "3418",
   version: "1.0.0-nightly.3418",
