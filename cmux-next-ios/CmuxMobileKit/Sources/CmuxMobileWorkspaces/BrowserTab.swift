@@ -161,6 +161,13 @@ public final class BrowserTabModel: BrowserTabState {
     /// Loads an address; on a page opened from the Mac, one only the Mac can open
     /// shows why instead.
     public func load(_ target: URL) {
+        load(target, handOff: nil)
+    }
+
+    /// Site data belongs to the destination view, after its route is prepared.
+    /// Keep all awaits in this navigation so a newer page or mirroring wins.
+    func load(_ target: URL, handOff: (@MainActor () async -> SiteDataHandOff?)?,
+              onHandOff: (@MainActor (Bool) -> Void)? = nil) {
         let generation = beginNavigation()
         ownLoad = nil
         let reach = PhoneReach(target)
@@ -185,18 +192,32 @@ public final class BrowserTabModel: BrowserTabState {
             }
             ownLoad = target
         }
-        if guardian != nil, reach == .privateNetwork, preparePrivateHost != nil {
-            ownLoad = target
+        let needsPrivateRoute = guardian != nil && reach == .privateNetwork && preparePrivateHost != nil
+        if needsPrivateRoute || handOff != nil {
+            if needsPrivateRoute { ownLoad = target }
+            webView.stopLoading()
             problem = nil
             url = target
             urlChanged?(target)
             forwardingLoad = Task { @MainActor [weak self] in
-                guard let self, self.isCurrentNavigation(generation), await self.preparePrivateHostRoute(target), !Task.isCancelled,
-                      self.isCurrentNavigation(generation) else {
-                    if let self, !Task.isCancelled, self.isCurrentNavigation(generation) { self.refuse(target) }
-                    return
+                guard let self, !Task.isCancelled, self.isCurrentNavigation(generation) else { return }
+                if needsPrivateRoute {
+                    guard await self.preparePrivateHostRoute(target), !Task.isCancelled,
+                          self.isCurrentNavigation(generation) else {
+                        if !Task.isCancelled, self.isCurrentNavigation(generation) { self.refuse(target) }
+                        return
+                    }
                 }
+                let data = await handOff?()
+                guard !Task.isCancelled, self.isCurrentNavigation(generation) else { return }
+                if let data {
+                    await data.apply(to: self.webView) {
+                        !Task.isCancelled && self.isCurrentNavigation(generation)
+                    }
+                }
+                guard !Task.isCancelled, self.isCurrentNavigation(generation) else { return }
                 self.webView.load(URLRequest(url: target))
+                onHandOff?(data != nil)
             }
             return
         }

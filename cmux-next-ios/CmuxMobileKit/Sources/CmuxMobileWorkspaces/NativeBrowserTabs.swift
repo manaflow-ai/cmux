@@ -293,14 +293,10 @@ public final class NativeBrowserTabs {
             if let start, model.url != start || PhoneReach(start) == .privateNetwork { model.load(start) }
             return model
         }
-        Task { @MainActor [weak self, weak model] in
-            let handOff = await siteData(macID, tab, start.absoluteString).flatMap(SiteDataHandOff.decode)
-            guard let model, self?.nativeKeys.contains(key) == true else { return }
-            if let handOff { await handOff.apply(to: model.webView) }
-            onHandOff?(handOff != nil)
-            // Reload even when already there: the page now has the Mac's sign-in.
-            model.load(start)
-        }
+        // Reload even when already there: the page now has the Mac's sign-in.
+        model.load(start, handOff: {
+            await siteData(macID, tab, start.absoluteString).flatMap(SiteDataHandOff.decode)
+        }, onHandOff: onHandOff)
         return model
     }
 
