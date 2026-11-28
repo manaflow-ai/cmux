@@ -111,8 +111,8 @@ impl Advance {
     }
 
     fn of(&self, c: char) -> f32 {
-        let code = c as u32;
-        if (32..127).contains(&code) { self.ascii[(code - 32) as usize] } else { self.other }
+        let slot = (c as u32).checked_sub(32).and_then(|code| usize::try_from(code).ok());
+        slot.and_then(|slot| self.ascii.get(slot)).copied().unwrap_or(self.other)
     }
 
     fn text(&self, text: &str) -> f32 {
@@ -255,7 +255,7 @@ impl Transcript {
                 break;
             }
             let style = row.style();
-            let base = row.text.len() - tail(&row.text).len();
+            let base = row.text.len().saturating_sub(tail(&row.text).len());
             if !matches!(&row.wrap, Some((at, _)) if *at == bits) {
                 row.wrap = Some((bits, wrap(tail(&row.text), width, advance)));
             }
@@ -264,7 +264,13 @@ impl Transcript {
                 if bottom <= 0.0 {
                     break;
                 }
-                out.push((index, base + start, base + end, style, bottom));
+                out.push((
+                    index,
+                    base.saturating_add(start),
+                    base.saturating_add(end),
+                    style,
+                    bottom,
+                ));
                 bottom -= view.line_height;
             }
             bottom -= view.gap;
@@ -273,7 +279,7 @@ impl Transcript {
         out.reverse();
         out.into_iter()
             .map(|(index, start, end, style, y)| Line {
-                text: &self.rows[index].text[start..end],
+                text: self.rows.get(index).and_then(|row| row.text.get(start..end)).unwrap_or(""),
                 style,
                 y,
             })
@@ -318,11 +324,11 @@ fn tail(text: &str) -> &str {
     if text.len() <= TAIL_BYTES {
         return text;
     }
-    let mut at = text.len() - TAIL_BYTES;
-    while !text.is_char_boundary(at) {
-        at += 1;
+    let mut at = text.len().saturating_sub(TAIL_BYTES);
+    while at < text.len() && !text.is_char_boundary(at) {
+        at = at.saturating_add(1);
     }
-    &text[at..]
+    text.get(at..).unwrap_or("")
 }
 
 /// Greedy word wrap to `width`: byte ranges of `text`, one per line. A hard line break ends a line;
@@ -330,16 +336,15 @@ fn tail(text: &str) -> &str {
 pub fn wrap(text: &str, width: f32, advance: &Advance) -> Vec<(usize, usize)> {
     let space = advance.of(' ');
     let mut lines = Vec::new();
-    let mut offset = 0;
+    let mut offset: usize = 0;
     for para in text.split('\n') {
         let mut start: Option<usize> = None;
-        let mut end = 0;
+        let mut end: usize = 0;
         let mut used = 0.0f32;
-        let mut words = para.split(' ').peekable();
         let mut at = offset;
-        while let Some(word) = words.next() {
+        for word in para.split(' ') {
             let word_at = at;
-            at += word.len() + 1;
+            at = at.saturating_add(word.len()).saturating_add(1);
             if word.is_empty() {
                 continue;
             }
@@ -347,7 +352,7 @@ pub fn wrap(text: &str, width: f32, advance: &Advance) -> Vec<(usize, usize)> {
             match start {
                 Some(_) if used + space + wide <= width => {
                     used += space + wide;
-                    end = word_at + word.len();
+                    end = word_at.saturating_add(word.len());
                 }
                 _ => {
                     if let Some(begin) = start.take() {
@@ -355,7 +360,7 @@ pub fn wrap(text: &str, width: f32, advance: &Advance) -> Vec<(usize, usize)> {
                     }
                     if wide <= width {
                         start = Some(word_at);
-                        end = word_at + word.len();
+                        end = word_at.saturating_add(word.len());
                         used = wide;
                         continue;
                     }
@@ -364,15 +369,16 @@ pub fn wrap(text: &str, width: f32, advance: &Advance) -> Vec<(usize, usize)> {
                     let mut run = 0.0f32;
                     for (i, c) in word.char_indices() {
                         let w = advance.of(c);
-                        if run + w > width && word_at + i > begin {
-                            lines.push((begin, word_at + i));
-                            begin = word_at + i;
+                        let cut = word_at.saturating_add(i);
+                        if run + w > width && cut > begin {
+                            lines.push((begin, cut));
+                            begin = cut;
                             run = 0.0;
                         }
                         run += w;
                     }
                     start = Some(begin);
-                    end = word_at + word.len();
+                    end = word_at.saturating_add(word.len());
                     used = run;
                 }
             }
@@ -380,7 +386,7 @@ pub fn wrap(text: &str, width: f32, advance: &Advance) -> Vec<(usize, usize)> {
         if let Some(begin) = start {
             lines.push((begin, end));
         }
-        offset += para.len() + 1;
+        offset = offset.saturating_add(para.len()).saturating_add(1);
     }
     lines
 }
@@ -459,7 +465,7 @@ pub fn is_work_narration(text: &str) -> bool {
             let Some(action) = p.action.find(note) else {
                 return false;
             };
-            let rest = &note[action.end()..];
+            let rest = note.get(action.end()..).unwrap_or("");
             !p.clause.is_match(rest) && !has_finite_verb(p, rest)
         })
 }
@@ -473,12 +479,9 @@ fn has_finite_verb(p: &Narration, rest: &str) -> bool {
             word.chars().filter(|c| c.is_alphabetic() || matches!(c, '\'' | '’' | '-')).collect()
         })
         .collect();
-    words.iter().enumerate().any(|(at, word)| {
-        at > 0
-            && (p.finding_verbs.is_match(word)
-                || (is_ed_word(word)
-                    && !p.eed.is_match(word)
-                    && !p.ed_adjective_after.is_match(&words[at - 1])))
+    words.iter().zip(words.iter().skip(1)).any(|(before, word)| {
+        p.finding_verbs.is_match(word)
+            || (is_ed_word(word) && !p.eed.is_match(word) && !p.ed_adjective_after.is_match(before))
     })
 }
 
