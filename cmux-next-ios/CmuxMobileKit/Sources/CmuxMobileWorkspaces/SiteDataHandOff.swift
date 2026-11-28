@@ -60,7 +60,8 @@ struct SiteDataHandOff: Decodable, Equatable {
         let areas = localStorage.filter { !$0.items.isEmpty }
         guard !areas.isEmpty,
               let json = try? JSONSerialization.data(withJSONObject: Dictionary(
-                  areas.map { ($0.origin, $0.items.filter { $0.count == 2 }) }, uniquingKeysWith: { a, _ in a })),
+                  areas.map { ($0.origin, $0.items.filter { $0.count == 2 }) }, uniquingKeysWith: { a, _ in a }),
+                                                       options: [.withoutEscapingSlashes, .sortedKeys]),
               let text = String(data: json, encoding: .utf8) else { return nil }
         return """
         (() => { try {
