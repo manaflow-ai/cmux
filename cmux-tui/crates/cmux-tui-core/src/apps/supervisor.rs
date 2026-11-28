@@ -569,6 +569,7 @@ impl Supervisor {
         supervisor.start_always_servers();
         supervisor.activate_background(&BTreeSet::new());
         supervisor.start_local_watch();
+        supervisor.start_revocations_fetch();
         supervisor
     }
 

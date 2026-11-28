@@ -37,14 +37,21 @@ pub(in crate::cli) struct AddOptions {
     pub install: bool,
 }
 
-/// Where an added extension came from, as its marker records it.
-fn origin_json(repo: &machine_repo::Repo, fetched: &source::Fetched) -> Value {
+/// Where an added extension came from, as its marker records it: with the
+/// sha256 `ext pack` gives the fetched files (`sha256`, `null` when they do
+/// not pack), the built hash a registry entry signs and a revocation names.
+pub(super) fn origin_json(
+    repo: &machine_repo::Repo,
+    fetched: &source::Fetched,
+    sha256: Option<&str>,
+) -> Value {
     json!({
         "url": repo.url(),
         "ref": fetched.reference,
         "path": fetched.subdir,
         "commit": fetched.commit,
         "link": share_link(repo, &fetched.commit, fetched.subdir.as_deref()),
+        "sha256": sha256,
     })
 }
 
@@ -102,7 +109,8 @@ fn fetch_source(raw: &str, json_out: bool) -> Result<(PathBuf, Option<Value>), i
             }
             match source::fetch(&repo.url(), &tail, subdir.as_deref(), &clone) {
                 Ok(fetched) => {
-                    let origin = origin_json(&repo, &fetched);
+                    let sha256 = super::pack::sha256_of(&fetched.dir).ok();
+                    let origin = origin_json(&repo, &fetched, sha256.as_deref());
                     Ok((fetched.dir, Some(origin)))
                 }
                 Err(message) => Err(fail(message, exit::FETCH_FAILED)),

@@ -134,7 +134,12 @@ fn new_and_publish_parse_their_repository_flags() {
     assert!(options.write_badge);
     assert_eq!(
         parse(&words("pack x --out y")),
-        Ok(Request::Pack(PackOptions { dir: "x".into(), out: Some("y".into()) }))
+        Ok(Request::Pack(PackOptions {
+            dir: "x".into(),
+            out: Some("y".into()),
+            expect: None,
+            entry: None
+        }))
     );
     let Ok(Request::Publish(options)) = parse(&words("publish")) else { panic!("bare publish") };
     assert_eq!(
@@ -369,8 +374,8 @@ fn pack_writes_the_release_assets_and_the_same_archive_twice() {
     let dir = root.path().join("hello");
     scaffold::scaffold_for(&dir, "hello", "section", Some(&acme())).unwrap();
     add_icon(&dir);
-    let options = PackOptions { dir: dir.clone(), out: None };
-    let first = pack::pack(&options).unwrap_or_else(|e| panic!("{e}"));
+    let options = PackOptions { dir: dir.clone(), out: None, expect: None, entry: None };
+    let first = pack::pack(&options).unwrap_or_else(|e| panic!("{}", e.text()));
     assert_eq!((first.id.as_str(), first.version.as_str()), ("acme/hello", "0.1.0"));
     assert_eq!(first.archive, dir.join("release/cmux-extension.tar.gz"));
     assert_eq!(read_json(&first.manifest)["id"], "acme/hello");
