@@ -20,7 +20,7 @@ RECORD = {
     "kind": "cmux-proof-record", "version": 1, "suite": "ios-flows", "repo": "manaflow-ai/cmux", "pr": 7,
     "head_sha": HEAD, "base_ref": "feat-cmux-next", "base_sha": OTHER,
     "selection": {"flows": ["smoke-launch-sign-in", "terminal-first-attach"]},
-    "runs": [{"name": "sim 1/1", "result": "pass", "worker": "cmux23", "step": "abc12345", "seconds": 140}],
+    "runs": [{"name": "sim 1/1", "result": "pass", "step": "abc12345", "seconds": 140}],
     "captures": [{"name": "a.png", "sha256": "0" * 64, "verdict": "same"}],
     "verdict": "pass", "timing": {"push_to_proof_s": 212}, "tool": "scripts/ci/ios_verify.py@x",
 }
@@ -112,7 +112,8 @@ class Gate(unittest.TestCase):
         try:
             out = io.StringIO()
             with redirect_stdout(out):
-                pr.main(["gate", "--suite", "ios-flows"])
+                rc = pr.main(["gate", "--suite", "ios-flows"])
+            self.assertEqual(rc, pr.UNREAD)
             self.assertTrue(out.getvalue().startswith("error\t"))
         finally:
             os.environ.update({k: v for k, v in saved.items() if v is not None})
@@ -128,11 +129,42 @@ class Gate(unittest.TestCase):
 
 
 class Plan(unittest.TestCase):
+    def test_simulator_dispatch_identity(self):
+        from unittest import mock
+
+        step = {"name": "pair", "mode": "pair-e2e", "worker": "cmux22", "args": ["pair-e2e"]}
+
+        def dispatch(head=HEAD, strict=False, attempt="1", **changes):
+            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+                ios_verify.run_step({**step, **changes}, head, 7, strict, attempt)
+            cmd = run.call_args.args[0]
+            return cmd[cmd.index("--key") + 1]
+
+        with mock.patch.object(ios_verify.time, "time", return_value=1):
+            key = dispatch()
+        with mock.patch.object(ios_verify.time, "time", return_value=2):
+            self.assertEqual(key, dispatch())
+        self.assertNotEqual(key, dispatch(head=HEAD[:-1] + "b"))
+        self.assertNotEqual(key, dispatch(args=["pair-e2e", "reconnect-drops=10,60"]))
+        self.assertNotEqual(key, dispatch(worker="cmux23"))
+        self.assertNotEqual(key, dispatch(strict=True))
+        self.assertNotEqual(key, dispatch(attempt="2"))
+        self.assertEqual(dispatch(attempt="2"), dispatch(attempt="2"))
+
     def selection(self, **kw):
         base = {"ios": True, "compile": False, "flows": ["smoke-launch-sign-in"], "kit": ["K1", "K2"],
                 "ui": ["U1", "U2", "U3"], "swift": [], "scripts": []}
         base.update(kw)
         return base
+
+    def test_step_keys_name_the_head_and_the_shard(self):
+        steps = ios_verify.plan(self.selection(), [], ["cmux22"], "always")
+        keys = [ios_verify.step_key(s, HEAD, 7) for s in steps]
+        self.assertEqual(len(keys), len(set(keys)))
+        moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
+        self.assertFalse(set(keys) & set(moved))
+        self.assertTrue(all(HEAD[:12] in k for k in keys))
 
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")
@@ -171,6 +203,18 @@ class Plan(unittest.TestCase):
         self.assertFalse(ios_verify.visual(caps, None, None)["diffed"])
         self.assertEqual(ios_verify.visual(caps, {"source": "nightly"}, None)["baseline_source"], "nightly")
         self.assertEqual(ios_verify.visual(caps, None, None)["baseline_source"], "none")
+
+    def test_posted_proof_names_no_worker(self):
+        # cmux#61688: public-body-guard refused the proof comment for naming the fleet hosts its shards ran on.
+        runs = [{"name": "sim 1/2", "mode": "test", "worker": "cmux22", "step": "abc12345", "result": "pass",
+                 "seconds": 140, "tail": "ran on cmux22"},
+                {"name": "script: x", "mode": "script", "worker": "gcp-agent-lane-2", "result": "pass"}]
+        rec = dict(RECORD, runs=ios_verify.public_runs(runs), timing={"push_to_proof_s": 212})
+        body = pr.render(rec, ios_verify.summary_md(rec))
+        for host in ("cmux22", "gcp-agent-lane-2"):
+            self.assertNotIn(host, body)
+        self.assertEqual(rec["runs"][0]["step"], "abc12345")
+        self.assertEqual(pr.problems(rec), [])
 
     def test_baseline_prefers_a_proof_in_the_nightly(self):
         rec = dict(RECORD, runs=[dict(RECORD["runs"][0], mode="test")])

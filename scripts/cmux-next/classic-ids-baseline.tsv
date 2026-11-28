@@ -471,6 +471,7 @@ scripts/cmux-next/cloud-journey.ts	join(bin, "cmux")	1	keep	harness: links the C
 scripts/cmux-next/codex-login-hang.py	com.cmuxterm.app*	1	keep	harness: copies hang reports out of the logs folder
 scripts/cmux-next/every-action-sweep.py	.config/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/quit-leaves-no-helpers-live.py	/tmp/cmux-debug-{tag}.sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-cloud-config/src/config.rs	com.cmuxterm.app"	1	keep	RELEASE_BUNDLE_ID names the release channel so its signed builds share the keychain access group (#46910); no read or write under it
 cmux-tui/crates/acpmux/src/codex_cloud_auth.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-cloud-config/src/config.rs	com.cmuxterm.app	1	keep	RELEASE_BUNDLE_ID: names the release channel's bundle id to pick its auth/keychain service; no read or write under it
 scripts/cmux-next/restart-to-update-migration.py	/tmp/cmux-{channel}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)

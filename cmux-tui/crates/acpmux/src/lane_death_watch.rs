@@ -322,11 +322,12 @@ mod tests {
     }
 
     #[test]
-    fn a_machine_down_within_the_grace_asks_it_to_start() {
+    fn a_machine_down_within_the_grace_waits_without_known_startability() {
         let dead =
             Dead { why: "its machine does not answer", since_ms: NOW - 11 * MIN, host_down: true };
         // Past the 10 min watch grace but within the 20 min host grace recovery uses.
         let r = route_of("k", "vm-1", &dead, NOW, 20 * MIN);
-        assert!(matches!(r, Route::StartHost | Route::Wait { .. }), "{r:?}");
+        // A row does not say whether its host can be started; recovery supplies that fact.
+        assert_eq!(r, Route::None);
     }
 }

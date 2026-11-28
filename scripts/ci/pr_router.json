@@ -238,7 +238,7 @@
    "draft": true,
    "affects_why": "No path filter (it had none as its own pull_request trigger): every head the router starts anything for starts it, and its jobs' own `if:`s keep their tier rules (a draft, a cheap or a not-yet-landing head skips resolve as before), so `draft` only lets those `if:`s decide. A head the router starts nothing for (head_tier's `none`: an idle or green-head base merge) starts none of its jobs; until 11-26 each such head still started its jobs (cmux-next-fast-gates.yml 32k runner-minutes in the 24 h to 2026-11-26; Leo, 2026-11-21: \"de facto, im asking for 99% fewer minutes of ci time, period.\"). `labeled` is listed as its trigger had it; the router turns an added ready-to-land or full-ci into ready_for_review and skips any other label."
   },
-  "swift-logic-ratchet.yml": {
+  "swift-acpmux-protocol.yml": {
    "types": [
     "opened",
     "synchronize",
@@ -252,7 +252,7 @@
     "scripts/cmux-next/swift-logic-delta.py",
     "scripts/cmux-next/arch_counts.py",
     "plans/cmux-next/swift-logic-classes.tsv",
-    ".github/workflows/swift-logic-ratchet.yml"
+    ".github/workflows/swift-acpmux-protocol.yml"
    ],
    "affects_why": "swift-logic-delta.py --gate counts swift_logic_lines + mirror_lines (swift-logic-lines.py) at the base and the merge commit: it reads only Swift files, the class table plans/cmux-next/swift-logic-classes.tsv and its own counter. A change touching none of them moves neither number. Before: the 400 feat-cmux-next merges to 2026-11-25T23Z added 3,334 lines in 43 PRs, none asked why.",
    "skip_docs_only": true

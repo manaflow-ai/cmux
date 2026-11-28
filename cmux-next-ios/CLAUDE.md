@@ -44,6 +44,13 @@ so it shows their real data (the Demo build's rule). A build step makes only the
 `--sign-in` signs it in with the `personal` profile (first install), `--backend ORIGIN` points it at another
 Cloud backend, `try.sh status` lists the last tries and their times.
 
+Built ahead: every head of a same-repository iPhone PR into `feat-cmux-next` runs the `cmux Dev try build (ahead)`
+check (`.github/workflows/cmux-next-ios-try-ahead.yml`), the same fleet step under the same key try.sh asks for, so
+`try.sh N` then only downloads, signs and installs. In cmux Dev, Settings > Developer > Try a Pull Request lists the
+open iPhone PRs (`try.sh list`) with their build state and installs one through the Mac's hostd (`try-pr`,
+PROTOCOL.md). That Mac needs the script linked once: `ln -s <checkout>/cmux-next-ios/scripts/try.sh ~/.config/cmux/try.sh`
+(or `CMUX_MOBILE_TRY_SH`), with gh signed in and the cmux-ci client installed.
+
 ## Hand-off command
 
 This is the ["Finishing a task"](../skills/cmux-dev-workflow/references/finishing-a-task.md) hand-off for the

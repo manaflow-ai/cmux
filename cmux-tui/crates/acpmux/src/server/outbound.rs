@@ -49,8 +49,9 @@
 //! cursor would ([`Row`]). So once a reader is behind (past [`COALESCE_FROM`] unread), a row still
 //! queued is dropped when a newer one of the same chat comes, and the queue holds at most one per
 //! chat. A reader that keeps up gets every row: each also names what changed (`kind`, a queued or
-//! dequeued prompt), which a watcher waits on. Past [`ROW_BYTE_BOUND`] of them the connection
-//! ends as at its own bound, and the client follows once from its cursor. Before this a reader
+//! dequeued prompt), which a watcher waits on. Past [`ROW_BYTE_BOUND`] of them a list reader is
+//! spared them as at its own bound (one `_acpmux/lagged`, it reads the list again); any other
+//! connection ends as at its own bound, and the client follows once from its cursor. Before this a reader
 //! that fell behind held every row of every change: 224 MB on one Mac under heavy load
 //! (2026-11-22), 62.8 MB of it in one watcher's 6,041 lines, all under the 64 MiB bound.
 
@@ -481,7 +482,14 @@ impl Shared {
         }
         let mut own = state.held + size > self.bound;
         if own && state.sheds {
-            own = !self.shed_list_notices(state, size);
+            own = !self.shed_list_notices(state, size, self.bound);
+        }
+        // Rows of more chats than the rows' bound holds spare a list reader its rows the same
+        // way: a god host's first list (hundreds of peers' chats at once) cut the app's watcher
+        // during its first status read, before it saw a row (perf cron `god` shape, 2026-11-27).
+        let mut over_rows = over_rows;
+        if over_rows && !own && state.sheds {
+            over_rows = !self.shed_list_notices(state, size, self.row_bound);
         }
         let own = own || over_rows;
         if own || over_total(state) {
@@ -560,8 +568,9 @@ impl Shared {
 
     /// Leaves the bulk lane's list notices out, and a lag marker from an earlier pass the reader
     /// has not taken yet, and queues one marker for all of them: true when that frees a quarter
-    /// of the bound and the marker and a line of `size` then fit. Else changes nothing.
-    fn shed_list_notices(&self, state: &mut State, size: usize) -> bool {
+    /// of `limit` (the queue's own bound, or the rows') and the marker and a line of `size` then
+    /// fit both. Else changes nothing.
+    fn shed_list_notices(&self, state: &mut State, size: usize, limit: usize) -> bool {
         let shed = |line: &Line| line.lag_marker > 0 || line.text.starts_with(LIST_NOTICE_PREFIX);
         let (mut freed, mut dropped) = (0usize, 0u64);
         for line in state.queue.iter().filter(|l| shed(l)) {
@@ -570,7 +579,7 @@ impl Shared {
             dropped += line.lag_marker.max(1);
         }
         let marker = lag_marker(dropped);
-        if freed < self.bound / 4 || state.held - freed + marker.len() + size > self.bound {
+        if freed < limit / 4 || state.held - freed + marker.len() + size > self.bound {
             return false;
         }
         // A shed row is no longer queued ([`State::unrow`]); the rest keep their order.
@@ -587,7 +596,7 @@ impl Shared {
             held = state.held,
             freed,
             dropped,
-            bound = self.bound,
+            bound = limit,
             "a connection's reader fell past its byte bound: its list notices are left out and it reads the list again"
         );
         let held = state.held - freed + marker.len();

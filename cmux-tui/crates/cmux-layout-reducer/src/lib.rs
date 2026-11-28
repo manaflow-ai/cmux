@@ -974,6 +974,7 @@ pub mod floating_panes;
 
 pub mod group_hover_summary;
 pub mod keep_awake;
+pub mod layout_state;
 pub mod new_placement;
 pub mod optimistic;
 pub mod pane_drop_zones;
@@ -1000,6 +1001,7 @@ pub mod sidebar_layout;
 pub mod sidebar_layout_plan;
 pub mod sidebar_list_rules;
 pub mod sidebar_pending_records;
+pub mod sidebar_region_layout;
 pub mod sidebar_row;
 pub mod sidebar_row_layout;
 pub mod sidebar_sections;

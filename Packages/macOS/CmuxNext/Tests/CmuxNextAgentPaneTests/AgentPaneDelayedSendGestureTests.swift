@@ -137,6 +137,44 @@ struct AgentPaneDelayedSendGestureTests {
         #expect(gestures.redeem(ticket, connection: 1, pick: pick))
     }
 
+    /// Antigravity names its effort `thought_level`: a new chat's held effort pick went under that
+    /// id with the ticket taken for `effort`, the relay refused it, and the pane said "Click the
+    /// choice again to apply it." over the chat's first turn.
+    @Test func anEffortTicketRedeemsWhenTheOpenedHarnessUsesItsThoughtLevelAlias() throws {
+        let gestures = AgentPaneUserGestures()
+        gestures.record()
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": [
+                "method": "session/set_config_option",
+                "params": ["configId": "effort", "value": "medium"],
+            ],
+        ]))
+        let ticket = try #require(gestures.reserve(connection: 1, intent: intent))
+        let pick = AgentPaneGesturePick(method: "session/set_config_option", params: [
+            "configId": "thought_level",
+            "value": "medium",
+        ])
+        #expect(gestures.redeem(ticket, connection: 1, pick: pick))
+    }
+
+    /// The alias covers the option's id, never its value: another level is another pick.
+    @Test func anEffortTicketNeverRedeemsForAnotherLevelUnderTheThoughtLevelAlias() throws {
+        let gestures = AgentPaneUserGestures()
+        gestures.record()
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: [
+            "intent": [
+                "method": "session/set_config_option",
+                "params": ["configId": "effort", "value": "medium"],
+            ],
+        ]))
+        let ticket = try #require(gestures.reserve(connection: 1, intent: intent))
+        let pick = AgentPaneGesturePick(method: "session/set_config_option", params: [
+            "configId": "thought_level",
+            "value": "xhigh",
+        ])
+        #expect(!gestures.redeem(ticket, connection: 1, pick: pick))
+    }
+
     @Test func aFastTicketRedeemsWhenTheOpenedHarnessUsesItsFastModeValueAlias() throws {
         let gestures = AgentPaneUserGestures()
         gestures.record()

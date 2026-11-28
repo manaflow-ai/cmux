@@ -59,7 +59,7 @@ env:
 jobs:
   eval:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     # The job's clock is the fleet queue wait, then the step. The queue wait is bounded by the step's
     # own --queue-timeout (QUEUE_TIMEOUT below): finished steps waited 23 to 144 min for their
     # exclusive host, the pinned worker's lease ran 2.5 h on 2026-11-22 and past 300 min on 2026-11-23

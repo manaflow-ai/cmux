@@ -678,6 +678,21 @@ impl Store for ForkView {
             Some(_) => Ok(()),
         }
     }
+    /// A fork's view joins two logs: it keeps no inbox point, and its inbox restore reads it whole.
+    fn inbox_point(&self, id: &str) -> Option<Vec<u8>> {
+        let _held = self.shared();
+        match self.reference(id) {
+            Ok(None) => self.inner.inbox_point(id),
+            _ => None,
+        }
+    }
+    fn save_inbox_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            None => self.inner.save_inbox_point(id, bytes),
+            Some(_) => Ok(()),
+        }
+    }
     /// A fork's view joins two logs: an adoption of it reads it whole (`hub/hosts/checkpoint.rs`).
     fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
         let _held = self.shared();

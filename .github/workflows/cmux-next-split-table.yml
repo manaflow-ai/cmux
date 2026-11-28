@@ -52,7 +52,7 @@ jobs:
       ${{ github.repository == 'manaflow-ai/cmux' && vars.CI_EVAL_STEP_GATEWAY != ''
       && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft)) }}
-    runs-on: glaeda-gateway-xcode-26.6 # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: mac-gateway # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
     permissions: {}
     steps:

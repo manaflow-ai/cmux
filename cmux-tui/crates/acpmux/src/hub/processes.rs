@@ -138,6 +138,56 @@ pub(super) struct ProcessTable {
     stopping: std::collections::HashSet<String>,
     /// Processes whose output a preview watch reads (`process_preview.rs`): one each.
     watching: std::collections::HashSet<String>,
+    /// The ended rows this table no longer holds ([`ProcessTable::shrink`]); none in a whole one.
+    dropped: Dropped,
+    /// A query read the whole history back ([`Hub::whole_process_table`]): it is held whole, not
+    /// shrunk again while this daemon runs.
+    held_whole: bool,
+}
+
+/// The fewest ended processes a shrunk table holds: more than a chat's page asks for
+/// (`PROCESS_LIST_RECENT`, 500, in webviews' `session-info/processes.ts`).
+const HELD_ENDED: usize = 1024;
+
+/// A table shrinks once it holds this many ended processes.
+const SHRINK_AT: usize = 2 * HELD_ENDED;
+
+/// The ended processes a table dropped ([`ProcessTable::shrink`]): what tells a lookup, a fold or
+/// a list that the answer may be in them, so it reads the whole history back from the log. Leo,
+/// 2026-11-19: "we need to be able to have infinite chats, infinitely long chats". A 4 GB chat's
+/// table held every process it ever ran, 32 of its adoption checkpoint's 36 MB, which each
+/// restart parsed, folded and saved again (cmux#51494).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Dropped {
+    count: usize,
+    /// Each ended before it.
+    before: u64,
+    /// The [`key`]s of their ids and of their tool-call ids, sorted. A key two strings share
+    /// only reads the history back when it did not need to.
+    ids: Vec<u64>,
+    tools: Vec<u64>,
+}
+
+impl Dropped {
+    fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    fn has_id(&self, id: &str) -> bool {
+        self.ids.binary_search(&key(id)).is_ok()
+    }
+
+    fn has_tool(&self, tool: &str) -> bool {
+        self.tools.binary_search(&key(tool)).is_ok()
+    }
+}
+
+/// A string's FNV-1a hash: the same in every build, as a saved checkpoint needs.
+fn key(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 #[cfg(test)]
@@ -151,6 +201,10 @@ mod process_active_tests;
 #[cfg(test)]
 #[path = "processes_page_tests.rs"]
 mod process_page_tests;
+
+#[cfg(test)]
+#[path = "processes_shrink_tests.rs"]
+mod process_shrink_tests;
 
 #[cfg(test)]
 #[path = "processes_workflow_tests.rs"]
@@ -175,19 +229,152 @@ pub(crate) struct SavedProcesses {
     pub(super) through: u64,
     /// The processes in the order they started, each with whether its state is logged.
     rows: Vec<(Process, bool)>,
+    /// The ended ones it no longer holds.
+    #[serde(default)]
+    dropped: Dropped,
 }
 
 impl ProcessTable {
     /// The table `saved` holds, as a read of its log through `saved.through` gives it.
     fn restored(saved: SavedProcesses) -> Self {
         let mut table = ProcessTable { loaded: true, through: saved.through, ..Self::default() };
-        for (process, logged) in saved.rows {
-            let at = table.insert(process);
-            if let Some(row) = table.processes.get_mut(at) {
-                row.logged = logged;
+        table.processes = saved
+            .rows
+            .into_iter()
+            .map(|(mut process, logged)| {
+                process.logged = logged;
+                process
+            })
+            .collect();
+        table.dropped = saved.dropped;
+        table.reindex();
+        table
+    }
+
+    /// The indexes again, from the rows. A tool-call ID a dropped row has is left out of
+    /// `by_tool`: its first row may be the dropped one, so a lookup of it reads the history.
+    fn reindex(&mut self) {
+        self.by_id.clear();
+        self.by_tool.clear();
+        self.running.clear();
+        for (at, process) in self.processes.iter().enumerate() {
+            self.by_id.insert(process.id.clone(), at);
+            if !self.dropped.has_tool(&process.tool_call_id) {
+                self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+            }
+            if process.state == ProcessState::Running {
+                self.running.insert(at);
             }
         }
-        table
+    }
+
+    /// Drops the ended rows past the newest [`HELD_ENDED`] to end, once [`SHRINK_AT`] have ended
+    /// (`at_once`: once more than `HELD_ENDED` have), whole ends at a time: every ended row held
+    /// ended at or after every dropped one, so a chat's page reads only rows it holds
+    /// ([`Self::answers_recent`]). Running rows stay, however old.
+    fn shrink(&mut self, at_once: bool) {
+        let ended = self.processes.len().saturating_sub(self.running.len());
+        if self.held_whole || ended <= if at_once { HELD_ENDED } else { SHRINK_AT } {
+            return;
+        }
+        let mut ends: Vec<u64> = self
+            .processes
+            .iter()
+            .filter(|p| p.state != ProcessState::Running)
+            .map(process_end)
+            .collect();
+        let at = ends.len() - HELD_ENDED;
+        let cut = *ends.select_nth_unstable(at).1;
+        let drop = |p: &Process| p.state != ProcessState::Running && process_end(p) < cut;
+        if !self.processes.iter().any(drop) {
+            return;
+        }
+        let (gone, kept): (Vec<Process>, Vec<Process>) =
+            std::mem::take(&mut self.processes).into_iter().partition(drop);
+        for process in &gone {
+            self.dropped.ids.push(key(&process.id));
+            self.dropped.tools.push(key(&process.tool_call_id));
+        }
+        self.dropped.count += gone.len();
+        self.dropped.before = self.dropped.before.max(cut);
+        for keys in [&mut self.dropped.ids, &mut self.dropped.tools] {
+            keys.sort_unstable();
+            keys.dedup();
+        }
+        self.processes = kept;
+        self.reindex();
+    }
+
+    /// Whether folding the `background_task_update` PARAMS here may differ from folding it into
+    /// the whole history: its tool call or the id it would get may be a dropped row's.
+    fn fold_needs_history(&self, session: &Session, params: &Value) -> bool {
+        if self.dropped.is_empty() {
+            return false;
+        }
+        let text = |k: &str| {
+            params
+                .pointer(&format!("/update/{k}"))
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+        };
+        let Some(tool) = text("toolCallId") else { return false };
+        if self.find_tool(tool).is_some() {
+            return false;
+        }
+        let id = format!("{}/{}", session.id, text("taskId").unwrap_or(tool));
+        self.dropped.has_tool(tool) || self.dropped.has_id(&id) || self.by_id.contains_key(&id)
+    }
+
+    /// Whether upserting the logged PROCESS here may differ from upserting it into the whole
+    /// history.
+    fn upsert_needs_history(&self, process: &Process) -> bool {
+        if self.dropped.is_empty() {
+            return false;
+        }
+        let tool = &process.tool_call_id;
+        match self.by_id.get(&process.id).and_then(|&at| self.processes.get(at)) {
+            Some(slot) => {
+                slot.tool_call_id != *tool
+                    && (self.dropped.has_tool(&slot.tool_call_id) || self.dropped.has_tool(tool))
+            }
+            None => self.dropped.has_id(&process.id) || self.dropped.has_tool(tool),
+        }
+    }
+
+    /// Whether `id` may be a dropped row's.
+    fn id_needs_history(&self, id: &str) -> bool {
+        !self.by_id.contains_key(id) && self.dropped.has_id(id)
+    }
+
+    /// Whether [`Self::recent_snapshot`] here gives what it gives from the whole history: the
+    /// rows it keeps all ended at or after every dropped one.
+    fn answers_recent(&self, recent: usize, ended_since: Option<u64>) -> bool {
+        if self.dropped.is_empty() {
+            return true;
+        }
+        let mut ends: Vec<u64> = self
+            .processes
+            .iter()
+            .filter(|p| p.state != ProcessState::Running)
+            .map(process_end)
+            .collect();
+        if ends.len() < recent {
+            return false;
+        }
+        let newest = if ends.len() == recent {
+            ends.iter().copied().min().unwrap_or(0)
+        } else if recent == 0 {
+            u64::MAX
+        } else {
+            let at = ends.len() - recent;
+            *ends.select_nth_unstable(at).1
+        };
+        ended_since.map_or(newest, |since| newest.min(since)) >= self.dropped.before
+    }
+
+    /// Whether [`Self::call_snapshot`] of CALLS here gives what it gives from the whole history.
+    fn answers_calls(&self, calls: &[String]) -> bool {
+        calls.iter().all(|call| !self.dropped.has_tool(call))
     }
 
     /// The table as a checkpoint keeps it, moved out: a long chat's is its every process, which
@@ -197,14 +384,16 @@ impl ProcessTable {
             let logged = p.logged;
             (p, logged)
         });
-        SavedProcesses { through: self.through, rows: rows.collect() }
+        SavedProcesses { through: self.through, rows: rows.collect(), dropped: self.dropped }
     }
 
     /// All appends go here, including records replayed from a logged process update.
     fn insert(&mut self, process: Process) -> usize {
         let at = self.processes.len();
         self.by_id.insert(process.id.clone(), at);
-        self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+        if !self.dropped.has_tool(&process.tool_call_id) {
+            self.by_tool.entry(process.tool_call_id.clone()).or_insert(at);
+        }
         if process.state == ProcessState::Running {
             self.running.insert(at);
         }
@@ -444,14 +633,20 @@ impl ProcessTable {
             .filter(|p| p.state != ProcessState::Running)
             .map(process_end)
             .collect();
-        let newest = if ends.len() <= recent {
+        // A shrunk table's dropped rows ended before every one it holds (`answers_recent`).
+        let newest = if ends.len() + self.dropped.count <= recent {
             0
+        } else if ends.len() <= recent {
+            ends.iter().copied().min().unwrap_or(0)
+        } else if recent == 0 {
+            // No ended row is asked for; past every end keeps only the running ones.
+            u64::MAX
         } else {
             let at = ends.len() - recent;
             *ends.select_nth_unstable(at).1
         };
         let cutoff = ended_since.map_or(newest, |since| newest.min(since));
-        let mut older = 0_usize;
+        let mut older = self.dropped.count;
         let kept = self
             .processes
             .iter()
@@ -887,7 +1082,8 @@ fn task_params(params: Option<&mut Value>) -> Value {
 }
 
 impl Hub {
-    /// The session's table, read from its log's copies the first time.
+    /// The session's table, read from its log's copies the first time, then shrunk: it holds its
+    /// running processes and the last to end ([`ProcessTable::shrink`]).
     ///
     /// The log is read with the table's lock let go: `running_processes_read` and
     /// `running_heavy_read` take that lock for every chat on each `daemon status` and row list
@@ -910,8 +1106,47 @@ impl Hub {
             // The preview watches started meanwhile stay the only ones (`rebuild_processes`).
             read.watching = std::mem::take(&mut table.watching);
             *table = read;
+            table.shrink(true);
         }
         table
+    }
+
+    /// The session's table holding its whole history: a shrunk one is read back from the log
+    /// whole (once: it is held whole after), for a query that reaches past what it holds.
+    fn whole_process_table<'a>(
+        &self,
+        session: &'a Session,
+    ) -> std::sync::MutexGuard<'a, ProcessTable> {
+        let mut table = self.process_table(session);
+        if !table.dropped.is_empty() {
+            self.read_whole(session, &mut table);
+            table.held_whole = true;
+        }
+        table
+    }
+
+    /// The session's table holding the process `id`, read whole when it may be a dropped one.
+    fn process_table_for<'a>(
+        &self,
+        session: &'a Session,
+        id: &str,
+    ) -> std::sync::MutexGuard<'a, ProcessTable> {
+        let table = self.process_table(session);
+        if !table.id_needs_history(id) {
+            return table;
+        }
+        drop(table);
+        self.whole_process_table(session)
+    }
+
+    /// Replaces `table` with the session's whole history from its log, keeping what only this
+    /// daemon knows: the stops a person asked for and the preview watches running.
+    fn read_whole(&self, session: &Session, table: &mut ProcessTable) {
+        let mut whole = self.read_processes(session);
+        whole.watching = std::mem::take(&mut table.watching);
+        whole.stopping = std::mem::take(&mut table.stopping);
+        whole.held_whole = table.held_whole;
+        *table = whole;
     }
 
     /// The session's processes as its log says: each shell's updates, then
@@ -937,11 +1172,17 @@ impl Hub {
         // The log's last whole record, read from its end: a head alone could be a line a crash
         // cut short, which a whole-record read skips. Read first, so a record logged meanwhile
         // that the scan below does not fold is never counted as folded.
+        let mut last = 0;
         let _ = self.store.scan_back(&session.id, 0, u64::MAX, &|_, _| false, &mut |e| {
-            table.through = table.through.max(e.seq);
+            last = e.seq;
             false
         });
-        self.fold_processes(session, &mut table, after, u64::MAX);
+        table.through = table.through.max(last);
+        if !self.fold_processes(session, &mut table, after, u64::MAX) {
+            // A record reached past what the saved table holds: the whole log, as with none.
+            table = ProcessTable { loaded: true, through: last, ..ProcessTable::default() };
+            self.fold_processes(session, &mut table, 0, u64::MAX);
+        }
         table
     }
 
@@ -955,7 +1196,15 @@ impl Hub {
     /// reads as it is read: a record kept whole holds its command and every other field, so a
     /// long chat's restart held every process record it ever logged, parsed (63 MB of a 1 GB
     /// chat's, `god_daemon` `chat_size_sweep`).
-    fn fold_processes(&self, session: &Session, table: &mut ProcessTable, after: u64, before: u64) {
+    /// False when a record may change a row `table` dropped ([`ProcessTable::shrink`]): it is
+    /// left part folded, for the caller to fold the whole log instead (never from a whole one).
+    fn fold_processes(
+        &self,
+        session: &Session,
+        table: &mut ProcessTable,
+        after: u64,
+        before: u64,
+    ) -> bool {
         let mut folded = Vec::new();
         let _ = self.store.scan_back_indexed(
             &session.id,
@@ -973,10 +1222,16 @@ impl Hub {
             table.through = table.through.max(seq);
             match f {
                 Folded::Task { at, params } => {
+                    if table.fold_needs_history(session, &params) {
+                        return false;
+                    }
                     table.fold(session, &params, at, None);
                 }
                 Folded::Update(process) => {
                     if let Some(process) = process {
+                        if table.upsert_needs_history(&process) {
+                            return false;
+                        }
                         table.upsert(*process);
                     }
                 }
@@ -985,6 +1240,7 @@ impl Hub {
                 }
             }
         }
+        true
     }
 
     /// `session`'s processes through record `through` (whole: no append is under way before
@@ -1000,8 +1256,12 @@ impl Hub {
             None => ProcessTable { loaded: true, ..ProcessTable::default() },
         };
         let after = table.through;
-        self.fold_processes(session, &mut table, after, through.saturating_add(1));
+        if !self.fold_processes(session, &mut table, after, through.saturating_add(1)) {
+            table = ProcessTable { loaded: true, ..ProcessTable::default() };
+            self.fold_processes(session, &mut table, 0, through.saturating_add(1));
+        }
         table.through = through;
+        table.shrink(true);
         table.into_saved()
     }
 
@@ -1010,6 +1270,7 @@ impl Hub {
     /// only the records after it are read.
     pub(super) fn rebuild_processes_from(&self, session: &Session, saved: Option<SavedProcesses>) {
         let mut table = self.read_processes_from(session, saved);
+        table.shrink(true);
         let mut slot = session.processes.lock().unwrap_or_else(|e| e.into_inner());
         // The preview watches still run: they stay the only ones.
         table.watching = std::mem::take(&mut slot.watching);
@@ -1024,13 +1285,24 @@ impl Hub {
         let changed = {
             let mut table = self.process_table(session);
             let i = if rec.seq > table.through {
-                table.through = rec.seq;
-                table.fold(session, params, rec.at, output)
+                if table.fold_needs_history(session, params) {
+                    self.read_whole(session, &mut table);
+                }
+                table.through = table.through.max(rec.seq);
+                let i = table.fold(session, params, rec.at, output);
+                // A row it ended may take the table past what it holds; its update is logged
+                // first (`log` below reads the row by its slot).
+                let changed = i.map(|i| table.log(i));
+                table.shrink(false);
+                changed
             } else {
                 // The first read of the log folded this record already: its
                 // change is logged here, once. The log has no output file,
                 // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
+                if tool.is_some_and(|t| table.find_tool(t).is_none() && table.dropped.has_tool(t)) {
+                    self.read_whole(session, &mut table);
+                }
                 let i = tool.and_then(|tool| table.find_tool(tool));
                 let p = i.and_then(|i| table.processes.get_mut(i));
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
@@ -1040,8 +1312,9 @@ impl Hub {
                     p.logged = false;
                 }
                 i.filter(|&i| table.processes.get(i).is_some_and(|p| !p.logged))
+                    .map(|i| table.log(i))
             };
-            i.map(|i| table.log(i))
+            i
         };
         if let Some(process) = changed {
             self.append(session, "mux", "process_update", json!({"process": process}));
@@ -1096,7 +1369,7 @@ impl Hub {
         // File metadata reads and JSON conversion must not hold it: process updates
         // from a running harness need to acquire the same mutex.
         let processes: Vec<Process> = match session {
-            Some(session) => self.process_table(session).snapshot(),
+            Some(session) => self.whole_process_table(session).snapshot(),
             None => self
                 .sessions()
                 .iter()
@@ -1116,7 +1389,7 @@ impl Hub {
     /// size read and are serialized: its cost is the reply's, however long the history.
     pub(crate) fn list_processes_reply(&self, session: Option<&Session>) -> Value {
         let mut processes: Vec<Process> = match session {
-            Some(session) => self.process_table(session).snapshot(),
+            Some(session) => self.whole_process_table(session).snapshot(),
             None => self
                 .sessions()
                 .iter()
@@ -1147,7 +1420,15 @@ impl Hub {
         ended_within: Option<u64>,
     ) -> Result<Value, RpcError> {
         let since = ended_within.map(|within| now_ms().saturating_sub(within));
-        let (processes, older, cutoff) = self.process_table(session).recent_snapshot(recent, since);
+        let (processes, older, cutoff) = {
+            let table = self.process_table(session);
+            if table.answers_recent(recent, since) {
+                table.recent_snapshot(recent, since)
+            } else {
+                drop(table);
+                self.whole_process_table(session).recent_snapshot(recent, since)
+            }
+        };
         recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)
     }
 
@@ -1156,7 +1437,15 @@ impl Hub {
     /// calls its transcript shows, so a shell the transcript names is the registry's record there
     /// and its counts stay the whole history's.
     pub(crate) fn list_call_processes(&self, session: &Session, calls: &[String]) -> Value {
-        let found = self.process_table(session).call_snapshot(calls);
+        let found = {
+            let table = self.process_table(session);
+            if table.answers_calls(calls) {
+                table.call_snapshot(calls)
+            } else {
+                drop(table);
+                self.whole_process_table(session).call_snapshot(calls)
+            }
+        };
         call_values(found, PROCESS_PAGE_BUDGET, output_len)
     }
 
@@ -1168,7 +1457,7 @@ impl Hub {
         limit: usize,
         after: Option<&str>,
     ) -> Result<Value, RpcError> {
-        let (window, has_more) = self.process_table(session).page_snapshot(limit, after)?;
+        let (window, has_more) = self.whole_process_table(session).page_snapshot(limit, after)?;
         process_page_values(window, has_more, PROCESS_PAGE_BUDGET)
     }
 
@@ -1195,7 +1484,7 @@ impl Hub {
         use base64::Engine;
         let session = self.process_session(id)?;
         let (file, running) = {
-            let table = self.process_table(&session);
+            let table = self.process_table_for(&session, id);
             let p = table.find_id(id).ok_or_else(|| unknown_process(id))?;
             if p.harness == "codex" {
                 return Err(RpcError::invalid_params("tail is Claude Code only for now"));
@@ -1238,7 +1527,7 @@ impl Hub {
             ));
         }
         let (task, running, subagent) = {
-            let table = self.process_table(&session);
+            let table = self.process_table_for(&session, id);
             let p = table.find_id(id).ok_or_else(unknown)?;
             (p.task_id.clone(), p.state == ProcessState::Running, p.subagent_session_id.clone())
         };
