@@ -140,6 +140,25 @@ class WorkflowTest(unittest.TestCase):
                 ctx = {"needs": {"resolve": {"result": resolve}, "pipeline": {"result": "failure"}}}
                 self.assertIs(gh_expr.truthy(gh_expr.evaluate(cond, ctx, {"cancelled": False})), posts)
 
+    def test_a_rate_limit_past_the_job_bound_is_refused_naming_its_end_not_slept(self) -> None:
+        # cmux run 46109204066: this resolve slept toward a 405 s named limit and its 5-min job was cancelled.
+        import functools
+        import time
+        from unittest import mock
+        import deadline_http
+        import gh_http
+        headers = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(time.time()) + 405)}
+        slept: list[float] = []
+        answer = (403, b'{"message":"API rate limit exceeded"}', headers)
+        with mock.patch.dict(os.environ, {gh_http.DEADLINE_ENV: "240"}), \
+                mock.patch.object(gh_http, "STARTED", time.monotonic()), \
+                mock.patch.object(deadline_http, "request", lambda *a, **k: answer), \
+                mock.patch.object(gh_http, "request", functools.partial(gh_http.request, sleep=slept.append)):
+            os.environ.pop(gh_http.DEADLINE_AT_ENV, None)
+            with self.assertRaisesRegex(fd.Refused, "rate-limited until"):
+                fd.get(f"repos/{REPO}/pulls/1", "t")
+        self.assertEqual(slept, [])
+
     def test_the_resolver_parses(self) -> None:
         step = next(s for s in self.jobs["resolve"]["steps"] if s.get("id") == "resolve")
         self.assertIn("scripts/ci/ios_fast_dispatch.py resolve", step["run"])
