@@ -99,6 +99,7 @@ members = [
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-vm-pool",
+    "crates/cmux-voice",
     "crates/cmux-auth-coordinator",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
