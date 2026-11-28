@@ -356,6 +356,7 @@ mod remote_cwd;
 mod remote_floor;
 mod remote_rows;
 pub(crate) mod remote_sandbox;
+mod remote_start_bound;
 mod remote_table;
 #[cfg(test)]
 mod remote_table_bench;
@@ -496,6 +497,7 @@ pub(crate) mod turn_cap;
 mod turn_checkpoint;
 pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
+pub(crate) mod turn_frames_native;
 mod turn_git;
 mod turn_retry;
 mod turn_rules;
@@ -2496,10 +2498,10 @@ impl Hub {
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
-        // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
+        // Unstarted, an adopted chat goes by its saved `agentInfo`.
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
-        // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
-        // policy change refuses it as while it moved (`queue::moving_error`).
+        // A chat that moved away stays frozen after a restart: prompts, queue, drafts and
+        // policy changes refuse as while it moved (`queue::moving_error`).
         let moving =
             meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned()).or_else(|| {
                 // A saved Auto chat is frozen from the moment it exists: the store, not this copy,
@@ -2510,10 +2512,10 @@ impl Hub {
                     .filter(|record| record.auto)
                     .map(|_| AUTO_AWAY.to_owned())
             });
-        // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
+        // Its creator may have its starts wait on its harness (`SessionMeta::wait_start`).
         let wait_start = meta.wait_start;
         let parent_print = views::parent_print_of(&meta);
-        // A fork whose agent had not started before a restart starts as the first daemon's would.
+        // A fork not started at a restart starts as the first daemon would.
         let (fork_from, rehydrate, rehydrate_note) = fork_start::restored(&meta);
         let session = Arc::new(Session {
             id: meta.id.clone(),
@@ -2648,6 +2650,7 @@ impl Hub {
             stopped_agent: AtomicU64::new(0),
             stop_respawn: AtomicU64::new(0),
             taps: AtomicU64::new(0),
+            raw_line_tap: AtomicU64::new(0),
             muted_taps: AtomicU64::new(0),
             stop_hold: AtomicU64::new(0),
             turn_hold: AtomicU64::new(0),
