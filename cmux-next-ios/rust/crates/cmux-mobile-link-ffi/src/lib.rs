@@ -35,6 +35,7 @@ mod last_place;
 mod link_progress;
 mod link_side;
 pub mod local_link;
+mod mac_name_tags;
 mod mac_reachability;
 mod mac_screen;
 mod mailbox_client;

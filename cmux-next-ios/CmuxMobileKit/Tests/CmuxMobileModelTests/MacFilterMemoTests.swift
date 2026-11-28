@@ -21,7 +21,10 @@ import Testing
         let memo = MacFilterMemo()
         for _ in 0..<50 { _ = memo.names(Self.macs) }
         #expect(memo.nameComputations == 1)
+        // The same-name rule is Rust's (mac_name_tags.rs); it links on iOS only.
+        #if os(iOS)
         #expect(memo.names(Self.macs).displayName(Self.macs[1]) == "Aziz's MacBook Pro 2222")
+        #endif
         var renamed = Self.macs
         renamed[0].name = "Old MacBook"
         #expect(memo.names(renamed).displayName(renamed[1]) == "Aziz's MacBook Pro")

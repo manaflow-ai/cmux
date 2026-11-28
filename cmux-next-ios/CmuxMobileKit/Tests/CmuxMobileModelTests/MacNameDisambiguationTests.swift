@@ -1,3 +1,5 @@
+// The same-name rule is Rust's (mac_name_tags.rs, which runs these cases too); it links on iOS only.
+#if os(iOS)
 import Foundation
 import Testing
 @testable import CmuxMobileModel
@@ -62,3 +64,4 @@ import Testing
         #expect(names.displayName(id: "bbbb-91c7", name: "MacBook Pro") == "MacBook Pro 91C7")
     }
 }
+#endif

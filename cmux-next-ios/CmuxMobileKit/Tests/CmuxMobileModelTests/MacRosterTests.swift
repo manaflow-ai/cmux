@@ -31,8 +31,11 @@ import Testing
         let second = MacDevice(id: "b", name: "Mini", isOnline: false, lastSeenAt: now, machineID: machine)
         let roster = MacRoster([first, second])
         #expect(roster.visible.map(\.id) == ["a", "b"])
+        // The same-name rule is Rust's (mac_name_tags.rs); it links on iOS only.
+        #if os(iOS)
         let names = MacNameDisambiguation(roster.visible)
         #expect(names.tag(for: "a") != nil && names.tag(for: "b") != nil)
+        #endif
     }
 
     /// Same-named Macs on different computers are two Macs, tagged apart.

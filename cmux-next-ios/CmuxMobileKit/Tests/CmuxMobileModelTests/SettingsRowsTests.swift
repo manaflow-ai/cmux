@@ -110,12 +110,17 @@ import Testing
     @Test func sameNameTagReadsTheSameEverywhere() {
         let names = MacNameDisambiguation([(id: "8c41e0d2-3f2a", name: "Aziz's MacBook Pro"), (id: "5b97a6f1-91c7", name: "Aziz's MacBook Pro"),
                                            (id: "solo", name: "Studio")])
+        // The same-name rule is Rust's (mac_name_tags.rs); it links on iOS only.
+        #if os(iOS)
         #expect(names.tag(for: "5b97a6f1-91c7") == "91C7")
         #expect(names.displayName(id: "5b97a6f1-91c7", name: "Aziz's MacBook Pro") == "Aziz's MacBook Pro 91C7")
+        #endif
         #expect(names.displayName(id: "solo", name: "Studio") == "Studio")
         #expect(names.added(for: "5b97a6f1-91c7", addedAt: nil) == nil)
         #expect(names.added(for: "solo", addedAt: Date()) == nil)
+        #if os(iOS)
         #expect(names.added(for: "5b97a6f1-91c7", addedAt: Date())?.hasPrefix("Added ") == true)
+        #endif
     }
 
     #if DEBUG

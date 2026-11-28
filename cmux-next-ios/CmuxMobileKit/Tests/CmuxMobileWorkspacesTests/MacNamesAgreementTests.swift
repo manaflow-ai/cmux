@@ -33,9 +33,12 @@ import Testing
             #expect(workspaces.displayName(mac) == settings.displayName(id: mac.id, name: mac.name))
         }
         // The other team's namesake still tags the active team's Mac.
+        // The rule is Rust's (mac_name_tags.rs); it links on iOS only.
+        #if os(iOS)
         #expect(entries.first { $0.id == "8c41e0d2-3f2a" }?.title == "Aziz's MacBook Pro 3F2A")
-        #expect(entries.first { $0.id == "mini-4" }?.title == "mini 4")
         #expect(settings.displayName(id: "5b97a6f1-91c7", name: "Aziz's MacBook Pro") == "Aziz's MacBook Pro 91C7")
+        #endif
+        #expect(entries.first { $0.id == "mini-4" }?.title == "mini 4")
     }
 
     @Test func aMacOnlyTheServiceListsChangesNoTag() {

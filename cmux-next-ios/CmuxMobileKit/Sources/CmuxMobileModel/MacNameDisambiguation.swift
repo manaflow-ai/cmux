@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
 
 /// Tells apart Macs that share a name ("Aziz's MacBook Pro" twice). Only
 /// Macs whose name collides with another in the same list get a tag; a
@@ -14,17 +17,19 @@ public struct MacNameDisambiguation: Sendable, Equatable {
     public let tags: [String: String]
 
     /// One entry per Mac: its device id and display name. Duplicate ids
-    /// (the same Mac listed twice) count once.
+    /// (the same Mac listed twice) count once. The rule is Rust's
+    /// (`cmux-mobile-link-ffi/src/mac_name_tags.rs`); where Rust does not link
+    /// (the macOS and Linux package builds, which have no phone UI) no Mac is tagged.
     public init(_ macs: [(id: String, name: String)]) {
-        var seen = Set<String>()
-        let unique = macs.filter { seen.insert($0.id).inserted }
-        let groups = Dictionary(grouping: unique, by: { Self.key($0.name) })
+        #if os(iOS)
         var tags: [String: String] = [:]
-        for group in groups.values where group.count > 1 {
-            let ids = group.map(\.id)
-            for (id, tag) in zip(ids, Self.suffixes(ids)) { tags[id] = tag }
+        for entry in macNameTags(macs: macs.map { MacNameInput(id: $0.id, name: $0.name) }) {
+            tags[entry.id] = entry.tag
         }
         self.tags = tags
+        #else
+        tags = [:]
+        #endif
     }
 
     public init(_ macs: [MacDevice]) {
@@ -62,28 +67,5 @@ public struct MacNameDisambiguation: Sendable, Equatable {
     public func added(for id: String, addedAt: Date?) -> String? {
         guard tags[id] != nil, let addedAt else { return nil }
         return "Added \(addedAt.formatted(.dateTime.month(.abbreviated).day()))"
-    }
-
-    /// Names that differ only by case or surrounding spaces read the same.
-    static func key(_ name: String) -> String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    /// The shortest id endings (at least four characters, alphanumerics
-    /// only, uppercased) that differ across `ids`; an id too short for
-    /// that is used whole.
-    static func suffixes(_ ids: [String]) -> [String] {
-        let cleaned = ids.map { id in
-            let chars = id.uppercased().filter { $0.isLetter || $0.isNumber }
-            return chars.isEmpty ? id.uppercased() : chars
-        }
-        let longest = cleaned.map(\.count).max() ?? 0
-        var length = 4
-        while length < longest {
-            let tags = cleaned.map { String($0.suffix(length)) }
-            if Set(tags).count == tags.count { return tags }
-            length += 1
-        }
-        return cleaned.map { String($0.suffix(max(length, 4))) }
     }
 }
