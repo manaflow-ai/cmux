@@ -92,16 +92,16 @@ fn tool_calls_past_the_cap_stay_in_flight_only_until_they_end() {
 fn a_turn_stalls_when_its_model_is_quiet_with_no_tool_in_flight() {
     let after = Some(600_000);
     // Heard a minute ago: not stalled.
-    assert_eq!(stalled_since(1_000, 2_000_000, false, 2_060_000, after), None);
+    assert_eq!(stalled_since(1_000, 2_000_000, false, 2_060_000, after, None), None);
     // Quiet ten minutes: stalled since it was last heard.
-    assert_eq!(stalled_since(1_000, 2_000_000, false, 2_600_000, after), Some(2_000_000));
+    assert_eq!(stalled_since(1_000, 2_000_000, false, 2_600_000, after, None), Some(2_000_000));
     // Never heard: quiet since the prompt.
-    assert_eq!(stalled_since(1_000, 0, false, 601_000, after), Some(1_000));
+    assert_eq!(stalled_since(1_000, 0, false, 601_000, after, None), Some(1_000));
     // Heard only in an earlier turn: quiet since this turn's prompt.
-    assert_eq!(stalled_since(5_000, 4_000, false, 300_000, after), None);
+    assert_eq!(stalled_since(5_000, 4_000, false, 300_000, after, None), None);
     // A tool call in flight (a long build) never stalls, and 0 turns it off.
-    assert_eq!(stalled_since(1_000, 0, true, 99_000_000, after), None);
-    assert_eq!(stalled_since(1_000, 0, false, 99_000_000, None), None);
+    assert_eq!(stalled_since(1_000, 0, true, 99_000_000, after, None), None);
+    assert_eq!(stalled_since(1_000, 0, false, 99_000_000, None, None), None);
 }
 
 #[test]
@@ -109,8 +109,13 @@ fn a_secret_in_a_tool_title_is_masked() {
     // A fake key, assembled so no file holds one.
     let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
     let mut doing = TurnActivity::default();
-    doing.note(&json!({"sessionUpdate": "tool_call", "toolCallId": "t1",
-                       "title": format!("curl -H 'x-key: {key}' https://example.com")}));
+    doing.note(
+        &json!({"sessionUpdate": "tool_call", "toolCallId": "t1",
+                       "title": format!("curl -H 'x-key: {key}' https://example.com")}),
+        7,
+    );
+    let wchan = doing.wchan().unwrap().1.title.unwrap();
+    assert!(!wchan.contains(&key), "{wchan}");
     let activity = doing.activity.unwrap();
     assert!(activity.starts_with("curl -H") && !activity.contains(&key), "{activity}");
     // Masked before the cut: a key straddling it leaves no head.
@@ -125,4 +130,86 @@ fn a_long_title_is_cut() {
     let u = json!({"sessionUpdate": "tool_call", "title": "x".repeat(500)});
     let Some(t) = activity_of(&u) else { panic!() };
     assert_eq!(t.chars().count(), ACTIVITY_CHARS + 1);
+}
+
+#[test]
+fn wchan_is_the_oldest_call_in_flight_with_its_bound() {
+    let mut doing = TurnActivity::default();
+    assert_eq!(doing.wchan(), None);
+    doing.note(&json!({"sessionUpdate": "tool_call", "toolCallId": "b", "title": "Run cargo test",
+                       "kind": "execute", "rawInput": {"command": "cargo test", "timeout": 600000}}), 100);
+    doing.note(&json!({"sessionUpdate": "tool_call", "toolCallId": "a", "title": "Read x"}), 200);
+    let (id, call) = doing.wchan().unwrap();
+    assert_eq!(id, "b");
+    assert_eq!(
+        call,
+        OpenCall { started_at: 100, title: Some("Run cargo test".into()), bound_ms: Some(600000) }
+    );
+    // An update keeps the start, takes a new title.
+    doing.note(
+        &json!({"sessionUpdate": "tool_call_update", "toolCallId": "b", "status": "in_progress",
+                       "title": "Run cargo test -p acpmux"}),
+        300,
+    );
+    assert_eq!(doing.wchan().unwrap().1.started_at, 100);
+    assert_eq!(doing.wchan().unwrap().1.title.as_deref(), Some("Run cargo test -p acpmux"));
+    doing.note(
+        &json!({"sessionUpdate": "tool_call_update", "toolCallId": "b", "status": "completed"}),
+        400,
+    );
+    let (id, call) = doing.wchan().unwrap();
+    assert_eq!((id.as_str(), call.started_at, call.bound_ms), ("a", 200, None));
+    doing.note(
+        &json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "status": "failed"}),
+        500,
+    );
+    assert_eq!(doing.wchan(), None);
+    assert!(doing.open_calls.is_empty());
+}
+
+#[test]
+fn a_call_past_the_cap_keeps_no_wchan_entry() {
+    let mut doing = TurnActivity::default();
+    for i in 0..MAX_OPEN_TOOLS + 3 {
+        doing.note(
+            &json!({"sessionUpdate": "tool_call", "toolCallId": format!("t{i:04}")}),
+            i as u64,
+        );
+    }
+    assert_eq!(doing.open_calls.len(), MAX_OPEN_TOOLS);
+    assert_eq!(doing.wchan().unwrap().0, "t0000");
+}
+
+#[test]
+fn a_call_past_its_declared_bound_stalls_the_turn_from_that_bound() {
+    let mut t = TurnActivity::default();
+    let call = |id: &str, timeout: Option<u64>| {
+        let mut u = serde_json::json!({
+            "sessionUpdate": "tool_call", "toolCallId": id, "status": "in_progress", "title": "cargo test",
+        });
+        if let Some(ms) = timeout {
+            u["rawInput"] = serde_json::json!({ "timeout": ms });
+        }
+        u
+    };
+    t.note(&call("a", Some(600_000)), 10_000);
+    t.note(&call("b", None), 20_000);
+    t.note(&call("c", Some(60_000)), 30_000);
+    let g = PAST_BOUND_GRACE_MS;
+    // Within every bound and its grace: no stall, even with calls in flight.
+    assert_eq!(t.past_bound_since(80_000), None);
+    assert_eq!(t.past_bound_since(90_000 + g - 1), None);
+    // c is due at 90_000 + grace; a, started first, only at 610_000 + grace: the earliest due wins.
+    assert_eq!(t.past_bound_since(90_000 + g), Some(90_000 + g));
+    assert_eq!(t.past_bound_since(700_000 + g), Some(90_000 + g));
+    // c ends: a is the one past its bound; b, with no bound, never is.
+    t.note(&serde_json::json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed"}), 95_000);
+    assert_eq!(t.past_bound_since(500_000 + g), None);
+    assert_eq!(t.past_bound_since(700_000 + g), Some(610_000 + g));
+    // A call in flight does not hide a stall past its bound; a quiet stall without one keeps its time.
+    let after = Some(600_000);
+    assert_eq!(stalled_since(1_000, 0, true, 700_000, after, Some(610_000)), Some(610_000));
+    assert_eq!(stalled_since(1_000, 0, false, 700_000, after, None), Some(1_000));
+    assert_eq!(stalled_since(1_000, 0, false, 700_000, after, Some(610_000)), Some(1_000));
+    assert_eq!(stalled_since(1_000, 0, true, 700_000, None, Some(610_000)), Some(610_000));
 }
