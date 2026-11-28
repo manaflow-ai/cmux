@@ -307,7 +307,7 @@ jobs:
           # cargo clippy --fix runs exactly when the clippy check (cmux-tui-spec.yml) does: its skip clause,
           # verbatim (affected-jobs.json pull_request_skip.follows; affected_jobs.py check holds them equal).
           # A feat-cmux-next pull request without full-ci skips both; its push runs the check and the base autofix.
-          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) }}
+          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')) || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) }}
         run: |
           set -euo pipefail
           # The base's copy, or the pull request's while the base has no actions area yet.
@@ -1073,7 +1073,7 @@ jobs:
     # below), 25 otherwise. On 2026-11-23 17:43-23:43Z, 65 of 948 runs ran into the 40-minute limit (about 10,400
     # runner-min/day, a third of the job), 59 of them on Freestyle VMs stalled in the toolchain setups; with the
     # setups bounded below, 98 % of the window's successful runs finish within 22 minutes.
-    timeout-minutes: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) && 40 || 25 }}
+    timeout-minutes: ${{ (github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')) || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) && 40 || 25 }}
     permissions:
       contents: read
       pull-requests: read
@@ -1232,7 +1232,7 @@ jobs:
           # cargo clippy --fix runs exactly when the clippy check (cmux-tui-spec.yml) does: its skip clause,
           # verbatim (affected-jobs.json pull_request_skip.follows; affected_jobs.py check holds them equal).
           # A feat-cmux-next pull request without full-ci skips both; its push runs the check and the base autofix.
-          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) }}
+          AUTOFIX_GATE_CLIPPY: ${{ (github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')) || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))) }}
         run: |
           set -euo pipefail
           if git log -1 --format=%B "${{ github.event.pull_request.head.sha }}" | grep -q '^Autofix-Run: '; then

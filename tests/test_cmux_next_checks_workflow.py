@@ -993,7 +993,7 @@ class PathRoutingStructure(unittest.TestCase):
         for job_id in HEAVY_COMPILES:
             self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && "
                           "contains(needs.path_route.outputs.labels, ',full-ci,')", jobs[job_id]["if"], job_id)
-        self.assertIn("(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
+        self.assertIn("(github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')))",
                       jobs["swift-test"]["if"])
         for job_id in (*HEAVY_COMPILES, "swift-test"):
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository || ", jobs[job_id]["if"], job_id)

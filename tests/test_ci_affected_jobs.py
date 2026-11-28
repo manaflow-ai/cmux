@@ -564,13 +564,24 @@ class PullRequestSkip(unittest.TestCase):
         self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", context), True)
         self.assertIs(pr_test_lanes.evaluate("${{ github.event_name != 'pull_request' }}", context), False)
         # A pull request into main runs every skipped job: no push of main would (SKIP_BASE).
-        self.assertIn("!startsWith(github.event.pull_request.base.ref, '" + jobs.SKIP_BASE + "')", jobs.PR_SKIP_IF)
+        self.assertIn("!(" + " || ".join("startsWith(github.event.pull_request.base.ref, '" + base + "')"
+                                          for base in jobs.SKIP_BASES) + ")", jobs.PR_SKIP_IF)
+        # A pull request stacked on a lane branch (Aziz's #47986 into lane/ios-terminal-load-fast, #48087 into
+        # lane/ios-chat-send-settle) skips them too: the lane branch lands through a pull request into feat-cmux-next
+        # (which skips them) or main (which runs them). The App Review gate walked 33-43 min on those heads, the
+        # p90 of now.json ios_pr_ci, 2026-11-28.
+        lane = pr_test_lanes.event_context("lane/ios-chat-send-settle")
+        self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", lane), False)
+        lane_route = jobs.route(None, [], base_ref="lane/ios-chat-send-settle").pr_skip
+        self.assertTrue(lane_route)
+        self.assertEqual(set(lane_route.values()), {False})
+        self.assertEqual(set(jobs.route(None, [], base_ref="main").pr_skip.values()), {True})
         # A pull request into a branch stacked on feat-cmux-next (feat-cmux-next-ios-infinite-scroll) skips the same
         # jobs: that branch reaches feat-cmux-next through a PR that skips them too, and the feat-cmux-next push runs
         # them (Aziz's App Review gate walked 26-30 min on every push into it, 2026-11-22).
         stacked = pr_test_lanes.event_context("feat-cmux-next-ios-infinite-scroll")
         self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", stacked), True)
-        tier = "${{ !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}"
+        tier = "${{ !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')) }}"
         self.assertIs(pr_test_lanes.evaluate(tier, stacked), False)
         self.assertIs(pr_test_lanes.evaluate(tier, context), False)
         self.assertIs(pr_test_lanes.evaluate(tier, pr_test_lanes.event_context("main")), True)

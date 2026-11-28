@@ -20,7 +20,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-spec.yml"
-SKIP = ("(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')"
+SKIP = ("(github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/'))"
         " || vars.SIMS_ON_PULL_REQUESTS == 'on')")
 JOBS = ("acpmux-sim", "carrier-sim")
 

@@ -345,7 +345,7 @@ class RetainedCompileCoverageTests(unittest.TestCase):
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
         # #49046: a pull request into another base is not a cmux-next PR. #57353: one into feat-cmux-next
         # runs swift test after merge only, with or without full-ci (0 real catches in 30 days).
-        self.assertIn("&& (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
+        self.assertIn("&& (github.event_name != 'pull_request' || !(startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || startsWith(github.event.pull_request.base.ref, 'lane/')))",
                       condition)
         self.assertNotIn("'full-ci')", condition.replace("fromJSON('[\"full-ci\",\"ready-to-land\"]')", ""))
 
