@@ -270,10 +270,11 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                # A crate's Rust source also reaches the persisted-formats registry and next-state-roots (land_gate
-                # steps on every cmux-tui/crates/*/src .rs); Cargo.lock reaches the idle daemon tests.
+                # A crate's Rust source also reaches the persisted-formats registry, next-state-roots and the
+                # spawn-owner ratchet (#64665) (land_gate steps on every cmux-tui/crates/*/src .rs); Cargo.lock reaches
+                # the idle daemon tests.
                 expected = {"cmux-tui/crates/cmux-terminal-projection/src/lib.rs":
-                                ["persisted-formats", "next-state-roots", "phone-speed-icount"],
+                                ["persisted-formats", "next-state-roots", "next-spawn-owner-ratchet", "phone-speed-icount"],
                             "cmux-tui/Cargo.lock": ["cmux-next-idle-wakeups", "rust-notices", "phone-speed-icount"]
                             }.get(path, ["phone-speed-icount"])
                 self.assertEqual(only, expected)
