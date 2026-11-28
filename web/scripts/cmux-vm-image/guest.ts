@@ -8,6 +8,7 @@ import path from "node:path";
 import { Freestyle } from "freestyle";
 import { installCapacityRetry } from "./capacity";
 import { guestShellProblems } from "./shell-check";
+import { detachedExec, type DetachedExecOptions, type DetachedExecVm } from "./detached-exec";
 
 export const BUILD_ENV = {
   PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -202,6 +203,27 @@ export async function run(vm: Vm, command: string, timeoutMs = STEP_TIMEOUT_MS, 
   const t0 = Date.now();
   const r = await vm.exec({ command: `${HOME_PREFIX} && ${command}`, env: BUILD_ENV, timeoutMs, linuxUser: user });
   return { code: r.statusCode ?? 124, stdout: r.stdout ?? "", stderr: r.stderr ?? "", ms: Date.now() - t0 };
+}
+
+let heldSeq = 0;
+
+/**
+ * A command that holds for a minute or more by design (the smoke's daemon holds): run detached with short polls
+ * (detached-exec.ts), not one exec held open for its whole length. Roll 46106332407 (2026-11-28) lost its smoke
+ * to `TimeoutError: The operation timed out.` about 7 min into the 60 s boot hold, with the provider answering 503
+ * on the same VM's delete: the client's background-request poll of that one long exec went unanswered. A lost poll
+ * here costs one poll. Same result shape as run(); `label` names the guest dir and the error.
+ */
+export async function runHeld(
+  vm: Pick<Vm, "exec">, label: string, command: string, budgetMs: number,
+  options: { user?: string; root?: string; poll?: Pick<DetachedExecOptions, "firstPollMs" | "maxPollMs" | "graceMs" | "outageMs" | "callMs"> } = {},
+): Promise<ExecResult> {
+  const dir = `${options.root ?? "/root/.cmux-held"}/${label.replace(/[^a-z0-9-]/gi, "-")}-${process.pid}-${++heldSeq}`;
+  try {
+    return await detachedExec(vm as DetachedExecVm, command, { dir, budgetMs, env: BUILD_ENV, linuxUser: options.user ?? "root", prefix: HOME_PREFIX, ...options.poll });
+  } catch (error) {
+    throw new Error(`${label}: ${String(error)}`);
+  }
 }
 
 /** Logged steps; a failed step throws with its output tail. */
