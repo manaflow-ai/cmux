@@ -1025,11 +1025,11 @@ jobs:
             [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (150 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
           done
+          # Always sparse (SPARSE is never empty here), so a reused .git reapplies these patterns unguarded.
           git config core.sparseCheckout true
           { printf '%s\n' "$SPARSE"; git show "$SHA:scripts/ci/path-route-sparse-checkout.txt" 2>/dev/null || true; } > .git/info/sparse-checkout
           git checkout -q -f --detach "$SHA"
-          # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
-          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
+          if [[ $reuse == reused ]]; then git sparse-checkout reapply; fi
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: Widen the sparse checkout with a parallel blob fetch
         env:
