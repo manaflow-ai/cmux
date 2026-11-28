@@ -136,6 +136,13 @@ while :; do
       ended|none) ;;
       *) publisher=unknown ;;
     esac
+    # A publisher whose build failed on attempt MAX_ATTEMPTS (run-progress "failed ... (the last
+    # attempt)") will not publish, and no retry follows: tree-publisher already passed it over and
+    # found no other same-key run. End at this check, not 5 min later at the second (nightly
+    # 46119598955, 2026-11-28, held the signing Mac 5 min on a failed build-linux). An earlier
+    # attempt's failure (a retry may start) and a stalled job (it may get a runner) keep two checks.
+    idle_limit=2
+    [[ "$stuck" == *" is failed "*"(the last attempt): "* ]] && idle_limit=1
     case "$publisher" in
       unknown)
         idle_checks=0 unreadable_checks=$(( unreadable_checks + 1 ))
@@ -147,7 +154,7 @@ while :; do
       "")
         unreadable_checks=0 idle_checks=$(( idle_checks + 1 ))
         if [[ -n "$stuck" ]]; then
-          echo "no cmux-tui artifacts run with tree $key is making progress: $stuck (check $idle_checks of 2)" >&2
+          echo "no cmux-tui artifacts run with tree $key is making progress: $stuck (check $idle_checks of $idle_limit)" >&2
         else
           echo "no active cmux-tui artifacts run has tree $key (check $idle_checks of 2)" >&2
         fi ;;
@@ -159,7 +166,7 @@ while :; do
           echo "the cmux-tui artifacts run of ${publisher:0:12} is building tree $key" >&2
         fi ;;
     esac
-    if (( idle_checks >= 2 )); then
+    if (( idle_checks >= idle_limit )); then
       if [[ -n "$stuck" ]]; then
         echo "error: tree $key is not published, no candidate manifest is uploaded, and no cmux-tui artifacts run that builds it is making progress ($stuck); nothing will publish it in time" >&2
       else
