@@ -57,6 +57,8 @@ export type AcpmuxDebug = {
   tickWatch(options?: { stop?: boolean; nominal_ms?: number }): Record<string, unknown>;
   agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
+  /// How many typing samples are held now (cheap: no copy), so a bench can wait for its last key's sample.
+  typingKeys(): number;
   /** Clears the typing samples; with `draft` N, first types N characters at the prompt's end, so the measured
    *  keys go into a long prompt (one paragraph of words; `chars` is what the prompt then holds). */
   resetTyping(draft?: number): Promise<Record<string, unknown>>;
@@ -382,6 +384,10 @@ export function createAcpmuxDebug(
         epoch_clock_error_ms: Date.now() - (performance.timeOrigin + performance.now()),
         native_posts: takeNativePosts(),
       };
+    },
+
+    typingKeys() {
+      return acpmuxPerf.typing.length;
     },
 
     async resetTyping(draft = 0) {
