@@ -1,0 +1,142 @@
+﻿2026-11-28T04:05:03.8472433Z Current runner version: '2.338.2'
+2026-11-28T04:05:03.8479861Z Runner name: 'cmux-runner-pool-c1c-0287'
+2026-11-28T04:05:03.8480887Z Runner group name: 'cmux-fleet-linux'
+2026-11-28T04:05:03.8482058Z Machine name: 'cmux-runner-pool-c1c-0287'
+2026-11-28T04:05:03.8485531Z ##[group]GITHUB_TOKEN Permissions
+2026-11-28T04:05:03.8487897Z Actions: read
+2026-11-28T04:05:03.8488708Z Contents: read
+2026-11-28T04:05:03.8489638Z Metadata: read
+2026-11-28T04:05:03.8490303Z ##[endgroup]
+2026-11-28T04:05:03.8492755Z Secret source: Actions
+2026-11-28T04:05:03.8493836Z Cache mode: write
+2026-11-28T04:05:03.8494811Z Prepare workflow directory
+2026-11-28T04:05:03.9369931Z Prepare all required actions
+2026-11-28T04:05:03.9428021Z Getting action download info
+2026-11-28T04:05:04.1482942Z Download action repository 'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803' (SHA:d23441a48e516b6c34aea4fa41551a30e30af803)
+2026-11-28T04:05:04.5761212Z Complete job name: plan (changed Cargo workspaces)
+2026-11-28T04:05:04.6475545Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-28T04:05:04.6645518Z ##[group]Run '/opt/cmux-job-start.sh'
+2026-11-28T04:05:04.6678341Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-28T04:05:04.6680168Z ##[endgroup]
+2026-11-28T04:05:05.1710889Z cmux-ws-clean: ws=/home/runner/work/cmux/cmux decision=clean head=11e215807a2 why=stamp
+2026-11-28T04:05:05.2997216Z cmux-ws-clean: at=2026-11-28T04:05:05Z phase=started version=d9e511f2bf99 user=runner clean=1 emptied=0 failed=0 lock_wait_s=0 pool_sh=0145bf7b6a96
+2026-11-28T04:05:05.4068344Z cmux-git-mirror: decision=kept
+2026-11-28T04:05:05.8161219Z cmux-pkg-health: at=2026-11-28T04:05:05Z state=ok why=- waited=0
+2026-11-28T04:05:05.8381971Z ##[group]Run [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+2026-11-28T04:05:05.8383145Z [36;1m[ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0[0m
+2026-11-28T04:05:05.8383829Z [36;1mcd "$GITHUB_WORKSPACE"[0m
+2026-11-28T04:05:05.8384258Z [36;1mwhy=""[0m
+2026-11-28T04:05:05.8384939Z [36;1mif [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then[0m
+2026-11-28T04:05:05.8385699Z [36;1m  why="sparse"[0m
+2026-11-28T04:05:05.8386225Z [36;1melif git ls-files -v 2>/dev/null | awk '/^S/ { f = 1 } END { exit !f }'; then[0m
+2026-11-28T04:05:05.8386845Z [36;1m  why="skip-worktree entries"[0m
+2026-11-28T04:05:05.8387402Z [36;1melif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then[0m
+2026-11-28T04:05:05.8387983Z [36;1m  why="HEAD does not resolve"[0m
+2026-11-28T04:05:05.8389276Z [36;1melif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | awk '/ missing$/ { f = 1 } END { exit !f }'; then[0m
+2026-11-28T04:05:05.8390286Z [36;1m  why="a ref names a missing object"[0m
+2026-11-28T04:05:05.8390727Z [36;1melse[0m
+2026-11-28T04:05:05.8391060Z [36;1m  exit 0[0m
+2026-11-28T04:05:05.8391380Z [36;1mfi[0m
+2026-11-28T04:05:05.8391976Z [36;1mecho "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"[0m
+2026-11-28T04:05:05.8392771Z [36;1mfind . -mindepth 1 -maxdepth 1 -exec rm -rf {} +[0m
+2026-11-28T04:05:05.8418681Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-28T04:05:05.8419458Z env:
+2026-11-28T04:05:05.8419759Z   CI_WARNINGS: soft
+2026-11-28T04:05:05.8423437Z   BASH_ENV: $({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)
+2026-11-28T04:05:05.8427518Z ##[endgroup]
+2026-11-28T04:05:05.9190201Z ##[group]Run set -euo pipefail
+2026-11-28T04:05:05.9190822Z [36;1mset -euo pipefail[0m
+2026-11-28T04:05:05.9191252Z [36;1mmirror=/var/lib/cmux-git/cmux.git/objects[0m
+2026-11-28T04:05:05.9191917Z [36;1m[[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }[0m
+2026-11-28T04:05:05.9192546Z [36;1mcd "$GITHUB_WORKSPACE"[0m
+2026-11-28T04:05:05.9193279Z [36;1m# Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then[0m
+2026-11-28T04:05:05.9194430Z [36;1m# writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).[0m
+2026-11-28T04:05:05.9195159Z [36;1mreuse=fresh[0m
+2026-11-28T04:05:05.9195699Z [36;1mif [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \[0m
+2026-11-28T04:05:05.9196995Z [36;1m  && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \[0m
+2026-11-28T04:05:05.9198356Z [36;1m  && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \[0m
+2026-11-28T04:05:05.9199545Z [36;1m  && git rev-parse -q --verify HEAD >/dev/null 2>&1; then[0m
+2026-11-28T04:05:05.9200082Z [36;1m  reuse=reused[0m
+2026-11-28T04:05:05.9200559Z [36;1m  if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi[0m
+2026-11-28T04:05:05.9201408Z [36;1m  # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which[0m
+2026-11-28T04:05:05.9202377Z [36;1m  # overrides the core.sparseCheckout this step writes: keep .git/config the only config.[0m
+2026-11-28T04:05:05.9203162Z [36;1m  git config --unset-all extensions.worktreeConfig || true[0m
+2026-11-28T04:05:05.9203664Z [36;1mfi[0m
+2026-11-28T04:05:05.9203969Z [36;1mif [[ $reuse == fresh ]]; then[0m
+2026-11-28T04:05:05.9204475Z [36;1m  find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +[0m
+2026-11-28T04:05:05.9204947Z [36;1m  git init -q .[0m
+2026-11-28T04:05:05.9205348Z [36;1m  echo "$mirror" > .git/objects/info/alternates[0m
+2026-11-28T04:05:05.9205818Z [36;1m  git config gc.auto 0[0m
+2026-11-28T04:05:05.9206324Z [36;1m  git remote add origin "https://github.com/$GITHUB_REPOSITORY"[0m
+2026-11-28T04:05:05.9206884Z [36;1mfi[0m
+2026-11-28T04:05:05.9207263Z [36;1mauth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)[0m
+2026-11-28T04:05:05.9208024Z [36;1m# --depth routes the fetch through the pool's git shim (the mirror path); only this command sees the token.[0m
+2026-11-28T04:05:05.9209112Z [36;1m# GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never[0m
+2026-11-28T04:05:05.9210183Z [36;1m# 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds[0m
+2026-11-28T04:05:05.9211193Z [36;1m# the objects, so this repository is complete without a failed try and a retry into it is safe.[0m
+2026-11-28T04:05:05.9211858Z [36;1mfor try in 1 2 3; do[0m
+2026-11-28T04:05:05.9212676Z [36;1m  if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \[0m
+2026-11-28T04:05:05.9214110Z [36;1m    timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"; then break; fi[0m
+2026-11-28T04:05:05.9215736Z [36;1m  [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }[0m
+2026-11-28T04:05:05.9216772Z [36;1m  echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))[0m
+2026-11-28T04:05:05.9217699Z [36;1mdone[0m
+2026-11-28T04:05:05.9218054Z [36;1mif [[ -n "${SPARSE//[[:space:]]/}" ]]; then[0m
+2026-11-28T04:05:05.9218623Z [36;1m  git config core.sparseCheckout true[0m
+2026-11-28T04:05:05.9219589Z [36;1m  printf '%s\n' "$SPARSE" > .git/info/sparse-checkout[0m
+2026-11-28T04:05:05.9220104Z [36;1mfi[0m
+2026-11-28T04:05:05.9220731Z [36;1m# 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a[0m
+2026-11-28T04:05:05.9221499Z [36;1m# narrower job on this VM; rnd rc-c6f133b4).[0m
+2026-11-28T04:05:05.9222042Z [36;1mgit -c checkout.workers=8 checkout -q -f --detach "$SHA"[0m
+2026-11-28T04:05:05.9222840Z [36;1m# SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.[0m
+2026-11-28T04:05:05.9223951Z [36;1mif [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi[0m
+2026-11-28T04:05:05.9321016Z [36;1mecho "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"[0m
+2026-11-28T04:05:05.9353507Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:05:05.9353973Z env:
+2026-11-28T04:05:05.9354375Z   CI_WARNINGS: soft
+2026-11-28T04:05:05.9358408Z   BASH_ENV: $({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)
+2026-11-28T04:05:05.9362887Z   SHA: f324a658a084f4b0abc64b5a54e4f3f9f8a4504d
+2026-11-28T04:05:05.9367187Z   TOKEN: ***
+2026-11-28T04:05:05.9367532Z   SPARSE: 
+2026-11-28T04:05:05.9367854Z ##[endgroup]
+2026-11-28T04:05:06.5196538Z cmux-git-mirror: fetch without --depth or --filter (objects from /var/lib/cmux-git/cmux.git)
+2026-11-28T04:05:07.3458344Z From https://github.com/manaflow-ai/cmux
+2026-11-28T04:05:07.3460179Z  * [new ref]                 f324a658a084f4b0abc64b5a54e4f3f9f8a4504d -> origin/checkout
+2026-11-28T04:05:07.6618268Z checked out f324a658a084f4b0abc64b5a54e4f3f9f8a4504d from the pool mirror workspace=reused
+2026-11-28T04:05:07.6710851Z ##[group]Run if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
+2026-11-28T04:05:07.6711507Z [36;1mif [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi[0m
+2026-11-28T04:05:07.6712031Z [36;1mtier=$(python3 -I scripts/ci/head_tier.py tier)[0m
+2026-11-28T04:05:07.6712495Z [36;1mecho "tier=$tier"[0m
+2026-11-28T04:05:07.6712863Z [36;1mecho "tier=$tier" >> "$GITHUB_OUTPUT"[0m
+2026-11-28T04:05:07.6739891Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:05:07.6740306Z env:
+2026-11-28T04:05:07.6740612Z   CI_WARNINGS: soft
+2026-11-28T04:05:07.6744150Z   BASH_ENV: $({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)
+2026-11-28T04:05:07.6747880Z   CI_DRAFT_CHEAP_TIER: 1
+2026-11-28T04:05:07.6748242Z   CI_LAND_FULL_PER_PR: 0
+2026-11-28T04:05:07.6748613Z   CI_IDLE_BASE_MERGE_SKIP: 1
+2026-11-28T04:05:07.6749482Z   CI_LAND_TIER: 1
+2026-11-28T04:05:07.6749819Z   CI_GREEN_BASE_MERGE_SKIP: 1
+2026-11-28T04:05:07.6750179Z   CI_LAND_CARRY: 1
+2026-11-28T04:05:07.6750527Z   CI_LABELLED_BASE_MERGE_SKIP: 1
+2026-11-28T04:05:07.6750917Z   CI_RED_BASE_MERGE_RERUN: 1
+2026-11-28T04:05:07.6751298Z   CI_CONTENT_BASE_MERGE: 1
+2026-11-28T04:05:07.6751867Z   CI_POST_MERGE_TIER_PR: 0
+2026-11-28T04:05:07.6755353Z   GH_TOKEN: ***
+2026-11-28T04:05:07.6755699Z ##[endgroup]
+2026-11-28T04:05:12.7605685Z tier=cheap
+2026-11-28T04:05:12.7666343Z ##[group]Run python3 .github/scripts/rust-workspaces.py check
+2026-11-28T04:05:12.7666949Z [36;1mpython3 .github/scripts/rust-workspaces.py check[0m
+2026-11-28T04:05:12.7692436Z shell: /usr/bin/bash -e {0}
+2026-11-28T04:05:12.7692780Z env:
+2026-11-28T04:05:12.7693072Z   CI_WARNINGS: soft
+2026-11-28T04:05:12.7696627Z   BASH_ENV: $({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)
+2026-11-28T04:05:12.7700790Z ##[endgroup]
+2026-11-28T04:05:14.1941738Z ##[error]scripts/bench/phone-speed is a Cargo workspace with no entry in .github/rust-workspaces.toml: add one with run = true, covered_by = "<workflow>" or skip = "<why>"
+2026-11-28T04:05:14.2050969Z ##[error]Process completed with exit code 1.
+2026-11-28T04:05:14.2173629Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-28T04:05:14.2211219Z ##[group]Run '/opt/cmux-job-clean.sh'
+2026-11-28T04:05:14.2236370Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-28T04:05:14.2236863Z ##[endgroup]
+2026-11-28T04:05:15.0085647Z Terminated
+2026-11-28T04:05:20.0109070Z Evaluate and set job outputs
+2026-11-28T04:05:20.0116880Z Cleaning up orphan processes
