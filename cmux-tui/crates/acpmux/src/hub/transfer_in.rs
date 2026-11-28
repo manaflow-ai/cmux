@@ -414,9 +414,11 @@ impl Hub {
     /// `_acpmux/transfer_preflight {manifest, guard?}`: whether this daemon would take the chat
     /// the manifest describes, asked before the source freezes or copies anything. The manifest
     /// is what the source knows by then (`schema`, `sessionId`, `session.harness`, and `epoch`,
-    /// `approvedWaiting`, `files` when it has them); the answer is `transfer_receive`'s own
-    /// ([`Self::receive_admission`]): `{takes: true}`, or the refusal the receive would give,
-    /// code and text. Nothing is written and no receive begins.
+    /// `approvedWaiting`, `files`, and the recorded `env` names with its `preset` when it has
+    /// them); the answer is `transfer_receive`'s own ([`Self::receive_admission`]):
+    /// `{takes: true}` with `envLacking`, the names a start here would lack
+    /// (`transfer_env_ask.rs`), or the refusal the receive would give, code and text. Nothing is
+    /// written and no receive begins.
     pub(super) async fn transfer_preflight(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         manifest_epoch(&manifest)?;
@@ -426,7 +428,14 @@ impl Hub {
         };
         let as_harness = as_harness_of(params);
         self.receive_admission(&manifest, guard.as_ref(), as_harness, true).await?;
-        Ok(json!({"takes": true, "sessionId": manifest["sessionId"]}))
+        let mut answer = json!({"takes": true, "sessionId": manifest["sessionId"]});
+        // The recorded env a start here would lack, said before the source freezes anything
+        // (`transfer_env_ask.rs`): a statement, never a refusal.
+        let lacking = self.env_lacking_here(&manifest, as_harness).await;
+        if !lacking.is_empty() {
+            answer.set("envLacking", json!(lacking));
+        }
+        Ok(answer)
     }
 
     /// Every refusal this daemon can give a chat from its manifest alone, before one byte of the

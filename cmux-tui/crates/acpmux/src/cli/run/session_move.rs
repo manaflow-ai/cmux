@@ -421,6 +421,8 @@ struct Outcome {
     /// What the move interrupts, as the chat's daemon answered (`session_move_interrupts.rs`);
     /// None from a daemon older than the question.
     interrupts: Option<Value>,
+    /// The recorded env names a start on the target would lack (`target_ask`, RFD 0181 B7).
+    env_lacking: Vec<String>,
 }
 
 impl Outcome {
@@ -441,6 +443,7 @@ impl Outcome {
             error_code: None,
             preflight: preflight::Preflight::default(),
             interrupts: None,
+            env_lacking: Vec::new(),
         }
     }
 }
@@ -588,7 +591,7 @@ pub(super) async fn run(mut args: MoveArgs, json_out: bool) -> Result<()> {
                 json!({"sessionId": o.session, "name": o.name, "host": o.host, "cwd": o.cwd,
                        "moved": o.moved, "dryRun": args.dry_run, "carried": o.carried,
                        "error": o.error, "errorCode": o.error_code,
-                       "preflight": o.preflight, "interrupts": o.interrupts, "targetSessionId": o.there, "reachable": o.reachable})
+                       "preflight": o.preflight, "interrupts": o.interrupts, "envLacking": o.env_lacking, "targetSessionId": o.there, "reachable": o.reachable})
             })
             .collect();
         rows.splice(0..0, local_rows);
@@ -973,7 +976,15 @@ async fn move_steps(
     let ask = target_ask::ask(&opened.dst, &id, &info, args.as_harness.as_deref());
     let asked = waiting(&o.name, "asking the target to take it", ask).await;
     let answer = match asked {
-        Ok(answer) => answer,
+        Ok(answer) => {
+            if let target_ask::Answer::Takes { lacking } = &answer {
+                if let Some(line) = target_ask::lacking_text(&o.name, &target.name, lacking) {
+                    eprintln!("{line}");
+                }
+                o.env_lacking = lacking.clone();
+            }
+            answer
+        }
         Err(e) => {
             o.error_code = target_ask::refusal_code(&e);
             opened.close().await;

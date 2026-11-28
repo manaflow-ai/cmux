@@ -30,3 +30,21 @@ fn an_older_target_is_unasked_and_a_refusal_keeps_the_daemons_code() {
     assert_eq!(refusal_code(&daemon(-32000, "transfer.harnessed: no")), None);
     assert_eq!(refusal_code(&anyhow!("ssh failed")), None);
 }
+
+#[test]
+fn the_manifest_carries_the_recorded_env_names_and_the_preset_and_the_answer_reads_what_lacks() {
+    let info = json!({"harness": "claude", "manifestEnv": {"names": ["OPENAI_API_KEY"], "preset": "fast"}});
+    let m = manifest("s1", &info);
+    assert_eq!(m["env"], json!(["OPENAI_API_KEY"]));
+    assert_eq!(m["preset"], "fast");
+    // Nothing recorded, or the manifest off on the source: nothing asked.
+    let plain = manifest("s1", &json!({"harness": "claude"}));
+    assert!(plain.get("env").is_none() && plain.get("preset").is_none());
+
+    assert_eq!(lacking(&json!({"takes": true, "envLacking": ["OPENAI_API_KEY"]})), ["OPENAI_API_KEY"]);
+    // A target older than the question answers no names.
+    assert!(lacking(&json!({"takes": true})).is_empty());
+    let line = lacking_text("lane", "box", &["A".into(), "B".into()]).unwrap();
+    assert!(line.starts_with("lane: box lacks env its agent started with here: A, B"), "{line}");
+    assert_eq!(lacking_text("lane", "box", &[]), None);
+}
