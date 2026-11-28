@@ -170,7 +170,7 @@ pub(super) struct Pooled {
     /// The harness's `session/new` answer (ACP harnesses).
     new_result: Option<Value>,
     tap: Arc<StdMutex<TapSlot>>,
-    target: Option<oneshot::Sender<mpsc::Sender<Inbound>>>,
+    target: Option<oneshot::Sender<mpsc::Sender<Box<Inbound>>>>,
     rss: u64,
     parked: bool,
     /// Whether it was started with OpenCode asked to ask (`opencode_ask.rs`).

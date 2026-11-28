@@ -154,7 +154,7 @@ async fn an_answer_a_translator_took_is_not_cut_while_queued() {
     .expect("the agent starts");
     let id = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
-            match rx.recv().await {
+            match rx.recv().await.map(|b| *b) {
                 Some(Inbound::Request { id, .. }) => break id,
                 Some(_) => continue,
                 None => panic!("the agent ended before it asked"),

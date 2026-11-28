@@ -10,7 +10,7 @@ impl ChildAgent {
         record: crate::agent_host::HostRecord,
         resume_after: u64,
         awaiting: Vec<Id>,
-        inbound: mpsc::Sender<Inbound>,
+        inbound: mpsc::Sender<Box<Inbound>>,
         tap: Tap,
     ) -> Result<Attached> {
         use crate::agent_host::link::{Connect, connect};
@@ -34,7 +34,7 @@ impl ChildAgent {
         adopted: &crate::agent_host::link::Adopted,
         resume_after: u64,
         awaiting: Vec<Id>,
-        inbound: mpsc::Sender<Inbound>,
+        inbound: mpsc::Sender<Box<Inbound>>,
         tap: Tap,
     ) -> (Arc<Self>, Vec<Response>) {
         // Never reuse an id the harness may still answer.

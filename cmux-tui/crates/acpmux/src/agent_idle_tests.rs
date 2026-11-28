@@ -9,7 +9,7 @@ use super::leader_exit::{LeaderExit, timed_check_only};
 use super::*;
 use std::time::Duration;
 
-async fn spawn(script: &str, inbound: mpsc::Sender<Inbound>) -> Arc<ChildAgent> {
+async fn spawn(script: &str, inbound: mpsc::Sender<Box<Inbound>>) -> Arc<ChildAgent> {
     let profile: HarnessProfile =
         serde_json::from_value(serde_json::json!({"argv": ["/bin/sh"]})).unwrap();
     let tap: Tap = Arc::new(|_, _, _| true);
@@ -103,7 +103,7 @@ async fn leader_exit_under_a_descendant(timed: bool) -> Duration {
     let killed = tokio::time::Instant::now();
     let exited = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            match rx.recv().await {
+            match rx.recv().await.map(|b| *b) {
                 Some(Inbound::Exited { .. }) | None => break,
                 Some(_) => {}
             }

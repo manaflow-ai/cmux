@@ -109,7 +109,7 @@ impl ChildAgent {
         &self,
         h: u64,
         entry: crate::agent_host::Entry,
-        inbound: &mpsc::Sender<Inbound>,
+        inbound: &mpsc::Sender<Box<Inbound>>,
     ) -> bool {
         use crate::agent_host::{Entry, TapDir};
         // Debug builds only: `ACPMUX_TEST_UNLOGGED_ONCE=TEXT` fails to log the first host entry
@@ -156,14 +156,14 @@ impl ChildAgent {
                     let Message::Notification { method, params } = &m else { return false };
                     let (done, persisted) = oneshot::channel();
                     if inbound
-                        .send(Inbound::Notification {
+                        .send(Box::new(Inbound::Notification {
                             method: method.clone(),
                             params: params.clone(),
                             host_seq: Some(h),
                             host_incarnation: host_incarnation.clone(),
                             persisted: Some(done),
                             agent: self.generation,
-                        })
+                        }))
                         .await
                         .is_err()
                     {
@@ -199,13 +199,13 @@ impl ChildAgent {
                     }
                     Message::Request { id, method, params } => {
                         let _ = inbound
-                            .send(Inbound::Request {
+                            .send(Box::new(Inbound::Request {
                                 id,
                                 method,
                                 params,
                                 host_seq: Some(h),
                                 host_incarnation,
-                            })
+                            }))
                             .await;
                     }
                     Message::Notification { method, params } => {
@@ -213,14 +213,14 @@ impl ChildAgent {
                             return true;
                         }
                         let _ = inbound
-                            .send(Inbound::Notification {
+                            .send(Box::new(Inbound::Notification {
                                 method,
                                 params,
                                 host_seq: Some(h),
                                 host_incarnation: host_incarnation.clone(),
                                 persisted: None,
                                 agent: self.generation,
-                            })
+                            }))
                             .await;
                     }
                 }
@@ -232,11 +232,11 @@ impl ChildAgent {
                     return false;
                 }
                 let _ = inbound
-                    .send(Inbound::Stderr(
+                    .send(Box::new(Inbound::Stderr(
                         line,
                         Some(h),
                         Some((self.generation, StderrPipe::Stderr)),
-                    ))
+                    )))
                     .await;
                 true
             }
@@ -259,8 +259,9 @@ impl ChildAgent {
                 // `exited` and the exit notify follow the Exit entry's ack
                 // (`start_reader`), so a terminate that waits on them never
                 // returns before the host knows its Exit is logged.
-                let _ =
-                    inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
+                let _ = inbound
+                    .send(Box::new(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }))
+                    .await;
                 true
             }
         }

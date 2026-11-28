@@ -10,7 +10,7 @@ fn exited() -> Inbound {
 
 /// The chat's own sender, its receiver, and a closed flag already set.
 fn closed_chat()
--> (mpsc::Sender<Inbound>, mpsc::Receiver<Inbound>, tokio::sync::watch::Sender<bool>) {
+-> (mpsc::Sender<Box<Inbound>>, mpsc::Receiver<Box<Inbound>>, tokio::sync::watch::Sender<bool>) {
     let (tx, rx) = mpsc::channel(8);
     (tx, rx, tokio::sync::watch::channel(true).0)
 }
@@ -30,7 +30,7 @@ async fn a_closed_chat_still_takes_the_exit_its_agent_sends_late() {
         tokio::time::sleep(Duration::from_secs(1)).await;
         drop(reader);
     });
-    let item = next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await;
+    let item = next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.map(|b| *b);
     assert!(matches!(item, Some(Inbound::Exited { pid: Some(7), .. })), "the late exit is handled");
     let started = tokio::time::Instant::now();
     assert!(next_inbound(&mut rx, &stop, &mut closed, &own.downgrade()).await.is_none());
