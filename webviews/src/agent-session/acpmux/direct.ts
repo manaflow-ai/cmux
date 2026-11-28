@@ -10828,6 +10828,8 @@ export class AcpmuxDirectClient {
         // turn's end paused (that end came for this prompt) is held the same way: the rest of its
         // message goes on in its row above the prompt (Leo, 2026-11-22 08:25Z: "ok, well. this
         // happened again. you need to help decide what goes on in this case and perfect it.").
+        // A steer that came while the agent's reply streamed: that reply is held open over it.
+        const overReply = msg.steer === true && this.streamingAssistant !== undefined;
         if (msg.steer === true || this.streamingAssistantMessageId || this.pausedReply) this.holdAssistantSegment();
         else this.endAssistantSegment();
         // A call id names a call within its prompt: an adapter that numbers calls per process
@@ -10967,6 +10969,7 @@ export class AcpmuxDirectClient {
           ...(steer ? { steer } : {}),
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
+          ...(steer === "waiting" && overReply ? { steerOverReply: true as const } : {}),
           ...(promptId ? { promptId } : {}),
           ...(typeof msg.turnId === "string" ? { turnId: msg.turnId } : {}),
           // Each image keeps the bytes and size the pane's own row drew it with, so the echo lands
@@ -11088,7 +11091,7 @@ export class AcpmuxDirectClient {
         // acpmux would refuse. Its next words, which said so before, can come a minute later or
         // never (a reply that is only a tool call); meanwhile an X said "Read after this step" of
         // a message already read (Leo, 2026-11-06: "I can't ... cancel and edit these messages").
-        if (typeof msg.promptId === "string") this.landSteer(msg.promptId);
+        if (typeof msg.promptId === "string") this.landSteer(msg.promptId, true);
         // What the agent writes once it read the steer answers it, below the steer: a reply held
         // open past it (`holdAssistantSegment`) ends here, even when its chunks carry no message id
         // or the same one, which would run the answer on in the row above the steer (Leo,
@@ -11930,13 +11933,22 @@ export class AcpmuxDirectClient {
   }
 
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
-  private landSteer(promptId?: string): void {
+  /// `readHere`: acpmux's `steer_read` said the agent read it now, not a guess from what came next.
+  private landSteer(promptId?: string, readHere = false): void {
     const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
     if (!read.length) return;
     this.waitingSteers = this.waitingSteers.filter((waiting) => !read.includes(waiting));
     for (const waiting of read) {
       const row = this.rows.get(waiting.rowId);
-      if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
+      if (row?.steer !== "waiting") continue;
+      // Read where acpmux said: the words over it were written before the read, so they stay there.
+      const { steerOverReply, ...rest } = row;
+      this.rows.set(row.id, {
+        ...rest,
+        version: row.version + 1,
+        steer: "landed",
+        ...(steerOverReply && !readHere ? { steerOverReply } : {}),
+      });
     }
   }
 
