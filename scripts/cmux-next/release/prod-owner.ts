@@ -21,7 +21,7 @@
  */
 import { must, roleUrl, type RoleJson } from "./branches.ts"
 import { contractReason, readMigrations } from "./lint.ts"
-import { connectUrl, requirementsOf, schemaProblems, trackingState, withLock, type Sql } from "./runner.ts"
+import { connectRetrying, connectUrl, requirementsOf, schemaProblems, trackingState, withLock, type Sql } from "./runner.ts"
 import type { Requirement } from "../../../workers/cmux-vm/src/db/schema-requirements.ts"
 import { REPO_ROOT, TREES } from "./trees.ts"
 
@@ -189,7 +189,7 @@ const grantWorker = async (ownerUrl: string, log: (l: string) => void): Promise<
   const worker = (await listRoles()).find((r) => r.name === tree.workerRole)
   if (!worker) throw new Refusal(`${DB}/${BRANCH} has no PlanetScale role ${tree.workerRole}; the Worker grants were not issued`)
   const requirements = await requirementsOf(tree, REPO_ROOT)
-  const owner = await connectUrl(ownerUrl)
+  const owner = await connectRetrying(connectUrl, ownerUrl)
   try {
     const statements = grantStatements(requirements, worker.pgUser)
     for (const statement of statements) {
@@ -256,7 +256,7 @@ export const run = async (command: string | undefined, log = (l: string) => cons
   try {
     if (command !== "inspect" && command !== "dry-run" && command !== "migrate") throw new Refusal("usage: prod-owner.ts inspect|dry-run|migrate")
     // The direct port: the release lock is a session advisory lock, which a transaction pooler (6432) would not keep.
-    sql = await connectUrl(directUrl(productionUrl(process.env[WORKER_URL_ENV], WORKER_URL_ENV)))
+    sql = await connectRetrying(connectUrl, directUrl(productionUrl(process.env[WORKER_URL_ENV], WORKER_URL_ENV)))
     const allow = contractFiles().flatMap((f) => ["--allow-contract", f])
     // skip_rehearsal (workflow input): apply without the point-in-time rehearsal copy, so the PITR waits go too.
     const skipRehearsal = command === "migrate" && process.env.CMUX_VM_SKIP_REHEARSAL === "true"

@@ -503,7 +503,7 @@ async fn catch_up_rows_under_conditions() {
                     if first { separate_calls(link, chats).await } else { one_catch_up(link, chats).await }
                 }
             };
-            let order = run % 2 == 0;
+            let order = run.is_multiple_of(2);
             let x = one(order).await;
             let y = one(!order).await;
             let ((b, bb), (a, ab)) = if order { (x, y) } else { (y, x) };
