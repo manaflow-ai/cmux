@@ -22,7 +22,10 @@ extension AppControl {
                     throw ControlError(code: "internal", message: "the cmux VM API address is invalid")
                 }
                 let answer = await Self.vmAgentKeyMint(issuer, baseURL: baseURL, body: planned.body)
-                return try Self.vmAgentKeyAnswer(status: answer.status, body: answer.body, baseURL: baseURL, teamID: issuer.teamID)
+                do { return try Self.vmAgentKeyAnswer(status: answer.status, body: answer.body, baseURL: baseURL, teamID: issuer.teamID) }
+                catch let error as ControlError where answer.failure != nil { // no VM API answer: say why
+                    throw ControlError(code: error.code, message: error.message, data: .object(["cause": .string(answer.failure ?? "")]))
+                }
             }.withDeadline(.fixed(.seconds(25))),
         ])
     }
@@ -36,17 +39,14 @@ extension AppControl {
         var machineIO: CloudMachineIO? // the bundled cmux that runs `cmux cloud api`
     }
 
-    /// The mint over cmux-cloud-api `vm.agent_key_create` (owner auth: the session and team, no Stack refresh token):
-    /// the VM API's status and body, or status 0 for no answer (no cmux, a refusal, a timeout), which Rust reads as unreachable.
+    /// The mint over cmux-cloud-api `vm.agent_key_create` (``CloudDaemon/vmAgentKeyMint``): status 0 for no answer, with its `failure`.
     nonisolated static func vmAgentKeyMint(_ issuer: VMIssuer, baseURL: URL, body: JSONValue,
-                                          run: (@Sendable (Data, Duration) async throws -> Data)? = nil) async -> (status: Int, body: Data) {
-        struct Reply: Decodable { var status: Int; var body: String }
+                                          run: (@Sendable (Data, Duration) async throws -> Data)? = nil) async
+        -> (status: Int, body: Data, failure: String?) {
         let (access, team) = (issuer.accessToken, issuer.teamID)
+        guard let text = try? JSONEncoder().encode(body) else { return (0, Data(), "the agent key body is not JSON") }
         let daemon = CloudDaemon.owner(baseURL: baseURL, credential: { access }, teamID: { team }, machineIO: issuer.machineIO, run: run)
-        guard let text = try? JSONEncoder().encode(body),
-              let data = try? await daemon.daemon("vm.agent_key_create", ["body_json": String(decoding: text, as: UTF8.self)], timeout: .seconds(24)),
-              let reply = try? JSONDecoder().decode(Reply.self, from: data) else { return (0, Data()) }
-        return (reply.status, Data(reply.body.utf8))
+        return await daemon.vmAgentKeyMint(bodyJSON: String(decoding: text, as: UTF8.self))
     }
 
     /// The signed-in session and its team, behind the Cloud policy (not Labs, Leo 2026-10-30).
