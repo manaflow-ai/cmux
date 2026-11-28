@@ -200,6 +200,7 @@ const FEATURES: &[&str] = &[
     "promptAccepted",
     "promptWithdraw",
     "queueEdit",
+    crate::cli::last_reply::REPLY_SLOT_FEATURE,
     "sessionTransfer",
     "steerInterrupt",
     "surfaces",
