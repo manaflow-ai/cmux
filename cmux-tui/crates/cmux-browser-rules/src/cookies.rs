@@ -60,7 +60,8 @@ pub fn cookie_matches(cookie: &CookieFacts, url: &UrlParts) -> bool {
     let path = if url.path.is_empty() { "/" } else { url.path.as_str() };
     path == cookie.path
         || (path.starts_with(&cookie.path)
-            && (cookie.path.ends_with('/') || path[cookie.path.len()..].starts_with('/')))
+            && (cookie.path.ends_with('/')
+                || path.get(cookie.path.len()..).is_some_and(|rest| rest.starts_with('/'))))
 }
 
 /// `cookies.get`: whether a cookie is listed for `urls` (all cookies when there are none).
@@ -176,7 +177,7 @@ pub struct PlaywrightFields {
 fn directory_of(path: &str) -> String {
     let trimmed = path.trim_end_matches('/');
     let dir = match trimmed.rfind('/') {
-        Some(at) => &trimmed[..at],
+        Some(at) => trimmed.get(..at).unwrap_or(""),
         None => "",
     };
     if dir.is_empty() { "/".to_owned() } else { dir.to_owned() }
