@@ -513,6 +513,7 @@ impl FakePeer {
                 allow_downgrade: false,
                 caller: None,
                 now: true,
+                same_build_installed: false,
             },
         )
     }
@@ -527,6 +528,7 @@ impl FakePeer {
             allow_downgrade: false,
             caller: Some(caller),
             now: true,
+            same_build_installed: false,
         };
         update_peer(self, &opts)
     }
@@ -860,6 +862,7 @@ fn a_current_peer_or_one_without_a_binary_is_left_alone() {
         allow_downgrade: false,
         caller: None,
         now: true,
+        same_build_installed: false,
     };
     let up = update_peer(&peer, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::NeedsBinary, Some("wrongPlatform")));
@@ -956,6 +959,7 @@ fn a_push_of_an_older_build_onto_a_newer_host_is_refused_on_the_host() {
         allow_downgrade: true,
         caller: None,
         now: true,
+        same_build_installed: false,
     };
     let up = update_peer(&peer, &opts);
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
@@ -1063,6 +1067,7 @@ fn the_restart_window_is_the_hosts_own() {
         allow_downgrade: false,
         caller: None,
         now: false,
+        same_build_installed: false,
     };
     // The unit's two minutes are over, five minutes after the last restart.
     peer.offer(NEW, Some(NEW));
@@ -1295,4 +1300,61 @@ fn the_host_scripts_keep_case_out_of_command_substitutions() {
     ] {
         assert_eq!(case_in_substitution(&script), None, "{name}");
     }
+}
+
+/// cmuxterm-hq#36581: a self-update whose chosen build already is the installed
+/// binary leaves a silent daemon to its unit (`Restart=always`, `WatchdogSec`)
+/// instead of restarting it on the same binary every run, which cut every
+/// carrier circuit on the host each time. A build that differs still restarts,
+/// and so does `--now`. Counted as `systemctl ... restart` calls.
+#[test]
+#[cfg(unix)]
+fn a_silent_daemon_on_the_installed_build_is_left_to_its_unit() {
+    let restarts = |peer: &FakePeer| {
+        std::fs::read_to_string(peer.home.join("calls"))
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.starts_with("systemctl") && l.contains(" restart "))
+            .count()
+    };
+    let opts = |same_build_installed: bool, now: bool| UpdateOptions {
+        binary_dir: None,
+        if_idle: false,
+        keep_newer: false,
+        allow_downgrade: false,
+        caller: None,
+        now,
+        same_build_installed,
+    };
+    let silent = |tag: &str| {
+        let peer = FakePeer::new(tag);
+        peer.offer(OLD, Some(OLD));
+        let _ = std::fs::remove_file(peer.home.join("daemon"));
+        peer
+    };
+    let with_dir = |peer: &FakePeer, o: UpdateOptions| UpdateOptions {
+        binary_dir: Some(peer.home.join("binaries")),
+        ..o
+    };
+
+    let peer = silent("same-build-silent");
+    let up = update_peer(&peer, &with_dir(&peer, opts(true, false)));
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Current, Some(SAME_BUILD_SILENT)),
+        "{up:?}"
+    );
+    assert_eq!(restarts(&peer), 0);
+
+    // Not the installed build: the update restarts, once.
+    let peer = silent("other-build-silent");
+    let up = update_peer(&peer, &with_dir(&peer, opts(false, false)));
+    assert_ne!(up.reason.as_deref(), Some(SAME_BUILD_SILENT), "{up:?}");
+    assert_eq!(restarts(&peer), 1);
+
+    // `--now` is a person asking for the restart: it still happens, once.
+    let peer = silent("same-build-now");
+    let up = update_peer(&peer, &with_dir(&peer, opts(true, true)));
+    assert_ne!(up.reason.as_deref(), Some(SAME_BUILD_SILENT), "{up:?}");
+    assert_eq!(restarts(&peer), 1);
 }
