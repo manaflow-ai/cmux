@@ -238,6 +238,11 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onChiefRetry }
         set { projection.onChiefRetry = newValue }
     }
+    /// A signed-out Chief turn's card's Sign In; nil offers none.
+    public var onChiefSignIn: (() -> Void)? {
+        get { projection.onChiefSignIn }
+        set { projection.onChiefSignIn = newValue; projection.refreshTurnFailureStates() }
+    }
 
     /// The stop button's tooltip while the Chief works; nil: "Stop".
     public var stopToolTip: String? {

@@ -99,6 +99,15 @@ public final class AgentsStepModel {
     @ObservationIgnored let source: (any AgentSignInSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+    /// The folders agent installers write their command into: Claude Code's own installer (`~/.local/bin`) and
+    /// Homebrew's. While an agent waits to be installed they are watched (``InstallFolderWatch``), so an install made
+    /// anywhere (the `curl … | bash` the terminal's `claude` hint prints, Settings) turns its Install into Sign In
+    /// with no click (first-run findings N5: Chief's card said Install Claude Code until clicked).
+    @ObservationIgnored var installFolders = [FileManager.default.homeDirectoryForCurrentUser.appending(path: ".local/bin"),
+                                              URL(filePath: "/opt/homebrew/bin"), URL(filePath: "/usr/local/bin")]
+    @ObservationIgnored private var installWatch: InstallFolderWatch?
+    /// A Sign In asked from outside the card (``signInWhenFound(_:)``) that waits for the read under way.
+    @ObservationIgnored private var signInAfterRead: String?
 
     init(source: (any AgentSignInSource)?) {
         self.source = source
@@ -127,6 +136,10 @@ public final class AgentsStepModel {
             loaded = true
             read = nil
             finishInstall()
+            if let id = signInAfterRead {
+                signInAfterRead = nil
+                signIn(id)
+            }
         }
     }
 
@@ -150,6 +163,19 @@ public final class AgentsStepModel {
     private func show(_ fresh: [OnboardingAgent]) {
         agents = fresh.filter(\.installed)
         installable = fresh.filter { !$0.installed && $0.installPage != nil }
+        if installable.isEmpty {
+            installWatch = nil
+        } else if installWatch == nil {
+            installWatch = InstallFolderWatch(folders: installFolders) { [weak self] in self?.refresh(recheck: true) }
+        }
+    }
+
+    /// Sign In from outside the card (a signed-out Chief turn's card, first-run findings N5): the login runs now when
+    /// the agent is listed as installed, else after a fresh read finds it (the list may predate its install).
+    public func signInWhenFound(_ id: String) {
+        if agents.contains(where: { $0.id == id && $0.offersSignIn }) { return signIn(id) }
+        signInAfterRead = id
+        refresh(recheck: true)
     }
 
     /// The window became key again: after a Sign In, acpmux checks the sign-ins again.
@@ -225,6 +251,7 @@ public final class AgentsStepModel {
     func stop() {
         read?.cancel()
         read = nil
+        installWatch = nil
         loading = false
     }
 }
