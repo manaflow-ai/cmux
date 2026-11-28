@@ -65,16 +65,16 @@ pub fn ghostty_macos_min(config_zig: &str) -> Option<String> {
     Some(format!("{}.{}", field(".major")?, field(".minor")?))
 }
 
-/// The `-Dcpu=` argument for zig, if any: `CMUX_GHOSTTY_VT_ZIG_CPU` when set,
-/// else a baseline CPU for macOS. On a macOS build host Ghostty's generic
-/// macOS target drops `-Dcpu` and resolves to the same baseline CPU, so the
-/// override has no effect there for macOS targets.
-pub fn zig_cpu_arg(target: &str, cpu_override: Option<&str>) -> Option<String> {
-    match cpu_override {
-        Some(cpu) => Some(format!("-Dcpu={cpu}")),
-        None if macos_arch(target).is_some() => Some("-Dcpu=baseline".to_string()),
-        None => None,
-    }
+/// The `-Dcpu=` argument for zig: `CMUX_GHOSTTY_VT_ZIG_CPU` when set, else a
+/// baseline CPU for every target. Zig's default is the build host's own CPU,
+/// and a cmux-tui built on one fleet host is run on others: a journey binary
+/// built on an AVX-512 host died by SIGILL on the runner that ran it
+/// (cloudflare-relay run 46130928565). `CMUX_GHOSTTY_VT_ZIG_CPU=native` keeps
+/// the host's CPU for a build that never leaves it. On a macOS build host
+/// Ghostty's generic macOS target drops `-Dcpu` and resolves to the same
+/// baseline CPU, so the override has no effect there for macOS targets.
+pub fn zig_cpu_arg(_target: &str, cpu_override: Option<&str>) -> Option<String> {
+    Some(format!("-Dcpu={}", cpu_override.unwrap_or("baseline")))
 }
 
 fn macos_arch(target: &str) -> Option<&'static str> {

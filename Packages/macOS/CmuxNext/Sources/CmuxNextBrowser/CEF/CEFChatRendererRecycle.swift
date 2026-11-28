@@ -11,11 +11,11 @@ import Foundation
 /// wake state, as a hidden idle chat's release does), waits for the process to exit, and shows those chats again
 /// in a fresh one.
 ///
-/// Off unless `CMUX_NEXT_CHAT_RENDERER_RECYCLE=1` (``isEnabled(_:)``), so the bench can compare both.
+/// On unless `CMUX_NEXT_CHAT_RENDERER_RECYCLE=0` (``isEnabled(_:)``), so the bench can compare both.
 /// At most one recycle per ``cooldown``, for the chat renderer as a whole: a recycled renderer comes back under a
 /// new client id.
 public struct CEFChatRendererRecycle {
-    /// The environment variable that turns recycling on (`1`; anything else leaves it off).
+    /// The environment variable that turns recycling off (`0`; anything else, or unset, leaves it on).
     public static let environmentKey = "CMUX_NEXT_CHAT_RENDERER_RECYCLE"
     /// The least growth worth rebuilding the shown chats.
     public static let growthFloorBytes = 256 << 20
@@ -61,7 +61,7 @@ public struct CEFChatRendererRecycle {
     public init() {}
 
     /// Whether `environment` turns recycling on.
-    public static func isEnabled(_ environment: [String: String]) -> Bool { environment[environmentKey] == "1" }
+    public static func isEnabled(_ environment: [String: String]) -> Bool { environment[environmentKey] != "0" }
 
     /// Whether this process's environment turns recycling on.
     public static var isEnabledHere: Bool { isEnabled(ProcessInfo.processInfo.environment) }

@@ -239,6 +239,7 @@ JOBS = {
     # the repository's configured Xcode app for pull requests.
     "ios-fast-verdict": Job((), ("plan", "xcode_app"), (
         "scripts/ci/ios_fast_verdict.py", "scripts/ci/ios_fast_verdict.sh", "scripts/ci/ci_steps.py",
+        "scripts/ci/hung_test_watchdog.py", "scripts/ci/ci_process_tree.py",
         "ci/steps.toml", "ci/run",
     ), routed="ios-kit", workflow=".github/workflows/pr-pipeline.yml"),
 }
