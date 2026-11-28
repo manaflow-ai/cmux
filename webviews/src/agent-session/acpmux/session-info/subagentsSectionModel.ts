@@ -64,7 +64,7 @@ export type SubagentEntry =
   | { agent: Subagent; depth: number; status: SubagentStatus; session?: undefined }
   | { session: StartedSession; status: SubagentStatus; agent?: undefined; depth?: undefined };
 
-const live = (status: SubagentStatus) => status === "running" || status === "waiting" || status === "idle";
+const isLive = (status: SubagentStatus) => status === "running" || status === "waiting" || status === "idle";
 /// The ended list's order: a failed one first, then a stopped one, then the done ones.
 const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3, idle: 3 };
 
@@ -84,7 +84,7 @@ export function splitSubagentLines(
   const waitsFirst = (a: Subagent, b: Subagent) =>
     Number(subagentStatus(b, waiting) === "waiting") - Number(subagentStatus(a, waiting) === "waiting") ||
     a.startedAt - b.startedAt;
-  const runningAgents = nestAgents(agents.filter((agent) => live(statusOf(agent))).sort(waitsFirst)).map(
+  const runningAgents = nestAgents(agents.filter((agent) => isLive(statusOf(agent))).sort(waitsFirst)).map(
     ({ agent, depth }): SubagentEntry => ({ agent, depth, status: statusOf(agent) }),
   );
   const children = orderedSessions(sessions).map((session): SubagentEntry => ({
@@ -101,9 +101,9 @@ export function splitSubagentLines(
     ],
     ended: [
       ...agents
-        .filter((agent) => !live(statusOf(agent)))
+        .filter((agent) => !isLive(statusOf(agent)))
         .map((agent): SubagentEntry => ({ agent, depth: 0, status: statusOf(agent) })),
-      ...children.filter((child) => !live(child.status)),
+      ...children.filter((child) => !isLive(child.status)),
     ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || at(b) - at(a)),
   };
 }
