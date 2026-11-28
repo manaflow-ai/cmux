@@ -80,8 +80,8 @@ final class UnsentKeysClock {
     static let deadline: Double = 30
 
     static func waitUntil(_ seconds: Double = deadline, _ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(seconds * 1000)))
-        while !condition(), ContinuousClock.now < deadline {
+        var deadline = AwakeDeadline(.milliseconds(Int(seconds * 1000))) // awake time: a stall costs one charge
+        while !condition(), deadline.hasTimeLeft() {
             try await Task.sleep(for: .milliseconds(10)) // test: polls the screen until a deadline
         }
     }

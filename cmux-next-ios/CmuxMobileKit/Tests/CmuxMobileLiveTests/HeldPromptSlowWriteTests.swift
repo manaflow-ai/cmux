@@ -160,8 +160,9 @@ import Testing
     /// Waits, bounded, for real-time work (a write's 100 ms bound, the held prompts' 500 ms flush).
     func eventually(_ condition: () -> Bool) async {
         // By deadline, not by count: on a loaded runner a 10 ms sleep takes far longer.
-        let deadline = ContinuousClock.now + .seconds(20)
-        while !condition(), ContinuousClock.now < deadline {
+        // Awake time: a whole-process stall costs one charge (AwakeDeadline).
+        var deadline = AwakeDeadline(.seconds(20))
+        while !condition(), deadline.hasTimeLeft() {
             try? await Task.sleep(for: .milliseconds(10))
         }
     }

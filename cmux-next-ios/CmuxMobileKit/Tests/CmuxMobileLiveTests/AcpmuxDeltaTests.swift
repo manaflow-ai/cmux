@@ -239,8 +239,8 @@ import Testing
                                              cwd: "/tmp/w", workspaceTitle: "w", macName: "mini")
 
     static func waitUntil(_ done: () -> Bool) async {
-        let end = ContinuousClock.now + .seconds(20)
-        while !done(), ContinuousClock.now < end {
+        var deadline = AwakeDeadline(.seconds(20)) // awake time: a process stall costs one charge
+        while !done(), deadline.hasTimeLeft() {
             try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition, bounded above
         }
     }

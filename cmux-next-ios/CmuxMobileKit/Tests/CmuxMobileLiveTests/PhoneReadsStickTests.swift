@@ -71,8 +71,8 @@ import Testing
 
     /// Waits up to `seconds` of real time for `condition` (a retry is spaced in real time).
     static func waitUntil(seconds: Double = 15, _ condition: () -> Bool) async {
-        let end = ContinuousClock.now + .seconds(seconds)
-        while !condition(), ContinuousClock.now < end { try? await Task.sleep(for: .milliseconds(10)) }
+        var deadline = AwakeDeadline(.seconds(seconds)) // awake time: a process stall costs one charge
+        while !condition(), deadline.hasTimeLeft() { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
     /// The daemon restarts under a write: its channel goes quiet and closes, and the Mac comes
