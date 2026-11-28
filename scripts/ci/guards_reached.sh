@@ -92,7 +92,9 @@ if [ "${#rerun[@]}" -gt 0 ]; then
     python3 scripts/ci/guard_base_verdicts.py --merge "$tmp/base-recorded.json" "$tmp/base-run.json" "$tmp/base.json"
   else
     # Off (the default): the base's own results, read as before.
+    # guards_new_reds.py compares each red's failures from <results>.failures.json, so that file moves with it.
     mv "$tmp/base-run.json" "$tmp/base.json" 2>/dev/null || true
+    mv "$tmp/base-run.json.failures.json" "$tmp/base.json.failures.json" 2>/dev/null || true
   fi
 else
   echo "every one of the head's $red_count red steps has a recorded base verdict; the base is not re-run"

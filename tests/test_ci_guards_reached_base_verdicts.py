@@ -31,8 +31,11 @@ echo "${root:-head} ${steps[*]}" >> "$CALL_LOG"
 python3 - "$results" "${root:-}" "${steps[@]}" <<'EOF'
 import json, sys
 out, root, steps = sys.argv[1], sys.argv[2], sys.argv[3:]
-red = {"alpha"} if root else {"alpha", "beta"}
+import os
+red = set(os.environ.get("BASE_RED", "alpha").split()) if root else {"alpha", "beta"}
 json.dump({**{s: s not in red for s in steps}, "_cmux_complete": True}, open(out, "w"))
+# As run_ci_guards.py does: each red step's output beside the results, which guards_new_reds.py compares.
+json.dump({s: ["FAIL: %s broke" % s] for s in steps if s in red}, open(out + ".failures.json", "w"))
 EOF
 echo "stub: done"
 """
@@ -57,7 +60,7 @@ if os.environ.get("VERDICTS_FAIL"):
     sys.exit(1)
 out = Path(args["--out"])
 out.write_text(json.dumps({"beta": False, "_cmux_complete": False}))
-Path(str(out) + ".failures.json").write_text("{}")
+Path(str(out) + ".failures.json").write_text(json.dumps({"beta": ["FAIL: beta broke"]}))
 for step in Path(args["--steps"]).read_text().split():
     if step != "beta":
         print(step)
@@ -89,7 +92,7 @@ class GuardsReachedBaseVerdictsTests(unittest.TestCase):
     def run_script(self, **env: str) -> tuple[subprocess.CompletedProcess, list[str]]:
         full = {**os.environ, "CALL_LOG": str(self.log), "REAL_CI": str(ROOT / "scripts/ci"),
                 "GITHUB_REPOSITORY": "o/r", **env}
-        for key in ("CI_GUARDS_REACHED_BASE_VERDICTS", "GH_TOKEN", "VERDICTS_FAIL"):
+        for key in ("CI_GUARDS_REACHED_BASE_VERDICTS", "GH_TOKEN", "VERDICTS_FAIL", "BASE_RED"):
             if key not in env:
                 full.pop(key, None)
         done = subprocess.run(["bash", str(self.dir / "scripts/ci/guards_reached.sh")], env=full,
@@ -106,6 +109,13 @@ class GuardsReachedBaseVerdictsTests(unittest.TestCase):
         self.assertFalse(any(c.startswith("verdicts") for c in calls))
         # beta is red on the head and green on the base: the change's red, so the step fails.
         self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_default_excuses_reds_with_the_same_failures_on_the_base(self) -> None:
+        # Job 141051238788: with the variable at 0, a red the base shares must still be excused, which needs the base
+        # re-run's failure list beside base.json ("its failures cannot be compared, so it is not excused" otherwise).
+        done, _ = self.run_script(BASE_RED="alpha beta")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("cannot be compared", done.stdout + done.stderr)
 
     def test_on_reuses_recorded_verdicts_and_reruns_only_the_rest(self) -> None:
         done, calls = self.run_script(CI_GUARDS_REACHED_BASE_VERDICTS="1", GH_TOKEN="t")
