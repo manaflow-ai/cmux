@@ -6306,6 +6306,38 @@ class SideLinuxRequestTests(unittest.TestCase):
         self.assertEqual(state["part_stored"]["web-ui-ladder"]["sha"], self.CDF)
         self.assertEqual(cron.side_linux_pick(state, self.TIP, self.NOW, True, True), "web-ui-ladder")
 
+    def test_each_side_answer_notes_its_outcome_at_the_side_sha(self):
+        def answer(state, result, report=None):
+            with tempfile.TemporaryDirectory() as d:
+                with open(os.path.join(d, "result.json"), "w") as f:
+                    json.dump(result, f)
+                if report is not None:
+                    with open(os.path.join(d, "report.json"), "w") as f:
+                        json.dump(report, f)
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertTrue(cron.store_side(state, "web-ui-flat", d, "u", self.NOW))
+            return (state.get("part_outcomes") or {}).get("web-ui-flat")
+        state = self.state()
+        state["part_outcomes"] = {"web-ui-flat": {"state": "done", "sha": self.CDF, "why": None}}
+        cron.side_ask(state, "web-ui-flat", self.TIP, self.NOW)
+        got = answer(state, {"state": "failed", "sha": self.TIP, "step_id": "f1", "worker": "linux-pool-2",
+                             "tail": ["bench", "Traceback: web-ui-suite.ts exited 1"]})
+        self.assertEqual((got["state"], got["sha"], got["step_id"], got["worker"]),
+                         ("failed", self.TIP, "f1", "linux-pool-2"), "a failed side answer replaces the older outcome")
+        self.assertIn("web-ui-suite.ts exited 1", got["why"])
+        cron.side_ask(state, "web-ui-flat", self.TIP, self.NOW)
+        got = answer(state, {"state": "yielded", "sha": self.TIP, "step_id": "y1"})
+        self.assertEqual(got["step_id"], "f1", "a yield is no outcome")
+        cron.side_ask(state, "web-ui-flat", self.TIP, self.NOW)
+        got = answer(state, {"state": "done", "sha": self.TIP, "step_id": "d1", "worker": "linux-pool-2"})
+        self.assertEqual((got["state"], got["why"]), ("failed", "no report artifact"))
+        cron.side_ask(state, "web-ui-flat", self.TIP, self.NOW)
+        got = answer(state, {"state": "done", "sha": self.TIP, "step_id": "d2", "worker": "linux-pool-2"},
+                     {"rows": [], "incomplete": ["flat-grown bench exited 1"]})
+        self.assertEqual((got["state"], got["sha"], got["step_id"]), ("incomplete", self.TIP, "d2"))
+        self.assertIn("flat-grown bench exited 1", got["why"])
+        self.assertEqual(state["current"]["parts_todo"], self.MAC_TODO, "the Mac pass is not touched")
+
     def test_the_workflow_asks_the_controller_at_the_side_sha(self):
         with open(os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-perf-budgets.yml")) as f:
             text = f.read()

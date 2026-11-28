@@ -5351,7 +5351,9 @@ def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
 def store_side(state, part, part_dir, run_url, t):
     """Store a side ask's answer (side_linux_pick): a done part's rows at the side SHA (store_part_rows, state
     ['part_rows'] and ['part_stored']); the measurement in flight is not touched. Its ask ends either way (a failed or
-    yielded answer is asked again in a later tick, LINUX_REQUESTS_MAX per tip). Whether PART_DIR held a side answer."""
+    yielded answer is asked again in a later tick, LINUX_REQUESTS_MAX per tip). Each answer also notes its outcome
+    (note_part_outcomes, at the side SHA), as the measurement's own parts do: before, a failed side answer left
+    state['part_outcomes'] with the part's older outcome and NOW read no reason. Whether PART_DIR held a side answer."""
     asks = state.get("side_asks") if isinstance(state.get("side_asks"), dict) else {}
     ask = asks.get(part)
     try:
@@ -5363,7 +5365,17 @@ def store_side(state, part, part_dir, run_url, t):
             and not ask.get("answered_at")):
         return False
     ask.update({"answered_at": iso(t), "step_id": result.get("step_id"), "state": result.get("state")})
+    shim = {"kind": "tip", "sha": ask["sha"], "configs": {part: ask.get("config")} if ask.get("config") else {}}
+    tail = [str(line) for line in result.get("tail") or [] if str(line).strip()]
+
+    def outcome(state_, why=None, report=None):
+        entry = {"state": state_, "step_id": result.get("step_id"),
+                 "why": why or result.get("why") or (tail[-1] if tail else None)}
+        if result.get("timed_out"):
+            entry["timed_out"] = True
+        note_part_outcomes(state, shim, part, entry, report, result.get("worker"), t)
     if result.get("state") != "done":
+        outcome(result.get("state"))
         print(f"perf-cron report: side part {part} at {ask['sha'][:12]}: {result.get('state')}; asked again later")
         return True
     try:
@@ -5373,17 +5385,19 @@ def store_side(state, part, part_dir, run_url, t):
         report_value = None
     if not isinstance(report_value, dict):
         ask["state"] = "failed"
+        outcome("failed", "no report artifact")
         print(f"perf-cron report: side part {part} at {ask['sha'][:12]}: no report artifact")
         return True
-    shim = {"kind": "tip", "sha": ask["sha"], "configs": {part: ask.get("config")} if ask.get("config") else {}}
     p = {**PART_BY_NAME[part], "worker": LINUX_FLEET_CLASS}
     try:
         mod, budgets = load_budgets()
         n = store_part_rows(state, shim, part, p, report_value, mod, budgets, run_url, t)
     except Exception as error:  # a row that does not parse never fails the tick (as the part-by-part store)
         ask["state"] = "failed"
+        outcome("failed", f"rows not stored ({error!r})", report_value)
         print(f"perf-cron report: side part {part}: rows not stored ({error!r})", file=sys.stderr)
         return True
+    outcome("done", report=report_value)
     print(f"perf-cron report: side part {part} at {ask['sha'][:12]}: {n} rows stored")
     return True
 
