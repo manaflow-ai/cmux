@@ -1,0 +1,48 @@
+name: cmux-next iOS gesture conflicts (tip)
+
+# The gesture matrix (cmux-next-ios-gestures.yml) on the feat-cmux-next tip, at most once per 30-minute window
+# (base-coalesce.yml), in place of one run at each land's ready-to-land event. Same cut as the screenshot loop
+# (#65721). RFD 0023 tier B (Leo, 2026-11-21: "everything else runs once post-merge, batched"); Leo, 2026-11-26:
+# "de facto, im asking for 99% fewer minutes of ci time, period." At land the suite ran 59 times in 4 h
+# (5,948 runner-min, 13Z..17Z 11-28, NOW ci_minutes); here it runs at most 48 times a day, and only when a push
+# touched the app's Swift. A red names the window's tip; the gesture cell it names points at the merge.
+# CI_IOS_GESTURES_COALESCE=0 runs it on every tip push that touches these paths.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-next-ios/**/*.swift"
+      - "cmux-next-ios/project.yml"
+      - "scripts/ci/cmux-next-ios-sim.sh"
+      - ".github/workflows/cmux-next-ios-gestures.yml"
+      - ".github/workflows/cmux-next-ios-gestures-tip.yml"
+
+permissions: {}
+
+concurrency:
+  # Each tip push's run is its own group: the next push (whose run the window skips) must not cancel it.
+  group: cmux-next-ios-gestures-tip-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  # The first push of each 30-minute window runs the suite; the window's other pushes skip it, no runner taken.
+  coalesce:
+    if: ${{ github.repository_owner == 'manaflow-ai' }}
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
+    permissions:
+      actions: read
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-next-ios-gestures-tip
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.CI_IOS_GESTURES_COALESCE) == '0' }}
+
+  gestures:
+    needs: [coalesce]
+    if: ${{ !cancelled() && needs.coalesce.result == 'success' && needs.coalesce.outputs.run != 'false' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cmux-next-ios-gestures.yml
+    with:
+      sha: ${{ github.sha }}
