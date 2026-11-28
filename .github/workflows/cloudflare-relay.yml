@@ -105,7 +105,7 @@ permissions:
 # replaced by a newer pending one, which carries the same or newer relay source. Pull
 # requests keep their own cancelling group.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('cloudflare-relay-pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && 'cloudflare-relay-deploy' || format('cloudflare-relay-{0}', github.ref) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: ${{ github.event_name == 'pull_request' && format('cloudflare-relay-pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && 'cloudflare-relay-deploy' || format('cloudflare-relay-{0}', github.ref) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
