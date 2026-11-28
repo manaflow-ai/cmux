@@ -1,0 +1,188 @@
+{
+  "appPolicies" : {
+    "eula" : "",
+    "policies" : [
+      {
+        "locale" : "en_US",
+        "policyText" : "",
+        "policyURL" : ""
+      }
+    ]
+  },
+  "identifier" : "5C3D7A21",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21490001",
+      "localizations" : [],
+      "name" : "cmux",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "299.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6749000001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.",
+              "displayName" : "cmux Max",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.max.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Max Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "74.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6749000002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM.",
+              "displayName" : "cmux Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "699.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6749000004",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM.",
+              "displayName" : "cmux Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.pro.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Pro Yearly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "21.99",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "6749000003",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "1 Cloud VM, up to 8 vCPUs and 16 GB RAM.",
+              "displayName" : "cmux Go",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.go.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Go Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "299.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6749000010",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "300,000 machine-minutes a month, machines up to 32 vCPUs and 64 GB RAM, 5 Chiefs.",
+              "displayName" : "cmux Max",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.next_max.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "NEXT Max Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "74.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6749000011",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "75,000 machine-minutes a month, machines up to 8 vCPUs and 32 GB RAM, 2 Chiefs.",
+              "displayName" : "cmux Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.next_pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "NEXT Pro Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "29.99",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "6749000012",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "30,000 machine-minutes a month, machines up to 4 vCPUs and 16 GB RAM, 1 Chief.",
+              "displayName" : "cmux Plus",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.cmux.ios.next_plus.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "NEXT Plus Monthly",
+          "subscriptionGroupID" : "21490001",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : []
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

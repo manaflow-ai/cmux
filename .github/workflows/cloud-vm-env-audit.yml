@@ -1,0 +1,65 @@
+name: Cloud VM env audit
+
+# Guards against deployed-env / code drift: the 2026-08-26 outage shipped code
+# that assumed one CMUX_VM_DEFAULT_PROVIDER while production still said
+# another, and every Cloud VM create 503ed for two days with nothing paging.
+# This audit pulls the real production env and fails when the default
+# provider's image value is missing from the image manifest, so drift is a red
+# workflow on merge (and daily) instead of a user-facing outage.
+
+on:
+  schedule:
+    - cron: "23 8 * * *"
+  push:
+    branches: [main]
+    paths:
+      - web/services/vms/**
+      - web/scripts/cloud-vm/**
+      - .github/workflows/cloud-vm-env-audit.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# One run at a time and at most one waiting (GitHub replaces an older waiting run with a newer one),
+# so scheduled runs never pile up after an outage; a running one is never cut short
+# (tests/test_ci_cron_concurrency.py).
+concurrency:
+  group: cloud-vm-env-audit
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  audit:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # The audit reads the production env; run only trusted main code.
+          ref: refs/heads/main
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      # The audit is only as strong as its own checks; run its regression
+      # tests first so a weakened guard fails CI instead of staying green.
+      - name: Audit guard self-tests
+        working-directory: web
+        run: bun test tests/cloud-vm-env-audit.test.ts
+
+      - name: Audit production Cloud VM env
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: bun scripts/cloud-vm/audit-vercel-env.mjs . production --strict

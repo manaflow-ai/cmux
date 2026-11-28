@@ -39,14 +39,9 @@ async fn move_as(
 #[tokio::test]
 async fn session_move_as_lands_a_chat_on_the_targets_harness_for_the_same_agent() {
     let target = Daemon::start("as-target").await;
-    let source = Daemon::with_peer("as-source", Some(&target)).await;
     // The source also has the test agent under a routed profile's name the target lacks.
-    let config_path = source.home.join("config.json");
-    let mut config: Value = serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
-    config["harnesses"]["fake-routed"] = config["harnesses"]["fake"].clone();
-    std::fs::write(&config_path, config.to_string()).unwrap();
+    let source = Daemon::with_peer_also("as-source", Some(&target), &["fake-routed"]).await;
     let mut src = Rpc::connect(&source.socket).await;
-    src.call("_acpmux/reload_config", json!({})).await;
 
     let cwd = source.home.join("project");
     std::fs::create_dir(&cwd).unwrap();

@@ -37,6 +37,22 @@ pub fn set_lan_memory_dir(dir: Option<String>) {
     *MEMORY.lock().unwrap_or_else(PoisonError::into_inner) = memory;
 }
 
+/// `transport.tailnetCarrier` on this phone (RFD 0164 T5); off until the app says otherwise.
+static TAILNET_CARRIER: Mutex<cmux_mobile_tailnet::Mode> = Mutex::new(cmux_mobile_tailnet::Mode::Off);
+
+/// This phone's `transport.tailnetCarrier` (`off`, `direct-only`, `on`; anything else is off).
+/// Not `off`: [`race`] adds the Mac's reported tailnet addresses as direct candidates beside
+/// the LAN ones and the relay. Call at launch and whenever the setting changes.
+#[uniffi::export]
+pub fn set_tailnet_carrier(mode: String) {
+    *TAILNET_CARRIER.lock().unwrap_or_else(PoisonError::into_inner) =
+        cmux_mobile_tailnet::Mode::from_setting(&mode);
+}
+
+fn tailnet_carrier_on() -> bool {
+    *TAILNET_CARRIER.lock().unwrap_or_else(PoisonError::into_inner) != cmux_mobile_tailnet::Mode::Off
+}
+
 fn memory() -> Option<LanMemory> {
     MEMORY.lock().unwrap_or_else(PoisonError::into_inner).clone()
 }
@@ -60,7 +76,11 @@ where
     };
     let identity = memory.identity();
     let network = lan::network_tag();
-    let candidates = entry.candidates(network.as_deref());
+    let tailnet = tailnet_carrier_on();
+    let candidates = entry.candidates_with(network.as_deref(), tailnet);
+    if tailnet && !entry.tailnet.is_empty() {
+        timeline.mark("tailnet_candidate");
+    }
     let direct = lan::connect(&identity, &entry, candidates, LinkConfig::default(), timeline);
     tokio::pin!(relay);
     tokio::pin!(direct);
@@ -113,7 +133,7 @@ pub(crate) fn enroll_later(link: Link, mac: String) {
         .await;
         match reply.ok().flatten().as_ref().and_then(LanMac::from_reply) {
             Some(entry) => {
-                tracing::info!(addresses = ?entry.addresses, port = entry.port, "LAN direct path enrolled");
+                tracing::info!(addresses = ?entry.addresses, tailnet = ?entry.tailnet, port = entry.port, "LAN direct path enrolled");
                 memory.enrolled(&mac, entry);
             }
             None => tracing::debug!("LAN direct path not enrolled on this link"),

@@ -23,8 +23,6 @@ public nonisolated struct SidebarFirstFrame: Sendable {
         /// pass gives it no value, and it draws under the label stored with it. With no stored label it draws its
         /// reference: that is a known gap, not a designed look.
         case storedLabel
-        /// The whole sidebar at a launch: clear until its real content (the app's launch reveal).
-        case launchCover
 
         /// The listed state a row in `state` draws; nil for a row that draws its own data.
         public init?(row state: SidebarRowState) {
@@ -70,7 +68,8 @@ public nonisolated struct SidebarFirstFrame: Sendable {
         layout.sections.allSatisfy { $0.items.allSatisfy { !needsValue($0) || infos[$0.id] != nil } }
     }
 
-    /// The states of `DesignedState` that this check finds (never `launchCover`, which the app's launch owns).
+    /// The states of `DesignedState` that this check finds. The sidebar is never held clear at a launch: it draws
+    /// its saved rows (`savedRow`) from the first frame.
     public var designedStates: Set<DesignedState> {
         var states = Set(rows.compactMap(DesignedState.init(row:)))
         for item in layout.sections.flatMap(\.items) {

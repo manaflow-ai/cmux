@@ -1,0 +1,212 @@
+name: Familiar intent review warning (advisory)
+
+# This is advisory. It runs from the trusted base copy so a pull request cannot
+# change the warning policy, and it never fails a check or requests changes.
+# Its GitHub API steps continue on error: an API error (the installation's rate
+# limit) is no red on the pull request. "(advisory)" in the name tells landing
+# tools its red is never a PR's own.
+#
+# Lives on main: GitHub takes a pull_request_target workflow from the default
+# branch whatever the pull request's base, so the feat-cmux-next copy never ran.
+# The checker is still the feat-cmux-next base's: it is checked out at the pull
+# request's base commit below, never from main. This copy is the one that runs,
+# so change it here.
+on:
+  pull_request_target:
+    branches: [feat-cmux-next]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: familiar-intent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  warn:
+    # pull_request_target runs for outside authors too: an ephemeral runner only.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a pull-request-write token
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write # the advisory comment
+    steps:
+      # The base files over raw.githubusercontent.com at a commit sha (seconds), with actions/checkout below as
+      # the fallback. A sparse blobless checkout of a file or two took 30 to 180 s on Blacksmith (the promisor blob
+      # fetch at `git checkout`, or a ref listing the git mirror proxy answered with a 502 after 90 s): most of this
+      # job's runner time. These are files of a base commit named by sha, never the pull request's head, and nothing
+      # from the pull request runs. scripts/ci/api_call_log is left out: it switched itself off on 2026-11-23.
+      # (tests/test_ci_prt_raw_base_files.py)
+      - name: Read the warning script from the base commit
+        id: raw
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          # The job's read token: an unauthenticated raw read is rate limited per address (429), and runner
+          # addresses are shared. Sent only to raw.githubusercontent.com.
+          RAW_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.base.sha }}
+          FILES: scripts/ci/intent_familiar_warning.py
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          part="$RUNNER_TEMP/raw-base-files"
+          rm -rf "$part"
+          for f in $FILES; do
+            mkdir -p "$part/$(dirname "$f")"
+            code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -o "$part/$f" -w '%{http_code}' \
+              -H "Authorization: token $RAW_TOKEN" \
+              "https://raw.githubusercontent.com/$REPO/$SHA/$f")" || code=000
+            if [ "$code" != 200 ]; then
+              echo "::notice::$f read $code over raw; actions/checkout reads the files instead."
+              exit 1
+            fi
+          done
+          cp -R "$part"/. .
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - name: Check out the warning script from the base commit
+        if: steps.raw.outputs.ok != 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          # One file, not a directory: cone mode refuses a file path ("'scripts/ci/intent_familiar_warning.py' is
+          # not a directory"), which failed this job on every pull request before any step ran.
+          sparse-checkout: |
+            scripts/ci/intent_familiar_warning.py
+          sparse-checkout-cone-mode: false
+
+      # The patch comes from git, not the API: every workflow's GITHUB_TOKEN shares one
+      # hourly REST budget, and listing files on every push spent ~155 calls an hour of it.
+      # The head is only read as data (git objects and diff text); nothing from it runs,
+      # and no attribute or diff driver applies in a bare repository with --no-ext-diff
+      # --no-textconv. The API listing is the fallback when git fails.
+      - name: Read the pull-request patch with git
+        id: git-read
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          WORK: ${{ runner.temp }}/intent-git
+          FILES_JSON: ${{ runner.temp }}/intent-files.json
+          BODY_FILE: ${{ runner.temp }}/intent-body.md
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          rm -rf "$WORK"
+          # Commits only (no trees) to find the merge base the API's file list diffs from;
+          # then the trees of the two ends, with blobs fetched as the diff needs them.
+          git init -q --bare "$WORK/history"
+          git -C "$WORK/history" remote add origin "$REPO_URL"
+          git -C "$WORK/history" fetch -q --no-tags --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"
+          merge_base="$(git -C "$WORK/history" merge-base "$BASE_SHA" "$HEAD_SHA")"
+          git init -q --bare "$WORK/ends"
+          git -C "$WORK/ends" remote add origin "$REPO_URL"
+          git -C "$WORK/ends" fetch -q --no-tags --depth=1 --filter=blob:none origin "$merge_base" "$HEAD_SHA"
+          git -C "$WORK/ends" -c core.quotepath=off diff --no-color --no-ext-diff --no-textconv -M \
+            "$merge_base" "$HEAD_SHA" > "$WORK/pr.diff"
+          python3 - "$WORK/pr.diff" "$FILES_JSON" <<'PY'
+          import json
+          import sys
+
+          # One {filename, patch} per file, the shape pulls.listFiles gives: the patch is
+          # the file's hunks from its first "@@" line, without the diff header. Git ends a
+          # ---/+++ name that holds a space with a tab.
+          files = []
+          current = None
+          with open(sys.argv[1], encoding="utf-8", errors="replace") as diff:
+              for line in diff.read().split("\n"):
+                  if line.startswith("diff --git "):
+                      # A binary or mode-only change has no ---/+++ lines: name it from here.
+                      header = line.rsplit(" b/", 1)[-1] if " b/" in line else ""
+                      current = {"new": "", "old": "", "rename": "", "header": header, "patch": []}
+                      files.append(current)
+                  elif current is None:
+                      continue
+                  elif current["patch"] or line.startswith("@@"):
+                      current["patch"].append(line)
+                  elif line.startswith("+++ ") and line != "+++ /dev/null":
+                      current["new"] = line[4:].rstrip("\t").strip('"')[2:]
+                  elif line.startswith("--- ") and line != "--- /dev/null":
+                      current["old"] = line[4:].rstrip("\t").strip('"')[2:]
+                  elif line.startswith("rename to "):
+                      current["rename"] = line[len("rename to "):]
+          result = [
+              {"filename": name, "patch": "\n".join(item["patch"]).rstrip("\n")}
+              for item in files
+              if (name := item["new"] or item["rename"] or item["old"] or item["header"])
+          ]
+          with open(sys.argv[2], "w", encoding="utf-8") as out:
+              json.dump(result, out)
+          PY
+          jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH" > "$BODY_FILE"
+
+      - name: Read the pull-request patch from the API
+        id: read
+        if: steps.git-read.outcome != 'success'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          FILES_JSON: ${{ runner.temp }}/intent-files.json
+          BODY_FILE: ${{ runner.temp }}/intent-body.md
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            fs.writeFileSync(process.env.FILES_JSON, JSON.stringify(files.map(file => ({
+              filename: file.filename,
+              patch: file.patch || '',
+            }))));
+            fs.writeFileSync(process.env.BODY_FILE, context.payload.pull_request.body || '');
+
+      - name: Detect familiar intent changes
+        id: detect
+        if: steps.git-read.outcome == 'success' || steps.read.outcome == 'success'
+        env:
+          FILES_JSON: ${{ runner.temp }}/intent-files.json
+          BODY_FILE: ${{ runner.temp }}/intent-body.md
+          RESULT_JSON: ${{ runner.temp }}/intent-result.json
+        run: |
+          python3 scripts/ci/intent_familiar_warning.py \
+            --body-file "$BODY_FILE" \
+            --files-json "$FILES_JSON" \
+            --output "$RESULT_JSON"
+
+      - name: Warn CodeRabbit and cubic reviewers
+        if: steps.detect.outcome == 'success'
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RESULT_JSON: ${{ runner.temp }}/intent-result.json
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync(process.env.RESULT_JSON, 'utf8'));
+            if (!result.warnings || result.warnings.length === 0) return;
+            const marker = '<!-- cmux-familiar-intent-warning -->';
+            const mentions = [...new Set(result.warnings.map(item => `@${item.owner}`))].join(' ');
+            const paths = [...new Set(result.warnings.map(item => `\`${item.path}\``))].join(', ');
+            const body = `${marker}\n⚠️ **CodeRabbit/cubic familiar-intent warning** ${mentions}\n\nThis PR changes a hunk marked \`@intent ... stability=familiar\` in ${paths}. If the familiar behavior changes on purpose, an optional \`Intent-Delta:\` line in the description (preserved, modified, retired or new) records it. This is advisory and does not block the PR.`;
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: context.payload.pull_request.number, per_page: 100,
+            });
+            const prior = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (prior) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: prior.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number: context.payload.pull_request.number, body });
+            }
