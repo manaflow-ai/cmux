@@ -88,6 +88,8 @@ fn a_new_machine_stuck_past_the_bound_is_deleted_and_the_chat_starts_on_a_fresh_
     assert_eq!(replaced["machine_id"], "vm-stuck");
     assert_eq!(replaced["deleted"], true);
     assert_eq!(replaced["why"], "bound");
+    // It names where it stopped: running, its session never up (a hang, not a boot).
+    assert_eq!(replaced["stage"], "running", "{replaced}");
     // Given up at the bound, not after the app's 180 s: list 5 s, the start to the bound, its read there, then the
     // cleanup and the fresh start (5 s each).
     let spent = fake.clock.saturating_duration_since(began);
@@ -492,6 +494,7 @@ fn a_cold_machine_that_boots_and_then_hangs_is_given_up_within_the_cold_bound() 
     let replaced = &answer["fresh_retry"][0];
     assert_eq!(replaced["why"], "bound");
     assert_eq!(replaced["deleted"], true);
+    assert_eq!(replaced["stage"], "running", "booted, then hung: {replaced}");
     assert_eq!(starts(&fake), 2);
     // From the start: the bound at 90 s, read (provisioning) to 95 s, 10 s on; read (running) to 110 s, then
     // UP_BOUND on; read (running) again: given up 175 s after the start, inside COLD_BOUND. Before it the run's list,
@@ -513,6 +516,8 @@ fn a_machine_that_never_finishes_booting_is_given_up_at_the_cold_bound() {
     let began = fake.clock;
     let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
     assert_eq!(answer["fresh_retry"][0]["why"], "bound");
+    // Its create never landed: the give-up says so, not just "didn't connect".
+    assert_eq!(answer["fresh_retry"][0]["stage"], "creating", "{answer}");
     assert_eq!(starts(&fake), 2);
     let reads = fake
         .ran
@@ -524,4 +529,49 @@ fn a_machine_that_never_finishes_booting_is_given_up_at_the_cold_bound() {
     assert_eq!(reads, 1 + 6 + 1, "{:?}", fake.ran);
     let spent = fake.clock.saturating_duration_since(began);
     assert_eq!(spent, Duration::from_secs(5) + COLD_BOUND + Duration::from_secs(20), "{spent:?}");
+}
+
+/// cmux#47002 review, 2026-11-22: the app refused before any machine was made (no Cloud connection serves
+/// claude, `agent_session.harness_missing`). The run already read the list and found no machine of its fresh
+/// name, so nothing is deleted, no second list is read, and the answer keeps this run's own retry: it never
+/// says a machine "was deleted" that never existed.
+#[test]
+fn a_refusal_before_any_machine_reports_no_deletion_and_keeps_its_retry() {
+    let setup = "No Cloud connection serves claude yet (agent_session.harness_missing). Add one in Settings > \
+                 Cloud, then run `cmux cloud start-session --name chat-fresh --agent claude` again.";
+    let refused = Ran {
+        code: 1,
+        stderr: json!({"code": "unavailable", "message": setup}).to_string(),
+        ..Ran::default()
+    };
+    let mut fake = Fake::new(vec![signed_in(), refused, signed_in(), signed_in()]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    let message = error["message"].as_str().unwrap();
+    assert!(!message.contains("was deleted"), "{message}");
+    assert!(message.contains("cmux cloud start-chat --prompt TEXT --wait --json"), "{message}");
+    assert!(error["details"]["cleanup"].is_null(), "{error}");
+    let lists = fake.ran.iter().filter(|step| step[1] == "list-machines").count();
+    assert_eq!(lists, 2, "one list before the start, one to prove no machine: {:?}", fake.ran);
+}
+
+/// cmux#47002 review, 2026-11-22: a machine the rollback deleted is not handed to the caller to delete again.
+#[test]
+fn a_rolled_back_machine_is_not_named_for_the_caller_to_delete() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        agent_refused("agent_session.bad_request"),
+        ok(json!({"deleted": true})),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--agent", "codex", "--environment", "env_1"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["details"]["cleanup"]["deleted"], true);
+    assert!(error["details"]["new_machine"].is_null(), "{error}");
+    assert!(error["details"]["machine_id"].is_null(), "{error}");
 }

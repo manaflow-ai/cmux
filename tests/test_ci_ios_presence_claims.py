@@ -51,6 +51,27 @@ class PresenceClaimCheck(unittest.TestCase):
         self.assertPasses('Text(String(localized: "Computer is asleep"))\n')
         self.assertPasses('.accessibilityIdentifier("workspaces.empty.asleep")\n')
 
+    def test_string_catalogs_and_rust_copy_fail(self) -> None:
+        # Every screen: a word that lives in a catalog or in the phone's Rust core is copy too.
+        catalog = "cmux-next-ios/App/Localizable.xcstrings"
+        self.assertEqual(self.run_on('    "Your Macs are asleep" : {\n', catalog).returncode, 1)
+        strings = "cmux-next-ios/App/en.lproj/Localizable.strings"
+        self.assertEqual(self.run_on('"empty.title" = "Your Mac is asleep";\n', strings).returncode, 1)
+        self.assertPasses('    "Your Macs are offline" : {\n', catalog)
+
+    def test_rust_copy_fails_and_rust_tests_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            core = Path(tmp) / "cmux-tui/crates/cmux-mobile-core/src/presence.rs"
+            core.parent.mkdir(parents=True)
+            core.write_text('pub const TITLE: &str = "Your Mac is asleep";\n', encoding="utf-8")
+            test = Path(tmp) / "cmux-tui/crates/cmux-mobile-core/tests/presence.rs"
+            test.parent.mkdir(parents=True)
+            test.write_text('assert_eq!(t, "Your Mac is asleep");\n', encoding="utf-8")
+            r = subprocess.run([sys.executable, str(SCRIPT)], cwd=tmp, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1, r.stdout)
+            self.assertIn("src/presence.rs", r.stdout)
+            self.assertNotIn("tests/presence.rs", r.stdout)
+
     def test_comments_marks_and_tests_pass(self) -> None:
         self.assertPasses('// was "Your Macs are asleep"\n')
         self.assertPasses('// presence-ok: the Mac reported it sleeps\nText("Your Mac is asleep")\n')

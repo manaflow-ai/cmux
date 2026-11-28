@@ -30,12 +30,13 @@ pub(super) fn answer(reply: &Value) -> Value {
     };
     let moved = reply.get("movedBits").and_then(Value::as_u64).unwrap_or(0);
     let tab = reply.get("tab").and_then(Value::as_str).unwrap_or("?");
+    let location = reply.get("url").and_then(Value::as_str).unwrap_or(tab);
     let kept = match reply.get("kept").and_then(Value::as_u64) {
         Some(i) => format!("kept as frame {i} in the chat's strip"),
         None => "same picture as the last frame".to_owned(),
     };
     let line = format!(
-        "tab {tab}, {}x{} px; {moved}/64 bits moved since the turn's first frame; {kept}.",
+        "tab {tab} ({location}), {}x{} px; {moved}/64 bits moved since the turn's first frame; {kept}.",
         reply["width"], reply["height"]
     );
     json!({
@@ -59,22 +60,5 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_look_hands_back_one_picture_and_one_line() {
-        let reply = json!({"image": {"mimeType": "image/png", "data": "AAAA"}, "width": 512, "height": 320, "tab": "t1", "movedBits": 12, "kept": 3});
-        let out = answer(&reply);
-        assert_eq!(out["content"][0]["type"], "image");
-        assert_eq!(out["content"][0]["data"], "AAAA");
-        let line = out["content"][1]["text"].as_str().unwrap();
-        assert!(line.contains("12/64") && line.contains("frame 3"), "{line}");
-    }
-
-    #[test]
-    fn no_page_is_said_plainly() {
-        let out = answer(&json!({"error": "no agent-driven page"}));
-        assert_eq!(out["isError"], true);
-    }
-}
+#[path = "acpmux_mcp_look_tests.rs"]
+mod tests;

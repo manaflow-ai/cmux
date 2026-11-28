@@ -21,9 +21,15 @@
 //! (`host.rs`, `still_pooled`), and the next daemon ends any left in the
 //! pool directory before it adopts hosts (`sweep_pool_hosts`).
 //!
-//! Only a daemon in a user manager's service unit moves hosts: one in a
-//! terminal, a login session scope or under launchd leaves them where they
-//! are. `ACPMUX_HOST_SCOPES=0` turns it off. Best effort: a failed move is
+//! Only a daemon in a user manager's service unit moves hosts, or one in a
+//! user manager's scope that carries a memory ceiling (`systemd-run --user
+//! --scope -p MemoryHigh=`): there every host's and harness's memory counted
+//! against the daemon's ceiling, and the duress bench's bigchat leg measured
+//! it (10417 `memory.high` events, 407 processes and 10.7 GB of RSS in the
+//! daemon's 768 MB scope, the daemon's own pages swapped out: CLI `ls` p99
+//! 517 ms; with the fork driver, the one that starts hosts, off: 10 events, 33
+//! processes, 173 ms). One in a terminal's scope with no ceiling, a login
+//! session scope or under launchd leaves them where they are. `ACPMUX_HOST_SCOPES=0` turns it off. Best effort: a failed move is
 //! logged and leaves the host in the daemon's unit, as before, and no move is
 //! tried for [`RETRY_AFTER`], so a broken bus does not slow every spawn.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -41,6 +47,56 @@ pub(crate) const BUSCTL: &[&str] = &["/usr/bin/busctl", "/bin/busctl"];
 
 /// How long no move is tried after one failed.
 pub(crate) const RETRY_AFTER: Duration = Duration::from_secs(60);
+
+/// The slice the daemon's own ssh logins (a peer link's ssh, an ssh carry) and the ProxyCommand
+/// hops they run join, each in its own `systemd-run --scope` ([`low_weight`]). The daemon's unit
+/// has `CPUWeight=1000 IOWeight=1000` (`cli/hosts.rs`, "the daemon outranks its work"), and every
+/// child stays in the unit's cgroup: on a shared Linux host (2026-11-28) about 300 ssh logins and
+/// hops ran there at the daemon's weight, ahead of every agent. Here they weigh
+/// [`HELPER_WEIGHT`], the default every agent host's scope has, and the daemon keeps its own.
+pub(crate) const HELPER_SLICE: &str = "acpmuxhelpers.slice";
+
+/// The CPU and IO weight of [`HELPER_SLICE`]'s scopes: systemd's default, an agent host's.
+pub(crate) const HELPER_WEIGHT: u32 = 100;
+
+/// Where `systemd-run` is taken from: system directories only, as [`BUSCTL`].
+pub(crate) const SYSTEMD_RUN: &[&str] = &["/usr/bin/systemd-run", "/bin/systemd-run"];
+
+/// The words before `program` that run it in its own low-weight scope of [`HELPER_SLICE`]:
+/// `systemd-run --scope` registers its own pid and then execs `program`, so the pid, process
+/// group, stdio and environment are `program`'s own, and every child it starts (a ProxyCommand
+/// hop) is in the scope from its first instruction.
+pub(crate) fn helper_argv(systemd_run: &str) -> Vec<OsString> {
+    let weight = |key: &str| OsString::from(format!("{key}={HELPER_WEIGHT}"));
+    vec![
+        systemd_run.into(),
+        "--user".into(),
+        "--scope".into(),
+        "--quiet".into(),
+        "--collect".into(),
+        format!("--slice={HELPER_SLICE}").into(),
+        "-p".into(),
+        weight("CPUWeight"),
+        "-p".into(),
+        weight("IOWeight"),
+        "--".into(),
+    ]
+}
+
+/// The program and leading arguments that run `program` (the daemon's ssh) in its own
+/// low-weight scope ([`HELPER_SLICE`]), where agent hosts move into scopes ([`moves`]) and no
+/// move failed within [`RETRY_AFTER`]; elsewhere (a Mac, a terminal, a test, the user manager's
+/// bus not answering) `program` itself and none. `systemd-run`'s own refusal starts nothing and
+/// says "Failed to start transient scope unit" (`ssh_carry::outcome` reads it as not taken).
+pub(crate) fn low_weight(program: &std::ffi::OsStr) -> (OsString, Vec<OsString>) {
+    #[cfg(all(target_os = "linux", not(test)))]
+    if let Some(mut argv) = linux::helper_prefix() {
+        let first = argv.remove(0);
+        argv.push(program.to_owned());
+        return (first, argv);
+    }
+    (program.to_owned(), Vec::new())
+}
 
 /// The scope unit name of the host with `pid`. `tag` is random per move: a
 /// stale scope of an earlier process with the same pid (a harness that
@@ -60,12 +116,41 @@ pub(crate) fn in_user_service(cgroup: &str) -> bool {
     })
 }
 
+/// Whether `cgroup`, the text of a process's `/proc/<pid>/cgroup`, places it in a scope unit of a
+/// user manager (`…/user@1000.service/…/run-x.scope`), not the manager's own `init.scope`.
+pub(crate) fn in_user_scope(cgroup: &str) -> bool {
+    unified(cgroup).is_some_and(|path| {
+        let mut parts = path.split('/').filter(|p| !p.is_empty());
+        parts.any(|p| p.starts_with("user@") && p.ends_with(".service"))
+            && parts
+                .next_back()
+                .is_some_and(|leaf| leaf.ends_with(".scope") && leaf != "init.scope")
+    })
+}
+
+/// Whether a cgroup's `memory.high` or `memory.max` text (`limit`: the file's name to its text,
+/// None when unreadable) is a ceiling: a number, not `max`.
+pub(crate) fn has_memory_ceiling(limit: impl Fn(&str) -> Option<String>) -> bool {
+    ["memory.high", "memory.max"]
+        .into_iter()
+        .any(|file| limit(file).is_some_and(|t| t.trim().parse::<u64>().is_ok()))
+}
+
+/// Whether a daemon with this `/proc/self/cgroup` text moves the hosts it starts out of its own
+/// cgroup: a user manager's service unit always; a user manager's scope when its memory is
+/// capped (`limit` reads that scope's `memory.high` and `memory.max`), since every host's memory
+/// would otherwise throttle the daemon.
+pub(crate) fn moves_hosts_from(cgroup: &str, limit: impl Fn(&str) -> Option<String>) -> bool {
+    in_user_service(cgroup) || (in_user_scope(cgroup) && has_memory_ceiling(limit))
+}
+
 /// The cgroup v2 path in `/proc/<pid>/cgroup` text.
 pub(crate) fn unified(cgroup: &str) -> Option<&str> {
     cgroup.lines().find_map(|line| line.strip_prefix("0::")).map(str::trim_end)
 }
 
 /// Whether `cgroup` text places a process in the host scope `unit`.
+#[cfg(test)]
 pub(crate) fn names_scope(cgroup: &str, unit: &str) -> bool {
     names_scope_in(cgroup, HOST_SLICE, unit)
 }
@@ -84,6 +169,7 @@ pub(crate) fn names_scope_in(cgroup: &str, slice: &str, unit: &str) -> bool {
 /// reaches it, so a profile override applies to the session scope only. A host's scope holds its
 /// session's harness too when that harness got no scope of its own (no `systemd-run`, a remote
 /// profile), so a runaway stops there as it would in a session scope.
+#[cfg(test)]
 pub(crate) fn busctl_args(unit: &str, pid: u32, limits: &[[String; 3]]) -> Vec<String> {
     busctl_args_in(unit, pid, HOST_SLICE, limits)
 }
@@ -152,6 +238,7 @@ pub(crate) fn backing_off(failed: Option<std::time::Instant>, now: std::time::In
 mod linux {
     use super::*;
     use crate::no_panic::LockExt;
+    use crate::session_budget::TaskClass;
     use std::process::Stdio;
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
@@ -175,7 +262,11 @@ mod linux {
                     return None;
                 }
                 let own = std::fs::read_to_string("/proc/self/cgroup").ok()?;
-                in_user_service(&own).then(|| unified(&own).map(str::to_owned)).flatten()
+                let path = unified(&own)?.to_owned();
+                let limit = |file: &str| {
+                    std::fs::read_to_string(format!("/sys/fs/cgroup{path}/{file}")).ok()
+                };
+                moves_hosts_from(&own, limit).then_some(path)
             })
             .as_deref()
     }
@@ -188,6 +279,16 @@ mod linux {
         daemon_cgroup().is_some() && !backing_off(*FAILED_AT.lock_or_recover(), Instant::now())
     }
 
+    /// [`helper_argv`] with this machine's `systemd-run`, when the daemon's spawns may use it.
+    #[cfg_attr(test, allow(dead_code))]
+    pub(super) fn helper_prefix() -> Option<Vec<OsString>> {
+        if !enabled() || std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+            return None;
+        }
+        let run = SYSTEMD_RUN.iter().find(|p| std::path::Path::new(p).is_file())?;
+        Some(helper_argv(run))
+    }
+
     fn tag() -> Result<String, String> {
         let mut bytes = [0u8; 4];
         getrandom::fill(&mut bytes).map_err(|e| format!("the OS random generator: {e}"))?;
@@ -197,15 +298,16 @@ mod linux {
     /// Move the host `pid` this process just started, and has not reaped
     /// (its pid cannot be reused), into its own scope. Never fails the spawn.
     pub(crate) async fn place(pid: u32) {
-        place_in(pid, None).await;
+        place_in(pid, None, TaskClass::Task).await;
     }
 
-    /// [`place`] into `slice` (a session's, `session_total.rs`); None: [`HOST_SLICE`].
-    pub(crate) async fn place_in(pid: u32, slice: Option<String>) {
+    /// [`place`] into `slice` (a session's, `session_total.rs`); None: [`HOST_SLICE`]. `class`
+    /// is the task's CPU class (a filler task at `CPUWeight=idle` under CPU classes).
+    pub(crate) async fn place_in(pid: u32, slice: Option<String>, class: TaskClass) {
         if enabled() {
             let slice = slice.as_deref().unwrap_or(HOST_SLICE);
             let placed = match tag() {
-                Ok(tag) => try_place(&scope_unit(pid, &tag), pid, slice).await,
+                Ok(tag) => try_place(&scope_unit(pid, &tag), pid, slice, class).await,
                 Err(e) => Err(e),
             };
             report(pid, placed);
@@ -222,7 +324,7 @@ mod linux {
         );
     }
 
-    async fn try_place(unit: &str, host: u32, slice: &str) -> Result<(), String> {
+    async fn try_place(unit: &str, host: u32, slice: &str, class: TaskClass) -> Result<(), String> {
         let busctl = BUSCTL
             .iter()
             .find(|p| std::path::Path::new(p).is_file())
@@ -245,7 +347,7 @@ mod linux {
                 .kill_on_drop(true)
                 .output()
         };
-        let budget = crate::session_budget::task_budget().0.bus_properties();
+        let budget = crate::session_budget::task_budget(class).0.bus_properties();
         let output = tokio::time::timeout(PLACEMENT_WAIT, call(budget))
             .await
             .map_err(|_| format!("busctl did not answer within {PLACEMENT_WAIT:?}"))?
@@ -298,9 +400,15 @@ pub(crate) async fn place(_pid: u32) {}
 
 /// Hosts move into scopes only under a Linux user manager.
 #[cfg(not(target_os = "linux"))]
-pub(crate) async fn place_in(_pid: u32, _slice: Option<String>) {}
+pub(crate) async fn place_in(
+    _pid: u32,
+    _slice: Option<String>,
+    _class: crate::session_budget::TaskClass,
+) {
+}
 
-/// Whether hosts and tasks move into scopes here (a user manager's service unit, moves on).
+/// Whether hosts and tasks move into scopes here (a user manager's service unit, or a scope of it
+/// under a memory ceiling; moves on).
 #[cfg(target_os = "linux")]
 pub(crate) fn moves() -> bool {
     linux::moves()

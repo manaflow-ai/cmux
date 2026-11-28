@@ -25,8 +25,22 @@ export function motionMode(
   const token = motionToken(root, "--agent-motion-in", doc);
   if (token && !(Number.parseFloat(token) > 0)) return "none";
   if (root.dataset.agentMotion === "reduced" || root.dataset.cmuxMotion === "reduced") return "reduced";
-  if (view.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return "reduced";
+  if (reducedQuery(view)?.matches) return "reduced";
   return "full";
+}
+
+/// One `prefers-reduced-motion` query per window, kept: `matches` follows the setting live, and a new
+/// query each call (a live line's every change, ThinkingLine's dwell) built a MediaQueryList each time.
+/// Kept with the `matchMedia` it came from, so a window given another one (a test's stand-in) asks it.
+const reducedQueries = new WeakMap<Window, { from: Window["matchMedia"]; query: MediaQueryList | null }>();
+function reducedQuery(view: Window): MediaQueryList | null {
+  const from = view.matchMedia;
+  if (typeof from !== "function") return null;
+  const kept = reducedQueries.get(view);
+  if (kept && kept.from === from) return kept.query;
+  const query = from.call(view, "(prefers-reduced-motion: reduce)") ?? null;
+  reducedQueries.set(view, { from, query });
+  return query;
 }
 
 /**

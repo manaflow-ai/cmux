@@ -346,6 +346,16 @@ impl Events {
         self.mark_tee(&session.id);
     }
 
+    /// A person's edit of `session`'s row that no record carries (a pin, a draft): stamped and
+    /// told now, not before the next list read as [`Self::row_changed`] is. A peer daemon follows
+    /// this list by its `session_changed` and reads no list of its own, so a row left untold
+    /// stayed as it was on the peer until some other change of it (two-daemon check, RFD 0140).
+    pub(super) fn row_changed_told(&self, session: &Session) {
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        self.mark_tee(&session.id);
+        self.tell_row(&session.id);
+    }
+
     /// Every closed row's cached bytes go stale (a session came that may be another's parent).
     pub(super) fn all_rows_stale(&self) {
         self.summary_generation.fetch_add(1, Ordering::SeqCst);

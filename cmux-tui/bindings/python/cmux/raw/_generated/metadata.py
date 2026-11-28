@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '6ca9835c2b5e897aea083c0a9ef5399cfceec848d825d37fd4bc0d69db6cfd89'
+IR_SHA256 = 'd2e58e7363ddeea75dced973d72229d390076f4ddefc62d7d2c13dba33084783'
 
 
 @dataclass(frozen=True)
@@ -1837,6 +1837,7 @@ COMMANDS = {
         None,
         {
             'machine_metadata': CommandFieldMetadata(12, 'machine-identity-v1'),
+            'restore_progress': CommandFieldMetadata(12, None),
             'revisions': CommandFieldMetadata(12, None),
         },
     ),
@@ -2602,6 +2603,18 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'offer-link-to-phone': CommandMetadata(
+        'offer-link-to-phone',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
     'page-credential': CommandMetadata(
         'page-credential',
         'local-admin',
@@ -3256,6 +3269,7 @@ COMMANDS = {
         None,
         {
             'include': CommandFieldMetadata(None, None),
+            'restore_progress': CommandFieldMetadata(12, None),
         },
     ),
     'set-attach-visibility': CommandMetadata(
@@ -4278,6 +4292,7 @@ EVENTS = {
     'client-attached': EventMetadata('client-attached', 6, None, ('subscribe',), 'emitted'),
     'client-changed': EventMetadata('client-changed', 6, None, ('subscribe',), 'emitted'),
     'client-detached': EventMetadata('client-detached', 6, None, ('subscribe',), 'emitted'),
+    'client-disconnected-by': EventMetadata('client-disconnected-by', 12, None, ('control',), 'emitted'),
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'cloud-conversation-changed': EventMetadata('cloud-conversation-changed', 12, 'cloud-conversations-v1', ('subscribe',), 'emitted'),
     'cloud-conversation-live': EventMetadata('cloud-conversation-live', 12, 'cloud-chief-live-v1', ('subscribe',), 'emitted'),
@@ -4323,6 +4338,7 @@ EVENTS = {
     'pane-closed': EventMetadata('pane-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'participant-avatar-changed': EventMetadata('participant-avatar-changed', 12, 'participant-avatars-v1', ('subscribe',), 'emitted'),
     'personal-changed': EventMetadata('personal-changed', 12, 'profiles-v1', ('subscribe',), 'emitted'),
+    'phone-open-link': EventMetadata('phone-open-link', 12, None, ('control',), 'emitted'),
     'program-status-changed': EventMetadata('program-status-changed', 12, None, ('subscribe',), 'emitted'),
     'render-delta': EventMetadata('render-delta', 7, None, ('attach-render',), 'emitted'),
     'render-state': EventMetadata('render-state', 7, None, ('attach-render',), 'emitted'),

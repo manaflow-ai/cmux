@@ -14,6 +14,8 @@ pub const CMUX_BACKGROUND_READY_MODE_OFF: u8 = 0;
 pub const CMUX_BACKGROUND_READY_MODE_AFTER_QUIT: u8 = 1;
 /// Mode AfterQuitAndLogin: as AfterQuit, and a hidden copy starts at login.
 pub const CMUX_BACKGROUND_READY_MODE_AFTER_QUIT_AND_LOGIN: u8 = 2;
+/// Mode WarmAtLogin: nothing stays running; at login a reader reads the app's code into memory and exits.
+pub const CMUX_BACKGROUND_READY_MODE_WARM_AT_LOGIN: u8 = 3;
 
 /// Quit origin: Cmd-Q, the app menu or the Dock.
 pub const CMUX_BACKGROUND_READY_QUIT_INTERACTIVE: u8 = 0;
@@ -58,8 +60,9 @@ unsafe fn bytes<'a>(utf8: *const c_char) -> Option<&'a [u8]> {
 }
 
 /// The owner of parsing `app.backgroundReady`: "off", "afterQuit" or
-/// "afterQuitAndLogin" give 0, 1 or 2; null or any other string gives 0 (Off),
-/// so an unreadable setting never keeps a process the user did not ask for.
+/// "afterQuitAndLogin" give 0, 1 or 2, "warmAtLogin" gives 3; null or any
+/// other string gives 0 (Off), so an unreadable setting never keeps a process
+/// the user did not ask for.
 ///
 /// # Safety
 /// `utf8` is null or a NUL-terminated string readable for this call.
@@ -70,7 +73,8 @@ pub unsafe extern "C" fn cmux_background_ready_mode_parse(utf8: *const c_char) -
 }
 
 /// The owner of what a quit does: 1 stays hidden, 0 exits. It stays only when
-/// the mode is on, the quit is a plain Cmd-Q, menu or Dock quit (origin 0), no
+/// the mode keeps a copy (1 or 2; Off and 3, WarmAtLogin, quit), the quit is
+/// a plain Cmd-Q, menu or Dock quit (origin 0), no
 /// update installs on this quit (the installer needs the process gone) and the
 /// user did not choose Quit Completely. Every other origin asks for this
 /// process to end: Quit Completely and Restart to Update by name, a script
@@ -121,11 +125,28 @@ pub extern "C" fn cmux_background_ready_registers_login_item(mode: u8) -> bool {
     crate::registers_login_item(Mode::from_u8(mode))
 }
 
+/// The owner of the login-time pre-read agent: registered only for mode 3
+/// (WarmAtLogin); every other mode, Off included, unregisters it, so
+/// switching away removes the agent. Mode 2 needs none: its login item starts
+/// the app, which reads the same pages.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_background_ready_registers_preread_agent(mode: u8) -> bool {
+    crate::registers_preread_agent(Mode::from_u8(mode))
+}
+
+/// The owner of whether Quit Completely is offered: only for modes 1 and 2,
+/// which keep a hidden copy after a quit. Off and 3 (WarmAtLogin) keep
+/// nothing running, so a quit is already complete.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_background_ready_offers_quit_completely(mode: u8) -> bool {
+    crate::offers_quit_completely(Mode::from_u8(mode))
+}
+
 /// The owner of what a launch does. A launch the user made is 0 (Normal)
 /// whatever the mode: the setting changes quits and logins, never an open. A
 /// login launch with mode 2 is 1 (start hidden: no window and no Chromium
 /// warm-up, so login pays for the native process only). A login launch with
-/// any other mode is 2: the registration is stale (the setting changed while
+/// any other mode, 3 (WarmAtLogin, which never starts the app) included, is 2: the registration is stale (the setting changed while
 /// the app was not running to unregister it), so unregister and exit at once.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_background_ready_at_launch(mode: u8, launched_as_login_item: bool) -> u8 {

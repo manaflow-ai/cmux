@@ -1,4 +1,7 @@
 import CmuxMobileAgentChat
+#if canImport(CmuxMobileLinkFFI)
+import CmuxMobileLinkFFI
+#endif
 import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
@@ -29,9 +32,10 @@ public actor AcpmuxConnection {
     }
 
     private let channel: any LinkChannel
+    /// Only outgoing bytes on this connection's serialized ACP channel.
+    nonisolated var sentBytes: UInt64? { channel.sentBytes }
     /// The link's last progress (its Mac's ``MacSession/progress``, or this channel's own): every
-    /// frame heard and every write taken tells it, and a ``submit(_:_:timeout:)``'s write is
-    /// bounded by silence on it, not by a fixed time.
+    /// frame heard and every completed write contributes to the Mac's link status.
     nonisolated let progress: LinkProgress
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
@@ -43,8 +47,17 @@ public actor AcpmuxConnection {
     private let continuation: AsyncStream<Notification>.Continuation
 
     /// The `acpmux` channel's open args: large replies (the chat list) come compressed from a
-    /// Mac that can (`DeflatedMessage`, CMUX-563); an older Mac ignores them.
-    public static let channelArgs = ["compression": "deflate"]
+    /// Mac that can (`DeflatedMessage`, CMUX-563); an older Mac ignores them. A Mac that reads
+    /// `compressions` sends every message through one zstd stream instead (`zstd-stream-v1`,
+    /// cmux-mobile-host `link_zstd.rs`), read by the Rust decoder; a Mac before it reads only
+    /// `compression`.
+    public static var channelArgs: [String: String] {
+        #if canImport(CmuxMobileLinkFFI)
+        ["compression": "deflate", "compressions": "zstd-stream-v1,deflate"]
+        #else
+        ["compression": "deflate"]
+        #endif
+    }
 
     /// `held`: a channel opened before this phone checked the Mac (``AcpmuxHub/bind(_:requestTimeout:until:)``).
     /// Until ``admit()``, nothing reaches `notifications`: at most ``heldNotificationLimit``
@@ -131,7 +144,7 @@ public actor AcpmuxConnection {
             sends[id] = Task {
                 do {
                     try Task.checkCancellation()
-                    try await channel.send(data)
+                    try await send(data)
                     sends[id] = nil
                 } catch { fail(id, error) }
             }
@@ -185,11 +198,8 @@ public actor AcpmuxConnection {
     /// its answer. Requests a caller submits one after another reach the Mac in that order
     /// (``request(_:_:)`` writes from a task of its own), and the caller need not wait for an
     /// answer before the next: a `session/prompt` is answered only when its turn ends.
-    /// The write is bounded by a quiet window of `timeout` (by default ``writeBound(bytes:base:)``
-    /// of its size) that ``progress`` (anything heard from the Mac, a write taken) restarts, not
-    /// by `timeout` in all: a write on a link that keeps moving goes on (Leo, 2026-11-24: "if
-    /// it's making good progress, it shiukd be allowed to keep going?"). It is released when the
-    /// caller is cancelled, as ``request(_:_:timeout:)``'s is.
+    /// A write continues while its chunks or a preceding serialized write enter the transport.
+    /// Without transport progress, the deadline scales with the encoded payload.
     public func submit(_ method: String, _ params: JSONValue, timeout: Duration? = nil,
                        base: Duration = AcpmuxConnection.writeBase) async throws -> Int {
         try Task.checkCancellation()
@@ -211,15 +221,15 @@ public actor AcpmuxConnection {
             sending.insert(id)
         }
         defer { sending.remove(id) }
-        let channel = channel
-        let window = timeout ?? Self.writeBound(bytes: data.count, base: base)
+        let write = channel.observedWrite(data)
+        let window = timeout ?? (write.takeProgress == nil ? Self.writeBound(bytes: data.count, base: base) : base)
         do {
             try await LinkDeadline.run(
                 timeout: window,
                 timeoutError: LinkError(code: "timeout", message: "write of \(method) made no progress"),
-                extend: progress.stallExtension(after: window),
-                operation: { try await channel.send(data) },
-                onCancel: { await self.release(id) }
+                extend: { write.takeProgress?() == true ? window : nil },
+                operation: write.send,
+                onCancel: { write.cancel() }
             )
         } catch {
             release(id)
@@ -249,8 +259,8 @@ public actor AcpmuxConnection {
 
     /// How long a write of `bytes` may take: `base`, plus its bytes at ``writeFloorRate``. A fixed
     /// bound cut off a large prompt that was still going out on a slow link, and the prompt came
-    /// back as "unreachable" though the Mac was there (``LinkChannel/send(_:)`` reports no
-    /// progress, so the bound scales with the size instead of watching for a stall).
+    /// back as "unreachable" though the Mac was there. Channels without per-write observations
+    /// use this bound for a complete write.
     public static func writeBound(bytes: Int, base: Duration = writeBase) -> Duration {
         base + .milliseconds(Int64(max(0, bytes)) * 1000 / Int64(writeFloorRate))
     }
@@ -301,7 +311,17 @@ public actor AcpmuxConnection {
         if let ended { throw ended }
         start()
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "method": .string(method), "params": params])
-        try await channel.send(try JSONEncoder().encode(message))
+        try await send(try JSONEncoder().encode(message))
+    }
+
+    /// A request or notification may queue behind a multi-frame prompt. Cancelling the caller
+    /// must release its native waiter before a later write can send the abandoned request.
+    private func send(_ data: Data) async throws {
+        let write = channel.observedWrite(data)
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await write.send()
+        } onCancel: { write.cancel() }
     }
 
     public func close() async {
@@ -319,6 +339,12 @@ public actor AcpmuxConnection {
         do {
             while let message = try await channel.receive() {
                 route(message)
+                if streamLost {
+                    rpcLog.error("acpmux: a zstd stream message did not decode; closing")
+                    finish(LinkError(code: "closed", message: "acpmux stream lost"))
+                    await channel.close(code: "eof", reason: "zstd stream lost")
+                    return
+                }
                 if held != nil, let cutOff {
                     rpcLog.error("acpmux: \(cutOff, privacy: .public) before this phone checked the Mac; closing")
                     finish(LinkError(code: "refused", message: "The Mac sent too much before pairing finished"))
@@ -349,6 +375,12 @@ public actor AcpmuxConnection {
         let refused = joiner.takeRefused()
         if let id = joiner.takeClaimed() { claimedReplies.insert(id) }
         frames = joiner
+        if joiner.streamLost, cutOff == nil {
+            // The zstd stream's context is gone: no later message decodes. The channel reopens.
+            cutOff = "an undecodable zstd stream message"
+            streamLost = true
+            return
+        }
         if held != nil, let refused {
             cutOff = "a message of \(refused) bytes"
             return
@@ -360,7 +392,9 @@ public actor AcpmuxConnection {
         dispatch(value, bytes: joiner.lastBytes)
     }
 
-    private var frames = MessageJoiner()
+    private var frames = MessageJoiner(zstd: MessageJoiner.makeZstd())
+    /// The zstd stream failed (``MessageJoiner/streamLost``): the read loop closes the channel.
+    private var streamLost = false
     /// Requests whose answer already took its allowance before the check (one message each).
     private var claimedReplies: Set<Int> = []
 
@@ -440,6 +474,22 @@ public actor AcpmuxConnection {
         private var refused: Int?
         /// The request id a message took the answer's allowance for, since the last ``takeClaimed()``.
         private var claimed: Int?
+        /// The channel's zstd stream decoder (`zstd-stream-v1`), nil where the Rust library is not linked.
+        var zstd: (any ZstdStreamReading)?
+        /// A zstd stream message failed: its context is lost, so the channel must reopen.
+        private(set) var streamLost = false
+
+        init(zstd: (any ZstdStreamReading)? = nil) {
+            self.zstd = zstd
+        }
+
+        static func makeZstd() -> (any ZstdStreamReading)? {
+            #if canImport(CmuxMobileLinkFFI)
+            RustZstdStream()
+            #else
+            nil
+            #endif
+        }
 
         mutating func takeRefused() -> Int? {
             defer { refused = nil }
@@ -456,6 +506,9 @@ public actor AcpmuxConnection {
             // A compressed message (`DeflatedMessage`): its header says where it ends.
             if (pending.first ?? frame.first) == DeflatedMessage.marker {
                 return pushDeflated(frame)
+            }
+            if (pending.first ?? frame.first) == ZstdStreamMessage.marker, zstd != nil {
+                return pushZstd(frame)
             }
             if pending.isEmpty { start(Self.leadingID(frame)) }
             pending.append(frame)
@@ -537,6 +590,48 @@ public actor AcpmuxConnection {
                 reset()
                 return lost ? push(frame) : nil
             }
+        }
+
+        /// One `zstd-stream-v1` envelope (`ZstdStreamMessage`): joined by its header's length like
+        /// a deflate envelope, then decoded by the channel's one Rust decoder. Every envelope must
+        /// decode, in order (the stream keeps context), so one is never skipped: a bad or lost one
+        /// ends the channel (``streamLost``).
+        private mutating func pushZstd(_ frame: Data) -> JSONValue? {
+            pending.append(frame)
+            guard let header = ZstdStreamMessage(header: pending) else {
+                if pending.count < ZstdStreamMessage.headerBytes { return nil }
+                return lose()
+            }
+            // Before the text is decoded its id is unknown: it may be as long as ``budget``, or as
+            // any message while one of this phone's own requests waits (its id is checked after).
+            // Never more compressed bytes than that either, so what is held stays bounded.
+            let most = replyIDs.isEmpty ? budget : Self.maxMessage
+            if header.textBytes > most || header.zstdBytes > max(most, Self.chunk) {
+                refused = header.textBytes
+                return lose()
+            }
+            let used = ZstdStreamMessage.headerBytes + header.zstdBytes
+            guard pending.count >= used else { return nil }
+            // A frame never holds two messages: bytes past the envelope mean a frame was lost.
+            guard pending.count == used, let zstd else { return lose() }
+            let body = pending.subdata(in: (pending.startIndex + ZstdStreamMessage.headerBytes)..<(pending.startIndex + used))
+            reset()
+            guard let text = zstd.decode(body, textLength: header.textBytes) else { return lose() }
+            lastBytes = text.count
+            start(Self.leadingID(text))
+            let allowed = limit ?? budget
+            limit = nil
+            if text.count > allowed {
+                refused = text.count
+                return nil
+            }
+            return Self.decode(text)
+        }
+
+        private mutating func lose() -> JSONValue? {
+            streamLost = true
+            reset()
+            return nil
         }
 
         /// The id at the start of an answer's text: `{"id":N` or `{"jsonrpc":"2.0","id":N`, the
@@ -624,3 +719,47 @@ extension AcpmuxConnection.RPCError: LocalizedError {
         return "Your Mac couldn't do that."
     }
 }
+
+/// A `zstd-stream-v1` envelope's header (cmux-mobile-link `zstd_stream.rs`): every acpmux message
+/// from a Mac that reads `compressions`, through one zstd stream kept for the channel's life:
+///
+/// ```text
+/// 0x01 | text length (u32 BE) | zstd length (u32 BE) | the flushed zstd bytes
+/// ```
+///
+/// JSON never starts with 0x01. The Rust decoder (`ZstdStreamDecoder`) does all the decoding.
+struct ZstdStreamMessage {
+    static let marker: UInt8 = 0x01
+    static let headerBytes = 9
+
+    let textBytes: Int
+    let zstdBytes: Int
+
+    init?(header bytes: Data) {
+        guard bytes.count >= Self.headerBytes, bytes.first == Self.marker else { return nil }
+        let start = bytes.startIndex
+        func u32(_ at: Int) -> Int {
+            (1...4).reduce(0) { $0 << 8 | Int(bytes[start + at + $1 - 1]) }
+        }
+        textBytes = u32(1)
+        zstdBytes = u32(5)
+    }
+}
+
+/// The channel's zstd stream decoder: one per channel, fed every envelope in order.
+protocol ZstdStreamReading: AnyObject {
+    /// The text of an envelope's zstd bytes, exactly `textLength` long; nil once the stream is lost.
+    func decode(_ body: Data, textLength: Int) -> Data?
+}
+
+#if canImport(CmuxMobileLinkFFI)
+/// The Rust decoder (cmux-mobile-link-ffi `ZstdStreamDecoder`).
+final class RustZstdStream: ZstdStreamReading {
+    private let decoder = ZstdStreamDecoder()
+
+    func decode(_ body: Data, textLength: Int) -> Data? {
+        guard let length = UInt32(exactly: textLength) else { return nil }
+        return try? decoder.decode(body: body, textLen: length)
+    }
+}
+#endif

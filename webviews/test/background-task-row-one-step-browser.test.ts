@@ -16,7 +16,7 @@
 // card (the command, what it printed, "[exited with code 0]", the "stream ended" line and Open in
 // terminal), never the stub; the note's height and the reply under it move in one motion; and the
 // card's height never changes once that motion ends. (What the open costs mid-chat, the rows under
-// it riding the fold, lands with the fold-lag fix, #39917, whose foldRide.ts it measures.)
+// it, the rows under it moving once, is the transcript's placement.)
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";

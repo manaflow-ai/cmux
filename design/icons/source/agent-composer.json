@@ -203,6 +203,17 @@
    ]
   },
   {
+   "name": "sparkles",
+   "meaning": "Sparkles (Chief Activity and other AI actions).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5Q13 11 20.5 12Q13 13 12 20.5Q11 13 3.5 12Q11 11 12 3.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5Q13 11 20.5 12Q13 13 12 20.5Q11 13 3.5 12Q11 11 12 3.5Z'/></svg>",
+   "alts": [],
+   "note": "The four-point sparkle used by Chief Activity.",
+   "replaces": [
+    "sparkles"
+   ]
+  },
+  {
    "name": "automation",
    "meaning": "Automations (server dashboard count, Feed automation item).",
    "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M19.18 16A8 8 0 1 1 19.18 8'/><path d='M19.85 4.82L19.18 8L16.09 7'/><path d='M10.75 9.25v5.5l4.25 -2.75Z'/></svg>",

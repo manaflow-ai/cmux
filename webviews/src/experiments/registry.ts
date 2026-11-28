@@ -73,6 +73,7 @@ import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCar
 import { settingsAskCard } from "../agent-session/acpmux/conversation/settingsAskCard.experiment";
 import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
+import { cloudLastSeenLook } from "../agent-session/acpmux/cloudLastSeen.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
@@ -132,6 +133,7 @@ import { timeHoverDate } from "../agent-session/acpmux/conversation/timeHoverDat
 import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.experiment";
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
+import { teamDirectory } from "../agent-session/acpmux/teamDirectory/teamDirectory.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import { transcriptScrollPacer } from "../agent-session/acpmux/transcriptScrollPacer.experiment";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
@@ -198,6 +200,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   settingsAskCard,
   capacityWaitLook,
   pausedMachineResume,
+  cloudLastSeenLook,
   stoppedTurnLook,
   timeHoverWording,
   timeHoverDate,
@@ -285,6 +288,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fieldGrowthMotion,
   composerDockMotion,
   teamAudit,
+  teamDirectory,
   jumpPairLook,
   transcriptScrollPacer,
   shortcutKeycaps,

@@ -4,6 +4,7 @@
 # CMUX_PUBLISHED_KEYS_WRITE=1 cargo test -p cmux-config --test published_keys
 agentPane.attachmentView
 agentPane.composerLook
+agentPane.composerPlaceholder
 agentPane.composerRing
 agentPane.composerVimKeys
 agentPane.dictationShortcut
@@ -44,12 +45,24 @@ agentPane.display.rail.control
 agentPane.display.rail.show
 agentPane.display.rail.side
 agentPane.display.sendPop
+agentPane.display.sendScrollsToTop
 agentPane.display.senderIcon.badge
 agentPane.display.senderIcon.corner
 agentPane.display.senderIcon.lead
 agentPane.display.sessionInfo.placement
+agentPane.display.sessionInfo.sections.carried
+agentPane.display.sessionInfo.sections.changes
+agentPane.display.sessionInfo.sections.connectors
+agentPane.display.sessionInfo.sections.context
+agentPane.display.sessionInfo.sections.environment
+agentPane.display.sessionInfo.sections.outputs
+agentPane.display.sessionInfo.sections.sources
+agentPane.display.sessionInfo.sections.subagents
+agentPane.display.sessionInfo.sections.tasks
+agentPane.display.sessionInfo.sections.usage
 agentPane.display.statusVerbs.custom
 agentPane.display.statusVerbs.mode
+agentPane.display.streaming
 agentPane.display.subagentOf
 agentPane.display.thinking.glyph
 agentPane.display.thinking.glyphSize
@@ -88,6 +101,9 @@ agents.autoRetry.attempts
 agents.autoRetry.capacityFallbackAfter
 agents.autoRetry.enabled
 agents.autoRetry.intervalSeconds
+agents.autoSettle.idleDays
+agents.autoSettle.onClose
+agents.autoSettle.onMerge
 agents.cacheCompact.enabled
 agents.cacheCompact.minContextPercent
 agents.cacheCompact.minContextTokens
@@ -133,6 +149,7 @@ agents.trust.ownOrgs
 agents.trust.projectRoots
 announcements.enabled
 announcements.fetch
+app.captureScreenshotGlobalHotKey
 app.confirmQuit
 app.globalHotKey
 app.hideDockIconWithoutWindows
@@ -197,6 +214,7 @@ appearance.glassControls
 appearance.glassTransparency
 appearance.gooeyTabs
 appearance.highlightColor
+appearance.homeCardStyle
 appearance.hue
 appearance.iconTheme
 appearance.inactiveWindowDim
@@ -309,6 +327,7 @@ appearance.themeFile
 appearance.themeFileExceptions
 appearance.titleAreaContrast
 appearance.titleAreaTone
+appearance.toolbarButtonStyle
 appearance.twoTone
 appearance.wallpaperLighting
 appearance.wallpaperTint
@@ -391,6 +410,7 @@ chief.subagentSidebar
 chief.subagentSidebarHideWords
 chief.subagentSidebarMinWords
 chief.subagentSidebarShowWords
+cloud.addFolderLive
 cloud.agentMemory.follow
 cloud.agentsStartWithoutAsking
 cloud.autoCloud
@@ -400,6 +420,7 @@ cloud.newWorkspacesInCloud
 cloud.turnCheckpoints
 cloud.useMyClaudeLoginOnMyCloudMachines
 cloud.useMyCodexLoginOnMyCloudMachines
+cloud.useMyGitHubLogin
 computerUse.allowForeground
 computerUse.allowOwnMachines
 computerUse.cursorTag
@@ -487,14 +508,19 @@ experiments.agentBadges
 experiments.agentBadgesBeam
 experiments.appFontChrome
 experiments.appStoreFeatures
+experiments.appsTier
 experiments.attachmentTypeIcons
 experiments.browserProfileCard
+experiments.chatInstantUnderLoad
 experiments.chatWidgets
 experiments.cloudDiskBar
+experiments.cloudToggle
+experiments.compactionThresholdInsight
 experiments.composerButtonsVisible
 experiments.composerCustomizer
 experiments.composerHatGroups
 experiments.composerV2
+experiments.eventsAsToolCalls
 experiments.expandedEditsEstimate
 experiments.foldSummaryCounts
 experiments.forum
@@ -508,6 +534,7 @@ experiments.palettePreview
 experiments.paletteV2
 experiments.quietConnect
 experiments.seeThroughDock
+experiments.setupShelf
 experiments.startedTaskTitleChip
 experiments.terminalAgentMark
 experiments.terminalHistory
@@ -517,6 +544,7 @@ experiments.threadMinimapRestReveal
 experiments.toastGlass
 experiments.toastsV2
 experiments.transcriptWorkLog
+experiments.writtenHTMLOpenBeside
 feed.agentPermissionPrompts
 feed.github.enabled
 feed.github.pollIntervalSeconds
@@ -569,6 +597,7 @@ labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
 labs.previousBuild
+labs.teamCompute
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn
@@ -759,6 +788,7 @@ sidebar.priorityView.filters
 sidebar.priorityView.showIdle
 sidebar.priorityView.shown
 sidebar.priorityView.statusWords
+sidebar.profileMenu.style
 sidebar.sectionLook
 sidebar.sections.hidden
 sidebar.sections.order
@@ -789,6 +819,7 @@ sidebar.style
 sidebar.textSize
 sidebar.topBandMaxShare
 sidebar.workspaceIcons
+sidebar.workspaceListApp
 sidebar.workspaceRow.agent.agentStatus
 sidebar.workspaceRow.agent.branch
 sidebar.workspaceRow.agent.directory

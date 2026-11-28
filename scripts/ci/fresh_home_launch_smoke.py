@@ -255,6 +255,52 @@ def bundle_info(app: Path) -> tuple[str, str]:
     return info["CFBundleIdentifier"], info["CFBundleExecutable"]
 
 
+LIVE_COPY_SIGNALS = (signal.SIGTERM, signal.SIGKILL)
+
+
+def live_copies(bundle_id: str) -> list[dict]:
+    """The apps of BUNDLE_ID that run on this host outside every smoke's cmux-fresh-* root: pid and bundle, by the
+    main executable each command line names (`<bundle>.app/Contents/MacOS/<CFBundleExecutable>`). A classic cmux
+    of the bundle id terminates every other copy of it that launches (Sources/AppDelegate.swift
+    observeDuplicateLaunches: terminate, then forceTerminate), so a launch beside one ends by a signal 2 s in with no
+    crash report (2026-11-27: a classic NIGHTLY left running in one CI Mac's console session failed builds
+    4591789366301 and 4593744440101 there, while another Mac passed 4592220755201 and 4594117542401)."""
+    found = []
+    for pid, args in user_processes():
+        head, sep, rest = args.partition(".app/Contents/MacOS/")
+        if not sep:
+            continue
+        bundle = head + ".app"
+        if os.path.basename(os.path.dirname(os.path.dirname(bundle))).startswith("cmux-fresh-") or "/cmux-fresh-" in bundle:
+            continue
+        try:
+            with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+                info = plistlib.load(handle)
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            continue
+        executable = str(info.get("CFBundleExecutable") or "")
+        if info.get("CFBundleIdentifier") != bundle_id or not executable:
+            continue
+        if rest != executable and not rest.startswith(executable + " "):
+            continue
+        found.append({"pid": pid, "bundle": bundle, "version": str(info.get("CFBundleShortVersionString") or "")})
+    return found
+
+
+def stopped_by_live_copy(bundle_id: str, status: int | None, elapsed: float, crashes: list, exceptions: list,
+                         copies: list[dict]) -> None:
+    """CannotRun when the launch ended by SIGTERM or SIGKILL, with no crash report and no uncaught exception, while
+    another copy of BUNDLE_ID ran on the host (COPIES, read at launch): that copy stopped it (live_copies), and the
+    host cannot smoke this bundle until it quits. A crash is a crash whatever else runs: its signal is another, or
+    it leaves a report."""
+    if status is None or -status not in LIVE_COPY_SIGNALS or crashes or exceptions or not copies:
+        return
+    named = ", ".join(f"pid {copy['pid']} {copy['bundle']} {copy['version']}".rstrip() for copy in copies[:5])
+    raise CannotRun(f"the app was stopped by signal {-status} {elapsed:.1f}s after launch, with no crash report, while "
+                    f"another copy of {bundle_id} ran on this host ({named}); a classic cmux of this bundle id "
+                    f"terminates every other copy that launches, so this host cannot smoke it until that copy quits")
+
+
 def copy_app(source: Path, root: Path) -> Path:
     dest = root / "app" / source.name
     dest.parent.mkdir(exist_ok=True)
@@ -694,6 +740,52 @@ def read_marks(path: Path) -> dict[str, float]:
         except ValueError:
             continue
     return marks
+
+
+def read_launch_time(path: Path, wait: float = 5.0) -> dict | None:
+    """Read this launch's app-owned Home mark from ``launch-times.jsonl``.
+
+    The recorder writes on a files lane after the awaited marks arrive, so a short bounded
+    wait is necessary after the socket watch observes Home.  The fresh smoke HOME has no older
+    records; the newest valid line is therefore this process's launch.  Malformed or partial
+    lines are ignored while the recorder's atomic rewrite completes.
+    """
+    deadline = time.monotonic() + max(0.0, wait)
+    while True:
+        records: list[dict] = []
+        try:
+            for line in path.read_text(errors="replace").splitlines():
+                try:
+                    value = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(value, dict):
+                    records.append(value)
+        except OSError:
+            pass
+        if records:
+            record = records[-1]
+            ms = record.get("reveal_home_ms")
+            if not isinstance(ms, (int, float)) or isinstance(ms, bool):
+                # Records written before reveal_home_ms was added still have the page mark.
+                ms = record.get("home_first_page_ms") if record.get("home_revealed_by") == "mark" else None
+            if isinstance(ms, (int, float)) and not isinstance(ms, bool):
+                return {"ms": round(float(ms), 1), "revealed_by": record.get("home_revealed_by"),
+                        "record": record}
+            if "home_revealed_by" in record:
+                return {"ms": None, "revealed_by": record.get("home_revealed_by"), "record": record}
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.05)
+
+
+def app_launch_reading(home: Path, bundle_id: str, rendered_at: float | None, wait: float = 5.0) -> dict | None:
+    """Return the persisted app mark and the old wall-clock reading for one launch."""
+    record = read_launch_time(home / "Library" / "Application Support" / bundle_id / "launch-times.jsonl", wait)
+    if record is None:
+        return None
+    return {"ms": record["ms"], "source": "launch-times.jsonl", "revealed_by": record["revealed_by"],
+            "harness_ms": None if rendered_at is None else round(rendered_at * 1000), "record": record["record"]}
 
 
 def crash_reports(directory: Path, executable: str, since: float) -> list[Path]:
@@ -1272,6 +1364,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
                 seed = seed_cookie_sync_home(Path(env["HOME"]), bundle_id)
                 log(f"==> seeded-home launch of {bundle_id}: cookie sync on, {seed['rows']} made-up cookies of "
                     f"{seed['hosts']} sites, HOME={env['HOME']}, {args.seeded_seconds:.0f}s")
+                arm["live_copies"] = live_copies(bundle_id)
                 launched_wall = time.time() - 1
                 with open(sub / "app.log", "wb") as app_log:
                     process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable),
@@ -1307,6 +1400,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     for found in others:
         log(f"note: crash report {found.name} is not counted for the seeded launch: {not_counted[found]}")
     exceptions = sorted((sub / "h").rglob("run.exception"))
+    stopped_by_live_copy(bundle_id, status, elapsed, crashes, exceptions, arm.get("live_copies") or [])
     seen["crash_reports"] = [str(path) for path in crashes]
     seen["run_exceptions"] = [str(path) for path in exceptions]
     arm["crash_reports_not_counted"] = [str(path) for path in others]
@@ -1491,6 +1585,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         if PREPARE_HOME is not None:
             PREPARE_HOME(env)
         log(f"==> fresh-home launch of {bundle_id} ({app}), HOME={env['HOME']}, {args.seconds:.0f}s")
+        report["live_copies"] = live_copies(bundle_id)
         launched_wall = time.time() - 1
         with open(root / "app.log", "wb") as app_log:
             process = subprocess.Popen([str(app / "Contents" / "MacOS" / executable), "-ApplePersistenceIgnoreState", "YES"],
@@ -1505,6 +1600,12 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
             os.close(marks_read)
         report.update(seen)
         report["marks"] = read_marks(marks_path)
+        app_launch = app_launch_reading(
+            Path(env["HOME"]), bundle_id, seen["rendered_at"],
+            wait=float(os.environ.get("CMUX_FRESH_SMOKE_LAUNCH_TIMES_WAIT", "1.0")))
+        if app_launch is not None:
+            report["app_launch"] = app_launch
+            report["harness_launch_ms"] = app_launch["harness_ms"]
         report["home_tab"] = home_tab(seen["snapshot"])
         if out is not None and seen["exit"] is None:
             report["screenshot"] = screenshot(out)
@@ -1538,6 +1639,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
             log(f"warning: a crash report that was not counted could not be kept: {error}")
     failures = list(journey_failures)
     status, elapsed = seen["exit"], seen["seconds_up"]
+    stopped_by_live_copy(bundle_id, status, elapsed, crashes, exceptions, report.get("live_copies") or [])
     if status is not None:
         how = f"signal {-status}" if status < 0 else f"status {status}"
         failures.append(f"the app exited ({how}) {elapsed:.1f}s after launch")

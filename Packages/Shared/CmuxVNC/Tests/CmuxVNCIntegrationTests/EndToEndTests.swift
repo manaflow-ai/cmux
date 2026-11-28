@@ -58,7 +58,7 @@ struct EndToEndTests {
     }
 
     @Test func typingReachesTheServerAndCursorArrives() async throws {
-        let server = VNCDemoServer(configuration: .init(width: 200, height: 120, framesPerSecond: 0))
+        let server = VNCDemoServer(configuration: .init(width: 200, height: 120, framesPerSecond: 0, rules: .fixture))
         let port = try await server.start()
         defer { server.stop() }
         let client = VNCClient(endpoint: VNCEndpoint(host: "127.0.0.1", port: port), options: VNCSessionOptions(localCursor: true, rules: .fixture))

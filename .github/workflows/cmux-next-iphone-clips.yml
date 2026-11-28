@@ -48,7 +48,7 @@ jobs:
       plan: ${{ steps.plan.outputs.plan }}
       count: ${{ steps.plan.outputs.count }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -82,14 +82,14 @@ jobs:
     name: Record on a fleet simulator
     needs: plan
     if: ${{ needs.plan.outputs.count != '' && needs.plan.outputs.count != '0' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     timeout-minutes: 240
     permissions:
       contents: read
     outputs:
       clips: ${{ steps.record.outputs.count }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 1
@@ -101,6 +101,7 @@ jobs:
       - name: Record
         id: record
         env:
+          CI_SIM_BENCH_QUEUE_S: ${{ vars.CI_SIM_BENCH_QUEUE_S }}
           CLIPS_PLAN: ${{ needs.plan.outputs.plan }}
           HEAD: ${{ github.sha }}
         # Every failure is handled where it happens: one clip's failed step must not drop the others.
@@ -122,14 +123,30 @@ jobs:
           out="${RUNNER_TEMP:?}/media/whats-new-clips"
           mkdir -p "$out"
           count=0
-          QUEUE_S=3600 RUN_S=3600
+          # A simulator-class wait past 15 min has never paid off (job 140683535687: 71 min, zero clips). Repo variable
+          # CI_SIM_BENCH_QUEUE_S=3600 restores the old hour.
+          QUEUE_S="${CI_SIM_BENCH_QUEUE_S:-900}" RUN_S=3600
+          # A shipped nightly's clips rank above plain agent steps (--priority pr), due when the queue wait ends.
+          # As plain agent steps they lost every turn: 45978228941's two clips sat their whole 3600 s while the
+          # simulator class's p90 queue wait was 393 min (20 agent steps queued, 15 of 17 workers busy), so the
+          # run published nothing and ios-feed-hides-closed-tabs and ios-new-task-cloud-machine shipped bare.
+          rank=()
+          if "$client" run --help 2>/dev/null | grep -q -- '--priority {'; then
+            rank=(--priority pr --deadline "${QUEUE_S}s")
+          fi
+          # --priority pr is only the agent tag rank (-9, one above plain agent steps): 46020149254's three clips
+          # still sat their 3600 s behind 45 queued simulator steps. These steps ship with the nightly, so their
+          # key names it: the controller ranks a nightly's step in the delivery class (-6, nightlyOrPromoteJob),
+          # ahead of every agent and person step.
           printf '%s\n' "$CLIPS_PLAN" > "$RUNNER_TEMP/clips-plan.json"
           record_one() {
             local id="$1" roles="$2" before="$3" log="$RUNNER_TEMP/iphone-$id.log" rc step
             local args=(--arg clips --arg "id=$id" --arg "roles=$roles")
             [ "$before" = - ] || args+=(--arg "base=$before")
             "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD" \
-              --queue-timeout "$QUEUE_S" --timeout "$RUN_S" \
+              --key "nightly-next-whats-new-clip-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:-1}-$id" \
+              --deadline "${QUEUE_S}s" \
+              --queue-timeout "$QUEUE_S" --timeout "$RUN_S" ${rank[@]+"${rank[@]}"} \
               --artifact artifacts/ios-sim/whats-new-clips.zip "${args[@]}" > "$log" 2>&1
             rc=$?
             echo "$id: cmux-ci run exited $rc" >> "$log"
@@ -184,7 +201,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false

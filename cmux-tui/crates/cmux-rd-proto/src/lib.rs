@@ -21,6 +21,8 @@ mod feedback;
 mod frame;
 mod frame_times;
 mod input;
+#[cfg(feature = "serde")]
+pub mod rd_doc;
 mod stream;
 
 pub use bulk::{BULK_PREFIX_LEN, BulkFrame, MAX_BULK_CHUNK};

@@ -11,7 +11,7 @@ fn args(words: &[&str]) -> Vec<String> {
 
 /// A line exactly as the app's `LaunchTimesFile.append` writes it (sorted keys, CmuxNextControl's
 /// LaunchTimesFileTests write the same record).
-const LINE: &str = r#"{"build":"200","commit":"31583607abcdef","first_launch_of_build":true,"first_window_frame_ms":512,"home_first_page_ms":830.7,"home_revealed_by":"mark","main_ms":470.8,"pre_main_ms":41.3,"prewarm_reason":"main","prewarmed":true,"started_at":"2027-01-15T08:00:00Z","version":"1.0.0"}"#;
+const LINE: &str = r#"{"build":"200","commit":"31583607abcdef","first_launch_of_build":true,"first_window_frame_ms":512,"home_first_page_ms":830.7,"home_revealed_by":"mark","main_ms":470.8,"pre_main_ms":41.3,"prewarm_reason":"main","prewarmed":true,"reveal_home_ms":830.7,"started_at":"2027-01-15T08:00:00Z","version":"1.0.0"}"#;
 
 #[test]
 fn launch_times_parses_its_options() {
@@ -98,6 +98,7 @@ fn launch_times_reads_the_apps_record_back() {
     assert_eq!(record["main_ms"], json!(470.8));
     assert_eq!(record["first_window_frame_ms"], json!(512));
     assert_eq!(record["home_first_page_ms"], json!(830.7));
+    assert_eq!(record["reveal_home_ms"], json!(830.7));
     assert_eq!(record["home_revealed_by"], "mark");
     assert_eq!(record["prewarmed"], true);
     assert_eq!(record["prewarm_reason"], "main");

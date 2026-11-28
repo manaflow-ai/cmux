@@ -62,6 +62,7 @@ run 2 acpmux ordinary ignored=0
 run 2 acpmux ordinary ignored=1 ignored=1
 run 2 acpmux ordinary enable=PATH
 run 2 acpmux ordinary legs=baseline
+run 2 acpmux ordinary enable=CMUX_AGENT_PANE_COMPILE_HINTS legs=baseline
 run 2 acpmux duress_bench enable=ACPMUX_DURESS
 run 2 "${duress[@]}" config=debug
 run 2 acpmux duress_bench target=test:duress_daemon config=release ignored=1 enable=ACPMUX_DURESS legs=cpu

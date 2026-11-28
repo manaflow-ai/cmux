@@ -11,6 +11,13 @@ It submits the same job `cmux-ci ios-build` does and hands back the output once 
   POST ROUTE  {"op": "submit", "what": "ffi"|"sim-products"|"kit-products"}  -> {"job", "state"}
   POST ROUTE  {"op": "status", "job": ID}                     -> {"job", "state"[, "verdict", "reason",
                                                                   "get_url", "get_until"]}
+  POST ROUTE  {"op": "queue"}                                 -> {"queued", "oldest_queued_s"}
+
+Before it submits, it asks for the queue a submit joins: when the oldest job there has already waited
+--queue-timeout, it exits 2 at once instead of holding this runner that long for a job that would wait behind it
+(run 45996304968, 2026-11-27: the kit-sim-fleet job held a cmux-linux runner 604 s, "job 862b085e... still queued
+after 600 s", and built nothing). A route that does not answer the queue (an older controller, no route) is no
+answer: it submits as before.
 
 Exit codes are the same as `cmux-ci ios-build`'s, so the callers did not change:
   0  every output is in --out (a pass)
@@ -23,6 +30,7 @@ Usage: fleet_ios_build.py --what ffi|sim-products|kit-products --out DIR [--time
 import argparse
 import json
 import os
+import re
 import sys
 import tarfile
 import tempfile
@@ -48,6 +56,28 @@ CALL_TIMEOUT = 30
 # signature): every submit failed in 0 s that way (2026-11-26, run 45898219170), so name the client.
 USER_AGENT = "cmux-ci-fleet-ios-build"
 POLL_START, POLL_MAX = 5, 20
+SUBMIT_RETRY_S = 120  # how long a submit retries a controller that is restarting
+# A failed build's answer names its compiler errors (`errors`: file, line, col, message; at most 20), the file a path
+# in this checkout. Each becomes a GitHub error annotation on that line, so a job that no longer builds on a Mac still
+# shows what broke: run 45923302765 showed only "the build failed: build" for WorkspaceGroupTests.swift:476's error.
+ERROR_FILE = re.compile(r"^(?:cmux-next-ios|Packages)/[A-Za-z0-9_./+-]+$")
+MAX_ERRORS = 20
+
+
+def annotation(err):
+    """The `::error` workflow command for one answered error, or None for one that is not a checkout path and line."""
+    if not isinstance(err, dict):
+        return None
+    path, line, col, msg = err.get("file"), err.get("line"), err.get("col"), err.get("message")
+    if not (isinstance(path, str) and ERROR_FILE.match(path) and ".." not in path.split("/")):
+        return None
+    if not (isinstance(line, int) and line > 0 and isinstance(msg, str) and msg.strip()):
+        return None
+    def prop(v):
+        return str(v).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").replace(":", "%3A").replace(",", "%2C")
+    data = msg.strip()[:300].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    where = f"file={prop(path)},line={line}" + (f",col={col}" if isinstance(col, int) and col > 0 else "")
+    return f"::error {where},title=build fleet::{data}"
 
 
 def log(msg):
@@ -117,10 +147,33 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
     if not bearer[0]:
         log("no OIDC token (the job needs permissions: id-token: write)")
         return 2
-    status, ans, retry = ask({"op": "submit", "what": what})
-    if status != 200 or not ans.get("job"):
-        log(f"submit: HTTP {status} {ans.get('error', '')}".rstrip())
+    status, ans, _ = ask({"op": "queue"})
+    oldest = ans.get("oldest_queued_s") if status == 200 else None
+    if isinstance(oldest, (int, float)) and oldest >= queue_timeout:
+        log(f"queue full: {ans.get('queued')} job(s) queued, the oldest {int(oldest)} s, past --queue-timeout "
+            f"{queue_timeout} s; not submitting (the caller builds it itself)")
         return 2
+    if status == 200 and isinstance(oldest, (int, float)):
+        log(f"queue: {ans.get('queued')} job(s) queued, the oldest {int(oldest)} s")
+    # A controller that is restarting answers 503 "the controller is starting; retry" for a few seconds; the
+    # kit run 45926512987 (2026-11-27) gave up on its first 503 and the Mac built instead. Retry a submit that
+    # got no answer, a 5xx or a 429 for up to SUBMIT_RETRY_S (the Mac fallback waits on this), except a route
+    # that says it is not enabled: that answer does not change on a retry.
+    wait = POLL_START
+    while True:
+        status, ans, retry = ask({"op": "submit", "what": what})
+        if status == 200 and ans.get("job"):
+            break
+        log(f"submit: HTTP {status} {ans.get('error', '')}".rstrip())
+        transient = status in (0, 429) or (status >= 500 and "not enabled" not in str(ans.get("error", "")))
+        if not transient or clock() - start > min(queue_timeout, SUBMIT_RETRY_S):
+            return 2
+        try:
+            pause = max(wait, int(retry)) if retry else wait
+        except ValueError:
+            pause = wait
+        sleep(pause)
+        wait = min(wait * 2, POLL_MAX)
     job = ans["job"]
     log(f"job {job} {ans.get('state', '')}".rstrip())
     queued_since, wait = start, POLL_START
@@ -152,7 +205,12 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
         wait = min(wait * 2, POLL_MAX)
     verdict = ans["verdict"]
     if verdict == "fail":
-        log(f"job {job}: the build failed: {ans.get('reason') or 'build'}")
+        errors = ans.get("errors") if isinstance(ans.get("errors"), list) else []
+        lines = [a for a in map(annotation, errors[:MAX_ERRORS]) if a]
+        log(f"job {job}: the build failed: {ans.get('reason') or 'build'}"
+            + (f" ({len(lines)} compiler error{'s' if len(lines) != 1 else ''} below)" if lines else ""))
+        for a in lines:
+            print(a, flush=True)
         return 1
     if verdict != "pass" or not ans.get("get_url"):
         log(f"job {job}: verdict {verdict} with no output")
@@ -160,10 +218,17 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
     with tempfile.TemporaryDirectory() as scratch:
         archive = Path(scratch) / "out.tgz"
         try:
-            with opener(urllib.request.Request(ans["get_url"]), timeout=600) as resp, open(archive, "wb") as f:
+            # The store's presigned GET sits behind the same CDN as the route: urllib's default agent got HTTP 403
+            # there for every passed build (run 45932893553, both kit fleet jobs), so it names the client too. No
+            # bearer: the URL is its own credential.
+            get = urllib.request.Request(ans["get_url"], headers={"User-Agent": USER_AGENT})
+            with opener(get, timeout=600) as resp, open(archive, "wb") as f:
                 while chunk := resp.read(1 << 20):
                     f.write(chunk)
             complete = extract(archive, out, what)
+        except urllib.error.HTTPError as exc:
+            log(f"job {job}: output unreadable: HTTP {exc.code} {store_reason(exc)}".rstrip())
+            return 2
         except (urllib.error.URLError, OSError, ValueError, tarfile.TarError) as exc:
             log(f"job {job}: output unreadable: {exc}")
             return 2
@@ -172,6 +237,16 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
         return 2
     log(f"job {job}: pass in {int(clock() - start)} s")
     return 0
+
+
+def store_reason(exc):
+    """The first line of a refused download's body, short: "error code: 1010" (the CDN) or the store's S3 <Code>."""
+    try:
+        text = exc.read(2048).decode("utf-8", "replace")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    code = re.search(r"<Code>([^<]{1,80})</Code>", text)
+    return code.group(1) if code else " ".join(text.split())[:120]
 
 
 def main(argv=None):
