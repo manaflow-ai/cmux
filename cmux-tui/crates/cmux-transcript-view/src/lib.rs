@@ -336,7 +336,7 @@ fn tail(text: &str) -> &str {
 pub fn wrap(text: &str, width: f32, advance: &Advance) -> Vec<(usize, usize)> {
     let space = advance.of(' ');
     let mut lines = Vec::new();
-    let mut offset = 0;
+    let mut offset: usize = 0;
     for para in text.split('\n') {
         let mut start: Option<usize> = None;
         let mut end = 0;
