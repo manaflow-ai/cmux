@@ -291,11 +291,12 @@ fn fold_session_changes(notices: Vec<Notice>) -> Vec<(Notice, Vec<(String, u64)>
         let mut earlier = Vec::new();
         if let Some(at) = open.remove(&k) {
             if folds {
-                let (before, mut kinds) = out[at].take().expect("an open slot is kept");
-                if let crate::peer::PeerNotice::SessionChanged { kind, seq, .. } = before.2 {
-                    kinds.push((kind, seq));
+                if let Some((before, mut kinds)) = out[at].take() {
+                    if let crate::peer::PeerNotice::SessionChanged { kind, seq, .. } = before.2 {
+                        kinds.push((kind, seq));
+                    }
+                    earlier = kinds;
                 }
-                earlier = kinds;
             }
         }
         if folds {
