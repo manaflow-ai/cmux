@@ -29,6 +29,12 @@
 //   bun images/cmux-vm/auto-roll.ts check [--max-behind <n>] [--wrangler <path>]
 //     The detector for a stale boot image: exits 1 when an environment's boot entry (production's first, staging's
 //     last: BOOT_ENTRY) trails production's newest roll by more than n rolls (default MAX_ROLLS_BEHIND).
+//   bun images/cmux-vm/auto-roll.ts skew [--channel <file>] [--lock <path>] [--max-behind <commits>] [--repo <checkout>]
+//     RFD 0224 phase 4 (images from the binary's SHA): how far the image lock's cmux-tui pin trails the commit the
+//     Cloud machine channel (files.cmux.com/cmux-tui/channels/cloud-machine.json, or --channel) serves running VMs.
+//     Prints JSON; exits 1 when the pin is not the channel's commit and trails it by more than n first-parent
+//     commits (default MAX_BINARY_SKEW). Reads the envelope's payload only: a detector, not an install, so the
+//     signature check stays with the in-VM updater.
 //
 // Every edit rewrites only the two VM_BOOT_IMAGES string values; the rest of wrangler.jsonc keeps its bytes.
 import { spawn, spawnSync } from "node:child_process";
@@ -324,6 +330,44 @@ export function rolledImage(candidate: Candidate, revision: string, cmuxTui: str
     // approve lists it only where LARGE_ENVS says, and only while the list fits.
     ...(largeOf(candidate) === undefined ? {} : { large: largeOf(candidate)! }),
   };
+}
+
+// ---- skew: the image carries the binary the channel serves (RFD 0224 phase 4) ----
+
+export const CLOUD_MACHINE_CHANNEL = "https://files.cmux.com/cmux-tui/channels/cloud-machine.json";
+/** First-parent commits the image's cmux-tui pin may trail the Cloud machine channel's commit. 0: the same SHA. */
+export const MAX_BINARY_SKEW = 0;
+
+/** The commit a Cloud machine channel envelope (`{payload: base64 JSON, ...}`) names, or a bare `{commit}` file's. */
+export function channelCommit(text: string): string {
+  const doc = JSON.parse(text) as { payload?: unknown; commit?: unknown };
+  const inner = typeof doc.payload === "string" ? (JSON.parse(Buffer.from(doc.payload, "base64").toString("utf8")) as { commit?: unknown }) : doc;
+  const commit = typeof inner.commit === "string" ? inner.commit : "";
+  if (!/^[0-9a-f]{40}$/u.test(commit)) throw new Error("the channel names no 40-hex commit");
+  return commit;
+}
+
+export type BinarySkew = { imagePin: string; channelCommit: string; same: boolean; behindCommits: number | null; ok: boolean; why: string };
+
+/**
+ * The image pin against the channel's commit. BEHIND is the first-parent commit count pin..channel when the pin is an
+ * ancestor of it, null when unknown (not in the checkout, or the pin is newer or on another line, which the image roll
+ * already guards with behind()). Unknown is not ok unless the two are the same SHA.
+ */
+export function binarySkew(imagePin: string, channel: string, behind: number | null, maxBehind = MAX_BINARY_SKEW): BinarySkew {
+  const same = imagePin === channel;
+  if (same) return { imagePin, channelCommit: channel, same, behindCommits: 0, ok: true, why: "the image carries the binary the channel serves" };
+  if (behind === null)
+    return { imagePin, channelCommit: channel, same, behindCommits: null, ok: false, why: `image pin ${imagePin.slice(0, 12)} is not an ancestor of the channel's ${channel.slice(0, 12)} in this checkout` };
+  const ok = behind <= maxBehind;
+  return { imagePin, channelCommit: channel, same, behindCommits: behind, ok, why: `image pin ${imagePin.slice(0, 12)} trails the channel's ${channel.slice(0, 12)} by ${behind} commits (at most ${maxBehind})` };
+}
+
+function commitsBehind(pin: string, channel: string): number | null {
+  for (const c of [pin, channel]) if (!gitOk(["cat-file", "-e", `${c}^{commit}`])) return null;
+  if (!gitOk(["merge-base", "--is-ancestor", pin, channel])) return null;
+  const n = Number(gitOut(["rev-list", "--first-parent", "--count", `${pin}..${channel}`]));
+  return Number.isInteger(n) ? n : null;
 }
 
 // ---- check: each environment boots a recent roll ----
@@ -736,7 +780,26 @@ async function main(argv: string[]): Promise<number> {
       console.error(`check: ${d.env} boots ${d.image || "no image"} (its ${BOOT_ENTRY[d.env]} entry), ${d.behind} rolls behind production's newest; at most ${max}`);
     return drift.every((d) => d.ok) ? 0 : 1;
   }
-  console.error("usage: auto-roll.ts plan|approve|rollback|settle|check ... (see the header)");
+  if (command === "skew") {
+    gitCwd = path.resolve(arg(rest, "--repo", ROOT));
+    const max = Number(arg(rest, "--max-behind", String(MAX_BINARY_SKEW)));
+    if (!Number.isInteger(max) || max < 0) throw new Error("--max-behind must be a non-negative integer");
+    const file = arg(rest, "--channel", "");
+    let text: string;
+    if (file) text = readFileSync(file, "utf8");
+    else {
+      const res = await fetch(`${CLOUD_MACHINE_CHANNEL}?skew=${Date.now()}`, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) throw new Error(`${CLOUD_MACHINE_CHANNEL}: HTTP ${res.status}`);
+      text = await res.text();
+    }
+    const pin = pinnedCmuxTui(readFileSync(lock, "utf8"));
+    const chan = channelCommit(text);
+    const skew = binarySkew(pin, chan, pin === chan ? 0 : commitsBehind(pin, chan), max);
+    console.log(JSON.stringify(skew, null, 2));
+    if (!skew.ok) console.error(`skew: ${skew.why}`);
+    return skew.ok ? 0 : 1;
+  }
+  console.error("usage: auto-roll.ts plan|approve|rollback|settle|check|skew ... (see the header)");
   return 2;
 }
 
