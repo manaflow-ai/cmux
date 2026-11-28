@@ -18,6 +18,9 @@ The state, for a head:
 
   success  the head changes nothing a user sees: docs, copy (strings catalogs), tests, scripts, CI, Rust that
            renders nothing, iOS (cmux/ios-fast has it). Posted by the router at once, so a ruleset can require it
+  success  the title says it is a fix (`fix:`, `fix(area):`, "Fix ...") and it adds no new view: no look needed
+           (Leo, 2026-11-28: "you dont need to be waiting for screenshots in these cases if logically it shoul go as
+           you expect"). A failed record at the head still fails
   success  the body says `Visual: none (WHY)`: a refactor or logging change under a visual path with no output
            change. Counted as a bypass by `report`
   pending  visual, and no passing record of an accepted suite at this head whose screens were diffed against
@@ -107,6 +110,10 @@ SWIFT_VIEW = re.compile(r":\s*(?:some\s+)?(?:View|NSView|NSViewController|NSWind
                         r"\bvar body:\s*some View\b")
 DECLARED_NONE = re.compile(r"^\s*Visual:\s*none\b[\s:(—-]*(?P<why>.*)$", re.M | re.I)
 DECLARED_COMPLETE = re.compile(r"^\s*Visible-UI:\s*complete\b", re.M | re.I)
+# Leo, 2026-11-28 (ask c-601949839a): don't wait for screenshots when a fix logically does what you expect, and
+# don't hold a fix as "UI". A PR titled as a fix that adds no new view lands without a look; a failed look still fails.
+FIX_TITLE = re.compile(r"^\s*(?:fix|hotfix|bugfix)(?:\([^)]*\))?!?:|^\s*fix(?:es|ed)?\b", re.I)
+FIX_NO_LOOK = "Fix to an existing surface, no new UI: lands without a look (Leo 2026-11-28)"
 DECLARED_NOT_NEW = re.compile(r"^\s*Visible-UI:\s*none\b", re.M | re.I)
 PREVIEW = "preview: cmux app try {pr} | cmux customize use pr:{pr} | try-pr.sh {pr}"
 # A look that could not run is a failure with its reason, never a pending that waits for ever.
@@ -187,7 +194,7 @@ def new_ui(added: list[str], read=None) -> list[str]:
 
 
 def verdict(need: str, body: str, records: dict[str, dict | None], added_ui: list[str], pr: str | int = "N",
-            off: bool = False) -> tuple[str, str]:
+            off: bool = False, title: str = "") -> tuple[str, str]:
     """The (state, description) for a head. RECORDS: suite -> the newest trusted record at the head (proof_record.find)."""
     if off:
         return "success", "UI proof is off (vars.CI_UI_PROOF=0)"
@@ -204,6 +211,8 @@ def verdict(need: str, body: str, records: dict[str, dict | None], added_ui: lis
         failed = [x["name"] for x in got[0].get("runs", []) if x.get("result") in ("fail", "error")]
         return "failure", f"UI proof at this head failed: {', '.join(failed) or 'see the record'}"[:140]
     diffed = [r for r in passing if (r.get("visual") or {}).get("diffed")]
+    if not diffed and not added_ui and FIX_TITLE.search(title or ""):
+        return "success", FIX_NO_LOOK
     if not diffed:
         what = "no screens diffed against NIGHTLY" if passing else "no look at this head"
         return "pending", f"Visual change, {what}: hot-verify.py look --pr {pr} --record; {preview}"[:140]
@@ -765,16 +774,17 @@ def gate_now(repo: str, pr: str, sha: str, token: str, bots: list[str]) -> tuple
     need = "app" if files is None else affects(files, read=show_both)
     if not need:
         return verdict(need, "", {}, [], pr)
-    body = (api(f"repos/{repo}/pulls/{pr}", token) or {}).get("body") or ""
+    pull = api(f"repos/{repo}/pulls/{pr}", token) or {}
+    body, title = pull.get("body") or "", pull.get("title") or ""
     comments = proof_record.pr_comments(repo, pr, token)
     can_write = proof_record.writer_check(repo, proof_record.read_tokens() or [token])
     records = {s: proof_record.find(comments, s, sha, bots, can_write) for s in suites_for(need)}
     ui = new_ui(added_files(), read=show)
-    state, desc = verdict(need, body, records, ui, pr)
+    state, desc = verdict(need, body, records, ui, pr, title=title)
     if state == "pending" and desc.startswith(NO_LOOK) and files:
         older, carried = carried_records(repo, sha, comments, suites_for(need), bots, can_write, files, token)
         if older:
-            c_state, c_desc = verdict(need, body, carried, ui, pr)
+            c_state, c_desc = verdict(need, body, carried, ui, pr, title=title)
             if c_state == "success":
                 return c_state, c_desc.replace("at this head", CARRIED.format(sha=older[:12]), 1)[:140]
     if state == "pending" and desc.startswith(NO_LOOK):
@@ -820,10 +830,11 @@ def rerun_gate(repo: str, sha: str) -> str:
         for run in (runs or {}).get("workflow_runs", []):
             for j in gh("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100").get("jobs", []):
                 if j["name"] == GATE_JOB and j.get("status") == "completed" and j.get("conclusion") != "skipped":
-                    subprocess.run(["gh", "run", "rerun", str(run["id"]), "--job", str(j["id"]), "--repo", repo],
-                                   check=True, capture_output=True)
-                    return f"reran {GATE_JOB} (job {j['id']})"
-    except (OSError, subprocess.CalledProcessError, ValueError) as e:
+                    how = proof_record.rerun_gate_job(repo, run["id"], j["id"])
+                    return f"reran {GATE_JOB} (job {j['id']}; {how})"
+    except subprocess.CalledProcessError as e:
+        return f"gate not rerun: {e}: {e.stderr or ''}".rstrip(": ")
+    except (OSError, ValueError) as e:
         return f"gate not rerun: {e}"
     return "gate job has not run yet: it reads the record when it does"
 
