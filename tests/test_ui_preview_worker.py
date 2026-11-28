@@ -942,6 +942,153 @@ class ConfigPushTests(unittest.TestCase):
             self.assertNotEqual(worker.galleries[0].port, worker.galleries[1].port)
 
 
+class SameConfigSidesTests(unittest.TestCase):
+    """Sides on one gallery config shot one after the other on one vite, so web_before sat on every look's path
+    (p50 5.8 s, p95 19.7 s on gcp-agent-lane-1, 2026-11-28). Now an idle twin vite on that config takes the base."""
+
+    class Alive:
+        def poll(self):
+            return None
+
+    def worker_with_two_galleries(self, tmp: str):
+        class ConfigWorker(FakeWorker):
+            web_side = w.Worker.web_side
+            gallery_for = w.Worker.gallery_for
+            ensure_tree = w.Worker.ensure_tree
+            idle_twin = w.Worker.idle_twin
+            web_sides = w.Worker.web_sides
+
+            def on_branch_tip_or_landed(self, head, branch):
+                return True
+
+        worker = ConfigWorker(Path(tmp))
+        worker.clone.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(worker.clone)], check=True)
+        base = commit(worker.clone, {"webviews/vite.config.ts": "a", "webviews/src/a.tsx": "1"})
+        head = commit(worker.clone, {"webviews/src/a.tsx": "2"})
+        self.assertEqual(worker.gallery_key(base), worker.gallery_key(head))
+        twin = w.Gallery(worker, worker.state / "web-2", w.GALLERY_PORT + 1, "web-2")
+        worker.galleries.append(twin)
+        for g in worker.galleries:
+            g.key = worker.gallery_key(base)
+            g.proc = self.Alive()
+        return worker, base, head, twin
+
+    def run_look(self, worker, base, head, shoot):
+        saved = {k: getattr(w.Gallery, k) for k in ("install", "start", "stop", "scenes", "shoot")}
+        stops = []
+        w.Gallery.install = lambda g: False
+        w.Gallery.start = lambda g: None
+        w.Gallery.stop = lambda g: stops.append(g.name)
+        w.Gallery.scenes = lambda g, files: ["entry.a"]
+        w.Gallery.shoot = shoot
+        try:
+            receipt = worker.look(request(head_sha=head, base_sha=base, ui_files=["webviews/src/a.tsx"]))
+        finally:
+            for k, v in saved.items():
+                setattr(w.Gallery, k, v)
+        self.assertEqual(stops, [], "a side restarted a vite")
+        return receipt
+
+    def test_sides_on_one_config_shoot_at_once_on_an_idle_twin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker, base, head, twin = self.worker_with_two_galleries(tmp)
+            both = threading.Barrier(2, timeout=10)
+            shots = []
+
+            def shoot(g, entries, out, absent=None):
+                shots.append(g.name)
+                both.wait()  # raises BrokenBarrierError (no shot) unless both sides shoot at once
+                out.mkdir(parents=True, exist_ok=True)
+                for e in entries:
+                    (out / f"{e}.png").write_bytes(g.name.encode())
+                return {e: f"{e}.png" for e in entries}
+
+            receipt = self.run_look(worker, base, head, shoot)
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertEqual(sorted(shots), ["web", "web-2"])
+
+    def test_a_busy_or_stopped_twin_leaves_the_sides_one_after_the_other(self):
+        for why in ("busy", "stopped"):
+            with self.subTest(why), tempfile.TemporaryDirectory() as tmp:
+                worker, base, head, twin = self.worker_with_two_galleries(tmp)
+                if why == "busy":
+                    twin.lock.acquire()  # another look holds it
+                else:
+                    twin.proc = None  # its vite is down: a cold start would cost more than waiting
+                shots = []
+
+                def shoot(g, entries, out, absent=None):
+                    shots.append(g.name)
+                    out.mkdir(parents=True, exist_ok=True)
+                    for e in entries:
+                        (out / f"{e}.png").write_bytes(str(len(shots)).encode())
+                    return {e: f"{e}.png" for e in entries}
+
+                receipt = self.run_look(worker, base, head, shoot)
+                self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+                self.assertEqual(shots, ["web", "web"])
+
+
+class FetchPathTests(unittest.TestCase):
+    """A look's fetch fetched the busy base branch every time and held one lock for every fetch, so a burst of
+    pushes waited in line (fetch p95 19.4 s, four looks 166-190 s at 01:23Z on 2026-11-28)."""
+
+    def clone_of(self, tmp: str):
+        src = Path(tmp) / "src"
+        subprocess.run(["git", "init", "-q", "-b", w.BASE_BRANCH, str(src)], check=True)
+        base = commit(src, {"a": "1"})
+        worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+        worker.mirror = None
+        subprocess.run(["git", "init", "-q", "--bare", str(worker.clone)], check=True)
+        subprocess.run(["git", "-C", str(worker.clone), "remote", "add", "origin", str(src)], check=True)
+        return src, worker, base
+
+    def test_a_head_that_brings_its_base_fetches_only_its_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src, worker, base = self.clone_of(tmp)
+            subprocess.run(["git", "-C", str(src), "checkout", "-q", "-b", "lane/x"], check=True)
+            head = commit(src, {"b": "x"})
+            fetched = []
+            real_git = w.git
+            w.git = lambda repo, *a, **kw: (a[0] == "fetch" and fetched.append(a[-1])) or real_git(repo, *a, **kw)
+            try:
+                worker.fetch(head, base, branches=("lane/x",))
+                self.assertTrue(worker.on_branch_tip_or_landed(head, "lane/x"))
+            finally:
+                w.git = real_git
+            self.assertEqual(fetched, ["+refs/heads/lane/x:refs/remotes/origin/lane/x"])
+
+    def test_two_branches_fetch_at_once_and_one_branch_fetches_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src, worker, base = self.clone_of(tmp)
+            heads = {}
+            for b in ("lane/x", "lane/y"):
+                subprocess.run(["git", "-C", str(src), "checkout", "-q", "-b", b, base], check=True)
+                heads[b] = commit(src, {b.replace("/", "-"): "1"})
+            inside = threading.Barrier(2, timeout=10)
+            fetched = []
+            real = worker.fetch_branches
+
+            def fetch_branches(*names):
+                fetched.append(names)
+                if names != (w.BASE_BRANCH,):
+                    inside.wait()  # both branches' fetches must be running at once
+                real(*names)
+
+            worker.fetch_branches = fetch_branches
+            runs = [threading.Thread(target=worker.fetch, args=(heads[b], base), kwargs={"branches": (b,)})
+                    for b in heads]
+            for t in runs:
+                t.start()
+            for t in runs:
+                t.join(15)
+            self.assertTrue(all(worker.has_commit(h) for h in heads.values()), fetched)
+            # A look after its prefetch: the head is here, so nothing is fetched again.
+            worker.fetch(heads["lane/x"], base, branches=("lane/x",))
+            self.assertEqual(sorted(fetched), [("lane/x",), ("lane/y",)])
+
+
 class ColdSideTests(unittest.TestCase):
     """A config push's side on a restarted vite recompiled agent-pane's React Compiler pass cold (41-63 s; App.tsx
     alone ~33 s) and re-optimized deps a sibling had already bundled. Every gallery vite now reads one transform

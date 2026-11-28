@@ -75,6 +75,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import datetime as dt
 import fnmatch
 import hashlib
@@ -747,7 +748,12 @@ class Worker:
         self.started_at = dt.datetime.now(dt.timezone.utc)  # before warm: replayed() measures from the takeover
         self.receipts_path = self.state / f"ui-preview-{self.host}.json"
         self.swift_lock = threading.Lock()  # the shell's tree and .build
-        self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
+        # The clone's fetches: one lock per ref or id fetched (Worker.fetching), so a prefetch and a look never fetch
+        # one head twice while pushes to different branches fetch at once. One lock for every fetch serialized a burst:
+        # four pushes at 01:23Z on 11-28 each waited 166-190 s in the look's fetch on gcp-agent-lane-1.
+        self.clone_lock = threading.Lock()
+        self.fetch_locks: dict[str, threading.Lock] = {}
+        self.fetch_locks_lock = threading.Lock()
         self.receipt_lock = threading.Lock()
         self.swift_on = True  # serve --no-swift: a web-only worker
         self.swift_peer = ""  # serve --swift-peer: the display Mac that shoots this worker's Swift scenes;
@@ -769,8 +775,18 @@ class Worker:
         self.galleries = [self.web]
 
     # The clone and its worktrees.
+    @contextlib.contextmanager
+    def fetching(self, *keys: str):
+        """Hold the fetch lock of each of KEYS (`ref:BRANCH`, `id:SHA`), taken in sorted order (no deadlock)."""
+        with self.fetch_locks_lock:
+            locks = [self.fetch_locks.setdefault(k, threading.Lock()) for k in sorted(set(keys))]
+        with contextlib.ExitStack() as held:
+            for lock in locks:
+                held.enter_context(lock)
+            yield
+
     def ensure_clone(self) -> None:
-        with self.fetch_lock:
+        with self.clone_lock:
             if not ((self.clone / "HEAD").exists() or (self.clone / ".git").exists()):
                 log(f"cloning {CMUX_URL} (blob-less{', borrowing ' + str(self.mirror) if self.mirror else ''}) "
                     f"into {self.clone}")
@@ -820,23 +836,37 @@ class Worker:
         return list(dict.fromkeys(tips))
 
     def fetch(self, *shas: str, branches: tuple[str | None, ...] = ()) -> None:
-        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest by BRANCHES (and
-        BASE_BRANCH) as origin/B, then by id only for what is still missing (one lock, so a prefetch and a look never
-        fetch one head twice). By branch, never by --filter or a bare id: on a lane VM that publishes through the
-        broker (host-gh) git fetch carries plain branch names and tracking refspecs only, and every warm-up died
-        "git fetch --filter=blob:none: an option the brokered fetch does not carry" (lane-1/2, 2026-11-26). The
-        blob-less clone's own config (remote.origin.partialclonefilter) keeps a plain git's fetch blob-less."""
-        with self.fetch_lock:
-            missing = [s for s in dict.fromkeys(shas) if not self.has_commit(s)]
-            if missing:
-                self.fetch_branches(*branches, BASE_BRANCH)
+        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest by BRANCHES as
+        origin/B, then BASE_BRANCH only if a SHA is still missing (a push's head brings its base along: the base is
+        its ancestor), then by id only for what is still missing. Each step holds its refs' locks and looks again
+        under them, so a prefetch and a look never fetch one head twice. Fetching BASE_BRANCH on every look pulled
+        the busy base's new commits into each look's fetch (fetch p50 7.2 s, p95 19.4 s on 11-28 against a 1 s
+        ceiling). By branch, never by --filter or a bare id: on a lane VM that publishes through the broker (host-gh)
+        git fetch carries plain branch names and tracking refspecs only, and every warm-up died "git fetch
+        --filter=blob:none: an option the brokered fetch does not carry" (lane-1/2, 2026-11-26). The blob-less
+        clone's own config (remote.origin.partialclonefilter) keeps a plain git's fetch blob-less."""
+        missing = [s for s in dict.fromkeys(shas) if not self.has_commit(s)]
+        names = [b for b in dict.fromkeys(branches) if b and BRANCH_NAME.match(b) and b != BASE_BRANCH]
+        for step in (names, [BASE_BRANCH]):
+            if not missing:
+                return
+            if not step:
+                continue
+            with self.fetching(*(f"ref:{b}" for b in step)):
                 missing = [s for s in missing if not self.has_commit(s)]
-            if missing:
-                git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *missing,
-                    timeout=FETCH_SECONDS)
+                if missing:
+                    self.fetch_branches(*step)
+            missing = [s for s in missing if not self.has_commit(s)]
+        if missing:
+            with self.fetching(*(f"id:{s}" for s in missing)):
+                missing = [s for s in missing if not self.has_commit(s)]
+                if missing:
+                    git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *missing,
+                        timeout=FETCH_SECONDS)
 
     def fetch_branches(self, *branches: str | None) -> None:
-        """BRANCHES' tips into the clone as refs/remotes/origin/B (the caller holds fetch_lock, or needs none)."""
+        """BRANCHES' tips into the clone as refs/remotes/origin/B (the caller holds their `ref:` locks, or needs
+        none)."""
         names = [b for b in dict.fromkeys(branches) if b and BRANCH_NAME.match(b)]
         if names:
             git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin",
@@ -884,15 +914,20 @@ class Worker:
         """The head is a manaflow-ai/cmux branch's tip, or landed on feat-cmux-next: never a fork's commit (the
         look builds and runs the head's code). A head under a base tip held here asks GitHub nothing; else the
         branch tip the look's fetch wrote (origin/BRANCH: a tip the repo held, so the repo's own commit even if the
-        branch moved since), and only when that is not the head one fetch of the branch and the base. No ls-remote: a lane VM's git has no GitHub credential, only the broker's fetch."""
+        branch moved since), and only when that is not the head one fetch of the branch, then of the base only if the
+        branch's tip is not the head. No ls-remote: a lane VM's git has no GitHub credential, only the broker's fetch."""
         if any(self.is_ancestor(head, tip) for tip in self.local_base_tips()):
             return True
         if branch and self.remote_tip(branch) == head:
             return True
-        with self.fetch_lock:
-            self.fetch_branches(branch, BASE_BRANCH)
-        if branch and self.remote_tip(branch) == head:
-            return True
+        if branch and BRANCH_NAME.match(branch) and branch != BASE_BRANCH:
+            with self.fetching(f"ref:{branch}"):
+                if self.remote_tip(branch) != head:
+                    self.fetch_branches(branch)
+            if self.remote_tip(branch) == head:
+                return True
+        with self.fetching(f"ref:{BASE_BRANCH}"):
+            self.fetch_branches(BASE_BRANCH)
         tip = self.remote_tip(BASE_BRANCH)
         return bool(tip) and self.is_ancestor(head, tip)
 
@@ -1149,10 +1184,27 @@ class Worker:
             have.update({s: cache / merged[s] for s in want if s in merged})
         return have
 
+    def idle_twin(self, g: "Gallery") -> "Gallery | None":
+        """Another gallery on G's config whose vite is up and that no look holds: the base side shoots there while
+        the head shoots on G. None when there is none (it would be a cold vite start or a restart, slower than
+        waiting for G)."""
+        with self.galleries_lock:
+            for other in self.galleries:
+                if (other is not g and other.key is not None and other.key == g.key and not other.lock.locked()
+                        and other.proc is not None and other.proc.poll() is None):
+                    other.used = time.monotonic()
+                    return other
+        return None
+
     def web_sides(self, head: str, base: str, entries: list[str], g_head: "Gallery", stages: Stages) -> tuple:
-        """Both sides' shots. Sides on one gallery config shoot one after the other on one vite; sides on two configs
-        shoot at once, each on its own warm vite (a vite.config.ts push restarted one vite twice: 105 s)."""
-        g_base = g_head if self.gallery_key(base) in (None, g_head.key) else self.gallery_for(base, avoid=(g_head,))
+        """Both sides' shots, at once whenever a second warm vite can take the base: sides on two configs each on
+        its own vite (a vite.config.ts push restarted one vite twice: 105 s), sides on one config on G_HEAD and an
+        idle twin on that config (one after the other put web_before on every look's path: p50 5.8 s, p95 19.7 s
+        on gcp-agent-lane-1, 11-28). No idle twin: one after the other on G_HEAD."""
+        if self.gallery_key(base) in (None, g_head.key):
+            g_base = self.idle_twin(g_head) or g_head
+        else:
+            g_base = self.gallery_for(base, avoid=(g_head,))
         if g_base is g_head:
             with stages("web_after"):
                 after = self.web_side(head, entries, g_head)
@@ -1185,7 +1237,7 @@ class Worker:
         with stages("clone"):
             self.ensure_clone()
             ref = f"refs/remotes/origin/{BASE_BRANCH}"
-            with self.fetch_lock:
+            with self.fetching(f"ref:{BASE_BRANCH}"):
                 self.fetch_branches(BASE_BRANCH)
             tip = git(self.clone, "rev-parse", ref)
         errors = []
