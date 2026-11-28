@@ -300,21 +300,119 @@ def base_tip(repo: Path) -> str:
     return tip
 
 
+def index_stamp(index: Path, head: str) -> str:
+    """What the kept copy of INDEX was made from: the real index's identity and HEAD. Any change (a commit, a
+    checkout, a stage, git rewriting its stat data) gives a new stamp, and the copy is made again."""
+    if not index.is_file():
+        return f"none {head}"
+    st = index.stat()
+    return f"{st.st_ino} {st.st_size} {st.st_mtime_ns} {head}"
+
+
+@contextlib.contextmanager
+def kept_index(index: Path, head: str):
+    """A copy of INDEX to snapshot through, kept between runs (cache_dir()/index/<path hash>/index) while the real
+    index and HEAD stay as they were, so it carries what the last snapshot learned: the files' refreshed stat data
+    (nothing unchanged is hashed again), git's untracked cache, and a whole cache-tree (write-tree reuses every
+    unchanged tree). A throwaway copy lost all three: `cmux app try` of an unchanged tree spent its plan phase
+    re-hashing and rebuilding every tree (team-dev-build-swap's 18:50Z 2026-11-28 row: plan 4.0 s of a 7.6 s swap
+    past its 5 s bound). Yields (path, fresh). A held lock (another snapshot of this checkout) falls back to a
+    throwaway copy, as does CMUX_HOT_VERIFY_KEEP_INDEX=0 (the before arm of scripts/measure/app-try-plan.sh)."""
+    slot = cache_dir() / "index" / hashlib.sha256(str(index).encode()).hexdigest()[:16]
+    lock = None
+    if os.environ.get("CMUX_HOT_VERIFY_KEEP_INDEX", "1") != "0":
+        try:
+            slot.mkdir(parents=True, exist_ok=True)
+            lock = open(slot / "lock", "w")
+        except OSError:
+            lock = None
+    if lock is not None:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock.close()
+            lock = None
+    if lock is None:
+        with tempfile.TemporaryDirectory(prefix="hot-verify-index-") as scratch:
+            yield Path(scratch) / "index", True
+        return
+    try:
+        copy, stamp_file = slot / "index", slot / "stamp"
+        stamp = index_stamp(index, head)
+        try:
+            kept = copy.is_file() and stamp_file.read_text() == stamp
+        except OSError:
+            kept = False
+        if not kept:
+            copy.unlink(missing_ok=True)
+            stamp_file.unlink(missing_ok=True)
+        try:
+            yield copy, not kept
+        except BaseException:
+            copy.unlink(missing_ok=True)
+            stamp_file.unlink(missing_ok=True)
+            raise
+        # The real index may have moved while this ran: its stamp now names a copy made from an older one.
+        if index_stamp(index, head) == stamp:
+            stamp_file.write_text(stamp)
+        else:
+            copy.unlink(missing_ok=True)
+            stamp_file.unlink(missing_ok=True)
+    finally:
+        lock.close()
+
+
+def drop_ignored_additions(top: Path, copy: Path, added: Path) -> None:
+    """Takes out of the kept COPY each path an earlier snapshot added beyond HEAD (ADDED, NUL-separated) that TOP's
+    ignore rules now ignore and the real index does not track: `add -A` never removes a tracked path for being
+    ignored, so a fresh copy would lack it and the kept one would not. Only those paths are checked, not the
+    tree (`ls-files -ci` over the whole index took 48 s on a lane VM's checkout)."""
+    try:
+        paths = [p for p in added.read_text().split("\0") if p]
+    except OSError:
+        paths = []
+    if not paths:
+        return
+    done = subprocess.run(["git", "-C", str(top), "check-ignore", "--no-index", "-z", "--stdin"],
+                          input="\0".join(paths) + "\0", capture_output=True, text=True, errors="replace")
+    ignored = [p for p in done.stdout.split("\0") if p]
+    if not ignored:
+        return
+    tracked = subprocess.run(["git", "--literal-pathspecs", "-C", str(top), "ls-files", "-z", "--", *ignored],
+                             capture_output=True, text=True, errors="replace").stdout.split("\0")
+    gone = [p for p in ignored if p not in tracked]
+    if gone:
+        git(top, "--literal-pathspecs", "rm", "-q", "--cached", "--ignore-unmatch", "--", *gone,
+            env={"GIT_INDEX_FILE": str(copy)})
+
+
 def snapshot(top: Path) -> str:
     """A commit of TOP's working tree (tracked changes and new files, not ignored ones) on its HEAD, through a
-    copy of its index, so a sparse checkout's absent files stay as they are. Nothing in TOP changes."""
+    copy of its index (kept_index), so a sparse checkout's absent files stay as they are. Nothing in TOP changes."""
     head = git(top, "rev-parse", "HEAD")
     index = Path(git(top, "rev-parse", "--path-format=absolute", "--git-path", "index"))
-    with tempfile.TemporaryDirectory(prefix="hot-verify-index-") as scratch:
-        copy = Path(scratch) / "index"
-        if index.is_file():
-            shutil.copyfile(index, copy)
+    head_tree = git(top, "rev-parse", "HEAD^{tree}")
+    with kept_index(index, head) as (copy, fresh):
         env = {"GIT_INDEX_FILE": str(copy)}
-        if not index.is_file():
-            git(top, "read-tree", "HEAD", env=env)
-        git(top, "add", "-A", env=env)
+        added = copy.with_name("added")
+        if fresh:
+            added.unlink(missing_ok=True)
+            if index.is_file():
+                shutil.copyfile(index, copy)
+            else:
+                git(top, "read-tree", "HEAD", env=env)
+        else:
+            drop_ignored_additions(top, copy, added)
+        # `add -A` on a kept copy brings it to the working tree as on a fresh one: the copy differs from the real
+        # index only by earlier `add -A`s of this same HEAD and index. Those cover every path but one case, a file
+        # an earlier run added that a .gitignore now ignores, which drop_ignored_additions took out.
+        git(top, "-c", "core.untrackedCache=true", "add", "-A", env=env)
         tree = git(top, "write-tree", env=env)
-    if tree == git(top, "rev-parse", "HEAD^{tree}"):
+        new = git(top, "diff-tree", "-r", "-z", "--no-renames", "--name-only", "--diff-filter=A", head_tree, tree,
+                  check=False) if tree != head_tree else ""
+        if not fresh or new:
+            added.write_text(new)
+    if tree == head_tree:
         return head
     who = {"GIT_AUTHOR_NAME": "hot-verify", "GIT_AUTHOR_EMAIL": "hot-verify@localhost",
            "GIT_COMMITTER_NAME": "hot-verify", "GIT_COMMITTER_EMAIL": "hot-verify@localhost"}
@@ -897,6 +995,10 @@ def launch_seconds(env=None) -> float:
 
 LAUNCH_LOG_LINES = 80
 LAUNCH_LINE_CHARS = 240
+# The line of a copy's own output that says why it ended: a Swift trap, an assertion, dyld, an uncaught
+# exception or a signal.
+CRASH_LINE = re.compile(r"Fatal error:|Assertion failed|Precondition failed|dyld(?:\[\d+\])?:|Terminating app due to|"
+                        r"uncaught exception|EXC_[A-Z_]+|SIG(?:ABRT|SEGV|BUS|ILL|TRAP|KILL)\b")
 
 
 def error_chars(error: object) -> int:
@@ -927,14 +1029,21 @@ def launch_failure(pid: int, logs: list[str], most: int = LAUNCH_LOG_LINES) -> s
     except OSError:
         alive = True
     said = [f"app launch: running {alive}"]
+    crash = None
     for path in logs:
         try:
             lines = Path(path).read_text(errors="replace").splitlines()
         except OSError:
             continue
         lines = [line[:LAUNCH_LINE_CHARS] for line in lines if line.strip()][-most:]
+        crash = next((line for line in reversed(lines) if CRASH_LINE.search(line)), crash)
         if lines:
             said.append(f"{Path(path).name} (last {len(lines)} lines):\n" + redact_log("\n".join(lines)))
+    if crash:
+        # First, so the console line and the proof record's note (both cut near 500 characters) keep the why:
+        # cmux#64397's look said only "running False" and the head of a 2 KB ignored-env line, while its
+        # stderr ended "HostedChiefRules.swift:15: Fatal error: ... unknownOp".
+        said.insert(1, "crash: " + redact_log(crash.strip()))
     if len(said) == 1:
         said.append("no output from the copy")
     return "\n".join(said)

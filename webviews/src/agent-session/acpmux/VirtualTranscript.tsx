@@ -91,6 +91,8 @@ import {
   sendRiseMs,
 } from "./conversation/followChase";
 import { shareFrameBudget, type FrameBudget, rowsMoved } from "./conversation/frameBudget";
+import { chatRenderPipeline } from "./chatRenderPipeline.experiment";
+import { settledBefore } from "./conversation/settledRowSkip";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -197,7 +199,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay, sendPopEnabled, useSendScrollsToTop } from "./chatDisplay";
+import { useChatDisplay, useChatRenderPipeline, sendPopEnabled, useSendScrollsToTop } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
@@ -1232,6 +1234,10 @@ function TranscriptView({
   /// The follow motion's arm (followMotion.experiment.ts), read once per transcript. Every arm but
   /// `eased` (followGlide, the view before) chases each move of the rows in view (followChase.ts).
   const [followArm] = useState(() => experimentArm(followMotion));
+  /// The chat render pipeline's arm (chatRenderPipeline.experiment.ts), read once per transcript, or
+  /// its setting (`experiments.chat_render_pipeline`): `off` (the default) changes no row.
+  const [pipelineArm] = useState(() => experimentArm(chatRenderPipeline));
+  const skipSettledRows = useChatRenderPipeline() || pipelineArm === "on";
   /// Jump up's arm (jumpUp.experiment.ts), read once per transcript: `off` (the default) draws no
   /// Jump up and keeps no place for it on a scroll.
   const [jumpUpOn] = useState(() => experimentArm(jumpUpButton) === "on");
@@ -7865,7 +7871,10 @@ function TranscriptView({
   // leave nothing behind. A row's own mount effect runs before the sweep, so it reads the length as
   // of the last commit; when this commit changed it, the sweep that follows writes every row anyway.
   const setSizeRef = useRef(setSize);
+  const rowsSettledBefore = useMemo(() => settledBefore(rows, skipSettledRows), [rows, skipSettledRows]);
   const rowFrames = drawRowFrames(rowFrameCache, rowFrameSources, {
+    skipSettledRows,
+    settledBefore: rowsSettledBefore,
     rows,
     mountedRanges,
     geometry: layout.geometry,

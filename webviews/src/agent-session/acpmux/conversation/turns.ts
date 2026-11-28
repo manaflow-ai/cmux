@@ -560,7 +560,7 @@ export type TurnView = {
 /// ``turnView``, building on `previous`: the turns before the one holding the first row that
 /// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
 /// shapes only its last turns.
-const NO_MESSAGE_BREAKS: readonly number[] = [];
+export const NO_MESSAGE_BREAKS: readonly number[] = [];
 const NO_PENDING: readonly AcpmuxRow[] = [];
 
 const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
@@ -1750,10 +1750,8 @@ const repliesOnly = (rows: readonly AcpmuxRow[]) =>
 /// situation? this edge case? cuz otherwise it's so weird"). A turn that failed or was stopped keeps
 /// its line: it says how it ended. An unknown time leaves the rows to decide.
 export const FOLD_MIN_ROWS = 3;
-// motion-allow: how long a turn ran before its work folds, not a motion
-export const FOLD_MIN_MS = 5_000;
-// motion-allow: the shortest turn that folds, not a motion
-export const FLOOR_MS = 1_000;
+export const FOLD_MIN_MS = 5_000; // motion-allow: how long a turn ran before its work folds, not a motion
+export const FLOOR_MS = 1_000; // motion-allow: the shortest turn that folds, not a motion
 
 /// The rows a fold would hide: each tool call, and each row another agent wrote
 /// (the turn's own prompt among them). Thinking counts by its time, not as a row.
