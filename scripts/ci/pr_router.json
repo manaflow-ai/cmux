@@ -263,6 +263,8 @@
   "nightly-pr-build.yml": {
    "land_affected": true,
    "land_ask_only": true,
+   "trunk_only": true,
+   "trunk_only_why": "Runs once per 30-minute window on the feat-cmux-next tip (its push trigger, base-coalesce.yml); base-red-watch bisects a red to name the PR. At 00Z 2026-11-28 the per-PR runs still took ~16.5k runner-min/day on ~28 PR heads an hour, while the Nightly compiles this configuration on the tip every 15 minutes. $CI_NIGHTLY_PR_BUILD_PER_PR=1 starts it on pull requests again.",
    "land_ask_only_why": "On the affected landing tier it starts only when land asks: the labeled event adding ready-to-land or full-ci (land-judge pulses it at the head it lands) and the merge train's tip, not on each push or base merge of a labelled or ask-named PR. 15-21Z 2026-11-27 its two Mac stubs were the 2nd and 3rd largest jobs (arm64 17.9, x86_64 17.5 runner-min per merged PR, 11,896 runner-min): 80% on PRs not merged by 21Z, 56% on base-merge heads, 25% on pushes after the label, and 31% of runs repeated an input key already compiled. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts it on every landing head again.",
    "types": [
     "opened",
