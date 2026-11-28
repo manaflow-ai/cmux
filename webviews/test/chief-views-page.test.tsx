@@ -11,14 +11,14 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { LOCALES } from "../scripts/pages/gen-strings.mjs";
 import type { PageClient } from "../src/pages/shared/pageClient";
-import {
-  FIXTURE_NOW,
-  MockChiefViewsProvider,
-  mockAgents,
-  mockFleet,
-  mockLanding,
-} from "../src/pages/chief-views/mockProvider";
-import {
+import type { ChiefAgent } from "../src/pages/chief-views/types";
+import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { FIXTURE_NOW, MockChiefViewsProvider, mockAgents, mockFleet, mockLanding } = await importWithDom(
+  () => import("../src/pages/chief-views/mockProvider"),
+);
+const {
   agentPR,
   agentsOnHost,
   boardColumns,
@@ -31,11 +31,12 @@ import {
   startOfDay,
   stateCounts,
   timeline,
-} from "../src/pages/chief-views/model";
-import { CHIEF_VIEWS, viewById } from "../src/pages/chief-views/registry";
-import { ChiefViewsStore, LAYOUT_KEY, defaultLayout } from "../src/pages/chief-views/store";
-import { ChiefViewsOps, type ChiefAgent } from "../src/pages/chief-views/types";
-import { teardownDom } from "./support/domTeardown";
+} = await importWithDom(() => import("../src/pages/chief-views/model"));
+const { CHIEF_VIEWS, viewById } = await importWithDom(() => import("../src/pages/chief-views/registry"));
+const { ChiefViewsStore, LAYOUT_KEY, defaultLayout } = await importWithDom(
+  () => import("../src/pages/chief-views/store"),
+);
+const { ChiefViewsOps } = await importWithDom(() => import("../src/pages/chief-views/types"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "localStorage", "IS_REACT_ACT_ENVIRONMENT"] as const;
