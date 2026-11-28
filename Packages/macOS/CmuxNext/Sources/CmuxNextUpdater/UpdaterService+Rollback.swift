@@ -244,7 +244,7 @@ extension UpdaterService {
         // A staged update would install as the quit ends and relaunch forward (cmux#41013 review
         // F2): it is cancelled first, and a rollback does not run while one it cannot cancel waits.
         if let staged = stagedBuild(), !staged.isEmpty {
-            guard cancelStaged() else { throw StagedUpdateWaits(build: staged) }
+            guard cancelStagedUpdate() else { throw StagedUpdateWaits(build: staged) }
             log.append("rollback: cancelled the staged update \(staged), so the quit does not install it")
         }
         // The keep that staging started writes the same kept folder the swap does (on the files lane at

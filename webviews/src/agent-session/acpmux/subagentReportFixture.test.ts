@@ -58,3 +58,38 @@ test("the capped subagent's own log in the mock daemon reads back its whole repo
     client.close();
   }
 });
+
+// A subagent pane reads its newest page first (direct.ts `readSubagentLog`): a log that fits one
+// page is one ask, and a longer one hands that page over to draw before its older pages are read,
+// then answers every record once, oldest first (Leo, 2026-11-27: "these needs to be faster").
+test("a long subagent log draws its newest page first, then reads back whole", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { WORKED_SESSION } = await import("./mockFixture");
+  const { CAPPED_ID, subagentReportLog } = await import("./subagentReportFixture");
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+  );
+  try {
+    await client.select(WORKED_SESSION);
+    const socket = MockAcpmuxSocket.live!;
+    socket.seedSubagentLog(WORKED_SESSION, CAPPED_ID, subagentReportLog());
+    const short: number[] = [];
+    expect(await client.readSubagentLog(CAPPED_ID, (page) => short.push(page.length))).toHaveLength(3);
+    expect(short).toEqual([]);
+    socket.seedSubagentLog(WORKED_SESSION, CAPPED_ID, Array.from({ length: 300 }, subagentReportLog).flat());
+    const first: number[][] = [];
+    const records = await client.readSubagentLog(CAPPED_ID, (page) => first.push(page.map((r) => r.seq)));
+    expect(records).toHaveLength(900);
+    const seqs = records.map((record) => record.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(900);
+    expect(first).toHaveLength(1);
+    expect(first[0]!.at(-1)).toBe(seqs.at(-1));
+  } finally {
+    client.close();
+  }
+});

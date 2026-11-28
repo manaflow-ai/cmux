@@ -44,6 +44,10 @@
 //! sent, as the person's session or this Mac's install token: it answers `{status, reply}` for
 //! every status, and the app reads the reply (`FeedService`, `FeedInstallPrincipal`).
 //!
+//! `artifacts.read` is the Artifacts page's read of cmux-platform's `/v1/artifacts/{tree,history,file}`
+//! as the person's session: it answers `{status, content_type, commit, size, body_base64}` for
+//! every status ([`artifacts`]); a `stack` call is refused before any request.
+//!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
@@ -68,6 +72,7 @@
 
 #![cfg(unix)]
 
+mod artifacts;
 pub mod auto_sessions;
 pub mod background;
 mod chat;
@@ -167,6 +172,8 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
             Err(not_on_this_cloud(call))
         }
         call if chat::CALLS.contains(&call) => chat::run(request, call, args).await,
+        "artifacts.read" if request.auth == Auth::Stack => Err(not_on_this_cloud("artifacts.read")),
+        "artifacts.read" => artifacts::read(&http, args).await,
         "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
         "vm.agent_key_create" => vm_agent_key::create(&http, args).await,
@@ -223,7 +230,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 52] = [
+pub const CALLS: [&str; 53] = [
     "vm.scp_endpoint",
     "vm.agent_key_create",
     "vm.tunnel_enroll",
@@ -276,6 +283,7 @@ pub const CALLS: [&str; 52] = [
     "machine.chief_resize",
     "machine.setup_desktop",
     "machine.fork",
+    "artifacts.read",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about
