@@ -225,7 +225,8 @@ function readRunningCommands(rows: readonly AcpmuxRow[]): void {
   for (let at = rows.length - 1; at >= 0 && rows[at]!.kind !== "user"; at -= 1)
     for (const item of rows[at]!.items ?? []) {
       const tool = item.tool;
-      if (tool?.kind === "execute" && (tool.status === "pending" || tool.status === "in_progress")) commandSaid(t, tool);
+      if (tool?.kind === "execute" && (tool.status === "pending" || tool.status === "in_progress"))
+        commandSaid(t, tool);
     }
 }
 

@@ -150,7 +150,8 @@ async fn seeded_secrets_ride_only_where_the_wire_needs_them() {
     let access = "SEEDwireAccess-5b21";
     let team = "SEEDwireTeam-c9e4";
     let ticket = "SEEDwireTicket-7a03";
-    let request = json!({"api": cmux_cloud_environment::PRODUCTION_API, "access": access, "team": team});
+    let request =
+        json!({"api": cmux_cloud_environment::PRODUCTION_API, "access": access, "team": team});
     let wire = parse(request.to_string().as_bytes()).unwrap();
     // The capture server answers `200 {}` (no ticket) and `200` to the upgrade: each call
     // fails after its request was seen.
@@ -162,7 +163,9 @@ async fn seeded_secrets_ride_only_where_the_wire_needs_them() {
     let places = cmux_egress::capture::leaks(access);
     assert!(!places.is_empty(), "{sent:?}");
     assert!(
-        places.iter().all(|p| p.contains("/v1/wire/ticket") && p.ends_with(": header authorization")),
+        places
+            .iter()
+            .all(|p| p.contains("/v1/wire/ticket") && p.ends_with(": header authorization")),
         "{places:?}"
     );
     for secret in [ticket, team] {

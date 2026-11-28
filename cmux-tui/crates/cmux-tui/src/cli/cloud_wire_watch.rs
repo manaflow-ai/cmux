@@ -179,9 +179,8 @@ pub(crate) async fn watch(input: &[u8], emit: &mut impl FnMut(&Value)) -> Value 
     closed(None, None)
 }
 
-type Socket = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type Socket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Opens the wire socket with `ticket`: the ticket and the team ride in the
 /// subprotocol, the access token never does. `Err` is the closing line.

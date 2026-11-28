@@ -51,6 +51,25 @@ class BuildSrcWorktreePruneTests(unittest.TestCase):
                     f"{path.relative_to(ROOT)}: `{match.group(0)}` without a `git worktree prune` before it",
                 )
 
+    def test_every_workflow_worktree_add_survives_a_stale_registration(self) -> None:
+        # The same class in any workflow: cmux-next-ios-verify-auto.yml's add at "$RUNNER_TEMP/ios-verify-head"
+        # failed runs 46184455907 and 46184441265 (11-28) before anything was verified. An add either forces past
+        # a stale registration (`-f -f`) or prunes in the lines just before it.
+        add = re.compile(r"\bworktree add\b[^\n]*")
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            text = path.read_text()
+            for match in add.finditer(text):
+                line = text[: match.end()].splitlines()[-1]
+                if line.lstrip().startswith(("#", "- name:", "run: python")) or "worktree add" not in line.split("#")[0]:
+                    continue
+                if re.search(r"(^|\s)-f\s+-f(\s|$)", match.group(0)):
+                    continue
+                before = text[: match.start()].splitlines()[-8:]
+                self.assertTrue(
+                    any(re.match(r"\s*(git(\s+-C\s+\S+)?\s+)?worktree prune\b", l) for l in before),
+                    f"{path.relative_to(ROOT)}: `{match.group(0).strip()}` neither passes -f -f nor prunes first",
+                )
+
     def test_prune_recovers_a_stale_registration(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo"
