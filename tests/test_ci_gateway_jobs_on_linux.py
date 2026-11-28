@@ -44,6 +44,7 @@ GATEWAY_MAC = frozenset({
 MOVED = {
     "chief-evals.yml#fleet-ab": "scripts/measure/chief-evals.sh",
     "cmux-next-tip-test-compile.yml#compile-fleet": "scripts/ci/tip-test-compile.sh",
+    "cmux-next-sidebar-bench.yml#bench": "CMUX_CI_CLIENT",
 }
 
 
