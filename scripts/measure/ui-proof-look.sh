@@ -9,7 +9,8 @@
 #   head=SHA       the pull request's head commit (the record names it)
 #   pr=N           the pull request (its published web layer; the record's PR)
 #   state64=B64    a hot-verify steps file ({"steps": [...]}, no kit), base64: the click-through after the change;
-#                  else the default walk
+#                  else the default walk. The controller caps an arg at 2048 characters, so pass a real file
+#                  gzipped: state64=$(gzip -9n < steps.json | base64 | tr -d '\n'); plain base64 still works
 #   video=0        no video.mp4
 # The swapped Swift is the change's own commits (merge base..head) applied onto the nightly's commit, as the look's
 # daemon_from is, so after/ differs from before/ by the change alone. A plan the swap cannot carry (helpers, the FFI,
@@ -122,11 +123,15 @@ state_args=() video_args=()
 if [[ -n "$state64" ]]; then
   printf '%s' "$state64" | base64 -D >"$work/steps.json" 2>/dev/null || printf '%s' "$state64" | base64 -d >"$work/steps.json" \
     || { echo "UPL state64= is not base64" >&2; exit 2; }
+  if [[ "$(head -c2 "$work/steps.json" | od -An -tx1 | tr -d ' \n')" == 1f8b ]]; then
+    gunzip -c <"$work/steps.json" >"$work/steps.json.plain" || { echo "UPL state64= gzip does not inflate" >&2; exit 2; }
+    mv "$work/steps.json.plain" "$work/steps.json"
+  fi
   state_args=(--state "$work/steps.json")
 fi
 [[ "$video" == 0 ]] && video_args=(--no-video)
 python3 "$hv" look --source "sha:$head" --pr "$pr" --app "$app" --head-app "$head_app" --side upl-look \
-  --out "$out/look" --record --no-post "${rust_args[@]}" "${state_args[@]}" "${video_args[@]}" 2>&1 | tee "$out/look.log"
+  --out "$out/look" --record --no-post ${rust_args[@]+"${rust_args[@]}"} ${state_args[@]+"${state_args[@]}"} ${video_args[@]+"${video_args[@]}"} 2>&1 | tee "$out/look.log"
 code=${PIPESTATUS[0]}
 record="$out/look/proof-record.md"
 if [[ -f "$record" ]]; then

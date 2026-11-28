@@ -524,6 +524,36 @@ class LookFailedTest(unittest.TestCase):
         self.assertEqual([p[3] for p in posts], [f"{8:040d}"])
         self.assertEqual([(s["pr"], "rerun" in s) for s in out], [(62379, True), (8, False)])
 
+    def test_sweep_regates_a_look_failure_answered_by_a_later_record(self) -> None:
+        # cmux#63752: the sweep's failure at 11:25Z, a passing record at 11:37Z, and no gate rerun after it.
+        now = u.dt.datetime(2026, 11, 28, 12, 0, tzinfo=u.dt.timezone.utc)
+        failed = u.look_failed("no look result within 6 h of the pending post", 63752)[1]
+        prs = [self.node(63752, "FAILURE", "2026-11-28T11:25:56Z", failed),  # record after: re-gate
+               self.node(7, "FAILURE", "2026-11-28T11:00:00Z", failed),      # record before: the gate read it
+               self.node(8, "FAILURE", "2026-11-28T11:00:00Z", "UI proof at this head failed: x"),  # not a look's
+               self.node(9, "FAILURE", "2026-11-28T11:00:00Z", failed)]      # no record: stands
+        records = {63752: "2026-11-28T11:37:05Z", 7: "2026-11-28T10:00:00Z", 8: "2026-11-28T11:30:00Z", 9: ""}
+        posts, reruns = [], []
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                          answered=lambda pr, sha: records[pr],
+                          rerun=lambda sha, after="": reruns.append((sha, after)) or "reran")
+        self.assertEqual(reruns, [(f"{63752:040d}", "2026-11-28T11:37:05Z")])
+        self.assertEqual(posts, [])
+        self.assertEqual([s["pr"] for s in out], [63752])
+
+    def test_rerun_gate_rest_skips_a_gate_that_already_read_the_record(self) -> None:
+        def api(path, token, *a):
+            if "workflows/pr-router.yml/runs" in path:
+                return {"workflow_runs": [{"id": 1}]}
+            if path.endswith("/jobs?per_page=100"):
+                return {"jobs": [{"id": 5, "name": u.GATE_JOB, "status": "completed", "conclusion": "failure",
+                                  "completed_at": "2026-11-28T11:40:00Z"}]}
+            self.fail(f"no rerun expected: {path}")
+        with mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u.proof_record, "with_tokens", side_effect=lambda f, tokens: f(tokens[0])):
+            self.assertIn("already read", u.rerun_gate_rest("r/r", "s", ["t"], "2026-11-28T11:37:05Z"))
+
     def test_sweep_reads_the_newest_prs_first(self) -> None:
         self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", u.SWEEP_QUERY)
 

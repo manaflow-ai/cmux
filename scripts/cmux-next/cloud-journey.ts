@@ -2445,11 +2445,15 @@ export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 export function firstTextCommand(session: string, budgetMs: number): string {
   return `python3 - "$c" ${shq(session)} ${Math.min(270_000, budgetMs) / 1000} <<'CMUX_FIRST_TEXT'
 import json, os, selectors, signal, subprocess, sys, time
-p = subprocess.Popen([sys.argv[1], 'acp', 'tail', sys.argv[2], '--since', '0', '--follow'],
-                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+def follow():
+    return subprocess.Popen([sys.argv[1], 'acp', 'tail', sys.argv[2], '--since', '0', '--follow'],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+p = follow()
 sel = selectors.DefaultSelector()
 sel.register(p.stdout, selectors.EVENT_READ)
-end = time.monotonic() + float(sys.argv[3])
+begun = time.monotonic()
+end = begun + float(sys.argv[3])
+seen = False
 buf = b''
 discarding = False
 started = False
@@ -2460,8 +2464,20 @@ try:
         if not sel.select(max(0, end - time.monotonic())):
             break
         data = os.read(p.stdout.fileno(), 65536)
+        if not data and not seen:
+            # Started beside the agent's start, the session may not exist yet (acp tail exits 4, no stdout): follow it
+            # again once it does, for as long as the start's own exec may run.
+            if time.monotonic() > begun + 150:
+                break
+            sel.unregister(p.stdout)
+            p.wait()
+            time.sleep(0.1)
+            p = follow()
+            sel.register(p.stdout, selectors.EVENT_READ)
+            continue
         if not data:
             break
+        seen = True
         if discarding:
             if b'\\n' not in data:
                 continue
@@ -2642,6 +2658,8 @@ export function rpcFailureReason(reason: unknown): string {
 export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
+  // Calls that start together (the agent's start and its first-text observer) share one mint.
+  let minting: Promise<number> | null = null;
   const guestExec: Exec = async (command, timeoutMs = 60_000) => {
     // A VM API machine has no client sessions: the machine exec route (MachineGuest.ts) runs it instead.
     // The HTTP request waits as long as the command may run, plus room for the answer to travel.
@@ -2660,16 +2678,21 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     let mintMs: number | undefined;
     if (guestRoute) return timedGuest();
     if (!session || session.expires_at - Date.now() < 60_000) {
-      const m0 = performance.now();
-      const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
-      mintMs = Math.round(performance.now() - m0);
-      if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
-        guestRoute = true;
-        return timedGuest();
-      }
-      if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
-      session = r.body.value;
-      journey.secrets.push(session!.token);
+      const mint = minting ?? (minting = (async () => {
+        const m0 = performance.now();
+        const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
+        const ms = Math.round(performance.now() - m0);
+        if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
+          guestRoute = true;
+          return ms;
+        }
+        if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
+        session = r.body.value;
+        journey.secrets.push(session!.token);
+        return ms;
+      })().finally(() => { minting = null; }));
+      mintMs = await mint;
+      if (guestRoute) return timedGuest();
     }
     const s = session!;
     const identity = { "x-freestyle-identity-access-token": s.token };
@@ -7247,7 +7270,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         ? startAfterOwnerKind(exec, command, 120_000, ownerKindStep, (ms) => J.record({ step: "machine kind owner", status: "pass", ms: ms ?? 0, detail: `/etc/cmux/vm-kind reads owner (read in the start's exec${ms === null ? "" : `, ${ms} ms on the guest`})` }))
         : exec(guestTimed(command), 120_000);
       J.firstText.mark("session_start");
+      // The observer follows the session by its name from before the start, as the app subscribes before it sends:
+      // started after the start's exec returned, its own trip to the machine fell after the text it waited for (run
+      // 46118391947: the guest saw text 6,139 ms into the turn, the runner 8,575 ms after sent).
+      firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       let promptedWithStart = false;
+      // A start that failed leaves no session to follow: the run ends without waiting out the observer's budget (the
+      // observer catches its own errors, and the observer gives up on a session that never appears).
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
           // The first prompt follows session/new on the same acpmux link, as the app's first send does.
@@ -7284,8 +7313,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.firstText.mark("session_ready");
         J.firstText.guest("harness_spawn", guestMs(r.stdout));
         return { value: null, detail: `session ${session}${guestDetail(guestMs(r.stdout))}` };
+      }).catch((error) => {
+        firstTextObserver = undefined;
+        throw error;
       });
-      firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
         if (promptedWithStart) return { value: null, detail: `${prompt.slice(0, 80)} (went with the agent's start, on its link)` };
         J.firstText.mark("send");
