@@ -163,6 +163,21 @@ def asset_stuck(asset: dict) -> str:
     return f"{state or 'no delivery state'}" + (f" ({errors})" if errors else "")
 
 
+def image_matches(image: dict, path: Path) -> bool:
+    """Whether an uploaded image is this file: by checksum when ASC reports
+    one, else by size; a missing file or no size at all counts as a match so
+    apply never loops on re-uploads it cannot tell apart."""
+    if not path.is_file():
+        return True
+    attributes = image.get("attributes") or {}
+    data = path.read_bytes()
+    checksum = attributes.get("sourceFileChecksum")
+    if checksum:
+        return checksum == hashlib.md5(data).hexdigest()
+    size = attributes.get("fileSize")
+    return size is None or int(size) == len(data)
+
+
 def read_state(api: Api, sub: dict) -> dict:
     sid = sub["id"]
     shot = api.get(f"/v1/subscriptions/{sid}/appStoreReviewScreenshot").get("data")
@@ -192,12 +207,13 @@ def plan_for(listed: dict, state: dict, root: Path = RECORDS_DIR) -> tuple[list[
     person: list[str] = []
     waiting: list[str] = []
 
-    def upload(kind: str, stuck: list[dict] = ()) -> None:
+    def upload(kind: str, stuck: list[dict] = (), why: str = "") -> None:
         name = listed[kind]
         if (root / name).is_file():
             write: dict[str, Any] = {"kind": kind, "file": name}
             if stuck:
-                write["replace"] = [{"id": a["id"], "why": asset_stuck(a)} for a in stuck]
+                write["replace"] = [{"id": a["id"], "why": why or asset_stuck(a)} for a in stuck]
+                write["verb"] = "old" if why else "stuck"
             writes.append(write)
         else:
             waiting.append(f"{kind} {name} is not checked in under AppStoreReview/subscriptions/")
@@ -209,6 +225,11 @@ def plan_for(listed: dict, state: dict, root: Path = RECORDS_DIR) -> tuple[list[
         upload("reviewScreenshot", [shot])
     if not any(asset_done(image) for image in state["images"]):
         upload("promotionalImage", state["images"])
+    elif not any(asset_done(image) and image_matches(image, root / listed["promotionalImage"])
+                 for image in state["images"]):
+        # A finished image that is not the checked-in file (the file was
+        # redrawn): replace it, or ASC keeps showing the old artwork.
+        upload("promotionalImage", state["images"], why="the checked-in file changed")
     localizations = state.get("localizations") or {}
     for locale, text in sorted((listed.get("localizations") or {}).items()):
         name, description = text["name"], text.get("description", "")
@@ -289,7 +310,7 @@ def describe(write: dict) -> str:
         return f"create localization {write['locale']} ({write['name']!r})"
     if write["kind"] == "localizationUpdate":
         return f"rename localization {write['locale']} ({write['was']!r} -> {write['name']!r})"
-    replaced = "".join(f", replacing stuck {s['id']} ({s['why']})" for s in write.get("replace") or [])
+    replaced = "".join(f", replacing {write.get('verb', 'stuck')} {s['id']} ({s['why']})" for s in write.get("replace") or [])
     return f"upload {write['kind']} {write['file']}{replaced}"
 
 

@@ -29,9 +29,9 @@ import asc_subscription_records as records  # noqa: E402
 APP = "6783338052"
 
 
-def png(path: Path, width: int, height: int, color_type: int = 2) -> None:
+def png(path: Path, width: int, height: int, color_type: int = 2, fill: bytes = b"\x80") -> None:
     channels = {2: 3, 6: 4}[color_type]
-    row = b"\x00" + b"\x80" * (width * channels)
+    row = b"\x00" + fill * (width * channels)
     ihdr = struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)
 
     def chunk(kind: bytes, data: bytes) -> bytes:
@@ -179,6 +179,7 @@ class FakeAsc:
             for asset in [sub["shot"], *sub["images"]]:
                 if asset and path.endswith("/" + asset["id"]) and body["data"]["attributes"].get("uploaded"):
                     asset["attributes"]["assetDeliveryState"] = {"state": "COMPLETE"}
+                    asset["attributes"]["sourceFileChecksum"] = body["data"]["attributes"].get("sourceFileChecksum")
                     return 200, {"data": {"id": asset["id"]}}
         return 404, {"errors": [{"code": "NOT_FOUND"}]}
 
@@ -304,6 +305,22 @@ class RecordsTests(unittest.TestCase):
         before = len(self.writes())
         self.main("apply")
         self.assertEqual(len(self.writes()), before, "a second apply renamed again")
+
+    def test_a_redrawn_promotional_image_replaces_the_finished_one_once(self) -> None:
+        self.main("apply")
+        plus = self.fake.subs["com.cmux.app.next_plus.monthly"]
+        old = plus["images"][0]["id"]
+        png(self.dir / "promo-plus.png", 1024, 1024, fill=b"\x20")
+        code, out = self.main("apply")
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"replacing old {old} (the checked-in file changed)", out)
+        self.assertIn(("DELETE", f"/v1/subscriptionImages/{old}", None), self.writes())
+        self.assertEqual(len(plus["images"]), 1)
+        self.assertEqual(self.fake.uploads[f"/upload/subscriptionImages-6838160813"],
+                         (self.dir / "promo-plus.png").read_bytes())
+        before = len(self.writes())
+        self.main("apply")
+        self.assertEqual(len(self.writes()), before, "a second apply uploaded the image again")
 
     def test_retired_and_listed_is_refused(self) -> None:
         self.body["retired"].append({"productId": "com.cmux.app.next_plus.monthly", "why": "x"})
