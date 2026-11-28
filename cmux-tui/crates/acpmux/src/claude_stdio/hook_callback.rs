@@ -74,11 +74,13 @@ pub(super) async fn within<T>(
 pub(super) fn add_tool_hooks(request: &mut Value) {
     let mcp = crate::bg_hook::mcp_matcher();
     let matcher = format!("Bash|{mcp}");
+    #[cfg(not(unix))]
+    let pre_matcher = format!("{matcher}|{}", crate::model_router::SUBAGENT_TOOLS.join("|"));
     for (event, tools) in [
         // Unix already registers a repo-sync callback for every tool. Its successful
         // reply carries the plugin decision too, for the same Bash/MCP matcher.
         #[cfg(not(unix))]
-        ("PreToolUse", Some(matcher.as_str())),
+        ("PreToolUse", Some(pre_matcher.as_str())),
         ("PostToolUse", Some(matcher.as_str())),
         ("PostToolUseFailure", Some(mcp.as_str())),
         ("SubagentStop", None),
@@ -123,7 +125,9 @@ impl Translator {
                 if output == json!({}) {
                     let tool = input["tool_name"].as_str().unwrap_or("");
                     let tool_callback = input["hook_event_name"] == "PreToolUse"
-                        && (tool == "Bash" || crate::bg_hook::MCP_CALLS.contains(&tool));
+                        && (tool == "Bash"
+                            || crate::bg_hook::MCP_CALLS.contains(&tool)
+                            || crate::model_router::SUBAGENT_TOOLS.contains(&tool));
                     output = plugin_answer(tool_callback, home, &session, &input).await;
                 }
                 crate::gauges::hook_answers().answered(started.elapsed());
@@ -141,6 +145,21 @@ impl Translator {
         self.stdin_replies.lock().await.push(hook_reply(rid, output));
     }
 
+    /// Harness magic `continue` (`hub/stop_condition.rs`): the folder's fingerprint, read off the
+    /// runtime and bounded, decides whether a later stop goes to the check again.
+    async fn continue_stop(&self, input: &Value) -> Value {
+        let cwd = input["cwd"].as_str().map(std::path::PathBuf::from);
+        let read = tokio::task::spawn_blocking(move || {
+            cwd.and_then(|cwd| crate::hub::stop_condition::worktree_fingerprint(&cwd))
+        });
+        let fingerprint =
+            match tokio::time::timeout(crate::hub::stop_condition::FINGERPRINT_LIMIT, read).await {
+                Ok(Ok(f)) => f,
+                _ => None,
+            };
+        self.stop_continue.lock().await.on_stop(input, fingerprint)
+    }
+
     async fn hook_callback_output(&self, req: &Value) -> Value {
         let id = req.get("callback_id").and_then(Value::as_str);
         let input = &req["input"];
@@ -148,8 +167,12 @@ impl Translator {
             && self.stop_condition.load(std::sync::atomic::Ordering::Relaxed)
             && input["hook_event_name"].as_str() == Some("Stop")
         {
-            let answer = async { crate::hub::stop_condition::repeat_stop(input) };
-            return within(deadline(STOP_TIMEOUT_S), answer, json!({})).await;
+            if !crate::hub::stop_condition::continue_enabled() {
+                let answer = async { crate::hub::stop_condition::repeat_stop(input) };
+                return within(deadline(STOP_TIMEOUT_S), answer, json!({})).await;
+            }
+            // Its git read is bounded by FINGERPRINT_LIMIT (2 s), inside the hook's 5 s.
+            return within(deadline(STOP_TIMEOUT_S), self.continue_stop(input), json!({})).await;
         }
         let home = self.plugin_hook_home.get().cloned();
         plugin_answer(id == Some(TOOL_CALLBACK), home, &self.acp_session_id, input).await
@@ -167,7 +190,8 @@ async fn plugin_answer(
     // or subagent call to finish, so answer without copying it or waking a worker.
     if tool_callback
         && (input["agent_id"].is_string()
-            || input["hook_event_name"] == "PreToolUse" && input["tool_name"] == "Bash")
+            || input["hook_event_name"] == "PreToolUse" && input["tool_name"] == "Bash"
+            || crate::model_router::starts_subagent(input))
         && let Some(home) = home
     {
         let session = session.to_owned();
