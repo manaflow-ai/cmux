@@ -69,6 +69,18 @@ export type RowProbe = {
   drawnGap?: number;
 };
 
+/** A closed run can split when a new row separates its members. Each old member must still be drawn or grouped. */
+export function backgroundRunRemapped(
+  previous: Pick<AcpmuxRow, "id" | "backgroundRun" | "foldOpen">,
+  drawn: ReadonlyMap<string, unknown>,
+  grouped: ReadonlySet<string>,
+): boolean {
+  if (previous.foldOpen) return false;
+  if (!previous.backgroundRun) return grouped.has(previous.id);
+  const members = previous.backgroundRun.rows;
+  return members.length > 0 && members.every((id) => drawn.has(id) || grouped.has(id));
+}
+
 /** A row that folded away or closed: when, and why that is or is not allowed. */
 export type FoldEvent = {
   id: string;
@@ -366,6 +378,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     let prevDrawn: RowProbe | undefined;
     for (let at = stable - 1; at >= 0 && !prevDrawn; at -= 1) prevDrawn = probeAt[at];
     const now = new Map<string, { row: AcpmuxRow; fold: string; index: number }>();
+    const grouped = new Set<string>();
     for (let at = stable; at < rows.length; at += 1) {
       const row = rows[at]!;
       // A live line's id ("thinking-live") is reused by every turn: it belongs to the running one.
@@ -373,6 +386,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       const own = rowTurn.get(row.id)!;
       const fold = foldOf(row);
       now.set(row.id, { row, fold, index: at });
+      if (row.backgroundRun && !row.foldOpen) {
+        for (const member of row.backgroundRun.rows) grouped.add(member);
+      }
       if (measured ? !measured[at] : layout.heights[at] === 0) continue;
       const probe: RowProbe = { id: row.id, kind: row.kind, turn: own, gap: layout.gaps?.[at] ?? 0, fold };
       if (isLive(row)) probe.live = true;
@@ -547,7 +563,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         const answering = rows.some((row) => rowTurn.get(row.id) === own && row.assistantPhase === "final_answer");
         // acpmux replaced the message (`message_superseded`, a harness retry): its rows go by design.
         const superseded = step.type === "event" && bySeq.get(step.seq)?.kind === "message_superseded";
-        if (remapped || superseded) verdict = "remapped";
+        if (remapped || superseded || (hidden && backgroundRunRemapped(was.row, now, grouped))) verdict = "remapped";
         else if (answering) verdict = "final-answer";
         else if (was.row.kind !== "assistant" && laterSibling) verdict = "sibling";
         else verdict = "violation";

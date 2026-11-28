@@ -174,13 +174,27 @@ type RelayTask = tokio::task::JoinHandle<anyhow::Result<Option<Vec<Value>>>>;
 /// cannot be left empty by a killed writer or accidentally reclaimed while its owner is alive.
 struct RelayLease {
     file: std::fs::File,
-    marker: PathBuf,
+    /// The [`REFRESH_MARK`] this lease wrote, removed when it ends unless handed off.
+    marker: Option<PathBuf>,
+}
+
+impl RelayLease {
+    /// Ends the lease but keeps its mark: a detached refresh this process started claims its own
+    /// lease once it runs, and until then the mark says it is coming ([`refreshing`]), so the next
+    /// `ls` neither starts a second one nor waits on the relay. The refresh, or the mark's bound,
+    /// clears it.
+    #[cfg_attr(test, allow(dead_code))]
+    fn hand_off(mut self) {
+        self.marker = None;
+    }
 }
 
 impl Drop for RelayLease {
     fn drop(&mut self) {
         let _ = self.file.unlock();
-        let _ = crate::home_fs::remove_file(&self.marker);
+        if let Some(marker) = self.marker.take() {
+            let _ = crate::home_fs::remove_file(&marker);
+        }
     }
 }
 
@@ -215,7 +229,7 @@ fn claim_refresh(cache: &Path) -> Option<RelayLease> {
             let _ = file.set_len(0);
             let _ = std::io::Write::write_all(&mut file, now.to_string().as_bytes());
             let _ = crate::home_fs::write(&mark, now.to_string());
-            Some(RelayLease { file, marker: mark })
+            Some(RelayLease { file, marker: Some(mark) })
         }
         Err(_) => None,
     }
@@ -501,18 +515,18 @@ pub(crate) fn read_cache(path: &Path, now: u64) -> Option<(u64, Vec<Value>)> {
     Some((at, rows))
 }
 
-/// Whether a detached refresh started within the relay's own deadline is still marked.
+/// Whether a relay read holds the lease, or a detached refresh started within the relay's own
+/// deadline is still marked: one handed off ([`RelayLease::hand_off`]) and not yet claimed.
 fn refreshing(cache: &Path, now: u64) -> bool {
     let lock_path = cache.with_file_name(REFRESH_LOCK);
     if let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(lock_path) {
-        return match file.try_lock() {
+        match file.try_lock() {
             Ok(()) => {
                 let _ = file.unlock();
-                false
             }
-            Err(std::fs::TryLockError::WouldBlock) => true,
-            Err(std::fs::TryLockError::Error(_)) => false,
-        };
+            Err(std::fs::TryLockError::WouldBlock) => return true,
+            Err(std::fs::TryLockError::Error(_)) => {}
+        }
     }
     let mark = cache.with_file_name(REFRESH_MARK);
     let started = std::fs::read_to_string(&mark).ok().and_then(|t| t.trim().parse::<u64>().ok());
@@ -543,8 +557,10 @@ fn refresh_detached(cache: &Path) {
             child.detach(
                 "refreshes the relay cache after this ls exits; its relay child is killed at send_relay::LS_DEADLINE",
             );
+            lease.hand_off();
+        } else {
+            drop(lease);
         }
-        drop(lease);
     }
     // This process is the test binary, so no child runs: the lease stands for the child's,
     // held (with its mark) for as long as that read would run, here the rest of the test.

@@ -6,7 +6,12 @@
 //! - `agent_start`: the prompt RPC received here until the prompt is written to the agent process,
 //!   including the agent's spawn or resume when none ran (attr `cold`: 1 or 0).
 //! - `first_token`: the prompt written until the agent's first model update (a message or thought
-//!   chunk, a tool call, a plan) comes back.
+//!   chunk, a tool call, a plan) comes back. Its attrs say what the agent did meanwhile
+//!   ([`Heard`]): when it first said anything at all, how many messages and stderr lines it sent,
+//!   which harness it is, and the model-request retries it reported (`turn_retry.rs`: count, last
+//!   HTTP status, last cause). A warm spare's first_token ran to 303.8 s at p95 (census, 2026-11-28,
+//!   goal cloud-first-reply-p95) with every hop before it small, and nothing said whether the
+//!   agent was silent (wedged), retrying a refused model call, or waiting on the model: these do.
 //!
 //! They go in one `POST /v1/cloud/start-traces/{traceId}/spans` at the first update, through the
 //! machine's platform edge (`https://platform.cmux.internal`, cmux-platform `PlatformEdge.ts`):
@@ -48,6 +53,54 @@ struct Pending {
     handed: Option<(u64, bool)>,
     /// The open `tracing` span of the step under way (closed at its end, so its layer times it).
     step: tracing::Span,
+    /// What the agent sent after the hand-off and before its first model update.
+    heard: Heard,
+}
+
+/// What an agent sent between a traced prompt's hand-off and its first model update: counts and
+/// fixed codes only, never a line's text (the platform refuses anything else, `StartTrace.ts`).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct Heard {
+    /// When it sent its first message of any kind (a stderr line included), epoch ms.
+    first_ms: Option<u64>,
+    /// Its messages that were not the model's (bookkeeping, usage, stderr), stderr included.
+    msgs: u32,
+    /// Its host's stderr lines.
+    stderr: u32,
+    /// The harness its raw lines name (`claude.*`, `codex.*`), when one did.
+    harness: Option<&'static str>,
+    /// Model-request retries it reported (`turn_retry.rs`), the last one's HTTP status and cause.
+    retries: u32,
+    retry_status: Option<u64>,
+    retry_cause: Option<String>,
+}
+
+/// What the agent's message was, for [`agent_said`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Said<'a> {
+    /// A line its host wrote to stderr.
+    Stderr,
+    /// Any other message of the agent's that is not the model's, by method when it has one.
+    Other(Option<&'a str>),
+}
+
+/// The harness a raw line's method names.
+fn harness_of(method: &str) -> Option<&'static str> {
+    if method.starts_with("claude.") {
+        Some("claude")
+    } else if method.starts_with("codex.") {
+        Some("codex")
+    } else {
+        None
+    }
+}
+
+/// `raw` as a fixed code the platform takes (`^[A-Za-z0-9_.:-]{0,64}$`), or None.
+fn code_of(raw: &str) -> Option<String> {
+    let ok = !raw.is_empty()
+        && raw.len() <= 64
+        && raw.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'));
+    ok.then(|| raw.to_owned())
 }
 
 /// Traced prompts by session id; [`PENDING_COUNT`] lets every untraced call skip the lock.
@@ -123,7 +176,13 @@ pub fn received(session: &str, params: &Value) {
     }
     let id = trace_id_of(params).map_or_else(mint_trace_id, str::to_owned);
     let step = tracing::info_span!(parent: None, "send_trace.agent_start", trace_id = %id, session = %session, cold = tracing::field::Empty);
-    let pending = Pending { trace_id: id, received_ms: now_ms(), handed: None, step };
+    let pending = Pending {
+        trace_id: id,
+        received_ms: now_ms(),
+        handed: None,
+        step,
+        heard: Heard::default(),
+    };
     let Ok(mut map) = PENDING.lock() else { return };
     if map.len() >= MAX_PENDING && !map.contains_key(session) {
         let oldest = map.iter().min_by_key(|(_, p)| p.received_ms).map(|(k, _)| k.clone());
@@ -155,6 +214,80 @@ pub fn handed(session: &str, cold: bool) {
     p.step.record("cold", u64::from(cold));
     // Closing the agent_start span and opening first_token's.
     p.step = tracing::info_span!(parent: None, "send_trace.first_token", trace_id = %p.trace_id, session = %session);
+}
+
+/// The handed prompt of `session` waiting on its first model update, when there is one.
+fn with_handed(session: &str, f: impl FnOnce(&mut Heard)) {
+    if PENDING_COUNT.load(Ordering::Relaxed) == 0 {
+        return;
+    }
+    let Ok(mut map) = PENDING.lock() else { return };
+    if let Some(p) = map.get_mut(session).filter(|p| p.handed.is_some()) {
+        f(&mut p.heard);
+    }
+}
+
+/// The agent of `session` sent a message that is not its model's (one atomic load when no
+/// prompt is traced anywhere): counted on the first_token span of a prompt it was handed.
+pub fn agent_said(session: &str, said: Said<'_>) {
+    with_handed(session, |h| {
+        h.first_ms.get_or_insert_with(now_ms);
+        h.msgs = h.msgs.saturating_add(1);
+        match said {
+            Said::Stderr => h.stderr = h.stderr.saturating_add(1),
+            Said::Other(Some(method)) => {
+                if h.harness.is_none() {
+                    h.harness = harness_of(method);
+                }
+            }
+            Said::Other(None) => {}
+        }
+    });
+}
+
+/// The agent of `session` reported a model-request retry (`turn_retry.rs`'s `turn_retrying`
+/// record: `source`, `errorStatus`, `cause`): counted on the first_token span of a prompt it was
+/// handed, with the last one's status and cause.
+pub fn retried(session: &str, retry: &Value) {
+    with_handed(session, |h| {
+        h.first_ms.get_or_insert_with(now_ms);
+        h.retries = h.retries.saturating_add(1);
+        if let Some(status) = retry.get("errorStatus").and_then(Value::as_u64) {
+            h.retry_status = Some(status);
+        }
+        let cause = retry.get("cause").or_else(|| retry.get("source")).and_then(Value::as_str);
+        if let Some(code) = cause.and_then(code_of) {
+            h.retry_cause = Some(code);
+        }
+        if h.harness.is_none() {
+            h.harness = match retry.get("source").and_then(Value::as_str) {
+                Some("claude") => Some("claude"),
+                Some("codex") => Some("codex"),
+                _ => None,
+            };
+        }
+    });
+}
+
+/// The first_token span's attrs: what the agent did before its first model update ([`Heard`]).
+fn first_token_attrs(h: &Heard, handed_ms: u64, first_ms: u64) -> Value {
+    let mut a = serde_json::Map::new();
+    if let Some(at) = h.first_ms {
+        a.insert("agent_first_ms".into(), json!(at.clamp(handed_ms, first_ms) - handed_ms));
+    }
+    a.insert("agent_msgs".into(), json!(h.msgs));
+    a.insert("stderr_lines".into(), json!(h.stderr));
+    a.insert("retries".into(), json!(h.retries));
+    if let Some(s) = h.retry_status {
+        a.insert("retry_status".into(), json!(s));
+    }
+    if let Some(c) = &h.retry_cause {
+        a.insert("retry_cause".into(), json!(c));
+    }
+    if let Some(name) = h.harness {
+        a.insert("harness".into(), json!(name));
+    }
+    Value::Object(a)
 }
 
 /// The agent of `session` sent its first model update: post the trace's spans.
@@ -191,7 +324,8 @@ fn body(p: &Pending, first_ms: u64, machine: Option<String>) -> Option<Value> {
     let mut out = json!({"spans": [
         {"hop": "agent_start", "start_ms": p.received_ms, "end_ms": handed_ms, "source": "machine",
          "attrs": {"cold": u8::from(cold)}},
-        {"hop": "first_token", "start_ms": handed_ms, "end_ms": first_ms, "source": "machine"},
+        {"hop": "first_token", "start_ms": handed_ms, "end_ms": first_ms, "source": "machine",
+         "attrs": first_token_attrs(&p.heard, handed_ms, first_ms)},
     ]});
     if let Some(m) = machine {
         out["machine"] = Value::String(m);

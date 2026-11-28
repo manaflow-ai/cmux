@@ -877,6 +877,42 @@ async fn a_pooled_claude_pinned_to_manual_is_taken_in_manual() {
     assert_eq!(info["modes"]["currentModeId"], "default", "{info}");
 }
 
+/// A pooled Claude Code is warmed before a chat takes it (`claude_stdio::WARM`): one
+/// `side_question` reaches the idle process while it waits, so the person's first prompt does not
+/// pay for its first API call's setup, and the chat that takes it still starts in the pool.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_claude_is_warmed_with_one_side_question_before_it_is_taken() {
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let tag = "claudewarm";
+    let log = std::env::temp_dir().join(format!("asp-{tag}-control-{}.log", std::process::id()));
+    let _ = std::fs::remove_file(&log);
+    let fakeb = json!({
+        "kind": "claude-stdio",
+        "family": "claude",
+        "argv": ["python3", fake_claude],
+        "env": {"FAKE_CLAUDE_CONTROL_LOG": log.display().to_string()},
+    });
+    let daemon = Daemon::with_fakeb_proven(tag, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    rpc.prove().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let sides = || {
+        std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| *l == "side_question")
+            .count()
+    };
+    assert_eq!(sides(), 1, "a ready pooled Claude Code was warmed once");
+    let (claimed, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &claimed), "the warmed session came from the pool");
+    let _ = std::fs::remove_file(&log);
+}
+
 /// A Claude Code chat a script makes never takes a pooled Claude Code: the pool started it for
 /// the person, and its `initialize` asked for a next-prompt suggestion after every turn, which
 /// Claude Code decides once per process. Such a chat starts cold and asks for none

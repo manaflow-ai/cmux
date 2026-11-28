@@ -94,6 +94,23 @@ cd webviews && bun scripts/chat-sim-watch.ts --long 3 --video /tmp/long.webm --s
 cmux-ci test --setup playwright --not-tests --artifact webviews/sim-out -- 'cd webviews && bun scripts/chat-sim-watch.ts --long 3 --video sim-out/long.webm --shots sim-out/long'
 ```
 
+## Record a journal preview
+
+From `webviews/`, run either command on a Linux browser worker with Cargo, Chrome and ffmpeg/libvpx.
+
+```sh
+bun scripts/journal-video.ts --session SESSION preview.webm
+bun scripts/journal-video.ts --fixture test/fixtures/chat-sim/replay-lane-session.ndjson preview.webm
+```
+
+The seven-second preview shows the latest status, prompt, reply text and tool. It samples at
+25 fps and compresses idle gaps. The daemon supplies at most 400 records per request through the
+head observed on the first page. An NDJSON export uses the same page reducer. Each distinct
+sequence updates the projection once. The renderer takes one browser screenshot per selected
+transition and ffmpeg holds each for its scheduled frame count. The command prints record, page,
+transition and frame counts, elapsed milliseconds and output bytes. The full journal remains
+available through the session's ordinary history.
+
 ## Replay a real chat
 
 ```sh

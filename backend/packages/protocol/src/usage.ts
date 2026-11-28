@@ -96,9 +96,18 @@ export const UsageSummaryGet = def({
   mcp: { expose: "default", group: "usage" }
 })
 
+const CapUsd = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1_000_000 }))
+
+/** Exactly one of the two keys (the reducer refuses both or neither). */
 export const UsageCapSetParams = Schema.Struct({
   /** A monthly cap for the team, or null to use the deployment ceiling. The cap in force is never above the ceiling. */
-  cap_usd: Schema.NullOr(Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1_000_000 })))
+  cap_usd: Schema.optionalKey(Schema.NullOr(CapUsd)),
+  /**
+   * RFD 0080 Spend controls: what the team may spend past its plan's pool in a billing period; the team cap becomes the
+   * pool plus this (team-cap.ts teamCapState). null is overage off: the cap is the pool, so cloud agents pause there.
+   * Without a pool (no billing period) the amount alone is the cap, and null is no cap.
+   */
+  overage_usd: Schema.optionalKey(Schema.NullOr(CapUsd))
 })
 
 export const UsageCapSet = def({
@@ -109,9 +118,14 @@ export const UsageCapSet = def({
   target: "usage",
   principals: ["session"],
   params: UsageCapSetParams,
-  result: Schema.Struct({ owner: Schema.NullOr(TeamId), team_cap_usd: Schema.NullOr(Schema.Number) }),
+  result: Schema.Struct({
+    owner: Schema.NullOr(TeamId),
+    team_cap_usd: Schema.NullOr(Schema.Number),
+    /** Set by `overage_usd`: the team's cap is its pool plus this; null = overage off. Absent after a `cap_usd` set. */
+    overage_usd: Schema.optionalKey(Schema.NullOr(Schema.Number))
+  }),
   errors: [...mutationErrors, "team.roles_required"],
-  docs: "Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.",
+  docs: "Set the team's own monthly hard cap (team admins): `cap_usd` as a total (for automations, the lower of it and the deployment ceiling), or `overage_usd` past the plan's pool (null = overage off).",
   cli: { path: "usage cap set", visible: true },
   mcp: { expose: "never", group: "usage" }
 })

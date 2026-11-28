@@ -37,7 +37,7 @@ fn write_json(value: &Value, out: &mut String) -> bool {
                 let Some(f) = n.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 1e15) else {
                     return false;
                 };
-                let _ = write!(out, "{f:.0}");
+                let _ = write!(out, "{}", f as i64);
             } else {
                 let _ = write!(out, "{n}");
             }

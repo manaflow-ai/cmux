@@ -376,7 +376,10 @@ pub(crate) fn load_at(home: &std::path::Path) -> Result<Option<MachineCredential
         Ok(_) => {}
     }
     let file = crate::config::private_state_file(&path)?;
-    Ok(Some(serde_json::from_reader(file).context("read machine credential")?))
+    Ok(Some(
+        serde_json::from_reader(std::io::BufReader::new(file))
+            .context("read machine credential")?,
+    ))
 }
 
 pub(crate) fn authority() -> Result<crate::machine_consent::Authority> {
@@ -504,7 +507,8 @@ pub(crate) mod recovery {
     /// decides whether `home` was copied (`home_copy_state`).
     pub(crate) fn pending_made_on(home: &Path) -> Option<Option<String>> {
         let file = crate::config::private_state_file(&home.join(FILE)).ok()?;
-        let pending: serde_json::Value = serde_json::from_reader(file).ok()?;
+        let pending: serde_json::Value =
+            serde_json::from_reader(std::io::BufReader::new(file)).ok()?;
         Some(pending.get("host_fingerprint").and_then(|made| made.as_str()).map(str::to_owned))
     }
 }

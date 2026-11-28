@@ -429,20 +429,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AgentCursorSetting.parse(root), \.browserShowAgentCursor)
         snapshot.take(AgentMouseSetting.parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
-        snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
-        snapshot.take(Self.parseLabsToggle(root, path: appStorePath, fallback: appStoreDefault), \.appStore)
-        snapshot.take(Self.parseLabsToggle(root, path: liveTreePath, fallback: liveTreeDefault), \.liveTree)
-        snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
+        snapshot.takePlainKeys(root)
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
-        snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
-        snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
-        snapshot.take(Self.parseLabsToggle(root, path: pauseAgentMachinesPath, fallback: pauseAgentMachinesDefault), \.pauseAgentMachines)
-        snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
-        snapshot.take(Self.parseLabsToggle(root, path: customizeDoctorNoticePath, fallback: customizeDoctorNoticeDefault), \.customizeDoctorNotice)
-        snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
-        snapshot.take(Self.parseLabsToggle(root, path: teamComputePath, fallback: teamComputeDefault), \.teamCompute)
-        snapshot.take(Self.parseLabsToggle(root, path: commentThreadsPath, fallback: commentThreadsDefault), \.commentThreads)
-        snapshot.take(Self.parseLabsToggle(root, path: hostsSidebarPath, fallback: hostsSidebarDefault), \.hostsSidebar)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
@@ -520,20 +508,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleDefault)
         snapshot.inactiveTabStyle = inactiveTabStyle
         if let inactiveTabDiagnostic { snapshot.diagnostics.append(inactiveTabDiagnostic) }
-        let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
-        snapshot.titlebar = titlebar
-        if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
-        let (titlebarButtons, titlebarButtonsDiagnostic) = TitlebarButtonsSetting.parse(root)
-        snapshot.titlebarButtons = titlebarButtons
-        if let titlebarButtonsDiagnostic { snapshot.diagnostics.append(titlebarButtonsDiagnostic) }
-        let (plusButton, plusButtonDiagnostic) = PlusButtonSetting.parse(root)
-        snapshot.plusButton = plusButton
-        if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
         ChromePlacementSetting.parse(root, into: &snapshot)
         _ = MenuLookSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyMenuLook`)
-        let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
-        snapshot.paneBackgrounds = paneBackgrounds
-        if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }
         snapshot.flourishes = ThemeFlourishSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.terminalCursor = TerminalCursorSetting.parse(root, diagnostics: &snapshot.diagnostics)
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
@@ -544,21 +520,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root)
             + Self.captureScreenshotGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
         snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1, NewTabPosition.parseButton(root).1].compactMap(\.self)
-        let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
-        snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
-        if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
         snapshot.take(NativeNewTabPageSetting.parse(root), \.nativeNewTabPage)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         snapshot.take(TabShellIconThemeSetting.parse(root), \.tabShellIconTheme)
         snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
         snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
         snapshot.take(LoneChatTabSetting.parse(root), \.hideLoneChatTab)
-        let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
-        snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
-        if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
-        let (commandDigits, commandDigitsDiagnostic) = CommandDigitsSetting.parse(root)
-        snapshot.commandDigits = commandDigits
-        if let commandDigitsDiagnostic { snapshot.diagnostics.append(commandDigitsDiagnostic) }
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
@@ -568,9 +535,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.screenshots = ScreenshotsSettings.parse(root, home: NSHomeDirectory(), diagnostics: &snapshot.diagnostics)
         snapshot.autoArchive = AutoArchiveSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.workspaceHibernation = WorkspaceHibernationSettings.parse(root, diagnostics: &snapshot.diagnostics)
-        let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
-        snapshot.tasksLayout = tasksLayout
-        if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
         snapshot.parseHistory(root)
         snapshot.parseNavigationHistory(root)
         let (appLanguage, appLanguageDiagnostic) = AppLanguageSetting.parse(root)

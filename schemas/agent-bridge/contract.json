@@ -198,6 +198,7 @@
     "pane.moveToMachine": "pane.moveToMachine",
     "pane.noticeAction": "pane.noticeAction",
     "pane.painted": "pane.painted",
+    "pane.renderFailed": "pane.renderFailed",
     "pane.renderRate": "pane.renderRate",
     "pane.saveFile": "pane.saveFile",
     "pane.saveLog": "pane.saveLog",

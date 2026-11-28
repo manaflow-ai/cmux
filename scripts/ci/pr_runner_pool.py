@@ -1204,6 +1204,17 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
             problems.append(f"{SLOTS_VARIABLE} gives {label} {count} {kind} runners, more than the "
                             f"{machines} machines of {pool_label(label)}")
             del counted[label]
+    # The picker only takes labels for the pin's Xcode (owned_pools()), so slots that all name another
+    # version read as no owned machines: every owned PR job goes to Blacksmith and the media tour, which
+    # never falls back, is skipped (2026-11-28: CMUX_CI_XCODE_APP_PR moved to Xcode_27.2 while every slot
+    # still named 26.6; nightly media runs from 22:26Z toured nothing).
+    if match and counted:
+        suffix = f"-xcode-{match.group(1)}"
+        if not any(label.endswith(suffix) for label in counted):
+            versions = sorted({label.rsplit("-xcode-", 1)[1] for label in counted if "-xcode-" in label})
+            problems.append(f"{SLOTS_VARIABLE} names owned pools only for Xcode {', '.join(versions)}, but "
+                            f"{PR_XCODE_VARIABLE} pins Xcode {match.group(1)}, so no owned pool routes; "
+                            "move the pin back or give the pin's labels their machines")
     return counted, problems
 
 
