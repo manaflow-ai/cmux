@@ -617,7 +617,7 @@ async fn wake_on_a_dead_link(before: Duration, slow: bool) -> (Duration, String)
     if slow {
         // A short probe once dropped a link that reopened at once: the peer proved slow.
         peer.with_silence(|b| {
-            b.probe_dropped();
+            b.probe_dropped(0);
             b.opened(tokio::time::Instant::now());
         });
     }

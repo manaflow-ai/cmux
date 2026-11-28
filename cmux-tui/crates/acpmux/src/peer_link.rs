@@ -144,6 +144,19 @@ impl LinkTimings {
     }
 }
 
+static FRAMES_HEARD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A peer link read a frame.
+pub fn heard_frame() {
+    FRAMES_HEARD.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Frames read on any peer link of this process: one that grew while a link was down means the
+/// network was up ([`SilenceBudget::dial_struggled`]).
+pub fn frames_heard() -> u64 {
+    FRAMES_HEARD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// How long one peer's links may stay silent before they are dropped. It starts at
 /// `LinkTimings::silence_budget` (2 s), so a dead link is found in seconds, and grows for a peer
 /// that answers late but answers (a loaded host): an answer that came after more than half the
@@ -157,6 +170,12 @@ impl LinkTimings {
 /// network was gone, which a slow peer's redial is not) opens with the budget back at the start,
 /// never doubled. Run 43783279032 grew it 6 -> 12 -> 20 s from 10 s network drops, and each drop
 /// after that took the grown budget to be noticed.
+///
+/// A redial that failed while this daemon's other peer links kept hearing frames
+/// ([`frames_heard`]) was not a network loss: the network was up, and the peer was too slow to
+/// answer its first dial. That is a slow peer, as a clean reopen is. A coordinator at
+/// 2026-11-28 21:33Z reset a loaded lane's budget 7 s -> 2 s that way on each redial, so it
+/// dropped the link about once a minute, each a new `initialize` and a 1.3 MB session list.
 #[derive(Debug, Clone)]
 pub struct SilenceBudget {
     floor: Duration,
@@ -171,8 +190,11 @@ pub struct SilenceBudget {
     dropped_at: Option<tokio::time::Instant>,
     reopen: Duration,
     stable_after: Duration,
-    /// A dial since the last link failed or was started over (`dial_struggled`).
+    /// A dial since the last link failed or was started over while no other link heard a frame
+    /// (`dial_struggled`).
     struggled: bool,
+    /// [`frames_heard`] when the last link was dropped for silence or by a probe.
+    frames_at_drop: Option<u64>,
     /// The last link was dropped by a request that got no answer (`probe_dropped`).
     probe_dropped: bool,
     /// A link a request probe dropped opened again at the first try: the peer is slow, not
@@ -206,6 +228,7 @@ impl SilenceBudget {
             reopen: timings.connect,
             stable_after: timings.stable_after,
             struggled: false,
+            frames_at_drop: None,
             probe_dropped: false,
             slow_proven: false,
             srtt: None,
@@ -271,21 +294,26 @@ impl SilenceBudget {
         floor.max(self.rto()).min(self.current.max(floor))
     }
 
-    /// The link is dropped for silence.
-    pub fn dropped(&mut self, now: tokio::time::Instant) {
+    /// The link is dropped for silence; `frames` is [`frames_heard`] now.
+    pub fn dropped(&mut self, now: tokio::time::Instant, frames: u64) {
         self.dropped_at = Some(now);
+        self.frames_at_drop = Some(frames);
     }
 
     /// A dial opened no path, or was started over (a client asked while it was still
-    /// connecting): the network was gone. Not a link that opened and then dropped in its
+    /// connecting), and `frames` is [`frames_heard`] now: the network was gone unless another
+    /// link heard a frame since this one dropped. Not a link that opened and then dropped in its
     /// handshake, which a slow peer does too.
-    pub fn dial_struggled(&mut self) {
-        self.struggled = true;
+    pub fn dial_struggled(&mut self, frames: u64) {
+        let heard_elsewhere = self.frames_at_drop.is_some_and(|at| frames > at);
+        self.struggled |= !heard_elsewhere;
     }
 
-    /// The link is dropped because a request on it got no answer within `NETWORK_PROBE`.
-    pub fn probe_dropped(&mut self) {
+    /// The link is dropped because a request on it got no answer within `NETWORK_PROBE`;
+    /// `frames` is [`frames_heard`] now.
+    pub fn probe_dropped(&mut self, frames: u64) {
         self.probe_dropped = true;
+        self.frames_at_drop = Some(frames);
     }
 
     /// Whether a request on a silent link may check it at once (`NETWORK_PROBE`) rather than wait
@@ -297,6 +325,7 @@ impl SilenceBudget {
     /// A new link's WebSocket opened: the peer's daemon answers.
     pub fn opened(&mut self, now: tokio::time::Instant) {
         let struggled = std::mem::take(&mut self.struggled);
+        self.frames_at_drop = None;
         let probed = std::mem::take(&mut self.probe_dropped);
         let dropped = self.dropped_at.take();
         if struggled {
@@ -1495,16 +1524,16 @@ mod tests {
         assert_eq!(budget.current(), secs(6), "an answer within half the budget changes nothing");
         budget.answered_after(secs(5), start);
         assert_eq!(budget.current(), secs(10), "twice the late gap");
-        budget.dropped(start);
+        budget.dropped(start, 0);
         budget.opened(start + t.connect + secs(1));
         assert_eq!(budget.current(), secs(10), "a peer gone for longer than a connect was gone");
-        budget.dropped(start);
+        budget.dropped(start, 0);
         budget.opened(start + secs(1));
         assert_eq!(budget.current(), secs(20), "one that opens straight back was slow: doubled");
         budget.opened(start + secs(2));
         assert_eq!(budget.current(), secs(20), "once per drop");
         for _ in 0..4 {
-            budget.dropped(start);
+            budget.dropped(start, 0);
             budget.opened(start);
         }
         assert_eq!(budget.current(), SilenceBudget::CAP, "never past the old 80 s");
@@ -1589,25 +1618,64 @@ mod tests {
         let secs = Duration::from_secs;
         budget.answered_after(secs(5), start);
         assert_eq!(budget.current(), secs(10));
-        budget.dropped(start);
-        budget.dial_struggled();
+        budget.dropped(start, 0);
+        budget.dial_struggled(0);
         budget.opened(start + secs(1));
         assert_eq!(
             budget.current(),
             secs(6),
             "a redial that failed first: back at the start, not doubled"
         );
-        budget.dropped(start);
-        budget.dial_struggled();
+        budget.dropped(start, 0);
+        budget.dial_struggled(0);
         budget.opened(start + secs(1));
         assert_eq!(
             budget.current(),
             secs(6),
             "a connect started over while the network was down: same"
         );
-        budget.dropped(start);
+        budget.dropped(start, 0);
         budget.opened(start + secs(1));
         assert_eq!(budget.current(), secs(12), "a clean reopen still reads as a slow peer");
+    }
+
+    /// A coordinator, 2026-11-28 21:33Z: a loaded lane answered 3 to 7 s late, and its first
+    /// redial failed too (the lane was slow to take an ssh login) while the coordinator's 100
+    /// other links heard frames. Each redial read as a network loss put the budget back at 2 s,
+    /// and the lane's link dropped at each next stall, each a new `initialize` and a 1.3 MB
+    /// list. Counted over ten 5 s stalls: the drops, which are handshakes.
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_peer_whose_redial_fails_while_others_answer_keeps_its_budget() {
+        let t = LinkTimings::default();
+        let secs = Duration::from_secs;
+        let drops = |others_heard: bool| {
+            let mut budget = SilenceBudget::new(&t);
+            let mut now = tokio::time::Instant::now();
+            let mut frames = 0u64;
+            let mut drops = 0;
+            for _ in 0..10 {
+                let stall = secs(5);
+                if stall >= budget.current() {
+                    drops += 1;
+                    now += budget.current();
+                    budget.dropped(now, frames);
+                    if others_heard {
+                        frames += 40;
+                    }
+                    budget.dial_struggled(frames);
+                    now += secs(9);
+                    budget.opened(now);
+                } else {
+                    now += stall;
+                    budget.answered_after(stall, now);
+                }
+                now += secs(20);
+                budget.settle(now);
+            }
+            drops
+        };
+        assert_eq!(drops(false), 10, "no other link heard a frame: a network loss each time");
+        assert_eq!(drops(true), 1, "the network was up: a slow peer, which drops once");
     }
 
     /// A request probe that dropped a link which opened again at once found a slow peer: the
@@ -1619,15 +1687,15 @@ mod tests {
         let start = tokio::time::Instant::now();
         let secs = Duration::from_secs;
         assert!(budget.may_probe());
-        budget.probe_dropped();
+        budget.probe_dropped(0);
         budget.opened(start);
         assert_eq!(budget.current(), secs(12));
         assert!(!budget.may_probe(), "slow, not gone");
         budget.settle(start + t.stable_after);
         assert_eq!(budget.current(), secs(6));
         assert!(budget.may_probe(), "calm again: requests may check the link");
-        budget.probe_dropped();
-        budget.dial_struggled();
+        budget.probe_dropped(0);
+        budget.dial_struggled(0);
         budget.opened(start);
         assert!(
             budget.may_probe() && budget.current() == secs(6),
@@ -1651,7 +1719,7 @@ mod tests {
         let mut budget = SilenceBudget::new(&t);
         let now = tokio::time::Instant::now();
         budget.answered_after(Duration::from_secs(14), now);
-        budget.dropped(now);
+        budget.dropped(now, 0);
         budget.opened(now);
         assert_eq!(budget.current(), Duration::from_secs(15));
         let slow = LinkTimings { ping_every: Duration::from_secs(40), ..six_s() };
