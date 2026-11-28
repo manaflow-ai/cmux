@@ -158,7 +158,8 @@ jobs:
     concurrency:
       group: ${{ github.event_name == 'schedule' && github.event.schedule != '17 */6 * * *' && 'nightly-main-tick-decide' || format('nightly-decide-main-{0}', github.run_id) }}
       cancel-in-progress: false
-    runs-on: cmux-gcp-nightly-jit-x64
+    # It holds the route App key, so it leads with the one-job secret JIT label (tests/test_ci_secret_jobs_secret_jit.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 70
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -249,7 +250,9 @@ jobs:
           MAX_IN_FLIGHT: ${{ vars.NIGHTLY_MAIN_MAX_IN_FLIGHT || '3' }}
         with:
           github-token: ${{ steps.read-token.outputs.token }}
-          script: return await require(`${process.env.RUNNER_TEMP}/nightly-decide.cjs`)({ github, context, core, exec, getOctokit });
+          script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: process.env.SPARE_READ_TOKEN ? getOctokit(process.env.SPARE_READ_TOKEN) : undefined });
+            return await require(`${process.env.RUNNER_TEMP}/nightly-decide.cjs`)({ github, context, core, exec, getOctokit });
   decide:
     needs: decide-main
     permissions:

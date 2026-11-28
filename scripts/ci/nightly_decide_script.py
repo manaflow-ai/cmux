@@ -3,7 +3,9 @@
 
 decide-main (main's first-attempt decide, on the glaeda-route App's own read budget) runs
 decide's own script, read from the same commit's workflow file, so the two jobs cannot drift.
-The one change: gh_budget_wait.cjs gets GITHUB_TOKEN (SPARE_READ_TOKEN) as its spare client.
+The one change: the module does not install gh_budget_wait.cjs; decide-main's step installs it, with
+GITHUB_TOKEN (SPARE_READ_TOKEN) as its spare client, on the line the scheduled-call guard reads
+(tests/test_scheduled_workflow_gh_retry.py). Installing it twice would nest every retry.
 Standard library only (the JIT runner has no PyYAML): the script is the `script: |` block of
 the step `id: decide` in `jobs.decide`; tests/test_ci_nightly_decide_main.py checks it against
 a YAML parse.
@@ -16,6 +18,7 @@ from pathlib import Path
 INSTALL = "require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });"
 SPARE = ("require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: process.env.SPARE_READ_TOKEN"
          " ? getOctokit(process.env.SPARE_READ_TOKEN) : undefined });")
+STRIPPED = "// gh_budget_wait.cjs: installed by decide-main's step, with GITHUB_TOKEN as its spare."
 ARGS = "{ github, context, core, exec, getOctokit }"
 INDENT = " " * 12
 
@@ -49,9 +52,9 @@ def raw_script(workflow: str) -> str:
 
 def decide_script(workflow: str) -> str:
     script = raw_script(workflow)
-    if script.count(INSTALL) != 1:
+    if script.count(f"if (process.env.GH_BUDGET_WAIT_JS) {INSTALL}") != 1:
         raise SystemExit("decide's script no longer installs gh_budget_wait.cjs on one line")
-    return script.replace(INSTALL, SPARE, 1)
+    return script.replace(f"if (process.env.GH_BUDGET_WAIT_JS) {INSTALL}", STRIPPED, 1)
 
 
 def module(script: str) -> str:

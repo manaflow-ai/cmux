@@ -23,9 +23,11 @@ def step(job: dict, step_id: str) -> dict:
 
 
 class DecideMain(unittest.TestCase):
-    def test_decide_main_runs_on_a_literal_label(self) -> None:
-        # It holds the route App key, so no variable or expression may move it.
-        self.assertEqual(jobs()["decide-main"]["runs-on"], "cmux-gcp-nightly-jit-x64")
+    def test_decide_main_runs_on_the_secret_jit_label(self) -> None:
+        # It holds the route App key, so no variable may move it off the one-job secret JIT VM; the only
+        # branch is the fork's (actionlint reads a bare custom label as unknown).
+        self.assertEqual(jobs()["decide-main"]["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}")
 
     def test_decide_holds_no_secret(self) -> None:
         body = yaml.safe_dump(jobs()["decide"], width=100000)
@@ -64,15 +66,21 @@ class DecideMain(unittest.TestCase):
         self.assertTrue(jobs()["decide"]["concurrency"]["group"].startswith(
             "${{ needs.decide-main.outputs.should_build != '' && format('nightly-decide-{0}', github.run_id) || "))
 
-    def test_the_script_module_is_decides_script_with_a_spare(self) -> None:
+    def test_the_step_installs_the_wait_once_with_a_spare(self) -> None:
+        call = step(jobs()["decide-main"], "decide")["with"]["script"]
+        self.assertIn(f"if (process.env.GH_BUDGET_WAIT_JS) {nightly_decide_script.SPARE}", call)
+        self.assertEqual(call.count(".install("), 1)
+
+    def test_the_script_module_is_decides_script_without_its_install(self) -> None:
         script = step(jobs()["decide"], "decide")["with"]["script"]
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "decide.cjs"
             subprocess.run([sys.executable, str(ROOT / "scripts/ci/nightly_decide_script.py"), str(WORKFLOW), str(out)],
                            check=True)
             text = out.read_text()
-            self.assertIn(nightly_decide_script.SPARE, text)
-            self.assertEqual(text.replace(nightly_decide_script.SPARE, nightly_decide_script.INSTALL),
+            self.assertNotIn(".install(", text)
+            self.assertEqual(text.replace(nightly_decide_script.STRIPPED,
+                                          f"if (process.env.GH_BUDGET_WAIT_JS) {nightly_decide_script.INSTALL}"),
                              nightly_decide_script.module(script))
             node = subprocess.run(["node", "-e",
                                    "new Function(require('fs').readFileSync(process.argv[1], 'utf8'))", str(out)],
