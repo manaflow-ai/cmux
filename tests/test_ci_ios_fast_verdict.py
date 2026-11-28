@@ -603,6 +603,18 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("--device-family iphone", pick["run"])
         self.assertEqual(runner["runs-on"], self.jobs["ios-runner"]["runs-on"])
 
+    def test_the_fast_verdict_alone_can_name_its_hosted_mac(self) -> None:
+        # vars.CI_IOS_FAST_RUNNER (unset: off) sends only the fast verdict to a larger hosted Mac; the fork and
+        # non-manaflow clauses still come first, and the shared MACOS_RUNNER_* chain follows unchanged.
+        pick = next(s for s in self.jobs["ios-fast-runner"]["steps"] if s.get("id") == "pool")
+        variable = pick["env"]["RUNNER_VARIABLE"]
+        self.assertIn("'blacksmith-6vcpu-macos-26' || vars.CI_IOS_FAST_RUNNER || vars.MACOS_RUNNER_TESTS || "
+                      "vars.MACOS_RUNNER_IOS }}", variable)
+        self.assertLess(variable.index("head.repo.full_name != github.repository"), variable.index("CI_IOS_FAST_RUNNER"))
+        others = [s for job, spec in self.jobs.items() if job != "ios-fast-runner" for s in spec.get("steps", [])
+                  if "CI_IOS_FAST_RUNNER" in str(s.get("env", {}))]
+        self.assertEqual(others, [])
+
     def test_a_skipped_caller_need_never_skips_the_picker(self) -> None:
         # pr-router.yml's pipeline needs fast-gates, which skips on a landing head; the implicit success() reads the
         # caller's needs too, so without !cancelled() the picker skipped and cmux/ios-fast stayed pending (cmux#57755).
