@@ -120,6 +120,9 @@ extension MacScreenPages {
         let me = hub.identity.id
         row["status"] = .string(Self.hubStatusName(hub.status))
         row["connection"] = .string(Self.connectionName(hub.connection))
+        // Why the last socket attempt failed (a timeout, a refused upgrade's status): a row that reads
+        // "reconnecting" for minutes says what to fix, not only that its socket is down.
+        row["connection_detail"] = Self.connectionDetail(hub.connection).map(JSONValue.string) ?? .null
         row["this_device"] = .string(me)
         row["registered"] = .bool(hub.thisDevice != nil)
         row["sharing"] = .bool(hubHost.isSharing)
@@ -152,6 +155,12 @@ extension MacScreenPages {
         case .removed: "removed"
         case .signedOut: "signed_out"
         }
+    }
+
+    /// The failure a `.reconnecting` socket recorded for its last attempt; nil in every other state.
+    static func connectionDetail(_ state: DeviceHubSocket.State) -> String? {
+        if case let .reconnecting(failure) = state { return String(failure.prefix(300)) }
+        return nil
     }
 
     static func stateRow(_ tab: MacScreenTab) -> JSONValue {
