@@ -16,3 +16,8 @@ Above `GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN
 Above `- name: Download its record`:
 
     # gh run download, not actions/download-artifact: its artifact list and zip reads go through the same wrapper.
+
+Why its `runs-on` never names cmux-linux (2026-11-28, lane/next-guards-release-notary):
+
+    # It holds the CI pool tokens (GH_TOKEN_SPARES, c-bedbdb1917), and cmux-linux is a persistent pool PR jobs share.
+    # Attempt 1 keeps the reserved nightly label; a rerun or loop retry takes decide's nightly-only route.
