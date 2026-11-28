@@ -206,6 +206,15 @@
   border-radius: var(--cmux-dialog-radius, calc(var(--role-control-radius) + var(--ui-dialog-padding)));
   background: var(--glass-tint);
 }
+/* ONE DIALOG CORNER (experiment dialog-corner, ui/dialogCorner.experiment.ts; off by default, the default
+   needs Leo's word; RFD 0207 "Dialog corner"). The native dialog card pads 16 (Metrics.dialogPadding at
+   Default) round its buttons, so it rounds 8 + 16 = 24 (CmuxDialogMetrics.card). Under `native` every glass
+   web dialog pads the same 16, a dialog's own padding included (the Share dialog's 24), so its corner, the
+   button corner plus that padding (above), is the native 24, still concentric. A look's
+   --cmux-dialog-padding still wins. */
+.ui-dialog.ui-glass[data-dialog-corner="native"] {
+  --ui-dialog-padding: var(--cmux-dialog-padding, var(--ds-space-4));
+}
 /* A quick-open palette (the ledger's) is a dialog but floats like a popup: it takes the popup tint, not
    the sheet veil, so the page's text never ghosts through its search row. */
 .ui-dialog.ui-glass.ui-glass-transient {
