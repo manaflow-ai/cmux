@@ -91,7 +91,7 @@ final class KeyboardMotionBenchUITests: XCTestCase {
             // (ComposerGrowUpUITests): a tap on that button is the tap that shows the keyboard.
             field: { app in
                 let text = app.textViews["chat.composer.field"]
-                return text.exists ? text : app.buttons["Reply to Claude"].firstMatch
+                return text.exists ? text : app.buttons["agentChat.composer.collapsed"].firstMatch
             },
             hideByTap: { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap() }))
     }

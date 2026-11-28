@@ -81,6 +81,18 @@ This page takes you from nothing to an agent that works for you on a cmux Cloud 
 
 > cmux-next is in preview. The app needs a Mac today. A Cloud machine costs money while it runs and stops costing when you pause or delete it; Plans and credits says how billing works.
 
+## Choose your way in
+
+- New to cmux or agents: use In the app. Home and Chief explain each step and show the one card you need when something is missing.
+- Comfortable in a terminal: use From the CLI. The commands are short, repeatable, and print a session_id you can use from another terminal.
+- Have an agent working for you already: use Point an agent at this page. The Markdown copy gives it the same sequence without requiring a person to translate the UI.
+- Starting away from your desk: set up the Mac first, then use From your phone. Pairing is the only phone setup; the working check is a message sent from the iPhone and answered in the same chat.
+- Building a team or an integration: start with Cloud machines, Machines, and MCP. They explain machine state, repeatable repository setup, and the protocol surfaces behind the app.
+
+## Know when you are ready
+
+You are set up when the same Cloud chat has a session_id, its first reply, and a second reply after you send more work. Save that session_id; it is the handle you use to return from the CLI, Chief, or your phone.
+
 ## Point an agent at this page
 
 The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The link is this page as plain Markdown, in the cmux repository, so any agent can read it without signing in. The agent reads it and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine.
@@ -158,12 +170,16 @@ The phone is working when the message you sent from it gets an answer in that ch
 
 - Move a chat you already have to Cloud with cmux cloud move, and bring it back with cmux cloud bring-back.
 - Run cmux setup list for every setup task: trust a folder, add another machine, connect GitHub, turn on Computer Use.
-- Stuck? Run cmux cloud diagnostics and read what it names.
+- Stuck or slow? Run cmux cloud diagnostics, then cmux acp machine status. Read the named machine and next action before retrying.
+- Want to see a running service? Open its port in a browser with cmux cloud open-browser, or use the phone for the chat while the Mac keeps the connection.
 
 - [Getting started with cmux-next](getting-started.md)
 - [Cloud machines](cloud.md)
 - [Home and Chief](home-and-chief.md)
 - [Plans and credits](plans.md)
+- [Machines](machines.md)
+- [MCP server](mcp.md)
+- [Network requirements for the iPhone app](network-requirements.md)
 
 ---
 
@@ -856,6 +872,12 @@ Run workspaces on cloud machines.
 
 A cloud machine is a remote computer that cmux sets up for you. Run a workspace there, or move one over and bring it back.
 
+## Pick the level you need
+
+- One chat: use New Cloud Chat in the app or paste the setup prompt below into Chief. cmux prepares the machine and keeps the conversation in one place.
+- Repeatable setup: use the CLI commands on this page. They expose machine ids, workspace ids, and session ids so a script or another agent can continue the same work.
+- Team and integration work: describe the checkout in .cmux/machine.toml, list secret names under [secrets], and store each value on your Mac with cmux cloud secret set (Secrets and the vault). Use MCP or acpmux when another client needs to drive the session.
+
 ## Paste this into your agent
 
 Copy this into any agent chat in cmux, opened on the folder you want to work on. It signs you in, makes a machine if you have none, and starts an agent there. New to cmux? The prompt on Getting started installs it first.
@@ -891,6 +913,19 @@ Start a Claude or Codex session on a cloud machine. Name the machine with --targ
 cmux cloud start-session --target machine:<id> --agent claude
 cmux cloud start-session --name dev --agent codex
 ```
+
+## Check and recover a session
+
+A Cloud machine can be running while its chat is waiting, paused, or unreachable. Check the machine and the session separately so a network problem does not look like lost work.
+
+```bash
+cmux cloud diagnostics
+cmux acp machine status
+cmux acp ls
+cmux cloud list-machines
+```
+
+Use the machine or session id named by those commands when you retry. A paused machine resumes when you open a terminal or start a chat; pause it again when you are done to stop its hourly cost.
 
 ## Fork, snapshot, hand off
 
