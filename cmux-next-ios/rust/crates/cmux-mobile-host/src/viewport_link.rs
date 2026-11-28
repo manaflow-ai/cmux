@@ -27,13 +27,15 @@ use base64::Engine as _;
 use cmux_mobile_link::dial::Overlay;
 use cmux_mobile_link::viewport::render_screen;
 use cmux_terminal_projection::sync::parse_ack_datagram;
-use cmux_wg::{Priority, WgDatagramSocket};
+use cmux_wg::WgDatagramSocket;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use tokio::sync::{OnceCell, mpsc};
 use tokio::task::JoinHandle;
 
-use crate::viewport_sync::{self, Config, DatagramIo, Path, SelectorConfig, StreamOut, ViewportSync};
+use crate::viewport_sync::{
+    self, Config, DatagramIo, Path, SelectorConfig, SendError, SendErrors, StreamOut, ViewportSync,
+};
 
 /// A datagram and its peer (the source of one received, the destination of one to send).
 type Addressed = (Vec<u8>, SocketAddr);
@@ -137,6 +139,7 @@ impl Drop for Hub {
 }
 
 async fn serve_hub(mut socket: WgDatagramSocket, mut outbound: mpsc::Receiver<Addressed>, routes: Routes) {
+    let mut errors = SendErrors::default();
     loop {
         tokio::select! {
             // Both are mpsc receives underneath: cancel-safe.
@@ -151,10 +154,18 @@ async fn serve_hub(mut socket: WgDatagramSocket, mut outbound: mpsc::Receiver<Ad
             }
             next = outbound.recv() => {
                 let Some((payload, to)) = next else { break };
-                // A refused send is a lost datagram; the driver's resend covers it.
-                let _ = socket.send_to(&payload, to, Priority::Interactive).await;
+                // A refused send is a lost datagram, counted by class; the driver's resend
+                // covers it. A gone tunnel ends the hub (and so every surface's driver).
+                if let Err(error) = DatagramIo::send_to(&socket, &payload, to).await
+                    && errors.record(&error) == SendError::Fatal
+                {
+                    break;
+                }
             }
         }
+    }
+    if errors.total() > 0 {
+        tracing::info!(?errors, "viewport sync: overlay sends refused");
     }
     // The tunnel is gone: every surface's driver hears it and ends.
     routes.lock().unwrap_or_else(PoisonError::into_inner).clear();
@@ -520,7 +531,13 @@ impl<D: Datagrams> ViewportLink<D> {
         let Some(Surface { output, task }) = self.surfaces.remove(&surface) else { return Ok(None) };
         drop(output);
         let sync = match task.await {
-            Ok(Ok(sync)) => Some(sync),
+            Ok(Ok(sync)) => {
+                let errors = sync.send_errors();
+                if errors.total() > 0 {
+                    tracing::info!(surface, ?errors, "viewport sync: sends refused");
+                }
+                Some(sync)
+            }
             Ok(Err(error)) => {
                 tracing::info!(surface, %error, "viewport sync ended");
                 None

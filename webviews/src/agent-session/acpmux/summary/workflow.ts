@@ -1,5 +1,3 @@
-import type { AcpmuxSnapshot } from "../model";
-
 export type WorkflowAgent = {
   id: string;
   name: string;
@@ -73,12 +71,6 @@ const text = (value: unknown): string | undefined => (typeof value === "string" 
 const count = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 const has = (value: Record<string, unknown>, key: string): boolean => Object.hasOwn(value, key);
-
-/// The optional adapter seam for future acpmux workflow events. Until the daemon sends `workflow`,
-/// this returns undefined and the Labs-only surface stays absent; no state is inferred from rows.
-export function workflowFromSnapshot(snapshot: AcpmuxSnapshot): WorkflowSummary | undefined {
-  return workflowFromWire(snapshot.workflow);
-}
 
 export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
   const raw = record(value);
