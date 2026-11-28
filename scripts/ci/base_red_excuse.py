@@ -6606,6 +6606,8 @@ PACKAGE_JOBS = {
                   "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift",
                   # the kit's Swift tests read the shared specs from the repository root at run time
                   "cmux-tui/spec/full-access-modes.json", "schemas/deeplinks/agent-link.json",
+                  # cmux-mobile-host's phone API contract tests dev-depend on cmux-api-compat (#63569)
+                  "cmux-tui/crates/cmux-api-compat/",
                   # the crates cmux-next-ios/rust reaches since (cargo_crates at feat-cmux-next, 2026-11-26)
                   "cmux-tui/crates/cmux-auto-session/", "cmux-tui/crates/cmux-braid-carrier/",
                   "cmux-tui/crates/cmux-braid-class/", "cmux-tui/crates/cmux-braid-path/",
