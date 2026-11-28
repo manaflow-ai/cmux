@@ -1259,7 +1259,7 @@ for (const [why, routes, signIn, shown] of [
   ],
 ] as const) {
   test(`the Account row with ${why} names ${shown} (#63167)`, async () => {
-    await openMenu(false, { routes: routes as ChatAccountList, ...(signIn ? { signIn } : {}) });
+    await openMenu(false, { routes: routes as unknown as ChatAccountList, ...(signIn ? { signIn } : {}) });
     await settle();
     const account = document.querySelector<HTMLElement>(".acpmux-quick-account")!;
     expect(account.textContent).toContain(shown);
