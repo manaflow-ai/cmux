@@ -423,11 +423,13 @@ public final class CloudPlaceFlows {
     /// `starts`: the sessions folder whose hybrid start drivers say `start` (watched from the first read on).
     /// `machine`: the chat's machine id, whose AutoSize rows (RFD 0080 piece 4) `place.autosize` carries with
     /// `cmux.cloud.autosizeRows` on (default off); nil carries none.
+    /// `modes`: the choices its control offers (`CmuxConfigSnapshot.placeModes`); nil leaves them out.
     public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil,
-                          machine: String? = nil) -> Data? {
+                          machine: String? = nil, modes offered: [String]? = nil) -> Data? {
         if let state { watchStarts(state: state) }
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
+        if let offered { place["modes"] = offered }
         if let cloudName { place["cloudName"] = cloudName }
         _ = views[session] // observed: a new view re-sends the header
         if !settled.contains(session), let move = parsedViews[session] { place["move"] = move }
