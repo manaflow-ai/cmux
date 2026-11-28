@@ -25,7 +25,8 @@ await requireBrowserLane("shimmer-mount-phase.test.ts", async () => {
             contents: `
             import { flushSync } from "react-dom";
             import { createRoot } from "react-dom/client";
-            import { RowShimmer, ShimmerText, ShimmerEnabledContext } from "./src/agent-session/acpmux/conversation/ShimmerText";
+            import { RowShimmer, ShimmerText } from "./src/agent-session/acpmux/conversation/ShimmerText";
+            import { ShimmerEnabledContext } from "./src/agent-session/acpmux/conversation/shimmerEnabledContext";
             window.mountShimmers = (count, row, id, enabled = true) => {
               const host = document.createElement("div"); host.id = id; document.body.append(host);
               flushSync(() => createRoot(host).render(<ShimmerEnabledContext value={enabled}>

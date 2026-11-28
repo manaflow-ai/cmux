@@ -348,7 +348,7 @@
   transform-origin: var(--transform-origin);
 }
 /* An agent reports as many modes as it has: a list taller than this scrolls inside, as the + menu's
-   does (styles.css), and only its rows near view draw (menuWindow.tsx). --popup-scroll-cap is the
+   does (styles.css), and only its rows near view draw (menuWindow.ts). --popup-scroll-cap is the
    bound for popupHost.ts. Claude Code's and Codex's few modes never reach it. */
 .ui-popup.acpmux-access-menu {
   --popup-scroll-cap: 420px;
