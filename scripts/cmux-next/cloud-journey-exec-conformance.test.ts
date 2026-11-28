@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { execConformanceCargoStart, execConformanceCargoWait, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, journeyAcpmuxAssemble, journeyAcpmuxPieces, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
+import { execConformanceCargoStart, execConformanceCargoWait, execConformanceCase, execConformanceOn, execConformanceProbe, JOURNEY_ACPMUX_DIR, journeyAcpmuxAssemble, journeyAcpmuxPieces, journeyAcpmuxWrite, journeyAcpmuxWriteRetryable, parseCaseNames, parseRows, rowText, verdict } from "./cloud-journey-exec-conformance.ts";
 
 const row = (c: string, o: Record<string, unknown> = {}) => ({ case: c, identical: true, diffs: [], routedRan: "fork", ...o });
 
@@ -95,5 +95,28 @@ describe("exec conformance on prod", () => {
     const w = spawnSync("sh", ["-c", wait], { env, encoding: "utf8" }).stdout;
     expect(w).toContain("cargo_ready=yes install_exit=0");
     expect(w).toContain("version=cargo 9.9.9");
+  });
+
+  test("an acpmux piece write retries a 502 vm_unavailable, bounded", async () => {
+    const waits: number[] = [];
+    const wait = async (ms: number) => { waits.push(ms); };
+    let n = 0;
+    const flaky = async () => (++n < 3 ? { status: 502, body: { ok: false, error: { code: "vm_unavailable" } } } : { status: 200, body: { ok: true } });
+    expect(await journeyAcpmuxWrite("/p0", flaky, wait)).toBe(3);
+    expect(waits).toEqual([3_000, 10_000]);
+
+    waits.length = 0;
+    const down = async () => ({ status: 502, body: { ok: false, error: { code: "vm_unavailable" } } });
+    await expect(journeyAcpmuxWrite("/p1", down, wait)).rejects.toThrow("fs/write /p1: HTTP 502 vm_unavailable; HTTP 502 vm_unavailable; HTTP 502 vm_unavailable (3 tries)");
+    expect(waits).toEqual([3_000, 10_000]);
+
+    waits.length = 0;
+    await expect(journeyAcpmuxWrite("/p2", async () => ({ status: 403, body: { ok: false, error: { code: "forbidden" } } }), wait)).rejects.toThrow("(1 try)");
+    expect(waits).toEqual([]);
+
+    let m = 0;
+    expect(await journeyAcpmuxWrite("/p3", async () => { if (++m === 1) throw new Error("socket hang up"); return { status: 200, body: { ok: true } }; }, wait)).toBe(2);
+    expect(journeyAcpmuxWriteRetryable({ status: 200, body: { ok: false, error: { code: "vm_unavailable" } } })).toBe(true);
+    expect(journeyAcpmuxWriteRetryable({ status: 404 })).toBe(false);
   });
 });

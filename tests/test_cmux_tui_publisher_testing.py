@@ -116,21 +116,13 @@ class WiringTests(unittest.TestCase):
         self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):
-        # Every label the gate's runs-on can pick is a pool the deferral counts:
-        # #64136 moved attempt-2+ nightly reruns off cmux-linux (now every nightly-path attempt takes
-        # cmux-gcp-nightly-jit-x64, a whole VM), and a
-        # DAEMON_POOL naming only cmux-linux stopped deferring to them.
+        # The nightly path takes the one-job JIT label; anything else follows the overflow switch.
         runs_on = gate_runs_on(self.WORKFLOW)
-        labels = set(re.findall(r"'([a-z0-9][a-z0-9.-]*)'", runs_on)) - {"manaflow-ai", "refs/heads/nightly-next"}
-        labels = {label for label in labels if "/" not in label and label != "workflow_dispatch"}
-        self.assertIn("cmux-linux", labels)
+        self.assertTrue(runs_on.endswith("&& 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
+        pool = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                "format('{0},cmux-gcp-nightly-jit-x64', vars.CI_OVERFLOW_LINUX || 'cmux-linux') }}")
         pools = [line.strip() for line in self.WORKFLOW.splitlines() if line.lstrip().startswith("DAEMON_POOL: ")]
-        self.assertEqual(len(pools), 2)
-        for line in pools:
-            hosted, _, owned = line.removeprefix("DAEMON_POOL: ").partition("|| ")
-            self.assertIn("'ubuntu-24.04'", hosted)
-            named = set(owned.strip(" '}").split(","))
-            self.assertEqual(named, labels - {"ubuntu-24.04"}, line)
+        self.assertEqual(pools, [f"DAEMON_POOL: {pool}"] * 2)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
