@@ -8910,6 +8910,15 @@ class PushBranchIsTheBase(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
             self.judge(github)
 
+    def test_the_pr_heads_copy_never_picks_the_branch_compared_with(self):
+        # A pull request that adds `on.push.branches` to its own copy chooses no base: only BASE's copy is read.
+        github = PushBranchGitHub()
+        github.files = {(HEAD, PushBranchGitHub.PATH): PushBranchGitHub.WORKFLOW}
+        self.assertEqual(excuse.push_branches(REPO, "feat-cmux-next", github.run_record, github), [])
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge(github)
+        self.assertFalse(any("branch=nightly-next" in route for route in github.routes))
+
 
 class RedFromTheOldBaseAfterRetarget(unittest.TestCase):
     """A red whose pull_request(_target) run fired while the pull request had another base, whose workflow at the

@@ -10333,27 +10333,22 @@ PUSH_BRANCHES_READ = 3
 
 
 def push_branches(repo: str, base: str, run: dict, github) -> list[str]:
-    """The literal branches (no glob, no `!`) of the `on.push.branches` of RUN's workflow as BASE has it, else as RUN's
-    head has it, BASE left out, in order, at most PUSH_BRANCHES_READ; [] for a run whose workflow is unread."""
+    """The literal branches (no glob, no `!`) of the `on.push.branches` of RUN's workflow as BASE has it, BASE left out,
+    in order, at most PUSH_BRANCHES_READ; [] for a run whose workflow BASE lacks or is unread. Never the PR head's copy:
+    a pull request does not choose the branch its red is compared with."""
     path = str(run.get("path") or "").split("@", 1)[0] if isinstance(run, dict) else ""
-    if not path.startswith(".github/workflows/"):
+    if not path.startswith(".github/workflows/") or not hasattr(github, "blob"):
         return []
-    for ref in (base, run.get("head_sha")):
-        if not isinstance(ref, str) or not ref:
-            continue
-        doc = workflow_doc(repo, ref, path, github)
-        if doc is None:
-            continue
-        triggers = doc.get(True, doc.get("on")) if isinstance(doc, dict) else None
-        spec = triggers.get("push") if isinstance(triggers, dict) else None
-        patterns = spec.get("branches") if isinstance(spec, dict) else None
-        patterns = [patterns] if isinstance(patterns, str) else patterns
-        if not isinstance(patterns, list):
-            return []
-        return [branch for branch in patterns
-                if isinstance(branch, str) and re.fullmatch(r"[\w./-]+", branch) and branch != base
-                ][:PUSH_BRANCHES_READ]
-    return []
+    doc = workflow_doc(repo, base, path, github)
+    triggers = doc.get(True, doc.get("on")) if isinstance(doc, dict) else None
+    spec = triggers.get("push") if isinstance(triggers, dict) else None
+    patterns = spec.get("branches") if isinstance(spec, dict) else None
+    patterns = [patterns] if isinstance(patterns, str) else patterns
+    if not isinstance(patterns, list):
+        return []
+    return [branch for branch in patterns
+            if isinstance(branch, str) and re.fullmatch(r"[\w./-]+", branch) and branch != base
+            ][:PUSH_BRANCHES_READ]
 
 
 def push_branch_verdicts(repo: str, base: str, name: str, workflow, run: dict, github, base_jobs: dict,
