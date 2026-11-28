@@ -39,6 +39,10 @@ name: cmux-next tab switch (advisory)
 # would start within QUEUE_WAIT_S); otherwise it records "not measured: the display queue is busy" and ends in
 # seconds, and the verdict reads not measured. An unreadable table submits anyway (fail open), and QUEUE_WAIT_S
 # bounds the wait.
+# That skip left the check measuring nothing: 20 of 20 sampled frames jobs in the 25 h to 2026-11-28 09:53Z skipped
+# with 43-108 exclusive steps queued. Now a busy queue gets one detached step per WINDOW_H-hour window (the frames
+# job's env): it waits its turn on the fleet, not on this runner, and the display Mac posts its verdict as check run
+# REPORT_CHECK on the measured commit. At most 24/WINDOW_H steps a day; vars.CI_TAB_SWITCH_WINDOW_H=0 turns it off.
 # In the 24 hours to 2026-11-17 08:27Z the frames job ran 354 times at p50 60.2 min: 220 "successes" were the client
 # waiting out --queue-timeout 3600 with 60 exclusive steps ahead and returning no report, and none of 354 returned
 # one. Each wait held one of its mini's two gateway tokens (glaeda docs/CMUX_MINI_RUNNER.md, gatewayRunners), which
@@ -134,6 +138,8 @@ env:
   # The longest the frames job waits for its background step to leave the fleet queue (cmux-ci --queue-timeout). The
   # step is submitted only when the queue says it would start by then (ADMIT in the frames job).
   QUEUE_WAIT_S: "1200"
+  # The check run a detached window step's display Mac posts on the measured commit (the frames job's WINDOW_H).
+  REPORT_CHECK: cmux-next tab switch (measured, report-only)
 
 jobs:
   scope:
@@ -192,7 +198,15 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BASE_SHA: ${{ needs.scope.outputs.base_sha }}
           PR: ${{ github.event.pull_request.number || 'push' }}
+          EVENT: ${{ github.event_name }}
           FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          # A busy display queue skipped every idle-priority run: 20 of 20 sampled frames jobs in the 25 h to
+          # 2026-11-28 09:53Z read "skip: 43-108 exclusive steps queued", so nothing was ever measured. Then the
+          # job submits one detached step per WINDOW_H-hour window instead (the step key names the window, so a
+          # second push in it follows the same step): agent priority, due by the window's end, and the display
+          # Mac posts its verdict as check run REPORT_CHECK on the measured commit (cmux-ci run --report-check
+          # --detach, report_check.go), so no runner waits. At most 24/WINDOW_H steps a day. 0 turns it off.
+          WINDOW_H: ${{ vars.CI_TAB_SWITCH_WINDOW_H || '6' }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -238,6 +252,32 @@ jobs:
           fi
           echo "tab-switch $admit"
           if [[ "$admit" == skip:* ]]; then
+            # The window's step (WINDOW_H above): detached, so it may wait its turn without holding this runner.
+            # tab-switch.sh exits 1 on a budget miss and 3 when it cannot measure; the check run shows which.
+            # Only a busy queue: with no display host online there is nothing to wait for.
+            if [[ "$admit" == *"exclusive steps queued"* && "$WINDOW_H" =~ ^[1-9][0-9]?$ && "$WINDOW_H" -le 24 ]] &&
+              [[ "$("$client" run --help 2>/dev/null || true)" == *--detach* ]]; then
+              hour="$(date -u +%H)"
+              window="$(date -u +%Y%m%d)-w$(( 10#$hour / WINDOW_H ))"
+              # A push's commit is on feat-cmux-next, so the harness may run at it and the check lands on it; a
+              # dispatched ref may not be protected, so it runs the base's harness as the admitted path does.
+              ref="$BASE_SHA"
+              [[ "$EVENT" == push ]] && ref="$HEAD_SHA"
+              dlog="$RUNNER_TEMP/tab-switch/detach.log"
+              "$client" run --class exclusive --measurement --display \
+                --script scripts/measure/tab-switch.sh --ref "$ref" --repo manaflow-ai/cmux \
+                --key "tab-switch-window-$window" --deadline "${WINDOW_H}h" \
+                --report-check "$REPORT_CHECK" --detach \
+                --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \
+                --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout "$(( WINDOW_H * 3600 ))" 2>&1 | tee "$dlog" || true
+              if grep -q ') detached; check run' "$dlog"; then
+                line="$(grep ') detached; check run' "$dlog" | head -1)"
+                echo "${line#cmux-ci: }" > "$RUNNER_TEMP/tab-switch/detached"
+                echo detached > "$RUNNER_TEMP/tab-switch/step-exit"
+                echo "::notice title=Tab switch::the queue is busy (${admit#skip: }); window $window's step: ${line#cmux-ci: }"
+                exit 0
+              fi
+            fi
             echo "${admit#skip: }" > "$RUNNER_TEMP/tab-switch/skipped"
             echo skipped > "$RUNNER_TEMP/tab-switch/step-exit"
             echo "::notice title=Tab switch::not measured: ${admit#skip: }"
@@ -341,6 +381,13 @@ jobs:
           fi
           report="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
           step_exit="$(cat "$RUNNER_TEMP/tab-switch/step-exit" 2>/dev/null || echo none)"
+          if [[ "$step_exit" == detached ]]; then
+            what="$(cat "$RUNNER_TEMP/tab-switch/detached" 2>/dev/null || echo "a detached step")"
+            printf '### %s: measured off this run\n\nThe display queue was busy, so this window'"'"'s one step waits its turn there: %s. Its verdict arrives as check run "%s".\n' \
+              "$title" "$what" "$REPORT_CHECK" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=$title::measured off this run: $what"
+            exit 0
+          fi
           if [[ "$step_exit" == skipped ]]; then
             why="$(cat "$RUNNER_TEMP/tab-switch/skipped" 2>/dev/null || echo "the display queue was busy")"
             unmeasured "The display Macs could not start this step within the queue wait, so the frames job did not submit it: $why."

@@ -222,8 +222,16 @@ def frames_script():
 
 
 FAKE_CLIENT = """#!/usr/bin/env bash
+if [[ "$1 $2" == "run --help" ]]; then
+  [[ "${FAKE_CLIENT_DETACH:-1}" == 1 ]] && echo "  --detach  with --report-check: submit and exit 0"
+  exit 0
+fi
 echo "$*" >> "$FAKE_CLIENT_CALLS"
 [[ "$1" == run ]] || exit 1
+if [[ " $* " == *" --detach "* ]]; then
+  echo "cmux-ci: step 0123456789abcdef01234567 (exclusive, key k) detached; check run \"c\" on manaflow-ai/cmux@aaaaaaaaaaaa carries its verdict" >&2
+  exit 0
+fi
 echo "cmux-ci: step 0123456789abcdef01234567 (exclusive, key k)"
 exit 75
 """
@@ -234,7 +242,7 @@ class FramesAdmissionTests(unittest.TestCase):
     otherwise it ends in seconds (2026-11-17: 220 of 354 jobs waited out a 3600 s queue timeout behind 60 queued
     exclusive steps, holding a gateway token, and none returned a report)."""
 
-    def run_frames(self, status):
+    def run_frames(self, status, detach=True, window_h="6", event="push"):
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         client, calls = os.path.join(tmp, "cmux-ci"), os.path.join(tmp, "calls")
@@ -249,7 +257,9 @@ class FramesAdmissionTests(unittest.TestCase):
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "RUNNER_TEMP": tmp, "RUNNER_NAME": "t",
                "CMUX_CI_CLIENT": client, "FAKE_CLIENT_CALLS": calls, "FLEET_CONTROLLER": "file://" + controller,
                "HEAD_SHA": "a" * 40, "BASE_SHA": "b" * 40, "PR": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUNDS": "3",
-               "LOADS": "idle,cpu,agents", "REPORT_PATH": ".build/tab-switch/report.tgz", "QUEUE_WAIT_S": "1200"}
+               "LOADS": "idle,cpu,agents", "REPORT_PATH": ".build/tab-switch/report.tgz", "QUEUE_WAIT_S": "1200",
+               "FAKE_CLIENT_DETACH": "1" if detach else "0", "WINDOW_H": window_h, "EVENT": event,
+               "REPORT_CHECK": "cmux-next tab switch (measured, report-only)"}
         proc = subprocess.run(["bash", "-e", "-c", frames_script()], env=env, capture_output=True, text=True,
                               timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
@@ -269,8 +279,38 @@ class FramesAdmissionTests(unittest.TestCase):
         rows.append({"name": "off", "online": False, "queued_eligible": 999})
         return {"measure_hosts": rows}
 
-    def test_deep_queue_skips_without_submitting(self):
+    def test_deep_queue_submits_one_detached_step_per_window(self):
+        # 2026-11-28: 20 of 20 sampled frames jobs skipped (43-108 queued), so nothing was ever measured.
         step_exit, submitted, out, tmp = self.run_frames(self.hosts(queued=63, running=5, online=20))
+        self.assertEqual(step_exit, "detached")
+        self.assertEqual(len(submitted), 1)
+        run = submitted[0]
+        self.assertIn("--detach", run)
+        self.assertIn("--report-check cmux-next tab switch (measured, report-only)", run)
+        self.assertRegex(run, r"--key tab-switch-window-\d{8}-w[0-3] ")
+        self.assertIn("--deadline 6h", run)
+        self.assertIn("--queue-timeout 21600", run)
+        self.assertNotIn("--priority idle", run)
+        self.assertIn("--ref " + "a" * 40, run)  # a push measures, and is checked on, its own commit
+        self.assertIn("--arg=build=" + "a" * 40, run)
+        self.assertIn("window", out)
+
+    def test_dispatched_ref_detaches_with_the_base_harness(self):
+        _, submitted, _, _ = self.run_frames(self.hosts(queued=63, running=5), event="workflow_dispatch")
+        self.assertIn("--ref " + "b" * 40, submitted[0])
+
+    def test_two_pushes_in_one_window_share_its_key(self):
+        keys = [re.search(r"--key (\S+)", self.run_frames(self.hosts(queued=63, running=5))[1][0]).group(1)
+                for _ in range(2)]
+        self.assertEqual(keys[0], keys[1])
+
+    def test_deep_queue_skips_without_a_detaching_client_or_window(self):
+        for kwargs in ({"detach": False}, {"window_h": "0"}):
+            with self.subTest(**kwargs):
+                self.assert_deep_queue_skips(**kwargs)
+
+    def assert_deep_queue_skips(self, **kwargs):
+        step_exit, submitted, out, tmp = self.run_frames(self.hosts(queued=63, running=5, online=20), **kwargs)
         self.assertEqual(step_exit, "skipped")
         self.assertEqual(submitted, [])
         with open(os.path.join(tmp, "tab-switch", "skipped")) as handle:
@@ -349,7 +389,8 @@ class VerdictTests(unittest.TestCase):
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "RUNNER_TEMP": tmp, "GITHUB_STEP_SUMMARY": summary,
                "GATE_MODE": gate_mode, "LOADS": "idle,cpu,agents", "REPORT_PATH": ".build/tab-switch/report.tgz",
                "CANNOT_MEASURE_EXIT": "3", "SCOPE_RESULT": scope, "IN_SCOPE": in_scope, "FRAMES_RESULT": frames,
-               "DRAFT": draft, "PR": "1", "GITHUB_RUN_ATTEMPT": "1", "ARTIFACTS_URL": "https://example.invalid/a"}
+               "DRAFT": draft, "PR": "1", "GITHUB_RUN_ATTEMPT": "1", "ARTIFACTS_URL": "https://example.invalid/a",
+               "REPORT_CHECK": "cmux-next tab switch (measured, report-only)"}
         proc = subprocess.run(["bash", "-e", "-c", verdict_script()], env=env, cwd=REPO, capture_output=True,
                               text=True, timeout=60)
         text = ""
@@ -383,6 +424,15 @@ class VerdictTests(unittest.TestCase):
     def test_cancelled_or_skipped_frames_is_not_measured(self):
         self.assert_not_measured(frames="cancelled")
         self.assert_not_measured(frames="skipped")
+
+    def test_detached_window_step_points_at_its_check_run(self):
+        for gate_mode in ("report", "enforce"):
+            with self.subTest(gate_mode=gate_mode):
+                code, text, out = self.run_verdict(gate_mode=gate_mode, frames="success", step_exit="detached")
+                self.assertEqual(code, 0, out + text)
+                self.assertIn("measured off this run", text)
+                self.assertIn("cmux-next tab switch (measured, report-only)", text)
+                self.assertNotIn("::error", out)
 
     def test_busy_display_queue_is_not_measured(self):
         self.assert_not_measured(frames="success", step_exit="skipped")
