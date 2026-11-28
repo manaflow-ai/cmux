@@ -55,13 +55,13 @@ export const ALLOWED: Readonly<Record<string, Readonly<Record<string, string>>>>
   "agent-session/acpmux/HostError.tsx": {
     "host.restoringSessions": "yields to the dot once mounted (`useDotSaysRecovery`); the host line before it",
   },
-  "agent-session/acpmux/MachineLinkStatus.tsx": {
+  "agent-session/acpmux/linkWords.ts": {
     "machineLink.reconnecting": "the link words the dot's own card and the sidebar machine header draw",
   },
   "agent-session/acpmux/environmentPickerModel.ts": {
     "header.reconnecting": "an environment row's state in the picker, not this chat's",
   },
-  "agent-session/acpmux/conversation/PromptDelivery.tsx": {
+  "agent-session/acpmux/conversation/promptDeliveryModel.ts": {
     "prompt.delivery.whenReady": "one sent prompt's delivery mark in the transcript, not the session's status",
   },
   "agent-session/acpmux/session-info/ConnectorsSection.tsx": {

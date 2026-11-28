@@ -5,7 +5,7 @@
 // mapping as the sidebar (`cmux-layout-reducer` `sidebar_bridge::link::peer_link`), and the row says the
 // cause when acpmux knows it.
 import { expect, test } from "bun:test";
-import { linkWords } from "./MachineLinkStatus";
+import { linkWords } from "./linkWords";
 import { translate } from "./i18n";
 import { ACPMUX_LINKS, readPeerLinkDetail, type AcpmuxLink } from "./linkState";
 import { PEER_LINKS, peerLink } from "./peerLink";

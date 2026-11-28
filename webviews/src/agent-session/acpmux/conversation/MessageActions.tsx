@@ -14,7 +14,7 @@ import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Speaker, StopReading, TurnFork, Undo } from "./icons";
 import { WaitSpinner } from "./WaitSpinner";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, messageAge, messageAgeWidest, nextMessageAge } from "./relativeTime";
+import { exactTime, messageAge, nextMessageAge, messageAgeWidest } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu, releaseMessagePopupOnUnmount } from "./messageMenu";
@@ -22,7 +22,7 @@ import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
-import { intl } from "../../../ui/intl";
+import { rewindSeconds } from "./rewindSeconds";
 import { Described } from "../chips/FactsHoverCard";
 import { Slot } from "../../../slots/Slot";
 import { rowHoverSlot } from "../../../slots/rowHover";
@@ -262,11 +262,6 @@ export function RewindButton({ rowId }: { rowId: string }) {
       </span>
     </button>
   );
-}
-
-/// A rewind's time in seconds with one decimal, in the pane's language ("9.4", "9,4").
-export function rewindSeconds(seconds: number, language: string): string {
-  return intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds);
 }
 
 /// Pins the message (row `rowId`): kept with the chat by acpmux; a pinned prompt also shows in the

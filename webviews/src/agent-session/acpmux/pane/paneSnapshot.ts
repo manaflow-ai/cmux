@@ -210,7 +210,9 @@ import type { ShownChrome } from "../shownChrome";
 import { applyPaneTheme, applyPaneThemeCSS } from "../paneTheme";
 import { dismissFocusRing } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
-import { currentRegistry, NEW_TAB_CLOSE_EVENT, streamedOnly } from "../App";
+import { NEW_TAB_CLOSE_EVENT } from "../App";
+import { currentRegistry } from "../currentRegistry";
+import { streamedOnly } from "../streamedOnly";
 import {
   failedRowIds,
   heldGoesAfterTrust,
