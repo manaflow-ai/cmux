@@ -77,6 +77,7 @@ actions, including doctor refusal and terminal MCP denial.
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
 | stress | `split-spring.sh --suite=stress` (`scripts/cmux-next/stress-bench.py`, `stress_load.py`; the cli angle runs `scripts/stress-cli-socket-api.py`) on the exclusive bench worker | The app under extreme stress, one angle per launch (cpu/thread starvation, many streaming mock chats with long transcripts, many workspaces with output floods, CLI/socket flood, memory past RAM into swap): frame p50/p95, dropped frames, input latency, daemon RTT, app CPU, footprint, hangs, baseline and stress window each. |
 | dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
+| app-try-plan | `app-try-plan.py` (hot-verify.py's snapshot(), the dir: source half of plan, in process, two arms alternated) on a fleet Mac or any checkout | The plan phase of a repeat `cmux app try dir:` of an unchanged tree: a throwaway index copy per snapshot against the kept one (goal team-dev-build-is-swap). |
 | agent-class-duress | `agent-class-duress.sh` (`agent-class-duress/work.c`, `spin.c`, `probe.c`) on a fleet Mac | An agent's tool loop (parallel CPU work plus uncached reads) idle, at 80% and at full load from default-priority threads, in background class (the old static default) and at the dynamic class's normal tier; and the dynamic controller's own reading per load (busy, interactive-thread lateness, share of seconds it would demote). |
 | coord-sim | `coord-sim-linux.sh` (crate `cmux-tui/crates/coord-sim`) on Linux CI; also the perf cron's coord-sim part | Several synthetic coordinator chats at once into a release acpmux: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, history paging, prompt ack and echo, daemon RSS and its slope, memory and CPU per chat. |
 | projection-way-back | `a_bench_of_bring_back` (`cmux-tui/crates/cmux-tui/tests/link_project_back.rs`) on Linux CI | Bring Back of a projected folder against today's pull (`seed pull --or-copy`) at N files and 50 edits, over a 50 ms RTT link; the plan step and the pure plan's cost. |
@@ -96,6 +97,7 @@ actions, including doctor refusal and terminal MCP denial.
 |---|---|---|---|---|
 | `dev-loop-ceiling.sh` | Runs each `dev-loop/<loop>.sh` on one Mac, then `dev-loop/bound.py` (dev-loop bench). | goal dev-loop-ceiling | 2026-11-21 | active |
 | `dev-loop/bound.py` | Each loop's p50 over the Monte Carlo critical path of its stage floors; writes report.json. | goal dev-loop-ceiling | 2026-11-21 | active |
+| `app-try-plan.py` | Times hot-verify.py's snapshot() of the checkout itself, throwaway vs kept index copy (app-try-plan bench). | goal team-dev-build-is-swap | 2026-11-28 | active |
 
 ## Launch and update
 
@@ -297,6 +299,7 @@ actions, including doctor refusal and terminal MCP denial.
 | `browser-fuzz.sh` | Seeded fuzz of URLs, navigation and tab storms (correctness). | fuzz row k | 2026-11-14 | active |
 | `browser-use-perf.sh` | cmux browser host REPL against other browser-automation tools, no model. | - | 2026-11-03 | active |
 | `pane-compile-ab.mjs` | The agent pane's JS compile before first paint, A against B, cold or with a warm code cache, in headless Chrome over http; `--attach PORT` checks a running cmux's pane for code cache consumption. | research:startup | 2026-11-23 | active |
+| `crash-report-read.sh` | A fleet Mac's cmux crash reports as image + offset per frame (crashed thread, lastExceptionBacktrace, main) with image UUIDs and load addresses, plus recent cef.log FATAL / Check failed lines, so a stripped CEF frame ("ChromeWebAppShortcutCopierMain") can be symbolicated against the CEF `-debug` asset. Read only; `--class light --target-worker HOST`. | feature-flows walk SIGTRAP (run 46185455947) | 2026-11-28 | active |
 | `cef-tab.sh` | New Chromium tab: input to visible and to page pixels. | PL-cef-tab | 2026-10-27 | active |
 | `cef-embedder.sh` | CEF fork embedder tests against an unreleased fork build. | PL-cef-fork | 2026-11-12 | active |
 | `cef-helpers.sh` | Chromium helper check: renderer and GPU helpers start, no V8 OOM. | - | 2026-11-05 | active |

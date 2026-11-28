@@ -49,6 +49,9 @@ public final class NewTabChoiceMemory {
         return defaults.string(forKey: Self.startedProjectKey).flatMap { $0.hasPrefix("/") ? $0 : nil }
     }
 
+    /// The agent, model and level the person last picked for Cloud (``AgentPaneLastPicks/cloud``).
+    public var cloudAgent: AgentPaneLastPicks.Pick? { picks?.cloud }
+
     /// The folder or GitHub repository (`github:owner/name`) the person last started a Cloud chat in (`newTab.remember`
     /// `cloudStarted`): a page with Cloud picked starts there, apart from This Mac's ``startedProject`` (cmux#53226).
     public var cloudStartedProject: String? {
@@ -74,7 +77,8 @@ public final class NewTabChoiceMemory {
         if pick.forCloud {
             // Cloud's own bucket: this Mac's last agent and picks stay as they were.
             let model = pick.model ?? (picks.cloud?.harness == pick.agent ? picks.cloud?.model : nil) ?? AgentPaneLastPicks.defaultModel
-            picks.cloud = .init(harness: pick.agent, model: model)
+            let effort = pick.effort ?? (picks.cloud?.harness == pick.agent ? picks.cloud?.effort : nil)
+            picks.cloud = .init(harness: pick.agent, model: model, effort: effort)
         } else {
             defaults.set(pick.agent, forKey: Self.agentKey)
             let model = pick.model ?? picks.lastModel(harness: pick.agent, folder: pick.folder) ?? AgentPaneLastPicks.defaultModel

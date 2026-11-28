@@ -261,13 +261,21 @@ jobs:
   build-aarch64:
     # Shows as "build-machine-channel aarch64 lane N / build TARGET" on a push, as build-x86_64.
     name: ${{ github.event_name == 'push' && format('build-machine-channel aarch64 lane {0}', needs.plan.outputs.lane) || 'build-machine-channel' }}
-    needs: plan
+    # SPLIT_PAIR_STARVED: aarch64 starts once this run's x86_64 build passed, so its lane group's pending slot
+    # only ever holds a run that already has x86_64, and a newer push replaces it only with a newer such run.
+    # The two legs used to wait in their own lane groups side by side, and newer pushes replaced each pending
+    # leg on its own: run 46185742076 (9229580a, 2026-11-28) built aarch64 while its pending x86_64 was
+    # replaced at 20:34Z; run 46186513387 (b579b62c) built x86_64 while its pending aarch64 was replaced at
+    # 20:33Z. point-linux needs both, so neither pointed both targets or requested the image roll, and the
+    # channel had no green run from 19:33Z. Cost: point-linux waits for x86_64 then aarch64 (point-x86_64
+    # does not); an x86_64 failure skips aarch64, which point-linux could not use anyway.
+    needs: [plan, build-x86_64]
     # A push's stage group (see the header); a pull request's run is already one group of its own.
     concurrency:
       group: cmux-machine-channel-build-aarch64-${{ github.event_name == 'push' && format('{0}-lane{1}', github.ref, needs.plan.outputs.lane) || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
     # The router's answer on a pull request (plan skipped), else plan's.
-    if: ${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true' }}
+    if: ${{ !cancelled() && (inputs.build || needs.plan.outputs.build) == 'true' && needs.build-x86_64.result == 'success' }}
     permissions:
       contents: read
       # The reusable package workflow's permission ceiling.
@@ -366,7 +374,8 @@ jobs:
           run="$(python3 -I scripts/ci/cmux_machine_channel_twin.py wait "$GITHUB_RUN_ID" --target x86_64-unknown-linux-musl --wait 3300)" || run=""
           echo "from_run=$run" >> "$GITHUB_OUTPUT"
 
-  # TWIN_BUILD: both Linux artifacts for point-linux, as twin-x86_64.
+  # TWIN_BUILD: both Linux artifacts for point-linux, as twin-x86_64. The twin's aarch64 builds after its x86_64
+  # (SPLIT_PAIR_STARVED, build-aarch64), so the wait is as long as self-x86_64's.
   twin-linux:
     name: wait for the earlier push's Linux builds
     needs: plan
@@ -375,7 +384,7 @@ jobs:
       group: cmux-machine-channel-twin-linux-${{ needs.plan.outputs.twin_run }}
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
@@ -400,7 +409,7 @@ jobs:
           TWIN_RUN: ${{ needs.plan.outputs.twin_run }}
         run: |
           set -euo pipefail
-          run="$(python3 -I scripts/ci/cmux_machine_channel_twin.py wait "$TWIN_RUN" --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl)" || run=""
+          run="$(python3 -I scripts/ci/cmux_machine_channel_twin.py wait "$TWIN_RUN" --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl --wait 3300)" || run=""
           echo "from_run=$run" >> "$GITHUB_OUTPUT"
 
   point-x86_64:
