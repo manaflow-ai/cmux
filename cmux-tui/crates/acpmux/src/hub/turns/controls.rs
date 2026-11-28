@@ -279,6 +279,27 @@ impl Hub {
             )
             .await?;
         self.append(session, "mux", "config", json!({"configId": config_id, "value": value}));
+        // A harness that reports its model both ways (Codex: a `model` option and ACP `models`)
+        // runs the one this option set: the report says so too. Left behind, it stayed on the
+        // model the chat started on, and every fork and restart (`replay_config`, where the
+        // report wins) ran that one: a Codex chat on gpt-6-luna forked onto gpt-6.2-sol.
+        if config_id == "model"
+            && let Some(model) = value.as_str()
+        {
+            let changed =
+                match session.meta.lock().unwrap_or_else(|e| e.into_inner()).models.as_mut() {
+                    Some(Value::Object(models))
+                        if models.get("currentModelId").and_then(Value::as_str) != Some(model) =>
+                    {
+                        models.insert("currentModelId".into(), json!(model));
+                        true
+                    }
+                    _ => false,
+                };
+            if changed {
+                self.save_meta_answered(session)?;
+            }
+        }
         {
             let mut applied =
                 session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -293,6 +314,25 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         model_id: &str,
+    ) -> Result<Value, RpcError> {
+        self.set_model_with_restart_policy(session, model_id, false).await
+    }
+
+    /// Automatic capacity changes must preserve work below a turn. A harness that takes
+    /// its model at spawn is restarted only through the quiet gates and process census.
+    pub(in crate::hub) async fn set_model_automatically(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        model_id: &str,
+    ) -> Result<Value, RpcError> {
+        self.set_model_with_restart_policy(session, model_id, true).await
+    }
+
+    async fn set_model_with_restart_policy(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        model_id: &str,
+        automatic: bool,
     ) -> Result<Value, RpcError> {
         // Every switch (ACP `session/set_model`, `acpmux session set model=`, a fork's or a
         // start's model) as the catalog names it: `fable-5.2` runs as `claude-fable-5-2`.
@@ -322,6 +362,17 @@ impl Hub {
         if at_spawn {
             session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
             self.save_meta_answered(session)?;
+            if automatic {
+                self.respawn_when_quiet_required(session);
+                self.append(
+                    session,
+                    "mux",
+                    "model",
+                    json!({"modelId": model_id, "atSpawn": true, "applied": "whenQuiet"}),
+                );
+                super::start_defaults::model_applied(session, model_id);
+                return Ok(json!({"applied": "whenQuiet"}));
+            }
             // A switch never stops a running turn or cuts an open permission prompt (Leo
             // 2026-10-22: "switching model/harness/whatever shouldnt immediately stop
             // things"): the agent restarts on the new model when the turn ends, as a route
