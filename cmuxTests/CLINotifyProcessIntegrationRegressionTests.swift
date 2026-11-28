@@ -2160,6 +2160,56 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(active["turnId"] as? String, "turn-2")
     }
 
+    func testClaudeSessionEndForUnknownSessionKeepsThePanesSession() throws {
+        // https://github.com/manaflow-ai/cmux/issues/42726
+        let context = try makeClaudeHookContext(name: "claude-session-end-unknown-session")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                parentSessionId: [
+                    "sessionId": parentSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        // A child's end for a session the store never kept, or already consumed.
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"child-session","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid claude_code ") },
+            "Expected an unknown session's end not to clear the pane's Claude PID, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("clear_notifications ") },
+            "Expected an unknown session's end not to clear the pane's notifications, saw \(context.state.commands)"
+        )
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        let parent = try XCTUnwrap(
+            savedSessions[parentSessionId] as? [String: Any],
+            "Expected an unknown session's end not to consume the pane's session"
+        )
+        XCTAssertEqual(parent["startedAt"] as? Double, now)
+    }
+
     func testClaudeSessionEndClearsMatchingSurfaceResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "claude-session-end-resume-clear")
         defer { context.cleanup() }
