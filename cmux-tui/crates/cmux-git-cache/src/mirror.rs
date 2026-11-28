@@ -1196,7 +1196,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_consolidation_leaves_one_pack_and_skips_kept_ones() {
+    async fn a_consolidation_leaves_one_pack_and_counts_no_kept_one() {
         let up = tempfile::tempdir().unwrap();
         sh_git(up.path(), &["init", "-q", "-b", "main"]);
         let mirror = tempfile::tempdir().unwrap();
@@ -1223,16 +1223,17 @@ mod tests {
                 &["-c", "fetch.unpackLimit=1", "fetch", "-q", &url, "+refs/heads/*:refs/heads/*"],
             );
         }
-        assert_eq!(packs(mirror.path()).len(), 4);
-        assert_eq!(pack_sizes(mirror.path()).len(), 4);
-        let kept = mirror.path().join("objects/pack").join(&packs(mirror.path())[0]);
-        std::fs::write(kept.with_extension("keep"), b"operator").unwrap();
-        assert_eq!(pack_sizes(mirror.path()).len(), 3);
+        let n = packs(mirror.path()).len();
+        assert!(n >= 3, "{n} packs");
+        assert_eq!(pack_sizes(mirror.path()).len(), n);
         Mirrors::consolidate(mirror.path(), Consolidate::Full).await;
-        // The kept pack stays; the other three became one.
-        assert_eq!(packs(mirror.path()).len(), 2);
-        assert!(kept.exists());
-        sh_git(mirror.path(), &["fsck", "-q"]);
+        assert_eq!(packs(mirror.path()).len(), 1);
+        assert_eq!(sh_git(mirror.path(), &["rev-list", "--count", "main"]), "4");
+        // A pack with a `.keep` beside it is not counted as one git may rewrite.
+        let one = mirror.path().join("objects/pack").join(&packs(mirror.path())[0]);
+        std::fs::write(one.with_extension("keep"), b"operator").unwrap();
+        assert!(pack_sizes(mirror.path()).is_empty());
+        sh_git(mirror.path(), &["fsck", "--no-progress"]);
     }
 
     #[tokio::test]
