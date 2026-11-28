@@ -189,6 +189,24 @@ class GuardTests(unittest.TestCase):
         for leak in (TEAM, VM, logs.base.tag(TEAM), logs.base.tag(VM), "hunter2", "token=abc"):
             self.assertNotIn(leak, text)
 
+    def test_cmux_vm_store_failure_keeps_its_sqlstate(self):
+        # 2026-11-28 21:02Z: production "cmux-vm store query failed" rows read with no code; TOKEN dropped 53300.
+        def store_line(code):
+            return event(f'timestamp=2026-11-28T21:10:01.000Z level=WARN fiber=#3 message="cmux-vm store query failed" '
+                         f'operation=ownership.list code={code}', url="https://vm.example/v1/vms", status=503)
+        path = event_file({"service": VM_PROD, "id": "window", "needles": "12:"})
+        evs = [store_line("53300"), store_line("CONNECTION_CLOSED"), store_line("PostgresError"), store_line("Ab1-x")]
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-16T13:30:00Z", "--from-event", path],
+                                                response={"result": {"events": {"events": evs}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        _, header, rows = upload.call_args.args
+        codes = sorted(r["log"].get("code", "-") for r in rows if "log" in r for _ in range(r["n"]))
+        # A code that is neither a SQLSTATE, a driver code, a class name nor a token is still dropped.
+        self.assertEqual(codes, sorted(["53300", "CONNECTION_CLOSED", "PostgresError", "-"]))
+
     def test_cmux_vm_window_counts_provider_failures_by_operation_and_status(self):
         # cmux-platform#1442: Effect text lines of cmux-vm (src/upstream/live.ts logUpstreamFailure).
         def vm_line(operation, status, extra=""):
