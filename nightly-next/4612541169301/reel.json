@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "build": "4612541169301",
+  "notes": "notes/4612541169301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 64021,
+      "title": "tab-readback: an empty accessibility tree is a rig failure (exit 3), not a red pin",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 53464,
+      "title": "Background tasks panel: no redundant title, kind glyphs, Shell block output, hover-only actions",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/53464/hv-1b98dd7aaa26-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 61050,
+      "title": "ACP inspector: Timing tab shows each turn's message-to-agent, queue and first-output gaps",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/61050/hv-4dc7a7f0e578-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 64086,
+      "title": "ci: ui-proof-stale-sweep twin matches main (JIT runner + token floor); guard twin runner/floor drift",
+      "author": "cmux-agents-ci-watch-5[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64053,
+      "title": "cmux-next: the land head runs the fleet app compile it was promised",
+      "author": "quota-goblin-9016[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64176,
+      "title": "car guards: split a large python test file by TestCase class across the job slots",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 58990,
+      "title": "customize: window.settingsPresentation opens Settings as a full page (look parity)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43422,
+      "title": "Web machine surfaces draw the icon of the device each machine is",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/43422/hv-5497c2be2a1e-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 57219,
+      "title": "swift-out chrome-models 3A: the tab strip's multi-selection rules in cmux-window-rules",
+      "author": "cmux-agents-lanes[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 61593,
+      "title": "acpmux: harness magic planFirst (RFD 0158 §8): plan first, with a reply point (default off)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64214,
+      "title": "graceful-swap fleet: stop before the films unless each chat page's HMR socket answers",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/64214/hv-2420b84502db-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 57155,
+      "title": "Move the onboarding Computer Use and Agents step rules and the external open router to Rust",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64160,
+      "title": "acpmux: the cold archive packs at zstd 9, not 19 (57% of the daemon's CPU)",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 56115,
+      "title": "Cloud GitHub: one-line grant refusal with Install GitHub App; list_repos names its repositories",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64220,
+      "title": "test(cmux-tui): the npm contract fixture answers `cmux autocloud --help` (base red: protocol contract)",
+      "author": "cmux-agents-lanes[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 64016,
+      "title": "screen-share-vs: a copy-paste trial reads its round trip, not a decoded frame",
+      "author": "cmux-agents-lander[bot]",
+      "clip": "no clip"
+    }
+  ]
+}
