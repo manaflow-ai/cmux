@@ -256,7 +256,7 @@ impl Tracker {
         // The file this tracker read is gone (compressed in place to FILE.jsonl.zst, or moved):
         // start over as a new tracker would, locating it again. Holding the dead path left every
         // count null for as long as the daemon ran, so the chat read as unmetered
-        // (gcp-agent-lane-4, 2026-11-28: a closed chat's transcript compressed under its tracker).
+        // (2026-11-28: a closed chat's transcript compressed under its tracker).
         // The minutes it counted go too: a moved file is read again from its start, never twice.
         if self.main.as_ref().is_some_and(|t| !t.path.exists()) {
             *self = Tracker { limits: self.limits, ..Tracker::default() };
