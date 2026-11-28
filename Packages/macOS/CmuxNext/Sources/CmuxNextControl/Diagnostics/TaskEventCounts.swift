@@ -8,7 +8,7 @@ struct TaskEventCounts: Sendable, Equatable {
     /// Faults that read a page from disk or swap.
     var pageIns: UInt64
     /// This process's user plus system CPU (every thread, `getrusage`); nil when unread.
-    var processCPUNanos: UInt64? = nil
+    var processCPUNanos: UInt64?
     /// When it was read (`CLOCK_UPTIME_RAW`).
     var uptimeNanos: UInt64 = 0
 
