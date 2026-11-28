@@ -7983,4 +7983,34 @@ function TranscriptView({
   });
 }
 
-const TranscriptViewMemo = React.memo(TranscriptView);
+// PROBE (not for merge): which props differ each time the memo lets TranscriptView render.
+const tvWhy = ((globalThis as Record<string, unknown>).__tvWhy ??= {
+  compares: 0,
+  renders: 0,
+  keys: {} as Record<string, number>,
+  kinds: {} as Record<string, string>,
+}) as { compares: number; renders: number; keys: Record<string, number>; kinds: Record<string, string> };
+function whyCompare(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  tvWhy.compares += 1;
+  const changed: string[] = [];
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) if (!Object.is(a[key], b[key])) changed.push(key);
+  if (changed.length === 0) return true;
+  tvWhy.renders += 1;
+  const tag = changed.length === 1 ? changed[0]! : changed.sort().join("+");
+  tvWhy.keys[tag] = (tvWhy.keys[tag] ?? 0) + 1;
+  for (const key of changed) {
+    const v = b[key];
+    tvWhy.kinds[key] =
+      v === null
+        ? "null"
+        : Array.isArray(v)
+          ? `array(${(v as unknown[]).length})`
+          : v instanceof Set
+            ? "Set"
+            : v instanceof Map
+              ? "Map"
+              : typeof v;
+  }
+  return false;
+}
+const TranscriptViewMemo = React.memo(TranscriptView, whyCompare as never);
