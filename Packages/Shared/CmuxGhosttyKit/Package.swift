@@ -219,6 +219,10 @@ import PackageDescription
 // Since 2bd5d2503 and a84a1c7e4..5c01c7171 (release/cmux-vt-1.0.1-cell-bg): a
 // --no-ff merge of the two lines above, both changes in one pin.
 //
+// Since 5c01c7171..dc2b97454 (release/cmux-vt-1.0.1-cell-bg, fork PR #97):
+// Screen.setAttributes inlines the SGR decode (sgr.Parser.next); same
+// attributes, raw_parse +5-8%. No C API change.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -242,8 +246,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-5c01c7171dc2c00d486f231adda7fb5bf6e55c97-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "ead90aeb4d72cc0ac19226ff8ebaf6b0c70862b274d063d4f263ab10f99c686c"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-dc2b974547c8c22b4a92365d3c47d87e19e8cdee-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "6d518c727b2d2395c733e1dd4a9b6e03cb81b941c9576e8f4803cd0bb566145e"
         ),
     ]
 )
