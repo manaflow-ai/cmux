@@ -9,12 +9,15 @@ import Testing
         try DriverParams(method: "page.goto", json: .object(fields))
     }
 
-    private func message(_ body: () throws(DriverError) -> Void) -> String? {
-        do throws(DriverError) {
+    /// Untyped `throws`: a trailing closure's thrown type is inferred as `any Error`.
+    private func message(_ body: () throws -> Void) -> String? {
+        do {
             try body()
             return nil
-        } catch {
+        } catch let error as DriverError {
             return error.message
+        } catch {
+            return "unexpected error: \(error)"
         }
     }
 
