@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c0300504105054bb96c18e9391d0dc3f2a5e0adbb5458a146f33d31f643eaffe" as const;
+export const SDK_IR_SHA256 = "cfa506e06735ef5f23a70c5fce2644dcb33c7b777a2fd307bf3517375151420d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2612,6 +2612,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Only a view detached by detach-client can be reattached."
+    ]
+  },
+  "record-notification-delivery": {
+    "authority": "control",
+    "since": 12,
+    "capability": "notification-ack-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "register-browser-provider": {
@@ -28557,6 +28567,45 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ReattachViewResult"
+    }
+  },
+  "record-notification-delivery": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "desktop": {
+          "description": "shown or suppressed.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "notification": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "reason": {
+          "default": null,
+          "description": "Why: viewed, typing, muted, quiet-hours, desktop-never, app-active, poster-no-banner, permission-denied, incognito, digest.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "register-browser-provider": {
