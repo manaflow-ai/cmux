@@ -86,7 +86,7 @@
 //!
 //! (`ACPMUX_DURESS_LEGS=relay,bigchat` works too; libtest takes `legs=...` as a name filter that
 //! matches nothing, so `duress_bench` must be named with it.)
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -96,6 +96,10 @@ mod host150;
 // RFD 0050 rule 7's drill: 90% CPU and RAM, the broker answering in 100 s.
 #[path = "support/duress_rfd0050.rs"]
 mod rfd0050;
+// The host readers (load, processes, memory, CPU ticks) on Linux and macOS.
+#[path = "support/duress_host_os.rs"]
+mod host_os;
+use host_os::{harness_in, hostname, load1, proc_count, procs};
 // The prompts go to tests/fake_agent.py; the knobs and the output folder hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_DURESS",
@@ -228,7 +232,14 @@ impl Knobs {
             .or_else(|| std::env::var("ACPMUX_DURESS_LEGS").ok())
             .filter(|v| !v.trim().is_empty())
             .map(|v| v.split(',').map(|l| l.trim().to_owned()).filter(|l| !l.is_empty()).collect())
-            .unwrap_or_else(|| ALL_LEGS.iter().map(|l| (*l).to_owned()).collect::<Vec<_>>());
+            .unwrap_or_else(|| {
+                // Off Linux the default skips the legs that need it (`host_os::LINUX_ONLY_LEGS`).
+                ALL_LEGS
+                    .iter()
+                    .filter(|l| host_os::refuses(l).is_none())
+                    .map(|l| (*l).to_owned())
+                    .collect::<Vec<_>>()
+            });
         let legs = host150::expand(legs);
         for leg in &legs {
             assert!(
@@ -236,6 +247,9 @@ impl Knobs {
                 "unknown leg {leg:?}; legs: {ALL_LEGS:?} and {:?}",
                 host150::EXTRA_LEGS
             );
+            if let Some(why) = host_os::refuses(leg) {
+                panic!("{why}");
+            }
         }
         let window = Duration::from_secs(env_or("ACPMUX_DURESS_SECS", 90u64).max(5));
         let cap = Duration::from_secs(env_or("ACPMUX_DURESS_CAP_SECS", 120u64))
@@ -312,45 +326,14 @@ impl Stress {
 // ---------------------------------------------------------------------------------------------
 // The host's own state.
 
-fn hostname() -> String {
-    std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_owned()
-}
-
 fn cores() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get())
-}
-
-fn load1() -> Option<f64> {
-    std::fs::read_to_string("/proc/loadavg").ok()?.split_whitespace().next()?.parse().ok()
 }
 
 fn psi_cpu_some_avg10() -> Option<f64> {
     let text = std::fs::read_to_string("/proc/pressure/cpu").ok()?;
     let some = text.lines().find(|l| l.starts_with("some"))?;
     some.split_whitespace().find_map(|f| f.strip_prefix("avg10=")).and_then(|v| v.parse().ok())
-}
-
-/// Every process's pid, and its `/proc/PID/stat` fields from the state on.
-fn procs() -> Vec<(i32, Vec<String>)> {
-    let Ok(dir) = std::fs::read_dir("/proc") else { return vec![] };
-    dir.flatten()
-        .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
-        .filter_map(|pid| {
-            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-            let rest = stat.rsplit_once(')')?.1;
-            Some((pid, rest.split_whitespace().map(str::to_owned).collect()))
-        })
-        .collect()
-}
-
-fn proc_count() -> usize {
-    std::fs::read_dir("/proc")
-        .map(|d| {
-            d.flatten()
-                .filter(|e| e.file_name().to_str().is_some_and(|n| n.parse::<u32>().is_ok()))
-                .count()
-        })
-        .unwrap_or(0)
 }
 
 /// Live (not zombie) processes in process group `pgid`. Fields from the state: 0 state, 2 pgrp.
@@ -557,6 +540,12 @@ fn fill(filler: &Path) -> Result<u64, String> {
     Ok(written)
 }
 
+#[cfg(not(target_os = "linux"))]
+fn set_fsize(_pid: u32, _limit: u64) -> Result<(), String> {
+    Err("prlimit is Linux only".into())
+}
+
+#[cfg(target_os = "linux")]
 fn set_fsize(pid: u32, limit: u64) -> Result<(), String> {
     let mut old: libc::rlimit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: reading this process's... the target's limits into `old`.
@@ -1383,16 +1372,6 @@ fn poll_liveness(cli: &Cli, tracked: &Tracked, until: Instant, out: &Mutex<Liven
             std::thread::sleep(rest);
         }
     }
-}
-
-/// The pid of a stand-in harness working in `cwd`.
-fn harness_in(cwd: &Path) -> Option<i32> {
-    let want = std::fs::canonicalize(cwd).ok()?;
-    procs().into_iter().map(|(pid, _)| pid).find(|pid| {
-        let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-        String::from_utf8_lossy(&cmd).contains("fake_agent.py")
-            && std::fs::read_link(format!("/proc/{pid}/cwd")).is_ok_and(|c| c == want)
-    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2757,7 +2736,7 @@ fn markdown(report: &Value) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "manual: loads the host for minutes; ACPMUX_DURESS=1 on a fleet Linux host"]
+#[ignore = "manual: loads the host for minutes; ACPMUX_DURESS=1 on a fleet Linux host or Mac"]
 async fn duress_bench() {
     let host = hostname();
     if host.to_ascii_lowercase().contains("cosmic-gray") {

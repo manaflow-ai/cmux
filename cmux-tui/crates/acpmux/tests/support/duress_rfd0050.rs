@@ -5,8 +5,10 @@
 //! reports p50 and p99 per command." This leg is that machine:
 //!
 //! - CPU: busy loops on 90% of the cores (rounded up), and the share of the window the host's
-//!   CPUs were actually busy (`/proc/stat`) recorded beside it as `cpuBusyPct`;
-//! - RAM: a hog sized so the host's used memory (`MemTotal - MemAvailable`) reaches 90% of
+//!   CPUs were actually busy (`/proc/stat`; `host_statistics` on macOS) recorded beside it as
+//!   `cpuBusyPct`;
+//! - RAM: a hog sized so the host's used memory (`MemTotal - MemAvailable`; on macOS
+//!   `hw.memsize` less free, inactive, speculative and purgeable pages) reaches 90% of
 //!   `MemTotal`, never past `MemAvailable` less [`RAM_HEADROOM`] so another job on the host keeps
 //!   room; `memUsedPct` at the window's start and end says what was reached;
 //! - the broker: the mesh hub stub answers every request after [`BROKER_SECS`], and the send
@@ -32,21 +34,15 @@ pub(super) fn cpu_loops(cores: usize) -> usize {
     (cores * HOLD_PCT as usize).div_ceil(100).max(1)
 }
 
-fn meminfo(key: &str) -> Option<u64> {
-    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let line = text.lines().find(|l| l.starts_with(key) && l[key.len()..].starts_with(':'))?;
-    Some(line.split_whitespace().nth(1)?.parse::<u64>().ok()? * 1024)
-}
-
 /// Used memory as a percent of `MemTotal`.
 pub(super) fn mem_used_pct() -> Option<f64> {
-    let (total, avail) = (meminfo("MemTotal")?, meminfo("MemAvailable")?);
+    let (total, avail) = super::host_os::mem_total_avail()?;
     Some(total.saturating_sub(avail) as f64 * 100.0 / total.max(1) as f64)
 }
 
 /// The hog's bytes: up to [`HOLD_PCT`] of `MemTotal` used, within `MemAvailable` less headroom.
 pub(super) fn hog_bytes() -> Option<u64> {
-    let (total, avail) = (meminfo("MemTotal")?, meminfo("MemAvailable")?);
+    let (total, avail) = super::host_os::mem_total_avail()?;
     let used = total.saturating_sub(avail);
     let want = (total / 100 * HOLD_PCT).saturating_sub(used);
     Some(want.min(avail.saturating_sub(RAM_HEADROOM)))
@@ -61,14 +57,9 @@ pub(super) fn hog_script(bytes: u64) -> String {
     )
 }
 
-/// `(busy, total)` jiffies of all CPUs from `/proc/stat`.
+/// `(busy, total)` CPU ticks of all CPUs (`/proc/stat` on Linux, `host_statistics` on macOS).
 pub(super) fn cpu_jiffies() -> Option<(u64, u64)> {
-    let text = std::fs::read_to_string("/proc/stat").ok()?;
-    let v: Vec<u64> =
-        text.lines().next()?.split_whitespace().skip(1).filter_map(|x| x.parse().ok()).collect();
-    let total: u64 = v.iter().take(8).sum();
-    let idle = v.get(3).copied().unwrap_or(0) + v.get(4).copied().unwrap_or(0);
-    Some((total - idle, total))
+    super::host_os::cpu_ticks()
 }
 
 /// Busy percent between two [`cpu_jiffies`] readings.
