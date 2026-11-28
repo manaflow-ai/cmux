@@ -16,14 +16,15 @@ export type RoomStrip = { faces: StripFace[]; more: number; line?: { actors: Str
 /// Faces and actors a pane draws at most, whatever a daemon sends.
 const MAX_FACES = 16;
 
-const kindOf = (value: unknown): StripKind | undefined =>
-  value === "person" || value === "agent" ? value : undefined;
+const kindOf = (value: unknown): StripKind | undefined => (value === "person" || value === "agent" ? value : undefined);
 const statusOf = (value: unknown): StripStatus => (value === "quiet" || value === "away" ? value : "live");
 const count = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 const doingOf = (value: unknown): string => (typeof value === "string" && value.length <= 32 ? value : "idle");
 
-function entry(value: unknown): (Participant & { kind: StripKind; doing: string; raw: Record<string, unknown> }) | undefined {
+function entry(
+  value: unknown,
+): (Participant & { kind: StripKind; doing: string; raw: Record<string, unknown> }) | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;
   const kind = kindOf(raw.kind);

@@ -53,7 +53,9 @@ export default componentEntry<StripDemoProps>({
     },
     quiet: {
       note: "Everyone idle, one away (dimmed): faces only, no line.",
-      props: { strip: { faces: [face(MEI, "person"), face(CLAUDE, "agent"), face(JORDAN, "person", "idle", "away")], more: 0 } },
+      props: {
+        strip: { faces: [face(MEI, "person"), face(CLAUDE, "agent"), face(JORDAN, "person", "idle", "away")], more: 0 },
+      },
     },
     crowded: {
       note: "Three acting and more past the line: two named, then +N; the stack shows +N too.",
