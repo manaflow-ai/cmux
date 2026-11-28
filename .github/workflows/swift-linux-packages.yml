@@ -55,7 +55,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: swift-linux-packages-${{ github.ref }}
+  group: swift-linux-packages-${{ github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   # A push run finishes, so it can seed the cache; a newer PR head cancels the old one.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
