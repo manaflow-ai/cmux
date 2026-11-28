@@ -70,7 +70,7 @@ def bounded(argv: list[str], cwd: Path, seconds: float) -> int | None:
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
                 os.killpg(process.pid, sig)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):  # macOS: a zombie group answers EPERM
                 break
             try:
                 process.wait(timeout=10)

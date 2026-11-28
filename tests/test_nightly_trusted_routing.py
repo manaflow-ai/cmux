@@ -115,6 +115,8 @@ OWNED_SECRET_JOBS = {
     'publish-nightly': "release and feed credentials in the push run; the signer's label",
     'nightly-next-pkg': "the .pkg's Installer identity (RFD 0134 cut 2, #54859); the signer's label, after publish",
     'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
+    'build-nightly-deltas': "the read-only CI pool tokens for its rate-limited reads (#64250); the nightly-only Mac pool",
+    'visual-gate-nightly': "cache-writer environment on main only; an idle owned mini route-visual-gate-nightly picks",
 }
 # Parser anchors: a regression in holds_secret that empties the derived sets would empty the checks with them.
 SECRET_ANCHORS = {'decide', 'build-sign-notarize-nightly', 'publish-nightly', 'publish-nightly-next-github'}
@@ -1153,7 +1155,9 @@ class CredentialedControls(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertIn(job, CREDENTIALED_CONTROL_JOBS)
                 self.assertTrue(reason.strip())
-                self.assertTrue(runs_on_text(DOC['jobs'][job], job).endswith(f"|| '{NIGHTLY_SLOT}' }}}}"))
+                # #61222 (RFD 0185 phase 2): the nightly slot is read as its unified mac-nightly label.
+                self.assertTrue(runs_on_text(DOC['jobs'][job], job).endswith(
+                    (f"|| '{NIGHTLY_SLOT}' }}}}", "|| 'mac-nightly' }}")))
 
     def test_every_control_takes_our_nightly_pool_and_forks_take_hosted(self):
         self.assertEqual(control_route_failures(DOC), {})
