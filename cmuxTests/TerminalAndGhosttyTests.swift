@@ -7445,6 +7445,88 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
 }
 
+@Suite("Terminal foreground working directory preference")
+struct TerminalForegroundDirectoryPreferenceTests {
+    private func selector(_ shellDirectory: String, _ foregroundDirectory: String?) -> String {
+        TerminalWorkingDirectoryResolver.preferringForegroundDirectory(
+            shellDirectory: shellDirectory,
+            foregroundDirectory: foregroundDirectory
+        )
+    }
+
+    private func makeTemporaryRoot() throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-fg-dir-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    @Test("prefers the foreground worktree over the shell's repo root")
+    func prefersForegroundWorktree() throws {
+        let repo = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let worktree = repo.appendingPathComponent(".claude/worktrees/twinkly-kindling-bubble", isDirectory: true)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+
+        #expect(selector(repo.path, worktree.path) == worktree.path)
+    }
+
+    @Test("keeps the shell directory when the foreground directory no longer exists")
+    func keepsShellDirectoryWhenForegroundDirectoryIsGone() throws {
+        let repo = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let removedWorktree = repo.appendingPathComponent("removed-worktree", isDirectory: true)
+
+        #expect(selector(repo.path, removedWorktree.path) == repo.path)
+    }
+
+    @Test("keeps the shell directory at the prompt")
+    func keepsShellDirectoryAtPrompt() {
+        #expect(selector("/repo", "/repo") == "/repo")
+    }
+
+    @Test("keeps the shell directory when the foreground job is unavailable")
+    func keepsShellDirectoryWithoutForeground() {
+        #expect(selector("/repo", nil) == "/repo")
+    }
+
+    @Test("treats a blank foreground directory as unavailable")
+    func ignoresBlankForegroundDirectory() {
+        #expect(selector("/repo", "   ") == "/repo")
+    }
+
+    @Test("never resurrects a directory when provenance was withheld")
+    func doesNotResurrectWithheldDirectory() throws {
+        let worktree = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: worktree) }
+
+        #expect(selector("", worktree.path) == "")
+    }
+
+    @Test("does not use the cwd of a terminal multiplexer client")
+    func skipsMultiplexerClientDirectory() {
+        #expect(!TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(processPath: "/opt/homebrew/bin/tmux"))
+        #expect(!TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(processPath: "/usr/bin/screen"))
+        #expect(TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(processPath: "/usr/bin/claude"))
+        #expect(TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(processPath: nil))
+    }
+
+    @Test("preserves a symlinked shell cwd instead of its realpath")
+    func preservesSymlinkedShellDirectory() throws {
+        let root = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let real = root.appendingPathComponent("real", isDirectory: true)
+        let link = root.appendingPathComponent("link", isDirectory: true)
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        // The shell reports the symlinked path while the foreground job's cwd
+        // reads back as the realpath; they are the same directory, so the
+        // shell's own spelling must survive.
+        #expect(selector(link.path, real.path) == link.path)
+    }
+}
+
 /// Samples the `display_cb`/`display_ctx` slots of Ghostty's `IOSurfaceLayer`
 /// from inside the native-free override, on the teardown coordinator's worker.
 ///

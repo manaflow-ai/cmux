@@ -11267,7 +11267,7 @@ struct ContentView: View {
 
     private func focusedTerminalDirectoryURL() -> URL? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
-        let rawDirectory: String = {
+        let rawShellDirectory: String = {
             if let focusedPanelId = workspace.focusedPanelId {
                 guard workspace.allowsLocalDirectoryFallback(panelId: focusedPanelId) else { return "" }
                 if let directory = workspace.reportedPanelDirectory(panelId: focusedPanelId) {
@@ -11280,10 +11280,38 @@ struct ContentView: View {
             guard !workspace.isRemoteWorkspace else { return "" }
             return workspace.currentDirectory
         }()
-        let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard FileManager.default.fileExists(atPath: trimmed) else { return nil }
-        return URL(fileURLWithPath: trimmed, isDirectory: true)
+        let shellDirectory = rawShellDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preferredDirectory = TerminalWorkingDirectoryResolver.preferringForegroundDirectory(
+            shellDirectory: shellDirectory,
+            foregroundDirectory: focusedTerminalForegroundDirectory(in: workspace)
+        )
+        // The foreground directory can vanish after the resolver checked it; the shell's may still exist.
+        for directory in [preferredDirectory, shellDirectory]
+            where !directory.isEmpty && FileManager.default.fileExists(atPath: directory) {
+            return URL(fileURLWithPath: directory, isDirectory: true)
+        }
+        return nil
+    }
+
+    /// The live working directory of the focused terminal's foreground job, or
+    /// `nil` when unavailable. Honors the same local-directory provenance gate
+    /// as the shell cwd, and skips remote terminal surfaces, whose foreground
+    /// process is local (an ssh client) and so says nothing about the remote
+    /// directory being worked in.
+    private func focusedTerminalForegroundDirectory(in workspace: Workspace) -> String? {
+        guard let focusedPanelId = workspace.focusedPanelId,
+              workspace.allowsLocalDirectoryFallback(panelId: focusedPanelId),
+              !workspace.isRemoteTerminalSurface(focusedPanelId) else {
+            return nil
+        }
+        // Read the foreground PID once so the multiplexer check and the cwd describe the same process.
+        guard let pid = workspace.terminalPanel(for: focusedPanelId)?.surface.foregroundProcessID(),
+              TerminalWorkingDirectoryResolver.shouldUseForegroundDirectory(
+                  processPath: CmuxTopProcessSnapshot.processPath(pid: Int(pid))
+              ) else {
+            return nil
+        }
+        return TerminalWorkingDirectoryResolver.processCurrentWorkingDirectory(pid: Int32(clamping: pid))
     }
 
 #if DEBUG
