@@ -178,13 +178,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const at = t ? parseInt(t[1], 36) : NaN;
       if (Number.isFinite(at) && at > Date.UTC(2026, 0, 1) && Date.now() - at > 3_600_000 && m.status !== "deleted" && m.status !== "deleting") await remove(String(m.id));
     }
-    machine = await J.step("create machine (no Mac)", async () => {
+    const createMachine = async (suffix: string): Promise<string> => {
       await fresh();
       const t0 = Date.now();
       let created: any;
       for (let tries = 1; ; tries++) {
         try {
-          created = await api.op("cloud.machine.create", { name: `${NAME_PREFIX}${tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
+          created = await api.op("cloud.machine.create", { name: `${NAME_PREFIX}${tag}${suffix}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create${suffix}`);
           break;
         } catch (e) {
           const timedOut = (e as Error)?.name === "TimeoutError" || /operation timed out/i.test(String((e as Error)?.message));
@@ -193,16 +193,33 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       const id = typeof created?.machine === "string" ? created.machine : created?.machine?.id ?? created?.machine_id ?? created?.id;
       if (typeof id !== "string") throw new Error("create answered no machine id");
+      return id;
+    };
+    machine = await J.step("create machine (no Mac)", async () => {
+      const id = await createMachine("");
       return { value: id, detail: id };
     });
     report.machine = machine;
     await J.step("machine running", async () => {
-      const t0 = Date.now();
+      let t0 = Date.now();
+      let replaced = "";
       for (;;) {
         await fresh();
         const m = await api.read("cloud.machine.get", { machine }).catch(() => null);
-        if (m?.status === "running" && m?.host) return { value: null, detail: `${Math.round((Date.now() - t0) / 1000)} s` };
-        if (m?.status === "failed") throw new Error("machine failed");
+        if (m?.status === "running" && m?.host) return { value: null, detail: `${Math.round((Date.now() - t0) / 1000)} s${replaced}` };
+        if (m?.status === "failed") {
+          const why = String(m?.error?.code ?? m?.error ?? m?.failure ?? m?.reason ?? "no reason given").slice(0, 200);
+          // Run 46137255214: staging failed a fresh machine after 323 s (Freestyle VM start capacity). A failed
+          // machine is the provider's, not the vault's: delete it and try one more before naming staging.
+          if (replaced) throw new Error(`machine failed (${why}); its replacement ${replaced.trim()} failed too`);
+          const old = machine!;
+          await remove(old);
+          machine = report.machine = await createMachine("r");
+          replaced = `; replaced ${old} (failed: ${why}) with ${machine}`;
+          say(`machine ${old} failed (${why}); created ${machine}`);
+          t0 = Date.now();
+          continue;
+        }
         // Staging provisions slowly under load: run 45931358844 spent 728 s in create and was still provisioning
         // 300 s later. 900 s is within the job's 120 min and still names a stuck machine.
         if (Date.now() - t0 > 900_000) throw new Error(`still ${m?.status} after 900 s`);
@@ -211,8 +228,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
     const exec = directExec(api, machine, J);
     const run = async (command: string, timeoutMs = 120_000) => {
-      await fresh();
-      const r = await exec(`export HOME=${HOME}; cd "$HOME"; ${command}`, timeoutMs);
+      // Run 46134684788: the first exec on a machine that had just reached running got 503 "vm_unavailable"
+      // (overloaded). That refusal comes before the command starts, so sending it again is safe; 6 tries span ~3.5 min.
+      let r: Awaited<ReturnType<typeof exec>>;
+      for (let tries = 1; ; tries++) {
+        await fresh();
+        try {
+          r = await exec(`export HOME=${HOME}; cd "$HOME"; ${command}`, timeoutMs);
+          break;
+        } catch (e) {
+          if (tries >= 6 || !/^exec: HTTP 503\b/.test(String((e as Error)?.message ?? e))) throw e;
+          say(`exec refused (${(e as Error).message}), try ${tries}; sending it again`);
+          await sleep(10_000 * tries);
+        }
+      }
       if (r.stdout.includes(nonce) || r.stderr.includes(nonce)) checks.exec_never_printed_value = "FAIL";
       return { ...r, stdout: scrub(r.stdout, J.secrets), stderr: scrub(r.stderr, J.secrets) };
     };
