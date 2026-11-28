@@ -287,6 +287,65 @@ async fn a_codex_child_thread_forks_into_a_chat_of_its_own() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A fake OpenCode profile has the same process-owned subagent boundary as the real harness.
+/// Keep this setup separate from `setup`, whose unnamed ACP profile is intentionally generic.
+async fn opencode_setup() -> (Arc<Hub>, TestClient) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = HarnessProfile {
+        kind: acpmux::config::HarnessKind::Acp,
+        argv: vec!["python3".into(), fake.into()],
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: Some("opencode".into()),
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut cfg = Config {
+        harnesses: BTreeMap::from([(String::from("opencode"), profile)]),
+        default_harness: Some("opencode".into()),
+        ..Default::default()
+    };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "pane"}}))
+        .await
+        .unwrap();
+    (hub, c)
+}
+
+/// OpenCode reports task subagents from its own process, so acpmux refuses to fork one rather
+/// than pretending its model or permissions can be switched. This is the third leg of the
+/// Claude/Codex/OpenCode fork matrix requested by Leo.
+#[tokio::test]
+async fn an_opencode_subagent_fork_is_refused_with_the_process_boundary() {
+    let (hub, mut c) = opencode_setup().await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "opencode-task"}]}),
+    )
+    .await
+    .unwrap();
+    let before = hub.sessions().len();
+    let e = c
+        .request(FORK_OP, json!({"sessionId": id, "live": true, "subagentId": "chatcmpl-tool-oc1"}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("fork.subagent_harness"), "{e}");
+    assert!(e.contains("OpenCode") || e.contains("opencode"), "{e}");
+    assert_eq!(hub.sessions().len(), before, "a refused fork leaves no orphan chat");
+}
+
 /// A harness that keeps its subagents inside its process cannot fork one: refused with why.
 #[tokio::test]
 async fn another_harness_refuses_a_subagent_fork_with_the_reason() {

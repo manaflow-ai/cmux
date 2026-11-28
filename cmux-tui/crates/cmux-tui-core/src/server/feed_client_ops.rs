@@ -39,6 +39,12 @@ fn invalid(field: &str, reason: &str) -> ResourceError {
     ResourceError::validation_invalid(Some(field), reason)
 }
 
+/// `{items}` with the built item values moved in: `json!` would serialize
+/// each one into a new tree (a deep copy of every item).
+fn items_answer(items: Vec<Value>) -> Value {
+    Value::Object(serde_json::Map::from_iter([("items".to_owned(), Value::Array(items))]))
+}
+
 /// `origin.forbidden` with the connection's derived origin (the catalog's required `derived`).
 fn forbidden(derived: RequestOrigin, message: &str, reason: &str) -> ResourceError {
     crate::request_origin::forbidden(
@@ -119,7 +125,7 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
                 return Err(invalid("ids", "takes at most 500 ids"));
             }
             let confirmed = params.get("confirmed").and_then(Value::as_bool).unwrap_or(false);
-            Ok(json!({"items": feed.items(&ids, confirmed)}))
+            Ok(items_answer(feed.items(&ids, confirmed)))
         })()),
         "feed.items.list" => now((|| {
             let state = params.get("state").and_then(Value::as_str);
@@ -131,7 +137,7 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
                 return Err(invalid("home", "must be cloud or local"));
             }
             let confirmed = params.get("confirmed").and_then(Value::as_bool).unwrap_or(false);
-            Ok(json!({"items": feed.list(state, home, confirmed)}))
+            Ok(items_answer(feed.list(state, home, confirmed)))
         })()),
         "feed.intent" => {
             let key = match text(&params, "idempotency_key") {

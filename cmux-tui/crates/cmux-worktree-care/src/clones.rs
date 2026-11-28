@@ -17,6 +17,41 @@ use crate::store::Store;
 
 const LIMIT: Duration = Duration::from_secs(60);
 
+/// Ignored folders that are build output, rebuilt from the sources: a clone
+/// holding only these ignored files may go.
+const REBUILT: &[&str] = &[
+    "target",
+    "node_modules",
+    ".build",
+    "build",
+    "dist",
+    ".next",
+    "__pycache__",
+    "DerivedData",
+    ".gradle",
+    ".venv",
+    "venv",
+    ".turbo",
+    ".cache",
+    ".DS_Store",
+];
+
+/// What `git bundle` keeps: every local branch and tag, minus what remotes
+/// have (a detached `HEAD` keeps the clone, see [`work`]).
+const LOCAL_ONLY: &[&str] = &["--branches", "--tags", "--not", "--remotes"];
+
+/// The first ignored path in `git status --ignored` output that is not
+/// build output, if any.
+fn ignored_local_file(status: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(status).lines().find_map(|line| {
+        let path = line.strip_prefix("!! ")?;
+        let path = path.trim_matches('"');
+        let rebuilt =
+            path.split('/').filter(|part| !part.is_empty()).any(|part| REBUILT.contains(&part));
+        (!rebuilt).then(|| path.to_string())
+    })
+}
+
 /// What a clone holds that no remote has.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Work {
@@ -32,6 +67,23 @@ pub fn work(clone: &Path) -> Result<Work, String> {
         crate::git::user_git(clone, &["status", "--porcelain=v1", "-uall", "--ignored"], LIMIT)?;
     if !status.is_empty() {
         return Err("it has uncommitted, untracked or ignored changes".into());
+    }
+    // Ignored files are local too (`.env`, secrets, notes): only build
+    // output may go with the clone.
+    let ignored = crate::git::user_git(
+        clone,
+        &["status", "--porcelain=v1", "--ignored=matching", "-unormal"],
+        LIMIT,
+    )?;
+    if let Some(path) = ignored_local_file(&ignored) {
+        return Err(format!("it has ignored local files ({path})"));
+    }
+    // Its linked worktrees would lose their repository.
+    let worktrees = crate::git::user_git(clone, &["worktree", "list", "--porcelain"], LIMIT)?;
+    let linked =
+        String::from_utf8_lossy(&worktrees).lines().filter(|l| l.starts_with("worktree ")).count();
+    if linked > 1 {
+        return Err("it has linked worktrees".into());
     }
     // A stash is work too.
     let stash = crate::git::user_git(clone, &["stash", "list"], LIMIT)?;
@@ -83,11 +135,9 @@ pub fn archive(clone: &Path, store: &Store, now_ms: u64) -> Result<Option<String
             std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
             let bundle = folder.join(format!("{id}.bundle"));
             let target = bundle.to_string_lossy().into_owned();
-            let made = crate::git::user_git(
-                clone,
-                &["bundle", "create", &target, "--branches", "--tags", "--not", "--remotes"],
-                Duration::from_secs(600),
-            );
+            let mut create = vec!["bundle", "create", target.as_str()];
+            create.extend_from_slice(LOCAL_ONLY);
+            let made = crate::git::user_git(clone, &create, Duration::from_secs(600));
             let checked = made
                 .and_then(|_| crate::git::user_git(clone, &["bundle", "verify", &target], LIMIT));
             if let Err(error) = checked {
@@ -221,5 +271,27 @@ mod tests {
         std::fs::create_dir_all(&alone).unwrap();
         git(&alone, &["init", "-q"]);
         assert!(work(&alone).unwrap_err().contains("no remote"));
+    }
+
+    #[test]
+    fn ignored_local_files_keep_the_clone_but_build_output_does_not() {
+        let (_base, clone) = clone_pair("clone-ignored");
+        std::fs::write(clone.join(".git/info/exclude"), ".env\ntarget/\nnode_modules/\n").unwrap();
+        std::fs::create_dir_all(clone.join("target/debug")).unwrap();
+        std::fs::write(clone.join("target/debug/bin"), "x").unwrap();
+        std::fs::create_dir_all(clone.join("node_modules/pkg")).unwrap();
+        std::fs::write(clone.join("node_modules/pkg/i.js"), "x").unwrap();
+        assert_eq!(work(&clone).unwrap(), Work::Pushed);
+        std::fs::write(clone.join(".env"), "SECRET=1").unwrap();
+        let error = work(&clone).unwrap_err();
+        assert!(error.contains("ignored local files") && error.contains(".env"), "{error}");
+    }
+
+    #[test]
+    fn a_clone_with_linked_worktrees_is_kept() {
+        let (base, clone) = clone_pair("clone-linked");
+        let linked = base.join("linked");
+        git(&clone, &["worktree", "add", "-q", "-b", "side", &linked.to_string_lossy()]);
+        assert!(work(&clone).unwrap_err().contains("linked worktrees"));
     }
 }

@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { Freestyle } from "freestyle";
 import { freestyleClient } from "../scripts/cmux-vm-image/guest";
-import { CAPACITY_RETRY_DELAYS_MS, capacityRetryFetch, installCapacityRetry, isCapacityAnswer } from "../scripts/cmux-vm-image/capacity";
+import { CAPACITY_RETRY_DELAYS_MS, capacityRetryFetch, installCapacityRetry, isBackgroundUnavailableAnswer, isCapacityAnswer } from "../scripts/cmux-vm-image/capacity";
 
 // The provider's answer in the image roll's failed runs on 2026-11-16 (jobs 133426693737, 133432870475,
 // 133444252629, 133446604123): FreestyleApiError status 429, code TOO_MANY_REQUESTS.
 const CAPACITY_BODY = JSON.stringify({ code: "TOO_MANY_REQUESTS", message: "server is at capacity; try again shortly" });
 const capacity = () => new Response(CAPACITY_BODY, { status: 429, headers: { "content-type": "application/json" } });
+// Image roll 45957567838 (job 140367707448, 2026-11-27 07:32Z): "FreestyleApiError: Background requests are
+// temporarily unavailable" 4.2 s into the bake's identity-final exec; the log does not carry the status.
+const BG_UNAVAILABLE_BODY = JSON.stringify({ code: "SERVICE_UNAVAILABLE", message: "Background requests are temporarily unavailable" });
+const bgUnavailable = (status = 503) => () => new Response(BG_UNAVAILABLE_BODY, { status, headers: { "content-type": "application/json" } });
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
 
 /** A provider that answers each call from `script` in turn and records what it was sent. */
@@ -43,6 +47,15 @@ describe("the provider's capacity answer", () => {
     expect(isCapacityAnswer(429, JSON.stringify({ code: "INFRASTRUCTURE_OVERLOADED" }))).toBe(true);
     expect(isCapacityAnswer(429, "infrastructure overloaded: VM start capacity queue wait expired")).toBe(true);
     expect(isCapacityAnswer(503, overloaded)).toBe(false);
+  });
+
+  test("the background-request refusal is retried whatever its error status (image roll 45957567838)", () => {
+    for (const status of [429, 500, 503]) expect(isBackgroundUnavailableAnswer(status, BG_UNAVAILABLE_BODY)).toBe(true);
+    expect(isBackgroundUnavailableAnswer(503, "Background requests are temporarily unavailable")).toBe(true);
+    expect(isBackgroundUnavailableAnswer(200, BG_UNAVAILABLE_BODY)).toBe(false);
+    expect(isBackgroundUnavailableAnswer(503, JSON.stringify({ message: "service unavailable" }))).toBe(false);
+    // the SDK's own poll-hop message is not the provider's refusal
+    expect(isBackgroundUnavailableAnswer(503, "Background request temporarily unavailable (503)")).toBe(false);
   });
 
   test("the retry budget stays a few minutes, so an outage still fails", () => {
@@ -128,6 +141,23 @@ describe("the image scripts' client retries a capacity answer on every call the 
     expect(String(error)).toBe("FreestyleApiError: server is at capacity; try again shortly");
     expect((error as { status: number }).status).toBe(429);
     expect(r.waits).toEqual([...CAPACITY_RETRY_DELAYS_MS]);
+  });
+
+  test("the bake's exec refused with background requests unavailable is sent again (job 140367707448)", async () => {
+    const p = provider([bgUnavailable(), bgUnavailable(), () => json({ statusCode: 0, stdout: "ok\n", stderr: "" })]);
+    const r = recorder();
+    const result = await client(p, r).vms.ref("vm-1").exec({ command: "echo ok" });
+    expect(result.stdout).toBe("ok\n");
+    expect(p.calls.map((c) => `${c.method} ${c.path}`)).toEqual(Array(3).fill("POST /v5/vms/vm-1/exec-await"));
+    expect(r.lines[0]).toContain("PROVIDER BACKGROUND UNAVAILABLE: POST /v5/vms/vm-1/exec-await answered 503; retry 1/");
+  });
+
+  test("a stored answer carrying the background request id is never sent again, even saying background unavailable", async () => {
+    const p = provider([() => new Response(BG_UNAVAILABLE_BODY, { status: 503, headers: { "x-freestyle-background-request-id": "br-1" } })]);
+    const r = recorder();
+    const response = await capacityRetryFetch(p.fetch, r.deps)("https://api.example/v5/vms/vm-1/exec-await", { method: "POST", body: "{}" });
+    expect(response.status).toBe(503);
+    expect(p.calls).toHaveLength(1);
   });
 
   test("a step that ran and failed is not sent again", async () => {

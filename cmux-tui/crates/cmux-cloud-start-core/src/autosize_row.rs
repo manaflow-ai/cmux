@@ -20,6 +20,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod feed;
+
 use crate::computer_status::{Reason, Shape, Why};
 
 /// The wire version this build draws (`AUTOSIZE_EVENT_VERSION`).
