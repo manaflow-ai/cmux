@@ -335,3 +335,54 @@ async fn codex_tail_on_a_codex_process_is_refused() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Send `said` as a further turn of chat `id`.
+async fn again(c: &mut TestClient, id: &str, said: &str) {
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": said}]});
+    let r = c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+    assert_eq!(r["stopReason"], "end_turn", "{r}");
+}
+
+/// Codex dropped a background terminal with no item end (2026-11-27: ready
+/// chats kept `commandsRunning` for hours with no shell under Codex): the next turn's
+/// `thread/backgroundTerminals/list` does not list it, so it ends; the one still listed runs on.
+#[tokio::test]
+async fn codex_a_terminal_codex_no_longer_lists_ends() {
+    let (hub, mut c, root) = codex_hub_env(&[("FAKE_CODEX_LIST", "1")]).await;
+    let id = chat(&mut c, "bg-codex").await;
+    let dev = format!("{id}/1001");
+    let watch = format!("{id}/1003");
+    assert_eq!(process(&mut c, &id, &dev).await["state"], "running");
+    again(&mut c, &id, "codex-drop-dev").await;
+    let ended = until_state(&mut c, &id, &dev, "exited").await;
+    assert!(ended["detail"].as_str().is_some_and(|d| d.contains("no longer")), "{ended}");
+    assert_eq!(process(&mut c, &id, &watch).await["state"], "running");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// An older Codex without the list (an error answer) leaves running terminals as they were.
+#[tokio::test]
+async fn codex_a_list_error_leaves_terminals_running() {
+    let (hub, mut c, root) = codex_hub().await;
+    let id = chat(&mut c, "bg-codex").await;
+    again(&mut c, &id, "codex-drop-dev").await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(process(&mut c, &id, &format!("{id}/1001")).await["state"], "running");
+    assert_eq!(process(&mut c, &id, &format!("{id}/1003")).await["state"], "running");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `thread/closed` ends every terminal of that thread.
+#[tokio::test]
+async fn codex_a_closed_thread_ends_its_terminals() {
+    let (hub, mut c, root) = codex_hub().await;
+    let id = chat(&mut c, "bg-codex codex-close-thread").await;
+    for pid in ["1001", "1003"] {
+        let ended = until_state(&mut c, &id, &format!("{id}/{pid}"), "exited").await;
+        assert!(ended["detail"].as_str().is_some_and(|d| d.contains("closed")), "{ended}");
+    }
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
