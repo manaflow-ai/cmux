@@ -219,8 +219,8 @@ class CLAGuardGitReadsTests(unittest.TestCase):
         head = self.commit_large_document(3_000_000)
         result, calls = self.run_driver(
             "read", head, {}, revisions={self.base: REPOSITORY, head: HEAD_REPOSITORY})
-        self.assertIn(f"repos/{HEAD_REPOSITORY}/contents/CLA.md?ref={head}", calls)
-        self.assertIn(f"repos/{REPOSITORY}/contents/CLA.md?ref={self.base}", calls)
+        self.assertIn(f"repos/{HEAD_REPOSITORY}/contents/CLA.md?ref={head}", calls, result.stderr)
+        self.assertIn(f"repos/{REPOSITORY}/contents/CLA.md?ref={self.base}", calls, result.stderr)
 
     def test_a_symlink_policy_file_fails_the_guard(self):
         git(self.repo, "checkout", "-q", "-b", "symlink", self.base)
