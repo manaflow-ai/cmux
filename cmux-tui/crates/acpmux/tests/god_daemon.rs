@@ -136,6 +136,9 @@ const PAGE_BYTES: u64 = 131072;
 /// How long the run waits for every chat log to be read, and how often it asks.
 const ALL_LOGS: Duration = Duration::from_secs(120);
 const ALL_LOGS_POLL: Duration = Duration::from_millis(50);
+/// When, after the restarted daemon was spawned, the sweep sends again (`restartSendAfterUs`):
+/// past startup's background passes, so a slower first send names startup work, not size.
+const RESTART_SEND_AFTER_MS: [u64; 2] = [1500, 4000];
 
 /// The longest a size sweep waits for a chat's adoption checkpoint before its restart.
 const ADOPTION_CHECKPOINT_WITHIN: Duration = Duration::from_secs(300);
@@ -1939,7 +1942,6 @@ const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
 
 /// An older page as the pane asks for one on scroll-up (direct.ts `olderPage`: 2,000 records,
 /// 1 MiB, transcript records and the local preset approvals).
-const OLDER_PAGE_LIMIT: u64 = 2000;
 const OLDER_PAGE_BYTES: u64 = 1 << 20;
 
 /// The bytes a measured page asks for. A 1 MB chat's whole transcript is 452 KB of JSON, so at
@@ -1947,6 +1949,13 @@ const OLDER_PAGE_BYTES: u64 = 1 << 20;
 /// at 100 MB and 1 GB: the 2x of every page row was the page's size (the daemon reads 16 to 20 ms
 /// per 452 KB at 1 MB and 22 to 34 ms per 945 KB at 1 GB). 256 KiB is full at every size.
 const SWEEP_PAGE_BYTES: u64 = 256 << 10;
+
+/// The records a measured page asks for: fewer than any size's 256 KiB page holds, so each size
+/// reads the same rows. A byte-capped page's row count is its content's: the 1 MB chat's deep page
+/// (its oldest) held 237 records and 198 KB against 306 and 314 at 100 MB and 1 GB, 1682 against
+/// 2130 and 2225 us, a 1.27x and 1.32x that was 7.0 to 7.1 us a record at every size. Every page
+/// row read 6.4 to 7.8 us a record at every size, its ratio the row count's (cmux#61742's ladder).
+const SWEEP_PAGE_ROWS: u64 = 150;
 
 /// The repeated settled turns after a coord-sim chat's settlement (a quarter of the history when
 /// that is less). A page counts only transcript kinds' bytes, so 1 MiB of them reaches back past
@@ -1966,7 +1975,7 @@ fn app_attach(id: &str) -> Value {
 }
 
 fn older_params(id: &str, before: u64) -> Value {
-    json!({"sessionId": id, "beforeSeq": before, "limit": OLDER_PAGE_LIMIT,
+    json!({"sessionId": id, "beforeSeq": before, "limit": SWEEP_PAGE_ROWS,
            "maxBytes": SWEEP_PAGE_BYTES,
            "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]})
 }
@@ -1977,7 +1986,7 @@ fn older_params(id: &str, before: u64) -> Value {
 fn full_page_before(rpc: &mut Rpc, id: &str, last: u64) -> u64 {
     let oldest = rpc.call(
         "_acpmux/events",
-        json!({"sessionId": id, "afterSeq": 0, "limit": OLDER_PAGE_LIMIT,
+        json!({"sessionId": id, "afterSeq": 0, "limit": SWEEP_PAGE_ROWS,
                "maxBytes": SWEEP_PAGE_BYTES,
                "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]}),
     );
@@ -2403,7 +2412,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let (forward_us, _, forward_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             json!({"sessionId": id, "afterSeq": last / 2,
-               "limit": OLDER_PAGE_LIMIT, "maxBytes": SWEEP_PAGE_BYTES})
+               "limit": SWEEP_PAGE_ROWS, "maxBytes": SWEEP_PAGE_BYTES})
         });
     let (rss_after_reads, _) = daemon.rss();
 
@@ -2486,6 +2495,17 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_maps = daemon.rss_maps();
+    // The same send again once startup's background passes (cold segments, retention, packs)
+    // have had time to run: a first send slower than these waited on startup work, not on size.
+    let restart_send_after: Vec<(u64, Result<u64, Value>)> = RESTART_SEND_AFTER_MS
+        .iter()
+        .map(|&after| {
+            let since = daemon.spawned.elapsed().as_millis() as u64;
+            std::thread::sleep(Duration::from_millis(after.saturating_sub(since)));
+            let at = daemon.spawned.elapsed().as_millis() as u64;
+            (at, send_first_token(&mut rpc, &id, &format!("size {label} restarted +{after}")))
+        })
+        .collect();
     // The restarted daemon's own startup phases (`gauges.rs`): where its time to adopt went.
     let restart_startup =
         rpc.call("_acpmux/status", json!({})).ok().map(|s| s["gauges"]["startup"].clone());
@@ -2523,17 +2543,17 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "coldAllLogsMs": cold_all_logs.as_ref().ok(), "coldAllLogsError": cold_all_logs.as_ref().err(),
         "rssAfterLoad": rss_after_load,
         "attachUs": attach_us, "attachRecords": attach_records, "attachError": attach_error,
-        "newestPageUs": newest_us, "newestPageRecords": newest_records, "newestPageError": newest_error,
-        "scrollRecentUs": recent_us, "scrollRecentError": recent_error,
-        "scrollMidUs": mid_us, "scrollMidError": mid_error,
-        "scrollDeepUs": deep_us, "scrollDeepError": deep_error,
+        "newestPageUs": newest_us, "newestPageRecords": newest_records, "newestPageError": short_rows(&newest_us, newest_error),
+        "scrollRecentUs": recent_us, "scrollRecentError": short_rows(&recent_us, recent_error),
+        "scrollMidUs": mid_us, "scrollMidError": short_rows(&mid_us, mid_error),
+        "scrollDeepUs": deep_us, "scrollDeepError": short_rows(&deep_us, deep_error),
         "fullPageFromSeq": full_from,
         "scrollBeforeSeqs": {"recent": recent_before, "mid": mid_before, "deep": deep_before},
         "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
         "promptIndexError": prompt_index_error,
         "promptPageUs": prompt_page_us, "promptPageRows": prompt_page_rows,
         "promptPageError": prompt_page_error,
-        "forwardPageUs": forward_us, "forwardPageError": forward_error,
+        "forwardPageUs": forward_us, "forwardPageError": short_rows(&forward_us, forward_error),
         "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
         "rssIdleMaps": rss_idle_maps,
         "rssAfterReads": rss_after_reads, "heap": heap,
@@ -2547,6 +2567,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
+        "restartSendAfterUs": restart_send_after.iter()
+            .map(|(after, r)| json!({"afterMs": after, "us": r.as_ref().ok(), "error": r.as_ref().err()}))
+            .collect::<Vec<_>>(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
         "restartStartup": restart_startup,
         "restartMaps": restart_maps, "restartHeap": restart_heap,
@@ -2619,6 +2642,29 @@ fn size_failure(result: &Value) -> Option<String> {
         }
     }
     None
+}
+
+/// A measured page's error, or one when a round returned other than [`SWEEP_PAGE_ROWS`]: a short
+/// page's time is its row count's, and the sizes' ratio would be too.
+fn short_rows(timing: &Value, error: Value) -> Value {
+    if !error.is_null() {
+        return error;
+    }
+    let rows = timing["returnedRecords"].as_array().cloned().unwrap_or_default();
+    match rows.iter().find(|n| n.as_u64() != Some(SWEEP_PAGE_ROWS)) {
+        Some(n) => json!({"reason": "page held other than the measured rows",
+                          "records": n, "wanted": SWEEP_PAGE_ROWS}),
+        None => Value::Null,
+    }
+}
+
+#[test]
+fn a_short_measured_page_is_an_error() {
+    let full = json!({"p50": 10, "returnedRecords": [SWEEP_PAGE_ROWS, SWEEP_PAGE_ROWS]});
+    assert!(short_rows(&full, Value::Null).is_null());
+    let short = json!({"p50": 10, "returnedRecords": [SWEEP_PAGE_ROWS, SWEEP_PAGE_ROWS - 1]});
+    assert!(!short_rows(&short, Value::Null).is_null());
+    assert_eq!(short_rows(&full, json!("rpc")), json!("rpc"));
 }
 
 /// Prompts in the size sweep's fixed prompt-index page: as many as the 1 MB fixture holds.
