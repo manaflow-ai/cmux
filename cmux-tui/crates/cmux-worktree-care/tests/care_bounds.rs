@@ -432,7 +432,10 @@ fn locked_worktrees_cost_no_git_runs() {
         });
         assert_eq!(worktree.locked, is_locked);
         if is_locked {
-            assert_eq!(worktree.facts.as_ref().err().map(String::as_str), Some(inventory::LOCKED_UNREAD));
+            assert_eq!(
+                worktree.facts.as_ref().err().map(String::as_str),
+                Some(inventory::LOCKED_UNREAD)
+            );
         } else {
             assert!(worktree.facts.is_ok());
         }
