@@ -495,6 +495,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
       tenant: string,
       state = "running",
       labels: Readonly<Record<string, string>> = {},
+      row: { readonly createdAt?: Date; readonly committed?: boolean } = {},
     ): { readonly vmId: VmId; readonly upstreamId: string } {
       const vmId = newVmId();
       const upstreamId = upstream.addVm(state).id;
@@ -504,9 +505,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
         cmuxId: vmId,
         upstreamId: UpstreamId.make(upstreamId),
         createdBy: "user:test",
-        createdAt: nextCreatedAt(new Date()),
+        createdAt: row.createdAt ?? nextCreatedAt(new Date()),
         displayName: null,
         labels,
+        ...(row.committed === false ? { committed: false } : {}),
       });
       return { vmId, upstreamId };
     },

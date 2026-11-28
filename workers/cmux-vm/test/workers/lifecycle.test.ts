@@ -294,6 +294,42 @@ describe("listVms", () => {
     expect(body).toMatchObject({ items: [{ id: kept.vmId }] });
   });
 
+  it("forgets a long-committed VM the provider no longer has, so the next list reads only live ones", async () => {
+    const t = await harness();
+    const old = new Date(Date.now() - 2 * 3600_000);
+    const gone = t.addVm(TENANT_A, "running", {}, { createdAt: old });
+    const fresh = t.addVm(TENANT_A, "running", {}, { createdAt: new Date(Date.now() - 60_000) });
+    const pending = t.addVm(TENANT_A, "running", {}, { createdAt: old, committed: false });
+    const kept = t.addVm(TENANT_A);
+    for (const vm of [gone, fresh, pending]) t.dropUpstreamVm(vm.upstreamId);
+    const key = await t.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const reads = (vmUpstreamId: string) =>
+      t.upstreamRequests.filter((call) => call.method === "GET" && call.path.endsWith(`/${vmUpstreamId}`)).length;
+
+    expect(await json(await t.request("/v1/vms", bearer(key)))).toMatchObject({ items: [{ id: kept.vmId }] });
+    expect(await json(await t.request("/v1/vms", bearer(key)))).toMatchObject({ items: [{ id: kept.vmId }] });
+
+    // The long-committed gone VM was read once and then forgotten (its tombstone answers a repeated delete with 204);
+    // a fresh row and an uncommitted one may be creations the provider has not made yet, and are read every time.
+    expect(reads(gone.upstreamId)).toBe(1);
+    expect(reads(fresh.upstreamId)).toBe(2);
+    expect(reads(pending.upstreamId)).toBe(2);
+    expect((await t.request(`/v1/vms/${gone.vmId}`, bearer(key))).status).toBe(404);
+  });
+
+  it("leaves gone rows alone for a read-only key, which may not delete", async () => {
+    const t = await harness();
+    const gone = t.addVm(TENANT_A, "running", {}, { createdAt: new Date(Date.now() - 2 * 3600_000) });
+    t.dropUpstreamVm(gone.upstreamId);
+    const key = await t.addKey(TENANT_A, ["vm:read"]);
+    const reads = () => t.upstreamRequests.filter((call) => call.method === "GET" && call.path.endsWith(`/${gone.upstreamId}`)).length;
+
+    await t.request("/v1/vms", bearer(key));
+    await t.request("/v1/vms", bearer(key));
+
+    expect(reads()).toBe(2);
+  });
+
   it("rejects a cursor from another tenant", async () => {
     const t = await harness();
     const keyA = await t.addKey(TENANT_A, ["vm:read", "vm:write"]);

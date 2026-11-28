@@ -63,6 +63,7 @@ import { vmNetworkAllowed, vmNetworkEvidenceOf, type VmNetworkAllowed } from "..
 import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { tenantDeletedVm, tenantOwnsMesh, tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { CREATE_QUEUE_FULL, UpstreamClient, UpstreamError, type SizeRequest } from "../upstream/client.ts";
+import { ORPHAN_MIN_AGE_MS } from "../upstream/orphan-sweep.ts";
 import { audited, auditableVmId, dependencyDown, withCaller, withOwnedVm } from "./common.ts";
 import { meshEnabledFor } from "./mesh.ts";
 
@@ -826,6 +827,37 @@ const parseLabelSelectors = (selectors: ReadonlyArray<string> | undefined): Read
   );
 };
 
+/**
+ * The record half of a delete, once the provider no longer has the VM (its delete answered, or a read answered 404):
+ * the tombstone, the mesh membership, the creation intent's slot, the client sessions. The delete path and a list
+ * that finds a long-committed VM gone (listVms) both forget it here.
+ */
+const forgetDeletedVm = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, vmId: string) =>
+  Effect.gen(function* () {
+    const store = yield* OwnershipStore;
+    const tenantId = TenantId.make(caller.value.tenantId);
+    const now = new Date(yield* Clock.currentTimeMillis);
+    yield* store.markDeleted(tenantId, "vm", vmId, now).pipe(Effect.mapError(unavailable));
+    // A deleted VM leaves its mesh: a member row left behind would make every later ACL reconcile name a
+    // VM that is gone, and every attach to that mesh would answer 409.
+    const meshes = yield* MeshStore;
+    const membership = yield* meshes.memberOf(tenantId, vmId).pipe(Effect.mapError(unavailable));
+    if (Option.isSome(membership)) {
+      yield* meshes.detachMember(tenantId, membership.value.meshId, vmId, now).pipe(Effect.mapError(unavailable));
+    }
+    yield* settleDeletedCreation(caller, scope, vmId);
+    // Its client-session tokens die with it; a failed revoke is retried by the reaper.
+    yield* revokeVmClientSessions(tenantId, vmId).pipe(Effect.ignore);
+  });
+
+/**
+ * How old a committed row must be before a list's 404 forgets it: the orphan sweep's own floor (ORPHAN_MIN_AGE_MS,
+ * past a create's idempotency lease and send grace), so no create that could still be making that VM is running.
+ */
+export const LIST_FORGET_MIN_AGE_MS = ORPHAN_MIN_AGE_MS;
+/** Rows one list forgets at most, so a backlog adds bounded time to one answer and drains over later lists. */
+export const LIST_FORGET_MAX = 25;
+
 const listVms = (params: {
   readonly createdBy?: "caller" | undefined;
   readonly limit?: number | undefined;
@@ -844,17 +876,35 @@ const listVms = (params: {
         after = decoded.value;
       }
       const limit = params.limit ?? LIST_DEFAULT_LIMIT;
+      const now = yield* Clock.currentTimeMillis;
+      const gone: Array<string> = [];
       const page = yield* visitOwnedVms(caller, { limit, after, labels: parseLabelSelectors(params.label), createdByCaller: params.createdBy === "caller" }, (vm, owns, row) =>
         upstream.getVm(vm, { owns, scope }).pipe(
           Effect.map((current) => Option.some(toVm(vm.value, row, current))),
-          // A VM gone upstream is left out; its row is cleaned up by delete or a sweep.
+          // A VM gone upstream is left out. A committed row older than any create still running is remembered and
+          // forgotten below; a fresh or uncommitted one may be a creation the provider has not made yet, kept as is.
           Effect.catchIf(
             (error) => error.status === 404,
-            () => Effect.succeed(Option.none<Vm>()),
+            () => Effect.sync(() => {
+              if (row.committed !== false && now - row.createdAt.getTime() >= LIST_FORGET_MIN_AGE_MS) gone.push(vm.value);
+              return Option.none<Vm>();
+            }),
           ),
           Effect.mapError(unavailable),
         ),
       ).pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
+      // Staging and preview VMs are deleted by the provider once idle for a day (NON_PRODUCTION_AUTO_DELETE_SECONDS),
+      // and nothing else tombstones their rows: every list read each one again, 4,703 provider 404s in one minute on
+      // cmux-vm-staging (2026-11-28 17:51Z, ask-6b8661d57a). A caller that may delete forgets them through the
+      // delete path's record half, so the next list reads only VMs the provider has. Best effort: one left for later.
+      const writer = keyHasScope(caller, "vm:write");
+      if (writer !== null && gone.length > 0) {
+        const forgetting = gone.slice(0, LIST_FORGET_MAX);
+        let forgot = 0;
+        for (const vmId of forgetting)
+          yield* forgetDeletedVm(caller, writer, vmId).pipe(Effect.tap(() => Effect.sync(() => { forgot += 1; })), Effect.ignore);
+        yield* logTimedEvent("vm_list_forgot_gone", { gone: gone.length, forgot });
+      }
       const items = page.results.flatMap((item) =>
         Option.isSome(item) && (params.state === undefined || item.value.state === params.state) ? [item.value] : [],
       );
@@ -903,20 +953,7 @@ export const deleteVmById = (rawVmId: string) =>
         if (pending !== null) yield* limits.cancelCreation(tenantId, pending, vm.value).pipe(Effect.mapError(unavailable));
         // "gone" (already deleted upstream) still forgets the VM here.
         yield* upstream.deleteVm(vm, proofs).pipe(Effect.mapError(unavailable));
-        const now = new Date(yield* Clock.currentTimeMillis);
-        yield* store
-          .markDeleted(tenantId, "vm", vm.value, now)
-          .pipe(Effect.mapError(unavailable));
-        // A deleted VM leaves its mesh: a member row left behind would make every later ACL reconcile name a
-        // VM that is gone, and every attach to that mesh would answer 409.
-        const meshes = yield* MeshStore;
-        const membership = yield* meshes.memberOf(tenantId, vm.value).pipe(Effect.mapError(unavailable));
-        if (Option.isSome(membership)) {
-          yield* meshes.detachMember(tenantId, membership.value.meshId, vm.value, now).pipe(Effect.mapError(unavailable));
-        }
-        yield* settleDeletedCreation(caller, proofs.scope, vm.value);
-        // Its client-session tokens die with it; a failed revoke is retried by the reaper.
-        yield* revokeVmClientSessions(tenantId, vm.value).pipe(Effect.ignore);
+        yield* forgetDeletedVm(caller, proofs.scope, vm.value);
       }),
     ).pipe(
       // Idempotent: the caller's own already-deleted VM answers 204 again, so a lost 204 never wedges the retry.
