@@ -357,6 +357,8 @@ on:
       - scripts/launch-tagged-automation.sh
       - scripts/lib/reload-shim.test.mjs
       - scripts/lib/stop-app-instances.sh
+      - scripts/lib/bun-options.sh
+      - scripts/blacksmith-testbox-source-mtimes.py
       - scripts/merge-pbxproj.py
       - scripts/merge-xcstrings.py
       - scripts/web-lint.sh
@@ -732,6 +734,8 @@ on:
       - scripts/launch-tagged-automation.sh
       - scripts/lib/reload-shim.test.mjs
       - scripts/lib/stop-app-instances.sh
+      - scripts/lib/bun-options.sh
+      - scripts/blacksmith-testbox-source-mtimes.py
       - scripts/merge-pbxproj.py
       - scripts/merge-xcstrings.py
       - scripts/web-lint.sh
