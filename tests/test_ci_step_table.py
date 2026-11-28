@@ -42,6 +42,26 @@ import crate_results  # noqa: E402
 from test_ci_post_merge_checks import BASE, branch_matches, load_workflows, triggers  # noqa: E402
 
 
+class VmImagePinsLandGateTest(unittest.TestCase):
+    """A change a web test reads runs that test on its landing head (vm-image-pins, land_gate). 11-28: #64653,
+    #64833 and #63946 landed with every web check skipped, and vm-image-manifest / vm-image-cmux-vm-lock went red in
+    the post-merge batch (fixed forward by #65143, #65271)."""
+
+    CULPRITS = {
+        "#64653": ["web/scripts/build-devbox-freestyle.ts", "web/scripts/devbox-image-common.ts",
+                   "web/tests/vm-devbox-rebake.test.ts"],
+        "#64833": ["cmux-tui/crates/cmux-host/src/linux/mod.rs", "web/services/vms/images/devbox/cmux-devbox-boot",
+                   "web/tests/vm-devbox-identity.test.ts"],
+        "#63946": ["cmux-tui/crates/cmux-rd-host/Cargo.toml"],
+    }
+
+    def test_each_culprit_routes_it_on_its_landing_head(self) -> None:
+        t = ci_steps.load()
+        for pr, paths in self.CULPRITS.items():
+            with self.subTest(pr=pr):
+                self.assertIn("vm-image-pins", ci_steps.nightly_gate_steps(t, paths, ["linux"]))
+
+
 class GuardStepsReachedTest(unittest.TestCase):
     """A workflow or guard-script change runs the ci-guards.yml steps it reaches on its landing head
     (guard-steps-reached, land_gate). 11-28: #63625, #63940, #64168 and #64245 merged green with every
@@ -1382,7 +1402,7 @@ class SetupTest(unittest.TestCase):
     def test_the_tables_tool_steps_are_push_tier_and_the_workflow_runs_the_pr_tier(self) -> None:
         # web-tests-affected (cmux#63314) is the one pull request tier step with a tool: it runs only the web tests a
         # change reaches, so it exists for the pull request tier; a push runs every web test in the push-tier shards.
-        pr_tier_tool_steps = {"web-tests-affected", "memory-per-item"}  # #62594: the per-PR memory A/B
+        pr_tier_tool_steps = {"web-tests-affected", "memory-per-item", "vm-image-pins"}  # #62594: the per-PR memory A/B; vm-image-pins: a land_gate (cmux#65143)
         for step in ci_steps.load().steps.values():
             if step.job == "linux" and step.needs:
                 self.assertEqual(step.tier, "pr" if step.name in pr_tier_tool_steps else "push", step.name)
@@ -2105,7 +2125,7 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "web-lint-hook-tests", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
-                     "web-tests-4", "web-tests-affected", "web-production-build", "cmux-vm-cloud", "webviews-checks"}
+                     "web-tests-4", "web-tests-affected", "vm-image-pins", "web-production-build", "cmux-vm-cloud", "webviews-checks"}
         wants_node = {"ci-artifact-worker", "fleet-artifact-cdn-test", "page-strings", "web-complexity",
                       "webviews-typecheck", "web-lint-hook-tests", "cmux-vm-cloud", "webviews-checks"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
