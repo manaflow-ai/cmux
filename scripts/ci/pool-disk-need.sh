@@ -19,6 +19,13 @@
 # here), and never touches another runner's live job. Run it before anything restores into this runner's
 # caches (the R2 registry restore). Still short: a ::warning:: with the numbers, and the hook has named
 # what holds the disk in this log. Never fails the leg; off a pool VM (no hook) it only prints df.
+#
+# On a pool VM it also declares the need, whether or not the disk holds it now: NEED_GIB in bytes goes to
+# ~/.cmux-job-disk-need (CMUX_JOB_NEED_FILE), which the VM's meter reads for as long as this job runs (cmuxterm-hq
+# pool.sh job_disk). Before, a check that passed said nothing more: the meter's disk guard and packer charged this leg
+# one 17 GiB job, so another runner took a job beside it and the two filled the disk. cmux job 140998370954 (run
+# 46151055654, cmux-runner-pool-e5c-0210-2, 2026-11-28 13:47Z) passed "45 GiB: ok" in 0 s and died 3 min later in
+# "Restore the workspace delta from R2", "No space left on device" on /home/runner2/actions-runner/_diag.
 # scripts/ci/tests/pool-disk-need.test.sh.
 set -uo pipefail
 
@@ -37,6 +44,13 @@ free="$(avail)"
 if [[ ! -x "$hook" ]]; then
   echo "pool disk: $(gib "$free") GiB free on $disk, this leg needs ${need_gib} GiB (no $hook: not a pool VM)"
   exit 0
+fi
+need_file="${CMUX_JOB_NEED_FILE:-${HOME:-/nonexistent}/.cmux-job-disk-need}"
+if printf '%s\n' "$need" > "$need_file.tmp" 2>/dev/null && mv -f "$need_file.tmp" "$need_file" 2>/dev/null; then
+  echo "pool disk: declared ${need_gib} GiB for this job to the VM's disk guard ($need_file)"
+else
+  rm -f "$need_file.tmp" 2>/dev/null
+  echo "pool disk: could not declare ${need_gib} GiB ($need_file not writable); the guard charges this job 17 GiB"
 fi
 if ((free >= need)); then
   echo "pool disk: $(gib "$free") GiB free on $disk, this leg needs ${need_gib} GiB: ok"
