@@ -56,17 +56,25 @@ describe("paneSettle", () => {
     }
   });
 
-  test("with frames that stop, a notify still runs", async () => {
+  test("with frames that stop, a notify still runs at the late timer", () => {
     const scope = globalThis as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown };
+    const realTimeout = globalThis.setTimeout;
+    const late: Array<{ run: () => void; ms: number }> = [];
     scope.requestAnimationFrame = () => 1;
     scope.cancelAnimationFrame = () => {};
+    globalThis.setTimeout = ((run: () => void, ms: number) => {
+      late.push({ run, ms });
+      return 0;
+    }) as unknown as typeof setTimeout;
     try {
       const heard: string[] = [];
       whenSettled("stream", () => heard.push("late"));
       expect(heard).toEqual([]);
-      await new Promise((done) => setTimeout(done, 150));
+      expect(late.map((timer) => timer.ms)).toEqual([100]);
+      late[0]!.run();
       expect(heard).toEqual(["late"]);
     } finally {
+      globalThis.setTimeout = realTimeout;
       delete scope.requestAnimationFrame;
       delete scope.cancelAnimationFrame;
     }
