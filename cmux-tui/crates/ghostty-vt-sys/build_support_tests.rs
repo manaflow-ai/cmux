@@ -64,12 +64,18 @@ fn native_windows_gnu_keeps_the_explicit_gnu_abi() {
 }
 
 #[test]
-fn native_linux_builds_keep_zigs_native_target() {
+fn native_linux_builds_keep_zigs_native_target_on_a_baseline_cpu() {
     assert_eq!(
         zig_target_arg("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "13.0"),
         None
     );
-    assert_eq!(zig_cpu_arg("x86_64-unknown-linux-gnu", None), None);
+    // The host's own CPU features would SIGILL the binary on an older runner.
+    assert_eq!(zig_cpu_arg("x86_64-unknown-linux-gnu", None).as_deref(), Some("-Dcpu=baseline"));
+    assert_eq!(zig_cpu_arg("aarch64-unknown-linux-gnu", None).as_deref(), Some("-Dcpu=baseline"));
+    assert_eq!(
+        zig_cpu_arg("x86_64-unknown-linux-gnu", Some("native")).as_deref(),
+        Some("-Dcpu=native")
+    );
 }
 
 // On a macOS build host Ghostty's build replaces the macOS target with its
