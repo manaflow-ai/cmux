@@ -27,7 +27,14 @@ const icons = {
   close: "close",
 } as const satisfies Record<FindPillIconRole, IconName>;
 
-function FindFixture({ noMatches = false, selected = false, replace = false, terminal, glass = "page", busy = false }: Props) {
+function FindFixture({
+  noMatches = false,
+  selected = false,
+  replace = false,
+  terminal,
+  glass = "page",
+  busy = false,
+}: Props) {
   const [query, setQuery] = useState("needle");
   const [matchCase, setMatchCase] = useState(selected);
   const [replacement, setReplacement] = useState("replacement");
