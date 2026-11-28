@@ -1147,7 +1147,8 @@ FEAT_BRANCH = "refs/heads/feat-cmux-next"
 # only on attempt 1 of a labelled same-repository pull request; it overrides every route a Mac job's runs-on reads
 # ahead of `runner` and `deferred_runner`, so each placed job takes the slot. A rescue re-run (attempt 2) is placed as
 # before. The label is read from the run's own payload, so labelling a PR takes effect on its next push.
-STACK_SLOT_PREFIX = "glaeda-nightly-"
+# #61222 (RFD 0185): the workflow now asks for the unified mac-nightly label; the old label stays registered.
+STACK_SLOT_PREFIX = ("glaeda-nightly-", "mac-nightly")
 # The fast tier's own fast label and the DEV compile slot's fresh label are dedicated slots of their own and keep
 # their placement; every shared route a queued job could wait on is cleared.
 STACK_SLOT_CLEARED = ("owned_jobs", "fallback_jobs", "light_jobs", "session_jobs", "borrow_jobs", "retry_jobs",

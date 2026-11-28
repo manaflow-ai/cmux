@@ -112,8 +112,7 @@ jobs:
           missing=""
           for t in mkfs.ext4 fakeroot zstd jq; do command -v "$t" >/dev/null || missing=1; done
           if [ -n "$missing" ]; then
-            sudo -n apt-get update -qq >/dev/null
-            sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y -qq e2fsprogs fakeroot zstd jq >/dev/null
+            bash scripts/ci/apt-retry.sh -y -qq e2fsprogs fakeroot zstd jq >/dev/null
           fi
 
       - name: Find the rolled image's rootfs

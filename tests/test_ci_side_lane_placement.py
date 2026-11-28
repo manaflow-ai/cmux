@@ -34,6 +34,9 @@ NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
 NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
 # The GUI suites take the owned pool's gui label, never the generic side label.
 GUI = "glaeda-gui-std-xcode-26.6"
+# #61222 (RFD 0185): the workflow routes read the unified mac-* labels; the runners above keep the old ones too.
+SIDE_ROUTE = "mac-std"
+GUI_ROUTE = "mac-gui"
 GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
 # glaeda#1530: jobs that need a logged-in session but not the console gui token. They take the
 # session label while an online runner carries it, else the gui label exactly as before.
@@ -2015,7 +2018,7 @@ class CmuxNextWiring(unittest.TestCase):
         """STACK_SLOT (cmux#45498, 2026-11-17): a labelled same-repository PR's Mac jobs take the nightly slot, a label
         no other PR job asks for, instead of queueing behind the side label's backlog. The placement's real output,
         with an idle std side runner and free Blacksmith slots, is fed into each job's runs-on."""
-        slot = "glaeda-nightly-std-xcode-26.6"
+        slot = "mac-nightly"  # #61222 (RFD 0185)
         place = next(step for step in self.workflow()["jobs"][self.PLACEMENT]["steps"] if step.get("id") == "place")
         expression = place["env"]["STACK_SLOT"]
         label = [{"name": "stack-blocker"}]
@@ -2071,7 +2074,8 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.push_context(runner=SIDE)), on(name, SIDE))
                 self.assertEqual(evaluate(runs_on, self.push_context(runner=STD)), on(name, STD))
                 # Skipped or unreadable placement keeps today's configured route.
-                self.assertEqual(evaluate(runs_on, self.push_context(fallback_jobs=None)), on(name, SIDE))
+                self.assertEqual(evaluate(runs_on, self.push_context(fallback_jobs=None)),
+                                 GUI_ROUTE if name in GUI_JOBS else SIDE)
                 # A person's re-run carries attempt 1's reading: Blacksmith, never the owned label.
                 self.assertEqual(evaluate(runs_on, self.push_context("2")), FALLBACK)
                 # The rescue's first re-run overflows (test_the_rescues_first_rerun_overflows_to_blacksmith).
@@ -2104,7 +2108,7 @@ class CmuxNextWiring(unittest.TestCase):
             gui_overflow=FALLBACK, placed_attempt="1")
         overflow["vars"].update(CI_SIDE_LANE_RUNNER="", MACOS_RUNNER_26="")
         for name in GUI_JOBS:
-            self.assertEqual(evaluate(runs_on_route(jobs[name], name), overflow), SIDE, name)
+            self.assertEqual(evaluate(runs_on_route(jobs[name], name), overflow), SIDE_ROUTE, name)
 
     def test_pr_routes_ignore_missing_stale_or_gui_only_placement(self):
         jobs = self.workflow()["jobs"]
@@ -2147,7 +2151,7 @@ class CmuxNextWiring(unittest.TestCase):
                             with self.subTest(job=name, attempt=attempt, actor=actor, side=side, placed=placed):
                                 # Attempt 1 with its placement skipped keeps the owned side label; a re-run
                                 # carrying another attempt's reading takes the moving Blacksmith label.
-                                self.assertEqual(evaluate(expression, context), SIDE if attempt == "1" else FALLBACK)
+                                self.assertEqual(evaluate(expression, context), (side if side == SIDE else SIDE_ROUTE) if attempt == "1" else FALLBACK)
                                 for owned in ("", "0"):
                                     context["vars"]["CI_PR_POOL_OWNED"] = owned
                                     self.assertEqual(evaluate(expression, context), FALLBACK)
