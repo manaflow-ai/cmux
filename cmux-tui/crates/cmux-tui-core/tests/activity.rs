@@ -267,3 +267,35 @@ fn subscribe_activity_times_a_persons_first_echo_after_their_attach() {
     mux.shutdown();
     server::cleanup(&socket);
 }
+
+/// RFD 0167: the wake-echo probe attaches in bytes mode without a size, so it never joins terminal sizing. Its typing
+/// must still count as a person's input and time the echo (staging runs 46179135080 and 46183663043 had every
+/// cycle's echo null because input was noted only for sizing members).
+#[test]
+fn a_person_attached_without_a_size_still_times_their_echo() {
+    let mux = Mux::new("activity-echo-unsized", SurfaceOptions::default());
+    let surface =
+        mux.new_workspace_as(&Actor::Daemon, Some("work".into()), Some((80, 24))).unwrap();
+    let socket = std::env::temp_dir()
+        .join(format!("cmux-activity-echo-unsized-{}", std::process::id()))
+        .join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+
+    let mut watcher = connect(&socket);
+    rpc(&mut watcher, 1, json!({"cmd": "subscribe-activity"}));
+
+    let mut person = connect(&socket);
+    rpc(&mut person, 1, json!({"cmd": "set-client-info", "name": "wake-probe", "kind": "tui"}));
+    rpc(&mut person, 2, json!({"cmd": "attach-surface", "surface": surface.id, "mode": "bytes"}));
+    let attached = activity_until(&mut watcher, |a| a["last_person_attach_at_ms"].is_u64());
+    let attach_at = attached["last_person_attach_at_ms"].as_u64().unwrap();
+
+    rpc(&mut person, 3, json!({"cmd": "send", "surface": surface.id, "text": "echo marker\r"}));
+    let echoed = activity_until(&mut watcher, |a| a["echo_at_ms"].is_u64());
+    let input_at = echoed["echo_input_at_ms"].as_u64().expect("the input is paired with its echo");
+    assert!(attach_at <= input_at, "{echoed}");
+    assert!(echoed["last_user_input_at_ms"].as_u64() >= Some(input_at), "{echoed}");
+
+    mux.shutdown();
+    server::cleanup(&socket);
+}
