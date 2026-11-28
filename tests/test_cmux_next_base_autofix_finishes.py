@@ -631,7 +631,7 @@ else:
         self.assertEqual((out, len(calls)), ("f" * 40 + "\n", 2), calls)
 
     def test_since_ignores_a_marker_of_a_run_that_did_not_succeed(self):
-        # The marker is uploaded before the run ends: a run that failed after it is not in the success listing.
+        # A run that failed after (or despite) uploading a marker is not in the success listing.
         self.assertEqual(self.since([(9, "c" * 40, False), (7, "a" * 40, True)], markers=[11, 10, 7])[0],
                          "a" * 40 + "\n")
 
@@ -655,6 +655,26 @@ else:
         # A run its batch window held (cmux#49308) skips autofix, so it uploads no marker and "since" passes it.
         self.assertIn("window", autofix["needs"])
         self.assertIn("needs.window.outputs.run == 'true'", re.sub(r"\s+", " ", str(autofix["if"])))
+
+    def test_a_run_that_left_held_files_to_the_next_run_is_green_but_uploads_no_marker(self):
+        # base-autofix-land.sh ends green when the only held files are ones a newer push moved the inputs of
+        # (that push started the run that makes them), and writes them to CMUX_BASE_AUTOFIX_LEFT. Failing
+        # for them made every run of 2026-11-28 red (46176330727). The marker steps come after the push and
+        # skip on its left output, so the next run's "since" still covers those files; the settings check
+        # after landing skips too, since the held exports are stale on the tip by design.
+        steps = DOC["jobs"]["autofix"]["steps"]
+        names = [str(s.get("name", "")) for s in steps]
+        push = names.index("Push the repairs")
+        self.assertEqual(steps[push].get("id"), "push")
+        self.assertIn("CMUX_BASE_AUTOFIX_LEFT", steps[push]["run"])
+        self.assertIn("left=true", steps[push]["run"])
+        markers = [i for i, n in enumerate(names) if "own-exports marker" in n]
+        self.assertEqual(len(markers), 2, names)
+        for i in markers:
+            self.assertGreater(i, push, names)
+            self.assertIn("steps.push.outputs.left != 'true'", str(steps[i].get("if")))
+        landed = steps[names.index("Settings exports current after landing")]
+        self.assertIn("steps.push.outputs.left != 'true'", str(landed.get("if")))
 
     def test_ci_runs_this_test(self):
         steps = DOC_NEXT["jobs"]["checks"]["steps"]

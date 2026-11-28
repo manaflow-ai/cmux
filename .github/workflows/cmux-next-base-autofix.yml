@@ -1102,23 +1102,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # The marker base-autofix-since.sh reads: this run made its own Mac exports, or had none to make (the
-      # deferred job's condition, negated). The next runs diff from the newest successful run that has it, with
-      # two listings instead of reading every run's jobs (31 GITHUB_TOKEN calls a lookup on 2026-11-22). A failed
-      # upload leaves no marker, which only widens the next run's range.
-      - name: Write the own-exports marker
-        if: needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true'
-        run: printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/base-autofix-own-exports.txt"
-      - name: Upload the own-exports marker
-        if: needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: base-autofix-own-exports
-          path: ${{ runner.temp }}/base-autofix-own-exports.txt
-          retention-days: 14
-          if-no-files-found: error
-
       # What changed since the last successful run decides the repairs: a run
       # cancelled by a newer push, one whose repair could not land, or one that
       # left its Mac exports to another run (base-autofix-since.sh passes over
@@ -1412,6 +1395,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Push the repairs
+        id: push
         if: steps.commit.outputs.changed == 'true'
         env:
           # The areas again, for the repair on a moved tip (base-autofix-repair.sh).
@@ -1465,11 +1449,17 @@ jobs:
           # Lands the repair on the newest tip file by file (base-autofix-push.sh): a file whose input areas
           # the tip changed, or that a newer commit wrote, waits (with its export and what is built from it).
           # A held file this job makes itself (the CI target graph, say) is made again on the new tip and
-          # pushed, at most three rounds; a held Mac export waits for the next run, and the run fails, which
-          # keeps it in the next run's "since". The settings and action exports are judged from the commit
-          # the Mac job made them at.
+          # pushed, at most three rounds; a held Mac export waits for the next run, which the move started.
+          # The run stays green for it (a refused repair still fails it) and outputs left=true, so it uploads
+          # no own-exports marker and the next run's "since" keeps the file. The settings and action exports
+          # are judged from the commit the Mac job made them at.
+          export CMUX_BASE_AUTOFIX_LEFT="$RUNNER_TEMP/base-autofix-left.txt"
+          rm -f "$CMUX_BASE_AUTOFIX_LEFT"
+          status=0
           scripts/cmux-next/base-autofix-land.sh "$remote" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT" 2>&1 \
-            | tee -a "$GITHUB_STEP_SUMMARY"
+            | tee -a "$GITHUB_STEP_SUMMARY" || status=$?
+          if [[ -s "$CMUX_BASE_AUTOFIX_LEFT" ]]; then echo "left=true" >> "$GITHUB_OUTPUT"; fi
+          exit "$status"
 
       # A GITHUB_TOKEN push (no App token) started no workflow: start the bot head's cmux-tui
       # artifacts run (scripts/cmux-next/publish-bot-head-tree.sh: nothing when the head has a run;
@@ -1483,9 +1473,10 @@ jobs:
       # A green run moves the next run's "since" past its changes: when its own Mac job made the exports
       # and the settings area is on, it fails when the settings exports are still stale for the sources
       # it had, so the next run makes them again. A run that left its Mac exports to another run
-      # (mac-exports-deferred) skips this and stays green; base-autofix-since.sh passes over it anyway.
+      # (mac-exports-deferred), or whose push left held files to the next run (steps.push.outputs.left),
+      # skips this and stays green; it uploads no own-exports marker, so base-autofix-since.sh passes over it.
       - name: Settings exports current after landing
-        if: success() && (needs.action-exports.result == 'success' || needs.pushed-exports.outputs.hit == 'true') && steps.areas.outputs.settings == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
+        if: success() && steps.push.outputs.left != 'true' && (needs.action-exports.result == 'success' || needs.pushed-exports.outputs.hit == 'true') && steps.areas.outputs.settings == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
         env:
           HEAD_SHA: ${{ github.sha }}
           SETTINGS_MADE_AT: ${{ needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.made_at || needs.settings-exports-linux.outputs.settings_made_at || needs.action-exports.outputs.settings_made_at }}
@@ -1494,6 +1485,25 @@ jobs:
           set -euo pipefail
           scripts/cmux-next/base-autofix-settings-landed.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" "$EXPORTS_DIR" 2>&1 \
             | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The marker base-autofix-since.sh reads: this run made its own Mac exports, or had none to make (the
+      # deferred job's condition, negated). The next runs diff from the newest successful run that has it, with
+      # two listings instead of reading every run's jobs (31 GITHUB_TOKEN calls a lookup on 2026-11-22). A failed
+      # upload leaves no marker, which only widens the next run's range. It is uploaded last, once the repair
+      # landed: a run whose push left held files to the next run (steps.push.outputs.left) ends green but
+      # uploads none, so the next run's "since" still covers them.
+      - name: Write the own-exports marker
+        if: needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && steps.push.outputs.left != 'true'
+        run: printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/base-autofix-own-exports.txt"
+      - name: Upload the own-exports marker
+        if: needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && steps.push.outputs.left != 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: base-autofix-own-exports
+          path: ${{ runner.temp }}/base-autofix-own-exports.txt
+          retention-days: 14
+          if-no-files-found: error
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum
   # (scripts/ghosttykit-checksums.txt) from our own published release only
