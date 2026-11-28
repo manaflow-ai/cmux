@@ -3776,7 +3776,7 @@
       }
     },
     "Creation": {
-      "$comment": "Hand-written still: SpawnOptions (the spreads type these requests send flat; DaemonConnection fills and drops its fields), new-pane-right (the schema gates it on viewport-splits-v1, which the app does not check before sending), create-terminal and its detached form, NewTerminalWorkspace, SurfaceCreated, and the CreatingRequests and ShellIntegrationArguments conformances.",
+      "$comment": "Hand-written still: SpawnOptions (the spreads type these requests send flat; DaemonConnection fills and drops its fields), new-pane-right (the schema gates it on viewport-splits-v1, which the app does not check before sending), create-terminal's detached form (constant fields), NewTerminalWorkspace, SurfaceCreated, CreateTerminalResult, and the CreatingRequests and ShellIntegrationArguments conformances.",
       "requests": {
         "split": {
           "name": "SplitRequest",
@@ -3859,6 +3859,86 @@
             }
           },
           "response": "SurfaceCreated"
+        },
+        "create-terminal": {
+          "name": "CreateTerminalRequest",
+          "doc": [
+            "Spawns a terminal inside a workspace (a new screen/pane when it is empty)."
+          ],
+          "protocol": "TerminalSpawningRequest",
+          "ungated": "a daemon that predates workspace-registry-v1 still spawns the terminal.",
+          "workspace_ref": true,
+          "mutation": true,
+          "order": [
+            "workspace",
+            "argv",
+            "command",
+            "cwd",
+            "name",
+            "size",
+            "terminal_id",
+            "env",
+            "keep",
+            "mutation",
+            "shell_args",
+            "create_workspace",
+            "workspace_name"
+          ],
+          "omit": [
+            "detached"
+          ],
+          "init": {
+            "params": {
+              "size": {
+                "type": "CellSize?",
+                "default": "nil"
+              }
+            },
+            "set": {
+              "cols": "size?.cols",
+              "rows": "size?.rows"
+            }
+          },
+          "fields": {
+            "cols": {
+              "type": "Int"
+            },
+            "rows": {
+              "type": "Int"
+            },
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "env": {
+              "doc": [
+                "Extra environment for the child only (`terminal-env-v1`); stored on",
+                "disk with the receipt, so never pass secrets."
+              ]
+            },
+            "keep": {
+              "doc": [
+                "`true` keeps the terminal after its last tab closes (`terminal-reap-v1`)."
+              ]
+            },
+            "shell_args": {
+              "doc": [
+                "Arguments for the terminal's shell (`terminal-shell-args-v1`), set by",
+                "`DaemonConnection` from `env`; never with `argv` or `command`."
+              ]
+            },
+            "create_workspace": {
+              "doc": [
+                "`create-terminal-workspace-v1`: make the workspace `workspace` names by key first when the daemon has none",
+                "(named ``workspaceName``), so a workspace and its first terminal are one request. Needs a key and ``mutation``."
+              ]
+            },
+            "workspace_name": {
+              "doc": [
+                "The name of the workspace ``createWorkspace`` makes; nil: the daemon names it."
+              ]
+            }
+          },
+          "response": "CreateTerminalResult"
         }
       }
     }
