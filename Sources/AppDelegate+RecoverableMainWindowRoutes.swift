@@ -271,9 +271,9 @@ extension AppDelegate {
                 count += 1
             }
         }
-        return max(
-            0,
-            SessionPersistencePolicy.maxWindowsPerSnapshot - eligibleRegisteredCount
+        return min(
+            SessionPersistencePolicy.maxOrphanedWindowRoutes,
+            max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - eligibleRegisteredCount)
         )
     }
 

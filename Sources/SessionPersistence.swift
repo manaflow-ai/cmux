@@ -35,7 +35,10 @@ enum SessionPersistencePolicy {
     // minSize/contentMinSize; programmatic paths via CmuxMainWindow.setFrame.
     static let minimumWindowHeight: Double = 400
     static let autosaveInterval: TimeInterval = 8.0
-    static let maxWindowsPerSnapshot: Int = 12
+    static let maxWindowsPerSnapshot: Int = 128
+    /// Routes whose window is gone hold a panel graph nobody can see, so they
+    /// stay bounded far below the windows a person can have open.
+    static let maxOrphanedWindowRoutes: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
