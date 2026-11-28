@@ -2,133 +2,133 @@
   "sourceLanguage" : "en",
   "strings" : {
     "settle.unsettleFailed" : {
-      "comment" : "Agent pane: toast when putting a settled chat back on the lists was refused",
+      "comment" : "Agent pane toast: Unsettle (a settle toast's Undo, the Settled shelf) was refused; the refusal's own text stays in the log.",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't reopen this chat. Try again."
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تعذّر إلغاء تسوية هذه الدردشة"
+            "value" : "تعذّر إعادة فتح هذه الدردشة. حاول مرة أخرى."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nije moguće vratiti ovaj chat"
+            "value" : "Ovaj chat nije bilo moguće ponovo otvoriti. Pokušajte ponovo."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kunne ikke flytte denne chat tilbage"
+            "value" : "Chatten kunne ikke genåbnes. Prøv igen."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Dieser Chat konnte nicht zurückgeholt werden"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn't unsettle this chat"
+            "value" : "Dieser Chat konnte nicht wieder geöffnet werden. Versuche es erneut."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "No se pudo recuperar este chat"
+            "value" : "No se pudo reabrir este chat. Inténtalo de nuevo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Impossible de rétablir cette discussion"
+            "value" : "Impossible de rouvrir ce chat. Réessayez."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Impossibile ripristinare questa chat"
+            "value" : "Impossibile riaprire questa chat. Riprova."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "このチャットを戻せませんでした"
+            "value" : "このチャットを再開できませんでした。もう一度お試しください。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនអាចយកការជជែកនេះមកវិញបានទេ"
+            "value" : "មិនអាចបើកការជជែកនេះវិញបានទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "이 채팅을 되돌리지 못했습니다"
+            "value" : "이 채팅을 다시 열 수 없습니다. 다시 시도하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kunne ikke hente tilbake denne chatten"
+            "value" : "Kunne ikke gjenåpne chatten. Prøv igjen."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nie udało się przywrócić tego czatu"
+            "value" : "Nie udało się przywrócić tego czatu. Spróbuj ponownie."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Não foi possível restaurar este chat"
+            "value" : "Não foi possível reabrir este chat. Tente novamente."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не удалось вернуть этот чат"
+            "value" : "Не удалось вернуть этот чат. Попробуйте ещё раз."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ไม่สามารถนำแชทนี้กลับมาได้"
+            "value" : "เปิดแชทนี้อีกครั้งไม่ได้ ลองอีกครั้ง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bu sohbet geri alınamadı"
+            "value" : "Bu sohbet yeniden açılamadı. Tekrar deneyin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не вдалося повернути цей чат"
+            "value" : "Не вдалося повернути цей чат. Спробуйте ще раз."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Không thể khôi phục cuộc trò chuyện này"
+            "value" : "Không thể mở lại cuộc trò chuyện này. Hãy thử lại."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "无法恢复此聊天"
+            "value" : "无法重新打开此聊天。请重试。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "無法恢復此聊天"
+            "value" : "無法重新開啟此聊天。請再試一次。"
           }
         }
       }
