@@ -137,6 +137,22 @@ describe("cmux-next docs", () => {
     expect(llms.indexOf(url)).toBeLessThan(llms.indexOf("## What cmux is"));
   });
 
+  test("the Start and Cloud pages keep every onboarding level on one journey", () => {
+    const start = nextDocPage("start")!;
+    const cloud = nextDocPage("cloud")!;
+    const startText = JSON.stringify(start.body);
+    const cloudText = JSON.stringify(cloud.body);
+    for (const level of ["In the app", "From the CLI", "Point an agent at this page", "From your phone"]) {
+      expect(startText).toContain(level);
+    }
+    expect(startText).toContain("session_id");
+    expect(startText).toContain("cmux cloud diagnostics");
+    expect(start.links).toEqual(expect.arrayContaining(["machines", "mcp", "network-requirements"]));
+    expect(cloudText).toContain(".cmux/machine.toml");
+    expect(cloudText).toContain("cmux acp machine status");
+    expect(cloud.links).toEqual(expect.arrayContaining(["machines", "remote", "vault", "plans"]));
+  });
+
   // docs/cmux-next/start.md is what the pasted setup line sends an agent to: it must be the Start page as it is now.
   test("docs/cmux-next/start.md is the Start page, regenerated", () => {
     const committed = readFileSync(join(repo, NEXT_START_MARKDOWN_PATH), "utf8");

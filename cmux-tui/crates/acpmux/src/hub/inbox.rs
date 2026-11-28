@@ -102,10 +102,21 @@
 //!   continuation may still fire (`auto_resume.rs` `continuation_pending`) is not woken: the
 //!   inbox is looked at again [`REFUSED_RETRY_MS`] on, and goes in behind the continuation.
 //!
-//! An agent's `session/prompt` waits for the notice that carries it and answers with that
-//! notice's answer: a steer's (`steered`, naming the turn it went into) or its own turn's; a
-//! chat that closes answers it with the closing error ([`Inbox::carrying`] holds the waiting
-//! senders, so a close reaches them). A notice goes in once its prompt is written to the agent
+//! An agent's `session/prompt` ends once its message is in the inbox: it answers `delivered`
+//! (`heldInInbox` when nothing wakes the chat for it yet), and no request, future or connection
+//! of it is left in the daemon. Before, every one waited for the notice that carried it, which for
+//! a held message is a flush minutes on: an outbox delivery (`send --no-wait`) kept its
+//! connection and request open that long or for good, 160 MB per 1000 sends to a coordinator
+//! (2026-11-19, `tests/inbox_delivery_settles.rs`; Leo's Mac 2026-11-27: 1.5-2.4 GB daemons).
+//! Only a caller that reads the reply (`PromptOptions::reply_reader`: `acpmux send` that waits,
+//! `wakeOrFail`) waits on for the notice's answer, a steer's (`steered`, naming the turn it went
+//! into) or its own turn's, and only while its connection is open and it has not cancelled: its
+//! wait ends with its client. A chat that closes answers it with the closing error
+//! ([`Inbox::carrying`] holds the waiting senders, so a close reaches them). What happened to a
+//! message later is read from the inbox and its log (`inbox_answered`), never from a parked
+//! request.
+//!
+//! A notice goes in once its prompt is written to the agent
 //! (the writer confirmed it), as a steer or a turn of its own; only then are its messages noticed
 //! (an `inbox_noticed` record). The next notice goes no sooner than that, and behind a steer only
 //! once the agent took it at its tool step (its answer). One that does not go in (a
@@ -149,8 +160,13 @@
 use super::*;
 #[path = "inbox_admit.rs"]
 mod admit;
+pub(super) use admit::codex_unanswered;
 #[path = "inbox_deadline.rs"]
 pub(super) mod deadline;
+#[path = "inbox_fold.rs"]
+mod fold;
+#[path = "inbox_point.rs"]
+pub(super) mod inbox_point;
 #[path = "inbox_page_rule.rs"]
 pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
@@ -242,6 +258,8 @@ pub(super) struct Item {
     /// It waited for this machine to come back (`prompt_provenance::waited`): it wakes the chat
     /// rather than sit to a flush a parked machine never reaches.
     pub(super) waited: bool,
+    /// The sender requested the receiver's cold batch with `--gather`.
+    pub(super) gather: bool,
     pub(super) at: u64,
     /// The sender's own deadline (`acpmux send --within`), which tightens its class's
     /// ([`Item::due`]).
@@ -290,6 +308,7 @@ impl Item {
             class: PromptClass::Result,
             report: false,
             waited: false,
+            gather: false,
             at: now_ms(),
             within: None,
             text: text.to_owned(),
@@ -347,6 +366,13 @@ pub struct Inbox {
     /// The threads whose surge-held messages [`trim`] let go of. Those stay whole in the log
     /// (`persist_surge_event`), so a thread read (`inbox_thread_whole`) reads them from there.
     pub(super) held_evicted: std::collections::HashSet<String>,
+    /// Per thread, how many older program notices a newer one replaced (`inbox_fold.rs`): the
+    /// thread's count shows them, its messages do not.
+    pub(super) folded: std::collections::HashMap<String, u64>,
+    /// The threads some of whose messages left memory for the chat's archive file.
+    pub(super) archived_threads: std::collections::HashSet<String>,
+    /// Messages that left memory and are not in the archive file yet.
+    pub(super) archive_pending: Vec<Value>,
     /// Woken when a notice is written or ends, or the chat closes: a withdraw waits on it for
     /// a notice that carries its message and is not written yet (`inbox_settled`).
     pub(super) settled: Arc<tokio::sync::Notify>,
@@ -582,6 +608,11 @@ pub(crate) fn thread_key(explicit: Option<&str>, sender: &str, text: &str) -> St
             .unwrap_or(sender);
         format!("from:{sender}")
     };
+    // A program's notice folds into one thread per sender and kind, never one per pull request
+    // its first line names (`inbox_fold.rs`).
+    if let Some(key) = fold::notice_key(&prefix, text) {
+        return key;
+    }
     match first_pr(text.lines().next().unwrap_or_default()) {
         Some(n) => format!("{prefix}/pr:{n}"),
         None => prefix,
@@ -1295,8 +1326,8 @@ fn subagent_label(sender: &Value) -> Option<String> {
 }
 
 /// Whether `item`'s sender waits for the reply now: its caller reads it
-/// (`PromptOptions::reply_reader`) and is still connected. An open request alone is no reader:
-/// the outbox's delivery of a `--no-wait` send keeps one open (bench round 4, A5).
+/// (`PromptOptions::reply_reader`) and is still connected. Only such a caller's request stays
+/// open past delivery (bench round 4, A5: an outbox delivery's open request read nothing).
 pub(super) fn reader_waits(item: &Item) -> bool {
     item.answer.as_ref().is_some_and(|tx| tx.receiver_count() > 0)
         && item.reader.as_ref().is_some_and(|ended| !*ended.borrow())
@@ -1410,7 +1441,12 @@ pub(super) fn persons_prompt(agent: Option<&str>, provenance: Option<&Value>) ->
     let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
     let auto_resume = matches!(
         kind,
-        Some("auto_resume" | super::idle::cache_compact::KIND | super::cold_wake::KIND)
+        Some(
+            "auto_resume"
+                | super::idle::cache_compact::KIND
+                | super::cold_wake::KIND
+                | super::plan_first::GO_KIND
+        )
     );
     agent.is_none()
         && !auto_resume
@@ -1962,6 +1998,7 @@ fn trim(inbox: &mut Inbox) {
             excess -= 1;
             // The archive reader and resend ledger still resolve an evicted held post.
             if item.surge_held {
+                inbox.archive_pending.push(fold::archive_line(&item));
                 inbox.held_evicted.insert(item.thread);
             } else {
                 inbox.trimmed.insert(item.prompt_id);

@@ -168,6 +168,35 @@ class Finds(unittest.TestCase):
             self.assertTrue(out.getvalue().startswith("::error file=crates/app/src/lib.rs,line=1,"), out.getvalue())
 
 
+    def test_crate_modules_and_items_behind_cfg_unix(self):
+        # The cmux-tui class (75 errors of the windows-gnu check): live code names a module or item of
+        # the crate that exists only under cfg(unix).
+        found = scan(
+            """
+            #[cfg(unix)]
+            mod hub;
+            #[cfg(unix)]
+            pub(crate) fn machines() {}
+            mod cli;
+            pub fn top() { hub::serve(); machines(); }
+            """,
+            {
+                "crates/app/src/hub.rs": "pub fn serve() {}\n",
+                "crates/app/src/cli.rs": textwrap.dedent("""
+                    use super::{hub, top};
+                    fn a() { crate::hub::serve(); super::machines(); }
+                    mod deeper {
+                        fn b() { super::super::hub::serve(); }
+                    }
+                """),
+            },
+        )
+        hub = "`hub` is declared only under a cfg Windows does not set (crates/app/src/lib.rs:3)"
+        machines = "`machines` is declared only under a cfg Windows does not set (crates/app/src/lib.rs:5)"
+        # cli.rs: `use super::{hub, ..}`, `crate::hub`, `super::machines`, `super::super::hub`; lib.rs:
+        # the bare `hub::` and `machines(` beside their declarations.
+        self.assertEqual(sorted(found), sorted([hub] * 4 + [machines] * 2))
+
 class Quiet(unittest.TestCase):
     def test_items_behind_cfg_unix(self):
         self.assertEqual(scan("""
@@ -237,6 +266,59 @@ class Quiet(unittest.TestCase):
             },
         ), [])
 
+    def test_crate_items_with_a_windows_arm(self):
+        self.assertEqual(scan(
+            """
+            #[cfg(unix)]
+            mod sock;
+            #[cfg(not(unix))]
+            mod sock { pub fn bind() {} }
+            #[cfg(unix)]
+            pub fn commit() -> Option<u8> { None }
+            #[cfg(not(unix))]
+            pub fn commit() -> Option<u8> { None }
+            #[cfg(unix)]
+            fn bind_unix() {}
+            #[cfg(not(unix))]
+            pub use stub::{bind_unix, serve_unix};
+            mod stub { pub fn bind_unix() {} pub fn serve_unix() {} }
+            #[cfg(unix)]
+            fn serve_unix() {}
+            mod time;
+            #[cfg(unix)]
+            mod only_unix_caller;
+            pub fn f() {
+                sock::bind(); commit(); bind_unix(); serve_unix();
+                let _ = time::now();
+                #[cfg(unix)]
+                only_unix_caller::go();
+                match 1 {
+                    #[cfg(unix)]
+                    1 if only_unix_caller::ready() => {}
+                    _ => {}
+                }
+            }
+            #[cfg(test)]
+            struct Fence<F>(F);
+            impl S {
+                #[cfg(test)]
+                fn spawn<W>(w: W) -> u8
+                where
+                    W: Send,
+                {
+                    let _ = Fence(w);
+                    0
+                }
+            }
+            struct S;
+            """,
+            {
+                "crates/app/src/sock.rs": "pub fn bind() {}\n",
+                "crates/app/src/time.rs": "pub fn now() {}\n",
+                "crates/app/src/only_unix_caller.rs": "pub fn go() {}\npub fn ready() -> bool { true }\n",
+            },
+        ), [])
+
     def test_comments_and_strings(self):
         self.assertEqual(scan(r'''
             // std::os::unix::fs, libc::kill
@@ -259,7 +341,7 @@ class Quiet(unittest.TestCase):
 
 class Speed(unittest.TestCase):
     def test_real_acpmux_under_budget(self):
-        # The gate's budget: it reads all of acpmux (about 2,700 files, 45 MB) in seconds.
+        # The gate's budget: it reads acpmux, cmux-fault, cmux-tui-core and cmux-tui (about 4,900 files) in seconds.
         import time
         crate = ROOT / "cmux-tui/crates/acpmux"
         if not (crate / "Cargo.toml").exists():

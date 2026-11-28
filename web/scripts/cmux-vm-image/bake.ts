@@ -78,7 +78,7 @@ import {
   type CmuxTuiSource,
 } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER, devboxWorkUserSetupCommand } from "../../services/vms/workUser";
-import { NPM_CACHE_DIR, NPM_HOST_CACHE_PROFILE, npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
+import { NPM_CACHE_DIR, NPM_HOST_CACHE_PROFILE, NPM_PREFILL_ATTEMPTS, npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import { graduatedInstallCommand, readGraduated } from "./graduate";
 import {
   cmuxTuiWebsocketSmokeCommand,
@@ -122,6 +122,7 @@ import {
 } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, DNS_SCOPE_PATH, dnsCheckScript, dnsScopeScript, dnsScopeUnits, resolverBakeCommand } from "./dns";
+import { BBR_STAGE_DIR, netBaselineBakeCommand, netBaselineFiles, SYN_RETRY_PATH } from "./net-baseline";
 import { DISK_RECORD_COMMAND, parseDiskOutput } from "./disk-record";
 import { homeReadmeFile } from "./home-readme";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
@@ -143,6 +144,7 @@ import { aptUpdateCommand } from "./apt-update";
 import {
   baseInputTree,
   cachedInstallCommand,
+  evictedLayerSlug,
   imageInputsSha256,
   imagePackagesCommand,
   layerLabel,
@@ -151,7 +153,9 @@ import {
   layerName,
   overlayPrepareCommand,
   overlayPruneCommand,
+  pickLayer,
   type LayerName,
+  type ListedSnapshot,
 } from "./layers";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, SELF_UPDATE_OFF, hostConfig, hostUnit } from "./host-agent";
 import {
@@ -322,8 +326,17 @@ export const AGENT_SIGN_IN_FILES = [
  * (its terminal launchers put it back per launch), so an acpmux chat had no route at all and ran on whatever
  * login sat in HOME. The route is therefore pinned in each agent's managed layer: root-owned, read on every
  * start, and above user settings. Claude Code ranks `apiKeyHelper` over CLAUDE_CODE_OAUTH_TOKEN and a /login
- * session, and Codex's managed config overrides `~/.codex/config.toml`, so a login a user or an older copy
- * left in HOME is never used. Only a key the person exports themselves still wins, which is theirs to do.
+ * session, so a login a user or an older copy left in HOME is never used. Only a key the person exports
+ * themselves still wins, which is theirs to do.
+ *
+ * Codex's managed layer defines the `cmux` provider (so no user config can point it elsewhere) but does not
+ * select it: the selection is the system config's default (`/etc/codex/config.toml`, Codex's lowest layer).
+ * Codex's managed layer outranks every `-c` flag and `--profile`, so a `model_provider` there made acpmux's own
+ * mode (`-c model_provider="openai"`, codex_cloud_auth.rs, Leo 2026-11-10: "I want to be able to have that work
+ * for if somebody has a ChatGPT subscription") a no-op: every Codex chat with a person's own ChatGPT sign-in ran
+ * the `cmux` provider with no key and failed its first turn on "Missing environment variable:
+ * `OPENAI_API_KEY`." (cloud-journey-prod codex stub reply, job 140491383987, image 58845c13). Team mode is
+ * unchanged: acpmux picks it and the image's `~/.codex/config.toml` selects `cmux` too.
  */
 export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array<{ path: string; target: string; text: string; mode: number }> {
   const env = vmGuestModelPlaneEnv(alias);
@@ -338,7 +351,6 @@ export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array
   const codex = [
     "# cmux Cloud machine: Codex reaches models only through the machine's coderouter edge, which adds the",
     "# per-machine credential. Managed by the image (web/scripts/cmux-vm-image/bake.ts); do not edit.",
-    'model_provider = "cmux"',
     "check_for_update_on_startup = false",
     "",
     "[model_providers.cmux]",
@@ -361,9 +373,17 @@ export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array
     'trust_level = "trusted"',
     "",
   ].join("\n");
+  const codexDefault = [
+    "# cmux Cloud machine: Codex's default provider is the machine's coderouter edge (defined in managed_config.toml).",
+    "# A default, not a pin: a user config or acpmux's own mode (-c model_provider) picks another. Managed by the image",
+    "# (web/scripts/cmux-vm-image/bake.ts); do not edit.",
+    'model_provider = "cmux"',
+    "",
+  ].join("\n");
   return [
     { path: `${AGENT_MODEL_ROUTE_DIR}/claude-managed-settings.json`, target: "/etc/claude-code/managed-settings.json", text: `${JSON.stringify(claude, null, 2)}\n`, mode: 0o644 },
     { path: `${AGENT_MODEL_ROUTE_DIR}/codex-managed_config.toml`, target: "/etc/codex/managed_config.toml", text: codex, mode: 0o644 },
+    { path: `${AGENT_MODEL_ROUTE_DIR}/codex-config.toml`, target: "/etc/codex/config.toml", text: codexDefault, mode: 0o644 },
   ];
 }
 
@@ -431,22 +451,26 @@ export function agentModelRouteUnitFiles(): Array<{ path: string; text: string; 
 }
 
 /**
- * Fails unless both staged route files exist, parse, point at the edge, and carry no credential, and neither is
- * in its agent's managed path (the sync script puts it there on a machine with the edge). `root` prefixes every
+ * Fails unless every staged route file exists, parses, points at the edge, and carries no credential, and none is
+ * in its agent's path (the sync script puts it there on a machine with the edge). `root` prefixes every
  * path (tests).
  */
 export function agentModelRouteCheckCommand(root = ""): string {
-  const [claudeFile, codexFile] = agentModelRouteFiles();
+  const [claudeFile, codexFile, codexDefaultFile] = agentModelRouteFiles();
   const claude = sq(`${root}${claudeFile!.path}`);
   const codex = sq(`${root}${codexFile!.path}`);
-  const files = `${claude} ${codex}`;
+  const codexDefault = sq(`${root}${codexDefaultFile!.path}`);
+  const files = `${claude} ${codex} ${codexDefault}`;
   return [
     `test -s ${claude}`,
     `test -s ${codex}`,
-    `python3 -I -c 'import json, sys, tomllib; s = json.load(open(sys.argv[1])); c = tomllib.load(open(sys.argv[2], "rb")); sys.exit(0 if s["env"]["ANTHROPIC_BASE_URL"].startswith("https://") and s["apiKeyHelper"] and c["model_provider"] == "cmux" and c["model_providers"]["cmux"]["base_url"].startswith("https://") else 1)' ${files}`,
+    `test -s ${codexDefault}`,
+    // The managed layer defines the provider and never selects it (agentModelRouteFiles): a selection there outranks own mode.
+    `python3 -I -c 'import json, sys, tomllib; s = json.load(open(sys.argv[1])); c = tomllib.load(open(sys.argv[2], "rb")); d = tomllib.load(open(sys.argv[3], "rb")); sys.exit(0 if s["env"]["ANTHROPIC_BASE_URL"].startswith("https://") and s["apiKeyHelper"] and "model_provider" not in c and c["model_providers"]["cmux"]["base_url"].startswith("https://") and d["model_provider"] == "cmux" else 1)' ${files}`,
     `! grep -Eq 'CLAUDE_CODE_OAUTH_TOKEN|sk-ant-|sk-proj-|crt_|refresh_token|access_token' ${files}`,
     `test ! -e ${sq(`${root}${claudeFile!.target}`)}`,
     `test ! -e ${sq(`${root}${codexFile!.target}`)}`,
+    `test ! -e ${sq(`${root}${codexDefaultFile!.target}`)}`,
     `sh -n ${sq(`${root}${AGENT_MODEL_ROUTE_SYNC_PATH}`)}`,
     "echo agent-model-route-baked",
   ].join(" && ");
@@ -788,6 +812,19 @@ export async function installStoreProgram(L: Pick<StepLog, "step" | "log">, vm: 
   await stepAgain(L, vm, label, command, attempts, "the part it downloaded");
 }
 
+/** The npm cache prefill, run again when it fails; a run again keeps the tarballs already in the cache. */
+export async function prefillNpmCache(L: Pick<StepLog, "step" | "log">, vm: Vm, attempts = NPM_PREFILL_ATTEMPTS): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await L.step(vm, attempt === 1 ? "npm-cache-prefill" : `npm-cache-prefill-try-${attempt}`, npmCachePrefillCommand(attempt === 1), 290_000);
+      return;
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      L.log(`npm-cache-prefill failed (try ${attempt} of ${attempts}); running it again, keeping the tarballs it cached`);
+    }
+  }
+}
+
 async function stepAgain(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts: number, kept: string): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
@@ -931,6 +968,10 @@ async function configureSystem(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, DNS_SCOPE_PATH, dnsScopeScript(), 0o755);
   for (const [unitPath, text] of Object.entries(dnsScopeUnits())) await writeGuestFile(vm, unitPath, text, 0o644);
   ctx.result.resolver = (await L.step(vm, "resolver", resolverBakeCommand(), 120_000)).trim();
+  // The fleet's network baseline (net-baseline.ts): IPv6 first, BBR where the kernel has it, the first SYN resent after 200 ms.
+  await L.step(vm, "net-baseline-dirs", `install -d -m 0755 ${path.posix.dirname(SYN_RETRY_PATH)} ${BBR_STAGE_DIR}`);
+  for (const f of netBaselineFiles()) await writeGuestFile(vm, f.path, f.text, f.mode);
+  ctx.result.netBaseline = (await L.step(vm, "net-baseline", netBaselineBakeCommand(), 60_000)).trim();
   await L.step(vm, "snapshot-resume-quiet","{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
@@ -1075,7 +1116,7 @@ async function installGraduated(ctx: Ctx): Promise<void> {
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */
 async function prefillDepCaches(ctx: Ctx): Promise<void> {
-  await ctx.L.step(ctx.vm, "npm-cache-prefill", npmCachePrefillCommand(), 290_000);
+  await prefillNpmCache(ctx.L, ctx.vm);
   if (ctx.options.labsNpmHostCache) {
     // Keep only the image's contents available to seed the tenant store, even after local npm installs.
     const seed = "/usr/local/share/cmux/npm-seed";
@@ -1152,7 +1193,7 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
   await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());
-  await L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand());
+  await L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand(), acpmuxProbesQuietStepMs());
 }
 
 /**
@@ -1207,27 +1248,38 @@ export function acpmuxHarnessChecksDoneCommand(limitSeconds = 180): string {
  * user has its cwd there. At the bound, name the probes still running and stop them (TERM, then KILL): a probe CLI
  * that hangs past acpmux's own kill (2026-11-26 roll 45732114266: two `cursor-agent acp` probes alive after 120 s)
  * is the bake's own process and must not fail the roll; only a probe that survives KILL does. `unattended` is for
- * tests.
+ * tests. The bound is wall time, not loop turns: each turn's /proc scan is bounded too (`timeout`), so a scan that
+ * stalls on a busy guest cannot stretch 120 turns past the exec's own 300 s (roll 46067232978: status 124 at 326 s,
+ * no output, the roll red). acpmuxProbesQuietStepMs gives the exec room for the bound plus the TERM and KILL waits.
  */
+/**
+ * The exec bound for acpmuxProbesQuietCommand: its wall-time wait plus 300 s for the rest, which at most is a last
+ * scan (10 s), the TERM and KILL waits (2 x 5 turns of a 1 s sleep and a 10 s scan, 110 s), the final scans and slack.
+ */
+export function acpmuxProbesQuietStepMs(limitSeconds = 120): number {
+  return (limitSeconds + 300) * 1000;
+}
+
 export function acpmuxProbesQuietCommand(limitSeconds = 120, unattended?: string): string {
   const dir = unattended === undefined ? '"$CMUX_TUI_HOME/.acpmux/unattended"' : sq(unattended);
   // One find over /proc (a readlink per process forks hundreds of times); -lname matches the cwd link's target.
   const probes = [
-    'find /proc -mindepth 2 -maxdepth 2 -name cwd \\( -lname "$dir" -o -lname "$dir/*" \\) 2>/dev/null | while IFS= read -r c; do',
-    '  pid="${c#/proc/}"; pid="${pid%%/*}"; echo "  probe pid $pid: $(tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)"',
+    'timeout 10 find /proc -mindepth 2 -maxdepth 2 -name cwd \\( -lname "$dir" -o -lname "$dir/*" \\) 2>/dev/null | while IFS= read -r c; do',
+    '  pid="${c#/proc/}"; pid="${pid%%/*}"; echo "  probe pid $pid: $(timeout 2 tr \'\\0\' \' \' < "/proc/$pid/cmdline" 2>/dev/null)"',
     "done",
   ].join("\n");
   return [
     ...(unattended === undefined ? [cmuxTuiLayoutSelector(), 'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-probes-no-service; exit 0; fi'] : []),
     `dir=${dir}`,
     `probes() {\n${probes}\n}`,
-    `i=0; while [ "$i" -lt ${limitSeconds} ] && [ -n "$(probes)" ]; do i=$((i + 1)); sleep 1; done`,
+    `t0=$(date +%s); i=0; while [ "$i" -lt ${limitSeconds} ] && [ -n "$(probes)" ]; do sleep 1; i=$(($(date +%s) - t0)); done`,
+    `if [ "$i" -gt ${limitSeconds} ]; then i=${limitSeconds}; fi`,
     `left="$(probes)"`,
     'if [ -z "$left" ]; then echo "acpmux-probes-quiet after ${i}s"; exit 0; fi',
     `echo "acpmux's model probes still run after ${limitSeconds}s; stopping them:"; printf '%s\\n' "$left"`,
     `stop() { for p in $(probes | sed -n 's/^  probe pid \\([0-9]*\\):.*/\\1/p'); do kill "-$1" "$p" 2>/dev/null || true; done; }`,
-    'stop TERM; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done',
-    'if [ -n "$(probes)" ]; then stop KILL; j=0; while [ "$j" -lt 5 ] && [ -n "$(probes)" ]; do j=$((j + 1)); sleep 1; done; fi',
+    'stop TERM; t1=$(date +%s); while [ $(( $(date +%s) - t1 )) -lt 5 ] && [ -n "$(probes)" ]; do sleep 1; done',
+    'if [ -n "$(probes)" ]; then stop KILL; t1=$(date +%s); while [ $(( $(date +%s) - t1 )) -lt 5 ] && [ -n "$(probes)" ]; do sleep 1; done; fi',
     `left="$(probes)"; if [ -n "$left" ]; then echo "acpmux's model probes survived KILL:" >&2; printf '%s\\n' "$left" >&2; exit 1; fi`,
     'echo "acpmux-probes-quiet after ${i}s (stopped the rest)"',
   ].join(" && ");
@@ -1309,7 +1361,33 @@ export function syftFetchCommand(syft: { url: string; sha256: string; size: numb
  */
 export const INVENTORY_STEP_BUDGET_MS = 600_000;
 
-export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
+/**
+ * The scan's memory bounds. The builder is the base size (2 vCPU, 3.9 GB, no swap) and runs the daemon and the file
+ * manifest beside the scan. In roll 46078031124 the builder stopped answering partway through the scan (no status
+ * after the 660 s deadline, then a bare `mkdir` timed out at the 300 s exec cap twice), and the roll failed after
+ * 1547 s of inventory. A guest that thrashes out of memory goes silent like that, where a killed process would not. The
+ * Go runtime's soft limit makes syft collect garbage before it gets that far, and the cgroup cap kills syft, not the
+ * guest, if it still grows: the step then fails with a status, so the roll fails in seconds with the reason.
+ */
+export const SYFT_GOMEMLIMIT = "1800MiB";
+export const SYFT_MEMORY_MAX = "2560M";
+
+/** The detached SBOM scan: syft under its memory bounds (a guest without systemd-run gets only the Go limit). */
+export function sbomScanCommand(out: string, skip: readonly string[]): string {
+  const cap = `systemd-run --scope --quiet -p MemoryMax=${SYFT_MEMORY_MAX} -p MemorySwapMax=0`;
+  return [
+    "t=$(date +%s)",
+    `cap=""; if ${cap} true > /dev/null 2>&1; then cap="${cap}"; fi`,
+    'echo "syft-cap ${cap:+cgroup ' + SYFT_MEMORY_MAX + '} gomemlimit ' + SYFT_GOMEMLIMIT + '"',
+    "s=0",
+    `cd / && $cap env SYFT_CHECK_FOR_APP_UPDATE=false GOMEMLIMIT=${SYFT_GOMEMLIMIT} HOME=${out}-syft ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q || s=$?`,
+    `if [ "$s" -ne 0 ]; then [ "$s" -eq 137 ] && echo "syft killed (status 137): its ${SYFT_MEMORY_MAX} memory cap or the step budget" >&2; exit "$s"; fi`,
+    "echo syft-secs $(( $(date +%s) - t ))",
+    `gzip -9f ${out}/sbom.cdx.json`,
+  ].join("\n");
+}
+
+export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out", wake?: () => Promise<unknown>): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
   await writeGuestFile(vm, `${out}/manifest.py`, readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
@@ -1324,14 +1402,9 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // The scan and the manifest are detached steps (StepLog.detachedStep) with their own budget, not one exec each.
   const scanSbom = async (): Promise<string> => {
     await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
-    return L.detachedStep(vm, "sbom", [
-    "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
-    "echo syft-secs $(( $(date +%s) - t ))",
-    `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS });
+    return L.detachedStep(vm, "sbom", sbomScanCommand(out, skip), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS, wake });
   };
-  const fileManifest = () => L.detachedStep(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, { dir: `${out}/job-file-manifest`, budgetMs: INVENTORY_STEP_BUDGET_MS });
+  const fileManifest = () => L.detachedStep(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, { dir: `${out}/job-file-manifest`, budgetMs: INVENTORY_STEP_BUDGET_MS, wake });
   const settled = await Promise.allSettled([fileManifest(), scanSbom()]);
   const failed = inventoryFailure(settled);
   if (failed !== undefined) throw failed;
@@ -1440,8 +1513,17 @@ export function bakeInputsSha256(options: BakeOptions, lockText: string, inputTr
 }
 
 /** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
-async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Array<{ id: string; slug?: string | null }>> {
-  const all: Array<{ id: string; slug?: string | null }> = [];
+/**
+ * A builder that stopped answering rather than a step that failed on its own: a step past its budget (guest.ts
+ * timedOutSuffix), a step that lost its status, or the client's TimeoutError. Only these evict a cached layer.
+ */
+export function isStallError(error: unknown): boolean {
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return /TimeoutError|timed out|no status/i.test(text);
+}
+
+async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<ListedSnapshot[]> {
+  const all: ListedSnapshot[] = [];
   for (let offset = 0; ; offset += SNAPSHOT_PAGE) {
     const page = await fs.vms.snapshots.list({ limit: SNAPSHOT_PAGE, offset });
     all.push(...page.snapshots);
@@ -1502,6 +1584,8 @@ async function bakeOn(
     result.builderVmId = builder.vmId;
     // A layer's builder boots its parent: this is what a chain of snapshots costs per link.
     result.builderFirstExecMs = await firstExec(builder.vm, builder.t0);
+    // The disk as the snapshot boot left it: a slow read here is the provider filling in blocks, not our steps.
+    await L.logIoProbe(builder.vm, `boot ${name}`, `booted from ${from}`);
     await steps(builder.vm);
     const tSnap = Date.now();
     // A layered snapshot records its parent layer in its label (layers.ts layerLabel), which gc-layers.ts follows
@@ -1567,32 +1651,56 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       const keys = layerKeys(lockText, layerFlags(options), inputTree!);
       const layerLedger = new Ledger(path.join(options.outDir, "layers", "resources.tsv"));
       const snapshots = await allSnapshots(fs);
-      const layers: Array<Record<string, unknown>> = [];
-      result.layers = layers;
-      let parent = lock.base.snapshot;
-      let parentSlug: string | undefined;
-      for (const layer of ["system", "agents"] as LayerName[]) {
-        const slug = layerName(layer, keys[layer]);
-        const cached = snapshots.find((snapshot) => snapshot.slug === slug)?.id;
-        const row: Record<string, unknown> = { layer, key: keys[layer], slug, hit: Boolean(cached), parent };
-        layers.push(row);
-        L.log(cached ? `LAYER HIT ${layer} ${slug} ${cached}` : `LAYER MISS ${layer} ${slug}: building on ${parent}`);
-        if (!cached) {
+      // A builder booted from a cached layer that stalls (isStallError) evicts the layers it booted from and the
+      // bake runs once more on layers built fresh, under the rebuild slug pickLayer prefers from then on. One
+      // fallback only: a fresh build that stalls too is the bake's failure, as before.
+      const evicted = new Map<LayerName, string>();
+      for (let pass = 0; ; pass++) {
+        const layers: Array<Record<string, unknown>> = [];
+        result.layers = layers;
+        const hits: Array<{ layer: LayerName; slug: string; id: string }> = [];
+        try {
+          let parent = lock.base.snapshot;
+          let parentSlug: string | undefined;
+          for (const layer of ["system", "agents"] as LayerName[]) {
+            const own = layerName(layer, keys[layer]);
+            const picked = evicted.has(layer) ? undefined : pickLayer(snapshots, own);
+            const slug = picked?.slug ?? evicted.get(layer) ?? own;
+            const cached = picked?.id;
+            const row: Record<string, unknown> = { layer, key: keys[layer], slug, hit: Boolean(cached), parent };
+            layers.push(row);
+            L.log(cached ? `LAYER HIT ${layer} ${slug} ${cached}` : `LAYER MISS ${layer} ${slug}: building on ${parent}`);
+            if (!cached) {
+              const t = Date.now();
+              const steps = layer === "system" ? (vm: Vm) => baseSteps(ctxFor(vm, slug)) : (vm: Vm) => overlaySteps(ctxFor(vm, slug), "agents");
+              parent = await bakeOn(fs, layerLedger, parent, slug, options, steps, row, L, false, parentSlug);
+              row.ms = Date.now() - t;
+            } else {
+              hits.push({ layer, slug, id: cached });
+              parent = cached;
+            }
+            row.snapshotId = parent;
+            parentSlug = slug;
+          }
+          const app: Record<string, unknown> = { layer: "app", hit: false, parent };
+          layers.push(app);
           const t = Date.now();
-          const steps = layer === "system" ? (vm: Vm) => baseSteps(ctxFor(vm, slug)) : (vm: Vm) => overlaySteps(ctxFor(vm, slug), "agents");
-          parent = await bakeOn(fs, layerLedger, parent, slug, options, steps, row, L, false, parentSlug);
-          row.ms = Date.now() - t;
-        } else parent = cached;
-        row.snapshotId = parent;
-        parentSlug = slug;
+          result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug, large);
+          if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
+          app.ms = Date.now() - t;
+          app.snapshotId = result.snapshotId;
+          break;
+        } catch (error) {
+          if (pass > 0 || hits.length === 0 || !isStallError(error)) throw error;
+          const reason = String(error).replace(/\s+/g, " ").slice(0, 160);
+          for (const hit of hits) {
+            const fresh = evictedLayerSlug(hit.slug, hit.id);
+            evicted.set(hit.layer, fresh);
+            L.log(`LAYER EVICT ${hit.layer} ${hit.slug} ${hit.id} reason=${reason}: rebuilding as ${fresh}`);
+          }
+          result.layerEvicted = hits.map((hit) => ({ ...hit, reason, rebuild: evicted.get(hit.layer) }));
+        }
       }
-      const app: Record<string, unknown> = { layer: "app", hit: false, parent };
-      layers.push(app);
-      const t = Date.now();
-      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug, large);
-      if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
-      app.ms = Date.now() - t;
-      app.snapshotId = result.snapshotId;
     } else {
       result.snapshotId = await bakeOn(fs, ledger, lock.base.snapshot, name, options, (vm) => baseSteps(ctxFor(vm, name)), result, L, false, undefined, large);
     }

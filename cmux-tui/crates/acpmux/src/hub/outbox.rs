@@ -145,6 +145,18 @@ pub struct Delivery {
     /// well. Cleared when the hub refuses it outright (`server/outbox.rs` `relay_attempt`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_post: Option<crate::mesh::OutMessage>,
+    /// No post of [`Self::relay_post`] can be at the hub: every one so far failed before it left
+    /// this daemon (`HubError::never_reached`), and it is saved false before any post that might
+    /// not. Only then may a copy go to its machine directly (`server/mesh_direct.rs`). False for a
+    /// record saved before the field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relay_unreached: bool,
+    /// A direct copy may have reached its machine (`server/mesh_direct.rs`): saved before it goes,
+    /// and from then on only the direct path tries it again, under the same key, which the far
+    /// daemon runs once; the hub is never posted it. Cleared when the direct attempt provably
+    /// did not run it (no circuit, or the far daemon refused before it ran).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub direct_maybe: bool,
     /// Delivered to a peer's session, and not yet seen in that peer's journal after a later
     /// link: the machine may have lost it with its disk (a session moved to a fresh machine,
     /// a VM back on an older snapshot). Every link of the peer that comes up gives back its
@@ -771,6 +783,8 @@ impl OutboxState {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -1379,6 +1393,8 @@ mod tests {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,
@@ -1993,6 +2009,8 @@ mod tests {
             resends: 0,
             resent_at: 0,
             relay_post: None,
+            relay_unreached: false,
+            direct_maybe: false,
             open_on_peer: false,
             pin: None,
             proof: None,

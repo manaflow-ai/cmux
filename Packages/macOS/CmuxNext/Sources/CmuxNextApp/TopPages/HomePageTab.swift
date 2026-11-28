@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextHome
 import CmuxNextHomeEngine
 
-extension InternalPageID {
+nonisolated extension InternalPageID {
     /// The native Home as a pane tab (`home.tab`). Its own id: the Home top
     /// page is a `TopPageRoute`, never a page tab.
     static let homeTab = InternalPageID(rawValue: "home-tab")

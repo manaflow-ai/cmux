@@ -53,7 +53,7 @@ const MARK: &str = "ACPMUX_AU=";
 /// end; without it nothing is installed. Paths are never globbed. acpmux's own timer is
 /// `timer` when enabled and running, `stopped` otherwise (a missing file
 /// too: `--fix` writes it).
-pub(super) fn probe_script() -> String {
+pub(crate) fn probe_script() -> String {
     let home = hosts::REMOTE_HOME;
     let off = hosts::NO_AUTO_UPDATE;
     let cloud = hosts::CLOUD_VM_MARK;
@@ -140,7 +140,7 @@ fi"#
 /// user's manager lingers (asked for when it does not, as `host setup` does);
 /// else it prints `foreign`, `xdg`, `unchecked` or `nolinger` and writes
 /// nothing.
-pub(super) fn guarded_install_script() -> String {
+pub(crate) fn guarded_install_script() -> String {
     format!(
         "au_probe() {{\n{probe}\n}}\nau_o=$(au_probe); echo {MARK}begin\ncase \"$au_o\" in *{MARK}foreign*) echo {MARK}foreign ;; *{MARK}xdg*) echo {MARK}xdg ;; *\"\n{MARK}checked\")\nif {linger}; then\n{install}\nelse echo {MARK}nolinger; fi\n;; *) echo {MARK}unchecked ;; esac",
         probe = probe_script(),
@@ -151,7 +151,7 @@ pub(super) fn guarded_install_script() -> String {
 
 /// What [`probe_script`] found.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(super) struct Found {
+pub(crate) struct Found {
     pub os: String,
     pub cloud: bool,
     pub off: bool,
@@ -179,7 +179,7 @@ pub(super) struct Found {
 
 /// The words after the script's own (last) `begin` line; `checked` counts
 /// only as the last line.
-pub(super) fn parse(stdout: &str) -> Found {
+pub(crate) fn parse(stdout: &str) -> Found {
     let mut found = Found::default();
     let lines: Vec<&str> = stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     let begin = format!("{MARK}begin");

@@ -16,12 +16,14 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | bench | wraps (script) | what |
 |---|---|---|
+| localization-discovery | `localization-discovery.py` (anywhere, checkout source) | Swift source discovery with 2,000 excluded dependency directories: directory reads and wall time; compare `--arg algorithm=baseline` with `--arg algorithm=current`. |
+| coordinator-cpu | `chat-open.sh --coordinator-cpu` | Whole-renderer CPU on a 10,000-row chat with twenty ACP children updating at 1 Hz. Saves raw CPU intervals, daemon tick receipts, a JavaScript profile and a macOS sample. |
 | published-idle | `published-idle-power.sh` (pinned prepared PID, then `--import`) | Process CPU energy, wakeups and footprint including descendants; rejects incomplete windows. |
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
 | launch-reboot | `launch-reboot.sh` (`--import` after-phase log) | First launch after a real reboot; bounded bundled reader CPU, wall time and RSS (`arm=preread`). |
 | launch-background | `background-ready.sh` | Show from the background (Cmd-H, windows closed to a menu bar app, quit) against a cold relaunch, and each state's idle cost. |
-| launch-premain | `launch-premain.sh` (also launch's mode=premain) | Time to main after a 60 s full run vs a short launch, and what it pays: pageins, residency, the code checkers' CPU, per arm. |
+| launch-premain | `launch-premain.sh` (also launch's mode=premain) | Time to main after a 60 s full run vs a short launch, and what it pays: pageins, residency, the code checkers' CPU, per arm; bytes= times a new copy's first exec to main against bundle bytes (Resources vs Mach-O filler). |
 | web-vitals | `webviews/scripts/web-perf/vitals.mjs` (any URL; Linux through `cmux-ci test`) | A web page's TTFB, LCP, INP and JS KB in throttled Chromium: cmux.com, docs, webview pages. |
 | launch-matrix | `launch-matrix.sh` (`launch-matrix.swift`, `launch-matrix-summary.py`) | Any .app's launch on one harness: first visible frame, first accepted input, the whole process tree's resources, per scenario (warm, cold-quit, evicted, first-install, update, large-session), the reboot pair and idle growth. |
 | post-update | `update-click-ab.sh` (default), `relaunch-shift.sh` (mode=shift), `nightly-fresh-launch.sh` (mode=fresh-copy), `go-back-duress.sh` (mode=go-back) | First launch after an update and its hitches. |
@@ -62,6 +64,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | chief-latency | `chief-latency.sh` (`Native/OptChat/optchat-chief/measure/chief_driver.py --scenario latency`, `chief_latency.py`) on a fleet Mac, real model through SR2 | A scratch Chief built at two refs, alternating rounds of 15 typical asks (trivial, memory, tool, long reply, one and two subagents, a view rebuild): input tokens of each turn's first request and of every request, first token (warm, cold), turn p50/p90, cold share, refused sends, and a before/after markdown table for a PR body. |
 | local-chat | `local-chat-first-reply.sh` (`local_chat_first_reply.py`) on a fleet Mac, a bench build at this checkout or `build=SHA`, real model through SR2 | Local chat select to first reply the way a person starts one (New chat, the composer's Send, a ready spare after a daemon restart), the hq `local-chat` probe's timed chat on a commit instead of the NIGHTLY: p50 of select_to_first_text_ms, its stages (before turn, turn, after turn) and turn marks (agent ready, to agent, first model). |
 | autocloud-repo-ready | `autocloud-repo-ready.sh` on any host with network (`--host anywhere`) | AutoCloud start's repo-ready time: a full `git clone` against the warm blobless mirror + alternates acpmux uses now (cmux#55715), cold and warm: seconds, MB from GitHub, speedup. |
+| machine-channel-exact-tree | `machine-channel-exact-tree.py` in a cmux checkout (git only, no GitHub calls) | Whether a build made before a merge can be that merge's machine channel build (goal cloud-fix-to-machine): over the newest N feat-cmux-next merges, which moved the v2 tree key, how far each such PR head was behind with how many key moves on base, whether its key matched the merge's, key moves per minute, and the chance a pre-merge build of B minutes sees none. |
+| acpmux-zthreads | `acpmux-zthreads.sh BASE HEAD [N ...]` on Linux CI (`cmux-ci test --setup rust`) or any Linux host with more than 24 GiB | rustc's parallel front end (`-Zthreads=N`) on acpmux's incremental release rebuild from BASE to HEAD, built as the machine channel's thin leg builds it (goal cloud-fix-to-machine): HEAD wall, peak rustc RSS, rlib sha256 per N. |
 
 
 ## Dev loop
@@ -78,6 +82,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `launch-ready.sh` | Time from Dock launch to a usable window, measured from outside the app. | CMUX-629, CMUX-631 | 2026-11-15 | active |
 | `launch-ready.swift` | Swift probe that launches one app copy like the Dock and records every mark. | CMUX-629 | 2026-11-15 | active |
 | `launch-premain.sh` | What makes a launch reach `main` 600 to 1170 ms late: arms after a 60 s run, page cache, purge, another app, sampled (launch bench mode=premain). | CMUX-629 | 2026-11-17 | active |
+| `macos-first-exec.sh` | What the first exec of a newly written executable costs by size (first, second, after a hard link, a copy) and whether Developer Tools exempts it: rust-live's daemon swap runs a fresh debug cmux-tui twice. | dev-loop-ceiling | 2026-11-28 | active |
 | `launch-premain.swift` | Probe for launch-premain.sh: open or exec one launch, pageins, CPU and the executable's residency at `main`. | CMUX-629 | 2026-11-17 | active |
 | `launch-reboot.sh` | The first launch after a reboot, with and without a post-login pre-read of the app's binaries (row F, background-ready-copy): one phase per step, before (shutdown -r) and after (noread, read, residency). | row F | 2026-11-18 | active |
 | `launch-matrix.sh` | One launch harness for any .app (cold-start tables against Claude, Codex, T3 Code, Edge, Chrome, Safari, Slack, Helium): scenarios, reboot phases, growth (launch-matrix bench). | ask-37d682a340 | 2026-11-22 | active |
@@ -160,6 +165,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `pane-zoom.sh` | Cmd-Shift-Enter zoom and unzoom frames in 1x2, 2x2, 2x4 layouts. | pane-zoom | 2026-10-27 | active |
 | `split-spring.sh` | Rapid Cmd-D and Cmd-Shift-D frames, plus the perf cron budgets suite. | - | 2026-11-08 | active |
 | `diff-page-frames.sh` | A large diff tab at two commits: code view open, Plain English first paint, rAF scroll frame times, a clip (`diff-page-frames.py`). | cmux#46299 | 2026-11-20 | active |
+| `transcript-fling.sh` | The React transcript against the native Metal one (RFD 0121), interleaved in one bench app on a 120 Hz virtual display, 3,000 rows: fling frame-interval p50/p95/max, late frames, late textures (`scripts/ci/frame-pacing/transcript_fling.py`). | RFD 0121 | 2026-11-28 | active |
 | `perf-10x-drag.sh` | Pane and divider drags at 120 Hz, plus daemon cost per drag value. | perf-10x | 2026-10-22 | active |
 | `perf-10x-drag-daemon.py` | Daemon-side cost of one drag value. | perf-10x | 2026-11-13 | active |
 | `pane-motion-films.sh` | One movie per pane act, for a person to look at (judges nothing). | - | 2026-11-15 | active |
@@ -190,6 +196,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `wallpaper-cost.sh` | A live wallpaper's CPU, GPU time and footprint per wallpaper and per hold (bench wallpaper_cost). | live wallpapers | 2026-11-17 | active |
 | `wallpaper-cost.py` | Python driver for wallpaper-cost.sh. | live wallpapers | 2026-11-17 | active |
 | `perf-idle-ab.sh` | Interleaved base vs head idle A/B in one step. | - | 2026-11-14 | active |
+| `mcp-serve-malloc-ab.sh` | `cmux mcp serve`'s idle phys_footprint, macOS malloc default against space-efficient mode, on one signed binary (`dmg=nightly`, no build). | ram-baseline | 2026-11-27 | active |
 | `perf-idle-power.sh` | Idle power and wakeups in the scenarios of a browser comparison. | msg 2654 | 2026-11-15 | active |
 | `perf-bench.sh` | xbench: cmux NEXT against other browsers (power, scroll, video, tab switch, launch). | msg 2654 | 2026-11-15 | active |
 | `perf-lab.sh` | Measures a prebuilt bench app of one commit on one lab host. | p12 | 2026-10-31 | active |
@@ -242,6 +249,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|---|---|
 | `agent-engine.sh` | Agent chat engine spike: open time, memory, flings, typing per engine. | - | 2026-10-27 | active |
 | `chat-typing-ab.sh` | Agent chat typing A/B, base vs head, in one step. | - | 2026-11-14 | active |
+| `agent-conn-chaos.sh` | The agent connection chaos suite (scripts/cmux-next/agent-conn-chaos/): update, daemon kill, app kill, simulated sleep, socket and port loss mid-turn; recovery by itself, no error row, no lost or doubled turn. Fleet Macs only. | gui-agent-connection-dictator | 2026-11-27 | active |
 | `acpmux-overhead.sh` | acpmux against each harness run raw (Claude Code, Codex and others). | #2758 | 2026-10-29 | active |
 | `capacity-resume-outcomes.py` | What acpmux's capacity continuations do once they wake a chat, from this host's Claude transcripts: work (acted or read-only), no tool call, failed again; whether the cut turn had worked yet. | ask-ec4bc6dc7d | 2026-11-26 | active |
 | `agent-loop.sh` | Agent loop on a published NEXT nightly: scripted UI change applied live. | hq#7149 L8 | 2026-11-05 | active |
@@ -381,6 +389,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `closed-kit-census.py` | Per webviews directory: the closed kit's doors left open (raw elements, `style`, `className` in product .tsx) and raw px, hex and rgb(a) literals, fewest doors first: which directory closes next. | RFD 0040 | 2026-11-24 | active |
 | `closed-kit-raw-values.sh` | Hand-set values that type-check in the first closed webviews directory (15 probes, `open` or `closed`), and `tsc -p tsconfig.closed.json` cold and incremental. The follow rate is `bun run gallery:perturb` in webviews. | RFD 0040 | 2026-11-23 | active |
 | `ci140-heads-per-pr` | Runner minutes per merged PR on cmux PR heads, from the timing feed: (a) heads that ran CI per merged PR, (b) minutes by PR state (merged, closed unmerged, draft, open), (c) minutes after a newer head was pushed and not cancelled, (d) minutes on same-tree, empty or wip heads. | goal ci-min-per-pr-140 | 2026-11-27 | active |
+| `ci140-pr-ledger` | One table of the meter's CI minutes (GitHub rows plus fleet jobs) over a window by bucket: (a) landed head, (b) earlier heads of merged PRs (superseded by push, by base merge, rerun after red), (c) open active / abandoned, (d) non-PR (base push, scheduled, dispatch, fleet base/lane); runs attributed by the tested commit in the run name, not dispatch head_sha; plus minutes a cancel-on-supersede would save and what cancel-in-progress cancels today. Measurement only. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 | `ci140-pr-segment` | PR-segment runner minutes per merged PR ranked by workflow and job (shards folded): runs, minutes per run, share that ended failure or cancelled, split at fix times. | goal ci-min-per-pr-140 | 2026-11-27 | active |
 
 No script is marked `duplicate of`: the A/B wrappers (`*-ab.sh`) and the `.py` drivers reuse their base script on purpose, and no other pair clearly measures the same thing the same way.
@@ -401,3 +410,6 @@ Retired in the cmux-bench PR: `fresh-home-launch-ab.sh` (same measurement as `ni
 - `hotkey-history.sh`: runs an action-catalog regression test, not a measurement; belongs with the tests.
 - `export-action-catalog-dump.sh`, `export-action-surfaces.sh`, `export-settings-artifacts.sh`: generators, not measurements; they fit better in a generators directory.
 - `update-e2e.sh`, `crash-gate.sh`, `stable-next-smoke.sh`, `terminal-cmd-click.sh`: correctness checks that run on the fleet, not measurements.
+- `ci140-input-hash-repeats`: CI minutes spent on job runs whose declared inputs (router/step-table/workflow `paths`, else whole tree) hash the same as an earlier green run of the same job; read-only, needs the hq meter's `--save` records (goal ci-min-per-pr-140).
+
+Phone terminal deterministic work: `cmux-bench phone-speed` wraps the `phone-speed-icount` Linux PR gate; `--import LOG` records its six Callgrind instruction counts. Calibration and scope: [phone-speed](../bench/phone-speed/README.md).

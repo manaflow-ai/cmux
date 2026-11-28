@@ -13,10 +13,12 @@ import contextlib
 import io
 import os
 import struct
+import re
 import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 import zlib
 from pathlib import Path
 from unittest import mock
@@ -74,7 +76,7 @@ class PathsTest(unittest.TestCase):
                      "Packages/macOS/Tests/CmuxNextTests/RowTests.swift", "Packages/macOS/Sources/X/Localizable.xcstrings",
                      "scripts/ci/pr_router.py", ".github/workflows/pr-router.yml", "cmux-tui/crates/x/src/lib.rs",
                      "cmux-next-ios/App/Root.swift", "Packages/iOS/Kit/Sources/A.swift", "webviews/bench/a.bench.ts",
-                     "release-notes/next/x.md", "Resources/Info.plist"):
+                     "release-notes/next/x.md", "Resources/Info.plist", "Packages/macOS/CmuxNext/app-ffi-pin.json"):
             with self.subTest(path=path):
                 self.assertEqual(u.affects([path]), "")
 
@@ -197,6 +199,68 @@ class RecordTest(unittest.TestCase):
             self.assertFalse(rec["visual"]["diffed"])
 
 
+    def test_a_look_that_built_the_swift_app_records_mac_flows_the_app_gate_reads(self) -> None:
+        plan = {"layers": ["web"], "needs_build": True, "build": {"Swift": ["Packages/macOS/A/Sources/B/C.swift"]}}
+        self.assertEqual(u.suite_of(plan), "mac-flows")
+        self.assertIn(u.suite_of(plan), u.suites_for("app"))
+        self.assertEqual(u.suite_of({"layers": ["web", "rust"], "build": {"Swift": ["x.swift"]}}), "gui-flows")
+        self.assertEqual(u.suite_of({"layers": ["web"]}), "web-flows")
+
+
+class SwiftDrawsTest(unittest.TestCase):
+    """cmux#61522 marked two statics `nonisolated` in CmuxNextActions/ActionArgument.swift and needed a hand-added
+    `Visual: none`. Leo: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff" and "i
+    feel like there's more we can simplify/etc". A Swift file that imports nothing that draws is not visual."""
+    P = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionArgument.swift"
+
+    def affects(self, text, base=None):
+        texts = [text] + ([base] if base is not None else [])
+        return u.affects([self.P], read=lambda p: texts)
+
+    def test_ffi_pin_roll_is_not_visual(self) -> None:
+        # The release bot's pin PR (cmux#60965): the pin JSON and a Package.swift that imports only PackageDescription.
+        files = {"Packages/macOS/CmuxNext/Package.swift": ["// swift-tools-version: 6.0\nimport PackageDescription\n"]}
+        self.assertEqual(u.affects(["Packages/macOS/CmuxNext/app-ffi-pin.json", "Packages/macOS/CmuxNext/Package.swift"],
+                                   read=lambda p: files[p]), "")
+
+    def test_stdlib_only_imports_are_not_visual(self) -> None:
+        self.assertEqual(self.affects("import Foundation\nimport os\npublic struct A { nonisolated static let x = 1 }"), "")
+        self.assertEqual(self.affects("@preconcurrency import Foundation\nimport struct Darwin.Foo\n"), "")
+
+    def test_a_drawing_or_local_import_is_visual(self) -> None:
+        for mod in ("SwiftUI", "AppKit", "CoreGraphics", "QuartzCore", "WebKit", "CmuxNextDesign", "GhosttyKit"):
+            with self.subTest(mod=mod):
+                self.assertEqual(self.affects(f"import Foundation\nimport {mod}\n"), "app")
+
+    def test_no_import_unread_or_a_dropped_ui_import_stays_visual(self) -> None:
+        self.assertEqual(self.affects("struct A {}"), "app")
+
+        def unread(path):
+            raise OSError(path)
+        self.assertEqual(u.affects([self.P], read=unread), "app")
+        self.assertEqual(u.affects([self.P]), "app")
+        self.assertEqual(self.affects("import Foundation\n", base="import SwiftUI\nstruct V: View {}"), "app")
+
+    def test_only_swift_under_a_visual_root_is_read(self) -> None:
+        def boom(path):
+            raise AssertionError(path)
+        self.assertEqual(u.affects(["webviews/src/a.tsx"], read=boom), "web")
+        self.assertEqual(u.affects(["Assets.xcassets/I.imageset/Contents.json"], read=boom), "app")
+        self.assertEqual(u.affects(["Packages/iOS/X.swift"], read=boom), "")
+
+    def test_one_drawing_file_makes_the_head_visual(self) -> None:
+        texts = {"A.swift": "import Foundation\n", "B.swift": "import AppKit\n"}
+        root = "Packages/macOS/CmuxNext/Sources/M/"
+        read = lambda p: [texts[p[len(root):]]]  # noqa: E731
+        self.assertEqual(u.affects([root + "A.swift", root + "B.swift"], read=read), "app")
+        self.assertEqual(u.affects([root + "A.swift"], read=read), "")
+
+    def test_declared_none_still_passes_a_drawing_file(self) -> None:
+        state, why = u.verdict("app", "Visual: none (logging only)", {}, [], 7)
+        self.assertEqual(state, "success")
+        self.assertIn("logging only", why)
+
+
 class RevertedHistoryTest(unittest.TestCase):
     """Before -> after on the data the gate was added on (cmuxterm-hq docs/findings/ui-regressions.md): the 25
     desktop UI PRs reverted or fixed forward 2026-10-16..11-27. Before: none carried a look at its head, all merged.
@@ -252,7 +316,9 @@ class ReadFailureTest(unittest.TestCase):
                                                       "GH_TOKEN": "secret"}), \
                             mock.patch.object(module, target, side_effect=error), \
                             contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                        self.assertEqual(module.main(argv), 0)
+                        # proof_record's gate exits UNREAD so its job fails red (#62363); ui_proof_verdict's exits 0 (status posts).
+                        want = proof_record.UNREAD if module is proof_record else 0
+                        self.assertEqual(module.main(argv), want)
                     self.assertTrue(stdout.getvalue().startswith("error\t"))
                     self.assertIn(f"HTTPError {code}", stdout.getvalue())
                     self.assertIn("see job log", stdout.getvalue())
@@ -317,6 +383,383 @@ class RouterTest(unittest.TestCase):
         self.assertIn("needs.route.outputs.ui_status == 'pending'", job["if"])
         self.assertIn("ui_proof_verdict.py gate", job["steps"][-1]["run"])
 
+
+class LookFailedTest(unittest.TestCase):
+    """A look that could not run posts failure with its reason within a bound, never an endless pending
+    (cmux#61289, #61543, #61546 sat pending 4 h+ on 2026-11-27 while each look was cancelled)."""
+
+    CANCELLED = "cancelled: no fleet Mac took the look within 3h0m0s"
+
+    def test_look_failed_names_reason_and_next_step(self) -> None:
+        state, desc = u.look_failed(self.CANCELLED, 61289)
+        self.assertEqual(state, "failure")
+        self.assertTrue(desc.startswith(u.LOOK_FAILED + ": " + self.CANCELLED))
+        self.assertIn("hot-verify.py look --pr 61289 --record", desc)
+        self.assertLessEqual(len(desc), 140)
+        self.assertIn("one more look is queued", u.look_failed(self.CANCELLED, 1, again=True)[1])
+        self.assertLessEqual(len(u.look_failed("x " * 200, 1)[1]), 140)
+        self.assertIn("no reason given", u.look_failed("", 1)[1])
+
+    def test_a_look_that_could_not_run_keeps_a_declared_none(self) -> None:
+        # cmux#39287 (2026-11-28): "Visual: none (...)" in the body, a stale look cancelled after 3 h, gate red.
+        state, desc = u.look_failed_unless_declared("x\nVisual: none (deletes dead modules)\n", self.CANCELLED, 39287)
+        self.assertEqual(state, "success")
+        self.assertTrue(desc.startswith("Declared no visual change: deletes dead modules"))
+        self.assertEqual(u.look_failed_unless_declared("no line", self.CANCELLED, 1)[0], "failure")
+        self.assertEqual(u.look_failed_unless_declared(None, self.CANCELLED, 1)[0], "failure")
+
+    def test_look_failed_reads_the_body_through_its_tokens(self) -> None:
+        calls = []
+
+        def api(path, token, *a, **k):
+            calls.append((path, token))
+            if token == "spent":
+                raise RuntimeError("403")
+            return {"body": "Visual: none (copy only)"}
+        with mock.patch.object(u, "api", side_effect=api):
+            self.assertEqual(u.pr_body("o/r", 7, ["spent", "ok"]), "Visual: none (copy only)")
+        self.assertEqual(calls[-1], ("repos/o/r/pulls/7", "ok"))
+        with mock.patch.object(u, "api", side_effect=RuntimeError("down")):
+            self.assertIsNone(u.pr_body("o/r", 7, ["a"]))
+
+    def test_look_reason_from_step_outputs(self) -> None:
+        self.assertEqual(u.look_reason({"TAR": "false", "REASON": self.CANCELLED}), self.CANCELLED)
+        self.assertEqual(u.look_reason({"TAR": "false"}), "the fleet sent no result")
+        self.assertEqual(u.look_reason({"RESULT_OUTCOME": "failure"}), "the look's result was not read")
+        self.assertIn("build", u.look_reason({"TAR": "true", "NEEDS_BUILD": "true"}))
+        self.assertIn("nothing", u.look_reason({"TAR": "true", "NOTHING": "true"}))
+        self.assertIn("receipt", u.look_reason({"TAR": "true", "NO_RECEIPT": "true"}))
+        self.assertIn("unpacked", u.look_reason({"TAR": "true", "STAGE_OUTCOME": "failure"}))
+
+    def test_gate_rerun_keeps_the_failure(self) -> None:
+        failed = {"context": u.STATUS_CONTEXT, "state": "failure", "description": u.look_failed(self.CANCELLED, 7)[1]}
+        self.assertEqual(u.kept_look_failure(failed), ("failure", failed["description"]))
+        self.assertIsNone(u.kept_look_failure({"state": "failure", "description": "UI proof at this head failed: x"}))
+        self.assertIsNone(u.kept_look_failure({"state": "pending", "description": failed["description"]}))
+        self.assertIsNone(u.kept_look_failure(None))
+
+    def test_look_failure_never_replaces_a_success(self) -> None:
+        """cmux#64036: the router's no-UI success, then three look failures (capacity, queue, no receipt)."""
+        ok = {"context": u.STATUS_CONTEXT, "state": "success", "description": "Touches nothing a user sees"}
+        self.assertTrue(u.settled_success(ok))
+        for status in (None, {"state": "pending", "description": "Visual change, no look at this head"},
+                       {"state": "failure", "description": "UI proof at this head failed: x"}):
+            self.assertFalse(u.settled_success(status))
+        for reason in (self.CANCELLED, "the fleet's look queue was full (over 60 queued looks)",
+                       "the look's pictures came without a receipt"):
+            for state, posted in ((ok, 0), ({"state": "pending", "description": "x"}, 1)):
+                with mock.patch.object(u, "current_status", return_value=state), \
+                        mock.patch.object(u, "post_status", return_value=True) as post, \
+                        mock.patch.dict(os.environ, {"TOKENS": "t", "REPO": "r", "SHA": HEAD}):
+                    self.assertEqual(u.main(["look-failed", "--pr", "7", "--reason", reason]), 0)
+                self.assertEqual(post.call_count, posted)
+
+    def test_ui_free_paths_get_no_look(self) -> None:
+        self.assertEqual(u.affects(["webviews/scripts/intro-walk.mjs", "webviews/scripts/intro-walk-b.mjs"]), "")
+        wf = (Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next-hot-verify.yml").read_text()
+        self.assertIn("ui_proof_verdict.py affects", wf.split("name: Dispatch the look")[0])
+
+    def gate(self, status, records=None) -> tuple[str, str]:
+        def api(path, token, *a, **k):
+            if "/status" in path:
+                if isinstance(status, Exception):
+                    raise status
+                return {"statuses": [status] if status else []}
+            return {"body": ""}
+        with mock.patch.dict(os.environ, {"CI_UI_PROOF": ""}), \
+                mock.patch.object(u, "changed_files", return_value=["webviews/src/a.tsx"]), \
+                mock.patch.object(u, "added_files", return_value=[]), \
+                mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u.proof_record, "pr_comments", return_value=[]), \
+                mock.patch.object(u.proof_record, "find", return_value=None):
+            return u.gate_now("manaflow-ai/cmux", "7", HEAD, "t", [])
+
+    def test_gate_now_keeps_posted_failure_else_pending(self) -> None:
+        desc = u.look_failed(self.CANCELLED, 7)[1]
+        self.assertEqual(self.gate({"context": u.STATUS_CONTEXT, "state": "failure", "description": desc}),
+                         ("failure", desc))
+        self.assertEqual(self.gate(None)[0], "pending")
+        self.assertEqual(self.gate(RuntimeError("403"))[0], "pending")
+
+    @staticmethod
+    def node(n, state, created, desc="Visual change, no look at this head: hot-verify.py look"):
+        return {"number": n, "headRefOid": f"{n:040d}", "commits": {"nodes": [{"commit": {"status": {"context": (
+            {"state": state, "createdAt": created, "description": desc} if state else None)}}}]}}
+
+    def test_stale_pending_is_bounded(self) -> None:
+        now = u.dt.datetime(2026, 11, 28, 0, 0, tzinfo=u.dt.timezone.utc)
+        prs = [self.node(61289, "PENDING", "2026-11-27T14:12:00Z"),
+               self.node(2, "PENDING", "2026-11-27T22:00:00Z"),
+               self.node(3, "FAILURE", "2026-11-27T01:00:00Z"),
+               self.node(4, None, None),
+               self.node(5, "PENDING", "2026-11-27T01:00:00Z", "New visible UI (2 files) ships whole")]
+        stale = u.stale_pending(prs, now, 6)
+        self.assertEqual([s["pr"] for s in stale], [61289])
+        self.assertEqual(stale[0]["sha"], f"{61289:040d}")
+
+    def test_sweep_posts_failure_on_each_stale(self) -> None:
+        now = u.dt.datetime(2026, 11, 28, 0, 0, tzinfo=u.dt.timezone.utc)
+        posts = []
+        prs = [self.node(61289, "PENDING", "2026-11-27T14:12:00Z"), self.node(2, "PENDING", "2026-11-27T23:00:00Z")]
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            stale = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                            answered=lambda pr, sha: "", rerun=lambda sha: self.fail("no record, no rerun"))
+        self.assertEqual(len(posts), 1)
+        state, desc, repo, sha = posts[0][:4]
+        self.assertEqual((state, repo, sha), ("failure", "manaflow-ai/cmux", f"{61289:040d}"))
+        self.assertTrue(desc.startswith(u.LOOK_FAILED + ": no look result within 6 h"))
+        self.assertTrue(stale[0]["posted"])
+
+    def test_sweep_regates_a_pending_whose_look_posted_a_record_after_it(self) -> None:
+        # cmux#62379: a passing web-flows record at the head, the gate still pending 12 h on.
+        now = u.dt.datetime(2026, 11, 28, 12, 0, tzinfo=u.dt.timezone.utc)
+        prs = [self.node(62379, "PENDING", "2026-11-27T21:00:00Z"),  # record after: re-gate, no failure
+               self.node(7, "PENDING", "2026-11-28T11:00:00Z"),      # record before the pending: gate read it
+               self.node(8, "PENDING", "2026-11-27T20:00:00Z")]      # no record, past 6 h: failure
+        records = {62379: "2026-11-27T22:16:00Z", 7: "2026-11-28T10:00:00Z", 8: ""}
+        posts, reruns = [], []
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                          answered=lambda pr, sha: records[pr], rerun=lambda sha: reruns.append(sha) or "reran")
+        self.assertEqual(reruns, [f"{62379:040d}"])
+        self.assertEqual([p[3] for p in posts], [f"{8:040d}"])
+        self.assertEqual([(s["pr"], "rerun" in s) for s in out], [(62379, True), (8, False)])
+
+    def test_sweep_regates_a_look_failure_answered_by_a_later_record(self) -> None:
+        # cmux#63752: the sweep's failure at 11:25Z, a passing record at 11:37Z, and no gate rerun after it.
+        now = u.dt.datetime(2026, 11, 28, 12, 0, tzinfo=u.dt.timezone.utc)
+        failed = u.look_failed("no look result within 6 h of the pending post", 63752)[1]
+        prs = [self.node(63752, "FAILURE", "2026-11-28T11:25:56Z", failed),  # record after: re-gate
+               self.node(7, "FAILURE", "2026-11-28T11:00:00Z", failed),      # record before: the gate read it
+               self.node(8, "FAILURE", "2026-11-28T11:00:00Z", "UI proof at this head failed: x"),  # not a look's
+               self.node(9, "FAILURE", "2026-11-28T11:00:00Z", failed)]      # no record: stands
+        records = {63752: "2026-11-28T11:37:05Z", 7: "2026-11-28T10:00:00Z", 8: "2026-11-28T11:30:00Z", 9: ""}
+        posts, reruns = [], []
+        with mock.patch.object(u, "open_prs", return_value=prs):
+            out = u.sweep("manaflow-ai/cmux", ["t"], 6, now=now, post=lambda *a: posts.append(a) or True,
+                          answered=lambda pr, sha: records[pr],
+                          rerun=lambda sha, after="": reruns.append((sha, after)) or "reran")
+        self.assertEqual(reruns, [(f"{63752:040d}", "2026-11-28T11:37:05Z")])
+        self.assertEqual(posts, [])
+        self.assertEqual([s["pr"] for s in out], [63752])
+
+    def test_rerun_gate_rest_skips_a_gate_that_already_read_the_record(self) -> None:
+        def api(path, token, *a):
+            if "workflows/pr-router.yml/runs" in path:
+                return {"workflow_runs": [{"id": 1}]}
+            if path.endswith("/jobs?per_page=100"):
+                return {"jobs": [{"id": 5, "name": u.GATE_JOB, "status": "completed", "conclusion": "failure",
+                                  "completed_at": "2026-11-28T11:40:00Z"}]}
+            self.fail(f"no rerun expected: {path}")
+        with mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u.proof_record, "with_tokens", side_effect=lambda f, tokens: f(tokens[0])):
+            self.assertIn("already read", u.rerun_gate_rest("r/r", "s", ["t"], "2026-11-28T11:37:05Z"))
+
+    def test_sweep_reads_the_newest_prs_first(self) -> None:
+        self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", u.SWEEP_QUERY)
+
+    def test_record_at_is_the_newest_trusted_record_at_the_head(self) -> None:
+        sha = "a" * 40
+        good = {"html_url": "u1", "created_at": "2026-11-27T22:16:00Z", "body": "r"}
+        with mock.patch.object(proof_record, "pr_comments", return_value=[good]), \
+                mock.patch.object(proof_record, "find", side_effect=lambda c, suite, h, b, can_write=None: (
+                    {"_comment": "u1"} if suite == "web-flows" and h == sha else None)):
+            self.assertEqual(u.record_at("r/r", 1, sha, "t", []), "2026-11-27T22:16:00Z")
+            self.assertEqual(u.record_at("r/r", 1, "b" * 40, "t", []), "")
+
+    def test_open_prs_reads_every_page_newest_updated_first(self) -> None:
+        # 4859 open PRs on 2026-11-28: a 10-page cap read 1000 of them, so cmux#63752's pending was never swept.
+        pages, queries = 49, []
+
+        def api(path, token, method="GET", body=None):
+            queries.append(body)
+            n = len(queries)
+            return {"data": {"repository": {"pullRequests": {
+                "pageInfo": {"hasNextPage": n < pages, "endCursor": f"c{n}"},
+                "nodes": [{"number": n * 1000 + i} for i in range(100)]}}}}
+
+        with mock.patch.object(u, "api", side_effect=api):
+            nodes = u.open_prs("manaflow-ai/cmux", "t")
+        self.assertEqual(len(nodes), pages * 100)
+        self.assertEqual(len(queries), pages)
+        self.assertIn("orderBy: {field: UPDATED_AT, direction: DESC}", queries[0]["query"])
+        self.assertEqual(queries[1]["variables"]["after"], "c1")
+
+    def test_open_prs_stops_at_page_cap_and_says_so(self) -> None:
+        def api(path, token, method="GET", body=None):
+            return {"data": {"repository": {"pullRequests": {
+                "pageInfo": {"hasNextPage": True, "endCursor": "c"}, "nodes": [{"number": 1}]}}}}
+
+        err = io.StringIO()
+        with mock.patch.object(u, "api", side_effect=api), contextlib.redirect_stderr(err):
+            nodes = u.open_prs("manaflow-ai/cmux", "t", max_pages=3)
+        self.assertEqual(len(nodes), 3)
+        self.assertIn("page cap 3 reached", err.getvalue())
+
+    def test_post_status_falls_through_a_refused_token_and_says_why(self) -> None:
+        calls = []
+
+        def api(path, token, method="GET", body=None):
+            calls.append(token)
+            if token == "spent":
+                raise urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b'{"message":"API rate limit exceeded"}'))
+            return {}
+
+        err = io.StringIO()
+        with mock.patch.object(u, "api", api), contextlib.redirect_stderr(err), mock.patch.object(u.time, "sleep"):
+            self.assertTrue(u.post_status("failure", "x", "o/r", "a" * 40, ["spent", "pool"]))
+            self.assertEqual(calls, ["spent", "pool"])
+            self.assertIn("API rate limit exceeded", err.getvalue())  # the refusal's own words, not only "Forbidden"
+            calls.clear()
+            self.assertFalse(u.post_status("failure", "x", "o/r", "a" * 40, ["spent"]))
+
+    def test_post_record_falls_through_a_refused_token(self) -> None:
+        calls = []
+
+        def api(path, token, method="GET", body=None):
+            calls.append((path, token, method))
+            if token == "pool":
+                raise urllib.error.HTTPError("u", 403, "Forbidden", {},
+                                             io.BytesIO(b'{"message":"Resource not accessible by integration"}'))
+            return {}
+
+        with mock.patch.object(u, "api", api), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(u.post_record("o/r", 7, "rec", ["pool", "bot"]), (True, ""))
+            self.assertEqual(calls, [("repos/o/r/issues/7/comments", "pool", "POST"),
+                                     ("repos/o/r/issues/7/comments", "bot", "POST")])
+            ok, why = u.post_record("o/r", 7, "rec", ["pool"])
+            self.assertFalse(ok)
+            self.assertIn("Resource not accessible by integration", why)
+
+    def test_refused_record_post_is_a_failure_not_a_silent_pending(self) -> None:
+        posts = []
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "proof-record.md"
+            f.write_text("rec")
+            env = {"REPO": "o/r", "SHA": HEAD, "POST_TOKENS": "pool", "TOKENS": "gh"}
+            out = io.StringIO()
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch.object(u, "post_record", return_value=(False, "HTTPError: addComment refused")), \
+                    mock.patch.object(u, "current_status", return_value=None), \
+                    mock.patch.object(u, "post_status", lambda *a: posts.append(a) or True), \
+                    contextlib.redirect_stdout(out):
+                rc = u.main(["post-record", "--file", str(f), "--pr", "7"])
+        self.assertEqual(rc, 1)
+        self.assertIn("::error", out.getvalue())
+        state, desc, repo, sha, tokens = posts[0][:5]
+        self.assertEqual((state, repo, sha, tokens), ("failure", "o/r", HEAD, ["gh"]))
+        self.assertTrue(desc.startswith(u.POST_REFUSED + ": HTTPError"))
+
+    def test_workflow_posts_the_record_on_trusted_apps_in_turn(self) -> None:
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text())
+        step = next(s for s in wf["jobs"]["publish"]["steps"] if s.get("name") == "Post the proof record")
+        # 2026-11-28, cmux#62400: the pool's token alone (pull_requests: read) was refused, and nothing said so.
+        posters = re.findall(r"\$\{\{.*?\}\}", step["env"]["POST_TOKENS"])
+        self.assertEqual(posters[0], "${{ steps.cmux-bot-token.outputs.token }}")
+        self.assertGreater(len(posters), 1)
+        self.assertNotIn("github.token", step["env"]["POST_TOKENS"])  # github-actions[bot]: the gate does not trust it
+        self.assertIn("ui_proof_verdict.py post-record", step["run"])
+        self.assertNotIn("gh pr comment", step["run"])
+        self.assertIn("pipefail", step["run"])
+
+    def test_workflows_post_it(self) -> None:
+        import yaml
+        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text())
+        job = wf["jobs"]["publish"]
+        self.assertEqual(job["permissions"].get("statuses"), "write")
+        step = next(s for s in job["steps"] if s.get("name") == "Post cmux/ui-proof for a look that could not run")
+        self.assertIn("always()", step["if"])
+        for out in ("tar == 'false'", "again == 'true'", "nothing == 'true'", "needs_build == 'true'"):
+            self.assertIn(out, step["if"])
+        self.assertIn("ui_proof_verdict.py look-failed", step["run"])
+        # 2026-11-28: github.token alone was refused (403) on every failure post, so the status stayed pending for
+        # the sweep's 6 h; the pool's secrets must follow it, as the sweep's do.
+        toks = step["env"]["TOKENS"]
+        self.assertTrue(toks.startswith("${{ github.token }}"))
+        self.assertIn("${{ secrets.CI_POOL_TOKEN_1 }}", toks)
+        self.assertIn("${{ secrets.CI_POOL_TOKEN_2 }}", toks)
+        self.assertIn("ui_proof_verdict.py", "\n".join(
+            s.get("with", {}).get("sparse-checkout", "") for s in job["steps"]) + str(job))
+        sw = yaml.safe_load((ROOT / ".github/workflows/ui-proof-stale-sweep.yml").read_text())
+        self.assertIn("schedule", sw[True])
+        sj = sw["jobs"]["sweep"]
+        self.assertEqual(sj["permissions"].get("statuses"), "write")
+        self.assertIn("ui_proof_verdict.py sweep", sj["steps"][-1]["run"])
+
+
+
+class BaseMergeCarryTest(unittest.TestCase):
+    """cmux#46235: a look at 0bbdc46b, the train's base merges to cca4e6ce and 4abda3b6, and each head waited 2 h for
+    a new look."""
+    OLD, MID, NEW, B1, B2 = ("1" * 40, "2" * 40, "3" * 40, "c" * 40, "d" * 40)
+    FILES = ["webviews/src/a.tsx", "README.md"]
+
+    def carry(self, chain, blobs=None, files=None):
+        """CHAIN: sha -> parents. BLOBS: ref -> {path: blob} (default: the same blobs at every ref)."""
+        blobs = blobs or {}
+
+        def call(path, token):
+            if "/git/commits/" in path:
+                sha = path.rsplit("/", 1)[1]
+                return {"parents": [{"sha": p} for p in chain.get(sha, [])]}
+            d, ref = path.split("/contents/", 1)[1].split("?ref=")
+            have = blobs.get(ref, {"webviews/src/a.tsx": "x", "README.md": "y"})
+            return [{"path": p, "sha": v} for p, v in have.items() if p.rpartition("/")[0] == urllib.parse.unquote(d)]
+        return u.base_merge_carry("o/r", self.OLD, self.NEW, files or self.FILES, "t", call)
+
+    def test_one_base_merge_carries(self) -> None:
+        self.assertEqual(self.carry({self.NEW: [self.OLD, self.B1]}), "")
+
+    def test_two_base_merges_carry(self) -> None:
+        self.assertEqual(self.carry({self.NEW: [self.MID, self.B2], self.MID: [self.OLD, self.B1]}), "")
+
+    def test_a_push_of_its_own_does_not_carry(self) -> None:
+        self.assertIn("not a merge", self.carry({self.NEW: [self.OLD]}))
+        self.assertIn("not a merge", self.carry({self.NEW: [self.MID, self.B1], self.MID: [self.OLD]}))
+
+    def test_a_changed_pr_file_does_not_carry(self) -> None:
+        moved = {self.NEW: {"webviews/src/a.tsx": "z", "README.md": "y"}}
+        self.assertIn("webviews/src/a.tsx", self.carry({self.NEW: [self.OLD, self.B1]}, moved))
+        gone = {self.OLD: {"README.md": "y"}}  # added by the merge resolution: absent at the look
+        self.assertIn("differ", self.carry({self.NEW: [self.OLD, self.B1]}, gone))
+
+    def test_caps_and_unread_carry_nothing(self) -> None:
+        far = {self.NEW: [self.MID, self.B1], self.MID: [self.MID, self.B2]}  # never reaches OLD
+        self.assertIn("within", self.carry(far))
+        self.assertIn("directories", self.carry({self.NEW: [self.OLD, self.B1]},
+                                                files=[f"d{i}/f" for i in range(u.CARRY_MAX_DIRS + 1)]))
+        self.assertIn("unread", u.base_merge_carry("o/r", self.OLD, self.NEW, [], "t", lambda *a: {}))
+
+    def gate(self, carry_why: str) -> tuple[str, str]:
+        rec = record(suite="web-flows", head=self.OLD)
+        comment = {"body": f"<!-- {proof_record.KIND} web-flows {self.OLD} -->", "html_url": "u"}
+
+        def find(comments, suite, sha, *a):
+            return rec if (sha == self.OLD and suite == "web-flows") else None
+
+        def api(path, token, *a, **k):
+            return {"statuses": []} if "/status" in path else {"body": ""}
+        with mock.patch.dict(os.environ, {"CI_UI_PROOF": ""}), \
+                mock.patch.object(u, "changed_files", return_value=self.FILES), \
+                mock.patch.object(u, "added_files", return_value=[]), \
+                mock.patch.object(u, "api", side_effect=api), \
+                mock.patch.object(u, "base_merge_carry", return_value=carry_why), \
+                mock.patch.object(u.proof_record, "writer_check", return_value=lambda login: True), \
+                mock.patch.object(u.proof_record, "pr_comments", return_value=[comment]), \
+                mock.patch.object(u.proof_record, "find", side_effect=find), \
+                contextlib.redirect_stderr(io.StringIO()):
+            return u.gate_now("manaflow-ai/cmux", "7", self.NEW, "t", [])
+
+    def test_gate_carries_an_older_heads_look(self) -> None:
+        state, desc = self.gate("")
+        self.assertEqual(state, "success")
+        self.assertIn(f"carried from {self.OLD[:12]} (base merges only)", desc)
+
+    def test_gate_without_a_carry_still_waits(self) -> None:
+        state, desc = self.gate("x is not a merge commit")
+        self.assertEqual(state, "pending")
+        self.assertTrue(desc.startswith(u.NO_LOOK))
 
 if __name__ == "__main__":
     unittest.main()

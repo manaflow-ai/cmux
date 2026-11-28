@@ -82,6 +82,34 @@ pub enum PeerCmd {
         #[command(flatten)]
         lines: crate::host_load_watch::Lines,
     },
+    /// This machine's working set, measured (RFD 0182 B11): asks the kernel to reclaim a small
+    /// step of a cgroup's memory at a time (`memory.reclaim`) and stops once the pages it takes
+    /// come straight back (refaults) or nothing more can be reclaimed; the size left is the
+    /// working set, as JSON. Default cgroup: this user's `acpmuxsessions.slice`. It costs the
+    /// refaults it causes, so run it on an idle machine; at most `--max-steps` steps of
+    /// `--settle-ms` each. Linux only (cgroup v2, 5.19+); without swap anonymous memory counts
+    /// as working set.
+    #[command(name = "working-set")]
+    WorkingSet {
+        /// A cgroup path under /sys/fs/cgroup.
+        #[arg(long)]
+        cgroup: Option<String>,
+        /// Each step's share of the cgroup, in parts per thousand.
+        #[arg(long, default_value_t = 20)]
+        step_permille: u64,
+        /// Stop once a step's refaults pass this share of it, in parts per thousand.
+        #[arg(long, default_value_t = 100)]
+        refault_permille: u64,
+        /// Time between a step and reading its refaults.
+        #[arg(long, default_value_t = 1000)]
+        settle_ms: u64,
+        /// The most steps.
+        #[arg(long, default_value_t = 60)]
+        max_steps: u32,
+        /// Never reclaim below this many MiB.
+        #[arg(long, default_value_t = 64)]
+        floor_mb: u64,
+    },
     /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
     /// it in the background when the last split is old.
     #[command(name = "disk-walk", hide = true)]
@@ -179,6 +207,12 @@ pub enum PeerCmd {
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
+    },
+    /// The Macs whose cmux app may switch this machine's Control and Screen (pinned in the cmux
+    /// app here, after checking their words). `rm` only removes one; nothing here adds one.
+    Grantors {
+        #[command(subcommand)]
+        cmd: GrantorsCmd,
     },
     /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
     /// The daemon takes them only from the cmux app (its person proof), with the person's
@@ -663,6 +697,17 @@ pub enum ConsentCmd {
         /// Control from this person's other machines signed in to the same account.
         #[arg(long)]
         signed_in_machines: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum GrantorsCmd {
+    /// The pinned Macs (id, name, account, key words) and the pending ask.
+    List,
+    /// Stop a Mac's grants here at once, and drop its pending ask.
+    Rm {
+        /// The Mac's grantor id (`mac-` and 16 hex digits).
+        id: String,
     },
 }
 

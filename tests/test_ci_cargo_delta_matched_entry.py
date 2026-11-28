@@ -94,6 +94,7 @@ class WorkflowTest(unittest.TestCase):
 
     def test_every_key_step_emits_the_delta_base_of_its_prefix(self) -> None:
         sources = [(WORKFLOWS / "cmux-tui-build-package.yml").read_text(),
+                   (WORKFLOWS / "cmux-tui-clippy-seed.yml").read_text(),
                    (ROOT / "scripts/ci/cmux-next-steps/fast-tier-cargo-key-the-cargo-build-in-r2.sh").read_text()]
         for text in sources:
             for line in text.splitlines():

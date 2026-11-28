@@ -54,5 +54,8 @@ fn a_pending_start_names_the_requested_machine_or_a_fresh_one() {
     else {
         panic!()
     };
-    assert!(cap["details"].get("make_room").is_none(), "nothing offered to delete");
+    // The offered delete names an id no machine has, never one of the account's.
+    let offered = &cap["details"]["make_room"];
+    assert_eq!(offered["how"], "delete");
+    assert!(offered["machine_id"].as_str().unwrap().starts_with("vm_drill"), "{offered}");
 }

@@ -81,7 +81,7 @@ export function ChatUnavailableState({
   // shifts nothing when it appears.
   const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
   const resumeSlow = useAfterDelay(resuming, noteDelayMs);
-  // A machine whose link just dropped: "Reconnecting…" shows only once the drop has lasted past
+  // A machine whose link just dropped: its offline line with Reconnect shows only after
   // LINK_DOWN_SAID_MS, the time acpmux takes to notice a dead link and redial it, so a link back on
   // its own never shows the state (Leo, 2026-11-14: "i also want all our connectivity stuff to shut
   // the fuck up").

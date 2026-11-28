@@ -94,10 +94,11 @@ async fn exchange<T>(
             if from != gateway {
                 continue;
             }
-            if let Some(answer) = accept(&buffer[..len]) {
-                return Some(answer);
+            let answer = buffer.get(..len).unwrap_or_default();
+            if let Some(found) = accept(answer) {
+                return Some(found);
             }
-            if refused(request, &buffer[..len]) {
+            if refused(request, answer) {
                 return None;
             }
         }
@@ -107,10 +108,21 @@ async fn exchange<T>(
 
 /// An error answer to `request`: its opcode with the answer bit and a nonzero result.
 fn refused(request: &[u8], answer: &[u8]) -> bool {
-    request.len() >= 2
-        && answer.len() >= 4
-        && answer[1] == 0x80 | request[1]
-        && answer[2..4] != [0, 0]
+    let (Some(opcode), Some([_, op, result @ ..])) = (byte(request, 1), bytes::<4>(answer, 0))
+    else {
+        return false;
+    };
+    op == 0x80 | opcode && result != [0, 0]
+}
+
+/// The byte at `at`, or none past the end.
+fn byte(buf: &[u8], at: usize) -> Option<u8> {
+    buf.get(at).copied()
+}
+
+/// The `N` bytes from `at`, or none past the end.
+fn bytes<const N: usize>(buf: &[u8], at: usize) -> Option<[u8; N]> {
+    buf.get(at..at.checked_add(N)?)?.try_into().ok()
 }
 
 fn public(ip: IpAddr) -> bool {
@@ -137,48 +149,48 @@ pub fn pcp_request(client: Ipv4Addr, nonce: [u8; 12], internal: u16, lifetime: u
 
 /// A PCP MAP success answer to `nonce` for TCP `internal`: the external address and lease.
 pub fn pcp_answer(buf: &[u8], nonce: &[u8; 12], internal: u16) -> Option<(SocketAddr, u32)> {
-    if buf.len() < 60 || buf[0] != PCP_VERSION || buf[1] != 0x80 | PCP_MAP || buf[3] != 0 {
+    let [version, op, _, result] = bytes::<4>(buf, 0)?;
+    if version != PCP_VERSION || op != 0x80 | PCP_MAP || result != 0 {
         return None;
     }
-    if &buf[24..36] != nonce || buf[36] != TCP || u16::from_be_bytes([buf[40], buf[41]]) != internal
+    if &bytes::<12>(buf, 24)? != nonce
+        || byte(buf, 36)? != TCP
+        || u16::from_be_bytes(bytes(buf, 40)?) != internal
     {
         return None;
     }
-    let lifetime = u32::from_be_bytes(buf[4..8].try_into().ok()?);
-    let port = u16::from_be_bytes([buf[42], buf[43]]);
-    let ip: [u8; 16] = buf[44..60].try_into().ok()?;
-    let ip = Ipv6Addr::from(ip);
+    let lifetime = u32::from_be_bytes(bytes(buf, 4)?);
+    let port = u16::from_be_bytes(bytes(buf, 42)?);
+    let ip = Ipv6Addr::from(bytes::<16>(buf, 44)?);
     let ip = ip.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(ip));
     Some((SocketAddr::new(ip, port), lifetime))
 }
 
 /// A NAT-PMP TCP mapping request (12 bytes).
 pub fn natpmp_request(internal: u16, external: u16, lifetime: u32) -> [u8; 12] {
-    let mut out = [0u8; 12];
-    out[1] = NATPMP_TCP;
-    out[4..6].copy_from_slice(&internal.to_be_bytes());
-    out[6..8].copy_from_slice(&external.to_be_bytes());
-    out[8..12].copy_from_slice(&lifetime.to_be_bytes());
-    out
+    let [i0, i1] = internal.to_be_bytes();
+    let [e0, e1] = external.to_be_bytes();
+    let [l0, l1, l2, l3] = lifetime.to_be_bytes();
+    [0, NATPMP_TCP, 0, 0, i0, i1, e0, e1, l0, l1, l2, l3]
 }
 
 /// A NAT-PMP TCP mapping success answer for `internal`: the external port and lease.
 pub fn natpmp_map_answer(buf: &[u8], internal: u16) -> Option<(u16, u32)> {
-    if buf.len() < 16 || buf[0] != 0 || buf[1] != 0x80 | NATPMP_TCP || buf[2..4] != [0, 0] {
+    if bytes::<4>(buf, 0)? != [0, 0x80 | NATPMP_TCP, 0, 0] {
         return None;
     }
-    if u16::from_be_bytes([buf[8], buf[9]]) != internal {
+    if u16::from_be_bytes(bytes(buf, 8)?) != internal {
         return None;
     }
-    Some((u16::from_be_bytes([buf[10], buf[11]]), u32::from_be_bytes(buf[12..16].try_into().ok()?)))
+    Some((u16::from_be_bytes(bytes(buf, 10)?), u32::from_be_bytes(bytes(buf, 12)?)))
 }
 
 /// A NAT-PMP public address success answer.
 pub fn natpmp_address_answer(buf: &[u8]) -> Option<Ipv4Addr> {
-    if buf.len() < 12 || buf[0] != 0 || buf[1] != 128 || buf[2..4] != [0, 0] {
+    if bytes::<4>(buf, 0)? != [0, 128, 0, 0] {
         return None;
     }
-    Some(Ipv4Addr::new(buf[8], buf[9], buf[10], buf[11]))
+    Some(Ipv4Addr::from(bytes::<4>(buf, 8)?))
 }
 
 /// This machine's address toward `gateway` (a connected UDP socket; nothing sent).
@@ -211,30 +223,29 @@ pub fn rt_dump_gateway(dump: &[u8], header: usize) -> Option<Ipv4Addr> {
     const RTA_DST: i32 = 0x1;
     const RTA_GATEWAY: i32 = 0x2;
     const AF_INET: u8 = 2;
-    let mut at = 0;
-    while at + header <= dump.len() {
-        let len = usize::from(u16::from_ne_bytes([dump[at], dump[at + 1]]));
-        if len < header || at + len > dump.len() {
+    let mut rest = dump;
+    while rest.len() >= header {
+        let len = usize::from(u16::from_ne_bytes(bytes(rest, 0)?));
+        if len < header || len > rest.len() {
             return None;
         }
-        let message = &dump[at..at + len];
-        at += len;
-        let addrs = i32::from_ne_bytes(message[12..16].try_into().ok()?);
+        let (message, after) = rest.split_at(len);
+        rest = after;
+        let addrs = i32::from_ne_bytes(bytes(message, 12)?);
         if addrs & (RTA_DST | RTA_GATEWAY) != (RTA_DST | RTA_GATEWAY) {
             continue;
         }
-        let mut sockaddrs = &message[header..];
+        let mut sockaddrs = message.get(header..)?;
         let mut next = || -> Option<&[u8]> {
             let sa_len = usize::from(*sockaddrs.first()?);
             let step = if sa_len == 0 { 4 } else { sa_len.div_ceil(4) * 4 };
             let (sockaddr, rest) = sockaddrs.split_at(step.min(sockaddrs.len()));
             sockaddrs = rest;
-            Some(&sockaddr[..sa_len.min(sockaddr.len())])
+            sockaddr.get(..sa_len.min(sockaddr.len()))
         };
         let (Some(destination), Some(gateway)) = (next(), next()) else { continue };
         let ipv4 = |sockaddr: &[u8]| {
-            (sockaddr.len() >= 8 && sockaddr[1] == AF_INET)
-                .then(|| Ipv4Addr::new(sockaddr[4], sockaddr[5], sockaddr[6], sockaddr[7]))
+            (byte(sockaddr, 1)? == AF_INET).then_some(Ipv4Addr::from(bytes::<4>(sockaddr, 4)?))
         };
         if ipv4(destination) == Some(Ipv4Addr::UNSPECIFIED)
             && let Some(gateway) = ipv4(gateway)
@@ -281,7 +292,7 @@ fn macos_gateway() -> Option<Ipv4Addr> {
     if found != 0 {
         return None;
     }
-    rt_dump_gateway(&dump[..size], std::mem::size_of::<libc::rt_msghdr>())
+    rt_dump_gateway(dump.get(..size)?, std::mem::size_of::<libc::rt_msghdr>())
 }
 
 #[cfg(test)]

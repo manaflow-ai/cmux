@@ -60,7 +60,14 @@ fn method_result(shared: &Shared, method: &str, params: &Value) -> Result<(Value
             let mut result = json!({"id": hub.device.id, "signing_key": signing,
                                     "agreement_key": agreement});
             // The account the daemon signed in as: the app uses this device only for its own.
-            if let (Some(user), Some(fields)) = (hub.user_id(), result.as_object_mut()) {
+            // A link the hub stopped (it removed or signed out this device, link.rs `Hold::Fatal`)
+            // names no account: the hub no longer lists the device, so an app that took it would
+            // draw no This Mac and its socket would never connect (hq run 45954248647:
+            // host.open_sharing.not_found). The app keeps its own identity instead.
+            let usable = shared.link().state != "stopped";
+            if let (true, Some(user), Some(fields)) =
+                (usable, hub.user_id(), result.as_object_mut())
+            {
                 fields.insert("user_id".into(), Value::String(user));
             }
             done(result)
