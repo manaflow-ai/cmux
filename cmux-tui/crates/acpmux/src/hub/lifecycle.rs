@@ -391,6 +391,11 @@ impl Hub {
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
         let warm = pooled.is_some();
+        meta.start_pool = Some(match (shaped, warm) {
+            (_, true) => "warm",
+            (true, false) => "cold",
+            (false, false) => "unshaped",
+        });
         let id =
             fixed_id.unwrap_or_else(|| pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string()));
         meta.id = id.clone();

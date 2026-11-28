@@ -28,4 +28,15 @@ struct AgentSessionStartTimingsTests {
         #expect(AgentSessionAttachClient.machinePhases(nil) == nil)
         #expect(AgentSessionAttachClient.machinePhases("1800") == nil)
     }
+
+    /// The agent home pull and whether `session/new` took a warm agent reach the stages answer too, so a probe row
+    /// tells a cold agent boot from a slow warm take (goal `cloud-instant-start`).
+    @Test func theAgentHomeAndTheWarmTakeReadForTheStagesAnswer() throws {
+        let data = Data(#"{"total": 9000, "session_new": 5200, "agent_home": 2900, "acpmux_started": false, "session_new_warm": false}"#.utf8)
+        let timings = try JSONSerialization.jsonObject(with: data)
+        #expect(AgentSessionAttachClient.machinePhases(timings) ==
+            ["session_new": 5200, "total": 9000, "agent_home": 2900, "acpmux_started": 0, "session_new_warm": 0])
+        #expect(AgentSessionAttachClient.machineTimings(timings) ==
+            "session_new 5200 ms, total 9000 ms, agent_home 2900 ms, acpmux_started no, session_new_warm no")
+    }
 }

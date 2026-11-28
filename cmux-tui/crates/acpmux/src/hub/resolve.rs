@@ -401,6 +401,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         title_asking: false,
         title_failures: 0,
         title_thin: false,
+        start_pool: None,
         last_prompt: None,
         preview: None,
         event_count: 0,

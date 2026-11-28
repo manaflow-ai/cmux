@@ -79,12 +79,14 @@ fn timings_name_each_phase_reached() {
         bind: Some(5),
         total: Some(1815),
         agent_home: Some(240),
+        session_new_warm: Some(false),
         step: Some("bind"),
     };
     assert_eq!(
         all.wire(),
         json!({"keyed_gate": 1, "acpmux_connect": 2, "acpmux_started": true, "checks": 3,
-               "session_new": 1800, "settle": 4, "bind": 5, "total": 1815, "agent_home": 240})
+               "session_new": 1800, "settle": 4, "bind": 5, "total": 1815, "agent_home": 240,
+               "session_new_warm": false})
     );
     let gated = StartTimings { keyed_gate: Some(7), total: Some(7), ..Default::default() };
     assert_eq!(gated.wire(), json!({"keyed_gate": 7, "total": 7, "acpmux_started": false}));
@@ -426,4 +428,18 @@ fn the_agent_home_ask_is_one_line_with_no_fields() {
     assert_eq!(gone["code"], json!("agent_home.unreachable"));
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_dir(&dir);
+}
+
+/// `session_new_warm` reads acpmux's `startPool`: warm or cold, and nothing for any other answer.
+#[test]
+fn session_new_warm_reads_the_pool_answer() {
+    let of = |pool: Value| {
+        super::session_new_warm(
+            &json!({"sessionId": "s", "_meta": {"acpmux": {"startPool": pool}}}),
+        )
+    };
+    assert_eq!(of(json!("warm")), Some(true));
+    assert_eq!(of(json!("cold")), Some(false));
+    assert_eq!(of(json!("unshaped")), None);
+    assert_eq!(super::session_new_warm(&json!({"sessionId": "s"})), None);
 }

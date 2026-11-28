@@ -8,6 +8,7 @@ mod briefs;
 pub(super) mod cancel_refused;
 mod composer;
 mod context;
+mod create_marks;
 mod events;
 mod info;
 mod initialize;
@@ -2310,15 +2311,7 @@ async fn dispatch_method(
                 summary.set("admission", w);
             }
             successor::warn(hub, succ.as_ref(), &s, &mut summary).await;
-            // The stop condition it keeps (`hub/stop_condition.rs`): a caller that asked for one
-            // and does not see it here knows its agent can stop at any turn end.
-            if meta.stop_condition.is_some() {
-                summary.set(crate::hub::stop_condition::FIELD, Value::Bool(true));
-            }
-            // Read-only in a folder not trusted (`hub/restricted.rs`).
-            if meta.restricted {
-                summary.set(crate::hub::restricted::FIELD, Value::Bool(true));
-            }
+            create_marks::mark(&meta, &mut summary);
             Ok(json!({
                 "sessionId": s.id,
                 "modes": crate::hub::permission_modes::of_session(&meta),
