@@ -1,0 +1,18 @@
+{
+  "about": "Defaults scripts/ci/user_visible_defaults.py flags (a warning, never a failure) when a pull request changes them. Leo, ask-5ad71ec59c: \"Flag changes to user-visible defaults (like the banner, the Live button or Cmd+N).\" ids are fnmatch patterns over the defaults snapshot's ids (case-insensitive); keys flag any action whose default keys gain or lose that binding.",
+  "watch": [
+    {
+      "name": "the banner",
+      "ids": ["setting.*banner*", "tunable.*banner*", "flag.*banner*", "setting.updates.showWhatsNew", "setting.updates.whatsNew*", "tunable.whatsNew.*"]
+    },
+    {
+      "name": "the Live button",
+      "ids": ["setting.sidebar.showLiveToggle", "*livetoggle*", "*livebutton*"]
+    },
+    {
+      "name": "Cmd+N",
+      "ids": ["key.newTab", "key.newWindow"],
+      "keys": ["cmd+n", "shift+cmd+n"]
+    }
+  ]
+}
