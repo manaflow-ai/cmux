@@ -112,8 +112,7 @@ fn a_symlinked_skill_md_is_refused() {
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
     let target = outside.path().join("SKILL.md");
-    std::fs::write(&target, "---\nname: outside\ndescription: Not in the folder.\n---\n")
-        .unwrap();
+    std::fs::write(&target, "---\nname: outside\ndescription: Not in the folder.\n---\n").unwrap();
     std::fs::create_dir_all(root.path().join("outside")).unwrap();
     std::os::unix::fs::symlink(&target, root.path().join("outside/SKILL.md")).unwrap();
     assert!(user_skills(root.path()).is_empty(), "the index must not point outside the folder");
